@@ -6,12 +6,11 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * <p>
  * 本契约与 UI 导航排序<b>刻意解耦</b>：落点选择只消费本记录的 {@link #priority()}（landing/entrypoint 优先级），
  * <b>不</b>复用 {@link NavigationContribution#priority()}（导航展示顺序）。landing priority 与 navigation
- * priority 是两个独立契约。因此第三方插件即便注册一个 priority 极小的导航项，也不会意外改变业务落点；
+ * priority 是两个独立契约。因此外置插件即便注册一个 priority 极小的导航项，也不会意外改变业务落点；
  * 要参与落点选择，插件必须显式声明 {@link LandingContribution}。
  * <p>
- * 落点只负责「选择跳转目标」，<b>不</b>扩大权限：后端鉴权仍由 {@code AuthFilter} / route access 按 {@code href}
- * 对应路由的访问策略执行。声明一个对该 {@code audience} 不可达的 {@code href} 属配置错误，由测试覆盖捕获
- * （见 {@code LandingRegistryTest} 的可达性守卫），不应静默产生坏入口。
+ * 落点只负责「选择跳转目标」，<b>不</b>扩大权限：宿主仍按 {@code href} 对应路由的访问策略统一鉴权。
+ * 声明方必须保证 {@code href} 对该 {@code audience} 可达；错误声明不会获得额外权限，只会产生不可用入口。
  *
  * @param id       落点项唯一 id（全局唯一，便于诊断 / 去重）
  * @param audience 该落点服务的目标身份

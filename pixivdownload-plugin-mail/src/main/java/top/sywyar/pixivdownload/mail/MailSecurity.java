@@ -15,7 +15,7 @@ public enum MailSecurity {
     SSL,
     STARTTLS;
 
-    /** 以 config.yaml / DTO 中使用的小写连字符形式返回。 */
+    /** 以配置属性 / DTO 使用的小写连字符形式返回。 */
     public String value() {
         return name().toLowerCase(Locale.ROOT);
     }

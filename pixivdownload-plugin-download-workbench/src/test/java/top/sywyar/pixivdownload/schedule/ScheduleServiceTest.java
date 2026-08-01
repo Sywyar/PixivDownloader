@@ -17,18 +17,17 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
@@ -36,13 +35,15 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
-import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialPolicyActionRequest;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialPolicyView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialBindingLease;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
 import java.util.Map;
@@ -70,6 +71,9 @@ class ScheduleServiceTest {
     private static final long STATE_VERSION = 7L;
     private static final String SOURCE_TYPE = "user-new";
     private static final String ACTIVATION_TOKEN = "activation-current";
+    private static final ScheduleCapabilityOwner STATUS_OWNER =
+            new ScheduleCapabilityOwner("third-party", "third-party", 1L);
+    private static final long STATUS_PUBLICATION_ID = 1L;
     private static final String EMPTY_POLICY_STATE =
             "{\"schema\":\"pixiv.schedule.credential-policy-state\",\"version\":1}";
 
@@ -107,8 +111,8 @@ class ScheduleServiceTest {
             new TransactionTemplate(NO_OP_TRANSACTION_MANAGER);
 
     /** 默认空统一能力注册中心（多数用例不触发翻译状态叠加）。 */
-    private static ScheduleCapabilityRegistry emptyCapabilityRegistry() {
-        return new ScheduleCapabilityRegistry();
+    private static FakeScheduleCapabilityAccess emptyCapabilityRegistry() {
+        return new FakeScheduleCapabilityAccess();
     }
 
     private ScheduleService newService() {
@@ -116,11 +120,32 @@ class ScheduleServiceTest {
     }
 
     private ScheduleService newService(ScheduleRunState runState,
-                                       ScheduleCapabilityRegistry capabilityRegistry) {
+                                       ScheduleCapabilityAccess capabilityRegistry) {
+        ScheduleCredentialService credentialService = new ScheduleCredentialService(
+                store, runState, scheduleExecutionEngine, capabilityRegistry,
+                transactionTemplate, objectMapper);
         return new ScheduleService(
                 store, executor, new ScheduleConfig(), runState, runQueue,
-                objectMapper, persistenceCodec, scheduleExecutionEngine,
-                transactionTemplate, capabilityRegistry);
+                objectMapper, credentialService, transactionTemplate,
+                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+    }
+
+    private static ScheduledWork queueWork(String workType, String workId, String title) {
+        return new ScheduledWork(
+                new ScheduledWorkKey(workType, workId),
+                "fixture.schedule.work",
+                1,
+                "{}",
+                new ScheduledWorkPresentation(
+                        title,
+                        "raw-author",
+                        "thumbnail-reference",
+                        Map.of("sourceHint", "raw")),
+                List.of());
+    }
+
+    private static void discover(ScheduleRunQueue.Run run, ScheduledWork work) {
+        run.discovered(work, STATUS_OWNER, STATUS_PUBLICATION_ID);
     }
 
     private void stubBinding(ScheduledCredentialBindResult result) throws Exception {
@@ -228,84 +253,6 @@ class ScheduleServiceTest {
     }
 
     @Test
-    @DisplayName("账号恢复 ignore：以版本化策略状态确认警告并精确恢复策略挂起")
-    void accountResumeIgnoreUpdatesPolicyStateAndResumesExactSuspension() {
-        ScheduledTask paused = task(
-                1L, true, null, ScheduleSuspendReason.POLICY, "PIXIV_OVERUSE",
-                "{\"modifiedAt\":\"999000\"}", "12345", EMPTY_POLICY_STATE, true);
-        when(store.findByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                "12345"))
-                .thenReturn(List.of(paused));
-        when(store.updateCredentialPolicyState(
-                eq(1L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq(EMPTY_POLICY_STATE), anyString(), anyLong()))
-                .thenReturn(OptionalLong.of(STATE_VERSION + 1));
-        when(store.resumeByCredentialAccount(
-                eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq("12345"), eq(ScheduleSuspendReason.POLICY),
-                eq("PIXIV_OVERUSE"), anyLong()))
-                .thenReturn(1);
-        AccountResumeRequest request = new AccountResumeRequest();
-        request.setMode(AccountResumeRequest.MODE_IGNORE);
-
-        newService().resumeAccount("12345", request);
-
-        ArgumentCaptor<String> newPolicyState = ArgumentCaptor.forClass(String.class);
-        verify(store).updateCredentialPolicyState(
-                eq(1L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq(EMPTY_POLICY_STATE), newPolicyState.capture(), anyLong());
-        assertThat(persistenceCodec.decodeAcknowledgedWarningTime(newPolicyState.getValue()))
-                .isEqualTo(999000L);
-        verify(store).resumeByCredentialAccount(
-                eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq("12345"), eq(ScheduleSuspendReason.POLICY),
-                eq("PIXIV_OVERUSE"), anyLong());
-    }
-
-    @Test
-    @DisplayName("账号恢复 defer：分钟数低于下限时拒绝且不执行账号恢复")
-    void accountResumeDeferRejectsBelowMin() {
-        ScheduledTask paused = task(
-                1L, true, null, ScheduleSuspendReason.POLICY, "PIXIV_OVERUSE",
-                "{\"modifiedAt\":\"999000\"}", "12345", EMPTY_POLICY_STATE, true);
-        when(store.findByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                "12345"))
-                .thenReturn(List.of(paused));
-        AccountResumeRequest request = new AccountResumeRequest();
-        request.setMode(AccountResumeRequest.MODE_DEFER);
-        request.setMinutes(30);
-
-        assertThatThrownBy(() -> newService().resumeAccount("12345", request))
-                .isInstanceOf(LocalizedException.class);
-
-        verify(store, never()).resumeByCredentialAccount(
-                anyString(), anyString(), anyString(), any(), anyString(), anyLong());
-    }
-
-    @Test
-    @DisplayName("账号恢复：凭证账号下无任务时拒绝")
-    void accountResumeRejectsUnknownAccount() {
-        when(store.findByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                "nope"))
-                .thenReturn(List.of());
-        AccountResumeRequest request = new AccountResumeRequest();
-        request.setMode(AccountResumeRequest.MODE_IGNORE);
-
-        assertThatThrownBy(() -> newService().resumeAccount("nope", request))
-                .isInstanceOf(LocalizedException.class);
-    }
-
-    @Test
     @DisplayName("pause：以 stateVersion 挂起并向本轮 Claim 发协作式取消信号")
     void pauseSuspendsWithCasAndRequestsCancel() {
         when(store.findById(42L)).thenReturn(task(42L));
@@ -388,14 +335,14 @@ class ScheduleServiceTest {
         when(store.findById(taskId)).thenReturn(task(taskId));
         when(store.tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString()))
                 .thenReturn(Optional.of(runToken));
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = newService(runState, registry);
         AtomicReference<ScheduleRunState.Claim> transferredClaim = new AtomicReference<>();
         AtomicReference<ScheduleRunToken> transferredToken = new AtomicReference<>();
-        AtomicReference<ScheduleSingleCapabilityLease<ScheduleCapabilityOwner>> transferredLease =
+        AtomicReference<ScheduleCapabilityLease<ScheduleCapabilityOwner>> transferredLease =
                 new AtomicReference<>();
         doAnswer(invocation -> {
             transferredClaim.set(invocation.getArgument(1));
@@ -408,7 +355,7 @@ class ScheduleServiceTest {
 
         verify(store).tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString());
         assertThat(transferredToken.get()).isSameAs(runToken);
-        ScheduleGenerationDrain drain =
+        FakeScheduleCapabilityAccess.Drain drain =
                 ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(runState.get(taskId)).isEqualTo(ScheduleRunState.QUEUED);
         assertThat(drain.activeLeaseCount()).isEqualTo(1);
@@ -430,8 +377,8 @@ class ScheduleServiceTest {
         when(store.findById(taskId)).thenReturn(task(taskId));
         when(store.tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString()))
                 .thenReturn(Optional.of(runToken));
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
         doThrow(new IllegalStateException("rejected"))
@@ -454,8 +401,8 @@ class ScheduleServiceTest {
         when(store.findById(taskId)).thenReturn(task(taskId));
         when(store.tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString()))
                 .thenReturn(Optional.empty());
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
 
@@ -479,8 +426,8 @@ class ScheduleServiceTest {
                     claimToken.set(invocation.getArgument(2));
                     throw new IllegalStateException("queue write failed");
                 });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
 
@@ -507,8 +454,8 @@ class ScheduleServiceTest {
                     claimToken.set(invocation.getArgument(2));
                     throw queueFailure;
                 });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
 
@@ -534,7 +481,7 @@ class ScheduleServiceTest {
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
                 .thenReturn(cookie);
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 5L, "  " + cookie + "  ", ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
@@ -571,7 +518,7 @@ class ScheduleServiceTest {
                 eq("PIXIV_COOKIE_INVALID"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 2));
 
-        newService().authorizeCookie(6L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(6L, cookie, ACTIVATION_TOKEN);
 
         verify(credentialBindingLease).probe(cookie);
         verify(store).bindCredential(
@@ -582,6 +529,38 @@ class ScheduleServiceTest {
         verify(store).resume(
                 eq(6L), eq(STATE_VERSION + 1), eq(ScheduleSuspendReason.CREDENTIAL),
                 eq("PIXIV_COOKIE_INVALID"), anyLong());
+    }
+
+    @Test
+    @DisplayName("authorizeCookie：同一策略切换账号时不继承旧账号策略状态")
+    void authorizeCookieResetsPolicyStateWhenAccountChanges() throws Exception {
+        String cookie = "PHPSESSID=67890_new; other=x";
+        stubBinding(cleanBinding("67890"));
+        String oldAccountState =
+                "{\"schema\":\"pixiv.schedule.credential-policy-state\",\"version\":1,"
+                        + "\"acknowledgedWarningTime\":123456}";
+        ScheduledTask current = task(
+                61L, true, null, null, null, null,
+                "12345", oldAccountState, true);
+        when(store.findById(61L)).thenReturn(current);
+        when(store.findCredentialSecret(
+                61L, DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
+                .thenReturn("PHPSESSID=12345_old; other=x");
+        when(store.bindCredential(
+                eq(61L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
+                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
+                eq("67890"), eq(EMPTY_POLICY_STATE), eq(cookie),
+                eq("scheduled-task:61:credential"), anyLong()))
+                .thenReturn(OptionalLong.of(STATE_VERSION + 1));
+
+        newService().bindCredential(61L, cookie, ACTIVATION_TOKEN);
+
+        verify(store).bindCredential(
+                eq(61L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
+                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
+                eq("67890"), eq(EMPTY_POLICY_STATE), eq(cookie),
+                eq("scheduled-task:61:credential"), anyLong());
     }
 
     @Test
@@ -597,7 +576,7 @@ class ScheduleServiceTest {
                 eq("scheduled-task:7:credential"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().authorizeCookie(7L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(7L, cookie, ACTIVATION_TOKEN);
 
         verify(store).bindCredential(
                 eq(7L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
@@ -615,7 +594,7 @@ class ScheduleServiceTest {
                 EMPTY_POLICY_STATE, null));
         when(store.findById(8L)).thenReturn(task(8L));
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 8L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
@@ -641,7 +620,7 @@ class ScheduleServiceTest {
                 eq("PIXIV_OVERUSE"), anyString()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 2));
 
-        newService().authorizeCookie(9L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(9L, cookie, ACTIVATION_TOKEN);
 
         ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
         verify(store).suspend(
@@ -676,7 +655,7 @@ class ScheduleServiceTest {
                 beforeProbe.createdTime());
         when(store.findById(10L)).thenReturn(beforeProbe, changed);
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 10L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
@@ -704,7 +683,7 @@ class ScheduleServiceTest {
                 eq("scheduled-task:11:credential"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().authorizeCookie(11L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(11L, cookie, ACTIVATION_TOKEN);
 
         verify(store, times(2)).findCredentialSecret(11L, owner, policyId);
         verify(store).bindCredential(
@@ -722,10 +701,10 @@ class ScheduleServiceTest {
                 any(), eq(ACTIVATION_TOKEN)))
                 .thenThrow(new ScheduleSourcePublicationChangedException(SOURCE_TYPE));
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 12L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
 
         verify(credentialBindingLease, never()).probe(anyString());
         verify(store, never()).bindCredential(
@@ -744,7 +723,7 @@ class ScheduleServiceTest {
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().revokeCookie(20L);
+        newService().revokeCredential(20L);
 
         verify(store).removeCredential(
                 20L, STATE_VERSION, DownloadWorkbenchPlugin.ID,
@@ -762,7 +741,7 @@ class ScheduleServiceTest {
         when(store.removeCredential(21L, STATE_VERSION, owner, policyId))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().revokeCookie(21L);
+        newService().revokeCredential(21L);
 
         verify(store).removeCredential(21L, STATE_VERSION, owner, policyId);
         verify(store, never()).removeCredential(
@@ -842,70 +821,107 @@ class ScheduleServiceTest {
     }
 
     @Test
-    @DisplayName("queue：仅为本轮确实提交自动翻译的小说条目叠加翻译状态")
-    void queueOverlaysTranslateOnlyForSubmittedItems() {
+    @DisplayName("queue：按任意作品类型投影中性展示结果并只读取显式开放的实时状态")
+    void queueProjectsNeutralLiveStatusForArbitraryWorkType() {
+        String workType = "third.party.text";
+        ScheduledWorkKey liveKey = new ScheduledWorkKey(workType, "opaque/111");
+        ScheduledWorkKey staticKey = new ScheduledWorkKey(workType, "opaque/222");
         when(store.findById(1L)).thenReturn(task(1L));
-        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_NOVEL);
-        run.discovered("111", ScheduleRunQueue.KIND_NOVEL);
-        run.mark("111", ScheduleRunQueue.STATUS_DOWNLOADED, null);
-        run.markAutoTranslateSubmitted("111");
-        run.discovered("222", ScheduleRunQueue.KIND_NOVEL);
-        run.mark("222", ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
+        discover(run, queueWork(workType, liveKey.id(), "raw-title"));
+        run.markResult(
+                liveKey,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.COMPLETED,
+                        "vendor.completed",
+                        Map.of("rating", "vendor-safe"),
+                        true),
+                ScheduleRunQueue.STATUS_DOWNLOADED,
+                null);
+        discover(run, queueWork(workType, staticKey.id(), null));
+        run.markResult(
+                staticKey,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.SKIPPED,
+                        "vendor.skipped",
+                        Map.of("autoTranslateSubmitted", "true"),
+                        false),
+                ScheduleRunQueue.STATUS_SKIPPED_FILTER,
+                "vendor.skipped");
         when(runQueue.get(1L)).thenReturn(run);
-        ScheduledWorkExecutor novelExecutor =
+
+        ScheduledWorkExecutor workExecutor =
                 org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
-        when(novelExecutor.workType())
-                .thenReturn(PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL);
-        when(novelExecutor.status(new ScheduledWorkKey(
-                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "111")))
-                .thenReturn(Map.of(
-                        "phase", "TRANSLATING",
-                        "elapsedSeconds", "5",
-                        "seriesPending", "0"));
-        ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
-                capabilityRegistry,
-                new ScheduleCapabilityOwner("novel", "novel", 1L),
-                List.of(),
-                List.of(),
-                List.of(novelExecutor));
+        when(workExecutor.status(liveKey)).thenReturn(Map.of(
+                "phase", "VENDOR_CUSTOM",
+                "elapsedSeconds", "-5"));
+        @SuppressWarnings("unchecked")
+        ScheduleCapabilityLease<ScheduledWorkExecutor> lease =
+                org.mockito.Mockito.mock(ScheduleCapabilityLease.class);
+        when(lease.owner()).thenReturn(STATUS_OWNER);
+        when(lease.publicationId()).thenReturn(STATUS_PUBLICATION_ID);
+        when(lease.capability()).thenReturn(workExecutor);
+        ScheduleCapabilityAccess capabilityRegistry =
+                org.mockito.Mockito.mock(ScheduleCapabilityAccess.class);
+        doAnswer(ignored -> Optional.of(lease))
+                .when(capabilityRegistry).prepareWorkExecutor(workType);
+        when(capabilityRegistry.activate(lease)).thenReturn(true);
 
         List<ScheduleQueueView.Item> items =
                 newService(new ScheduleRunState(), capabilityRegistry).queue(1L).items();
 
-        ScheduleQueueView.Item submitted = items.stream()
-                .filter(item -> item.id().equals("111"))
+        ScheduleQueueView.Item live = items.stream()
+                .filter(item -> item.workId().equals(liveKey.id()))
                 .findFirst()
                 .orElseThrow();
-        ScheduleQueueView.Item skipped = items.stream()
-                .filter(item -> item.id().equals("222"))
+        ScheduleQueueView.Item notOptedIn = items.stream()
+                .filter(item -> item.workId().equals(staticKey.id()))
                 .findFirst()
                 .orElseThrow();
-        assertThat(submitted.translatePhase()).isEqualTo("TRANSLATING");
-        assertThat(skipped.translatePhase()).isNull();
-        verify(novelExecutor).status(new ScheduledWorkKey(
-                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "111"));
-        verify(novelExecutor, never()).status(new ScheduledWorkKey(
-                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "222"));
-        assertThat(ScheduleCapabilityTestFixture.withdraw(capabilityRegistry, publication)
-                .orElseThrow().isDrained()).isTrue();
+        assertThat(live.workType()).isEqualTo(workType);
+        assertThat(live.title()).isEqualTo("raw-title");
+        assertThat(live.author()).isEqualTo("raw-author");
+        assertThat(live.presentationAttributes()).containsEntry("sourceHint", "raw");
+        assertThat(live.resultAttributes()).containsEntry("rating", "vendor-safe");
+        assertThat(live.liveStatus()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "phase", "VENDOR_CUSTOM",
+                "elapsedSeconds", "-5"));
+        assertThat(notOptedIn.resultAttributes())
+                .containsEntry("autoTranslateSubmitted", "true");
+        assertThat(notOptedIn.liveStatus()).isEmpty();
+        verify(capabilityRegistry, times(1)).prepareWorkExecutor(workType);
+        verify(workExecutor).status(liveKey);
+        verify(workExecutor, never()).status(staticKey);
+        verify(lease).close();
     }
 
     @Test
-    @DisplayName("queue：新作品执行器状态仅接受受控机器码且不泄露凭证形态")
-    void queueSanitizesNewExecutorStatus() {
-        when(store.findById(4L)).thenReturn(task(4L));
-        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_NOVEL);
-        run.discovered("555", ScheduleRunQueue.KIND_NOVEL);
-        run.mark("555", ScheduleRunQueue.STATUS_DOWNLOADED, null);
-        run.markAutoTranslateSubmitted("555");
+    @DisplayName("queue：实时状态整张 Map 经过数量大小控制字符与凭证守卫")
+    void queueSanitizesWholeLiveStatusMap() {
+        String workType = "third.party.secure";
+        ScheduledWorkKey key = new ScheduledWorkKey(workType, "opaque/555");
+        when(store.findById(4L)).thenReturn(task(
+                4L, true, null, null, null, null,
+                "account-1", EMPTY_POLICY_STATE, true));
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
+        discover(run, queueWork(workType, key.id(), null));
+        run.markResult(
+                key,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.COMPLETED,
+                        "vendor.completed",
+                        Map.of(),
+                        true),
+                ScheduleRunQueue.STATUS_DOWNLOADED,
+                null);
         when(runQueue.get(4L)).thenReturn(run);
         AtomicReference<Map<String, String>> status = new AtomicReference<>(Map.of(
-                "phase", "TRANSLATING", "elapsedSeconds", "5", "seriesPending", "0"));
-        ScheduledWorkExecutor novelExecutor = new ScheduledWorkExecutor() {
+                "phase", "CUSTOM",
+                "elapsedSeconds", "5"));
+        ScheduledWorkExecutor workExecutor = new ScheduledWorkExecutor() {
             @Override
             public String workType() {
-                return PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL;
+                return workType;
             }
 
             @Override
@@ -914,79 +930,288 @@ class ScheduleServiceTest {
             }
 
             @Override
-            public Map<String, String> status(ScheduledWorkKey key) {
+            public Map<String, String> status(ScheduledWorkKey ignored) {
                 return status.get();
             }
         };
-        ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
+        FakeScheduleCapabilityAccess capabilityRegistry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = ScheduleCapabilityTestFixture.publish(
                 capabilityRegistry,
-                new ScheduleCapabilityOwner("novel", "novel", 1L),
+                STATUS_OWNER,
                 List.of(),
                 List.of(),
-                List.of(novelExecutor));
+                List.of(workExecutor));
         ScheduleService service = newService(new ScheduleRunState(), capabilityRegistry);
 
-        assertThat(service.queue(4L).items().get(0).translatePhase())
-                .isEqualTo("TRANSLATING");
+        assertThat(service.queue(4L).items().get(0).liveStatus())
+                .containsExactlyInAnyOrderEntriesOf(status.get());
+        status.set(Map.of("apiKey", "not-secret-looking"));
+        assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
         status.set(Map.of("phase", "Cookie: PHPSESSID=secret"));
-        assertThat(service.queue(4L).items().get(0).translatePhase()).isNull();
-        status.set(Map.of("phase", "X".repeat(300)));
-        assertThat(service.queue(4L).items().get(0).translatePhase()).isNull();
+        assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
+        status.set(Map.of("phase", "line-one\nline-two"));
+        assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
+        status.set(Map.of("phase", "X".repeat(257)));
+        assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
+        status.set(Map.of("not valid", "value"));
+        assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
+        Map<String, String> tooMany = new java.util.LinkedHashMap<>();
+        for (int index = 0; index < 17; index++) {
+            tooMany.put("field" + index, "value");
+        }
+        status.set(tooMany);
+        assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
+        Map<String, String> tooLargeTogether = new java.util.LinkedHashMap<>();
+        for (int index = 0; index < 16; index++) {
+            tooLargeTogether.put("field" + index, "X".repeat(256));
+        }
+        status.set(tooLargeTogether);
+        assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
+        verify(store, never()).findCredentialSecret(
+                anyLong(), anyString(), anyString());
 
         assertThat(ScheduleCapabilityTestFixture.withdraw(capabilityRegistry, publication)
                 .orElseThrow().isDrained()).isTrue();
     }
 
     @Test
-    @DisplayName("queue：小说执行器缺席时安全跳过翻译状态")
-    void queueSkipsTranslateStatusWhenCapabilityIsAbsent() {
+    @DisplayName("queue：实时状态受单次响应聚合字节预算约束并标记截断")
+    void queueBoundsAggregateLiveStatusResponse() {
+        String workType = "third.party.large-status";
+        when(store.findById(41L)).thenReturn(task(41L));
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
+        for (int index = 0; index < 130; index++) {
+            ScheduledWork work = queueWork(
+                    workType,
+                    "opaque/" + index,
+                    "title-" + index);
+            discover(run, work);
+            run.markResult(
+                    work.key(),
+                    new ScheduledWorkResult(
+                            ScheduledWorkResult.Outcome.COMPLETED,
+                            "vendor.completed",
+                            Map.of(),
+                            true),
+                    ScheduleRunQueue.STATUS_DOWNLOADED,
+                    null);
+        }
+        assertThat(run.truncated()).isFalse();
+        when(runQueue.get(41L)).thenReturn(run);
+
+        Map<String, String> largeStatus = new java.util.LinkedHashMap<>();
+        for (int index = 0; index < 16; index++) {
+            largeStatus.put("field" + index, "X".repeat(248));
+        }
+        java.util.concurrent.atomic.AtomicInteger statusCalls =
+                new java.util.concurrent.atomic.AtomicInteger();
+        ScheduledWorkExecutor workExecutor = new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return workType;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork work,
+                    ScheduledWorkContext context) {
+                return ScheduledWorkResult.completed();
+            }
+
+            @Override
+            public Map<String, String> status(ScheduledWorkKey ignored) {
+                statusCalls.incrementAndGet();
+                return largeStatus;
+            }
+        };
+        FakeScheduleCapabilityAccess capabilityRegistry =
+                new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
+                ScheduleCapabilityTestFixture.publish(
+                        capabilityRegistry,
+                        STATUS_OWNER,
+                        List.of(),
+                        List.of(),
+                        List.of(workExecutor));
+
+        ScheduleQueueView view =
+                newService(new ScheduleRunState(), capabilityRegistry).queue(41L);
+
+        long projected = view.items().stream()
+                .filter(item -> !item.liveStatus().isEmpty())
+                .count();
+        assertThat(view.truncated()).isTrue();
+        assertThat(projected).isPositive().isLessThan(view.items().size());
+        assertThat(statusCalls.get()).isEqualTo(projected + 1);
+        assertThat(ScheduleCapabilityTestFixture.withdraw(
+                capabilityRegistry, publication).orElseThrow().isDrained())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("queue：执行器缺席时保留中性队列并省略实时状态")
+    void queueSkipsLiveStatusWhenCapabilityIsAbsent() {
+        String workType = "third.party.absent";
+        ScheduledWorkKey key = new ScheduledWorkKey(workType, "opaque/333");
         when(store.findById(2L)).thenReturn(task(2L));
-        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_NOVEL);
-        run.discovered("333", ScheduleRunQueue.KIND_NOVEL);
-        run.mark("333", ScheduleRunQueue.STATUS_DOWNLOADED, null);
-        run.markAutoTranslateSubmitted("333");
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
+        discover(run, queueWork(workType, key.id(), "offline-title"));
+        run.markResult(
+                key,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.COMPLETED,
+                        "vendor.completed",
+                        Map.of("vendorState", "done"),
+                        true),
+                ScheduleRunQueue.STATUS_DOWNLOADED,
+                null);
         when(runQueue.get(2L)).thenReturn(run);
 
         ScheduleQueueView.Item item = newService().queue(2L).items().get(0);
 
-        assertThat(item.id()).isEqualTo("333");
-        assertThat(item.translatePhase()).isNull();
-        assertThat(item.translateElapsedSeconds()).isNull();
-        assertThat(item.translateSeriesPending()).isNull();
+        assertThat(item.workId()).isEqualTo(key.id());
+        assertThat(item.workType()).isEqualTo(workType);
+        assertThat(item.title()).isEqualTo("offline-title");
+        assertThat(item.resultAttributes()).containsEntry("vendorState", "done");
+        assertThat(item.liveStatus()).isEmpty();
     }
 
     @Test
-    @DisplayName("queue：插件翻译状态异常时降级返回完整队列")
-    void queueSurvivesPluginTranslateStatusFailure() {
-        when(store.findById(3L)).thenReturn(task(3L));
-        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_NOVEL);
-        run.discovered("444", ScheduleRunQueue.KIND_NOVEL);
-        run.mark("444", ScheduleRunQueue.STATUS_DOWNLOADED, null);
-        run.markAutoTranslateSubmitted("444");
-        when(runQueue.get(3L)).thenReturn(run);
-        ScheduledWorkExecutor novelExecutor =
+    @DisplayName("queue：同 owner 重新发布后不得用新执行器解释旧队列身份")
+    void queueRejectsReplacementPublicationForOldLiveStatusResult() {
+        String workType = "third.party.replaced";
+        ScheduledWorkKey key = new ScheduledWorkKey(workType, "opaque/old-owner-id");
+        when(store.findById(42L)).thenReturn(task(42L));
+        FakeScheduleCapabilityAccess capabilityRegistry =
+                new FakeScheduleCapabilityAccess();
+        ScheduledWorkExecutor oldExecutor =
                 org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
-        when(novelExecutor.workType())
-                .thenReturn(PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL);
-        when(novelExecutor.status(new ScheduledWorkKey(
-                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "444")))
+        when(oldExecutor.workType()).thenReturn(workType);
+        FakeScheduleCapabilityAccess.Publication oldPublication =
+                ScheduleCapabilityTestFixture.publish(
+                        capabilityRegistry,
+                        STATUS_OWNER,
+                        List.of(),
+                        List.of(),
+                        List.of(oldExecutor));
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
+        run.discovered(
+                queueWork(workType, key.id(), "old-title"),
+                oldPublication.owner(),
+                oldPublication.publicationId());
+        run.markResult(
+                key,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.COMPLETED,
+                        "vendor.completed",
+                        Map.of(),
+                        true),
+                ScheduleRunQueue.STATUS_DOWNLOADED,
+                null);
+        when(runQueue.get(42L)).thenReturn(run);
+        assertThat(ScheduleCapabilityTestFixture.withdraw(
+                capabilityRegistry, oldPublication).orElseThrow().isDrained())
+                .isTrue();
+
+        ScheduledWorkExecutor replacement =
+                org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
+        when(replacement.workType()).thenReturn(workType);
+        FakeScheduleCapabilityAccess.Publication replacementPublication =
+                ScheduleCapabilityTestFixture.publish(
+                        capabilityRegistry,
+                        STATUS_OWNER,
+                        List.of(),
+                        List.of(),
+                        List.of(replacement));
+
+        ScheduleQueueView.Item item =
+                newService(new ScheduleRunState(), capabilityRegistry)
+                        .queue(42L).items().get(0);
+
+        assertThat(item.workId()).isEqualTo(key.id());
+        assertThat(item.liveStatus()).isEmpty();
+        verify(replacement, never()).status(any());
+        assertThat(ScheduleCapabilityTestFixture.withdraw(
+                capabilityRegistry, replacementPublication).orElseThrow().isDrained())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("queue：执行器租约失活时关闭租约且不调用插件")
+    void queueSkipsLiveStatusWhenCapabilityLeaseIsInactive() {
+        String workType = "third.party.inactive";
+        ScheduledWorkKey key = new ScheduledWorkKey(workType, "opaque/334");
+        when(store.findById(5L)).thenReturn(task(5L));
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
+        discover(run, queueWork(workType, key.id(), "inactive-title"));
+        run.markResult(
+                key,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.COMPLETED,
+                        "vendor.completed",
+                        Map.of(),
+                        true),
+                ScheduleRunQueue.STATUS_DOWNLOADED,
+                null);
+        when(runQueue.get(5L)).thenReturn(run);
+        ScheduledWorkExecutor workExecutor =
+                org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
+        @SuppressWarnings("unchecked")
+        ScheduleCapabilityLease<ScheduledWorkExecutor> lease =
+                org.mockito.Mockito.mock(ScheduleCapabilityLease.class);
+        when(lease.owner()).thenReturn(STATUS_OWNER);
+        when(lease.publicationId()).thenReturn(STATUS_PUBLICATION_ID);
+        ScheduleCapabilityAccess capabilityRegistry =
+                org.mockito.Mockito.mock(ScheduleCapabilityAccess.class);
+        doAnswer(ignored -> Optional.of(lease))
+                .when(capabilityRegistry).prepareWorkExecutor(workType);
+
+        ScheduleQueueView.Item item =
+                newService(new ScheduleRunState(), capabilityRegistry).queue(5L).items().get(0);
+
+        assertThat(item.workId()).isEqualTo(key.id());
+        assertThat(item.liveStatus()).isEmpty();
+        verify(capabilityRegistry).activate(lease);
+        verify(workExecutor, never()).status(any());
+        verify(lease).close();
+    }
+
+    @Test
+    @DisplayName("queue：插件实时状态异常时隔离失败并关闭能力租约")
+    void queueSurvivesPluginLiveStatusFailure() {
+        String workType = "third.party.failure";
+        ScheduledWorkKey key = new ScheduledWorkKey(workType, "opaque/444");
+        when(store.findById(3L)).thenReturn(task(3L));
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
+        discover(run, queueWork(workType, key.id(), null));
+        run.markResult(
+                key,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.COMPLETED,
+                        "vendor.completed",
+                        Map.of(),
+                        true),
+                ScheduleRunQueue.STATUS_DOWNLOADED,
+                null);
+        when(runQueue.get(3L)).thenReturn(run);
+        ScheduledWorkExecutor workExecutor =
+                org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
+        when(workExecutor.workType()).thenReturn(workType);
+        when(workExecutor.status(key))
                 .thenThrow(new IllegalStateException("plugin child failure"));
-        ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
+        FakeScheduleCapabilityAccess capabilityRegistry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = ScheduleCapabilityTestFixture.publish(
                 capabilityRegistry,
-                new ScheduleCapabilityOwner("novel", "novel", 1L),
+                STATUS_OWNER,
                 List.of(),
                 List.of(),
-                List.of(novelExecutor));
+                List.of(workExecutor));
 
         ScheduleQueueView.Item item =
                 newService(new ScheduleRunState(), capabilityRegistry).queue(3L).items().get(0);
 
-        assertThat(item.id()).isEqualTo("444");
-        assertThat(item.translatePhase()).isNull();
-        assertThat(item.translateElapsedSeconds()).isNull();
-        assertThat(item.translateSeriesPending()).isNull();
+        assertThat(item.workId()).isEqualTo(key.id());
+        assertThat(item.liveStatus()).isEmpty();
         assertThat(ScheduleCapabilityTestFixture.withdraw(capabilityRegistry, publication)
                 .orElseThrow().isDrained()).isTrue();
     }
@@ -1001,7 +1226,11 @@ class ScheduleServiceTest {
                 19L, true, null, reason, "fixture.code", "{}",
                 null, null, false);
 
-        ScheduleTaskView view = ScheduleTaskView.of(suspended, null, persistenceCodec);
+        ScheduleTaskView view = ScheduleTaskView.of(
+                suspended, null, null,
+                top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation.empty(),
+                false, null,
+                ScheduleCredentialPolicyView.unavailable(null, null, null, false));
 
         assertThat(view.lastStatus()).isEqualTo(reason.name());
         assertThat(view.suspendReason()).isEqualTo(reason.name());
@@ -1045,5 +1274,61 @@ class ScheduleServiceTest {
                 .isInstanceOf(LocalizedException.class);
 
         verify(store, never()).deleteAggregate(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("来源兼容适配器从中性快照解析当前凭证策略 publication")
+    void currentCredentialPolicyActionResolvesStampedPublication() {
+        String ownerPluginId = "third-party";
+        String policyId = "third-party-credential";
+        ScheduleCapabilityOwner owner =
+                new ScheduleCapabilityOwner(ownerPluginId, ownerPluginId, 2L);
+        ScheduledCredentialPolicy policy =
+                org.mockito.Mockito.mock(ScheduledCredentialPolicy.class);
+        when(policy.policyId()).thenReturn(policyId);
+        FakeScheduleCapabilityAccess capabilityRegistry =
+                new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
+                ScheduleCapabilityTestFixture.publish(
+                        capabilityRegistry,
+                        ScheduleCapabilityTestFixture.bundle(
+                                owner, List.of(), List.of(), List.of(),
+                                List.of(policy), List.of()));
+        ScheduleCredentialService credentialService =
+                org.mockito.Mockito.mock(ScheduleCredentialService.class);
+        ScheduleService service = new ScheduleService(
+                store, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue,
+                objectMapper, credentialService, transactionTemplate,
+                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+
+        service.applyCurrentCredentialPolicyAction(
+                ownerPluginId, policyId, "account-42", "resume", Map.of("delay", "60"));
+
+        verify(credentialService).applyAccountAction(
+                ownerPluginId, policyId, publication.publicationId(),
+                "account-42", "resume", Map.of("delay", "60"));
+    }
+
+    @Test
+    @DisplayName("精确凭证策略动作缺 publication 时返回受控并发错误")
+    void credentialPolicyActionRejectsMissingPublication() {
+        ScheduleCredentialService credentialService =
+                org.mockito.Mockito.mock(ScheduleCredentialService.class);
+        ScheduleService service = new ScheduleService(
+                store, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue,
+                objectMapper, credentialService, transactionTemplate,
+                emptyCapabilityRegistry(), new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+        ScheduleCredentialPolicyActionRequest request =
+                new ScheduleCredentialPolicyActionRequest();
+        request.setOwnerPluginId("third-party");
+        request.setPolicyId("third-party-credential");
+        request.setAccountKey("account-42");
+        request.setActionId("resume");
+
+        assertThatThrownBy(() -> service.applyCredentialPolicyAction(request))
+                .isInstanceOf(LocalizedException.class);
+
+        verify(credentialService, never()).applyAccountAction(
+                anyString(), anyString(), anyLong(), anyString(), anyString(), any());
     }
 }

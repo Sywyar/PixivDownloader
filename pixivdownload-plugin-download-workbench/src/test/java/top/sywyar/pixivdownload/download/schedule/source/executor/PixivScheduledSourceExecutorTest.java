@@ -5,6 +5,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
@@ -26,7 +28,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledWorkSink;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -520,6 +522,29 @@ class PixivScheduledSourceExecutorTest {
                 .isInstanceOf(ScheduledExecutionException.class)
                 .satisfies(failure -> assertThat(((ScheduledExecutionException) failure).category())
                         .isEqualTo(ScheduledFailure.Category.RETRYABLE_NETWORK));
+
+        doThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 503))
+                .when(fetchService).discoverUserRequestArtworkIds("8", "PHPSESSID=8_secret");
+        assertThatThrownBy(() -> new PixivUserRequestScheduledSourceExecutor(support)
+                .discover(context(task, null)))
+                .isInstanceOf(ScheduledExecutionException.class)
+                .satisfies(failure -> {
+                    ScheduledExecutionException scheduled = (ScheduledExecutionException) failure;
+                    assertThat(scheduled.category()).isEqualTo(ScheduledFailure.Category.RETRYABLE_NETWORK);
+                    assertThat(scheduled.code()).isEqualTo("schedule.pixiv.discovery-network-failed");
+                    assertThat(scheduled.getCause()).isNull();
+                });
+
+        doThrow(new PixivAjaxException(PixivAjaxFailure.INVALID_TARGET, 0))
+                .when(fetchService).discoverUserRequestArtworkIds("8", "PHPSESSID=8_secret");
+        assertThatThrownBy(() -> new PixivUserRequestScheduledSourceExecutor(support)
+                .discover(context(task, null)))
+                .isInstanceOf(ScheduledExecutionException.class)
+                .satisfies(failure -> {
+                    ScheduledExecutionException scheduled = (ScheduledExecutionException) failure;
+                    assertThat(scheduled.category()).isEqualTo(ScheduledFailure.Category.INVALID_DEFINITION);
+                    assertThat(scheduled.code()).isEqualTo("schedule.pixiv.discovery-definition-invalid");
+                });
     }
 
     @Test

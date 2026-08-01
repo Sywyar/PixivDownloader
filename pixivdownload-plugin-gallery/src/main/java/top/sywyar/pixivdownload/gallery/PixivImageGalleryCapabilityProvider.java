@@ -220,7 +220,7 @@ public class PixivImageGalleryCapabilityProvider implements GalleryProjectionPro
             media.add(new GalleryMediaAsset(new GalleryMediaKey(key, id), kind,
                     "/api/downloaded/rawfile/" + meta.workId() + "/" + page,
                     "/api/downloaded/thumbnail-file/" + meta.workId() + "/" + page,
-                    null, null, Map.of("page", String.valueOf(page))));
+                    null, Map.of("page", String.valueOf(page))));
         }
         return new GalleryWork(key, meta.title(), meta.description(), actor(meta), tags(meta),
                 instant(meta.uploadTime()), instant(meta.downloadTime()), instant(meta.moveTime()),

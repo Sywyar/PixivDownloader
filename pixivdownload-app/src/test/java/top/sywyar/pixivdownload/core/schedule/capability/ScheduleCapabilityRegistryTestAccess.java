@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;

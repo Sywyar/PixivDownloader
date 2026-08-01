@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.config.PluginCredentialStore;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -18,6 +18,8 @@ import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextF
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 
@@ -184,21 +186,36 @@ public class PluginRuntimeConfiguration {
     }
 
     /**
-     * 每外置插件子 {@code ApplicationContext} 工厂（无状态 POJO，住 {@code pixivdownload-plugin-runtime}）：为每个
+     * 全局插件推流注册中心。插件子 context 只取得由它派生的 owner-scoped 稳定注册端口；生命周期清退器持有
+     * 同一实例的宿主管理面，避免出现注册与 quiesce 分属两套状态的 split-brain。
+     */
+    @Bean
+    public PluginStreamRegistry pluginStreamRegistry() {
+        return new PluginStreamRegistry();
+    }
+
+    /**
+     * 全局插件后台任务注册中心。插件子 context 取得 owner-scoped 稳定登记端口，生命周期清退器通过同一实例
+     * 关闭 admission、保存精确 generation drain 并发送协作式取消。
+     */
+    @Bean
+    public PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry() {
+        return new PluginRuntimeTaskRegistry();
+    }
+
+    /**
+     * 每外置插件子 {@code ApplicationContext} 工厂（宿主装配 POJO，住 {@code pixivdownload-plugin-runtime}）：为每个
      * 外置插件包建立子 context、父 context 为核心应用，在其中实例化插件声明的 {@code @Configuration} 配置类。
      * 子 context 的生命周期由 {@link ExternalPluginContextManager} 持有并与外置插件启停对齐。
      */
     @Bean
-    public PluginApplicationContextFactory pluginApplicationContextFactory(PluginCredentialStore credentialStore) {
-        return new PluginApplicationContextFactory(ownerPluginId -> {
-            try {
-                Map<String, Object> scoped = new java.util.LinkedHashMap<>();
-                scoped.putAll(credentialStore.readAll(ownerPluginId));
-                return scoped;
-            } catch (java.io.IOException e) {
-                throw new IllegalStateException(
-                        "Failed to load plugin credentials for owner: " + ownerPluginId, e);
-            }
-        });
+    public PluginApplicationContextFactory pluginApplicationContextFactory(
+            PluginCredentialPropertySourceService propertySourceService,
+            PluginStreamRegistry pluginStreamRegistry,
+            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
+        return new PluginApplicationContextFactory(
+                propertySourceService::snapshotFor,
+                pluginStreamRegistry,
+                pluginRuntimeTaskRegistry);
     }
 }

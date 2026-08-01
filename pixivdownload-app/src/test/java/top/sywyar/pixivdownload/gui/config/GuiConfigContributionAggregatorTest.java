@@ -16,7 +16,10 @@ import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -32,7 +35,10 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContributio
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
@@ -51,6 +57,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -90,6 +98,8 @@ class GuiConfigContributionAggregatorTest {
         PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
                 List.of(new GuiConfigGroupContribution("fixture-group", "fixture.group.label", 50)),
                 List.of(
+                        field("fixture.enabled", "fixture-group", "fixture.enabled.label",
+                                GuiConfigFieldType.BOOL),
                         field("fixture.mode", "fixture-group", "fixture.mode.label", GuiConfigFieldType.STRING),
                         new GuiConfigFieldContribution(
                                 "fixture.secret",
@@ -253,8 +263,11 @@ class GuiConfigContributionAggregatorTest {
                         GuiConfigPresetMatchMode.TRIMMED_TRAILING_SLASH_IGNORE_CASE)));
         PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
                 List.of(),
-                List.of(field("fixture.endpoint", GuiConfigGroups.PLUGINS,
-                        "fixture.endpoint.label", GuiConfigFieldType.STRING)),
+                List.of(
+                        field("fixture.endpoint", GuiConfigGroups.PLUGINS,
+                                "fixture.endpoint.label", GuiConfigFieldType.STRING),
+                        field("fixture.model", GuiConfigGroups.PLUGINS,
+                                "fixture.model.label", GuiConfigFieldType.STRING)),
                 List.of(section))));
 
         GuiConfigContributionSnapshot contributions =
@@ -347,8 +360,13 @@ class GuiConfigContributionAggregatorTest {
             assertThat(section.mergeable()).isTrue();
             assertThat(section.fieldLayouts()).extracting(GuiConfigFieldLayoutSpec::fieldKey)
                     .containsExactly("first.enabled", "second.enabled");
+            assertThat(section.ownerPluginIds()).containsExactlyInAnyOrder("first", "second");
+            assertThat(section.fieldLayouts()).extracting(GuiConfigFieldLayoutSpec::ownerPluginId)
+                    .containsExactly("first", "second");
             assertThat(section.actions()).extracting(GuiConfigActionSpec::actionId)
                     .containsExactly("first.test", "second.test");
+            assertThat(section.actions()).extracting(GuiConfigActionSpec::ownerPluginId)
+                    .containsExactly("first", "second");
             assertThat(section.notices()).singleElement().satisfies(notice -> {
                 GuiConfigSectionNoticeSpec resolvedNotice = (GuiConfigSectionNoticeSpec) notice;
                 assertThat(resolvedNotice.noticeId()).isEqualTo("fixture.notice");
@@ -418,6 +436,313 @@ class GuiConfigContributionAggregatorTest {
             assertThat(diagnostic.key()).isEqualTo("fixture.section");
             assertThat(diagnostic.message()).contains("relative /api/gui/ path");
         });
+    }
+
+    @Test
+    @DisplayName("字段条件不得读取其它插件或不可用字段")
+    void fieldConditionsAreRestrictedToSameOwnerFields() {
+        PixivFeaturePlugin first = plugin("first", () -> List.of(new GuiConfigContribution(
+                List.of(field("first.enabled", GuiConfigGroups.PLUGINS,
+                        "first.enabled.label", GuiConfigFieldType.BOOL)))));
+        PixivFeaturePlugin second = plugin("second", () -> List.of(new GuiConfigContribution(
+                List.of(
+                        new GuiConfigFieldContribution(
+                                "second.foreign",
+                                GuiConfigGroups.PLUGINS,
+                                "second.foreign.label",
+                                "",
+                                null,
+                                GuiConfigFieldType.STRING,
+                                "",
+                                10,
+                                false,
+                                true,
+                                List.of(),
+                                List.of(GuiConfigCondition.isTrue("first.enabled")),
+                                List.of(),
+                                null,
+                                null),
+                        new GuiConfigFieldContribution(
+                                "second.missing",
+                                GuiConfigGroups.PLUGINS,
+                                "second.missing.label",
+                                "",
+                                null,
+                                GuiConfigFieldType.STRING,
+                                "",
+                                20,
+                                false,
+                                true,
+                                List.of(),
+                                List.of(GuiConfigCondition.isTrue("missing.enabled")),
+                                List.of(),
+                                null,
+                                null)))));
+
+        GuiConfigContributionSnapshot snapshot =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(first, second)));
+
+        assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key)
+                .contains("first.enabled")
+                .doesNotContain("second.foreign", "second.missing");
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.pluginId()).isEqualTo("second");
+            assertThat(diagnostic.key()).isEqualTo("second.foreign");
+            assertThat(diagnostic.message()).contains("owned by 'first'");
+        }).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.pluginId()).isEqualTo("second");
+            assertThat(diagnostic.key()).isEqualTo("second.missing");
+            assertThat(diagnostic.message()).contains("unavailable field");
+        });
+    }
+
+    @Test
+    @DisplayName("section 布局、动作载荷与 preset 只能引用同 owner 字段")
+    void richSectionReferencesAreRestrictedToSameOwnerFields() {
+        PixivFeaturePlugin first = plugin("first", () -> List.of(new GuiConfigContribution(
+                List.of(field("first.value", GuiConfigGroups.PLUGINS,
+                        "first.value.label", GuiConfigFieldType.STRING)))));
+        GuiConfigSectionContribution foreignReferences = new GuiConfigSectionContribution(
+                "second.section",
+                GuiConfigGroups.PLUGINS,
+                "",
+                "",
+                null,
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(new GuiConfigFieldLayoutContribution("first.value", 10)),
+                List.of(new GuiConfigActionContribution(
+                        "second.test",
+                        "second.test.label",
+                        "second/test",
+                        20,
+                        List.of(new GuiConfigActionPayloadField("value", "first.value")))),
+                List.of(new GuiConfigPresetContribution(
+                        "second.default",
+                        "second.default.label",
+                        30,
+                        Map.of("first.value", "foreign"))));
+        PixivFeaturePlugin second = plugin("second", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("second.value", GuiConfigGroups.PLUGINS,
+                        "second.value.label", GuiConfigFieldType.STRING)),
+                List.of(foreignReferences))));
+
+        GuiConfigContributionSnapshot snapshot =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(first, second)));
+        GuiConfigSectionSpec section = snapshot.sections().stream()
+                .filter(candidate -> "second.section".equals(candidate.sectionId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(section.fieldLayouts()).isEmpty();
+        assertThat(section.actions()).isEmpty();
+        assertThat(section.presets()).isEmpty();
+        assertThat(snapshot.diagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("field layout").contains("owned by 'first'"))
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("action payload").contains("owned by 'first'"))
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("preset value").contains("owned by 'first'"));
+    }
+
+    @Test
+    @DisplayName("preset 不得写入敏感或 PASSWORD 字段")
+    void presetsCannotWriteSensitiveFields() {
+        GuiConfigSectionContribution section = new GuiConfigSectionContribution(
+                "fixture.section",
+                GuiConfigGroups.PLUGINS,
+                "",
+                "",
+                null,
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(),
+                List.of(),
+                List.of(new GuiConfigPresetContribution(
+                        "fixture.default",
+                        "fixture.default.label",
+                        10,
+                        Map.of("fixture.secret", "must-not-be-applied"))));
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("fixture.secret", GuiConfigGroups.PLUGINS,
+                        "fixture.secret.label", GuiConfigFieldType.PASSWORD)),
+                List.of(section))));
+
+        GuiConfigContributionSnapshot snapshot =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+
+        assertThat(snapshot.sections()).singleElement()
+                .satisfies(resolved -> assertThat(((GuiConfigSectionSpec) resolved).presets()).isEmpty());
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.message())
+                        .contains("preset value")
+                        .contains("sensitive/PASSWORD")
+                        .contains("fixture.secret"));
+    }
+
+    @Test
+    @DisplayName("动作端点必须由本插件精确发布为可 POST 的 GUI 路由")
+    void actionEndpointRequiresExactSamePluginGuiPostRoute() {
+        GuiConfigSectionContribution section = new GuiConfigSectionContribution(
+                "fixture.section",
+                GuiConfigGroups.PLUGINS,
+                "",
+                "",
+                null,
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(),
+                List.of(new GuiConfigActionContribution(
+                        "fixture.test", "fixture.test.label", "fixture/test", 10, List.of())),
+                List.of());
+        PixivFeaturePlugin wrongRoutes = pluginWithRoutes(
+                "fixture",
+                List.of(
+                        new WebRouteContribution(
+                                "/api/gui/fixture/**", AccessPolicy.GUI, Set.of(HttpMethod.POST), false),
+                        new WebRouteContribution(
+                                "/api/gui/fixture/test", AccessPolicy.GUI, Set.of(HttpMethod.GET), false),
+                        new WebRouteContribution(
+                                "/api/gui/fixture/test", AccessPolicy.LOCAL, Set.of(HttpMethod.POST), false)),
+                () -> List.of(new GuiConfigContribution(List.of(), List.of(), List.of(section))));
+        PixivFeaturePlugin otherOwner = pluginWithRoutes(
+                "other",
+                List.of(new WebRouteContribution(
+                        "/api/gui/fixture/test", AccessPolicy.GUI, Set.of(HttpMethod.POST), false)),
+                List::of);
+
+        GuiConfigContributionSnapshot snapshot =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(wrongRoutes, otherOwner)));
+
+        assertThat(snapshot.sections()).singleElement()
+                .satisfies(resolved -> assertThat(((GuiConfigSectionSpec) resolved).actions()).isEmpty());
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.message())
+                        .contains("exact GUI POST route")
+                        .contains("plugin 'fixture'"));
+    }
+
+    @Test
+    @DisplayName("有状态 route getter 只形成聚合快照且不能替代请求时活动 owner 校验")
+    void statefulRouteGetterIsCapturedOnceForSnapshot() {
+        GuiConfigSectionContribution section = new GuiConfigSectionContribution(
+                "fixture.section",
+                GuiConfigGroups.PLUGINS,
+                "",
+                "",
+                null,
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(),
+                List.of(new GuiConfigActionContribution(
+                        "fixture.test", "fixture.test.label", "fixture/test", 10, List.of())),
+                List.of());
+        AtomicInteger routeReads = new AtomicInteger();
+        PixivFeaturePlugin stateful = new TestPlugin(
+                "fixture",
+                List::of,
+                null,
+                () -> List.of(new GuiConfigContribution(List.of(), List.of(), List.of(section))),
+                () -> routeReads.incrementAndGet() == 1
+                        ? List.of(new WebRouteContribution(
+                                "/api/gui/fixture/test",
+                                AccessPolicy.GUI,
+                                Set.of(HttpMethod.POST),
+                                false))
+                        : List.of(new WebRouteContribution(
+                                "/api/gui/other/test",
+                                AccessPolicy.GUI,
+                                Set.of(HttpMethod.POST),
+                                false)));
+
+        GuiConfigContributionSnapshot snapshot =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(stateful)));
+
+        assertThat(routeReads).hasValue(1);
+        assertThat(snapshot.sections()).singleElement().satisfies(resolved -> {
+            GuiConfigActionSpec action = ((GuiConfigSectionSpec) resolved).actions().get(0);
+            assertThat(action.endpoint()).isEqualTo("fixture/test");
+            assertThat(action.ownerPluginId()).isEqualTo("fixture");
+        });
+        assertThat(stateful.routes()).extracting(WebRouteContribution::pathPattern)
+                .containsExactly("/api/gui/other/test");
+        assertThat(routeReads).hasValue(2);
+    }
+
+    @Test
+    @DisplayName("动作结果不得投影会话、密钥、原始错误或 HTML 字段")
+    void actionResultRulesRejectSensitiveOrRawResponsePaths() {
+        GuiConfigActionContribution unsafeRule = new GuiConfigActionContribution(
+                "unsafe.rule",
+                "unsafe.rule.label",
+                "",
+                null,
+                null,
+                "unsafe/rule",
+                30_000,
+                10,
+                List.of(),
+                "",
+                List.of(new GuiConfigActionResultRule(
+                        "unsafe.notice",
+                        10,
+                        List.of(GuiConfigActionResultCondition.jsonTrue("result.sessionId")),
+                        List.of(GuiConfigActionResultArgument.json("credentials.access-key")))),
+                null);
+        GuiConfigActionContribution unsafeSummary = new GuiConfigActionContribution(
+                "unsafe.summary",
+                "unsafe.summary.label",
+                "",
+                null,
+                null,
+                "unsafe/summary",
+                30_000,
+                20,
+                List.of(),
+                "",
+                List.of(),
+                new GuiConfigActionResultSummary("results", "channel", "status", "OK", "error.html"));
+        GuiConfigActionContribution safe = new GuiConfigActionContribution(
+                "safe",
+                "safe.label",
+                "",
+                null,
+                null,
+                "safe/result",
+                30_000,
+                30,
+                List.of(),
+                "",
+                List.of(new GuiConfigActionResultRule(
+                        "safe.notice",
+                        10,
+                        List.of(GuiConfigActionResultCondition.http2xx(true)),
+                        List.of(GuiConfigActionResultArgument.json("reply")))),
+                null);
+        GuiConfigSectionContribution section = new GuiConfigSectionContribution(
+                "fixture.section",
+                GuiConfigGroups.PLUGINS,
+                "",
+                "",
+                null,
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(),
+                List.of(unsafeRule, unsafeSummary, safe),
+                List.of());
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(
+                new GuiConfigContribution(List.of(), List.of(), List.of(section))));
+
+        GuiConfigContributionSnapshot snapshot =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+
+        assertThat(snapshot.sections()).singleElement()
+                .satisfies(resolved -> assertThat(((GuiConfigSectionSpec) resolved).actions())
+                        .extracting(GuiConfigActionSpec::actionId)
+                        .containsExactly("safe"));
+        assertThat(snapshot.diagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("unsafe or invalid condition"))
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("unsafe or invalid JSON path"));
     }
 
     @Test
@@ -940,19 +1265,36 @@ class GuiConfigContributionAggregatorTest {
                 path -> "http://localhost:6999" + path, snapshot);
 
         assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
-        assertThat(new top.sywyar.pixivdownload.config.PluginCredentialStore().readAll("fixture"))
+        assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.saved"))).isTrue();
+        assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore().readAll("fixture"))
                 .containsEntry("fixture.api-key", FAKE_CREDENTIAL);
         assertThat(loadProperties(pluginConfig)).doesNotContainKey("fixture.api-key");
         assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).doesNotContain("fixture.api-key");
 
         clickButton(panel, GuiMessages.get("gui.button.save"));
-        assertThat(new top.sywyar.pixivdownload.config.PluginCredentialStore().readAll("fixture"))
+        assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+        assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.saved"))).isTrue();
+        assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore().readAll("fixture"))
                 .containsEntry("fixture.api-key", FAKE_CREDENTIAL);
 
-        panel.requestCredentialClear("fixture.api-key");
+        panel.setFieldValue("fixture.api-key", "replacement-credential");
+        assertThat(containsLabelText(panel,
+                GuiMessages.get("gui.credential.status.replace-pending"))).isTrue();
         clickButton(panel, GuiMessages.get("gui.button.save"));
 
-        assertThat(new top.sywyar.pixivdownload.config.PluginCredentialStore().readAll("fixture")).isEmpty();
+        assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+        assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.saved"))).isTrue();
+        assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore().readAll("fixture"))
+                .containsEntry("fixture.api-key", "replacement-credential");
+
+        panel.requestCredentialClear("fixture.api-key");
+        assertThat(containsLabelText(panel,
+                GuiMessages.get("gui.credential.status.clear-pending"))).isTrue();
+        clickButton(panel, GuiMessages.get("gui.button.save"));
+
+        assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.not-saved"))).isTrue();
+        assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore()
+                .readAll("fixture")).isEmpty();
         assertThat(RuntimeFiles.resolvePluginCredentialPath("fixture")).doesNotExist();
     }
 
@@ -984,6 +1326,8 @@ class GuiConfigContributionAggregatorTest {
                     path -> "http://localhost:6999" + path, snapshot);
 
             assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+            assertThat(containsLabelText(panel,
+                    GuiMessages.get("gui.credential.status.not-saved"))).isTrue();
         } finally {
             logger.detachAppender(appender);
             appender.stop();
@@ -1108,6 +1452,18 @@ class GuiConfigContributionAggregatorTest {
         }
     }
 
+    private static boolean containsLabelText(Container container, String text) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof javax.swing.JLabel label && text.equals(label.getText())) {
+                return true;
+            }
+            if (component instanceof Container child && containsLabelText(child, text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static PluginToggleProperties toggles(String pluginId, boolean enabled) {
         PluginToggleProperties toggles = new PluginToggleProperties();
         PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
@@ -1128,7 +1484,14 @@ class GuiConfigContributionAggregatorTest {
     private static PixivFeaturePlugin plugin(String id, Supplier<List<I18nContribution>> i18n,
                                              Supplier<String> displayNamespace,
                                              Supplier<List<GuiConfigContribution>> contributions) {
-        return new TestPlugin(id, i18n, displayNamespace, contributions);
+        return new TestPlugin(id, i18n, displayNamespace, contributions, null);
+    }
+
+    private static PixivFeaturePlugin pluginWithRoutes(
+            String id,
+            List<WebRouteContribution> routes,
+            Supplier<List<GuiConfigContribution>> contributions) {
+        return new TestPlugin(id, List::of, null, contributions, () -> routes);
     }
 
     private static final class TestPlugin implements PixivFeaturePlugin {
@@ -1136,15 +1499,18 @@ class GuiConfigContributionAggregatorTest {
         private final Supplier<List<I18nContribution>> i18n;
         private final Supplier<String> displayNamespace;
         private final Supplier<List<GuiConfigContribution>> contributions;
+        private final Supplier<List<WebRouteContribution>> routes;
 
         private TestPlugin(String id,
                            Supplier<List<I18nContribution>> i18n,
                            Supplier<String> displayNamespace,
-                           Supplier<List<GuiConfigContribution>> contributions) {
+                           Supplier<List<GuiConfigContribution>> contributions,
+                           Supplier<List<WebRouteContribution>> routes) {
             this.id = id;
             this.i18n = i18n;
             this.displayNamespace = displayNamespace;
             this.contributions = contributions;
+            this.routes = routes;
         }
 
         @Override
@@ -1180,6 +1546,24 @@ class GuiConfigContributionAggregatorTest {
         @Override
         public List<GuiConfigContribution> guiConfigContributions() {
             return contributions.get();
+        }
+
+        @Override
+        public List<WebRouteContribution> routes() {
+            if (routes != null) {
+                return routes.get();
+            }
+            List<WebRouteContribution> inferred = new ArrayList<>();
+            for (GuiConfigContribution contribution : contributions.get()) {
+                for (GuiConfigSectionContribution section : contribution.sections()) {
+                    for (GuiConfigActionContribution action : section.actions()) {
+                        if (action != null && action.endpoint() != null && !action.endpoint().isBlank()) {
+                            inferred.add(WebRouteContribution.gui("/api/gui/" + action.endpoint()));
+                        }
+                    }
+                }
+            }
+            return List.copyOf(inferred);
         }
     }
 }

@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.core.work;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 
 import java.nio.file.Path;
 
@@ -15,7 +15,11 @@ public class DownloadPathGuardAdapter implements DownloadPathGuard {
 
     @Override
     public String requireSafeDirectoryName(String value) {
-        return SafePathSegment.requireSafeDirectoryName(value);
+        try {
+            return SafePathSegment.requireSafeDirectoryName(value);
+        } catch (top.sywyar.pixivdownload.i18n.LocalizedException rejected) {
+            throw new DownloadPathRejectedException();
+        }
     }
 
     @Override
@@ -24,11 +28,7 @@ public class DownloadPathGuardAdapter implements DownloadPathGuard {
         Path normalizedCandidate = candidate == null ? null : candidate.toAbsolutePath().normalize();
         if (normalizedRoot == null || normalizedCandidate == null
                 || !normalizedCandidate.startsWith(normalizedRoot)) {
-            throw LocalizedException.badRequest(
-                    "download.path.segment.invalid",
-                    "Unsafe download subdirectory: {0}",
-                    candidate
-            );
+            throw new DownloadPathRejectedException();
         }
     }
 }

@@ -14,7 +14,7 @@ class StartupRouteContributionTest {
 
     @Test
     @DisplayName("两参构造默认不绑定首选启动上下文")
-    void legacyConstructorDefaultsPreferredContextsToEmpty() {
+    void convenienceConstructorDefaultsPreferredContextsToEmpty() {
         StartupRouteContribution contribution =
                 new StartupRouteContribution("/demo.html", 10);
 

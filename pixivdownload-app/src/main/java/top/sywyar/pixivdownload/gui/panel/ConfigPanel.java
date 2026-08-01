@@ -2,8 +2,8 @@ package top.sywyar.pixivdownload.gui.panel;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.config.PluginCredentialStore;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.gui.AutoStartManager;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
 import top.sywyar.pixivdownload.gui.DebugUnlockState;
@@ -68,6 +68,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
+    private final Map<String, ConfigFieldSpec> fieldsByKey;
     private final List<GuiConfigSectionSpec> sectionContributions;
     private final List<ConfigGroupSpec> groupSpecs;
     private final String serverGroup;
@@ -137,6 +138,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         this.currentMode = resolveCurrentMode();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
         this.allFields = snapshot.fields();
+        this.fieldsByKey = snapshot.fieldsByKey();
         this.sectionContributions = snapshot.sections();
         this.groupSpecs = snapshot.groupSpecs();
         this.serverGroup = message("gui.config.group.server");
@@ -853,6 +855,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                         missing.put(spec.key(), spec.defaultValue());
                     }
                 }
+                if (isPluginCredential(spec)) {
+                    rf.setCredentialStored(values.containsKey(spec.key())
+                            && !normalizeValue(values.get(spec.key())).isBlank());
+                }
             }
 
             // 自动将缺失的 key 补全到所属配置文件
@@ -1020,6 +1026,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         try {
             writeStoredValues(values);
+            refreshCredentialFieldsAfterSave(values);
             // 各 section 持久化自有的非字段网格状态（如插件市场仓库列表）；任一写入改动均为需重启项。
             boolean sectionRestartChange = false;
             for (ConfigSection s : sections) {
@@ -1319,6 +1326,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         if (split.empty()) {
             return;
         }
+        credentialStore.withOwnerLocks(
+                split.credentialValues().keySet(),
+                () -> writeStoredValuesWithCredentialLocks(split));
+    }
+
+    private void writeStoredValuesWithCredentialLocks(StoredValuesSplit split) throws IOException {
         List<ConfigFileRollback> rollbacks = new ArrayList<>();
         try {
             boolean credentialChanges = split.credentialValues().values().stream().anyMatch(map -> !map.isEmpty());
@@ -1365,15 +1378,42 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 if (entry.getValue().isEmpty()) {
                     continue;
                 }
-                credentialStore.update(entry.getKey(), entry.getValue());
-                Set<String> keys = entry.getValue().keySet();
+                Set<String> clearKeys = new LinkedHashSet<>();
+                Set<String> setKeys = new LinkedHashSet<>();
+                entry.getValue().forEach((key, value) -> {
+                    if (value == null || value.isBlank()) {
+                        clearKeys.add(key);
+                    } else {
+                        setKeys.add(key);
+                    }
+                });
                 PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(entry.getKey());
-                pluginEditor.removeAll(keys);
-                if (!pluginEditor.readAll(keys).isEmpty()) {
+
+                // A clear must retire every legacy source before deleting the encrypted value.
+                // If the process stops between these steps, the still-present encrypted value wins
+                // on the next migration instead of a stale properties/YAML value being resurrected.
+                if (!clearKeys.isEmpty()) {
+                    pluginEditor.removeAll(clearKeys);
+                    if (!pluginEditor.readAll(clearKeys).isEmpty()) {
+                        throw new IOException("Plugin credential cleanup verification failed for owner: "
+                                + entry.getKey());
+                    }
+                    editor.removeAll(clearKeys);
+                    if (!editor.readAll(clearKeys).isEmpty()) {
+                        throw new IOException("YAML credential cleanup verification failed");
+                    }
+                }
+
+                credentialStore.update(entry.getKey(), entry.getValue());
+
+                if (!setKeys.isEmpty()) {
+                    pluginEditor.removeAll(setKeys);
+                }
+                if (!pluginEditor.readAll(setKeys).isEmpty()) {
                     throw new IOException("Plugin credential cleanup verification failed for owner: "
                             + entry.getKey());
                 }
-                credentialYamlKeys.addAll(keys);
+                credentialYamlKeys.addAll(setKeys);
             }
             if (!credentialYamlKeys.isEmpty()) {
                 editor.removeAll(credentialYamlKeys);
@@ -1443,6 +1483,17 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         Map<String, String> safeUpdates = ConfigFileEditor.validatedValues(credentialUpdates);
         Set<String> safePropertyKeys = ConfigFileEditor.validatedKeySet(propertyKeysToRemove);
         Set<String> safeYamlKeys = ConfigFileEditor.validatedKeySet(yamlKeysToRemove);
+        credentialStore.withOwnerLocks(
+                Set.of(pluginId),
+                () -> migrateLegacyPluginCredentialsWithOwnerLock(
+                        pluginId, safeUpdates, safePropertyKeys, safeYamlKeys));
+    }
+
+    private void migrateLegacyPluginCredentialsWithOwnerLock(
+            String pluginId,
+            Map<String, String> safeUpdates,
+            Set<String> safePropertyKeys,
+            Set<String> safeYamlKeys) throws IOException {
         PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(pluginId);
         List<ConfigFileRollback> rollbacks = new ArrayList<>();
         try {
@@ -1625,6 +1676,23 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return spec != null && spec.pluginContributed() && spec.type() == FieldType.PASSWORD;
     }
 
+    private void refreshCredentialFieldsAfterSave(Map<String, String> values) {
+        for (ConfigFieldSpec spec : allFields) {
+            if (!isPluginCredential(spec)) {
+                continue;
+            }
+            FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
+            if (rf == null) {
+                continue;
+            }
+            boolean stored = values.containsKey(spec.key())
+                    ? !normalizeValue(values.get(spec.key())).isBlank()
+                    : rf.credentialStored();
+            rf.setValue().accept("");
+            rf.setCredentialStored(stored);
+        }
+    }
+
     private static boolean requiresStoredKey(ConfigFieldSpec spec) {
         return !isPluginCredential(spec);
     }
@@ -1695,7 +1763,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
             if (rf != null) {
-                rf.setValue().accept(spec.defaultValue());
+                rf.setValue().accept(isPluginCredential(spec) ? "" : spec.defaultValue());
                 rf.setValidationError(null);
             }
         }
@@ -2059,7 +2127,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     @Override
     public ConfigFieldSpec findSpec(String key) {
-        return allFields.stream().filter(f -> key.equals(f.key())).findFirst().orElse(null);
+        return key == null ? null : fieldsByKey.get(key);
     }
 
     @Override

@@ -28,6 +28,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class StatsPluginModuleDependencyGuardTest {
 
+    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
+            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
+            "org/apache/hc/core5/http/HttpRequest.class",
+            "org/apache/http/client/HttpClient.class",
+            "org/apache/http/nio/client/HttpAsyncClient.class"
+    };
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
@@ -53,6 +60,30 @@ class StatsPluginModuleDependencyGuardTest {
                         + "绝不依赖主程序 pixivdownload-app 的任何业务实现包——否则 app↔stats 成环、模块无法构建。"
                         + "app 不再依赖本模块；stats 作为外置 PF4J 插件 jar 经 plugins/ 目录由运行时加载")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("stats 不得依赖宿主私有 HTTP 类型")
+    void statsDoesNotDependOnPrivateHttpTypes() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.stats..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "org.apache.http..")
+                .orShould().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "org.springframework.http.client."
+                                + "HttpComponentsClientHttpRequestFactory")
+                .because("插件只能经稳定 HTTP 契约消费宿主传输能力")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("stats 测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void statsClasspathExcludesHostApplicationAndPrivateHttpStack() {
+        ClassLoader classLoader = getClass().getClassLoader();
+        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
+            assertThat(classLoader.getResource(resource)).as(resource).isNull();
+        }
     }
 
     @Test

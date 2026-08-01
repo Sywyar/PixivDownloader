@@ -16,19 +16,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledSourceSupport;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
@@ -50,7 +46,7 @@ import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
 import java.util.Map;
@@ -110,7 +106,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("创建调用当前 owner 规范化与计划校验后才写入通用信封")
     void createPersistsPreparedGenericDefinitionAfterPlanValidation() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         AtomicBoolean planCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
@@ -163,7 +159,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("创建写库与事务提交期间阻塞来源 publication 撤回")
     void createKeepsSourceLeaseThroughInsertAndCommit() throws Exception {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -188,26 +184,26 @@ class ScheduleServiceDefinitionSaveTest {
             assertThat(createEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
             CountDownLatch withdrawStarted = new CountDownLatch(1);
-            Future<ScheduleGenerationDrain> withdrawal = worker.submit(() -> {
+            Future<FakeScheduleCapabilityAccess.Drain> withdrawal = worker.submit(() -> {
                 withdrawStarted.countDown();
                 return ScheduleCapabilityTestFixture.withdraw(
                         registry, fixture.publication()).orElseThrow();
             });
             assertThat(withdrawStarted.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(withdrawal.isDone()).isFalse();
-            assertThat(registry.snapshotView().owners()).singleElement();
+            assertThat(registry.snapshot().owners()).singleElement();
 
             allowCreate.countDown();
             assertThat(transactionManager.commitEntered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(withdrawal.isDone()).isFalse();
-            assertThat(registry.snapshotView().owners()).singleElement();
+            assertThat(registry.snapshot().owners()).singleElement();
 
             transactionManager.allowCommit.countDown();
             assertThat(result.get(5, TimeUnit.SECONDS).id()).isEqualTo(81L);
-            ScheduleGenerationDrain drain = withdrawal.get(5, TimeUnit.SECONDS);
+            FakeScheduleCapabilityAccess.Drain drain = withdrawal.get(5, TimeUnit.SECONDS);
             assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5))).isTrue();
             assertThat(drain.activeLeaseCount()).isZero();
-            assertThat(registry.snapshotView().owners()).isEmpty();
+            assertThat(registry.snapshot().owners()).isEmpty();
         } finally {
             allowCreate.countDown();
             transactionManager.allowCommit.countDown();
@@ -218,7 +214,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("已有外层事务时定义保存独立提交并只阻塞撤回到内层提交完成")
     void definitionSaveUsesIndependentTransactionInsideOuterTransaction() throws Exception {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", new AtomicBoolean(), new AtomicBoolean(), false, false);
         NestedCommitTransactionManager transactionManager = new NestedCommitTransactionManager();
@@ -242,22 +238,22 @@ class ScheduleServiceDefinitionSaveTest {
 
             assertThat(transactionManager.innerCommitEntered.await(5, TimeUnit.SECONDS)).isTrue();
             CountDownLatch withdrawStarted = new CountDownLatch(1);
-            Future<ScheduleGenerationDrain> withdrawal = worker.submit(() -> {
+            Future<FakeScheduleCapabilityAccess.Drain> withdrawal = worker.submit(() -> {
                 withdrawStarted.countDown();
                 return ScheduleCapabilityTestFixture.withdraw(
                         registry, fixture.publication()).orElseThrow();
             });
             assertThat(withdrawStarted.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(withdrawal.isDone()).isFalse();
-            assertThat(registry.snapshotView().owners()).singleElement();
+            assertThat(registry.snapshot().owners()).singleElement();
 
             transactionManager.allowInnerCommit.countDown();
             assertThat(serviceReturnedInsideOuter.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(transactionManager.requiresNewObserved).isTrue();
-            ScheduleGenerationDrain drain = withdrawal.get(5, TimeUnit.SECONDS);
+            FakeScheduleCapabilityAccess.Drain drain = withdrawal.get(5, TimeUnit.SECONDS);
             assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5))).isTrue();
             assertThat(transactionManager.outerCommitEntered.getCount()).isEqualTo(1L);
-            assertThat(registry.snapshotView().owners()).isEmpty();
+            assertThat(registry.snapshot().owners()).isEmpty();
 
             allowOuterCallback.countDown();
             assertThat(result.get(5, TimeUnit.SECONDS).id()).isEqualTo(83L);
@@ -272,7 +268,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("创建回滚与提交失败都会释放来源 publication 租约")
     void createFailureReleasesSourceLeaseAfterTransactionCompletion() {
-        ScheduleCapabilityRegistry rollbackRegistry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess rollbackRegistry = new FakeScheduleCapabilityAccess();
         SourceFixture rollbackFixture = publishSource(
                 rollbackRegistry,
                 "rollback-owner",
@@ -293,7 +289,7 @@ class ScheduleServiceDefinitionSaveTest {
                 rollbackRegistry, rollbackFixture.publication()).orElseThrow().isDrained()).isTrue();
 
         org.mockito.Mockito.reset(store);
-        ScheduleCapabilityRegistry commitRegistry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess commitRegistry = new FakeScheduleCapabilityAccess();
         SourceFixture commitFixture = publishSource(
                 commitRegistry,
                 "commit-owner",
@@ -321,7 +317,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("过期激活令牌返回冲突且不调用 owner 或写库")
     void staleActivationTokenFailsBeforePluginAndPersistence() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -329,7 +325,7 @@ class ScheduleServiceDefinitionSaveTest {
 
         assertThatThrownBy(() -> service(registry).create(request))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
         assertThat(prepareCalled).isFalse();
         verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
@@ -337,7 +333,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("非法 JSON 与凭证材料在 owner 调用前被宿主拒绝")
     void unsafeDraftNeverReachesOwnerOrPersistence() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -366,7 +362,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("编辑不能切换来源 owner 且异常路径保持零写入")
     void updateRejectsDifferentOwnerWithoutWriting() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "other-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -384,7 +380,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("编辑不能让已绑定凭证跨到不同策略且保持零写入")
     void updateRejectsCredentialPolicyChangeWithoutWriting() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -410,7 +406,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("编辑规范化期间任务版本变化时事务内重读并拒绝覆盖")
     void updateRejectsStateVersionChangeDuringNormalization() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -425,7 +421,7 @@ class ScheduleServiceDefinitionSaveTest {
         assertThatThrownBy(() -> service(registry).update(
                 46L, updateRequest(fixture.activationToken(), 7L)))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
 
         assertThat(prepareCalled).isTrue();
         verify(store, never()).updateDefinition(any(Long.class), any(Long.class), any());
@@ -434,7 +430,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("陈旧编辑版本在 owner 调用前返回冲突且保持零写入")
     void staleEditorVersionFailsBeforePluginNormalization() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -445,7 +441,7 @@ class ScheduleServiceDefinitionSaveTest {
         assertThatThrownBy(() -> service(registry).update(
                 47L, updateRequest(fixture.activationToken(), 7L)))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
 
         assertThat(prepareCalled).isFalse();
         verify(store, never()).updateDefinition(any(Long.class), any(Long.class), any());
@@ -454,7 +450,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("创建禁止状态版本且编辑缺少状态版本时不调用 owner 或写库")
     void createForbidsAndUpdateRequiresExpectedStateVersion() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicBoolean prepareCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
@@ -476,7 +472,7 @@ class ScheduleServiceDefinitionSaveTest {
     @DisplayName("owner 异常或越权执行计划都不会产生定义写入")
     void pluginFailureAndPlanEscapeLeaveStoreUntouched() {
         for (boolean planEscape : List.of(false, true)) {
-            ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+            FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
             SourceFixture fixture = publishSource(
                     registry,
                     planEscape ? "escape-owner" : "failure-owner",
@@ -495,7 +491,7 @@ class ScheduleServiceDefinitionSaveTest {
     @DisplayName("prepare 与 plan 抛出断言错误时不泄漏插件 cause 且快照和数据库不变")
     void assertionErrorsAtPluginCallbacksLeaveSnapshotAndStoreUntouched() {
         for (boolean prepareAssertion : List.of(true, false)) {
-            ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+            FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
             SourceFixture fixture = publishSource(
                     registry,
                     prepareAssertion ? "prepare-assert-owner" : "plan-assert-owner",
@@ -507,13 +503,13 @@ class ScheduleServiceDefinitionSaveTest {
                     !prepareAssertion,
                     null,
                     Set.of());
-            var before = registry.snapshotView();
+            var before = registry.snapshot();
 
             assertThatThrownBy(() -> service(registry).create(request(fixture.activationToken())))
                     .isInstanceOfSatisfying(LocalizedException.class, failure ->
                             assertThat(failure.getCause()).isNull());
 
-            assertThat(registry.snapshotView()).isEqualTo(before);
+            assertThat(registry.snapshot()).isEqualTo(before);
         }
         verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
@@ -539,7 +535,7 @@ class ScheduleServiceDefinitionSaveTest {
                         ScheduledNetworkRoute.inherit()));
 
         for (int index = 0; index < invalidPlans.size(); index++) {
-            ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+            FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
             SourceFixture fixture = publishSource(
                     registry,
                     "plan-gate-owner-" + index,
@@ -561,7 +557,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Test
     @DisplayName("Pixiv 非法业务定义在创建与编辑路径均保持零写入")
     void invalidPixivBusinessDefinitionLeavesCreateAndUpdateUntouched() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         SourceFixture fixture = publishPixivUserNewSource(registry);
         ScheduleTaskRequest invalid = request(fixture.activationToken());
         invalid.setSourceType("user-new");
@@ -581,24 +577,28 @@ class ScheduleServiceDefinitionSaveTest {
         verify(store, never()).updateDefinition(any(Long.class), any(Long.class), any());
     }
 
-    private ScheduleService service(ScheduleCapabilityRegistry registry) {
+    private ScheduleService service(FakeScheduleCapabilityAccess registry) {
         return service(registry, NO_OP_TRANSACTION_MANAGER);
     }
 
     private ScheduleService service(
-            ScheduleCapabilityRegistry registry,
+            FakeScheduleCapabilityAccess registry,
             PlatformTransactionManager transactionManager) {
+        ScheduleRunState runState = new ScheduleRunState();
+        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+        ScheduleCredentialService credentialService = new ScheduleCredentialService(
+                store, runState, executionEngine, registry, transactions, objectMapper);
         return new ScheduleService(
                 store,
                 executor,
                 new ScheduleConfig(),
-                new ScheduleRunState(),
+                runState,
                 runQueue,
                 objectMapper,
-                new PixivSchedulePersistenceCodec(objectMapper),
-                executionEngine,
-                new TransactionTemplate(transactionManager),
-                registry);
+                credentialService,
+                transactions,
+                registry,
+                new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
     }
 
     private static ScheduleTaskRequest request(String activationToken) {
@@ -621,7 +621,7 @@ class ScheduleServiceDefinitionSaveTest {
     }
 
     private static SourceFixture publishSource(
-            ScheduleCapabilityRegistry registry,
+            FakeScheduleCapabilityAccess registry,
             String ownerPluginId,
             AtomicBoolean prepareCalled,
             AtomicBoolean planCalled,
@@ -641,7 +641,7 @@ class ScheduleServiceDefinitionSaveTest {
     }
 
     private static SourceFixture publishSource(
-            ScheduleCapabilityRegistry registry,
+            FakeScheduleCapabilityAccess registry,
             String ownerPluginId,
             AtomicBoolean prepareCalled,
             AtomicBoolean planCalled,
@@ -719,19 +719,21 @@ class ScheduleServiceDefinitionSaveTest {
         };
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(
                 ownerPluginId, ownerPluginId.replace("owner", "package"), 3L);
-        ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
+        ScheduleCapabilityTestFixture.CapabilityBundle bundle =
+                ScheduleCapabilityTestFixture.bundle(
                 owner,
                 List.of(descriptor),
                 List.of(sourceExecutor),
                 List.of(workExecutor),
                 List.of(),
                 List.of());
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(registry, bundle);
-        String activationToken = registry.snapshotView().owners().get(0).activationToken();
+        FakeScheduleCapabilityAccess.Publication publication =
+                ScheduleCapabilityTestFixture.publish(registry, bundle);
+        String activationToken = registry.snapshot().owners().get(0).activationToken();
         return new SourceFixture(activationToken, publication);
     }
 
-    private static SourceFixture publishPixivUserNewSource(ScheduleCapabilityRegistry registry) {
+    private static SourceFixture publishPixivUserNewSource(FakeScheduleCapabilityAccess registry) {
         ObjectMapper mapper = new ObjectMapper();
         PixivScheduledSourceSupport support = new PixivScheduledSourceSupport(
                 mapper,
@@ -745,16 +747,18 @@ class ScheduleServiceDefinitionSaveTest {
                 .orElseThrow();
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(
                 DownloadWorkbenchPlugin.ID, DownloadWorkbenchPlugin.ID, 3L);
-        ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
+        ScheduleCapabilityTestFixture.CapabilityBundle bundle =
+                ScheduleCapabilityTestFixture.bundle(
                 owner,
                 List.of(descriptor),
                 List.of(new PixivUserNewScheduledSourceExecutor(support)),
                 List.of(),
                 List.of(),
                 List.of());
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(registry, bundle);
+        FakeScheduleCapabilityAccess.Publication publication =
+                ScheduleCapabilityTestFixture.publish(registry, bundle);
         return new SourceFixture(
-                registry.snapshotView().owners().get(0).activationToken(), publication);
+                registry.snapshot().owners().get(0).activationToken(), publication);
     }
 
     private static ScheduledTask task(
@@ -958,6 +962,6 @@ class ScheduleServiceDefinitionSaveTest {
 
     private record SourceFixture(
             String activationToken,
-            ScheduleCapabilityPublication publication) {
+            FakeScheduleCapabilityAccess.Publication publication) {
     }
 }

@@ -88,10 +88,10 @@ class MailTestControllerTest {
     @Test
     @DisplayName("testAll 在某模板发信失败时继续遍历后续模板，并把失败记入 failures")
     void testAllContinuesAfterPerTemplateFailure() throws Exception {
-        // 让 overuse-paused 模板的 subject 触发失败，其它模板成功
+        // 让 overuse-paused 兼容模板的中性 subject 触发失败，其它模板成功
         doAnswer(invocation -> {
             String subject = invocation.getArgument(1);
-            if (subject != null && subject.contains("过度访问")) {
+            if (subject != null && subject.contains("凭证策略")) {
                 throw new MailService.MailSendException("smtp denied: 535");
             }
             return null;

@@ -4,13 +4,14 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
 
@@ -20,7 +21,7 @@ import java.util.List;
  * Bark（iOS 推送）通道。{@code POST {server}/push}，JSON 体携带 device_key / title / body / sound / level。
  * <p>
  * iOS 通知正文不渲染 Markdown / HTML，故只声明支持 {@link PushFormat#PLAIN_TEXT}；
- * {@link PushLevel#ERROR} 映射为 Bark 的 {@code timeSensitive} 中断级别（可在专注模式下展示）。
+ * {@link NotificationSeverity#ERROR} 映射为 Bark 的 {@code timeSensitive} 中断级别（可在专注模式下展示）。
  * 渲染逻辑集中在 {@link #deliver}，{@link #send}（已保存配置）与 {@link #sendTest}（GUI 临时设置）共用它。
  * 只读取 {@link BarkConfig}，与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
  */
@@ -38,8 +39,8 @@ public class BarkPushChannel implements PushChannel {
     }
 
     @Override
-    public PushChannelType type() {
-        return PushChannelType.BARK;
+    public PushChannelId type() {
+        return PushChannelIds.BARK;
     }
 
     @Override
@@ -89,8 +90,8 @@ public class BarkPushChannel implements PushChannel {
     }
 
     /** 严重级别映射到 Bark 中断级别；非 ERROR 用默认（返回 {@code null} 则不下发该字段）。 */
-    private static String barkLevel(PushLevel level) {
-        return level == PushLevel.ERROR ? "timeSensitive" : null;
+    private static String barkLevel(NotificationSeverity level) {
+        return level == NotificationSeverity.ERROR ? "timeSensitive" : null;
     }
 
     private static String stripTrailingSlash(String s) {

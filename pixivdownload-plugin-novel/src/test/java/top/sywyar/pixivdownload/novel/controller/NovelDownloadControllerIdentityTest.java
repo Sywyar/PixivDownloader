@@ -14,17 +14,20 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
 import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -140,6 +143,26 @@ class NovelDownloadControllerIdentityTest {
         verify(multiModeSettings, never()).isQuotaEnabled();
         verifyNoInteractions(visitorDownloadQuotaService);
         verify(novelDownloadService).download(request, null);
+    }
+
+    @Test
+    @DisplayName("宿主拒绝下载目录时应由小说插件投影为本地化 400")
+    void rejectedDownloadPathUsesNovelProjection() {
+        NovelDownloadRequest request = requestWithAdminOptions();
+        request.getOther().setUsername("../escape");
+        doThrow(new DownloadPathRejectedException())
+                .when(novelDownloadService).validateUserDownloadFolder(request.getOther());
+        when(messages.get("download.path.segment.invalid", "../escape"))
+                .thenReturn("unsafe path");
+
+        var response = controller().downloadNovel(request, httpRequest);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).isInstanceOf(NovelDownloadResponse.class);
+        assertThat(((NovelDownloadResponse) response.getBody()).getMessage()).isEqualTo("unsafe path");
+        verify(novelDownloadService, never()).download(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     private NovelDownloadController controller() {

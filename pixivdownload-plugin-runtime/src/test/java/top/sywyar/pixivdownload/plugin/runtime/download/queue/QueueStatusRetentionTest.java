@@ -35,7 +35,7 @@ class QueueStatusRetentionTest {
     }
 
     @Test
-    @DisplayName("quiesce 会取消五分钟清理句柄并从父调度队列移除")
+    @DisplayName("quiesce 会取消五分钟清理句柄并从所属插件调度队列移除")
     void cancelsAndRemovesScheduledCleanup() {
         scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(1);

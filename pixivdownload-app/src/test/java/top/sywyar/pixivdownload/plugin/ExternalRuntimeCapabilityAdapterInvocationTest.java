@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.core.notification.NotificationSinkRegistry;
 import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.AiChatClientCapabilityAdapter;
@@ -34,10 +35,9 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapa
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPublication;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
@@ -58,6 +58,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("外置能力 adapter 调用租约")
 class ExternalRuntimeCapabilityAdapterInvocationTest {
+
+    private static final PushChannelId PUSH_CHANNEL_ID = new PushChannelId("test-channel");
 
     @Test
     @DisplayName("阻塞 AI 调用在 publication 撤回后被真实 drain")
@@ -110,7 +112,7 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
         try (AnnotationConfigApplicationContext child = child(PushChannel.class, target)) {
             PluginCapabilityContributionRegistrar registrar = registrar(invocation, adapter);
             ExternalCapabilityPublication publication = publish(registrar, child, "push", 7L);
-            PushChannel proxy = channelRegistry.byType(PushChannelType.BARK).orElseThrow();
+            PushChannel proxy = channelRegistry.byId(new PushChannelId("test-channel")).orElseThrow();
 
             drainBlocking(registrar, publication, gate, () -> proxy.send(message()));
             assertThat(channelRegistry.channels()).isEmpty();
@@ -177,7 +179,7 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
             PluginCapabilityContributionRegistrar registrar = registrar(
                     invocation, pushAdapter, sinkAdapter);
             ExternalCapabilityPublication publication = publish(registrar, child, "push", 11L);
-            rawSink.channel = channelRegistry.byType(PushChannelType.BARK).orElseThrow();
+            rawSink.channel = channelRegistry.byId(PUSH_CHANNEL_ID).orElseThrow();
             NotificationSink sinkProxy = sinkRegistry.sinks().get(0);
             AtomicReference<Throwable> failure = new AtomicReference<>();
             Thread caller = new Thread(() -> {
@@ -252,7 +254,8 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
     }
 
     private static RenderedMessage message() {
-        return new RenderedMessage("title", "body", PushFormat.PLAIN_TEXT, PushLevel.INFO);
+        return new RenderedMessage(
+                "title", "body", PushFormat.PLAIN_TEXT, NotificationSeverity.INFO);
     }
 
     @FunctionalInterface
@@ -320,8 +323,8 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
 
     private record BlockingPushChannel(BlockingGate gate) implements PushChannel {
         @Override
-        public PushChannelType type() {
-            return PushChannelType.BARK;
+        public PushChannelId type() {
+            return PUSH_CHANNEL_ID;
         }
 
         @Override
@@ -394,8 +397,8 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
 
     private record CountingPushChannel(AtomicInteger sends) implements PushChannel {
         @Override
-        public PushChannelType type() {
-            return PushChannelType.BARK;
+        public PushChannelId type() {
+            return PUSH_CHANNEL_ID;
         }
 
         @Override

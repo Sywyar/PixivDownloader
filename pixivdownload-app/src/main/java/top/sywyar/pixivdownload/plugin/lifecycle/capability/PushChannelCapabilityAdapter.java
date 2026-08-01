@@ -8,7 +8,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapa
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPreparation;
 import top.sywyar.pixivdownload.push.PushChannel;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelId;
 
 import java.util.List;
 
@@ -67,12 +67,12 @@ public class PushChannelCapabilityAdapter implements PluginCapabilityContributio
         List<PushChannelRegistry.PreparedChannel> channels = context
                 .getBeansOfType(PushChannel.class).values().stream()
                 .map(target -> {
-                    PushChannelType type = invocationRegistry.captureMetadata(
-                            preparation, PushChannel.class, "channel type", target::type);
+                    PushChannelId channelId = invocationRegistry.captureMetadata(
+                            preparation, PushChannel.class, "channel id", target::type);
                     PushChannel proxy = invocationRegistry.prepareProxy(
                             preparation, PushChannel.class, target);
                     return new PushChannelRegistry.PreparedChannel(
-                            type, proxy, target.getClass().getName());
+                            channelId, proxy, target.getClass().getName());
                 })
                 .toList();
         return new Prepared(preparation.owner(), channels);

@@ -30,6 +30,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -83,7 +84,16 @@ public class NovelDownloadController {
         if (request.getOther() == null) {
             request.setOther(new NovelDownloadRequest.Other());
         }
-        novelDownloadService.validateUserDownloadFolder(request.getOther());
+        try {
+            novelDownloadService.validateUserDownloadFolder(request.getOther());
+        } catch (DownloadPathRejectedException rejected) {
+            return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
+                    .success(false)
+                    .message(messages.get(
+                            "download.path.segment.invalid",
+                            request.getOther().getUsername()))
+                    .build());
+        }
         String mode = applicationModeProvider.getMode();
         if ("multi".equals(mode)) {
             String pdMode = multiModeSettings.getPostDownloadMode();

@@ -1,0 +1,10 @@
+# Host-owned credential: migration must leave this value in config.yaml.
+server.ssl.key-store-password: host-ssl-password
+
+# AI plugin
+ai.api-key: legacy-ai-api-key
+ai.model: legacy-ai-model
+
+# Mail plugin
+mail.password: legacy-mail-password
+mail.host: smtp.example.test

@@ -10,9 +10,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushDispatcher;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
@@ -50,7 +50,7 @@ public class PushTestController {
         PushMessage message = PushMessage.of(
                 messages.get("push.test.message.title"),
                 messages.get("push.test.message.body"),
-                PushLevel.INFO);
+                NotificationSeverity.INFO);
         List<PushResult> results = pushService.test(settings, message);
         return ResponseEntity.ok(PushTestResponse.from(
                 results, messages, LocaleContextHolder.getLocale()));

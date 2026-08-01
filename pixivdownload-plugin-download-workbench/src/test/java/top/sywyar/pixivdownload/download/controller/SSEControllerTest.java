@@ -15,30 +15,41 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -58,13 +69,15 @@ class SSEControllerTest {
     private ScheduledFuture<?> heartbeatFuture;
 
     private SSEController controller;
-    private PluginStreamRegistry pluginStreamRegistry;
+    private FakePluginStreamRegistrar pluginStreamRegistrar;
+    private FakePluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar;
 
     @BeforeEach
     void setUp() {
-        pluginStreamRegistry = new PluginStreamRegistry();
-        controller = new SSEController(taskScheduler, requestOwnerIdentityResolver, TestI18nBeans.appMessages(),
-                pluginStreamRegistry);
+        pluginStreamRegistrar = new FakePluginStreamRegistrar();
+        pluginRuntimeTaskRegistrar = new FakePluginRuntimeTaskRegistrar();
+        controller = new SSEController(taskScheduler, requestOwnerIdentityResolver, WorkbenchTestMessages.messages(),
+                pluginStreamRegistrar, pluginRuntimeTaskRegistrar);
         lenient().when(requestOwnerIdentityResolver.resolve(any()))
                 .thenReturn(RequestOwnerIdentity.adminScope());
         lenient().when(taskScheduler.scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30))))
@@ -96,6 +109,24 @@ class SSEControllerTest {
         assertThat(subscriptionLocale(artworkEmitters().get(key))).isEqualTo(Locale.SIMPLIFIED_CHINESE);
         assertThat(heartbeatTasks()).containsKey(key);
         verify(taskScheduler).scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30)));
+    }
+
+    @Test
+    @DisplayName("心跳调度明确拒绝时终结未提交的宿主包装器")
+    void rejectedHeartbeatSchedulingDiscardsUnsubmittedWrapper() {
+        when(taskScheduler.scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30))))
+                .thenThrow(new RejectedExecutionException("scheduler rejected"));
+
+        assertThatThrownBy(() -> controller.createSSEConnection(
+                12345L, new MockHttpServletRequest()))
+                .isInstanceOf(RejectedExecutionException.class)
+                .hasMessageContaining("scheduler rejected");
+
+        assertThat(pluginRuntimeTaskRegistrar.tasks).hasSize(1);
+        assertThat(pluginRuntimeTaskRegistrar.tasks.get(0).cancelled).isTrue();
+        assertThat(pluginRuntimeTaskRegistrar.tasks.get(0).discarded).isTrue();
+        assertThat(heartbeatTasks()).isEmpty();
+        assertThat(artworkEmitters()).isEmpty();
     }
 
     @Test
@@ -225,7 +256,7 @@ class SSEControllerTest {
         String ownerUuid = "123e4567-e89b-12d3-a456-426614174000";
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putAggregatedSubscription("conn-1", emitter, ownerUuid, false, Locale.US);
-        aggregatedHeartbeatTasks().put("conn-1", heartbeatFuture);
+        aggregatedHeartbeatTasks().put("conn-1", heartbeatTask(heartbeatFuture));
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-User-UUID", ownerUuid);
         when(requestOwnerIdentityResolver.resolve(request)).thenReturn(RequestOwnerIdentity.owner(ownerUuid));
@@ -249,7 +280,7 @@ class SSEControllerTest {
         String ownerUuid = "123e4567-e89b-12d3-a456-426614174000";
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putAggregatedSubscription("conn-1", emitter, ownerUuid, false, Locale.US);
-        aggregatedHeartbeatTasks().put("conn-1", heartbeatFuture);
+        aggregatedHeartbeatTasks().put("conn-1", heartbeatTask(heartbeatFuture));
         MockHttpServletRequest request = new MockHttpServletRequest();
         String otherOwnerUuid = "223e4567-e89b-12d3-a456-426614174000";
         request.addHeader("X-User-UUID", otherOwnerUuid);
@@ -272,7 +303,7 @@ class SSEControllerTest {
     void shouldRejectAdminScopeWithoutAuthenticatedSession() throws Exception {
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putAggregatedSubscription("admin-conn", emitter, null, true, Locale.US);
-        aggregatedHeartbeatTasks().put("admin-conn", heartbeatFuture);
+        aggregatedHeartbeatTasks().put("admin-conn", heartbeatTask(heartbeatFuture));
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(requestOwnerIdentityResolver.isAdminAuthenticated(request)).thenReturn(false);
         String closeToken = createAggregatedCloseToken("admin-conn", null, true);
@@ -290,7 +321,7 @@ class SSEControllerTest {
     void shouldAllowAuthenticatedAdminToCloseAdminSubscription() throws Exception {
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putAggregatedSubscription("admin-conn", emitter, null, true, Locale.US);
-        aggregatedHeartbeatTasks().put("admin-conn", heartbeatFuture);
+        aggregatedHeartbeatTasks().put("admin-conn", heartbeatTask(heartbeatFuture));
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(requestOwnerIdentityResolver.isAdminAuthenticated(request)).thenReturn(true);
         String closeToken = createAggregatedCloseToken("admin-conn", null, true);
@@ -309,7 +340,7 @@ class SSEControllerTest {
     void shouldCleanupAndCompleteAggregatedConnectionAfterSendFailure() throws Exception {
         FailingSseEmitter emitter = new FailingSseEmitter();
         putAggregatedSubscription("broken", emitter, "user-1", false, Locale.US);
-        aggregatedHeartbeatTasks().put("broken", heartbeatFuture);
+        aggregatedHeartbeatTasks().put("broken", heartbeatTask(heartbeatFuture));
 
         DownloadStatus status = new DownloadStatus(123L, "test", 1);
         status.setDownloadedCount(1);
@@ -329,13 +360,13 @@ class SSEControllerTest {
         when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         FailingSseEmitter artwork = new FailingSseEmitter();
         putArtworkSubscription(781L, artwork, Locale.US);
-        heartbeatTasks().put("admin:781", heartbeatFuture);
+        heartbeatTasks().put("admin:781", heartbeatTask(heartbeatFuture));
 
         controller.closeSSEConnection(781L, new MockHttpServletRequest());
 
         FailingSseEmitter aggregated = new FailingSseEmitter();
         putAggregatedSubscription("close-failed", aggregated, null, true, Locale.US);
-        aggregatedHeartbeatTasks().put("close-failed", heartbeatFuture);
+        aggregatedHeartbeatTasks().put("close-failed", heartbeatTask(heartbeatFuture));
         when(requestOwnerIdentityResolver.isAdminAuthenticated(any())).thenReturn(true);
         String token = createAggregatedCloseToken("close-failed", null, true);
         controller.closeAggregatedSSEConnection(token, new MockHttpServletRequest());
@@ -348,32 +379,34 @@ class SSEControllerTest {
     }
 
     @Test
-    @DisplayName("作品级 / 聚合连接注册进插件推流注册中心；拥有它的插件 closeForPlugin 时全部关闭、注册中心清空")
+    @DisplayName("作品级 / 聚合连接注册进 owner-scoped 推流端口；宿主关闭时全部清理")
     void registersStreamsUnderOwningPluginAndClosesThemOnTeardown() {
         when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
 
         controller.createSSEConnection(111L, new MockHttpServletRequest());
         controller.createAggregatedSSEConnection(new MockHttpServletRequest());
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(3);
+        assertThat(pluginStreamRegistrar.activeStreamCount()).isEqualTo(2);
 
-        // 拥有它的插件 quiesce / 卸载 → 生命周期服务调 closeForPlugin → 关闭全部连接、注册中心不再残留引用
-        int closed = pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
+        // 拥有它的插件 quiesce / 卸载 → 宿主关闭 owner-scoped registrar → 关闭全部连接并释放引用
+        int closed = pluginStreamRegistrar.closeAll();
 
-        assertThat(closed).isEqualTo(3);
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isZero();
+        assertThat(closed).isEqualTo(2);
+        assertThat(pluginStreamRegistrar.activeStreamCount()).isZero();
+        simulateEmitterCompletionCleanup();
         assertThat(artworkEmitters()).isEmpty();
         assertThat(aggregatedEmitters()).isEmpty();
     }
 
     @Test
-    @DisplayName("插件 closeForPlugin 关闭作品级连接：客户端收到 plugin-unavailable 事件并被 complete")
-    void closeForPluginSendsUnavailableEventToArtworkClient() throws Exception {
+    @DisplayName("宿主关闭作品级连接时客户端收到 plugin-unavailable 事件并被 complete")
+    void hostCloseSendsUnavailableEventToArtworkClient() throws Exception {
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putArtworkSubscription(777L, emitter, Locale.US);
-        pluginStreamRegistry.register(DownloadWorkbenchPlugin.ID, "admin:777",
-                () -> ReflectionTestUtils.invokeMethod(controller, "closeArtworkStreamUnavailable", "admin:777"));
+        pluginStreamRegistrar.register("artwork:777",
+                unavailableStream(emitter, "temporarily unavailable"));
 
-        pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
+        pluginStreamRegistrar.closeAll();
+        ReflectionTestUtils.invokeMethod(controller, "cleanupArtworkEmitter", "admin:777");
 
         assertThat(emitter.events).hasSize(1);
         assertThat(emitter.events.get(0).raw)
@@ -391,12 +424,13 @@ class SSEControllerTest {
         controller.createSSEConnection(779L, new MockHttpServletRequest());
 
         assertThat(artworkEmitters()).hasSize(2);
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(3);
+        assertThat(pluginStreamRegistrar.activeStreamCount()).isEqualTo(2);
 
-        assertThat(pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID)).isEqualTo(3);
+        assertThat(pluginStreamRegistrar.closeAll()).isEqualTo(2);
+        simulateEmitterCompletionCleanup();
         assertThat(artworkEmitters()).isEmpty();
         assertThat(heartbeatTasks()).isEmpty();
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isZero();
+        assertThat(pluginStreamRegistrar.activeStreamCount()).isZero();
     }
 
     @Test
@@ -415,18 +449,18 @@ class SSEControllerTest {
         assertThat(artworkEmitters()).hasSize(1);
         assertThat(subscriptionEmitter(artworkEmitters().values().iterator().next()))
                 .isSameAs(newEmitter);
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+        assertThat(pluginStreamRegistrar.activeStreamCount()).isEqualTo(1);
 
-        assertThat(pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+        assertThat(pluginStreamRegistrar.closeAll()).isEqualTo(1);
+        simulateEmitterCompletionCleanup();
         assertThat(artworkEmitters()).isEmpty();
     }
 
     @Test
-    @DisplayName("quiesce 等阻塞中的进度 flush 实际退出后才完成后台 drain")
-    void quiesceWaitsForBlockingProgressFlush() throws Exception {
+    @DisplayName("context 关闭的兜底清理会中断阻塞中的进度 flush 并等待执行器退出")
+    void contextCloseFallbackInterruptsBlockingProgressFlush() throws Exception {
         BlockingSseEmitter emitter = new BlockingSseEmitter();
         putAggregatedSubscription("blocking-progress", emitter, "user-1", false, Locale.US);
-        ReflectionTestUtils.invokeMethod(controller, "ensureBackgroundDrainRegistered");
         DownloadStatus status = new DownloadStatus(782L, "title", 1);
         status.setDownloadedCount(1);
         controller.handleDownloadProgressEvent(
@@ -436,72 +470,31 @@ class SSEControllerTest {
         AtomicReference<Throwable> closeFailure = new AtomicReference<>();
         Thread close = new Thread(() -> {
             try {
-                pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
+                controller.shutdownProgressExecutor();
             } catch (Throwable failure) {
                 closeFailure.set(failure);
             }
-        }, "sse-progress-drain-close");
+        }, "sse-progress-context-close");
         close.start();
-        Thread.sleep(30);
-        assertThat(close.isAlive()).isTrue();
-
-        emitter.releaseSend.countDown();
         close.join(5000);
 
         assertThat(close.isAlive()).isFalse();
         assertThat(closeFailure.get()).isNull();
+        emitter.releaseSend.countDown();
         ReflectionTestUtils.invokeMethod(controller, "cleanupAggregatedEmitter", "blocking-progress");
     }
 
     @Test
-    @DisplayName("quiesce 取消 heartbeat future 并等待已运行 heartbeat 插件栈退出")
-    void quiesceWaitsForBlockingHeartbeatFrame() throws Exception {
-        ReflectionTestUtils.invokeMethod(controller, "ensureBackgroundDrainRegistered");
-        heartbeatTasks().put("blocking-heartbeat", heartbeatFuture);
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        AtomicReference<Throwable> heartbeatFailure = new AtomicReference<>();
-        Thread heartbeat = new Thread(() -> {
-            try {
-                ReflectionTestUtils.invokeMethod(controller, "runTrackedBackground", (Runnable) () -> {
-                    entered.countDown();
-                    try {
-                        if (!release.await(5, TimeUnit.SECONDS)) {
-                            throw new AssertionError("timed out waiting to release heartbeat");
-                        }
-                    } catch (InterruptedException failure) {
-                        Thread.currentThread().interrupt();
-                        throw new AssertionError("heartbeat interrupted");
-                    }
-                });
-            } catch (Throwable failure) {
-                heartbeatFailure.set(failure);
-            }
-        }, "sse-blocking-heartbeat");
-        heartbeat.start();
-        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+    @DisplayName("context 关闭的兜底清理会撤销并移除所有 heartbeat 包装器")
+    void contextCloseFallbackCancelsHeartbeatWrappers() {
+        heartbeatTasks().put("artwork-heartbeat", heartbeatTask(heartbeatFuture));
+        aggregatedHeartbeatTasks().put("aggregated-heartbeat", heartbeatTask(heartbeatFuture));
 
-        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
-        Thread close = new Thread(() -> {
-            try {
-                pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
-            } catch (Throwable failure) {
-                closeFailure.set(failure);
-            }
-        }, "sse-heartbeat-drain-close");
-        close.start();
-        Thread.sleep(30);
-        assertThat(close.isAlive()).isTrue();
-        verify(heartbeatFuture).cancel(false);
+        controller.shutdownProgressExecutor();
 
-        release.countDown();
-        heartbeat.join(5000);
-        close.join(5000);
-
-        assertThat(heartbeat.isAlive()).isFalse();
-        assertThat(close.isAlive()).isFalse();
-        assertThat(heartbeatFailure.get()).isNull();
-        assertThat(closeFailure.get()).isNull();
+        assertThat(heartbeatTasks()).isEmpty();
+        assertThat(aggregatedHeartbeatTasks()).isEmpty();
+        verify(heartbeatFuture, times(2)).cancel(false);
     }
 
     @Test
@@ -511,15 +504,16 @@ class SSEControllerTest {
         FailingSseEmitter aggregated = new FailingSseEmitter();
         putArtworkSubscription(778L, artwork, Locale.US);
         putAggregatedSubscription("broken-aggregate", aggregated, "user-1", false, Locale.US);
-        heartbeatTasks().put("admin:778", heartbeatFuture);
-        aggregatedHeartbeatTasks().put("broken-aggregate", heartbeatFuture);
-        pluginStreamRegistry.register(DownloadWorkbenchPlugin.ID, "admin:778",
-                () -> ReflectionTestUtils.invokeMethod(controller, "closeArtworkStreamUnavailable", "admin:778"));
-        pluginStreamRegistry.register(DownloadWorkbenchPlugin.ID, "broken-aggregate",
-                () -> ReflectionTestUtils.invokeMethod(
-                        controller, "closeAggregatedStreamUnavailable", "broken-aggregate"));
+        heartbeatTasks().put("admin:778", heartbeatTask(heartbeatFuture));
+        aggregatedHeartbeatTasks().put("broken-aggregate", heartbeatTask(heartbeatFuture));
+        pluginStreamRegistrar.register("artwork:778",
+                unavailableStream(artwork, "temporarily unavailable"));
+        pluginStreamRegistrar.register("aggregated:broken",
+                unavailableStream(aggregated, "temporarily unavailable"));
 
-        assertThat(pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+        assertThat(pluginStreamRegistrar.closeAll()).isEqualTo(2);
+        ReflectionTestUtils.invokeMethod(controller, "cleanupArtworkEmitter", "admin:778");
+        ReflectionTestUtils.invokeMethod(controller, "cleanupAggregatedEmitter", "broken-aggregate");
 
         assertThat(artwork.completed).isTrue();
         assertThat(aggregated.completed).isTrue();
@@ -531,15 +525,57 @@ class SSEControllerTest {
     }
 
     @Test
-    @DisplayName("作品级连接正常关闭后只保留 controller 后台 drain token")
+    @DisplayName("作品级连接正常关闭后不在宿主登记端口残留 token")
     void normalCloseUnregistersStream() {
         when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         controller.createSSEConnection(222L, new MockHttpServletRequest());
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+        assertThat(pluginStreamRegistrar.activeStreamCount()).isEqualTo(1);
 
         controller.closeSSEConnection(222L, new MockHttpServletRequest());
 
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(1);
+        assertThat(pluginStreamRegistrar.activeStreamCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("宿主持有的关闭回调只弱引用 emitter 并捕获预解析文案")
+    void registeredCloseCallbacksDoNotCapturePluginBeansOrContext() throws Exception {
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
+        controller.createSSEConnection(223L, new MockHttpServletRequest());
+        controller.createAggregatedSSEConnection(new MockHttpServletRequest());
+
+        assertThat(pluginStreamRegistrar.registeredStreams()).hasSize(2);
+        for (PluginStream stream : pluginStreamRegistrar.registeredStreams()) {
+            List<Object> captured = new ArrayList<>();
+            for (Field field : stream.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                captured.add(field.get(stream));
+            }
+            assertThat(captured)
+                    .hasSize(2)
+                    .allMatch(value -> value instanceof WeakReference<?> || value instanceof String);
+            assertThat(captured).filteredOn(WeakReference.class::isInstance).singleElement()
+                    .satisfies(reference -> assertThat(((WeakReference<?>) reference).get())
+                            .isInstanceOf(SseEmitter.class));
+            assertThat(captured).filteredOn(String.class::isInstance).hasSize(1);
+            assertThat(captured).noneMatch(value -> value instanceof SSEController);
+        }
+    }
+
+    private PluginStream unavailableStream(SseEmitter emitter, String unavailableMessage) {
+        return ReflectionTestUtils.invokeMethod(
+                controller,
+                "unavailableStream",
+                emitter,
+                unavailableMessage);
+    }
+
+    private void simulateEmitterCompletionCleanup() {
+        for (String subscriptionKey : List.copyOf(artworkEmitters().keySet())) {
+            ReflectionTestUtils.invokeMethod(controller, "cleanupArtworkEmitter", subscriptionKey);
+        }
+        for (String connectionId : List.copyOf(aggregatedEmitters().keySet())) {
+            ReflectionTestUtils.invokeMethod(controller, "cleanupAggregatedEmitter", connectionId);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -548,8 +584,8 @@ class SSEControllerTest {
     }
 
     @SuppressWarnings("unchecked")
-    private ConcurrentHashMap<String, ScheduledFuture<?>> heartbeatTasks() {
-        return (ConcurrentHashMap<String, ScheduledFuture<?>>) ReflectionTestUtils.getField(controller, "heartbeatTasks");
+    private ConcurrentHashMap<String, PluginRuntimeTask> heartbeatTasks() {
+        return (ConcurrentHashMap<String, PluginRuntimeTask>) ReflectionTestUtils.getField(controller, "heartbeatTasks");
     }
 
     @SuppressWarnings("unchecked")
@@ -558,8 +594,16 @@ class SSEControllerTest {
     }
 
     @SuppressWarnings("unchecked")
-    private ConcurrentHashMap<String, ScheduledFuture<?>> aggregatedHeartbeatTasks() {
-        return (ConcurrentHashMap<String, ScheduledFuture<?>>) ReflectionTestUtils.getField(controller, "aggregatedHeartbeats");
+    private ConcurrentHashMap<String, PluginRuntimeTask> aggregatedHeartbeatTasks() {
+        return (ConcurrentHashMap<String, PluginRuntimeTask>) ReflectionTestUtils.getField(
+                controller, "aggregatedHeartbeats");
+    }
+
+    private PluginRuntimeTask heartbeatTask(ScheduledFuture<?> cancellation) {
+        PluginRuntimeTask task = pluginRuntimeTaskRegistrar.registerPeriodic(() -> {
+        });
+        task.bindCancellation(cancellation);
+        return task;
     }
 
     private void putArtworkSubscription(Long artworkId, SseEmitter emitter, Locale locale) throws Exception {
@@ -634,6 +678,198 @@ class SSEControllerTest {
                 ownerUuid,
                 admin,
                 System.currentTimeMillis());
+    }
+
+    private static final class FakePluginRuntimeTaskRegistrar implements PluginRuntimeTaskRegistrar {
+        private final List<FakePluginRuntimeTask> tasks = new CopyOnWriteArrayList<>();
+        private volatile boolean accepting = true;
+
+        @Override
+        public PluginRuntimeTask registerOneShot(Runnable delegate) {
+            return register(delegate, false);
+        }
+
+        @Override
+        public PluginRuntimeTask registerPeriodic(Runnable delegate) {
+            return register(delegate, true);
+        }
+
+        @Override
+        public boolean acceptsNewTasks() {
+            return accepting;
+        }
+
+        private PluginRuntimeTask register(Runnable delegate, boolean periodic) {
+            if (!accepting) {
+                throw new PluginRuntimeTaskRejectedException();
+            }
+            FakePluginRuntimeTask task = new FakePluginRuntimeTask(delegate, periodic);
+            tasks.add(task);
+            return task;
+        }
+    }
+
+    private static final class FakePluginRuntimeTask implements PluginRuntimeTask {
+        private Runnable delegate;
+        private final boolean periodic;
+        private Future<?> cancellation;
+        private boolean cancelled;
+        private boolean discarded;
+
+        private FakePluginRuntimeTask(Runnable delegate, boolean periodic) {
+            this.delegate = delegate;
+            this.periodic = periodic;
+        }
+
+        @Override
+        public void bindCancellation(Future<?> cancellation) {
+            boolean cancelImmediately;
+            synchronized (this) {
+                this.cancellation = cancellation;
+                cancelImmediately = cancelled;
+            }
+            if (cancelImmediately) {
+                cancellation.cancel(false);
+            }
+        }
+
+        @Override
+        public void cancel() {
+            Future<?> currentCancellation;
+            synchronized (this) {
+                cancelled = true;
+                delegate = null;
+                currentCancellation = cancellation;
+            }
+            if (currentCancellation != null) {
+                currentCancellation.cancel(false);
+            }
+        }
+
+        @Override
+        public synchronized void discardUnsubmitted() {
+            if (cancellation != null) {
+                throw new IllegalStateException("task already submitted");
+            }
+            discarded = true;
+            cancelled = true;
+            delegate = null;
+        }
+
+        @Override
+        public void run() {
+            Runnable currentDelegate;
+            synchronized (this) {
+                currentDelegate = cancelled ? null : delegate;
+            }
+            if (currentDelegate == null) {
+                return;
+            }
+            try {
+                currentDelegate.run();
+            } finally {
+                if (!periodic) {
+                    synchronized (this) {
+                        delegate = null;
+                    }
+                }
+            }
+        }
+    }
+
+    private static final class FakePluginStreamRegistrar implements PluginStreamRegistrar {
+        private final Map<String, PluginStream> streams = new LinkedHashMap<>();
+        private boolean accepting = true;
+
+        @Override
+        public void register(String streamToken, PluginStream stream) {
+            if (streamToken == null || streamToken.isBlank() || stream == null) {
+                return;
+            }
+            synchronized (this) {
+                PluginStream existing = streams.get(streamToken);
+                if (existing != null && existing != stream) {
+                    throw new IllegalStateException("duplicate plugin stream token: " + streamToken);
+                }
+                if (accepting) {
+                    streams.putIfAbsent(streamToken, stream);
+                    return;
+                }
+            }
+            try {
+                stream.closeUnavailable();
+            } catch (Throwable failure) {
+                synchronized (this) {
+                    streams.putIfAbsent(streamToken, stream);
+                }
+                rethrow(failure);
+            }
+        }
+
+        @Override
+        public synchronized void unregister(String streamToken) {
+            if (streamToken != null) {
+                streams.remove(streamToken);
+            }
+        }
+
+        @Override
+        public synchronized boolean acceptsNewStreams() {
+            return accepting;
+        }
+
+        int closeAll() {
+            List<Map.Entry<String, PluginStream>> snapshot;
+            synchronized (this) {
+                accepting = false;
+                snapshot = new ArrayList<>(streams.entrySet());
+            }
+            int closed = 0;
+            Throwable failure = null;
+            for (Map.Entry<String, PluginStream> entry : snapshot) {
+                try {
+                    entry.getValue().closeUnavailable();
+                    synchronized (this) {
+                        streams.remove(entry.getKey(), entry.getValue());
+                    }
+                    closed++;
+                } catch (Throwable closeFailure) {
+                    failure = mergeFailure(failure, closeFailure);
+                }
+            }
+            rethrow(failure);
+            return closed;
+        }
+
+        synchronized int activeStreamCount() {
+            return streams.size();
+        }
+
+        synchronized List<PluginStream> registeredStreams() {
+            return List.copyOf(streams.values());
+        }
+
+        private static Throwable mergeFailure(Throwable current, Throwable failure) {
+            if (current == null) {
+                return failure;
+            }
+            if (current != failure) {
+                current.addSuppressed(failure);
+            }
+            return current;
+        }
+
+        private static void rethrow(Throwable failure) {
+            if (failure instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            if (failure instanceof Error error) {
+                throw error;
+            }
+            if (failure != null) {
+                throw new IllegalStateException("plugin stream close failed", failure);
+            }
+        }
     }
 
     private static final class RecordingSseEmitter extends SseEmitter {

@@ -7,10 +7,10 @@ import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
@@ -48,6 +48,19 @@ class AiPluginGuiConfigContributionTest {
     }
 
     @Test
+    @DisplayName("AI API Key 是唯一敏感密码字段")
+    void apiKeyIsTheOnlySensitivePasswordField() {
+        List<GuiConfigFieldContribution> sensitiveFields = fields().stream()
+                .filter(GuiConfigFieldContribution::sensitive)
+                .toList();
+
+        assertThat(sensitiveFields).extracting(GuiConfigFieldContribution::key)
+                .containsExactly("ai.api-key");
+        assertThat(sensitiveFields).allSatisfy(field ->
+                assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD));
+    }
+
+    @Test
     @DisplayName("贡献文本模型卡片、预设与测试动作")
     void contributesAiCardPresetsAndAction() {
         GuiConfigSectionContribution section = section();
@@ -80,12 +93,11 @@ class AiPluginGuiConfigContributionTest {
         assertThat(action.payloadFields()).extracting(GuiConfigActionPayloadField::fieldKey)
                 .containsExactly("ai.base-url", "ai.api-key", "ai.model", "ai.use-proxy");
         assertThat(action.payloadFields().get(3).valueType()).isEqualTo(GuiConfigActionPayloadType.BOOLEAN);
-        assertThat(action.resultRules()).hasSize(5);
+        assertThat(action.resultRules()).hasSize(4);
         assertThat(action.resultRules()).allSatisfy(rule ->
                 assertThat(rule.i18nNamespace()).isEqualTo(AiPlugin.ID));
         assertThat(action.resultRules()).flatExtracting(rule -> rule.arguments())
-                .anySatisfy(argument ->
-                        assertThat(argument.source()).isEqualTo(GuiConfigActionResultSource.RAW_BODY));
+                .allSatisfy(argument -> assertThat(argument.path()).isEqualTo("reply"));
 
         assertThat(section.presets()).hasSize(new AiPresetRegistry().all().size());
         assertThat(section.presets()).extracting(GuiConfigPresetContribution::cardId)

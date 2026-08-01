@@ -91,4 +91,33 @@ class PropertiesConfigFileEditorTest {
                 .contains("fixture.mode=direct")
                 .doesNotContain("fixture.api-key");
     }
+
+    @Test
+    @DisplayName("迁移应识别空白分隔和无分隔符的旧 properties 凭证")
+    void shouldRemoveWhitespaceSeparatedAndValuelessManagedKeys() throws Exception {
+        Path file = tempDir.resolve("fixture.properties");
+        Files.writeString(file, String.join("\n",
+                "fixture.api-key legacy-api-key",
+                "fixture.token",
+                "fixture.mode=direct",
+                ""), StandardCharsets.UTF_8);
+        PropertiesConfigFileEditor editor = new PropertiesConfigFileEditor(file);
+
+        assertThat(editor.readAll(Map.of(
+                "fixture.api-key", "",
+                "fixture.token", "").keySet()))
+                .containsEntry("fixture.api-key", "legacy-api-key")
+                .containsEntry("fixture.token", "");
+
+        editor.removeAll(Map.of(
+                "fixture.api-key", "",
+                "fixture.token", "").keySet());
+
+        assertThat(editor.readAll(Map.of(
+                "fixture.api-key", "",
+                "fixture.token", "").keySet())).isEmpty();
+        assertThat(Files.readString(file, StandardCharsets.UTF_8))
+                .contains("fixture.mode=direct")
+                .doesNotContain("fixture.api-key", "fixture.token");
+    }
 }

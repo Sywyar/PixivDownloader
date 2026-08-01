@@ -32,6 +32,8 @@ import java.util.stream.Collectors;
 @Component
 public class RouteAccessRegistry {
 
+    private static final String CORE_PLUGIN_ID = "core";
+
     /** 一条已注册路由、声明方插件及其可热卸载 serving 的精确请求 owner。 */
     public record RegisteredRoute(
             String pluginId,
@@ -263,6 +265,11 @@ public class RouteAccessRegistry {
         }
         if (route.accessPolicy() == null) {
             throw new IllegalStateException("route without access policy: " + pattern
+                    + " (plugin: " + pluginId + ")");
+        }
+        if (route.accessPolicy() == AccessPolicy.ACTUATOR_PUBLIC
+                && !CORE_PLUGIN_ID.equals(pluginId)) {
+            throw new IllegalStateException("ACTUATOR_PUBLIC route is reserved for the core host"
                     + " (plugin: " + pluginId + ")");
         }
     }

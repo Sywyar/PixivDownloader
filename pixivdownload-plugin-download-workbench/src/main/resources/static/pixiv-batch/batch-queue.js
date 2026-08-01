@@ -58,42 +58,31 @@
         return parts.filter(Boolean).join('');
     }
 
-    // 「下载即自动翻译」的状态文案：模型只存 raw（phase / 已耗时 / 系列待译数），此处按当前语言派生。
-    function novelTranslateMessage(q) {
-        switch (q.translatePhase) {
-            case 'QUEUED':
-                return bt('queue.message.translate-waiting', '排队等待翻译...');
-            case 'WAITING_SERIES':
-                return bt('queue.message.translate-wait-series', '等待前系列小说翻译完成，还有 {n} 个',
-                    {n: q.translateSeriesPending || 0});
-            case 'RESOLVING':
-                return bt('queue.message.translate-resolving', '识别目标语言中...');
-            case 'TRANSLATING':
-                return bt('queue.message.translating', 'AI 翻译中（{sec}s）', {sec: q.translateElapsed || 0});
-            case 'MERGING':
-                return bt('queue.message.translate-merging', '生成译文合订本中...');
-            case 'SAME_LANGUAGE':
-                return bt('queue.message.translate-same-lang', '完成（源语言与目标一致，已跳过）');
-            case 'DONE':
-                return bt('queue.message.translate-done', '完成（已翻译）');
-            case 'FAILED':
-                return bt('queue.message.translate-failed', '完成（翻译失败）');
-            default:
-                return '';
+    // 作品类型只贡献有界纯文本；共享渲染器固定 tone 样式并再次转义，不认识任何插件私有阶段。
+    function formatQueueLiveStatusHtml(q) {
+        const registry = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (!registry || typeof registry.queueLiveStatus !== 'function') return '';
+        let status;
+        try {
+            status = registry.queueLiveStatus(q);
+        } catch (e) {
+            return '';
         }
-    }
-
-    // 在队列项底部渲染一行自动翻译状态（下载队列 / 计划队列共用）；无翻译态时不渲染。
-    function formatNovelTranslateHtml(q) {
-        if (q.kind !== 'novel' || !q.translatePhase) return '';
-        const msg = novelTranslateMessage(q);
-        if (!msg) return '';
-        const terminal = q.translatePhase === 'DONE' || q.translatePhase === 'FAILED'
-            || q.translatePhase === 'SAME_LANGUAGE';
-        const color = q.translatePhase === 'FAILED' ? '#dc3545' : (terminal ? '#28a745' : '#8b5cf6');
-        return `<div class="q-translate" style="margin-top:4px;font-size:11px;color:${color};display:flex;align-items:center;gap:6px;">`
-            + `<span style="background:${color};color:white;border-radius:3px;padding:0 5px;font-size:10px;">${esc(bt('queue.translate.label', 'AI 翻译'))}</span>`
-            + `<span>${esc(msg)}</span></div>`;
+        if (!status || typeof status !== 'object') return '';
+        const colors = {
+            info: 'var(--muted)',
+            success: 'var(--brand)',
+            warning: 'var(--warning-text)',
+            error: 'var(--danger-bg)'
+        };
+        const color = colors[String(status.tone || '').toLowerCase()];
+        if (!color) return '';
+        const label = String(status.label == null ? '' : status.label).trim();
+        const message = String(status.message == null ? '' : status.message).trim();
+        if (!label || !message) return '';
+        return `<div class="q-live-status" style="margin-top:4px;font-size:11px;color:${color};display:flex;align-items:center;gap:6px;">`
+            + `<span style="border:1px solid currentColor;border-radius:3px;padding:0 5px;font-size:10px;">${esc(label)}</span>`
+            + `<span>${esc(message)}</span></div>`;
     }
 
     function formatStatsText(pending, success, failed, active, skipped) {
@@ -396,7 +385,7 @@
         <div class="prog-label"><span>${esc(formatImageProgressText(item.downloadedCount || 0, item.totalImages))}</span><span>${pct(item)}%</span></div>
         <div class="prog-bg"><div class="prog-fill green" style="width:${pct(item)}%"></div></div>
        </div>` : '';
-        return `<strong>${currentLabel}</strong> ${esc(item.title)} (ID: ${item.id})${prog}${formatImageDownloadProgressHtml(item.imageProgress, item.status)}${formatUgoiraProgressHtml(item.ugoiraProgress, item.status)}`;
+        return `<strong>${currentLabel}</strong> ${esc(item.title)} (ID: ${esc(item.id == null ? '' : item.id)})${prog}${formatImageDownloadProgressHtml(item.imageProgress, item.status)}${formatUgoiraProgressHtml(item.ugoiraProgress, item.status)}`;
     }
 
     function buildBookmarkTip(bookmarkCount) {
@@ -1011,12 +1000,20 @@
         if (!root || typeof root.addEventListener !== 'function' || queueActionRoots.has(root)) return false;
         root.addEventListener('click', event => {
             const target = event && event.target;
-            const button = target && typeof target.closest === 'function'
+            const cancelButton = target && typeof target.closest === 'function'
                 ? target.closest('[data-queue-cancel-id]') : null;
-            if (!button) return;
+            if (cancelButton) {
+                if (event && typeof event.preventDefault === 'function') event.preventDefault();
+                if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+                requestQueueItemCancel(cancelButton.getAttribute('data-queue-cancel-id'));
+                return;
+            }
+            const removeButton = target && typeof target.closest === 'function'
+                ? target.closest('[data-queue-remove-id]') : null;
+            if (!removeButton) return;
             if (event && typeof event.preventDefault === 'function') event.preventDefault();
             if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-            requestQueueItemCancel(button.getAttribute('data-queue-cancel-id'));
+            removeFromQueue(removeButton.getAttribute('data-queue-remove-id'));
         });
         queueActionRoots.add(root);
         return true;
@@ -1025,12 +1022,12 @@
     // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，
     // 保证两处队列展示完全一致（进度条、数据来源/模式/分级/插件标签、小说进度等）。
     // opts.removable=false 时不渲染移除按钮（计划任务为服务端队列，前端不可移除）。
-    // opts.queueId 给行根节点打一个稳定的 data-queue-id，供「只替换单行 outerHTML」的局部刷新定位该行
+    // opts.queueKey 给行根节点打一个宿主编码的复合 data-queue-key，供「只替换单行 outerHTML」的局部刷新定位该行
     //（计划任务详情高频 SSE 刷新用，避免整块 innerHTML 重建）；不传则不输出该属性，普通队列调用不受影响。
     function buildQueueItemHtml(q, opts) {
         const removable = !opts || opts.removable !== false;
-        const queueIdAttr = opts && opts.queueId != null
-            ? ` data-queue-id="${esc(String(opts.queueId))}"`
+        const queueKeyAttr = opts && opts.queueKey != null
+            ? ` data-queue-key="${esc(String(opts.queueKey))}"`
             : '';
         const prog = q.totalImages > 0
             ? `<div class="prog-wrap">
@@ -1040,7 +1037,7 @@
         const detailProg = formatImageDownloadProgressHtml(q.imageProgress, q.status)
             + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
             + formatNovelProgressHtml(q)
-            + formatNovelTranslateHtml(q);
+            + formatQueueLiveStatusHtml(q);
         const desc = q.statusMessageKey
             ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status))
             : (q.lastMessage || queueStatusText(q.status));
@@ -1070,22 +1067,24 @@
             ? `<button type="button" class="queue-cancel-btn" data-queue-cancel-id="${esc(String(q.id))}" title="${esc(bt('queue.cancel', '取消下载'))}" aria-label="${esc(bt('queue.cancel', '取消下载'))}">■</button>`
             : '';
         const removeBtn = canRemove
-            ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="${esc(bt('queue.remove', '移除'))}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
+            ? `<button type="button" data-queue-remove-id="${esc(String(q.id))}" title="${esc(bt('queue.remove', '移除'))}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;">✕</button>`
             : '';
         const isNovel = q.kind === 'novel';
+        const novelDisplayId = q.novelId != null ? String(q.novelId) : String(q.id).replace(/^n/, '');
+        const displayId = isNovel ? `${novelDisplayId} (Novel)` : String(q.id == null ? '' : q.id);
         const linkHref = queueItemCanonicalUrl(q) || (isNovel
-            ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(q.novelId || String(q.id).replace(/^n/, ''))}`
+            ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelDisplayId)}`
             : '');
         const linkBtn = linkHref
             ? `<a href="${esc(linkHref)}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`
             : '';
-        return `<div class="queue-item"${queueIdAttr} style="border-left-color:${statusColor(q.status)}">
+        return `<div class="queue-item"${queueKeyAttr} style="border-left-color:${statusColor(q.status)}">
       <div class="q-title">
         <span class="q-title-main">${esc(queueItemDisplayTitle(q))}</span>
         ${linkBtn}${cancelBtn}${removeBtn}
       </div>
       <div class="q-tags">${sourceLabel}${modeLabel}${ratingLabel}${pluginLabels}</div>
-      <div class="q-meta">ID: ${isNovel ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)' : q.id} | ${descHtml}</div>
+      <div class="q-meta">ID: ${esc(displayId)} | ${descHtml}</div>
       ${prog}
       ${detailProg}
     </div>`;
@@ -1140,13 +1139,8 @@
                         q.lastMessage = bt('queue.message.failed-refresh', '失败 — 页面刷新导致中断');
                         q.lastMessageParts = null;
                     }
-                    // 翻译轮询在刷新后不会自动恢复：清掉未结束的翻译态，避免残留「AI 翻译中」静态文案。
-                    if (q.translatePhase && q.translatePhase !== 'DONE' && q.translatePhase !== 'FAILED'
-                        && q.translatePhase !== 'SAME_LANGUAGE') {
-                        q.translatePhase = null;
-                        q.translateElapsed = 0;
-                        q.translateSeriesPending = 0;
-                    }
+                    // 所有者的实时状态轮询不会随 localStorage 恢复，避免展示缓存中的过期运行态。
+                    q.liveStatus = null;
                 });
                 state.isPaused = !!parsed.isPaused;
                 state.stats = parsed.stats || {success: 0, failed: 0, active: 0, skipped: 0};

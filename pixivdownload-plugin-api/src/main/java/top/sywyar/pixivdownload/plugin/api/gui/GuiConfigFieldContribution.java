@@ -17,7 +17,8 @@ import java.util.Map;
  * @param type           control type
  * @param defaultValue   value used when the key is absent
  * @param order          field ordering hint inside plugin-contributed fields
- * @param sensitive      whether the value is secret and must be rendered as a password field
+ * @param sensitive      whether the value is secret; {@link GuiConfigFieldType#PASSWORD} is always normalized
+ *                       to a sensitive field
  * @param requiresRestart whether saving a changed value requires a restart
  * @param enumValues     allowed values for {@link GuiConfigFieldType#ENUM}
  * @param enabledWhen    all conditions that must match for the field to be enabled
@@ -51,6 +52,7 @@ public record GuiConfigFieldContribution(
         helpKey = helpKey == null ? "" : helpKey;
         i18nNamespace = blankToNull(i18nNamespace);
         defaultValue = defaultValue == null ? "" : defaultValue;
+        sensitive = sensitive || type == GuiConfigFieldType.PASSWORD;
         enumValues = enumValues == null ? List.of() : List.copyOf(enumValues);
         enabledWhen = enabledWhen == null ? List.of() : List.copyOf(enabledWhen);
         visibleWhen = visibleWhen == null ? List.of() : List.copyOf(visibleWhen);

@@ -1,9 +1,5 @@
 package top.sywyar.pixivdownload.config;
 
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-
 import java.util.Locale;
 import java.util.function.Function;
 
@@ -51,22 +47,6 @@ public final class DefaultConfigTemplate {
         appendBlankLine(config);
 
         appendSetting(config, messages, "database.maximum-pool-size: 28", "config.template.database.maximum-pool-size.comment");
-        appendBlankLine(config);
-
-        appendSection(config, messages, "config.template.section.plugins");
-        // 内置功能插件的开关从 BuiltInPlugins 清单动态派生；内置 CORE 不写开关。
-        // 外置必选性由宿主 RequiredPluginPolicy 拥有，不属于插件描述契约。
-        for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
-            if (plugin.kind() == PluginKind.FEATURE) {
-                appendSetting(config, messages, "plugins." + plugin.id() + ".enabled: true",
-                        "config.template.plugins.enabled.comment");
-            }
-        }
-        // 官方外置 PF4J 插件不在内置清单内，单独写出其开关（缺项默认启用）。
-        appendSetting(config, messages, "plugins.gallery.enabled: true", "config.template.plugins.enabled.comment");
-        appendSetting(config, messages, "plugins.duplicate.enabled: true", "config.template.plugins.enabled.comment");
-        appendSetting(config, messages, "plugins.stats.enabled: true", "config.template.plugins.enabled.comment");
-        appendSetting(config, messages, "plugins.gui-theme.enabled: true", "config.template.plugins.enabled.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.plugin-catalog");

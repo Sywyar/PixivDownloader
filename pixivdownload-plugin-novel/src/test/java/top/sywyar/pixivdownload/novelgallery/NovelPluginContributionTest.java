@@ -101,6 +101,7 @@ class NovelPluginContributionTest {
                 "novel.epub.unknown-author",
                 "novel.epub.chapter",
                 "novel.series.log.refresh.failed.exception",
+                "download.path.segment.invalid",
                 "pixiv.proxy.novel.id.invalid",
                 "pixiv.proxy.novel.series.id.invalid",
                 "novel.translate.success",

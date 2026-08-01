@@ -74,7 +74,7 @@ class NovelGalleryServiceTest {
                 authorId, authorId == null ? null : "作者" + authorId,
                 seriesId, null, null, List.of(new WorkTag(21L, "魔法", "magic")),
                 100L, 1, "txt", "/n/novel-" + id,
-                false, null, null, null, null, null, true);
+                false, null, null, null, null, true);
     }
 
     private static NovelWorkDetails details(long id) {

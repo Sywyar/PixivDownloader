@@ -2,7 +2,8 @@ package top.sywyar.pixivdownload.plugin.api.schedule.execution;
 
 /**
  * 插件计划任务执行失败。跨边界只保留稳定分类、机器码和重试延迟；自由文本与插件私有 {@link Throwable}
- * 不得进入异常，宿主会在调用点把未声明的异常立即归一成安全失败数据。
+ * 不得进入异常，原始凭据或可逆派生材料也不得进入机器码、异常消息或 cause。宿主会在调用点把未声明的异常
+ * 立即归一成安全失败数据。
  */
 public class ScheduledExecutionException extends Exception {
 

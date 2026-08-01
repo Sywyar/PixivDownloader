@@ -51,7 +51,7 @@ class ScheduleTaskDefinitionValidatorTest {
                 .isInstanceOf(IllegalArgumentException.class);
 
         ScheduledTaskDefinition ordinaryText = validator.validatePrepared(
-                definition("{\"word\":\"{foo\"}"),
+                definition("{\"word\":\"{foo\",\"tokenCount\":2,\"cookiePresent\":false}"),
                 8L, SOURCE_TYPE, SCHEMA, 1);
         assertThat(ordinaryText.definitionJson()).contains("{foo");
     }
@@ -69,6 +69,45 @@ class ScheduleTaskDefinitionValidatorTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> validator.validatePrepared(
                 definition("{\"nested\":{\"refresh_token\":\"value\"}}"),
+                8L, SOURCE_TYPE, SCHEMA, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.validatePrepared(
+                definition("{\"tokenCount\":\"opaque-token-value\"}"),
+                8L, SOURCE_TYPE, SCHEMA, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.validatePrepared(
+                definition("{\"cookiePresent\":\"opaque-cookie-value\"}"),
+                8L, SOURCE_TYPE, SCHEMA, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.validatePrepared(
+                definition("{\"tokenCount!\":\"opaque-token-value\"}"),
+                8L, SOURCE_TYPE, SCHEMA, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.validatePrepared(
+                definition("{\"token-co-unt\":\"opaque-token-value\"}"),
+                8L, SOURCE_TYPE, SCHEMA, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.validatePrepared(
+                definition("{\"note\":\"tokenCount=opaque-token-value\"}"),
+                8L, SOURCE_TYPE, SCHEMA, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        for (String fieldName : List.of(
+                "tokenCountValue",
+                "cookiePresentValue",
+                "sidCountHeader",
+                "tokenCountValuePresent",
+                "cookiePresentValueCount",
+                "sidCountHeaderBound",
+                "tokenPresentCount",
+                "cookieEnabledVersion",
+                "sidCountPresent")) {
+            assertThatThrownBy(() -> validator.validatePrepared(
+                    definition("{\"" + fieldName + "\":\"opaque-credential-value\"}"),
+                    8L, SOURCE_TYPE, SCHEMA, 1))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> validator.validatePrepared(
+                definition("{\"signatureAlgorithm\":\"SHA-256\"}"),
                 8L, SOURCE_TYPE, SCHEMA, 1))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> validator.validatePrepared(

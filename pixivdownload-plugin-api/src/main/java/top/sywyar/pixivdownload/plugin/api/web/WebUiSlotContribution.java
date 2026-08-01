@@ -3,8 +3,8 @@ package top.sywyar.pixivdownload.plugin.api.web;
 /**
  * 插件向某个宿主页面 <b>UI 槽位</b>（mount point）贡献的内容声明。把此前仅存在于前端 JS 的「页面槽位」
  * 机制（宿主页声明稳定的槽位锚点、活动插件把片段注入同名锚点）提升为后端可追踪、可随插件生命周期
- * <b>动态注册 / 注销</b>的契约：每个槽位由其所属插件声明一条本记录，核心 {@code WebUiSlotRegistry}
- * 合并各<b>活动</b>插件的声明并以不可变快照对外暴露（如经下载工作台扩展点接口）。
+ * <b>动态注册 / 注销</b>的契约：每个槽位由其所属插件声明一条本记录，宿主聚合流程
+ * 合并各<b>活动</b>插件的声明并以不可变快照对外暴露。
  * <p>
  * 与 {@link NavigationContribution}（一条导航链接）/ {@link PageSectionContribution}（带标题 / 操作 / 内嵌导航的
  * 复杂区块）并列，本记录承载更细粒度的「单个挂载点」：宿主页只声明稳定的槽位锚点（{@link #target()}），
@@ -18,9 +18,8 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 自有 ClassLoader 提供、经声明的静态资源路由 serving，与宿主页同源、共享执行上下文。它<b>不是</b>不可信第三方
  * 插件的沙箱：本契约不隔离脚本能力，仅约束 URL 形态。{@code moduleUrl} 非空时必须是同源绝对路径（以单个
  * {@code /} 开头；禁止 {@code javascript:} 伪协议、{@code http(s)://} 外部 URL 与 {@code //host} 协议相对 URL），
- * 由 {@code WebUiSlotRegistry} 在注册期校验、违反即启动失败。<b>前端可见性（禁用即消失）只是渲染体验，不是权限
- * 边界</b>——槽位内任何模块 / 其调用的 API，其访问权限仍由后端 {@code AuthFilter} 依据 {@code RouteAccessRegistry}
- * 鉴权。
+ * 由宿主在贡献注册期校验、违反即启动失败。<b>前端可见性（禁用即消失）只是渲染体验，不是权限边界</b>——
+ * 槽位内任何模块 / 其调用的 API，仍由宿主依据对应路由的访问策略统一鉴权。
  *
  * @param slotId    槽位全局唯一 id（用于诊断 / 去重 / 前端定位；建议形如 {@code <plugin>.<target>}）
  * @param target    宿主页面挂载锚点 id（宿主与贡献方之间的稳定契约名，不含具体类型字样；下载页当前以

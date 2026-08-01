@@ -5,7 +5,7 @@ package top.sywyar.pixivdownload.plugin.api.maintenance;
  *
  * @param triggeredBy      触发来源，"schedule" / "manual" 等
  * @param startedAt        维护窗口的起始毫秒时间戳
- * @param progressReporter 当前任务的宿主进度回调
+ * @param progressReporter 当前任务的进度回调
  */
 public record MaintenanceContext(String triggeredBy,
                                  long startedAt,
@@ -17,6 +17,7 @@ public record MaintenanceContext(String triggeredBy,
                 : progressReporter;
     }
 
+    /** 便利构造：不需要上报进度的任务使用 API 提供的空进度回调。 */
     public MaintenanceContext(String triggeredBy, long startedAt) {
         this(triggeredBy, startedAt, MaintenanceProgressReporter.noop());
     }

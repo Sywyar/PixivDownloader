@@ -6,16 +6,28 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("TTS 插件 GUI 配置贡献")
 class TtsPluginGuiConfigContributionTest {
+
+    private static final Set<String> CREDENTIAL_FIELDS = Set.of(
+            "narration-tts.voxcpm.api-key",
+            "narration-tts.mimo.api-key",
+            "narration-tts.cosyvoice.api-key",
+            "narration-tts.fish.api-key",
+            "narration-tts.minimax.api-key",
+            "narration-tts.elevenlabs.api-key",
+            "narration-tts.qwen.api-key",
+            "narration-tts.doubao.access-token");
 
     private final TtsPlugin plugin = new TtsPlugin();
 
@@ -33,6 +45,23 @@ class TtsPluginGuiConfigContributionTest {
             assertThat(field.i18nNamespace()).isEqualTo(TtsPlugin.ID);
             assertThat(field.contributesGroupVisibility()).isTrue();
         });
+    }
+
+    @Test
+    @DisplayName("各 TTS 引擎凭证统一声明为敏感密码字段")
+    void credentialFieldsAreSensitivePasswords() {
+        List<GuiConfigFieldContribution> passwordFields = fields().stream()
+                .filter(field -> field.type() == GuiConfigFieldType.PASSWORD)
+                .toList();
+
+        assertThat(passwordFields).hasSize(CREDENTIAL_FIELDS.size());
+        assertThat(passwordFields).extracting(GuiConfigFieldContribution::key)
+                .containsExactlyInAnyOrderElementsOf(CREDENTIAL_FIELDS);
+        assertThat(passwordFields).allSatisfy(field ->
+                assertThat(field.sensitive()).isTrue());
+        assertThat(fields()).filteredOn(GuiConfigFieldContribution::sensitive)
+                .extracting(GuiConfigFieldContribution::key)
+                .containsExactlyInAnyOrderElementsOf(CREDENTIAL_FIELDS);
     }
 
     @Test

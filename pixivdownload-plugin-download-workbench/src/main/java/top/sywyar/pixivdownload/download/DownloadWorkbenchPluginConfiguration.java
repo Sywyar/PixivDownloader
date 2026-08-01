@@ -2,30 +2,40 @@ package top.sywyar.pixivdownload.download;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.annotation.EnableAsync;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
-import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
+import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
+import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
@@ -35,7 +45,13 @@ import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
 import top.sywyar.pixivdownload.download.controller.PixivProxyController;
 import top.sywyar.pixivdownload.download.controller.SSEController;
 import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
+import top.sywyar.pixivdownload.download.schedule.PixivScheduleSettings;
+import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
 import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
+import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduleCredentialController;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
+import top.sywyar.pixivdownload.download.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.download.schedule.guard.PixivOveruseExecutionGuard;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivCollectionScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivFollowLatestScheduledSourceExecutor;
@@ -47,26 +63,19 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSeriesSch
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.scripts.ScriptController;
-import top.sywyar.pixivdownload.scripts.ScriptRegistry;
-import top.sywyar.pixivdownload.series.MangaSeriesService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
-import top.sywyar.pixivdownload.schedule.OveruseWarningService;
-import top.sywyar.pixivdownload.schedule.ScheduleConfig;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.schedule.ScheduleHostIdentity;
+import top.sywyar.pixivdownload.schedule.ScheduleService;
 
 /**
  * 下载工作台外置插件的 Bean 装配收敛点。子上下文只注册本配置类，不扫描应用根包；因此下载执行器、
  * Pixiv 代理、队列控制器、SSE、userscript 入口与下载页状态控制器均在这里显式声明，随插件生命周期注册 / 注销。
  */
 @Configuration
-@EnableAsync(proxyTargetClass = true)
 public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
@@ -74,65 +83,123 @@ public class DownloadWorkbenchPluginConfiguration {
         return new DownloadWorkbenchPlugin();
     }
 
-    @Bean
-    public PixivFetchService pixivFetchService(@Qualifier("restTemplate") RestTemplate restTemplate,
-                                               ObjectMapper objectMapper) {
-        return new PixivFetchService(restTemplate, objectMapper);
+    @Bean("downloadWorkbenchMessages")
+    public MessageResolver downloadWorkbenchMessages(MessageResolver messages) {
+        return ResourceBundleMessageResolver.of(
+                messages,
+                DownloadWorkbenchPlugin.class.getClassLoader(),
+                "i18n.workbench.messages");
     }
 
     @Bean
-    public UgoiraService ugoiraService(@Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                                       AppMessages messages) {
-        return new UgoiraService(downloadRestTemplate, messages);
+    public PixivFetchService pixivFetchService(PixivAjaxClient pixivAjaxClient,
+                                               ObjectMapper objectMapper) {
+        return new PixivFetchService(pixivAjaxClient, objectMapper);
+    }
+
+    @Bean
+    public ScheduleHostIdentity scheduleHostIdentity() {
+        return new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID);
+    }
+
+    @Bean
+    public OveruseWarningService overuseWarningService(PixivFetchService pixivFetchService) {
+        return new OveruseWarningService(pixivFetchService);
+    }
+
+    @Bean
+    public PixivSchedulePersistenceCodec pixivSchedulePersistenceCodec(
+            ObjectMapper objectMapper) {
+        return new PixivSchedulePersistenceCodec(objectMapper);
+    }
+
+    @Bean
+    public PixivLegacyScheduledTaskMigrationAdapter pixivLegacyScheduledTaskMigrationAdapter(
+            ObjectMapper objectMapper,
+            PixivSchedulePersistenceCodec codec) {
+        return new PixivLegacyScheduledTaskMigrationAdapter(objectMapper, codec);
+    }
+
+    @Bean
+    public PixivLegacySchedulePersistenceDescriptorProvider
+            pixivLegacySchedulePersistenceDescriptorProvider() {
+        return new PixivLegacySchedulePersistenceDescriptorProvider();
+    }
+
+    @Bean
+    public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
+                                       FfmpegCommandResolver ffmpegCommandResolver,
+                                       @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages);
+    }
+
+    @Bean
+    public PixivScheduleCredentialController pixivScheduleCredentialController(
+            ScheduleService scheduleService,
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new PixivScheduleCredentialController(scheduleService, messages);
+    }
+
+    @Bean
+    @ConfigurationProperties(prefix = "schedule")
+    public PixivScheduleSettings pixivScheduleSettings() {
+        return new PixivScheduleSettings();
     }
 
     @Bean
     public ArtworkDownloadExecutor artworkDownloadExecutor(DownloadSettings downloadSettings,
                                                            ApplicationEventPublisher eventPublisher,
-                                                           PixivDatabase pixivDatabase,
+                                                           ArtworkDownloadHistory artworkDownloadHistory,
+                                                           ArtworkDownloadLookup artworkDownloadLookup,
+                                                           ArtworkDownloadStatistics artworkDownloadStatistics,
                                                            VisitorDownloadQuotaService visitorDownloadQuotaService,
-                                                           @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                                                           @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                                                           @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
+                                                           PixivImageDownloader pixivImageDownloader,
+                                                           @Qualifier("downloadWorkbenchTaskScheduler")
+                                                           TaskScheduler taskScheduler,
+                                                           InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                                            PixivBookmarkActions pixivBookmarkActions,
                                                            UgoiraService ugoiraService,
-                                                           AuthorService authorService,
+                                                           AuthorObservationService authorObservationService,
+                                                           ArtworkAuthorLookup artworkAuthorLookup,
+                                                           DownloadPathGuard downloadPathGuard,
                                                            CollectionDownloadRootResolver collectionDownloadRootResolver,
                                                            WorkCollectionMembership workCollectionMembership,
-                                                           MangaSeriesService mangaSeriesService,
-                                                           ArtworkHashService artworkHashService,
+                                                           ArtworkSeriesObserver artworkSeriesObserver,
+                                                           ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                                            WorkMetadataCapture workMetadataCapture,
-                                                           DownloadStatisticsService downloadStatisticsService,
-                                                           DownloadedArtworkService downloadedArtworkService,
-                                                           AppMessages messages) {
-        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
+                                                           @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
+                artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
-                downloadRestTemplate, taskScheduler, downloadTaskExecutor,
-                pixivBookmarkActions, ugoiraService, authorService,
+                pixivImageDownloader, taskScheduler, interactiveDownloadExecutionLane,
+                pixivBookmarkActions, ugoiraService, authorObservationService,
+                artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
-                mangaSeriesService, artworkHashService, workMetadataCapture,
-                downloadStatisticsService, downloadedArtworkService, messages);
+                artworkSeriesObserver, artworkHashIndexMaintenance, workMetadataCapture,
+                messages);
     }
 
     @Bean
     public PixivScheduledIllustWorkExecutor pixivScheduledIllustWorkExecutor(
             PixivFetchService pixivFetchService,
-            PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
+            PixivScheduledLocalWorkLookup localWorkLookup,
             WorkMetadataCapture workMetadataCapture,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             DownloadSettings downloadSettings) {
         return new PixivScheduledIllustWorkExecutor(
-                pixivFetchService, pixivDatabase, artworkDownloader, workMetadataCapture,
+                pixivFetchService, artworkDownloader, localWorkLookup, workMetadataCapture,
                 persistenceCodec, objectMapper, downloadSettings);
     }
 
     @Bean
     public PixivScheduledCredentialPolicy pixivScheduledCredentialPolicy(
             OveruseWarningService overuseWarningService,
-            PixivSchedulePersistenceCodec persistenceCodec) {
-        return new PixivScheduledCredentialPolicy(overuseWarningService, persistenceCodec);
+            PixivSchedulePersistenceCodec persistenceCodec,
+            PixivScheduleSettings settings) {
+        return new PixivScheduledCredentialPolicy(
+                overuseWarningService, persistenceCodec, settings);
     }
 
     @Bean
@@ -146,7 +213,6 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public PixivScheduledLocalWorkLookup pixivScheduledLocalWorkLookup(
-            PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
             WorkQueryService workQueryService) {
         return (key, download) -> {
@@ -158,13 +224,14 @@ public class DownloadWorkbenchPluginConfiguration {
             }
             if (download.redownloadDeleted()) {
                 return download.verifyFiles()
-                        ? !pixivDatabase.isArtworkDeleted(id)
+                        ? (!workQueryService.hasWork(WorkType.ARTWORK, id)
+                        || workQueryService.hasActiveWork(WorkType.ARTWORK, id))
                         && artworkDownloader.isArtworkDownloaded(id, true)
-                        : pixivDatabase.hasActiveArtwork(id);
+                        : workQueryService.hasActiveWork(WorkType.ARTWORK, id);
             }
             return download.verifyFiles()
                     ? artworkDownloader.isArtworkDownloaded(id, true)
-                    : pixivDatabase.hasArtwork(id);
+                    : workQueryService.hasWork(WorkType.ARTWORK, id);
         };
     }
 
@@ -174,10 +241,10 @@ public class DownloadWorkbenchPluginConfiguration {
             PixivFetchService pixivFetchService,
             PixivSchedulePersistenceCodec persistenceCodec,
             PixivScheduledLocalWorkLookup localWorkLookup,
-            ScheduleConfig scheduleConfig) {
+            PixivScheduleSettings settings) {
         return new PixivScheduledSourceSupport(
                 objectMapper, pixivFetchService, persistenceCodec,
-                localWorkLookup, scheduleConfig::getInboxCheckEvery);
+                localWorkLookup, settings::getInboxCheckEvery);
     }
 
     @Bean
@@ -246,61 +313,64 @@ public class DownloadWorkbenchPluginConfiguration {
                                                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                          VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                          MultiModeSettings multiModeSettings,
-                                                         PixivDatabase pixivDatabase,
-                                                         AppMessages messages) {
+                                                         WorkQueryService workQueryService,
+                                                         @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadTaskController(artworkDownloadExecutor, applicationModeProvider,
                 requestOwnerIdentityResolver, visitorDownloadQuotaService,
-                multiModeSettings, pixivDatabase, messages);
+                multiModeSettings, workQueryService, messages);
     }
 
     @Bean
-    public DownloadQueueController downloadQueueController(QueueOperationRegistry queueOperationRegistry,
-                                                           DownloadExtensionRegistry downloadExtensionRegistry,
+    public DownloadQueueController downloadQueueController(DownloadControlPlane downloadControlPlane,
                                                            RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                           AppMessages messages) {
+                                                           @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadQueueController(
-                queueOperationRegistry, downloadExtensionRegistry, requestOwnerIdentityResolver, messages);
+                downloadControlPlane, requestOwnerIdentityResolver, messages);
     }
 
     @Bean
-    public DownloadExtensionController downloadExtensionController(DownloadExtensionRegistry extensionRegistry) {
-        return new DownloadExtensionController(extensionRegistry);
+    public DownloadExtensionController downloadExtensionController(DownloadControlPlane downloadControlPlane) {
+        return new DownloadExtensionController(downloadControlPlane);
     }
 
     @Bean
-    public ScriptController scriptController(ScriptRegistry scriptRegistry,
-                                             RateLimitService rateLimitService,
-                                             AppMessages messages) {
-        return new ScriptController(scriptRegistry, rateLimitService, messages);
+    public ScriptController scriptController(UserscriptCatalog userscriptCatalog,
+                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new ScriptController(userscriptCatalog, messages);
     }
 
     @Bean
     public DownloadStatusController downloadStatusController(ArtworkDownloadExecutor artworkDownloadExecutor,
                                                              RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                             AppMessages messages) {
+                                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadStatusController(artworkDownloadExecutor, requestOwnerIdentityResolver, messages);
     }
 
     @Bean
-    public SSEController sseController(@Qualifier("taskScheduler") TaskScheduler taskScheduler,
+    public SSEController sseController(
+            @Qualifier("downloadWorkbenchTaskScheduler") TaskScheduler taskScheduler,
                                        RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                       AppMessages messages,
-                                       PluginStreamRegistry pluginStreamRegistry) {
-        return new SSEController(taskScheduler, requestOwnerIdentityResolver, messages, pluginStreamRegistry);
+                                       @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
+                                       PluginStreamRegistrar pluginStreamRegistrar,
+                                       PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar) {
+        return new SSEController(
+                taskScheduler,
+                requestOwnerIdentityResolver,
+                messages,
+                pluginStreamRegistrar,
+                pluginRuntimeTaskRegistrar);
     }
 
     @Bean
     public PixivProxyController pixivProxyController(ObjectMapper objectMapper,
-                                                     @Qualifier("restTemplate") RestTemplate restTemplate,
+                                                     PixivThumbnailFetcher pixivThumbnailFetcher,
                                                      PixivFetchService pixivFetchService,
-                                                     ApplicationModeProvider applicationModeProvider,
+                                                     PixivProxyAccessPolicy pixivProxyAccessPolicy,
                                                      RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                     UserQuotaService userQuotaService,
-                                                     MultiModeSettings multiModeSettings,
                                                      WorkVisibilityService workVisibilityService,
-                                                     AppMessages messages) {
-        return new PixivProxyController(objectMapper, restTemplate, pixivFetchService,
-                applicationModeProvider, requestOwnerIdentityResolver,
-                userQuotaService, multiModeSettings, workVisibilityService, messages);
+                                                     @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new PixivProxyController(objectMapper, pixivThumbnailFetcher, pixivFetchService,
+                pixivProxyAccessPolicy, requestOwnerIdentityResolver,
+                workVisibilityService, messages);
     }
 }

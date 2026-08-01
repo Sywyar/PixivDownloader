@@ -71,8 +71,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
-        // 下载提交（/api/download/pixiv）、取消（/api/cancel/**、/api/download/cancel/**）、队列清理
-        //（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配（/api/download/extensions）一律
+        // 下载提交（/api/download/pixiv）、历史取消墓碑（/api/cancel/**、/api/download/cancel/**）、
+        // 精确取消与队列清理（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配
+        //（/api/download/extensions）一律
         // VISITOR——复刻现状「未受管页面 / 未声明 API」的涌现行为：multi 访客可达（走配额） / solo 需会话 /
         // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
         // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫。
@@ -144,9 +145,20 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<UserscriptContribution> userscripts() {
-        // 油猴脚本分发归下载工作台：ScriptRegistry 经声明方 ClassLoader 扫描此模式，
-        // 不再做全局 classpath 扫描假设（物理拆分为插件 jar 后脚本随插件 ClassLoader 解析）。
-        return List.of(new UserscriptContribution("classpath:/static/userscripts/*.user.js"));
+        // 稳定安装 id 与精确资源均归下载工作台声明；宿主只经本插件 ClassLoader 物化目录，
+        // 不按这些私有文件名写分支。
+        return List.of(
+                userscript("all-in-one", "Pixiv All-in-One.user.js"),
+                userscript("artwork-java", "Pixiv 单作品图片下载器(Java后端版).user.js"),
+                userscript("artwork-local", "Pixiv 单作品图片下载器(Local Download).user.js"),
+                userscript("user-batch", "Pixiv User 批量下载器(User Batch).user.js"),
+                userscript("page-batch", "Pixiv 页面批量下载器(Page Scrape).user.js"),
+                userscript("import-batch", "Pixiv URL 批量导入单作品下载器(URL Batch).user.js"),
+                userscript("experience-toolbox", "Pixiv 体验增强工具箱(Toolbox).user.js"));
+    }
+
+    private static UserscriptContribution userscript(String id, String fileName) {
+        return new UserscriptContribution(id, "classpath:/static/userscripts/" + fileName);
     }
 
     @Override

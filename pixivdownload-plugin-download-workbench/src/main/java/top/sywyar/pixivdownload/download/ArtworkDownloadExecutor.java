@@ -3,43 +3,44 @@ package top.sywyar.pixivdownload.download;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.core.task.TaskExecutor;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
-import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
-import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.series.MangaSeriesService;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
 
-import java.io.*;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -62,24 +63,28 @@ import java.util.function.Consumer;
 @Service
 public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
+    private static final URI DEFAULT_PIXIV_REFERER = URI.create("https://www.pixiv.net/");
+
     private final DownloadSettings downloadSettings;
     private final ApplicationEventPublisher eventPublisher;
-    private final PixivDatabase pixivDatabase;
+    private final ArtworkDownloadHistory artworkDownloadHistory;
+    private final ArtworkDownloadLookup artworkDownloadLookup;
+    private final ArtworkDownloadStatistics artworkDownloadStatistics;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
-    private final RestTemplate downloadRestTemplate;
+    private final PixivImageDownloader pixivImageDownloader;
     private final TaskScheduler taskScheduler;
-    private final TaskExecutor downloadTaskExecutor;
+    private final InteractiveDownloadExecutionLane interactiveDownloadExecutionLane;
     private final PixivBookmarkActions pixivBookmarkActions;
     private final UgoiraService ugoiraService;
-    private final AuthorService authorService;
+    private final AuthorObservationService authorObservationService;
+    private final ArtworkAuthorLookup artworkAuthorLookup;
+    private final DownloadPathGuard downloadPathGuard;
     private final CollectionDownloadRootResolver collectionDownloadRootResolver;
     private final WorkCollectionMembership workCollectionMembership;
-    private final MangaSeriesService mangaSeriesService;
-    private final ArtworkHashService artworkHashService;
+    private final ArtworkSeriesObserver artworkSeriesObserver;
+    private final ArtworkHashIndexMaintenance artworkHashIndexMaintenance;
     private final WorkMetadataCapture workMetadataCapture;
-    private final DownloadStatisticsService downloadStatisticsService;
-    private final DownloadedArtworkService downloadedArtworkService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     // 存储下载状态
     private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
@@ -87,39 +92,44 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     public ArtworkDownloadExecutor(DownloadSettings downloadSettings,
                                    ApplicationEventPublisher eventPublisher,
-                                   PixivDatabase pixivDatabase,
+                                   ArtworkDownloadHistory artworkDownloadHistory,
+                                   ArtworkDownloadLookup artworkDownloadLookup,
+                                   ArtworkDownloadStatistics artworkDownloadStatistics,
                                    @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
-                                   @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                                   @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                                   @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
+                                   PixivImageDownloader pixivImageDownloader,
+                                   @Qualifier("downloadWorkbenchTaskScheduler")
+                                   TaskScheduler taskScheduler,
+                                   InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                    PixivBookmarkActions pixivBookmarkActions,
                                    UgoiraService ugoiraService,
-                                   AuthorService authorService,
+                                   AuthorObservationService authorObservationService,
+                                   ArtworkAuthorLookup artworkAuthorLookup,
+                                   DownloadPathGuard downloadPathGuard,
                                    CollectionDownloadRootResolver collectionDownloadRootResolver,
                                    WorkCollectionMembership workCollectionMembership,
-                                   MangaSeriesService mangaSeriesService,
-                                   ArtworkHashService artworkHashService,
+                                   ArtworkSeriesObserver artworkSeriesObserver,
+                                   ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                    WorkMetadataCapture workMetadataCapture,
-                                   DownloadStatisticsService downloadStatisticsService,
-                                   DownloadedArtworkService downloadedArtworkService,
-                                   AppMessages messages) {
+                                   MessageResolver messages) {
         this.downloadSettings = downloadSettings;
         this.eventPublisher = eventPublisher;
-        this.pixivDatabase = pixivDatabase;
+        this.artworkDownloadHistory = artworkDownloadHistory;
+        this.artworkDownloadLookup = artworkDownloadLookup;
+        this.artworkDownloadStatistics = artworkDownloadStatistics;
         this.visitorDownloadQuotaService = visitorDownloadQuotaService;
-        this.downloadRestTemplate = downloadRestTemplate;
+        this.pixivImageDownloader = pixivImageDownloader;
         this.taskScheduler = taskScheduler;
-        this.downloadTaskExecutor = downloadTaskExecutor;
+        this.interactiveDownloadExecutionLane = interactiveDownloadExecutionLane;
         this.pixivBookmarkActions = pixivBookmarkActions;
         this.ugoiraService = ugoiraService;
-        this.authorService = authorService;
+        this.authorObservationService = authorObservationService;
+        this.artworkAuthorLookup = artworkAuthorLookup;
+        this.downloadPathGuard = downloadPathGuard;
         this.collectionDownloadRootResolver = collectionDownloadRootResolver;
         this.workCollectionMembership = workCollectionMembership;
-        this.mangaSeriesService = mangaSeriesService;
-        this.artworkHashService = artworkHashService;
+        this.artworkSeriesObserver = artworkSeriesObserver;
+        this.artworkHashIndexMaintenance = artworkHashIndexMaintenance;
         this.workMetadataCapture = workMetadataCapture;
-        this.downloadStatisticsService = downloadStatisticsService;
-        this.downloadedArtworkService = downloadedArtworkService;
         this.messages = messages;
     }
 
@@ -131,7 +141,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
                 referer, other, cookie, userUuid));
         try {
-            downloadTaskExecutor.execute(task);
+            interactiveDownloadExecutionLane.execute(task);
         } catch (RuntimeException | Error failure) {
             task.rejectSubmission();
             throw failure;
@@ -180,7 +190,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             Path downloadRoot = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
             Path downloadPath = downloadRoot;
             if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
-                downloadPath = downloadPath.resolve(SafePathSegment.requireSafeDirectoryName(other.getUsername()));
+                downloadPath = downloadPath.resolve(requireSafeDirectoryName(other.getUsername()));
 
                 if (other.getXRestrict() == 2) {
                     downloadPath = downloadPath.resolve("R18G");
@@ -189,7 +199,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                 }
             }
             downloadPath = downloadPath.resolve(folderName).normalize();
-            ensureWithinDownloadRoot(downloadRoot, downloadPath);
+            requireWithinDownloadRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
@@ -281,10 +291,10 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             // 记录下载信息
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
                     successCount.get(), other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
-                    fileNamePlan.templateId(), fileNamePlan.recordTime(), fileNamePlan.fileAuthorNameId(),
+                    fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
                     other.getSeriesId(), other.getSeriesOrder());
 
-            downloadStatisticsService.recordStatistics(successCount.get());
+            recordDownloadStatistics(successCount.get());
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
 
@@ -315,7 +325,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             }
 
             try {
-                artworkHashService.recordArtworkHashes(pixivDatabase.getArtwork(artworkId));
+                artworkHashIndexMaintenance.rebuildArtwork(artworkId);
             } catch (Exception e) {
                 log.warn(logMessage("core.hash.log.artwork-failed", artworkId, e.getMessage()), e);
             }
@@ -364,14 +374,28 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         return defaultRoot;
     }
 
-    public static void validateUserDownloadFolder(DownloadRequest.Other other) {
+    public void validateUserDownloadFolder(DownloadRequest.Other other) {
         if (other != null && other.isUserDownload() && other.getUsername() != null) {
-            SafePathSegment.requireSafeDirectoryName(other.getUsername());
+            requireSafeDirectoryName(other.getUsername());
         }
     }
 
-    private void ensureWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
-        if (!downloadPath.startsWith(downloadRoot)) {
+    private String requireSafeDirectoryName(String value) {
+        try {
+            return downloadPathGuard.requireSafeDirectoryName(value);
+        } catch (DownloadPathRejectedException rejected) {
+            throw LocalizedException.badRequest(
+                    "download.path.segment.invalid",
+                    "Unsafe download subdirectory: {0}",
+                    value
+            );
+        }
+    }
+
+    private void requireWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
+        try {
+            downloadPathGuard.requireWithinRoot(downloadRoot, downloadPath);
+        } catch (DownloadPathRejectedException rejected) {
             throw LocalizedException.badRequest(
                     "download.path.segment.invalid",
                     "Unsafe download subdirectory: {0}",
@@ -404,87 +428,91 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             while (retryCount < maxRetries) {
                 ensureNotCancelled(cancellationRequested);
                 try {
-                    Boolean success = downloadRestTemplate.execute(imageUrl, HttpMethod.GET,
-                            request -> PixivRequestHeaders.applyImage(request.getHeaders(), referer, cookie),
-                            (ClientHttpResponse response) -> {
-                                if (!response.getStatusCode().is2xxSuccessful()) {
-                                    log.error(logMessage("download.log.http-error", response.getStatusCode(), imageUrl));
-                                    return false;
+                    long[] totalBytes = {0L};
+                    long[] downloadedBytes = {0L};
+                    int[] lastProgress = {-1};
+                    long[] lastBytes = {0L};
+                    long[] lastAt = {0L};
+                    URI refererUri = StringUtils.hasText(referer)
+                            ? URI.create(referer)
+                            : DEFAULT_PIXIV_REFERER;
+                    boolean success = pixivImageDownloader.download(
+                            URI.create(imageUrl), refererUri, tempPath, cookie,
+                            new PixivImageTransferObserver() {
+                                @Override
+                                public void checkCancelled() {
+                                    ensureNotCancelled(cancellationRequested);
                                 }
-                                long totalBytes = response.getHeaders().getContentLength();
-                                long[] downloadedBytes = {0L};
-                                int[] lastProgress = {-1};
-                                long[] lastBytes = {0L};
-                                long[] lastAt = {0L};
-                                publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                        .status(ImageDownloadProgress.STATUS_RUNNING)
-                                        .imageNumber(imageNumber)
-                                        .totalImages(totalImages)
-                                        .downloadedBytes(0L)
-                                        .totalBytes(totalBytes > 0 ? totalBytes : null)
-                                        .progress(totalBytes > 0 ? 0 : null)
-                                        .build());
-                                try (InputStream inputStream = response.getBody();
-                                     FileOutputStream outputStream = new FileOutputStream(tempPath.toFile())) {
-                                    byte[] buffer = new byte[4096];
-                                    int bytesRead;
-                                    while ((bytesRead = inputStream.read(buffer)) != -1) {
-                                        ensureNotCancelled(cancellationRequested);
-                                        outputStream.write(buffer, 0, bytesRead);
-                                        downloadedBytes[0] += bytesRead;
-                                        Integer progress = totalBytes > 0
-                                                ? Math.min(99, (int) (downloadedBytes[0] * 100 / totalBytes))
-                                                : null;
-                                        if (shouldEmitImageByteProgress(
-                                                progress, downloadedBytes[0], lastProgress, lastBytes, lastAt)) {
-                                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                                    .status(ImageDownloadProgress.STATUS_RUNNING)
-                                                    .imageNumber(imageNumber)
-                                                    .totalImages(totalImages)
-                                                    .downloadedBytes(downloadedBytes[0])
-                                                    .totalBytes(totalBytes > 0 ? totalBytes : null)
-                                                    .progress(progress)
-                                                    .build());
-                                        }
+
+                                @Override
+                                public void onContentLength(long contentLength) {
+                                    totalBytes[0] = contentLength;
+                                    lastProgress[0] = contentLength > 0 ? 0 : -1;
+                                    lastAt[0] = System.currentTimeMillis();
+                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                            .status(ImageDownloadProgress.STATUS_RUNNING)
+                                            .imageNumber(imageNumber)
+                                            .totalImages(totalImages)
+                                            .downloadedBytes(0L)
+                                            .totalBytes(contentLength > 0 ? contentLength : null)
+                                            .progress(contentLength > 0 ? 0 : null)
+                                            .build());
+                                }
+
+                                @Override
+                                public void onBytesTransferred(long transferredBytes) {
+                                    downloadedBytes[0] = transferredBytes;
+                                    Integer progress = totalBytes[0] > 0
+                                            ? Math.min(99, (int) (transferredBytes * 100 / totalBytes[0]))
+                                            : null;
+                                    if (shouldEmitImageByteProgress(
+                                            progress, transferredBytes, lastProgress, lastBytes, lastAt)) {
+                                        publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                                .status(ImageDownloadProgress.STATUS_RUNNING)
+                                                .imageNumber(imageNumber)
+                                                .totalImages(totalImages)
+                                                .downloadedBytes(transferredBytes)
+                                                .totalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
+                                                .progress(progress)
+                                                .build());
                                     }
                                 }
-                                if (imageNumber < totalImages) {
-                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                            });
+                    if (success) {
+                        if (imageNumber < totalImages) {
+                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
                                             .status(ImageDownloadProgress.STATUS_RUNNING)
                                             .imageNumber(imageNumber + 1)
                                             .totalImages(totalImages)
                                             .downloadedBytes(0L)
                                             .progress(0)
                                             .build());
-                                } else {
-                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                        } else {
+                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
                                             .status(ImageDownloadProgress.STATUS_COMPLETED)
                                             .imageNumber(imageNumber)
                                             .totalImages(totalImages)
                                             .downloadedBytes(downloadedBytes[0])
-                                            .totalBytes(totalBytes > 0 ? totalBytes : null)
+                                            .totalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
                                             .progress(100)
                                             .build());
-                                }
-                                return true;
-                            }, new Object[]{});
-
-                    if (Boolean.TRUE.equals(success)) {
+                        }
                         Files.move(tempPath, filePath, StandardCopyOption.REPLACE_EXISTING);
                         return true;
                     }
                     retryCount++;
+                    logAndBackoffBeforeRetry(
+                            imageUrl,
+                            messages.get("download.image.transfer-unsuccessful"),
+                            retryCount,
+                            maxRetries,
+                            cancellationRequested);
                 } catch (CancellationException e) {
                     throw e;
                 } catch (Exception e) {
                     retryCount++;
-                    log.error(logMessage("download.log.retry", imageUrl, e.getMessage(), retryCount, maxRetries));
-
-                    if (retryCount < maxRetries) {
-                        sleepCancellable(2000L * retryCount, cancellationRequested);
-                    } else {
-                        log.error(logMessage("download.log.retry.exhausted", imageUrl));
-                    }
+                    logAndBackoffBeforeRetry(
+                            imageUrl, e.getMessage(), retryCount, maxRetries, cancellationRequested);
                 }
             }
             publishImageProgress(progressListener, ImageDownloadProgress.builder()
@@ -500,6 +528,20 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             } catch (IOException ex) {
                 log.warn(logMessage("download.log.temp-cleanup.failed", tempPath, ex.getMessage()));
             }
+        }
+    }
+
+    private void logAndBackoffBeforeRetry(
+            String imageUrl,
+            String reason,
+            int retryCount,
+            int maxRetries,
+            BooleanSupplier cancellationRequested) {
+        log.error(logMessage("download.log.retry", imageUrl, reason, retryCount, maxRetries));
+        if (retryCount < maxRetries) {
+            sleepCancellable(2000L * retryCount, cancellationRequested);
+        } else {
+            log.error(logMessage("download.log.retry.exhausted", imageUrl));
         }
     }
 
@@ -777,14 +819,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
-        long templateId = pixivDatabase.getOrCreateFileNameTemplateId(template);
-        if (templateId <= 0) {
-            templateId = PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID;
-        }
         long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
-        long recordTime = preferredTime > 0 ? pixivDatabase.getUniqueTime(preferredTime) : pixivDatabase.getUniqueTime();
+        long recordTime = artworkDownloadHistory.allocateRecordTime(preferredTime);
         String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
-        long fileAuthorNameId = sanitizedAuthorName.isEmpty() ? 0L : pixivDatabase.getOrCreateFileAuthorNameId(sanitizedAuthorName);
         List<String> computed = PixivWorkFileNameFormatter.formatAll(
                 template,
                 artworkId,
@@ -800,29 +837,49 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         if (!provided.isEmpty() && !provided.equals(computed)) {
             log.debug(logMessage("download.log.filename-mismatch", artworkId));
         }
-        return new FileNamePlan(templateId, recordTime, fileAuthorNameId, provided.equals(computed) ? provided : computed);
+        return new FileNamePlan(
+                template,
+                recordTime,
+                sanitizedAuthorName.isEmpty() ? null : sanitizedAuthorName,
+                provided.equals(computed) ? provided : computed);
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
-                                int count, int xRestrict, boolean isAi, Long authorId, String description, List<TagDto> tags,
-                                long fileNameId, long recordTime, long fileAuthorNameId,
+                                int count, int xRestrict, boolean isAi, Long authorId, String description, List<WorkTag> tags,
+                                String fileNameTemplate, long recordTime, String normalizedAuthorName,
                                 Long seriesId, Long seriesOrder) {
+        artworkDownloadHistory.record(new ArtworkDownloadCompletion(
+                artworkId,
+                title,
+                Path.of(folderPath).toAbsolutePath(),
+                count,
+                fileExtensions,
+                recordTime,
+                xRestrict,
+                isAi,
+                authorId,
+                PixivDescriptionHtml.normalizeLinks(description),
+                fileNameTemplate,
+                normalizedAuthorName,
+                seriesId,
+                seriesOrder,
+                tags
+        ));
+    }
+
+    private void recordDownloadStatistics(int imageCount) {
         try {
-            pixivDatabase.insertArtwork(
-                    artworkId, title,
-                    Path.of(folderPath).toAbsolutePath().toString(),
-                    count, String.join(",", fileExtensions), recordTime, xRestrict, isAi, authorId,
-                    PixivDescriptionHtml.normalizeLinks(description), fileNameId,
-                    fileAuthorNameId > 0 ? fileAuthorNameId : null,
-                    seriesId, seriesOrder
-            );
-            pixivDatabase.saveArtworkTags(artworkId, tags);
+            artworkDownloadStatistics.recordCompleted(imageCount);
         } catch (Exception e) {
-            log.error(logMessage("download.log.record-history.failed", e.getMessage()), e);
+            log.warn(logMessage("download.log.statistics.failed", e.getMessage()), e);
         }
     }
 
-    private record FileNamePlan(long templateId, long recordTime, long fileAuthorNameId, List<String> baseNames) {
+    private record FileNamePlan(
+            String template,
+            long recordTime,
+            String normalizedAuthorName,
+            List<String> baseNames) {
         String baseName(int page) {
             if (page >= 0 && page < baseNames.size()) {
                 return baseNames.get(page);
@@ -850,10 +907,10 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private void recordAuthorInfo(Long artworkId, DownloadRequest.Other other, String cookie) {
         try {
             if (other != null && other.getAuthorId() != null) {
-                authorService.observe(other.getAuthorId(), other.getAuthorName());
+                authorObservationService.observe(other.getAuthorId(), other.getAuthorName());
                 return;
             }
-            authorService.asyncLookupMissing(artworkId, cookie);
+            artworkAuthorLookup.resolveMissing(artworkId, cookie);
         } catch (Exception e) {
             log.warn(logMessage("download.log.record-author.failed", id(artworkId)), e);
         }
@@ -861,30 +918,19 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private void recordSeriesInfo(Long artworkId, DownloadRequest.Other other, String cookie) {
         try {
-            if (other != null && other.getSeriesId() != null && other.getSeriesId() > 0) {
-                // 前端/脚本若一并送来了系列简介或封面 URL，按 observeWithMetadata 流程顺带补齐；
-                // 否则退回到原来仅 upsert 标题/作者的 observe()。
-                boolean hasRichMeta = (other.getSeriesDescription() != null && !other.getSeriesDescription().isBlank())
-                        || (other.getSeriesCoverUrl() != null && !other.getSeriesCoverUrl().isBlank());
-                if (hasRichMeta) {
-                    mangaSeriesService.observeWithMetadata(
-                            other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId(),
-                            other.getSeriesDescription(), other.getSeriesCoverUrl(), cookie);
-                } else {
-                    mangaSeriesService.observe(other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId());
-                }
-                return;
-            }
             // Pixiv 系列几乎只挂在漫画 (illustType == 1) 上。当前端已经知道作品类型时，
             // 避免对插画/动图也发一次 /ajax/illust/{id} —— 批量下载时 N 张作品 = N 次额外请求很容易被限流。
             // illustType 为空（旧前端 / 未传）才回退到代理查询。
             Integer illustType = other == null ? null : other.getIllustType();
-            if (illustType != null && illustType != 1) {
-                pixivDatabase.updateSeriesInfo(artworkId,
-                        MangaSeriesService.NO_SERIES_SENTINEL, MangaSeriesService.NO_SERIES_SENTINEL);
-                return;
-            }
-            mangaSeriesService.asyncLookupMissingSeries(artworkId, cookie);
+            artworkSeriesObserver.observe(new ArtworkSeriesObservation(
+                    artworkId,
+                    illustType == null || illustType == 1,
+                    other == null ? null : other.getSeriesId(),
+                    other == null ? null : other.getSeriesTitle(),
+                    other == null ? null : other.getAuthorId(),
+                    other == null ? null : other.getSeriesDescription(),
+                    other == null ? null : other.getSeriesCoverUrl()
+            ), cookie);
         } catch (Exception e) {
             log.warn(logMessage("download.log.record-series.failed", id(artworkId)), e);
         }
@@ -892,7 +938,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     @Override
     public boolean isArtworkDownloaded(long artworkId, boolean verifyFiles) {
-        return downloadedArtworkService.getDownloadedRecord(artworkId, verifyFiles) != null;
+        return artworkDownloadLookup.isDownloaded(artworkId, verifyFiles);
     }
 
     /**
@@ -943,16 +989,16 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private String resolveStatusErrorMessage(Exception error) {
         if (error instanceof LocalizedException localized) {
-            return MessageBundles.getOrDefault(
+            return messages.getOrDefault(
                     Locale.getDefault(),
-                    localized.getMessageCode(),
-                    localized.getDefaultMessage(),
-                    localized.getMessageArgs()
+                    localized.messageCode(),
+                    localized.defaultMessage(),
+                    localized.messageArgs()
             );
         }
         String message = error.getMessage();
         if (message == null || message.isBlank()) {
-            return MessageBundles.get("error.unexpected");
+            return messages.get(Locale.getDefault(), "error.unexpected");
         }
         return message;
     }

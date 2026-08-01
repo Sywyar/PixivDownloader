@@ -96,7 +96,7 @@ public final class PluginConfigPropertySourceLoader {
                 log.warn(message("runtime.log.plugin-config.duplicate-key", file, key));
                 continue;
             }
-            if (hostKeys.contains(key)) {
+            if (isHostOwnedKey(key, hostKeys)) {
                 log.warn(message("runtime.log.plugin-config.host-key-skipped", file, key));
                 continue;
             }
@@ -107,12 +107,13 @@ public final class PluginConfigPropertySourceLoader {
         }
     }
 
-    static boolean isCredentialLikeKey(String key) {
+    public static boolean isCredentialLikeKey(String key) {
         if (key == null) {
             return false;
         }
         String normalized = key.trim().toLowerCase(java.util.Locale.ROOT);
         return normalized.endsWith(".password")
+                || normalized.endsWith("-password")
                 || normalized.endsWith(".passwd")
                 || normalized.endsWith(".api-key")
                 || normalized.endsWith(".apikey")
@@ -122,6 +123,7 @@ public final class PluginConfigPropertySourceLoader {
                 || normalized.endsWith(".cookie")
                 || normalized.endsWith(".device-key")
                 || normalized.endsWith(".webhook-key")
+                || normalized.endsWith(".webhook.url")
                 || normalized.endsWith(".send-key")
                 || normalized.endsWith(".key");
     }
@@ -139,6 +141,18 @@ public final class PluginConfigPropertySourceLoader {
             }
         }
         return keys;
+    }
+
+    private static boolean isHostOwnedKey(String key, Set<String> hostKeys) {
+        return hostKeys.contains(key) || isPluginToggleKey(key);
+    }
+
+    private static boolean isPluginToggleKey(String key) {
+        String prefix = "plugins.";
+        String suffix = ".enabled";
+        return key.startsWith(prefix)
+                && key.endsWith(suffix)
+                && key.length() > prefix.length() + suffix.length();
     }
 
     private static String requireSafeKey(String key) throws IOException {

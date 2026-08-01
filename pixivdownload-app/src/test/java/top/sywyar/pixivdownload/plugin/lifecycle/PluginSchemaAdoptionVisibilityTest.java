@@ -10,6 +10,8 @@ import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiesc
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
@@ -84,7 +86,8 @@ class PluginSchemaAdoptionVisibilityTest {
         return new PluginLifecycleService(
                 mock(ApplicationContext.class),
                 mock(PluginRuntimeManager.class),
-                new PluginApplicationContextFactory(),
+                new PluginApplicationContextFactory(
+                        new PluginStreamRegistry(), new PluginRuntimeTaskRegistry()),
                 mock(PluginControllerRegistrar.class),
                 mock(PluginWebContributionRegistrar.class),
                 mock(PluginScheduleContributionRegistrar.class),

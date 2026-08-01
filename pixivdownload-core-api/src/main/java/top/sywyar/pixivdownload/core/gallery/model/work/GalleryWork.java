@@ -8,7 +8,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Complete neutral work detail shared by image, video and novel projections. */
+/**
+ * Complete neutral gallery detail shared by image, video and text projections.
+ *
+ * <p>Complete refers to the gallery assembly, not to a source persistence row. Source-owned
+ * bodies, translations and private details remain behind source-owned endpoints.</p>
+ */
 public record GalleryWork(
         GalleryWorkKey key,
         String title,

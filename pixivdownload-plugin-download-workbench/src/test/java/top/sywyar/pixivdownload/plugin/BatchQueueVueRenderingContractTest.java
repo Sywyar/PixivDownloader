@@ -101,7 +101,8 @@ class BatchQueueVueRenderingContractTest {
         assertThat(js).as("行 HTML 必须复用共享 buildQueueItemHtml").contains("'buildQueueItemHtml'");
         assertThat(js).as("当前卡必须复用共享 formatCurrentCardHtml").contains("'formatCurrentCardHtml'");
         assertThat(js).as("列表 / 计划详情行宿主为 q-item-host（v-html 透明宿主）").contains("q-item-host");
-        assertThat(js).as("普通队列与计划队列列表都用 :key=q.id 复用宿主、仅 patch 变化行").contains(":key=\"q.id\"");
+        assertThat(js).as("普通队列与计划队列列表都用复合作品身份复用宿主、仅 patch 变化行")
+                .contains(":key=\"rowKey(q)\"");
     }
 
     @Test

@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.push.channel.webhook;
 
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelId;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 
 import java.util.Locale;
 
@@ -18,8 +19,8 @@ public record WebhookSettings(String url, String contentType, String bodyTemplat
     }
 
     @Override
-    public PushChannelType type() {
-        return PushChannelType.WEBHOOK;
+    public PushChannelId type() {
+        return PushChannelIds.WEBHOOK;
     }
 
     @Override

@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.gallery;
 
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.util.JavacTask;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
@@ -19,6 +22,9 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import javax.tools.JavaCompiler;
+import javax.tools.StandardJavaFileManager;
+import javax.tools.ToolProvider;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +32,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("gallery 模块边界守卫")
 class GalleryPluginModuleDependencyGuardTest {
 
+    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
+            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
+            "org/apache/hc/core5/http/HttpRequest.class",
+            "org/apache/http/client/HttpClient.class",
+            "org/apache/http/nio/client/HttpAsyncClient.class"
+    };
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*package[\\t ]+([A-Za-z0-9_$.]+)[\\t ]*;");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
@@ -78,6 +91,30 @@ class GalleryPluginModuleDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("gallery 不得依赖宿主私有 HTTP 类型")
+    void galleryDoesNotDependOnPrivateHttpTypes() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "org.apache.http..")
+                .orShould().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "org.springframework.http.client."
+                                + "HttpComponentsClientHttpRequestFactory")
+                .because("插件只能经稳定 HTTP 契约消费宿主传输能力")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("gallery 测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void galleryClasspathExcludesHostApplicationAndPrivateHttpStack() {
+        ClassLoader classLoader = getClass().getClassLoader();
+        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
+            assertThat(classLoader.getResource(resource)).as(resource).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("gallery POM 不得依赖 PixivDownload app artifact")
     void galleryPomDoesNotDependOnAppArtifact() {
         String pom = read(repositoryRoot().resolve("pixivdownload-plugin-gallery/pom.xml"));
@@ -94,6 +131,11 @@ class GalleryPluginModuleDependencyGuardTest {
 
         assertThat(appTypes).as("app owned production FQN set must be non-vacuous")
                 .hasSizeGreaterThan(400);
+        String packagePrivateFixture = "top.sywyar.pixivdownload.gui.panel."
+                + "StatusPanelThemeOption";
+        assertThat(appTypes)
+                .as("package-private top-level app types must be owned too")
+                .contains(packagePrivateFixture);
         collectAppTypeReferences(root, "src/main/java", appTypes, violations);
         collectAppTypeReferences(root, "src/test/java", appTypes, violations);
 
@@ -221,16 +263,55 @@ class GalleryPluginModuleDependencyGuardTest {
 
     private static Set<String> appOwnedTypes(Path root) throws IOException {
         Path appSourceRoot = root.resolve("pixivdownload-app/src/main/java");
-        Set<String> types = new LinkedHashSet<>();
+        List<Path> sourcePaths;
         try (Stream<Path> sources = Files.walk(appSourceRoot)) {
-            sources.filter(path -> path.toString().endsWith(".java"))
-                    .map(appSourceRoot::relativize)
-                    .map(Path::toString)
-                    .filter(path -> !path.endsWith("package-info.java") && !path.endsWith("module-info.java"))
-                    .map(path -> path.substring(0, path.length() - ".java".length())
-                            .replace('\\', '.').replace('/', '.'))
+            sourcePaths = sources.filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> !path.getFileName().toString().equals("package-info.java")
+                            && !path.getFileName().toString().equals("module-info.java"))
                     .sorted()
-                    .forEach(types::add);
+                    .toList();
+        }
+
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+            throw new IllegalStateException("A JDK compiler is required for ownership checks");
+        }
+        Set<String> types = new LinkedHashSet<>();
+        try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(
+                null, null, StandardCharsets.UTF_8)) {
+            JavacTask task = (JavacTask) compiler.getTask(
+                    null,
+                    fileManager,
+                    null,
+                    List.of("-proc:none"),
+                    null,
+                    fileManager.getJavaFileObjectsFromPaths(sourcePaths));
+            for (CompilationUnitTree unit : task.parse()) {
+                String packageName = unit.getPackageName() == null
+                        ? ""
+                        : unit.getPackageName().toString();
+                Path source = Path.of(unit.getSourceFile().toUri());
+                String primaryType = source.getFileName().toString()
+                        .replaceFirst("\\.java$", "");
+                Set<String> sourceTypes = new LinkedHashSet<>();
+                unit.getTypeDecls().stream()
+                        .filter(ClassTree.class::isInstance)
+                        .map(ClassTree.class::cast)
+                        .map(type -> type.getSimpleName().toString())
+                        .filter(name -> !name.isBlank())
+                        .forEach(sourceTypes::add);
+                if (packageName.isBlank() || !sourceTypes.contains(primaryType)) {
+                    throw new IllegalStateException(
+                            "Cannot derive primary app type from " + root.relativize(source));
+                }
+                for (String sourceType : sourceTypes) {
+                    String appType = packageName + "." + sourceType;
+                    if (!types.add(appType)) {
+                        throw new IllegalStateException(
+                                "Duplicate app production type " + appType);
+                    }
+                }
+            }
         }
         return Set.copyOf(types);
     }

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 
 import java.nio.file.Path;
 
@@ -29,14 +29,16 @@ class CoreWorkInfrastructureAdapterTest {
         when(pixivDatabase.upsertTagAndGetId("tag", "translation")).thenReturn(7L);
         when(pixivDatabase.upsertTagAndGetId("missing", null)).thenReturn(null);
         when(pixivDatabase.getOrCreateFileNameTemplateId("{artwork_id}")).thenReturn(11L);
-        when(pixivDatabase.getOrCreateFileNameTemplateId(null)).thenReturn(1L);
+        when(pixivDatabase.getOrCreateFileNameTemplateId(null))
+                .thenReturn(PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID);
         when(pixivDatabase.getOrCreateFileAuthorNameId("Writer")).thenReturn(13L);
         when(pixivDatabase.getOrCreateFileAuthorNameId("")).thenReturn(0L);
 
         assertThat(adapter.getOrCreateTagId("tag", "translation")).isEqualTo(7L);
         assertThat(adapter.getOrCreateTagId("missing", null)).isNull();
         assertThat(adapter.getOrCreateTemplateId("{artwork_id}")).isEqualTo(11L);
-        assertThat(adapter.getOrCreateTemplateId(null)).isEqualTo(1L);
+        assertThat(adapter.getOrCreateTemplateId(null))
+                .isEqualTo(PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID);
         assertThat(adapter.getOrCreateAuthorNameId("Writer")).isEqualTo(13L);
         assertThat(adapter.getOrCreateAuthorNameId("")).isZero();
 
@@ -55,9 +57,7 @@ class CoreWorkInfrastructureAdapterTest {
 
         assertThat(adapter.requireSafeDirectoryName(" reader ")).isEqualTo("reader");
         assertThat(catchThrowable(() -> adapter.requireSafeDirectoryName("../reader")))
-                .isInstanceOf(LocalizedException.class)
-                .extracting(error -> ((LocalizedException) error).getMessageCode())
-                .isEqualTo("download.path.segment.invalid");
+                .isInstanceOf(DownloadPathRejectedException.class);
     }
 
     @Test
@@ -71,8 +71,6 @@ class CoreWorkInfrastructureAdapterTest {
         assertThatCode(() -> adapter.requireWithinRoot(root, inside)).doesNotThrowAnyException();
 
         Throwable thrown = catchThrowable(() -> adapter.requireWithinRoot(root, outside));
-        assertThat(thrown).isInstanceOf(LocalizedException.class);
-        assertThat(((LocalizedException) thrown).getMessageCode())
-                .isEqualTo("download.path.segment.invalid");
+        assertThat(thrown).isInstanceOf(DownloadPathRejectedException.class);
     }
 }

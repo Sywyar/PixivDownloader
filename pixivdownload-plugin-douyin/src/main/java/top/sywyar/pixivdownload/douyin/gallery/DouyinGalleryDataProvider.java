@@ -199,7 +199,7 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
         put(attributes, "fileIndex", file.fileIndex());
         return new GalleryMediaAsset(new GalleryMediaKey(workKey, id), mediaKind(file), url,
                 mediaKind(file) == GalleryMediaKind.COVER ? url : null,
-                file.contentType(), null, attributes);
+                file.contentType(), attributes);
     }
 
     private static String mediaUrl(String workId, int fileIndex) {

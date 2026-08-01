@@ -15,7 +15,7 @@ class PushPluginMessagesTest {
     @DisplayName("解析器返回空值时日志码与受控详情均回退原键")
     void blankResolutionFallsBackToCode() {
         PushResult result = PushResult.failed(
-                PushChannelType.BARK, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
+                PushChannelIds.BARK, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
 
         for (String value : new String[]{null, "", "   "}) {
             MessageResolver resolver = new FixedMessageResolver(value);

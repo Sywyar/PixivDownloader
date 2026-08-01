@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.update.UpdateConfig;
@@ -65,7 +66,7 @@ public class RuntimeConfigReloadService {
     private final NotificationConfig notificationConfig;
     private final ObjectProvider<PluginLifecycleService> pluginLifecycleService;
     private final ConfigurableEnvironment environment;
-    private final PluginCredentialStore credentialStore;
+    private final PluginCredentialPropertySourceService pluginCredentialPropertySourceService;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
         return reloadHotConfig(List.of());
@@ -376,8 +377,10 @@ public class RuntimeConfigReloadService {
             lifecycleService.withServingContext(pluginId, context -> {
                 refreshParentRuntimeConfigSource(context.getEnvironment());
                 refreshPluginConfigSource(context.getEnvironment());
-                PluginApplicationContextFactory.replaceScopedPropertySource(
-                        context.getEnvironment(), pluginId, credentialStoreValues(pluginId));
+                PluginApplicationContextFactory.replaceScopedPropertySources(
+                        context.getEnvironment(),
+                        pluginId,
+                        pluginCredentialPropertySourceService.snapshotFor(pluginId));
                 Binder childBinder = new Binder(
                         ConfigurationPropertySources.from(context.getEnvironment().getPropertySources()));
                 rebindPluginContext(childBinder, context, requestedChangedKeys, reboundKeys);
@@ -416,16 +419,6 @@ public class RuntimeConfigReloadService {
                 sources.addLast(source);
             }
         });
-    }
-
-    private Map<String, Object> credentialStoreValues(String pluginId) {
-        try {
-            Map<String, Object> scoped = new java.util.LinkedHashMap<>();
-            scoped.putAll(credentialStore.readAll(pluginId));
-            return scoped;
-        } catch (IOException e) {
-            throw new java.io.UncheckedIOException(e);
-        }
     }
 
     private static void rebindPluginContext(Binder binder,

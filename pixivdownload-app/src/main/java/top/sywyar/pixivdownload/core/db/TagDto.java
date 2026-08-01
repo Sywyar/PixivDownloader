@@ -6,7 +6,8 @@ import lombok.NoArgsConstructor;
 
 /**
  * 作品标签：Pixiv 原始 {@code name} 加可选翻译 {@code translatedName}。
- * 用作下载请求 {@code other.tags} 的元素、详情接口返回的标签列表项，以及 {@code tags} / {@code artwork_tags} 表的结构映射。
+ * 仅用于宿主数据库边界的 {@code tags} / {@code artwork_tags} 结构映射；跨模块标签投影使用中性的
+ * {@code core-api} {@code WorkTag}。
  */
 @Data
 @NoArgsConstructor

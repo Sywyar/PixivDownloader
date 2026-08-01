@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
@@ -33,6 +33,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescri
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -52,8 +55,9 @@ import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStream;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
@@ -85,6 +89,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -257,6 +263,7 @@ class PluginLifecycleServiceTest {
         final RecordingQueueOperations ops;          // 非空当且仅当装置声明了 queueType
         final QueueOperationRegistry queueRegistry;
         final PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+        final PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
         final RecordingStream stream = new RecordingStream();
         final PluginLifecycleService service;
 
@@ -292,12 +299,13 @@ class PluginLifecycleServiceTest {
             when(drain.awaitDrained(anyLong())).thenReturn(true);
             when(drain.isDrained()).thenReturn(true);
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
-                    new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    new PluginApplicationContextFactory(streamRegistry, taskRegistry),
+                    controllerRegistrar, webRegistrar, scheduleRegistrar,
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry),
                     capabilityRegistrar, registry, state);
             service.startAll(); // 纯贡献插件登记为 STARTED
             // 注册一条该插件拥有的 SSE 推流（验证 quiesce / 卸载时被关闭）。
-            streamRegistry.register("ext-demo", "conn-1", stream);
+            streamRegistry.registrarForPlugin("ext-demo").register("conn-1", stream);
         }
     }
 
@@ -485,7 +493,9 @@ class PluginLifecycleServiceTest {
         when(loaded.contextModules()).thenReturn(List.of());
         PluginLifecycleService service = new PluginLifecycleService(
                 mock(ApplicationContext.class), mock(PluginRuntimeManager.class),
-                new PluginApplicationContextFactory(), mock(PluginControllerRegistrar.class),
+                new PluginApplicationContextFactory(
+                        new PluginStreamRegistry(), new PluginRuntimeTaskRegistry()),
+                mock(PluginControllerRegistrar.class),
                 mock(PluginWebContributionRegistrar.class), mock(PluginScheduleContributionRegistrar.class),
                 mock(PluginRuntimeTaskQuiescer.class), mock(PluginCapabilityContributionRegistrar.class),
                 registry, state);
@@ -675,6 +685,8 @@ class PluginLifecycleServiceTest {
         final ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
         final ScheduleGenerationDrain drain = mock(ScheduleGenerationDrain.class);
         final PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
+        final PluginRuntimeTaskRegistry taskRegistry = mock(PluginRuntimeTaskRegistry.class);
+        final PluginRuntimeTaskDrain taskDrain = mock(PluginRuntimeTaskDrain.class);
         final QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
         final QueueOperations queueOperations = mock(QueueOperations.class);
         final QueueGenerationDrain queueDrain = mock(QueueGenerationDrain.class);
@@ -699,6 +711,11 @@ class PluginLifecycleServiceTest {
             when(requestDrain.isDrained()).thenReturn(true);
             when(drain.awaitDrained(anyLong())).thenReturn(true);
             when(drain.isDrained()).thenReturn(true);
+            when(taskRegistry.prepareQuiesce("ext-demo")).thenReturn(taskDrain);
+            when(taskDrain.ownerPluginId()).thenReturn("ext-demo");
+            when(taskDrain.generation()).thenReturn(1L);
+            when(taskDrain.awaitDrained(anyLong())).thenReturn(true);
+            when(taskDrain.isDrained()).thenReturn(true);
             when(queueRegistry.operationsForOwner("ext-demo"))
                     .thenReturn(List.of(new OwnedQueueOperations("ext-illust", queueOperations)));
             when(queueOperations.prepareQuiesce("ext-illust")).thenReturn(queueDrain);
@@ -707,37 +724,44 @@ class PluginLifecycleServiceTest {
             when(queueDrain.awaitDrained(anyLong())).thenReturn(true);
             when(queueDrain.isDrained()).thenReturn(true);
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
-                    new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    new PluginApplicationContextFactory(streamRegistry, taskRegistry),
+                    controllerRegistrar, webRegistrar, scheduleRegistrar,
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry),
                     capabilityRegistrar, registry, state);
             service.startAll(); // 纯贡献插件登记为 STARTED
             clearInvocations(webRegistrar, requestDrain, scheduleRegistrar, streamRegistry, queueRegistry,
-                    queueOperations, queueDrain, capabilityRegistrar);
+                    queueOperations, queueDrain, taskRegistry, taskDrain, capabilityRegistrar);
         }
 
         /** 断言 request → publication 撤回 → 保存 queue drain → 关 SSE / 发取消 → 同截止时间等待 → 注销。 */
         void verifyShieldThenDrain() {
             InOrder ord = inOrder(webRegistrar, requestDrain, scheduleRegistrar, drain,
-                    streamRegistry, queueRegistry, queueOperations, queueDrain, capabilityRegistrar);
+                    taskRegistry, taskDrain, streamRegistry, queueRegistry,
+                    queueOperations, queueDrain, capabilityRegistrar);
             ord.verify(webRegistrar).withdrawRequests(same(bootWebHandle)); // ① 先拒绝新 HTTP 请求
             ord.verify(scheduleRegistrar).withdraw(any(), eq(publication)); // ② 再拒绝新 schedule lease 并取消旧代
-            ord.verify(queueRegistry).operationsForOwner("ext-demo"); // ③ 先捕获并保存队列 generation drain
+            ord.verify(taskRegistry).prepareQuiesce("ext-demo"); // ③ 保存中性后台任务 generation drain
+            ord.verify(queueRegistry).operationsForOwner("ext-demo"); // ④ 再捕获并保存队列 generation drain
             ord.verify(queueOperations).prepareQuiesce("ext-illust");
-            ord.verify(streamRegistry).closeForPlugin("ext-demo"); // ④ 再关闭 SSE 推流
+            ord.verify(taskRegistry).cancelQuiescedTasks("ext-demo", taskDrain); // ⑤ drain 已保存后才发任务取消
+            ord.verify(streamRegistry).closeForPlugin("ext-demo"); // ⑥ 再关闭 SSE 推流
             ord.verify(queueRegistry).operationsForOwner("ext-demo");
             ord.verify(queueOperations).prepareQuiesce("ext-illust");
-            ord.verify(queueOperations).cancelQuiescedTasks(); // ⑤ drain 已保存后才发 callback
+            ord.verify(queueOperations).cancelQuiescedTasks(); // ⑦ queue drain 已保存后才发 callback
             ArgumentCaptor<Long> requestDeadline = ArgumentCaptor.forClass(Long.class);
             ArgumentCaptor<Long> scheduleDeadline = ArgumentCaptor.forClass(Long.class);
+            ArgumentCaptor<Long> taskDeadline = ArgumentCaptor.forClass(Long.class);
             ArgumentCaptor<Long> queueDeadline = ArgumentCaptor.forClass(Long.class);
             ord.verify(requestDrain).awaitDrained(requestDeadline.capture());
             ord.verify(drain).awaitDrained(scheduleDeadline.capture());
+            ord.verify(taskDrain).awaitDrained(taskDeadline.capture());
             ord.verify(queueDrain).awaitDrained(queueDeadline.capture());
             assertThat(scheduleDeadline.getValue()).isEqualTo(requestDeadline.getValue());
+            assertThat(taskDeadline.getValue()).isEqualTo(requestDeadline.getValue());
             assertThat(queueDeadline.getValue()).isEqualTo(requestDeadline.getValue());
-            ord.verify(streamRegistry).closeForPlugin("ext-demo"); // ⑥ request drain 后复核迟到 stream
+            ord.verify(streamRegistry).closeForPlugin("ext-demo"); // ⑧ request/task drain 后复核迟到 stream
             ord.verify(streamRegistry).activeStreamCount("ext-demo");
-            ord.verify(webRegistrar).unregister(same(bootWebHandle)); // ⑦ drain 归零后 registrar 才 retire serving
+            ord.verify(webRegistrar).unregister(same(bootWebHandle)); // ⑨ drain 归零后 registrar 才 retire serving
         }
     }
 
@@ -806,7 +830,9 @@ class PluginLifecycleServiceTest {
             when(drain.isDrained()).thenReturn(true);
             when(drain.activeLeaseCount()).thenReturn(1);
             PluginLifecycleService service = new PluginLifecycleService(
-                    parent, runtime, new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar,
+                    parent, runtime, new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry()),
+                    controllerRegistrar, webRegistrar,
                     scheduleRegistrar, quiescer, capabilityRegistrar, registry, new PluginLifecycleState());
             service.startAll();
             ConfigurableApplicationContext child = service.contextFor("ext-demo").orElseThrow();
@@ -830,8 +856,9 @@ class PluginLifecycleServiceTest {
             assertThat(service.contextFor("ext-demo")).isEmpty();
             assertThat(plugin.stopCount).isEqualTo(1);
             verify(quiescer, times(1)).withdrawSchedule(any(), eq(publication));
+            verify(quiescer, times(1)).prepareRuntimeTaskDrain(eq("ext-demo"), any(), any());
             verify(quiescer, times(1)).prepareQueueDrains(eq("ext-demo"), any(), any());
-            verify(quiescer, times(1)).quiesceAfterScheduleWithdrawal(eq("ext-demo"), any());
+            verify(quiescer, times(1)).quiesceAfterScheduleWithdrawal(eq("ext-demo"), any(), any());
         }
     }
 
@@ -854,6 +881,7 @@ class PluginLifecycleServiceTest {
         PluginRequestGenerationDrain secondRequestDrain = mock(PluginRequestGenerationDrain.class);
         PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
         PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
+        PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
         PluginCapabilityContributionRegistrar capabilityRegistrar =
                 mock(PluginCapabilityContributionRegistrar.class);
         ScheduleCapabilityPublication firstPublication = mock(ScheduleCapabilityPublication.class);
@@ -885,9 +913,10 @@ class PluginLifecycleServiceTest {
         when(firstDrain.isDrained()).thenReturn(true);
         when(secondDrain.isDrained()).thenReturn(true);
         PluginRuntimeTaskQuiescer quiescer = runtimeTaskQuiescer(
-                scheduleRegistrar, streamRegistry, new QueueOperationRegistry(List.of()));
+                scheduleRegistrar, streamRegistry, new QueueOperationRegistry(List.of()), taskRegistry);
         PluginLifecycleService service = new PluginLifecycleService(
-                mock(ApplicationContext.class), runtime, new PluginApplicationContextFactory(),
+                mock(ApplicationContext.class), runtime,
+                new PluginApplicationContextFactory(streamRegistry, taskRegistry),
                 controllerRegistrar, webRegistrar, scheduleRegistrar, quiescer,
                 capabilityRegistrar, registry, new PluginLifecycleState());
         service.startAll();
@@ -938,10 +967,12 @@ class PluginLifecycleServiceTest {
                 .thenReturn(new PluginRuntimeTaskQuiescer.QuiesceResult(Optional.empty()));
         doThrow(new IllegalStateException("transient stream close"))
                 .doNothing()
-                .when(quiescer).quiesceAfterScheduleWithdrawal(eq("ext-retry"), any());
+                .when(quiescer).quiesceAfterScheduleWithdrawal(eq("ext-retry"), any(), any());
         PluginControllerRegistrar controllerRegistrar = mock(PluginControllerRegistrar.class);
         PluginLifecycleService service = new PluginLifecycleService(
-                mock(ApplicationContext.class), runtime, new PluginApplicationContextFactory(),
+                mock(ApplicationContext.class), runtime,
+                new PluginApplicationContextFactory(
+                        new PluginStreamRegistry(), new PluginRuntimeTaskRegistry()),
                 controllerRegistrar, webRegistrar, mock(PluginScheduleContributionRegistrar.class),
                 quiescer, mock(PluginCapabilityContributionRegistrar.class), registry,
                 new PluginLifecycleState());
@@ -949,7 +980,7 @@ class PluginLifecycleServiceTest {
 
         service.stopAll();
 
-        verify(quiescer, times(2)).quiesceAfterScheduleWithdrawal(eq("ext-retry"), any());
+        verify(quiescer, times(2)).quiesceAfterScheduleWithdrawal(eq("ext-retry"), any(), any());
         verify(controllerRegistrar).unregisterControllers("ext-retry");
         verify(webRegistrar).unregister(same(webHandle));
         assertThat(service.phase("ext-retry")).contains(PluginRuntimePhase.STOPPED);
@@ -995,6 +1026,7 @@ class PluginLifecycleServiceTest {
         final PluginScheduleContributionRegistrar scheduleRegistrar =
                 mock(PluginScheduleContributionRegistrar.class);
         final PluginStreamRegistry streamRegistry;
+        final PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
         final PluginLifecycleState state = new PluginLifecycleState();
         final RecordingPlugin plugin = new RecordingPlugin("ext-demo");
         final PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
@@ -1029,15 +1061,148 @@ class PluginLifecycleServiceTest {
             when(capabilityDrain.awaitDrained(anyLong())).thenReturn(true);
             when(capabilityDrain.isDrained()).thenReturn(true);
             QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
-            service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
+            service = new PluginLifecycleService(parent, runtime,
+                    new PluginApplicationContextFactory(streamRegistry, taskRegistry),
                     controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry),
                     capabilityRegistrar, registry, state);
         }
 
         @Override
         public void close() {
             parent.close();
+        }
+    }
+
+    @Test
+    @DisplayName("后台任务普通取消失败保持 QUIESCED 与子上下文，重试同代成功后才拆足迹")
+    void runtimeTaskCancellationFailureKeepsContextForSameGenerationRetry() {
+        try (ContextHarness h = new ContextHarness()) {
+            h.service.startAll();
+            ConfigurableApplicationContext child = h.service.contextFor("ext-demo").orElseThrow();
+            Future<?> cancellation = mock(Future.class);
+            doThrow(new IllegalStateException("task-cancel-failed"))
+                    .doReturn(true)
+                    .when(cancellation).cancel(false);
+            PluginRuntimeTask task = child.getBean(PluginRuntimeTaskRegistrar.class)
+                    .registerPeriodic(() -> {
+                    });
+            task.bindCancellation(cancellation);
+
+            assertThatThrownBy(() -> h.service.stop("ext-demo"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("task-cancel-failed");
+
+            PluginRuntimeTaskDrain retained = h.taskRegistry.prepareQuiesce("ext-demo");
+            assertThat(retained.ownerPluginId()).isEqualTo("ext-demo");
+            assertThat(retained.generation()).isPositive();
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+            assertThat(child.isActive()).isTrue();
+            assertThat(h.service.contextFor("ext-demo")).contains(child);
+            verify(h.controllerRegistrar, never()).unregisterControllers("ext-demo");
+            verify(h.webRegistrar, never()).unregister(same(h.bootWebHandle));
+
+            h.service.stop("ext-demo");
+
+            verify(cancellation, times(2)).cancel(false);
+            assertThat(retained.isDrained()).isTrue();
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(child.isActive()).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("后台任务致命取消失败保留原对象与子上下文，重试仍使用原 generation")
+    void fatalRuntimeTaskCancellationKeepsIdentityAndRetryableContext() {
+        try (ContextHarness h = new ContextHarness()) {
+            h.service.startAll();
+            ConfigurableApplicationContext child = h.service.contextFor("ext-demo").orElseThrow();
+            OutOfMemoryError fatal = new OutOfMemoryError("task-cancel-fatal");
+            Future<?> cancellation = mock(Future.class);
+            doThrow(fatal).doReturn(true).when(cancellation).cancel(false);
+            PluginRuntimeTask task = child.getBean(PluginRuntimeTaskRegistrar.class)
+                    .registerPeriodic(() -> {
+                    });
+            task.bindCancellation(cancellation);
+
+            assertThatThrownBy(() -> h.service.stop("ext-demo")).isSameAs(fatal);
+
+            PluginRuntimeTaskDrain retained = h.taskRegistry.prepareQuiesce("ext-demo");
+            long generation = retained.generation();
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+            assertThat(child.isActive()).isTrue();
+            verify(h.controllerRegistrar, never()).unregisterControllers("ext-demo");
+            verify(h.webRegistrar, never()).unregister(same(h.bootWebHandle));
+
+            h.service.stop("ext-demo");
+
+            verify(cancellation, times(2)).cancel(false);
+            assertThat(retained.generation()).isEqualTo(generation);
+            assertThat(retained.isDrained()).isTrue();
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(child.isActive()).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("运行中的中性后台任务退出前 stop 保持 QUIESCED 与子上下文")
+    void stopWaitsForRunningRuntimeTaskBeforeClosingChildContext() throws Exception {
+        try (ContextHarness h = new ContextHarness()) {
+            h.service.startAll();
+            ConfigurableApplicationContext child = h.service.contextFor("ext-demo").orElseThrow();
+            CountDownLatch taskEntered = new CountDownLatch(1);
+            CountDownLatch cancellationObserved = new CountDownLatch(1);
+            CountDownLatch releaseTask = new CountDownLatch(1);
+            PluginRuntimeTask task = child.getBean(PluginRuntimeTaskRegistrar.class)
+                    .registerOneShot(() -> {
+                        taskEntered.countDown();
+                        try {
+                            if (!releaseTask.await(5, TimeUnit.SECONDS)) {
+                                throw new AssertionError("timed out waiting to release runtime task");
+                            }
+                        } catch (InterruptedException failure) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError("runtime task interrupted", failure);
+                        }
+                    });
+            FutureTask<Void> hostFuture = new FutureTask<>(task, null) {
+                @Override
+                public boolean cancel(boolean mayInterruptIfRunning) {
+                    cancellationObserved.countDown();
+                    return super.cancel(mayInterruptIfRunning);
+                }
+            };
+            task.bindCancellation(hostFuture);
+            Thread worker = new Thread(hostFuture, "plugin-runtime-task");
+            worker.start();
+            assertThat(taskEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            AtomicReference<Throwable> stopFailure = new AtomicReference<>();
+            Thread stop = new Thread(() -> {
+                try {
+                    h.service.stop("ext-demo");
+                } catch (Throwable failure) {
+                    stopFailure.set(failure);
+                }
+            }, "plugin-stop-await-runtime-task");
+            stop.start();
+            assertThat(cancellationObserved.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(stop.isAlive()).isTrue();
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+            assertThat(child.isActive()).isTrue();
+            verify(h.controllerRegistrar, never()).unregisterControllers("ext-demo");
+            verify(h.webRegistrar, never()).unregister(same(h.bootWebHandle));
+
+            releaseTask.countDown();
+            worker.join(5000);
+            stop.join(5000);
+
+            assertThat(worker.isAlive()).isFalse();
+            assertThat(stop.isAlive()).isFalse();
+            assertThat(stopFailure.get()).isNull();
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(child.isActive()).isFalse();
         }
     }
 
@@ -1198,7 +1363,8 @@ class PluginLifecycleServiceTest {
                             Thread.currentThread().interrupt();
                             throw new AssertionError("late stream request interrupted", failure);
                         }
-                        h.streamRegistry.register("ext-demo", "late-stream", lateStream);
+                        h.streamRegistry.registrarForPlugin("ext-demo")
+                                .register("late-stream", lateStream);
                     });
                 } catch (Throwable failure) {
                     requestFailure.set(failure);
@@ -1295,11 +1461,13 @@ class PluginLifecycleServiceTest {
                     plugin.id(), StatefulWebLifecycleHarness.class.getClassLoader(), List.of(PluginConfig.class));
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+            PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
             QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
             service = new PluginLifecycleService(
-                    parent, runtime, new PluginApplicationContextFactory(), controllerRegistrar,
+                    parent, runtime, new PluginApplicationContextFactory(streamRegistry, taskRegistry),
+                    controllerRegistrar,
                     webRegistrar, scheduleRegistrar,
-                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry),
                     capabilityRegistrar, registry, state);
         }
 
@@ -1557,7 +1725,8 @@ class PluginLifecycleServiceTest {
             h.service.startAll();
             h.service.stop("ext-demo");
             AtomicBoolean failClose = new AtomicBoolean(true);
-            assertThatThrownBy(() -> h.streamRegistry.register("ext-demo", "late-stream", () -> {
+            assertThatThrownBy(() -> h.streamRegistry.registrarForPlugin("ext-demo")
+                    .register("late-stream", () -> {
                 if (failClose.get()) {
                     throw new IllegalStateException("late stream close failed");
                 }
@@ -1972,18 +2141,23 @@ class PluginLifecycleServiceTest {
             PluginCapabilityContributionRegistrar capabilityRegistrar) {
         PluginScheduleContributionRegistrar scheduleRegistrar = emptyScheduleRegistrar(pluginRegistry);
         PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+        PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
         QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
-        return new PluginLifecycleService(parent, runtimeReturning(modules), new PluginApplicationContextFactory(),
+        return new PluginLifecycleService(parent, runtimeReturning(modules),
+                new PluginApplicationContextFactory(streamRegistry, taskRegistry),
                 emptyControllerRegistrar(pluginRegistry), emptyWebRegistrar(pluginRegistry), scheduleRegistrar,
-                runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry), capabilityRegistrar,
+                runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry),
+                capabilityRegistrar,
                 pluginRegistry, new PluginLifecycleState());
     }
 
     private static PluginRuntimeTaskQuiescer runtimeTaskQuiescer(
             PluginScheduleContributionRegistrar scheduleRegistrar,
             PluginStreamRegistry streamRegistry,
-            QueueOperationRegistry queueRegistry) {
-        return new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
+            QueueOperationRegistry queueRegistry,
+            PluginRuntimeTaskRegistry taskRegistry) {
+        return new PluginRuntimeTaskQuiescer(
+                scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry);
     }
 
     /** 模拟 phase 0 已成功启动精确身份，并让 mock 保持与 PluginRegistry 相同的成功后状态转换语义。 */
@@ -2366,10 +2540,12 @@ class PluginLifecycleServiceTest {
             when(webRegistrar.prepare(same(registered))).thenReturn(preparedWeb);
             when(webRegistrar.commit(same(preparedWeb))).thenReturn(runtimeWebHandle);
             PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+            PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
             QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
-            service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
+            service = new PluginLifecycleService(parent, runtime,
+                    new PluginApplicationContextFactory(streamRegistry, taskRegistry),
                     controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry),
                     capabilityRegistrar(), registry, state);
         }
 

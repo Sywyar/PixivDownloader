@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.core.notification;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 
@@ -24,7 +25,7 @@ import java.util.Map;
  */
 @Service
 @Slf4j
-public class NotificationService {
+public class NotificationService implements NotificationDispatcher {
 
     /** 介质注册中心：活动插件贡献的全部 sink。当前没有活动介质实现时可为空。 */
     private final NotificationSinkRegistry sinkRegistry;
@@ -50,6 +51,7 @@ public class NotificationService {
      * @param locale       目标语言
      * @param placeholders 运行期占位符（各介质共用同一套键）
      */
+    @Override
     public void notify(NotificationScenario scenario, Locale locale, Map<String, String> placeholders) {
         if (scenario == null) {
             return;

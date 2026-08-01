@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.push.channel.feishu;
 
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelId;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 
 /**
  * 飞书通道的不可变设置快照。由 {@link FeishuConfig#toSettings()}（已保存配置）或 GUI 测试表单构造。
@@ -18,8 +19,8 @@ public record FeishuSettings(String webhookKey, String secret, boolean useProxy)
     }
 
     @Override
-    public PushChannelType type() {
-        return PushChannelType.FEISHU;
+    public PushChannelId type() {
+        return PushChannelIds.FEISHU;
     }
 
     @Override

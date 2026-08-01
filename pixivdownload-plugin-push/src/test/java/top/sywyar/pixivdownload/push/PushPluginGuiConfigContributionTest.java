@@ -24,14 +24,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PushPluginGuiConfigContributionTest {
 
     private static final Set<String> CHANNELS = Set.of(
-            "bark",
-            "dingtalk",
-            "telegram",
-            "feishu",
-            "wecom",
-            "pushplus",
-            "serverchan",
-            "webhook");
+            PushChannelIds.BARK.id(),
+            PushChannelIds.DINGTALK.id(),
+            PushChannelIds.TELEGRAM.id(),
+            PushChannelIds.FEISHU.id(),
+            PushChannelIds.WECOM.id(),
+            PushChannelIds.PUSHPLUS.id(),
+            PushChannelIds.SERVERCHAN.id(),
+            PushChannelIds.WEBHOOK.id());
     private static final Set<String> SECRET_FIELDS = Set.of(
             "push.bark.device-key",
             "push.dingtalk.access-token",
@@ -69,8 +69,10 @@ class PushPluginGuiConfigContributionTest {
     @Test
     @DisplayName("推送凭证字段统一声明为敏感密码字段")
     void credentialFieldsAreSensitivePasswords() {
-        List<GuiConfigFieldContribution> fields = contributions().stream()
+        List<GuiConfigFieldContribution> allFields = contributions().stream()
                 .flatMap(contribution -> contribution.fields().stream())
+                .toList();
+        List<GuiConfigFieldContribution> fields = allFields.stream()
                 .filter(field -> SECRET_FIELDS.contains(field.key()))
                 .toList();
 
@@ -81,6 +83,9 @@ class PushPluginGuiConfigContributionTest {
             assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD);
             assertThat(field.sensitive()).isTrue();
         });
+        assertThat(allFields).filteredOn(GuiConfigFieldContribution::sensitive)
+                .extracting(GuiConfigFieldContribution::key)
+                .containsExactlyInAnyOrderElementsOf(SECRET_FIELDS);
     }
 
     @Test

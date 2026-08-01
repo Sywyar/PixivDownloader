@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.core.work.model.PagedResult;
 import top.sywyar.pixivdownload.core.work.query.TagOption;
 import top.sywyar.pixivdownload.core.work.query.TagQuery;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
@@ -78,10 +79,18 @@ class GalleryServiceTest {
     class QueryDelegationTests {
 
         private static WorkMetadata meta(long id, Long authorId, Long seriesId) {
+            return meta(id, authorId, seriesId,
+                    new WorkFileNameTemplateRef(7L, "{artwork_id}_p{page}"));
+        }
+
+        private static WorkMetadata meta(long id,
+                                         Long authorId,
+                                         Long seriesId,
+                                         WorkFileNameTemplateRef fileNameTemplateRef) {
             return new WorkMetadata(id, "标题" + id, null, 0, false,
                     authorId, authorId == null ? null : "作者" + authorId,
                     seriesId, null, null, List.of(), 100L, 1, "jpg", "/p/" + id,
-                    false, null, null, null, null, null, null);
+                    false, null, null, fileNameTemplateRef, null, null);
         }
 
         @Test
@@ -146,9 +155,26 @@ class GalleryServiceTest {
             assertThat(found.title()).isEqualTo("标题1");
             assertThat(found.authorName()).isEqualTo("作者88");
             assertThat(found.seriesId()).isEqualTo(700L);
+            assertThat(found.fileName()).isEqualTo(7L);
+            assertThat(found.fileNameTemplate()).isEqualTo("{artwork_id}_p{page}");
             assertThat(found.deleted()).isFalse();
 
             assertThat(galleryService.findArtwork(404L)).isNull();
+        }
+
+        @Test
+        @DisplayName("默认模板投影保留空目录键与已解析模板的既有 HTTP 语义")
+        void shouldPreserveResolvedDefaultTemplateWithNullCatalogKey() {
+            when(workMetadataRepository.find(WorkType.ARTWORK, 1L))
+                    .thenReturn(Optional.of(meta(
+                            1L, null, null,
+                            new WorkFileNameTemplateRef(null, "{artwork_id}_p{page}"))));
+
+            GalleryArtworkResponse found = galleryService.findArtwork(1L);
+
+            assertThat(found).isNotNull();
+            assertThat(found.fileName()).isNull();
+            assertThat(found.fileNameTemplate()).isEqualTo("{artwork_id}_p{page}");
         }
 
         @Test

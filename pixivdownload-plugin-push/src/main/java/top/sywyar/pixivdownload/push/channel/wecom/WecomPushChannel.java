@@ -2,13 +2,14 @@ package top.sywyar.pixivdownload.push.channel.wecom;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
 
@@ -17,7 +18,8 @@ import java.util.List;
 /**
  * 企业微信群机器人通道。{@code POST https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...}。
  * <p>
- * 声明支持 {@link PushFormat#MARKDOWN}（{@code markdown} 消息，标题按 {@link PushLevel} 套
+ * 声明支持 {@link PushFormat#MARKDOWN}（{@code markdown} 消息，标题按
+ * {@link NotificationSeverity} 套
  * {@code <font color>} 着色）与 {@link PushFormat#PLAIN_TEXT}（{@code text} 消息）。无签名机制（key 在 URL）。
  * 只读取 {@link WecomConfig}，与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
  */
@@ -36,8 +38,8 @@ public class WecomPushChannel implements PushChannel {
     }
 
     @Override
-    public PushChannelType type() {
-        return PushChannelType.WECOM;
+    public PushChannelId type() {
+        return PushChannelIds.WECOM;
     }
 
     @Override
@@ -101,8 +103,8 @@ public class WecomPushChannel implements PushChannel {
     }
 
     /** 严重级别映射到企业微信 markdown 字体色（仅 info=绿 / comment=灰 / warning=红 三色）。 */
-    private static String wecomColor(PushLevel level) {
-        return level == PushLevel.INFO ? "info" : "warning";
+    private static String wecomColor(NotificationSeverity level) {
+        return level == NotificationSeverity.INFO ? "info" : "warning";
     }
 
     private record MarkdownPayload(String msgtype, Markdown markdown) {

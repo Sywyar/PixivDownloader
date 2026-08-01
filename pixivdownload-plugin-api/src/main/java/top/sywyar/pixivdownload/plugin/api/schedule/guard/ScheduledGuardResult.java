@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.guard;
 
-/** Guard 一次固定检查点调用的稳定决定与受控安全证据。 */
+/** Guard 一次固定检查点调用的稳定决定与受控安全证据；决定与证据均不得包含原始凭据或可逆派生材料。 */
 public record ScheduledGuardResult(
         ScheduledGuardDecision decision,
         ScheduledGuardEvidence evidence

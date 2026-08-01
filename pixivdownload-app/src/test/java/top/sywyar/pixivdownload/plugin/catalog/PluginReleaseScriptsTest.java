@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -498,6 +499,59 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("插件凭证密钥资源默认使用公开回退值，生产过滤脚本严格校验独立的 32 字节主密钥")
+    void pluginCredentialKeyResourceUsesValidatedBuildFilter() throws Exception {
+        Path appRoot = repoRoot().resolve("pixivdownload-app");
+        String pom = Files.readString(appRoot.resolve("pom.xml"), StandardCharsets.UTF_8);
+        String resource = Files.readString(
+                appRoot.resolve("src/main/resources/plugin-credential-key.properties"),
+                StandardCharsets.UTF_8);
+        Map<String, String> openSourceFilter = readProperties(
+                appRoot.resolve("src/main/filters/plugin-credential-key-open-source.properties"));
+        String script = script("write-plugin-credential-key-filter.ps1");
+
+        assertThat(pom).contains(
+                "<plugin.credential.filter>",
+                "src/main/filters/plugin-credential-key-open-source.properties",
+                "<filter>${plugin.credential.filter}</filter>",
+                "<include>plugin-credential-key.properties</include>",
+                "<exclude>plugin-credential-key.properties</exclude>");
+        assertThat(resource).contains(
+                "profile=@plugin.credential.key.profile@",
+                "current-key-base64=@plugin.credential.key.current-base64@",
+                "open-source-fallback-key-base64=@plugin.credential.key.open-source-fallback-base64@");
+
+        assertThat(openSourceFilter.get("plugin.credential.key.profile")).isEqualTo("open-source");
+        String currentKey = openSourceFilter.get("plugin.credential.key.current-base64");
+        String fallbackKey = openSourceFilter.get("plugin.credential.key.open-source-fallback-base64");
+        assertThat(currentKey).isEqualTo(fallbackKey);
+        assertCanonicalBase64Key(currentKey);
+        assertThat(script).contains("$openSourceFallback = \"" + fallbackKey + "\"");
+
+        assertThat(script).contains(
+                "$secretName = \"PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64\"",
+                "[Environment]::GetEnvironmentVariable($secretName)",
+                "[Convert]::FromBase64String($masterKeyBase64)",
+                "$masterKey.Length -ne 32",
+                "[Convert]::ToBase64String($masterKey)",
+                "[StringComparison]::Ordinal",
+                "$canonical, $openSourceFallback",
+                "\"plugin.credential.key.profile=production\"",
+                "\"plugin.credential.key.current-base64=$canonical\"",
+                "\"plugin.credential.key.open-source-fallback-base64=$openSourceFallback\"",
+                "[System.IO.File]::WriteAllText",
+                "System.Text.UTF8Encoding($false)",
+                "[Array]::Clear");
+        assertThat(script).doesNotContain(
+                "Write-Host",
+                "Write-Output",
+                "Write-Verbose",
+                "Write-Debug",
+                "Write-Information");
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("write-plugin-credential-key-filter.ps1"));
+    }
+
+    @Test
     @DisplayName("本地一键安装器脚本支持签名 catalog、当前源码官方签名及显式本地 unsigned 测试输入")
     void oneShotInstallerScriptSupportsCatalogSignedLocalAndExplicitUnsignedLocalInputs() throws Exception {
         String script = script("package-installer-with-plugins.ps1");
@@ -605,8 +659,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("质量门禁以同一提交运行完整 Java 与零依赖 JavaScript 测试")
-    void qualityGateRunsJavaAndJavaScriptTestsForTheSameCommit() throws Exception {
+    @DisplayName("质量门禁以同一提交运行 Java、签名泄露守卫与 JavaScript 测试")
+    void qualityGateRunsJavaSignatureGuardAndJavaScriptTestsForTheSameCommit() throws Exception {
         String workflow = workflow("quality-gate.yml");
         JsonNode packageJson = new ObjectMapper().readTree(repoRoot().resolve("package.json").toFile());
 
@@ -619,11 +673,13 @@ class PluginReleaseScriptsTest {
                 "ref: ${{ github.sha }}",
                 "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
                 "mvn -B -ntp test -Dexec.skip=true",
+                "signature-guard:",
+                "run: bash scripts/hooks/pre-push-guard.sh",
                 "uses: actions/setup-node@v4",
                 "node-version: '24'",
                 "run: npm run test:js",
                 "run: npm run test:web-standards");
-        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(3);
+        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(4);
         assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
         assertThat(workflow.indexOf("run: npm run test:web-standards"))
                 .isGreaterThan(workflow.indexOf("run: npm run test:js"));
@@ -675,6 +731,54 @@ class PluginReleaseScriptsTest {
                 "needs.quality-gate.result == 'success'");
         assertThat(release).doesNotContain("quality_gate_passed");
         assertThat(workflow("nightly.yml")).doesNotContain("quality_gate_passed");
+    }
+
+    @Test
+    @DisplayName("release/nightly 仅在 build-jar 注入生产凭证密钥并于使用后清理临时过滤文件")
+    void releaseWorkflowsIsolateProductionCredentialKeyToBuildJar() throws Exception {
+        String secretName = "PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64";
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+            String buildJarJob = workflowJob(workflow, "build-jar");
+            String outsideBuildJarJob = workflow.replace(buildJarJob, "");
+
+            assertThat(buildJarJob).as(name).contains(
+                    "Prepare production plugin credential key filter",
+                    secretName + ": ${{ secrets." + secretName + " }}",
+                    "$env:RUNNER_TEMP",
+                    "./scripts/write-plugin-credential-key-filter.ps1 -OutputPath $filterPath",
+                    "PLUGIN_CREDENTIAL_FILTER=$filterPath",
+                    "\"-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER\"",
+                    "-Ddistribution.packaging.require-production-credential-key=true",
+                    "Remove production plugin credential key filter",
+                    "if: always()",
+                    "Remove-Item -LiteralPath $env:PLUGIN_CREDENTIAL_FILTER");
+            assertThat(buildJarJob).as(name).doesNotContain(
+                    "-Dplugin.credential.key.current-base64",
+                    "-D" + secretName,
+                    "echo ${{ secrets." + secretName);
+            assertThat(outsideBuildJarJob).as(name + " non-build-jar jobs").doesNotContain(secretName);
+            assertThat(workflow).as(name).doesNotContain("secrets: inherit");
+
+            String publishJob = workflowJob(workflow, "publish-plugins");
+            assertThat(publishJob).contains(
+                    "PLUGINS_REPO_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}",
+                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}");
+        }
+
+        assertThat(workflow("quality-gate.yml")).doesNotContain(
+                secretName,
+                "plugin.credential.filter",
+                "require-production-credential-key");
+        String publishWorkflow = workflow("publish-plugins.yml");
+        assertThat(publishWorkflow)
+                .doesNotContain(secretName, "plugin.credential.filter")
+                .contains(
+                        "workflow_call:",
+                        "PLUGINS_REPO_TOKEN:",
+                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64:",
+                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM:");
     }
 
     @Test
@@ -772,7 +876,6 @@ class PluginReleaseScriptsTest {
                     "\"win-x64-installer\"");
             assertThat(workflow).as(name).doesNotContain(
                     "Prepare plugin signing private key",
-                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                     "PLUGIN_SIGNING_PRIVATE_KEY_FILE",
                     "pixivdownload-plugin-duplicate/target/pixivdownload-plugin-duplicate-*.jar",
                     "-CoreShellOnly",
@@ -849,6 +952,23 @@ class PluginReleaseScriptsTest {
                 StandardCharsets.UTF_8);
     }
 
+    private static String workflowJob(String workflow, String jobName) {
+        Matcher matcher = Pattern.compile("(?m)^  ([A-Za-z0-9_-]+):[ \\t]*\\r?$").matcher(workflow);
+        int start = -1;
+        while (matcher.find()) {
+            if (start >= 0) {
+                return workflow.substring(start, matcher.start());
+            }
+            if (jobName.equals(matcher.group(1))) {
+                start = matcher.start();
+            }
+        }
+        if (start >= 0) {
+            return workflow.substring(start);
+        }
+        throw new IllegalArgumentException("Missing workflow job: " + jobName);
+    }
+
     private static String dockerfile() throws IOException {
         return Files.readString(repoRoot().resolve("Dockerfile"), StandardCharsets.UTF_8);
     }
@@ -870,6 +990,13 @@ class PluginReleaseScriptsTest {
                     .as("%s byte %s must be ASCII", path, index)
                     .isLessThanOrEqualTo(0x7F);
         }
+    }
+
+    private static void assertCanonicalBase64Key(String value) {
+        assertThat(value).isNotBlank();
+        byte[] decoded = Base64.getDecoder().decode(value);
+        assertThat(decoded).hasSize(32);
+        assertThat(Base64.getEncoder().encodeToString(decoded)).isEqualTo(value);
     }
 
     private static List<OfficialPlugin> officialDistributionPlugins(String common) {

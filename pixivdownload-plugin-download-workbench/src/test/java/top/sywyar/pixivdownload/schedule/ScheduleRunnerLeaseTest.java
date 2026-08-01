@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.schedule;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
@@ -30,6 +29,9 @@ import static org.mockito.Mockito.when;
 @DisplayName("ScheduleRunner 宿主 owner 租约")
 class ScheduleRunnerLeaseTest {
 
+    private static final ScheduleHostIdentity HOST_IDENTITY = new ScheduleHostIdentity(
+            ScheduleCapabilityTestFixture.DOWNLOAD_WORKBENCH_OWNER.featurePluginId());
+
     @Test
     @DisplayName("宿主 publication 尚未发布或已撤回时 tick 不读取到期任务")
     void tickDoesNotReadTasksWithoutHostPublication() {
@@ -39,7 +41,8 @@ class ScheduleRunnerLeaseTest {
                 mock(ScheduleExecutor.class),
                 new ScheduleConfig(),
                 new ScheduleRunState(),
-                new ScheduleCapabilityRegistry());
+                new FakeScheduleCapabilityAccess(),
+                HOST_IDENTITY);
 
         runner.tick();
 
@@ -57,14 +60,15 @@ class ScheduleRunnerLeaseTest {
             assertThat(allowLookup.await(5, TimeUnit.SECONDS)).isTrue();
             return List.of();
         });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store,
                 mock(ScheduleExecutor.class),
                 new ScheduleConfig(),
                 new ScheduleRunState(),
-                registry);
+                registry,
+                HOST_IDENTITY);
         Thread tick = new Thread(runner::tick, "schedule-runner-lease-test");
         tick.start();
         try {
@@ -99,10 +103,10 @@ class ScheduleRunnerLeaseTest {
         when(store.tryQueueDue(eq(31L), eq(7L), anyString(), anyLong()))
                 .thenReturn(Optional.empty());
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -140,10 +144,10 @@ class ScheduleRunnerLeaseTest {
                     throw new IllegalStateException("claim write failed");
                 });
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -166,12 +170,12 @@ class ScheduleRunnerLeaseTest {
         when(task.nextRunTime()).thenReturn(8_000L);
         when(store.findDue(anyLong())).thenReturn(List.of(task));
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunToken queuedToken = new ScheduleRunToken(
                 "claim-host-cancel", 13L,
                 top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
-        AtomicReference<top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain> drain =
+        AtomicReference<FakeScheduleCapabilityAccess.Drain> drain =
                 new AtomicReference<>();
         when(store.tryQueueDue(eq(41L), eq(12L), anyString(), anyLong()))
                 .thenAnswer(invocation -> {
@@ -179,7 +183,7 @@ class ScheduleRunnerLeaseTest {
                     return Optional.of(queuedToken);
                 });
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -234,7 +238,7 @@ class ScheduleRunnerLeaseTest {
                 anyLong(), eq("CLAIM_ABANDONED"), isNull(), eq(9_000L)))
                 .thenReturn(OptionalLong.of(23L));
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         AtomicBoolean previousFinished = new AtomicBoolean();
         when(store.startRun(52L, waitingToken)).thenAnswer(invocation -> {
@@ -243,10 +247,13 @@ class ScheduleRunnerLeaseTest {
         });
         ScheduleExecutor executor = new ScheduleExecutor(
                 store, registry, runState, new com.fasterxml.jackson.databind.ObjectMapper(),
-                mock(top.sywyar.pixivdownload.core.notification.NotificationService.class),
-                mock(top.sywyar.pixivdownload.i18n.AppMessages.class), null,
+                mock(top.sywyar.pixivdownload.notification.NotificationDispatcher.class),
+                mock(top.sywyar.pixivdownload.i18n.MessageResolver.class),
+                mock(top.sywyar.pixivdownload.i18n.NamespaceMessageResolver.class),
                 mock(top.sywyar.pixivdownload.setup.UserDisplayNameProvider.class),
-                mock(top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine.class)) {
+                mock(top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine.class),
+                mock(org.springframework.transaction.support.TransactionTemplate.class),
+                HOST_IDENTITY) {
             @Override
             void runTaskAndRecord(
                     top.sywyar.pixivdownload.core.schedule.ScheduledTask task,
@@ -262,7 +269,7 @@ class ScheduleRunnerLeaseTest {
             }
         };
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -288,10 +295,10 @@ class ScheduleRunnerLeaseTest {
         when(store.findAll()).thenReturn(List.of(orphan));
         when(store.findDue(anyLong())).thenReturn(List.of());
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 

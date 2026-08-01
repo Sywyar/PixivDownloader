@@ -4,15 +4,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.schedule.network.PixivScheduledRouteScope;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledLocalWorkLookup;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
@@ -20,11 +21,12 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleWorkFilter;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleWorkFilter;
 
 import java.util.Arrays;
 import java.util.List;
@@ -41,8 +43,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
     private static final Logger log = LoggerFactory.getLogger(PixivScheduledIllustWorkExecutor.class);
 
     private final PixivFetchService fetchService;
-    private final PixivDatabase pixivDatabase;
     private final ArtworkDownloader artworkDownloader;
+    private final PixivScheduledLocalWorkLookup localWorkLookup;
     private final WorkMetadataCapture workMetadataCapture;
     private final PixivSchedulePersistenceCodec persistenceCodec;
     private final ObjectMapper objectMapper;
@@ -54,15 +56,15 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
 
     public PixivScheduledIllustWorkExecutor(
             PixivFetchService fetchService,
-            PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
+            PixivScheduledLocalWorkLookup localWorkLookup,
             WorkMetadataCapture workMetadataCapture,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             DownloadSettings downloadSettings) {
         this.fetchService = fetchService;
-        this.pixivDatabase = pixivDatabase;
         this.artworkDownloader = artworkDownloader;
+        this.localWorkLookup = localWorkLookup;
         this.workMetadataCapture = workMetadataCapture;
         this.persistenceCodec = persistenceCodec;
         this.objectMapper = objectMapper;
@@ -77,6 +79,20 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
     @Override
     public int maxConcurrency() {
         return downloadSettings.getMaxConcurrent();
+    }
+
+    @Override
+    public ScheduledWorkNotificationPresentation notificationPresentation(
+            ScheduledWork work) {
+        try {
+            String id = persistenceCodec.decodeWorkId(work);
+            return new ScheduledWorkNotificationPresentation(
+                    "batch",
+                    "batch.user.kind-illust",
+                    "https://www.pixiv.net/artworks/" + id);
+        } catch (IllegalArgumentException failure) {
+            return ScheduledWorkNotificationPresentation.empty();
+        }
     }
 
     @Override
@@ -102,7 +118,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                     "pixiv.illust.id-invalid");
         }
         ScheduleTaskSnapshot snapshot = parseSnapshot(context);
-        if (alreadyDownloaded(artworkId, snapshot.download())) {
+        if (localWorkLookup.isAlreadyCompleted(work.key(), snapshot.download())) {
             return ScheduledWorkResult.alreadyCompleted();
         }
         String cookie = copyCookie(context);
@@ -111,13 +127,17 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                     executeScoped(id, artworkId, cookie, snapshot, context));
         } catch (ScheduledExecutionException failure) {
             throw failure;
-        } catch (HttpClientErrorException failure) {
-            int status = failure.getStatusCode().value();
-            if (status == 403 || status == 404) {
-                throw failure(ScheduledFailure.Category.NOT_FOUND, "pixiv.illust.gone");
+        } catch (PixivAjaxException failure) {
+            if (failure.failure() == PixivAjaxFailure.HTTP_STATUS) {
+                int status = failure.statusCode();
+                if (status == 403 || status == 404) {
+                    throw failure(ScheduledFailure.Category.NOT_FOUND, "pixiv.illust.gone");
+                }
+                throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
+                        "pixiv.illust.http-" + status);
             }
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
-                    "pixiv.illust.http-" + status);
+                    "pixiv.illust.fetch-failed");
         } catch (PixivFetchService.PixivFetchException failure) {
             throw failure(ScheduledFailure.Category.CREDENTIAL_INVALID,
                     "pixiv.illust.access-unavailable");
@@ -295,18 +315,6 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
 
     private void clearSeriesEntries(long taskId) {
         seriesCache.keySet().removeIf(key -> key.taskId() == taskId);
-    }
-
-    private boolean alreadyDownloaded(long artworkId, ScheduleTaskSnapshot.Download download) {
-        if (download.redownloadDeleted()) {
-            return download.verifyFiles()
-                    ? !pixivDatabase.isArtworkDeleted(artworkId)
-                    && artworkDownloader.isArtworkDownloaded(artworkId, true)
-                    : pixivDatabase.hasActiveArtwork(artworkId);
-        }
-        return download.verifyFiles()
-                ? artworkDownloader.isArtworkDownloaded(artworkId, true)
-                : pixivDatabase.hasArtwork(artworkId);
     }
 
     private ScheduleTaskSnapshot parseSnapshot(ScheduledWorkContext context)

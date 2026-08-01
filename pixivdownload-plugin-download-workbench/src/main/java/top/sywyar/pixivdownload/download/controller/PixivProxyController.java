@@ -6,31 +6,29 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.download.response.*;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.quota.response.ProxyRateLimitResponse;
-import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.download.response.ProxyRateLimitResponse;
 
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -50,43 +48,63 @@ import java.util.concurrent.TimeUnit;
 public class PixivProxyController {
 
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate;
+    private final PixivThumbnailFetcher pixivThumbnailFetcher;
     private final PixivFetchService pixivFetchService;
-    private final ApplicationModeProvider applicationModeProvider;
+    private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    private final UserQuotaService userQuotaService;
-    private final MultiModeSettings multiModeSettings;
     private final WorkVisibilityService workVisibilityService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
+
+    /** 插件控制器自行投影预期的参数/安全拒绝，不依赖宿主全局异常处理器。 */
+    @ExceptionHandler({IllegalArgumentException.class, SecurityException.class})
+    public ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException failure) {
+        String detail = failure.getMessage();
+        if (detail == null || detail.isBlank()) {
+            detail = messages.get("error.request.param.invalid");
+        }
+        log.warn(messages.getForLog("workbench.log.request.failed", detail));
+        return ResponseEntity.badRequest().body(new ErrorResponse(detail));
+    }
+
+    /** 缩略图端口失败由插件按既有 HTTP 语义投影，不依赖宿主实现层异常处理器。 */
+    @ExceptionHandler(PixivThumbnailFetchException.class)
+    public ResponseEntity<ErrorResponse> handleThumbnailFetch(PixivThumbnailFetchException failure) {
+        return switch (failure.failure()) {
+            case INVALID_TARGET -> thumbnailFailureResponse(
+                    HttpStatus.BAD_REQUEST,
+                    messages.get("pixiv.proxy.thumbnail-url.host.invalid"));
+            case HTTP_STATUS -> thumbnailFailureResponse(
+                    HttpStatus.BAD_GATEWAY,
+                    failure.statusCode() == 401 || failure.statusCode() == 403
+                            ? messages.get("pixiv.proxy.thumbnail.upstream.unauthorized")
+                            : messages.get("pixiv.proxy.thumbnail.upstream.failed", failure.statusCode()));
+            case TRANSPORT -> thumbnailFailureResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    messages.get("pixiv.proxy.thumbnail.transport.failed"));
+        };
+    }
+
+    private ResponseEntity<ErrorResponse> thumbnailFailureResponse(HttpStatus responseStatus, String detail) {
+        log.warn(messages.getForLog("workbench.log.request.failed", detail));
+        return ResponseEntity.status(responseStatus).body(new ErrorResponse(detail));
+    }
 
     /**
-     * 多人模式访问控制：
-     * - 要求 UUID 已存在（cookie 或 X-User-UUID 请求头），不接受自动生成的匿名访问
-     * - 在 resetPeriodHours 窗口内最多 maxArtworks 次代理请求
+     * 多人模式访问控制：判定与配额预留统一交给宿主代理访问策略端口，
      * 返回 null 表示校验通过；返回 ResponseEntity 表示应直接返回该错误。
-     * solo 模式已由 AuthFilter 完成认证，直接返回 null。
      */
     private ResponseEntity<?> checkMultiModeAccess(HttpServletRequest request) {
-        if (!"multi".equals(applicationModeProvider.getMode())) {
-            return null; // solo 模式，AuthFilter 已验证 session
-        }
-        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
-        if (identity.admin()) {
-            return null; // multi 模式下管理员不受代理请求限制
-        }
-        Optional<String> existingOwnerUuid = requestOwnerIdentityResolver.resolveExistingOwnerUuid(request);
-        if (existingOwnerUuid.isEmpty()) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.user-uuid.missing")));
-        }
-        String uuid = existingOwnerUuid.orElseThrow();
-        if (!userQuotaService.checkAndReserveProxy(uuid)) {
-            int max = multiModeSettings.getMaxProxyRequests();
-            int hours = multiModeSettings.getResetPeriodHours();
-            return ResponseEntity.status(429).body(new ProxyRateLimitResponse(
-                    messages.get("pixiv.proxy.rate-limit.exceeded", hours, max),
-                    max, hours));
-        }
-        return null;
+        PixivProxyAccessDecision decision = pixivProxyAccessPolicy.evaluate(
+                requestOwnerIdentityResolver.resolveExistingOwnerUuid(request).orElse(null),
+                requestOwnerIdentityResolver.isAdminAuthenticated(request));
+        return switch (decision.outcome()) {
+            case ALLOWED -> null;
+            case OWNER_REQUIRED -> ResponseEntity.status(401)
+                    .body(new ErrorResponse(decision.errorMessage()));
+            case RATE_LIMITED -> ResponseEntity.status(429)
+                    .body(new ProxyRateLimitResponse(
+                            decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
+        };
     }
 
     /**
@@ -238,7 +256,7 @@ public class PixivProxyController {
         }
     }
 
-    private static List<TagDto> extractTags(JsonNode body) {
+    private static List<WorkTag> extractTags(JsonNode body) {
         JsonNode tagsArr = body.path("tags").path("tags");
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
             tagsArr = body.path("tags");
@@ -246,7 +264,7 @@ public class PixivProxyController {
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
             return List.of();
         }
-        List<TagDto> out = new ArrayList<>();
+        List<WorkTag> out = new ArrayList<>();
         for (JsonNode t : tagsArr) {
             String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
             if (name.isEmpty()) continue;
@@ -256,7 +274,7 @@ public class PixivProxyController {
                 String en = translation.path("en").asText("");
                 if (!en.isEmpty()) translated = en;
             }
-            out.add(new TagDto(name, translated));
+            out.add(new WorkTag(null, name, translated));
         }
         return out;
     }
@@ -352,13 +370,8 @@ public class PixivProxyController {
     }
 
     private int resolveSearchFillLimitPage(HttpServletRequest request) {
-        if (!"multi".equals(applicationModeProvider.getMode())) {
-            return 0;
-        }
-        if (requestOwnerIdentityResolver.resolve(request).admin()) {
-            return 0;
-        }
-        return Math.max(0, multiModeSettings.getLimitPage());
+        return pixivProxyAccessPolicy.resolveSearchFillLimitPage(
+                requestOwnerIdentityResolver.isAdminAuthenticated(request));
     }
 
     /**
@@ -738,26 +751,10 @@ public class PixivProxyController {
         } catch (IllegalArgumentException e) {
             throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.invalid"));
         }
-        // pximg.net 子域服务作品缩略图；embed.pixiv.net 服务珍藏集封面缩略图。两者均为 Pixiv 固定 CDN。
-        // 仅允许 https，避免被诱导明文出站；缩略图只需 Pixiv Referer，绝不携带任何用户 Cookie（PHPSESSID 不应外泄到 CDN）。
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        boolean allowed = "https".equalsIgnoreCase(scheme)
-                && host != null
-                && (host.endsWith(".pximg.net") || host.equals("embed.pixiv.net"));
-        if (!allowed) {
-            throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.host.invalid"));
-        }
-        byte[] bytes = proxyGetBytes(url, null);
+        byte[] bytes = pixivThumbnailFetcher.fetch(uri);
         HttpHeaders responseHeaders = new HttpHeaders();
         responseHeaders.setCacheControl(CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic());
         return ResponseEntity.ok().headers(responseHeaders).body(bytes);
-    }
-
-    private byte[] proxyGetBytes(String url, String cookie) {
-        HttpEntity<Void> entity = new HttpEntity<>(PixivRequestHeaders.image(cookie));
-        ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
-        return response.getBody() != null ? response.getBody() : new byte[0];
     }
 
     // ── /me 端点：基于 cookie 解析当前用户 uid，代理「我的」书签 / 关注 / 珍藏集 ─────────────

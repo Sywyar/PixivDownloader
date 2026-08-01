@@ -4,7 +4,8 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  * One condition in a GUI config action result rule.
  *
  * @param source where to read the value from
- * @param path optional dot-separated JSON path for {@link GuiConfigActionResultSource#JSON}
+ * @param path optional dot-separated JSON path for {@link GuiConfigActionResultSource#JSON}; credential-like,
+ *             raw-error and HTML paths are rejected by the host
  * @param operator comparison operator
  * @param value comparison value for value-based operators
  */

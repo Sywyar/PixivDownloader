@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.i18n;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -23,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.MissingResourceException;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
@@ -52,8 +55,9 @@ import java.util.zip.ZipFile;
  * （跨插件与同一批次内）一律在注册期拒绝，使应用启动失败而不是带病运行。
  */
 @Component
-public class WebI18nBundleRegistry {
+public class WebI18nBundleRegistry implements NamespaceMessageResolver {
 
+    private static final Logger log = LoggerFactory.getLogger(WebI18nBundleRegistry.class);
     private static final java.util.ResourceBundle.Control NO_FALLBACK_CONTROL =
             java.util.ResourceBundle.Control.getNoFallbackControl(
                     java.util.ResourceBundle.Control.FORMAT_PROPERTIES);
@@ -97,10 +101,7 @@ public class WebI18nBundleRegistry {
 
     @Autowired
     public WebI18nBundleRegistry(PluginRegistry pluginRegistry, ObjectProvider<ExternalPluginInstaller> installer) {
-        this(pluginRegistry, () -> {
-            ExternalPluginInstaller value = installer.getIfAvailable();
-            return value != null ? value.listInstalled() : List.of();
-        });
+        this(pluginRegistry, installedPluginSupplier(installer));
     }
 
     public WebI18nBundleRegistry(PluginRegistry pluginRegistry) {
@@ -117,6 +118,12 @@ public class WebI18nBundleRegistry {
             }
         }
         refreshInstalledSnapshot();
+    }
+
+    private static Supplier<List<InstalledPlugin>> installedPluginSupplier(
+            ObjectProvider<ExternalPluginInstaller> installer) {
+        ExternalPluginInstaller value = installer == null ? null : installer.getIfAvailable();
+        return value != null ? value::listInstalled : List::of;
     }
 
     /**
@@ -198,6 +205,19 @@ public class WebI18nBundleRegistry {
         return null;
     }
 
+    @Override
+    public Optional<String> resolve(String namespace, Locale locale, String key) {
+        if (namespace == null || namespace.isBlank() || key == null || key.isBlank()) {
+            return Optional.empty();
+        }
+        RegisteredBundle registered = resolve(namespace);
+        if (registered == null) {
+            return Optional.empty();
+        }
+        String message = registered.load(locale).get(key);
+        return message == null || message.isBlank() ? Optional.empty() : Optional.of(message);
+    }
+
     /**
      * 按声明的 {@link I18nContribution#order()} 升序返回全部受支持的 namespace，
      * 同 order 保持注册顺序（稳定排序）。{@code /api/i18n/meta} 据此对外暴露 namespace 列表，
@@ -238,7 +258,12 @@ public class WebI18nBundleRegistry {
     }
 
     private void refreshInstalledSnapshot() {
-        installedSnapshot = installedBundles(installedPlugins.get());
+        try {
+            installedSnapshot = installedBundles(installedPlugins.get());
+        } catch (RuntimeException failure) {
+            log.warn("Installed plugin i18n snapshot refresh failed; keeping the previous snapshot "
+                    + "(failureType={}).", failure.getClass().getName());
+        }
     }
 
     private static List<RegisteredBundle> installedBundles(List<InstalledPlugin> installedPlugins) {

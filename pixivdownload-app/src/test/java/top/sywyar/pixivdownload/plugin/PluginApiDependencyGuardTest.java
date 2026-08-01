@@ -571,10 +571,10 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("下载队列控制器不得直接依赖具体作品类型下载服务：取消 / 清空只经核心队列宿主注册中心 QueueOperationRegistry")
+    @DisplayName("下载队列控制器不得直接依赖具体作品类型下载服务：取消 / 清空只经稳定下载控制面")
     void downloadQueueControllerDoesNotDependOnConcreteDownloadServices() {
-        // 跨类型 cancel / clear 已收口为核心队列宿主注册中心 QueueOperationRegistry（按 queueType 解析操作适配器）。
-        // DownloadQueueController 只依赖该核心注册中心与中性 QueueOperations 契约，不得直接 import 任一具体作品类型
+        // 跨类型 cancel / clear 已收口为 plugin-api DownloadControlPlane；app adapter 内部按 queueType 协调
+        // descriptor 与命令 publication。DownloadQueueController 只依赖稳定控制面，不得直接 import 任一具体作品类型
         // 下载实现——插画 ArtworkDownloadExecutor（同插件、但仍属具体实现）与小说 NovelDownloadService（跨插件反向耦合）
         // 都在禁用面内；插画 / 小说各经其 XxxPluginConfiguration 显式装配一个 QueueOperations 适配器贡献给注册中心。
         // 仅针对该控制器：同包其它下载控制器（DownloadStatusController / DownloadTaskController 依赖插画执行器、
@@ -585,16 +585,59 @@ class PluginApiDependencyGuardTest {
                 .should().dependOnClassesThat()
                 .haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
-                .because("下载队列控制器的跨类型取消 / 清空经核心队列宿主注册中心 QueueOperationRegistry "
-                        + "+ 中性契约 QueueOperations 多态派发，不得直接依赖插画下载执行器")
+                .because("下载队列控制器的跨类型取消 / 清空经稳定 DownloadControlPlane 多态派发，"
+                        + "不得直接依赖插画下载执行器")
                 .check(importDownloadWorkbenchClasses());
         noClasses()
                 .that().haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
                 .should().dependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.novel.download..")
-                .because("下载队列控制器不得反向依赖小说下载实现；小说只经 QueueOperations 贡献能力")
+                .because("下载队列控制器不得反向依赖小说下载实现；小说只经稳定队列契约贡献能力")
                 .check(importDownloadWorkbenchClasses());
+    }
+
+    @Test
+    @DisplayName("下载工作台脚本入口不得依赖宿主扫描实现或重复调用游客限流器")
+    void downloadWorkbenchUsesStableUserscriptCatalog() {
+        DescribedPredicate<JavaClass> hostUserscriptImplementation =
+                new DescribedPredicate<>("host userscript implementation or visitor rate limiter") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        String className = javaClass.getFullName();
+                        return className.equals("top.sywyar.pixivdownload.quota.RateLimitService")
+                                || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptRegistry")
+                                || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptResource")
+                                || className.startsWith("top.sywyar.pixivdownload.scripts.UserscriptRegistry");
+                    }
+                };
+
+        noClasses()
+                .should().dependOnClassesThat(hostUserscriptImplementation)
+                .because("工作台只消费 plugin-api UserscriptCatalog；扫描、物化与游客 UUID 限流归宿主")
+                .check(importDownloadWorkbenchClasses());
+    }
+
+    @Test
+    @DisplayName("宿主脚本物化实现不得编码下载工作台私有文件名或派生安装 id")
+    void hostUserscriptMaterializerDoesNotOwnPluginScriptIdentity() throws IOException {
+        Path source = Path.of(
+                "pixivdownload-app/src/main/java/top/sywyar/pixivdownload/scripts/ScriptRegistry.java");
+        if (!Files.exists(source)) {
+            source = Path.of("src/main/java/top/sywyar/pixivdownload/scripts/ScriptRegistry.java");
+        }
+
+        assertThat(Files.readString(source, StandardCharsets.UTF_8))
+                .doesNotContain(
+                        "FILENAME_TO_ID",
+                        "deriveId(",
+                        "Pixiv All-in-One.user.js",
+                        "Pixiv 单作品图片下载器(Java后端版).user.js",
+                        "Pixiv 单作品图片下载器(Local Download).user.js",
+                        "Pixiv User 批量下载器(User Batch).user.js",
+                        "Pixiv 页面批量下载器(Page Scrape).user.js",
+                        "Pixiv URL 批量导入单作品下载器(URL Batch).user.js",
+                        "Pixiv 体验增强工具箱(Toolbox).user.js");
     }
 
     @Test

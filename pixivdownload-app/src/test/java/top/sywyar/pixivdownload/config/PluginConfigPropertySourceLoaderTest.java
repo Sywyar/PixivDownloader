@@ -57,6 +57,7 @@ class PluginConfigPropertySourceLoaderTest {
                 NotificationConfigKeys.scenarioEnabledKey("run-summary") + "=false",
                 NotificationConfigKeys.scenarioEnabledKey("run-failed") + "=false",
                 "notification.api-key=" + FAKE_CREDENTIAL,
+                "push.webhook.url=https://example.test/hook?token=" + FAKE_CREDENTIAL,
                 "server.port=1234",
                 ""), StandardCharsets.UTF_8);
 
@@ -65,6 +66,7 @@ class PluginConfigPropertySourceLoaderTest {
                 .isEqualTo("false");
         assertThat(pluginSource.getProperty("server.port")).isNull();
         assertThat(pluginSource.getProperty("notification.api-key")).isNull();
+        assertThat(pluginSource.getProperty("push.webhook.url")).isNull();
 
         MutablePropertySources sources = new MutablePropertySources();
         sources.addLast(pluginSource);
@@ -76,6 +78,23 @@ class PluginConfigPropertySourceLoaderTest {
 
         assertThat(config.isScenarioEnabled("run-summary")).isFalse();
         assertThat(config.isScenarioEnabled("run-failed")).isFalse();
+    }
+
+    @Test
+    @DisplayName("插件 properties 无法注入宿主拥有的任意插件启停键")
+    void pluginPropertiesCannotInjectPluginToggleKeys() throws IOException {
+        Path configDir = useTempConfigDir();
+        Path pluginDir = configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR);
+        Files.createDirectories(pluginDir);
+        Files.writeString(pluginDir.resolve("fixture.properties"), String.join("\n",
+                "plugins.demo-ext.enabled=false",
+                "fixture.mode=plugin",
+                ""), StandardCharsets.UTF_8);
+
+        MapPropertySource pluginSource = PluginConfigPropertySourceLoader.load().orElseThrow();
+
+        assertThat(pluginSource.getProperty("plugins.demo-ext.enabled")).isNull();
+        assertThat(pluginSource.getProperty("fixture.mode")).isEqualTo("plugin");
     }
 
     @Test

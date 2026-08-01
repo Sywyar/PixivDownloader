@@ -6,7 +6,6 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.push.PushConfig;
 import top.sywyar.pixivdownload.push.PushDispatcher;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
 import top.sywyar.pixivdownload.push.PushPluginMessages;
@@ -50,7 +49,7 @@ public class PushNotificationSink implements NotificationSink {
                 return;
             }
             PushMessage message = messageFactory.render(
-                    scenario.id(), PushLevel.from(scenario.level()), locale, placeholders);
+                    scenario.id(), scenario.level(), locale, placeholders);
             logDeliveryFailures(scenario, pushService.push(message));
         } catch (RuntimeException e) {
             // PushDispatcher.push 已 best-effort 不抛；这里兜住渲染期的意外异常。
@@ -85,9 +84,9 @@ public class PushNotificationSink implements NotificationSink {
     public void verifyRenderable(NotificationScenario scenario) {
         String titleKey = "push.message." + scenario.id() + ".title";
         String bodyKey = "push.message." + scenario.id() + ".body";
-        PushLevel level = PushLevel.from(scenario.level());
         for (Locale locale : VERIFY_LOCALES) {
-            PushMessage message = messageFactory.render(scenario.id(), level, locale, Map.of());
+            PushMessage message = messageFactory.render(
+                    scenario.id(), scenario.level(), locale, Map.of());
             if (isMissing(message.title(), titleKey)) {
                 throw new IllegalStateException(
                         "push title i18n missing: " + titleKey + " @ " + locale);

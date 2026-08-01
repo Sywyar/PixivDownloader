@@ -6,10 +6,11 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar.PreparedOwner;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPublication;
@@ -27,6 +28,7 @@ import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionHandle;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
@@ -57,10 +59,10 @@ import java.util.function.Consumer;
  * <h2>停止顺序（与启动期接入对称）</h2>
  * {@code stop} 依次：<b>① 标记 {@link PluginRuntimePhase#QUIESCED} 并撤回本 serving 的 HTTP 请求准入</b>→
  * <b>② 精确撤回本 generation 的 schedule publication</b>（统一 registry 原子拒绝新 lease，并向旧 lease 发取消）→
- * <b>③ 保存 queue generation drain、关闭 SSE 并发送协作式取消</b> →
- * <b>④ 用同一绝对截止时间等待旧 request / schedule / queue generation 真实归零</b> → <b>⑤ 拆除服务足迹</b>
+ * <b>③ 保存中性后台任务与 queue generation drain、关闭 SSE 并发送协作式取消</b> →
+ * <b>④ 用同一绝对截止时间等待旧 request / schedule / task / queue generation 真实归零</b> → <b>⑤ 拆除服务足迹</b>
  * （注销 controller / runtime capability / web 贡献 → 经 {@link PluginRegistry} 调插件 {@code stop()} → 关闭子 context）。
- * schedule 或 queue 准备 / 取消失败不会被吞掉；运行期等待超时返回
+ * schedule、task 或 queue 准备 / 取消失败不会被吞掉；运行期等待超时返回
  * {@link PluginManagementErrorCode#OPERATION_IN_PROGRESS} 并保持 {@link PluginRuntimePhase#QUIESCED}，绝不关闭仍被
  * schedule lease 或 queue task 引用的 child context。其余足迹拆除继续沿用 best-effort 隔离。
  *
@@ -89,12 +91,13 @@ import java.util.function.Consumer;
  *       {@code ScheduleCapabilityRegistry} 撤回 owner bundle；旧 generation 的 planning / execution lease 同时收到协作式
  *       取消，新 planning lease 不再获取来源、执行器、凭据策略或 guard。残留任务数据保留，待能力恢复后可重新解析。</li>
  *   <li><b>清退在途资源</b>——① 从核心队列宿主注册中心取得 owner 精确操作快照，先保存各操作实例的
- *       {@link QueueDrain}，再发送协作式取消；② 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件
- *       全部活动 SSE 推流并向客户端发「插件不可用」事件。生命周期不在 teardown 时重读插件 getter，也不直依赖任一
- *       具体下载实现。</li>
+ *       {@link QueueDrain}，再发送协作式取消；② 保存 plugin-runtime 中性后台任务 generation drain 后关闭其
+ *       admission 并取消已登记任务；③ 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件全部活动 SSE
+ *       推流并向客户端发「插件不可用」事件。生命周期不在 teardown 时重读插件 getter，也不直依赖任一具体下载实现。</li>
  * </ol>
- * schedule 撤回与 queue drain 保存属于安全前置条件，失败向上抛出；SSE 与队列取消彼此隔离。队列任务的 drain 仅在
- * 核心 wrapper 真正退出后归零，排队任务取消时立即清除插件 delegate。异步任务一律走核心受管执行器，本服务不新建线程池。
+ * schedule 撤回与 task / queue drain 保存属于安全前置条件，失败向上抛出；任务、SSE 与队列取消彼此隔离。
+ * drain 仅在宿主 wrapper 真正退出后归零，排队任务取消时立即清除插件 delegate。异步任务一律走宿主受管执行器，
+ * 本服务不新建线程池。
  *
  * <p>本服务把外置插件标识为单一 {@code pluginId}：对全部在场外置插件，其功能插件 id 与 PF4J 包 id 重合，故子
  * context / controller / web 贡献 / 路由声明 / 状态机统一以该 id 为键。所有变更在本对象锁内串行；写入各注册中心
@@ -333,6 +336,7 @@ public class PluginLifecycleService {
                         ensureQuiesced(record);
                         if (record.requestWithdrawalComplete && record.capabilityWithdrawalComplete
                                 && record.scheduleWithdrawalComplete
+                                && record.taskPreparationComplete
                                 && record.queuePreparationComplete
                                 && record.runtimeTasksQuiesced) {
                             pendingQuiesce.remove(index);
@@ -358,6 +362,7 @@ public class PluginLifecycleService {
                 if (phase == PluginRuntimePhase.QUIESCED
                         && record.requestWithdrawalComplete && record.capabilityWithdrawalComplete
                         && record.scheduleWithdrawalComplete
+                        && record.taskPreparationComplete
                         && record.queuePreparationComplete
                         && record.runtimeTasksQuiesced) {
                     interrupted |= awaitRuntimeDrainsUninterruptibly(record);
@@ -690,7 +695,7 @@ public class PluginLifecycleService {
         finishStop(record, true);
     }
 
-    /** 标记 QUIESCED，并且恰好一次按 request → capability → schedule → queue 的顺序发起清退。 */
+    /** 标记 QUIESCED，并且恰好一次按 request → capability → schedule → task → queue 的顺序发起清退。 */
     private void ensureQuiesced(ManagedPlugin record) {
         PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
         if (phase == PluginRuntimePhase.STARTED) {
@@ -714,6 +719,11 @@ public class PluginLifecycleService {
             record.scheduleDrain = withdrawScheduleOrRetryFailedRegistration(record);
             record.scheduleWithdrawalComplete = true;
         }
+        if (!record.taskPreparationComplete) {
+            runtimeTaskQuiescer.prepareRuntimeTaskDrain(
+                    record.pluginId, record.runtimeTaskDrain, drain -> record.runtimeTaskDrain = drain);
+            record.taskPreparationComplete = true;
+        }
         if (!record.queuePreparationComplete) {
             runtimeTaskQuiescer.prepareQueueDrains(
                     record.pluginId, List.copyOf(record.queueDrains), record.queueDrains::add);
@@ -723,7 +733,7 @@ public class PluginLifecycleService {
             return;
         }
         runtimeTaskQuiescer.quiesceAfterScheduleWithdrawal(
-                record.pluginId, List.copyOf(record.queueDrains));
+                record.pluginId, record.runtimeTaskDrain, List.copyOf(record.queueDrains));
         record.runtimeTasksQuiesced = true;
     }
 
@@ -807,6 +817,8 @@ public class PluginLifecycleService {
         record.scheduleDrain = null;
         record.scheduleWithdrawalComplete = false;
         record.scheduleRetirementAcknowledged = true;
+        record.runtimeTaskDrain = null;
+        record.taskPreparationComplete = false;
         record.queueDrains.clear();
         record.queuePreparationComplete = false;
         record.runtimeTasksQuiesced = false;
@@ -825,6 +837,10 @@ public class PluginLifecycleService {
         ScheduleGenerationDrain drain = record.scheduleDrain;
         if (drain != null && !drain.awaitDrained(deadlineNanos)) {
             return "schedule lease(s)=" + drain.activeLeaseCount();
+        }
+        PluginRuntimeTaskDrain runtimeTaskDrain = record.runtimeTaskDrain;
+        if (runtimeTaskDrain != null && !runtimeTaskDrain.awaitDrained(deadlineNanos)) {
+            return "background task(s)=" + runtimeTaskDrain.activeCount();
         }
         for (QueueDrain queueDrain : record.queueDrains) {
             if (!queueDrain.awaitDrained(deadlineNanos)) {
@@ -852,6 +868,12 @@ public class PluginLifecycleService {
         ScheduleGenerationDrain drain = record.scheduleDrain;
         while (drain != null && !drain.isDrained()) {
             if (!drain.awaitDrained()) {
+                interrupted |= Thread.interrupted();
+            }
+        }
+        PluginRuntimeTaskDrain runtimeTaskDrain = record.runtimeTaskDrain;
+        while (runtimeTaskDrain != null && !runtimeTaskDrain.isDrained()) {
+            if (!runtimeTaskDrain.awaitDrained()) {
                 interrupted |= Thread.interrupted();
             }
         }
@@ -962,7 +984,16 @@ public class PluginLifecycleService {
         PreparedWebContribution preparedWeb = null;
         boolean featureStartedForRollback = !invokePluginStart && record.registered != null
                 && pluginRegistry.featureStarted(record.registered);
-        // a) 子 context（仅声明了配置类的插件包）。
+        // a) 子 context 刷新本身可能在 @PostConstruct 登记任务；必须先为本 serving 重开一个新 generation。
+        try {
+            runtimeTaskQuiescer.resumeTasks(pluginId);
+        } catch (Throwable failure) {
+            log.error("Failed to resume runtime task admission for plugin '{}' (failureType={}) - rolling back service footprint.",
+                    pluginId, failure.getClass().getName());
+            handleBringUpFailure(record, failure, featureStartedForRollback);
+            return;
+        }
+        // b) 子 context（仅声明了配置类的插件包）。
         if (record.module != null) {
             ConfigurableApplicationContext child;
             try {
@@ -975,7 +1006,7 @@ public class PluginLifecycleService {
             }
             record.context = child;
         }
-        // b) Prepare migrated runtime capability proxies without admission, then retain the legacy queue bridge.
+        // c) Prepare migrated runtime capability proxies without admission, then retain the legacy queue bridge.
         if (record.context != null) {
             try {
                 String packageId = record.registered == null
@@ -997,7 +1028,7 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // c) 运行期先一次性读取 getter / 解析资源 / 校验下载扩展；此时任何 web/download 快照都尚未公开。
+        // d) 运行期先一次性读取 getter / 解析资源 / 校验下载扩展；此时任何 web/download 快照都尚未公开。
         if (record.webHandle == null && record.registered != null) {
             try {
                 preparedWeb = webContributionRegistrar.prepare(record.registered);
@@ -1008,7 +1039,7 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // d) controller 动态注册；运行期 route 尚未发布，校验使用同一 prepared token 的路由快照。
+        // e) controller 动态注册；运行期 route 尚未发布，校验使用同一 prepared token 的路由快照。
         if (record.context != null) {
             record.controllerCleanupComplete = false;
             try {
@@ -1024,7 +1055,7 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // e) 插件自身 start()：仅运行期重启路径经 PluginRegistry 的精确身份入口调用。
+        // f) 插件自身 start()：仅运行期重启路径经 PluginRegistry 的精确身份入口调用。
         if (invokePluginStart) {
             try {
                 if (record.registered != null) {
@@ -1037,7 +1068,7 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // f) 发布 serving 前重新开放推流 admission；失败残留未清零时拒绝混入新 serving。
+        // g) 发布 serving 前重新开放推流 admission；失败残留未清零时拒绝混入新 serving。
         try {
             runtimeTaskQuiescer.resumeStreams(pluginId);
         } catch (Throwable failure) {
@@ -1046,7 +1077,7 @@ public class PluginLifecycleService {
             handleBringUpFailure(record, failure, featureStartedForRollback);
             return;
         }
-        // g) 运行期在 context/capability/controller/plugin 全部就绪后才提交同一份 prepared web/download。
+        // h) 运行期在 context/capability/controller/plugin 全部就绪后才提交同一份 prepared web/download。
         // 启动期构造期已接入并保留精确句柄，故跳过。
         if (record.webHandle == null && record.registered != null) {
             try {
@@ -1070,7 +1101,7 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // h) Publish schedule only after the complete web/controller serving is ready.
+        // i) Publish schedule only after the complete web/controller serving is ready.
         if (record.registered != null) {
             try {
                 record.schedulePublication = scheduleContributionRegistrar
@@ -1085,7 +1116,7 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // i) Open migrated capability admission last; every downstream proxy snapshot was prepared but invisible.
+        // j) Open migrated capability admission last; every downstream proxy snapshot was prepared but invisible.
         if (record.capabilityPreparation != null) {
             try {
                 ExternalCapabilityPublication publication = Objects.requireNonNull(
@@ -1330,6 +1361,15 @@ public class PluginLifecycleService {
                 failure = mergeFailure(failure, withdrawalFailure);
             }
         }
+        if (!record.taskPreparationComplete) {
+            try {
+                runtimeTaskQuiescer.prepareRuntimeTaskDrain(
+                        record.pluginId, record.runtimeTaskDrain, drain -> record.runtimeTaskDrain = drain);
+                record.taskPreparationComplete = true;
+            } catch (Throwable preparationFailure) {
+                failure = mergeFailure(failure, preparationFailure);
+            }
+        }
         if (!record.queuePreparationComplete) {
             try {
                 runtimeTaskQuiescer.prepareQueueDrains(
@@ -1342,11 +1382,12 @@ public class PluginLifecycleService {
         if (record.requestWithdrawalComplete
                 && record.capabilityWithdrawalComplete
                 && record.scheduleWithdrawalComplete
+                && record.taskPreparationComplete
                 && record.queuePreparationComplete
                 && !record.runtimeTasksQuiesced) {
             try {
                 runtimeTaskQuiescer.quiesceAfterScheduleWithdrawal(
-                        record.pluginId, List.copyOf(record.queueDrains));
+                        record.pluginId, record.runtimeTaskDrain, List.copyOf(record.queueDrains));
                 record.runtimeTasksQuiesced = true;
             } catch (Throwable quiesceFailure) {
                 failure = mergeFailure(failure, quiesceFailure);
@@ -1589,6 +1630,10 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("refusing to close child context with active schedule leases: "
                     + record.pluginId + " (active=" + record.scheduleDrain.activeLeaseCount() + ")");
         }
+        if (record.runtimeTaskDrain != null && !record.runtimeTaskDrain.isDrained()) {
+            throw new PluginLifecycleException("refusing to close child context with active background tasks: "
+                    + record.pluginId + " (active=" + record.runtimeTaskDrain.activeCount() + ")");
+        }
         for (QueueDrain queueDrain : record.queueDrains) {
             if (!queueDrain.isDrained()) {
                 throw new PluginLifecycleException("refusing to close child context with active queue tasks: "
@@ -1675,6 +1720,8 @@ public class PluginLifecycleService {
         ScheduleGenerationDrain scheduleDrain;
         boolean scheduleWithdrawalComplete;
         boolean scheduleRetirementAcknowledged = true;
+        PluginRuntimeTaskDrain runtimeTaskDrain;
+        boolean taskPreparationComplete;
         final List<QueueDrain> queueDrains = new ArrayList<>();
         boolean queuePreparationComplete;
         boolean runtimeTasksQuiesced;

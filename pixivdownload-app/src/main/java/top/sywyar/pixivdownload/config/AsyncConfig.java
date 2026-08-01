@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.config;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,6 +13,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 
 // proxyTargetClass = true：强制 @Async 走 CGLIB 子类代理。否则当被代理的 @Async bean
 // 带 @Async 的 Bean 实现接口时，Spring 默认可能退化为 JDK 动态代理；这里统一使用 CGLIB，保证具体类型注入稳定。
@@ -25,7 +27,7 @@ public class AsyncConfig {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(5);
         scheduler.setThreadNamePrefix("app-scheduler-");
-        // 热停时取消的延迟状态清理任务必须立即从父调度队列移除，不能继续持有旧插件 generation 的 Runnable。
+        // 核心延迟任务取消后立即移除队列句柄，避免宿主调度队列继续持有已失效的 Runnable。
         scheduler.setRemoveOnCancelPolicy(true);
         return scheduler;
     }
@@ -59,6 +61,15 @@ public class AsyncConfig {
     @Bean("downloadTaskExecutor")
     public TaskExecutor downloadTaskExecutor(DownloadConfig downloadConfig) {
         return fixedPool(downloadConfig.getMaxConcurrent(), "pixiv-download-");
+    }
+
+    /**
+     * 向外置下载能力暴露窄执行语义，隐藏宿主线程池 Bean 名与 Spring 执行器类型。
+     */
+    @Bean
+    public InteractiveDownloadExecutionLane interactiveDownloadExecutionLane(
+            @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor) {
+        return downloadTaskExecutor::execute;
     }
 
     /** 配额归档打包专用线程池，并发上限由 {@code multi-mode.quota.archive-max-concurrent} 控制。 */

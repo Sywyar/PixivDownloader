@@ -8,11 +8,11 @@ import java.util.Set;
  * {@link #detail} 仅用于诊断，必须已脱敏且不含凭证；受控原因保存
  * {@link #DETAIL_MESSAGE_PREFIX i18n key}，外部响应等动态诊断保留脱敏原文，成功时通常为 {@code null}。
  *
- * @param channel 通道类型
+ * @param channel 通道标识
  * @param status  结果状态
  * @param detail  诊断详情（失败原因 / 跳过原因），已脱敏；成功时可为 {@code null}
  */
-public record PushResult(PushChannelType channel, Status status, String detail) {
+public record PushResult(PushChannelId channel, Status status, String detail) {
 
     public static final String DETAIL_MESSAGE_PREFIX = "push.result.detail.";
     public static final String DETAIL_CHANNEL_UNAVAILABLE = DETAIL_MESSAGE_PREFIX + "channel-unavailable";
@@ -45,15 +45,15 @@ public record PushResult(PushChannelType channel, Status status, String detail) 
         SKIPPED
     }
 
-    public static PushResult ok(PushChannelType channel) {
+    public static PushResult ok(PushChannelId channel) {
         return new PushResult(channel, Status.OK, null);
     }
 
-    public static PushResult failed(PushChannelType channel, String detail) {
+    public static PushResult failed(PushChannelId channel, String detail) {
         return new PushResult(channel, Status.FAILED, detail);
     }
 
-    public static PushResult skipped(PushChannelType channel, String reason) {
+    public static PushResult skipped(PushChannelId channel, String reason) {
         return new PushResult(channel, Status.SKIPPED, reason);
     }
 

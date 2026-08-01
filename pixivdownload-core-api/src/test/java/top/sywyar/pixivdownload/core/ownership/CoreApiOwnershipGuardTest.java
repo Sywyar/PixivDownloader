@@ -4,12 +4,39 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.sun.source.tree.BinaryTree;
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.ExpressionTree;
+import com.sun.source.tree.LiteralTree;
+import com.sun.source.tree.ParenthesizedTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
+import com.sun.source.util.JavacTask;
+import com.sun.source.util.SourcePositions;
+import com.sun.source.util.TreePath;
+import com.sun.source.util.TreePathScanner;
+import com.sun.source.util.TreeScanner;
+import com.sun.source.util.Trees;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.ai.AiClientSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
+import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryMediaKey;
+import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaAsset;
+import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
@@ -19,6 +46,9 @@ import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
@@ -33,10 +63,14 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
@@ -44,14 +78,25 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelection;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 
+import javax.tools.Diagnostic;
+import javax.tools.DiagnosticCollector;
+import javax.tools.JavaCompiler;
+import javax.tools.JavaFileObject;
+import javax.tools.SimpleJavaFileObject;
+import javax.tools.ToolProvider;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -83,8 +128,12 @@ class CoreApiOwnershipGuardTest {
                             "OutboundProxyEndpoint", "OutboundProxyOverride", "OutboundProxySettings",
                             "RuntimePathProvider"),
                     types("top.sywyar.pixivdownload.core.db.pathprefix", "StoredPathCodec"),
+                    types("top.sywyar.pixivdownload.core.download", "InteractiveDownloadExecutionLane"),
+                    types("top.sywyar.pixivdownload.core.ffmpeg",
+                            "FfmpegCommandResolver", "ResolvedFfmpegCommand"),
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
-                    types("top.sywyar.pixivdownload.i18n", "MessageResolver", "ResourceBundleMessageResolver"),
+                    types("top.sywyar.pixivdownload.i18n",
+                            "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver"),
                     types("top.sywyar.pixivdownload.setup", "ApplicationModeProvider", "UserDisplayNameProvider"),
                     types("top.sywyar.pixivdownload.web", "LocalRequestTrust"))),
             Map.entry("AI 调用稳定契约", union(
@@ -135,6 +184,10 @@ class CoreApiOwnershipGuardTest {
                             "GalleryCountResult", "GalleryRuntimeQuery", "GalleryRuntimeSnapshot",
                             "GalleryWorkResult"))),
             Map.entry("核心作品事实与共享纯语义", union(
+                    types("top.sywyar.pixivdownload.core.artwork.download",
+                            "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",
+                            "ArtworkDownloadLookup", "ArtworkDownloadStatistics",
+                            "ArtworkSeriesObservation", "ArtworkSeriesObserver"),
                     types("top.sywyar.pixivdownload.core.hash",
                             "ArtworkHashEntry", "ArtworkHashFingerprint", "ArtworkHashIndexMaintenance",
                             "ArtworkHashIndexQuery"),
@@ -144,26 +197,34 @@ class CoreApiOwnershipGuardTest {
                             "PixivCoverUrlResolver", "PixivDescriptionHtml", "PixivImageDownloader",
                             "PixivImageTransferObserver", "PixivProxyAccessDecision",
                             "PixivProxyAccessOutcome", "PixivProxyAccessPolicy"),
+                    types("top.sywyar.pixivdownload.core.pixiv.filename",
+                            "PixivWorkFileNameFormatter"),
+                    types("top.sywyar.pixivdownload.core.pixiv.thumbnail",
+                            "PixivThumbnailFetcher", "PixivThumbnailFetchException",
+                            "PixivThumbnailFailure"),
                     types("top.sywyar.pixivdownload.core.time", "EpochMillisNormalizer"),
                     types("top.sywyar.pixivdownload.core.work",
-                            "PixivWorkFileNameFormatter", "WorkActionResult"),
+                            "WorkActionResult"),
                     types("top.sywyar.pixivdownload.core.work.model",
-                            "LocalWorkAsset", "PagedResult", "WorkAssetFile", "WorkMetadata", "WorkRestriction",
-                            "WorkSummary", "WorkTag", "WorkType", "WorkVisibilityScope"),
+                            "LocalWorkAsset", "PagedResult", "WorkAssetFile", "WorkFileNameTemplateRef",
+                            "WorkMetadata", "WorkRestriction", "WorkSummary", "WorkTag", "WorkType",
+                            "WorkVisibilityScope"),
                     types("top.sywyar.pixivdownload.core.work.query",
                             "AuthorQuery", "AuthorSummary", "SeriesNeighbors", "TagOption", "TagQuery", "WorkQuery"),
                     types("top.sywyar.pixivdownload.core.work.service",
-                            "AuthorObservationService", "DownloadPathGuard", "WorkAssetService",
+                            "AuthorObservationService", "DownloadPathGuard", "DownloadPathRejectedException",
+                            "WorkAssetService",
                             "WorkDeletionException", "WorkDeletionService", "WorkFileNameCatalog",
                             "WorkMetadataCapture", "WorkMetadataRepository", "WorkQueryService", "WorkTagCatalog",
                             "WorkVisibilityDeniedException", "WorkVisibilityService"))),
             Map.entry("核心统计只读语义", types("top.sywyar.pixivdownload.core.stats",
                     "StatsAggregates", "StatsQueryStore")),
             Map.entry("中性通知场景", types("top.sywyar.pixivdownload.notification",
-                    "NotificationConfigKeys", "NotificationScenario", "NotificationSeverity", "NotificationSink")),
+                    "NotificationConfigKeys", "NotificationDispatcher", "NotificationScenario",
+                    "NotificationSeverity", "NotificationSink")),
             Map.entry("推送共享协议与纯转换", types("top.sywyar.pixivdownload.push",
-                    "PushChannel", "PushChannelSettings", "PushChannelType", "PushDispatcher", "PushFormat",
-                    "PushFormatConverter", "PushLevel", "PushMessage", "PushResult", "RenderedMessage")),
+                    "PushChannel", "PushChannelId", "PushChannelSettings", "PushDispatcher", "PushFormat",
+                    "PushFormatConverter", "PushMessage", "PushResult", "RenderedMessage")),
             Map.entry("朗读引擎稳定契约", types("top.sywyar.pixivdownload.tts.narration.engine",
                     "NarrationAudio", "NarrationReferenceVoice", "NarrationSpeechText", "NarrationVoiceEngine",
                     "NarrationVoiceException", "NarrationVoiceMode", "NarrationVoiceRequest",
@@ -178,6 +239,7 @@ class CoreApiOwnershipGuardTest {
             "top.sywyar.pixivdownload.core.work.query.SeriesNeighbors$Neighbor",
             "top.sywyar.pixivdownload.core.work.query.WorkQuery$Builder",
             "top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
+            "top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
             "top.sywyar.pixivdownload.push.PushResult$Status"
     );
 
@@ -195,9 +257,8 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#HEADER_NAME:java.lang.String",
                     "X-Acquisition-Credential"),
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#MAX_LENGTH:int", 16_384),
-            Map.entry("top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE:java.lang.String",
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE:java.lang.String",
                     "{artwork_id}_p{page}"),
-            Map.entry("top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE_ID:long", 1L),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SUCCESS:java.lang.String", "success"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#FAILED:java.lang.String", "failed"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SKIPPED:java.lang.String", "skipped"),
@@ -228,6 +289,10 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Map<String, List<String>> APPROVED_ENUM_CONSTANTS_BY_TYPE = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
+                    List.of("MANAGED", "BUNDLED", "SYSTEM", "FALLBACK")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",
+                    List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
             Map.entry("top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetType",
                     List.of("AUTHOR", "TAG")),
             Map.entry("top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendHook",
@@ -268,16 +333,13 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
                     List.of("LOCAL_FILE_DELETE_FAILED")),
             Map.entry("top.sywyar.pixivdownload.notification.NotificationScenario",
-                    List.of("OVERUSE_PAUSED", "AUTH_EXPIRED", "CIRCUIT_BREAKER", "PENDING_EXHAUSTED",
-                            "DEGRADED_ANONYMOUS", "RUN_FAILED", "RUN_SUMMARY")),
+                    List.of("POLICY_ACCOUNT_SUSPENDED", "CREDENTIAL_SUSPENDED",
+                            "CREDENTIAL_FAILURE_CIRCUIT_OPEN", "PENDING_EXHAUSTED",
+                            "CREDENTIAL_REVOKED_CONTINUING", "RUN_FAILED", "RUN_SUMMARY")),
             Map.entry("top.sywyar.pixivdownload.notification.NotificationSeverity",
                     List.of("INFO", "WARNING", "ERROR")),
-            Map.entry("top.sywyar.pixivdownload.push.PushChannelType",
-                    List.of("BARK", "DINGTALK", "TELEGRAM", "FEISHU", "WECOM", "PUSHPLUS", "SERVERCHAN", "WEBHOOK")),
             Map.entry("top.sywyar.pixivdownload.push.PushFormat",
                     List.of("PLAIN_TEXT", "MARKDOWN", "HTML", "CARD")),
-            Map.entry("top.sywyar.pixivdownload.push.PushLevel",
-                    List.of("INFO", "WARNING", "ERROR")),
             Map.entry("top.sywyar.pixivdownload.push.PushResult$Status",
                     List.of("OK", "FAILED", "SKIPPED")),
             Map.entry("top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceMode",
@@ -305,14 +367,33 @@ class CoreApiOwnershipGuardTest {
             "\\b(?:optional\\s+)?(?:AI|TTS|novel|stats|gallery|duplicate|push|mail|notification|douyin|"
                     + "download[- ]workbench|plugin[- ]market|recovery[- ]sentinel|gui[- ]theme)\\s+plugin\\b",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern STRING_DECLARATION = Pattern.compile(
-            "\\bString\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*([^;]+);", Pattern.DOTALL);
-    private static final Pattern STRING_LITERAL = Pattern.compile("\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"");
+    private static final Pattern CONCRETE_PUSH_CHANNEL_PROSE = Pattern.compile(
+            "\\b(?:Bark|DingTalk|Telegram|Feishu|WeCom|PushPlus|ServerChan)\\b"
+                    + "|钉钉|飞书|企业微信|Server\\s*酱",
+            Pattern.CASE_INSENSITIVE);
+    private static final List<Pattern> PLUGIN_PRIVATE_LAYOUT_PATTERNS = List.of(
+            Pattern.compile(
+                    "novel-(?:\\{(?:id|workId|novelId)\\}|<(?:id|workId|novelId)>|\\d+)",
+                    Pattern.CASE_INSENSITIVE),
+            Pattern.compile("_thumb\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\bdownload\\.root-folder\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("小说独占目录(?:守卫)?|独占目录守卫"));
     private static final Set<String> CONCRETE_PLUGIN_IDS = Set.of(
             "download-workbench", "plugin-market", "recovery-sentinel", "novel", "notification", "tts", "ai",
             "push", "mail", "gallery", "duplicate", "stats", "douyin", "gui-theme");
     private static final Set<String> CONCRETE_ENGINE_IDS = Set.of(
             "voxcpm", "mimo", "cosyvoice", "fish", "minimax", "elevenlabs", "qwen", "doubao");
+    private static final Map<String, Set<String>> APPROVED_OWNER_LITERALS_BY_TYPE = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.gallery.model.work.GalleryWork",
+                    Set.of("media work key must match gallery work key")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver",
+                    Set.of("^/c/[^/]+/(novel-cover-(?:master|original)/.+)$")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter",
+                    Set.of(
+                            "\\{(artwork_id|artwork_title|author_id|author_name|timestamp|page|count|ai\\+?|R18\\+?)}",
+                            "ai",
+                            "ai+"))
+    );
 
     @Test
     @DisplayName("每个生产类型都必须出现在显式 owner 白名单中")
@@ -343,6 +424,40 @@ class CoreApiOwnershipGuardTest {
         assertThat(actualPublicNestedTypes)
                 .as("公开嵌套类型同样属于 core-api 契约面，必须逐个确认长期核心 owner")
                 .containsExactlyInAnyOrderElementsOf(APPROVED_PUBLIC_NESTED_TYPES);
+    }
+
+    @Test
+    @DisplayName("owner 白名单中的顶层契约必须可加载且保持 public")
+    void approvedTopLevelContractsAreLoadableAndPublic() {
+        assertThat(topLevelContractVisibilityViolations(approvedTypes()))
+                .as("白名单不能掩盖缺失或非 public 契约；反射加载失败必须 fail-closed")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("顶层契约反射守卫对缺类与非 public 类型 fail-closed")
+    void topLevelContractReflectionGuardHasFailClosedFixtures() {
+        String missingType = "top.sywyar.pixivdownload.missing.MissingCoreContract";
+
+        assertThat(topLevelContractVisibilityViolations(Set.of(
+                missingType,
+                CoreApiOwnershipGuardTest.class.getName())))
+                .anyMatch(violation -> violation.contains(missingType)
+                        && violation.contains("cannot be loaded"))
+                .anyMatch(violation -> violation.contains(CoreApiOwnershipGuardTest.class.getName())
+                        && violation.contains("is not public"));
+    }
+
+    @Test
+    @DisplayName("core.work 不得承载来源专属插画下载事实")
+    void coreWorkDoesNotOwnArtworkSpecificDownloadFacts() {
+        assertThat(CLASSES.stream()
+                .filter(javaClass -> javaClass.getPackageName()
+                        .startsWith("top.sywyar.pixivdownload.core.work"))
+                .map(javaClass -> javaClass.getSimpleName())
+                .filter(simpleName -> simpleName.startsWith("Artwork"))
+                .toList())
+                .isEmpty();
     }
 
     @Test
@@ -394,6 +509,13 @@ class CoreApiOwnershipGuardTest {
     @Test
     @DisplayName("敏感 record 与工厂方法必须保持精确契约面")
     void sensitiveContractsHaveExactShapes() {
+        assertRecordShape(GalleryMediaAsset.class,
+                List.of("key", "kind", "url", "thumbnailUrl", "mimeType", "attributes"),
+                List.of(GalleryMediaKey.class, GalleryMediaKind.class, String.class,
+                        String.class, String.class, Map.class));
+        assertRecordShape(PushChannelId.class,
+                List.of("id"),
+                List.of(String.class));
         assertRecordShape(AiClientSettings.class,
                 List.of("baseUrl", "apiKey", "model", "useProxy"),
                 List.of(String.class, String.class, String.class, boolean.class));
@@ -409,6 +531,9 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(NarrationVoiceRequest.class,
                 List.of("text", "controlInstruction", "delivery", "referenceVoice"),
                 List.of(String.class, String.class, String.class, NarrationReferenceVoice.class));
+        assertRecordShape(ResolvedFfmpegCommand.class,
+                List.of("command", "source"),
+                List.of(String.class, ResolvedFfmpegCommand.Source.class));
         assertRecordShape(ScheduledTask.class,
                 List.of("id", "name", "enabled", "sourceType", "sourceOwnerPluginId", "definitionSchema",
                         "definitionVersion", "definitionJson", "presentationJson", "triggerKind", "intervalMinutes",
@@ -456,6 +581,18 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(PixivProxyAccessDecision.class,
                 List.of("outcome", "errorMessage", "maxRequests", "windowHours"),
                 List.of(PixivProxyAccessOutcome.class, String.class, int.class, int.class));
+        assertRecordShape(ArtworkDownloadCompletion.class,
+                List.of("artworkId", "title", "folder", "imageCount", "extensions", "recordTime",
+                        "restriction", "aiGenerated", "authorId", "description", "fileNameTemplate",
+                        "normalizedAuthorName", "seriesId", "seriesOrder", "tags"),
+                List.of(long.class, String.class, Path.class, int.class, Set.class, long.class,
+                        int.class, boolean.class, Long.class, String.class, String.class,
+                        String.class, Long.class, Long.class, List.class));
+        assertRecordShape(ArtworkSeriesObservation.class,
+                List.of("artworkId", "lookupWhenMissing", "seriesId", "title", "authorId",
+                        "description", "coverUrl"),
+                List.of(long.class, boolean.class, Long.class, String.class, Long.class,
+                        String.class, String.class));
 
         assertThat(publicDeclaredMethodSignatures(AiClientSettings.class))
                 .containsExactlyInAnyOrder(
@@ -466,6 +603,12 @@ class CoreApiOwnershipGuardTest {
                         "public model():java.lang.String",
                         "public toString():java.lang.String",
                         "public useProxy():boolean");
+        assertThat(publicDeclaredMethodSignatures(PushChannelId.class))
+                .containsExactlyInAnyOrder(
+                        "public final equals(java.lang.Object):boolean",
+                        "public final hashCode():int",
+                        "public id():java.lang.String",
+                        "public final toString():java.lang.String");
         assertThat(publicDeclaredMethodSignatures(NarrationAudio.class))
                 .containsExactlyInAnyOrder(
                         "public contentType():java.lang.String",
@@ -510,10 +653,25 @@ class CoreApiOwnershipGuardTest {
 
         assertThat(publicDeclaredMethodSignatures(AuthorObservationService.class))
                 .containsExactly("public abstract observe(long,java.lang.String):void");
+        assertThat(publicDeclaredMethodSignatures(InteractiveDownloadExecutionLane.class))
+                .containsExactly("public abstract execute(java.lang.Runnable):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkAuthorLookup.class))
+                .containsExactly("public abstract resolveMissing(long,java.lang.String):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkDownloadHistory.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract allocateRecordTime(long):long",
+                        "public abstract record(top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkDownloadLookup.class))
+                .containsExactly("public abstract isDownloaded(long,boolean):boolean");
+        assertThat(publicDeclaredMethodSignatures(ArtworkDownloadStatistics.class))
+                .containsExactly("public abstract recordCompleted(int):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkSeriesObserver.class))
+                .containsExactly("public abstract observe(top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation,java.lang.String):void");
         assertThat(publicDeclaredMethodSignatures(DownloadPathGuard.class))
                 .containsExactlyInAnyOrder(
                         "public abstract requireSafeDirectoryName(java.lang.String):java.lang.String",
                         "public abstract requireWithinRoot(java.nio.file.Path,java.nio.file.Path):void");
+        assertThat(publicDeclaredMethodSignatures(DownloadPathRejectedException.class)).isEmpty();
         assertThat(publicDeclaredMethodSignatures(WorkFileNameCatalog.class))
                 .containsExactlyInAnyOrder(
                         "public abstract getOrCreateAuthorNameId(java.lang.String):long",
@@ -541,6 +699,21 @@ class CoreApiOwnershipGuardTest {
                         "public abstract bookmarkNovel(java.lang.Long,java.lang.String):top.sywyar.pixivdownload.core.work.WorkActionResult");
         assertThat(publicDeclaredMethodSignatures(PixivImageDownloader.class))
                 .containsExactly("public abstract download(java.net.URI,java.net.URI,java.nio.file.Path,java.lang.String,top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver):boolean");
+        assertThat(publicDeclaredMethodSignatures(PixivThumbnailFetcher.class))
+                .containsExactly("public abstract fetch(java.net.URI):[B");
+        assertThat(publicDeclaredMethodSignatures(PixivThumbnailFetchException.class))
+                .containsExactlyInAnyOrder(
+                        "public failure():top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",
+                        "public statusCode():int");
+        assertThat(publicDeclaredMethodSignatures(FfmpegCommandResolver.class))
+                .containsExactly("public abstract resolve():top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand");
+        assertThat(publicDeclaredMethodSignatures(ResolvedFfmpegCommand.class))
+                .containsExactlyInAnyOrder(
+                        "public command():java.lang.String",
+                        "public final equals(java.lang.Object):boolean",
+                        "public final hashCode():int",
+                        "public source():top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
+                        "public final toString():java.lang.String");
         assertThat(publicDeclaredMethodSignatures(PixivImageTransferObserver.class))
                 .containsExactlyInAnyOrder(
                         "public checkCancelled():void",
@@ -564,6 +737,12 @@ class CoreApiOwnershipGuardTest {
                         "public abstract transient getOrDefault(java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
                         "public abstract transient getOrDefault(java.util.Locale,java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
                         "public normalizeLocale(java.util.Locale):java.util.Locale");
+        assertThat(publicDeclaredMethodSignatures(NamespaceMessageResolver.class))
+                .containsExactly(
+                        "public abstract resolve(java.lang.String,java.util.Locale,java.lang.String):java.util.Optional");
+        assertThat(publicDeclaredMethodSignatures(NotificationDispatcher.class))
+                .containsExactly(
+                        "public abstract notify(top.sywyar.pixivdownload.notification.NotificationScenario,java.util.Locale,java.util.Map):void");
     }
 
     @Test
@@ -583,7 +762,9 @@ class CoreApiOwnershipGuardTest {
                         "findCredentialMetadata",
                         "findPendingWork",
                         "incrementPendingAttempts",
-                        "deleteAllPendingWork");
+                        "deleteAllPendingWork",
+                        "suspendByCredentialAccount",
+                        "resumeByCredentialAccount");
     }
 
     @Test
@@ -636,7 +817,8 @@ class CoreApiOwnershipGuardTest {
         List<String> privateTerms = List.of(
                 "wordCount", "word_count", "textLength", "text_length",
                 "readingTimeSeconds", "reading_time_seconds", "xLanguage", "x_language",
-                "rawContent", "raw_content", "novels_fts");
+                "rawContent", "raw_content", "novels_fts", "uploadTimestamp",
+                "NovelRecord", "NovelSeries", "NovelTagRow");
         for (Path source : productionSources()) {
             String content = Files.readString(source, StandardCharsets.UTF_8);
             for (String term : privateTerms) {
@@ -652,16 +834,17 @@ class CoreApiOwnershipGuardTest {
     }
 
     @Test
-    @DisplayName("生产源码不得声明具体插件或引擎 owner 常量")
-    void productionSourcesDoNotDeclareConcreteOwnerConstants() throws IOException {
-        List<String> violations = new ArrayList<>();
+    @DisplayName("生产源码的任意字符串字面量不得声明具体插件或引擎 owner")
+    void productionStringLiteralsDoNotDeclareConcreteOwners() throws IOException {
+        List<JavaSourceInput> sources = new ArrayList<>();
         for (Path source : productionSources()) {
-            String content = Files.readString(source, StandardCharsets.UTF_8);
-            violations.addAll(concreteOwnerConstantViolations(relativeSource(source), content));
+            sources.add(new JavaSourceInput(
+                    relativeSource(source),
+                    Files.readString(source, StandardCharsets.UTF_8)));
         }
 
-        assertThat(violations)
-                .as("具体插件 id 与引擎 id 必须留在 owner 模块，不能成为 core-api 常量")
+        assertThat(concreteOwnerLiteralViolations(sources))
+                .as("具体插件 id 与引擎 id 必须留在 owner 模块；所有源码必须由单次 javac AST 批量解析")
                 .isEmpty();
     }
 
@@ -695,6 +878,8 @@ class CoreApiOwnershipGuardTest {
                  * Capability contributed by the GUI theme plugin.
                  * Capability contributed by the recovery-sentinel plugin.
                  * Capability contributed by the plugin-market plugin.
+                 * Layout examples: novel-{workId} / asset_thumb.jpg below download.root-folder.
+                 * 小说独占目录守卫属于具体 owner。
                  */
                 interface RejectedFixture {
                     String ID = "plugin-market";
@@ -715,10 +900,15 @@ class CoreApiOwnershipGuardTest {
                 .anyMatch(violation -> violation.contains("optional Douyin plugin"))
                 .anyMatch(violation -> violation.contains("GUI theme plugin"))
                 .anyMatch(violation -> violation.contains("recovery-sentinel plugin"))
-                .anyMatch(violation -> violation.contains("plugin-market plugin"));
+                .anyMatch(violation -> violation.contains("plugin-market plugin"))
+                .anyMatch(violation -> violation.contains("novel-{workId}"))
+                .anyMatch(violation -> violation.contains("_thumb"))
+                .anyMatch(violation -> violation.contains("download.root-folder"))
+                .anyMatch(violation -> violation.contains("小说独占目录守卫"));
 
-        List<String> constants = concreteOwnerConstantViolations("RejectedFixture.java", rejected);
-        assertThat(constants)
+        List<String> literals = concreteOwnerLiteralViolations(List.of(
+                new JavaSourceInput("RejectedFixture.java", rejected)));
+        assertThat(literals)
                 .anyMatch(violation -> violation.contains("plugin-market"))
                 .anyMatch(violation -> violation.contains("recovery-sentinel"))
                 .anyMatch(violation -> violation.contains("novel"))
@@ -732,10 +922,134 @@ class CoreApiOwnershipGuardTest {
                     public static final String SCENARIO_PREFIX = "notification.scenario." + "novel";
                 }
                 """;
-        assertThat(concreteOwnerConstantViolations(
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
                 "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java",
-                rejectedApprovedConstantMutation))
+                rejectedApprovedConstantMutation))))
                 .anyMatch(violation -> violation.contains("novel"));
+    }
+
+    @Test
+    @DisplayName("AST owner 守卫覆盖所有字符串上下文与纯字面量折叠")
+    void ownerLiteralAstGuardCoversAllStringContextsAndLiteralFolding() {
+        String rejected = """
+                package fixture;
+                import java.util.List;
+                import java.util.regex.Pattern;
+
+                @interface OwnerMarker {
+                    String value();
+                }
+
+                @OwnerMarker("recovery-sentinel")
+                final class RejectedLiteralContexts {
+                    static final String FOLDED = "plugin-" + "market";
+                    static final Object OBJECT_VALUE = "push";
+                    static final List<String> IDS = List.of("notification");
+                    static final Pattern OWNER_PATTERN = Pattern.compile("tts");
+                    static final Object ENGINE = "mimo";
+                    static final String TEXT_BLOCK = \"\"\"
+                            gallery
+                            \"\"\";
+
+                    String choose(String id) {
+                        if (id.isEmpty()) {
+                            return "mail";
+                        }
+                        return switch (id) {
+                            case "stats" -> "douyin";
+                            default -> "novel";
+                        };
+                    }
+                }
+                """;
+
+        assertThat(concreteOwnerLiteralViolations(List.of(
+                new JavaSourceInput("fixture/RejectedLiteralContexts.java", rejected))))
+                .anyMatch(violation -> violation.contains("recovery-sentinel"))
+                .anyMatch(violation -> violation.contains("plugin-market"))
+                .anyMatch(violation -> violation.contains("push"))
+                .anyMatch(violation -> violation.contains("notification"))
+                .anyMatch(violation -> violation.contains("tts"))
+                .anyMatch(violation -> violation.contains("mimo"))
+                .anyMatch(violation -> violation.contains("gallery"))
+                .anyMatch(violation -> violation.contains("mail"))
+                .anyMatch(violation -> violation.contains("stats"))
+                .anyMatch(violation -> violation.contains("douyin"))
+                .anyMatch(violation -> violation.contains("novel"));
+    }
+
+    @Test
+    @DisplayName("approved public 常量只能按精确字段身份、修饰符和值豁免")
+    void approvedPublicConstantExemptionIsExactAndFailClosed() {
+        String exact = """
+                package top.sywyar.pixivdownload.notification;
+                public final class NotificationConfigKeys {
+                    public static final String SCENARIO_PREFIX = "notification.scenario.";
+                }
+                """;
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", exact))))
+                .isEmpty();
+
+        String wrongField = exact.replace("SCENARIO_PREFIX", "OTHER_PREFIX");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", wrongField))))
+                .anyMatch(violation -> violation.contains("notification"));
+
+        String wrongModifiers = exact.replace("public static final String", "private static final String");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", wrongModifiers))))
+                .anyMatch(violation -> violation.contains("notification"));
+
+        String wrongValue = exact.replace("\"notification.scenario.\"",
+                "\"notification.scenario.\" + \"novel\"");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", wrongValue))))
+                .anyMatch(violation -> violation.contains("novel"));
+    }
+
+    @Test
+    @DisplayName("合法 owner 同名业务字面量只能按类型与精确值最窄豁免")
+    void legitimateOwnerWordBaselineRequiresExactTypeAndValue() {
+        String exactType = """
+                package top.sywyar.pixivdownload.core.pixiv.filename;
+                final class PixivWorkFileNameFormatter {
+                    Object placeholder() {
+                        return "ai";
+                    }
+                }
+                """;
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/core/pixiv/filename/PixivWorkFileNameFormatter.java",
+                exactType))))
+                .isEmpty();
+
+        String wrongType = exactType
+                .replace("PixivWorkFileNameFormatter", "OtherFormatter");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/core/pixiv/filename/OtherFormatter.java",
+                wrongType))))
+                .anyMatch(violation -> violation.contains("concrete plugin id ai"));
+
+        String wrongValue = exactType.replace("\"ai\"", "\"ai-owner\"");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/core/pixiv/filename/PixivWorkFileNameFormatter.java",
+                wrongValue))))
+                .anyMatch(violation -> violation.contains("concrete plugin id ai"));
+    }
+
+    @Test
+    @DisplayName("javac AST 解析出现 ERROR 时 owner 守卫必须 fail-closed")
+    void ownerLiteralAstGuardFailsClosedOnParseErrors() {
+        String malformed = """
+                package fixture;
+                final class MalformedFixture {
+                    String owner = "novel"
+                """;
+
+        assertThat(concreteOwnerLiteralViolations(List.of(
+                new JavaSourceInput("fixture/MalformedFixture.java", malformed))))
+                .anyMatch(violation -> violation.contains("parse ERROR"));
     }
 
     private static Set<String> approvedTypes() {
@@ -749,6 +1063,26 @@ class CoreApiOwnershipGuardTest {
             throw new IllegalStateException("core-api owner whitelist contains duplicate types");
         }
         return Set.copyOf(approved);
+    }
+
+    private static List<String> topLevelContractVisibilityViolations(Set<String> typeNames) {
+        Set<String> violations = new LinkedHashSet<>();
+        for (String typeName : typeNames.stream().sorted().toList()) {
+            Class<?> type;
+            try {
+                type = Class.forName(typeName, false, CoreApiOwnershipGuardTest.class.getClassLoader());
+            } catch (ClassNotFoundException | LinkageError failure) {
+                violations.add(typeName + " cannot be loaded: " + failure.getClass().getSimpleName());
+                continue;
+            }
+            if (type.getEnclosingClass() != null) {
+                violations.add(typeName + " is not a top-level contract");
+            }
+            if (!Modifier.isPublic(type.getModifiers())) {
+                violations.add(typeName + " is not public");
+            }
+        }
+        return List.copyOf(violations);
     }
 
     private static void assertRecordShape(Class<?> type, List<String> componentNames, List<Class<?>> componentTypes) {
@@ -879,57 +1213,253 @@ class CoreApiOwnershipGuardTest {
                 violations.add(documentationViolation(sourceName, content,
                         offset + pluginProse.start(), "concrete plugin prose", pluginProse.group()));
             }
+            Matcher pushChannelProse = CONCRETE_PUSH_CHANNEL_PROSE.matcher(javadoc);
+            while (pushChannelProse.find()) {
+                violations.add(documentationViolation(sourceName, content,
+                        offset + pushChannelProse.start(),
+                        "concrete push channel prose", pushChannelProse.group()));
+            }
+
+            for (Pattern pattern : PLUGIN_PRIVATE_LAYOUT_PATTERNS) {
+                Matcher privateLayout = pattern.matcher(javadoc);
+                while (privateLayout.find()) {
+                    violations.add(documentationViolation(sourceName, content,
+                            offset + privateLayout.start(), "plugin-private layout", privateLayout.group()));
+                }
+            }
         }
         return List.copyOf(violations);
     }
 
-    private static List<String> concreteOwnerConstantViolations(String sourceName, String content) {
-        List<String> violations = new ArrayList<>();
-        Matcher matcher = STRING_DECLARATION.matcher(content);
-        while (matcher.find()) {
-            String field = matcher.group(1);
-            List<String> literalCandidates = stringLiteralCandidates(matcher.group(2));
-            if (isApprovedPublicStringConstant(sourceName, content, field, literalCandidates)) {
-                continue;
+    private static List<String> concreteOwnerLiteralViolations(List<JavaSourceInput> sources) {
+        Set<String> violations = new LinkedHashSet<>();
+        if (sources.isEmpty()) {
+            return List.of("javac source batch is empty");
+        }
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+            return List.of("system javac compiler is unavailable");
+        }
+
+        DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+        List<JavaFileObject> sourceFiles = sources.stream()
+                .map(InMemoryJavaSource::new)
+                .map(JavaFileObject.class::cast)
+                .toList();
+        JavacTask task = (JavacTask) compiler.getTask(
+                null,
+                null,
+                diagnostics,
+                List.of("-proc:none", "--release", "17"),
+                null,
+                sourceFiles);
+        List<CompilationUnitTree> units = new ArrayList<>();
+        try {
+            task.parse().forEach(units::add);
+        } catch (IOException failure) {
+            violations.add("javac batch parse failed: " + failure.getClass().getSimpleName());
+        }
+        diagnostics.getDiagnostics().stream()
+                .filter(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR)
+                .map(CoreApiOwnershipGuardTest::parseError)
+                .forEach(violations::add);
+        if (units.size() != sources.size()) {
+            violations.add("javac batch parsed " + units.size() + " of " + sources.size() + " source units");
+        }
+
+        SourcePositions positions;
+        try {
+            positions = Trees.instance(task).getSourcePositions();
+        } catch (RuntimeException failure) {
+            violations.add("javac source positions unavailable: " + failure.getClass().getSimpleName());
+            return List.copyOf(violations);
+        }
+        for (CompilationUnitTree unit : units) {
+            Set<Tree> approvedConstantTrees = approvedPublicStringConstantTrees(unit);
+            new ConcreteOwnerLiteralScanner(unit, positions, approvedConstantTrees, violations)
+                    .scan(unit, null);
+        }
+        return List.copyOf(violations);
+    }
+
+    private static String parseError(Diagnostic<? extends JavaFileObject> diagnostic) {
+        String source = diagnostic.getSource() == null ? "<unknown>"
+                : diagnostic.getSource().getName();
+        return source + ":" + diagnostic.getLineNumber()
+                + " parse ERROR " + diagnostic.getMessage(Locale.ROOT);
+    }
+
+    private static Set<Tree> approvedPublicStringConstantTrees(CompilationUnitTree unit) {
+        Set<Tree> approved = Collections.newSetFromMap(new IdentityHashMap<>());
+        new TreePathScanner<Void, Void>() {
+            private final Deque<String> enclosingTypes = new ArrayDeque<>();
+
+            @Override
+            public Void visitClass(ClassTree node, Void unused) {
+                String simpleName = node.getSimpleName().toString();
+                enclosingTypes.addLast(simpleName.isEmpty() ? "<anonymous>" : simpleName);
+                try {
+                    return super.visitClass(node, unused);
+                } finally {
+                    enclosingTypes.removeLast();
+                }
+            }
+
+            @Override
+            public Void visitVariable(VariableTree node, Void unused) {
+                TreePath parent = getCurrentPath().getParentPath();
+                if (parent != null
+                        && parent.getLeaf() instanceof ClassTree
+                        && isExplicitPublicStaticFinalString(node)) {
+                    String key = currentTypeName(unit, enclosingTypes)
+                            + "#" + node.getName() + ":java.lang.String";
+                    Object expected = APPROVED_PUBLIC_CONSTANTS.get(key);
+                    String actual = foldStringLiteral(node.getInitializer());
+                    if (expected instanceof String value && value.equals(actual)) {
+                        new TreeScanner<Void, Void>() {
+                            @Override
+                            public Void scan(Tree tree, Void ignored) {
+                                if (tree != null) {
+                                    approved.add(tree);
+                                }
+                                return super.scan(tree, ignored);
+                            }
+                        }.scan(node.getInitializer(), null);
+                    }
+                }
+                return super.visitVariable(node, unused);
+            }
+        }.scan(unit, null);
+        return approved;
+    }
+
+    private static boolean isExplicitPublicStaticFinalString(VariableTree variable) {
+        Set<javax.lang.model.element.Modifier> modifiers = variable.getModifiers().getFlags();
+        return modifiers.contains(javax.lang.model.element.Modifier.PUBLIC)
+                && modifiers.contains(javax.lang.model.element.Modifier.STATIC)
+                && modifiers.contains(javax.lang.model.element.Modifier.FINAL)
+                && variable.getType() != null
+                && Set.of("String", "java.lang.String").contains(variable.getType().toString());
+    }
+
+    private static String foldStringLiteral(ExpressionTree expression) {
+        if (expression instanceof LiteralTree literal && literal.getValue() instanceof String value) {
+            return value;
+        }
+        if (expression instanceof ParenthesizedTree parenthesized) {
+            return foldStringLiteral(parenthesized.getExpression());
+        }
+        if (expression instanceof BinaryTree binary && binary.getKind() == Tree.Kind.PLUS) {
+            String left = foldStringLiteral(binary.getLeftOperand());
+            String right = foldStringLiteral(binary.getRightOperand());
+            return left == null || right == null ? null : left + right;
+        }
+        return null;
+    }
+
+    private static String currentTypeName(CompilationUnitTree unit, Deque<String> enclosingTypes) {
+        String packageName = unit.getPackageName() == null ? "" : unit.getPackageName().toString();
+        String nestedName = String.join("$", enclosingTypes);
+        return packageName.isEmpty() ? nestedName : packageName + "." + nestedName;
+    }
+
+    private static boolean isMaximalFoldableString(TreePath path) {
+        TreePath parent = path.getParentPath();
+        while (parent != null && parent.getLeaf() instanceof ParenthesizedTree) {
+            parent = parent.getParentPath();
+        }
+        return parent == null
+                || !(parent.getLeaf() instanceof BinaryTree binary)
+                || binary.getKind() != Tree.Kind.PLUS
+                || foldStringLiteral(binary) == null;
+    }
+
+    private static final class ConcreteOwnerLiteralScanner extends TreePathScanner<Void, Void> {
+
+        private final CompilationUnitTree unit;
+        private final SourcePositions positions;
+        private final Set<Tree> approvedConstantTrees;
+        private final Set<String> violations;
+        private final Deque<String> enclosingTypes = new ArrayDeque<>();
+
+        private ConcreteOwnerLiteralScanner(CompilationUnitTree unit,
+                                            SourcePositions positions,
+                                            Set<Tree> approvedConstantTrees,
+                                            Set<String> violations) {
+            this.unit = unit;
+            this.positions = positions;
+            this.approvedConstantTrees = approvedConstantTrees;
+            this.violations = violations;
+        }
+
+        @Override
+        public Void visitClass(ClassTree node, Void unused) {
+            String simpleName = node.getSimpleName().toString();
+            enclosingTypes.addLast(simpleName.isEmpty() ? "<anonymous>" : simpleName);
+            try {
+                return super.visitClass(node, unused);
+            } finally {
+                enclosingTypes.removeLast();
+            }
+        }
+
+        @Override
+        public Void visitLiteral(LiteralTree node, Void unused) {
+            if (!approvedConstantTrees.contains(node) && node.getValue() instanceof String value) {
+                inspect(value, node, "string literal");
+            }
+            return super.visitLiteral(node, unused);
+        }
+
+        @Override
+        public Void visitBinary(BinaryTree node, Void unused) {
+            if (node.getKind() == Tree.Kind.PLUS
+                    && !approvedConstantTrees.contains(node)
+                    && isMaximalFoldableString(getCurrentPath())) {
+                String folded = foldStringLiteral(node);
+                if (folded != null) {
+                    inspect(folded, node, "folded string literal");
+                }
+            }
+            return super.visitBinary(node, unused);
+        }
+
+        private void inspect(String value, Tree tree, String kind) {
+            String typeName = currentTypeName(unit, enclosingTypes);
+            if (APPROVED_OWNER_LITERALS_BY_TYPE.getOrDefault(typeName, Set.of()).contains(value)) {
+                return;
             }
             CONCRETE_PLUGIN_IDS.stream().sorted()
-                    .filter(id -> literalCandidates.stream().anyMatch(value -> containsOwnerToken(value, id)))
-                    .forEach(id -> violations.add(
-                            sourceName + " declares concrete plugin id " + id + " in " + field
-                                    + " initializer " + literalCandidates));
+                    .filter(id -> containsOwnerToken(value, id))
+                    .forEach(id -> violations.add(violation(tree, kind, "plugin", id, value, typeName)));
             CONCRETE_ENGINE_IDS.stream().sorted()
-                    .filter(id -> literalCandidates.stream().anyMatch(value -> containsOwnerToken(value, id)))
-                    .forEach(id -> violations.add(
-                            sourceName + " declares concrete engine id " + id + " in " + field
-                                    + " initializer " + literalCandidates));
+                    .filter(id -> containsOwnerToken(value, id))
+                    .forEach(id -> violations.add(violation(tree, kind, "engine", id, value, typeName)));
         }
-        return List.copyOf(violations);
+
+        private String violation(Tree tree,
+                                 String kind,
+                                 String ownerKind,
+                                 String ownerId,
+                                 String value,
+                                 String typeName) {
+            long offset = positions.getStartPosition(unit, tree);
+            long line = offset < 0 || unit.getLineMap() == null
+                    ? -1 : unit.getLineMap().getLineNumber(offset);
+            return unit.getSourceFile().getName() + ":" + line
+                    + " concrete " + ownerKind + " id " + ownerId
+                    + " in " + kind + " " + displayLiteral(value)
+                    + " of " + typeName;
+        }
     }
 
-    private static List<String> stringLiteralCandidates(String initializer) {
-        List<String> literals = new ArrayList<>();
-        Matcher matcher = STRING_LITERAL.matcher(initializer);
-        while (matcher.find()) {
-            literals.add(matcher.group(1));
-        }
-        if (literals.size() > 1) {
-            literals.add(String.join("", literals));
-        }
-        return List.copyOf(literals);
-    }
-
-    private static boolean isApprovedPublicStringConstant(String sourceName,
-                                                           String content,
-                                                           String field,
-                                                           List<String> literalCandidates) {
-        String fileName = sourceName.substring(Math.max(sourceName.lastIndexOf('/'), sourceName.lastIndexOf('\\')) + 1);
-        String simpleTypeName = fileName.endsWith(".java")
-                ? fileName.substring(0, fileName.length() - ".java".length()) : fileName;
-        String key = requiredPackageName(content) + "." + simpleTypeName + "#" + field + ":java.lang.String";
-        Object approvedValue = APPROVED_PUBLIC_CONSTANTS.get(key);
-        return approvedValue instanceof String value
-                && literalCandidates.size() == 1
-                && literalCandidates.get(0).equals(value);
+    private static String displayLiteral(String value) {
+        String visible = value
+                .replace("\\", "\\\\")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
+        return "\"" + (visible.length() <= 160 ? visible : visible.substring(0, 160) + "…") + "\"";
     }
 
     private static boolean containsOwnerToken(String value, String ownerId) {
@@ -1074,5 +1604,44 @@ class CoreApiOwnershipGuardTest {
 
     private static String relativeSource(Path source) {
         return productionSourceRoot().relativize(source.toAbsolutePath().normalize()).toString().replace('\\', '/');
+    }
+
+    private record JavaSourceInput(String name, String content) {
+
+        private JavaSourceInput {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("source name must not be blank");
+            }
+            if (content == null) {
+                throw new IllegalArgumentException("source content must not be null");
+            }
+        }
+    }
+
+    private static final class InMemoryJavaSource extends SimpleJavaFileObject {
+
+        private final JavaSourceInput source;
+
+        private InMemoryJavaSource(JavaSourceInput source) {
+            super(sourceUri(source.name()), Kind.SOURCE);
+            this.source = source;
+        }
+
+        @Override
+        public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+            return source.content();
+        }
+
+        @Override
+        public String getName() {
+            return source.name();
+        }
+
+        private static URI sourceUri(String sourceName) {
+            String normalized = sourceName.replace('\\', '/')
+                    .replace(" ", "%20")
+                    .replace("#", "%23");
+            return URI.create("mem:///" + normalized);
+        }
     }
 }

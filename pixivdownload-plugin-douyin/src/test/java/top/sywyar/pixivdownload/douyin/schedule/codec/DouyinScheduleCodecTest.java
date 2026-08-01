@@ -9,6 +9,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
 
 import java.nio.charset.StandardCharsets;
@@ -95,6 +97,53 @@ class DouyinScheduleCodecTest {
     }
 
     @Test
+    @DisplayName("抖音凭据名在所属编解码器拒绝进入定义与任务展示")
+    void ownerCredentialNamesAreRejectedFromDefinitionsAndTaskPresentation() throws Exception {
+        for (String fieldName : List.of(
+                "ttwid", "odin_tt", "uid_tt", "s_v_web_id",
+                "sessionid_ss", "sid_guard", "sid_tt",
+                "ttwidPresent", "sidGuardEnabled",
+                "ttwidPresentValue", "sidGuardCountHeader")) {
+            ScheduledTaskPresentation fieldPresentation = new ScheduledTaskPresentation(
+                    "任务", null, Map.of(fieldName, "opaque-value"));
+            assertThatThrownBy(() -> codec.prepare(draft(
+                    DouyinSourceTypes.SEARCH,
+                    "{\"source\":{\"keyword\":\"猫\"}}",
+                    fieldPresentation)))
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                            failure -> assertThat(failure.category())
+                                    .isEqualTo(ScheduledFailure.Category.INVALID_DEFINITION));
+
+            ScheduledTaskPresentation valuePresentation = new ScheduledTaskPresentation(
+                    "任务", null, Map.of("excerpt", fieldName + "=opaque-value"));
+            assertThatThrownBy(() -> codec.prepare(draft(
+                    DouyinSourceTypes.SEARCH,
+                    "{\"source\":{\"keyword\":\"猫\"}}",
+                    valuePresentation)))
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                            failure -> assertThat(failure.category())
+                                    .isEqualTo(ScheduledFailure.Category.INVALID_DEFINITION));
+
+            assertThatThrownBy(() -> codec.prepare(draft(
+                    DouyinSourceTypes.SEARCH,
+                    "{\"source\":{\"keyword\":\"" + fieldName
+                            + "=opaque-value\"}}")))
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                            failure -> assertThat(failure.category())
+                                    .isEqualTo(ScheduledFailure.Category.INVALID_DEFINITION));
+        }
+
+        ScheduledTaskPresentation embeddedAssignment = new ScheduledTaskPresentation(
+                "任务", null, Map.of("excerpt", "{\"ttwid\":\"opaque-value\"}"));
+        assertThatThrownBy(() -> codec.prepare(draft(
+                DouyinSourceTypes.SEARCH,
+                "{\"source\":{\"keyword\":\"猫\"}}",
+                embeddedAssignment)))
+                .isInstanceOf(ScheduledExecutionException.class);
+
+    }
+
+    @Test
     @DisplayName("作品引用只保存字符串身份且来源关系不携带网址或凭证")
     void workAndRelationRoundTripRemainReconstructableAndSecretFree() throws Exception {
         var relation = codec.createRelation(
@@ -130,6 +179,61 @@ class DouyinScheduleCodecTest {
     }
 
     @Test
+    @DisplayName("抖音来源展示会清除上游凭据文本并拒绝被篡改的持久快照")
+    void ownerCredentialMaterialIsSanitizedOrRejectedAtWorkBoundaries() throws Exception {
+        var sanitizedRelation = codec.createRelation(
+                DouyinSourceTypes.COLLECTION, "73510001", "s_v_web_id=leaked-value", 7);
+        var sanitizedWork = codec.createWork(
+                "7351234567890123456", "ttwid=leaked-value", "安全作者", sanitizedRelation);
+
+        assertThat(sanitizedWork.presentation().title()).isNull();
+        assertThat(sanitizedWork.presentation().author()).isEqualTo("安全作者");
+        assertThat(codec.decodeRelation(sanitizedRelation).sourceTitle()).isNull();
+
+        ScheduledWork tamperedWork = new ScheduledWork(
+                sanitizedWork.key(),
+                sanitizedWork.payloadSchema(),
+                sanitizedWork.payloadVersion(),
+                sanitizedWork.payloadJson(),
+                new ScheduledWorkPresentation("odin_tt=leaked-value", "安全作者", null, Map.of()),
+                sanitizedWork.relations());
+        assertThatThrownBy(() -> codec.decodeWorkId(tamperedWork))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.category())
+                                .isEqualTo(ScheduledFailure.Category.PAYLOAD_UNSUPPORTED));
+
+        for (String fieldName : List.of(
+                "ttwidPresent",
+                "ttwidPresentValue",
+                "sidGuardCountHeader")) {
+            ScheduledWork metadataDisguisedCredential = new ScheduledWork(
+                    sanitizedWork.key(),
+                    sanitizedWork.payloadSchema(),
+                    sanitizedWork.payloadVersion(),
+                    sanitizedWork.payloadJson(),
+                    new ScheduledWorkPresentation(
+                            "安全标题", "安全作者", null,
+                            Map.of(fieldName, "opaque-cookie-value")),
+                    sanitizedWork.relations());
+            assertThatThrownBy(() -> codec.decodeWorkId(metadataDisguisedCredential))
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                            failure -> assertThat(failure.category())
+                                    .isEqualTo(ScheduledFailure.Category.PAYLOAD_UNSUPPORTED));
+        }
+
+        ScheduledWorkRelation tamperedRelation = new ScheduledWorkRelation(
+                DouyinSourceTypes.COLLECTION,
+                "73510001",
+                DouyinScheduleCodec.RELATION_SCHEMA,
+                DouyinScheduleCodec.RELATION_VERSION,
+                "{\"sourceTitle\":\"sid_guard=leaked-value\"}");
+        assertThatThrownBy(() -> codec.decodeRelation(tamperedRelation))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.category())
+                                .isEqualTo(ScheduledFailure.Category.PAYLOAD_UNSUPPORTED));
+    }
+
+    @Test
     @DisplayName("有界 SHA-256 frontier 与续扫锚点可稳定往返")
     void checkpointRoundTripUsesBoundedHashedIdentities() throws Exception {
         String first = codec.identityHash("7351234567890123456");
@@ -143,6 +247,9 @@ class DouyinScheduleCodecTest {
                 .doesNotContain("7351234567890123456", "7351234567890123457");
         assertThat(decoded.frontier()).containsExactly(first, second);
         assertThat(decoded.resumeAfter()).isEqualTo(second);
+        assertThatThrownBy(() -> new DouyinScheduleCodec.CheckpointState(
+                List.of("ttwid=leaked-value"), null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -179,12 +286,22 @@ class DouyinScheduleCodecTest {
     }
 
     private static ScheduledTaskDraft draft(String sourceType, String json) {
+        return draft(
+                sourceType,
+                json,
+                new ScheduledTaskPresentation("任务", null, Map.of()));
+    }
+
+    private static ScheduledTaskDraft draft(
+            String sourceType,
+            String json,
+            ScheduledTaskPresentation presentation) {
         return new ScheduledTaskDraft(
                 1L,
                 sourceType,
                 DouyinScheduleCodec.DEFINITION_SCHEMA,
                 DouyinScheduleCodec.DEFINITION_VERSION,
                 json,
-                new ScheduledTaskPresentation("任务", null, Map.of()));
+                presentation);
     }
 }

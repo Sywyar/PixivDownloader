@@ -10,13 +10,16 @@ import java.util.List;
  * @param helpKey optional i18n key for help text
  * @param i18nNamespace optional i18n namespace; blank means the plugin display namespace
  * @param cardId optional card id for card-switcher layouts
- * @param endpoint GUI API endpoint relative to {@code /api/gui/}
+ * @param endpoint GUI API endpoint relative to {@code /api/gui/}; the contributing plugin must publish the same
+ *                 exact path as a {@code GUI} route that accepts {@code POST}. The host rechecks the active route
+ *                 owner when the request is sent
  * @param readTimeoutMillis HTTP read timeout for this action
  * @param order action ordering hint inside the section
  * @param payloadFields field values copied into the action request payload
  * @param sendingNoticeKey optional i18n key shown while the action is running
- * @param resultRules optional response notice rules; first matching rule wins
- * @param resultSummary optional response array summary used by result rules
+ * @param resultRules optional response notice rules over bounded structured, non-sensitive result fields; first
+ *                    matching rule wins
+ * @param resultSummary optional bounded structured response-array summary used by result rules
  */
 public record GuiConfigActionContribution(
         String actionId,

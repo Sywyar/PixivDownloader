@@ -8,7 +8,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
@@ -88,7 +88,7 @@ public class ArtworkFileLocator {
 
     public String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
         long fileNameId = artwork.fileName() == null
-                ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID
+                ? PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID
                 : artwork.fileName();
         String template = pixivDatabase.getFileNameTemplate(fileNameId);
         int count = Math.max(artwork.count(), page + 1);

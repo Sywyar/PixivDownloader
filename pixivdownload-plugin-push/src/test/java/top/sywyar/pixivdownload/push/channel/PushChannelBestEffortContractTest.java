@@ -4,8 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushHttpSender;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.TestMessageResolver;
@@ -94,8 +94,8 @@ class PushChannelBestEffortContractTest {
                                 "application/json", "", false)));
     }
 
-    private static void assertUnexpectedFailure(PushChannelType type, PushResult result) {
-        assertThat(result.channel()).isEqualTo(type);
+    private static void assertUnexpectedFailure(PushChannelId channelId, PushResult result) {
+        assertThat(result.channel()).isEqualTo(channelId);
         assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
         assertThat(result.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
     }
@@ -109,8 +109,8 @@ class PushChannelBestEffortContractTest {
         }
 
         @Override
-        public PushResult send(PushChannelType type, OutboundRequest request) {
-            return PushResult.ok(type);
+        public PushResult send(PushChannelId channelId, OutboundRequest request) {
+            return PushResult.ok(channelId);
         }
     }
 }

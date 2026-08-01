@@ -25,7 +25,7 @@ class PushHttpSenderTest {
     void dingtalkBusinessErrorFailsAndRedactsSecret() {
         direct.respond("{\"errcode\":310000,\"errmsg\":\"secret TOKEN-1234 mismatch\"}");
 
-        PushResult result = sender.send(PushChannelType.DINGTALK,
+        PushResult result = sender.send(PushChannelIds.DINGTALK,
                 request(List.of("TOKEN-1234")));
 
         assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
@@ -40,7 +40,7 @@ class PushHttpSenderTest {
     void wecomErrcodeZeroOk() {
         direct.respond("{\"errcode\":0,\"errmsg\":\"ok\"}");
 
-        PushResult result = sender.send(PushChannelType.WECOM, request(List.of()));
+        PushResult result = sender.send(PushChannelIds.WECOM, request(List.of()));
 
         assertThat(result.isOk()).isTrue();
     }
@@ -50,7 +50,7 @@ class PushHttpSenderTest {
     void pushplusBusinessErrorFails() {
         direct.respond("{\"code\":900,\"msg\":\"account limited\"}");
 
-        PushResult result = sender.send(PushChannelType.PUSHPLUS, request(List.of()));
+        PushResult result = sender.send(PushChannelIds.PUSHPLUS, request(List.of()));
 
         assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
         assertThat(result.detail()).contains("code=900").contains("account limited");
@@ -61,7 +61,7 @@ class PushHttpSenderTest {
     void telegramOkFalseFails() {
         direct.respond("{\"ok\":false,\"error_code\":400,\"description\":\"Bad Request\"}");
 
-        PushResult result = sender.send(PushChannelType.TELEGRAM, request(List.of()));
+        PushResult result = sender.send(PushChannelIds.TELEGRAM, request(List.of()));
 
         assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
         assertThat(result.detail()).contains("ok=false").contains("error_code=400");
@@ -72,7 +72,7 @@ class PushHttpSenderTest {
     void feishuStatusCodeFailureFails() {
         direct.respond("{\"StatusCode\":19024,\"StatusMessage\":\"invalid sign\"}");
 
-        PushResult result = sender.send(PushChannelType.FEISHU, request(List.of()));
+        PushResult result = sender.send(PushChannelIds.FEISHU, request(List.of()));
 
         assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
         assertThat(result.detail()).contains("StatusCode=19024").contains("invalid sign");
@@ -83,7 +83,7 @@ class PushHttpSenderTest {
     void serverChanCodeFailureFails() {
         direct.respond("{\"code\":40001,\"message\":\"bad sendkey\"}");
 
-        PushResult result = sender.send(PushChannelType.SERVERCHAN, request(List.of()));
+        PushResult result = sender.send(PushChannelIds.SERVERCHAN, request(List.of()));
 
         assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
         assertThat(result.detail()).contains("code=40001").contains("bad sendkey");
@@ -94,7 +94,7 @@ class PushHttpSenderTest {
     void webhookBusinessShapeIsIgnored() {
         direct.respond("{\"code\":900,\"msg\":\"custom failure shape\"}");
 
-        PushResult result = sender.send(PushChannelType.WEBHOOK, request(List.of()));
+        PushResult result = sender.send(PushChannelIds.WEBHOOK, request(List.of()));
 
         assertThat(result.isOk()).isTrue();
     }
@@ -106,13 +106,16 @@ class PushHttpSenderTest {
         PushHttpSender brokenMessagesSender = new PushHttpSender(
                 direct, proxy, TestMessageResolver.THROWING);
 
-        PushResult result = brokenMessagesSender.send(PushChannelType.BARK, request(List.of()));
-        PushResult nullRequest = brokenMessagesSender.send(PushChannelType.BARK, null);
+        PushResult result = brokenMessagesSender.send(PushChannelIds.BARK, request(List.of()));
+        PushResult nullRequest = brokenMessagesSender.send(PushChannelIds.BARK, null);
+        PushResult nullChannel = brokenMessagesSender.send(null, request(List.of()));
 
         assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
         assertThat(result.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
         assertThat(nullRequest.status()).isEqualTo(PushResult.Status.FAILED);
         assertThat(nullRequest.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
+        assertThat(nullChannel.status()).isEqualTo(PushResult.Status.FAILED);
+        assertThat(nullChannel.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
     }
 
     @Test
@@ -122,13 +125,26 @@ class PushHttpSenderTest {
         PushHttpSender brokenMessagesSender = new PushHttpSender(
                 direct, proxy, TestMessageResolver.THROWING);
 
-        PushResult success = brokenMessagesSender.send(PushChannelType.BARK, request(List.of()));
+        PushResult success = brokenMessagesSender.send(PushChannelIds.BARK, request(List.of()));
         PushResult invalidUrl = brokenMessagesSender.send(
-                PushChannelType.BARK,
+                PushChannelIds.BARK,
                 OutboundRequest.json("://invalid", new byte[0], List.of(), false));
 
         assertThat(success.isOk()).isTrue();
         assertThat(invalidUrl.detail()).isEqualTo(PushResult.DETAIL_INVALID_URL);
+    }
+
+    @Test
+    @DisplayName("未知合法通道 id 按通用 HTTP 2xx 语义成功")
+    void unknownValidChannelIdUsesGenericHttpSuccess() {
+        direct.respond("{\"code\":900,\"ok\":false,\"message\":\"plugin-owned shape\"}");
+
+        PushResult result = sender.send(
+                new PushChannelId("custom-channel"),
+                request(List.of()));
+
+        assertThat(result.isOk()).isTrue();
+        assertThat(result.channel()).isEqualTo(new PushChannelId("custom-channel"));
     }
 
     private static OutboundRequest request(List<String> secrets) {

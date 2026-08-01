@@ -11,7 +11,6 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.config.DownloadSettings;
@@ -86,7 +85,6 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
  * 均随 {@code plugins.novel.enabled} 装配或缺席。
  */
 @Configuration
-@EnableAsync(proxyTargetClass = true)
 @Import(NovelExecutionConfiguration.class)
 public class NovelPluginConfiguration {
 
@@ -204,7 +202,7 @@ public class NovelPluginConfiguration {
             PixivBookmarkActions pixivBookmarkActions,
             @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
             PixivImageDownloader pixivImageDownloader,
-            @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+            @Qualifier("novelStatusTaskScheduler") TaskScheduler statusRetentionScheduler,
             NovelDownloadExecutionLane downloadExecutionLane,
             @Qualifier("novelPluginMessages") MessageResolver messages,
             NovelAutoTranslateService novelAutoTranslateService,
@@ -214,7 +212,7 @@ public class NovelPluginConfiguration {
                 novelDatabase, novelSeriesService,
                 authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
                 pixivBookmarkActions, visitorDownloadQuotaService, pixivImageDownloader,
-                taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
+                statusRetentionScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
                 workMetadataCapture, taskTracker);
     }
 
@@ -405,10 +403,9 @@ public class NovelPluginConfiguration {
     public PixivNovelGalleryCapabilityProvider pixivNovelGalleryCapabilityProvider(
             WorkQueryService workQueryService,
             WorkMetadataRepository workMetadataRepository,
-            NovelDatabase novelDatabase,
             NovelWorkDetailsRepository novelWorkDetailsRepository) {
         return new PixivNovelGalleryCapabilityProvider(
-                workQueryService, workMetadataRepository, novelDatabase, novelWorkDetailsRepository);
+                workQueryService, workMetadataRepository, novelWorkDetailsRepository);
     }
 
     @Bean

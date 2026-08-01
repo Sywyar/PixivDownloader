@@ -10,7 +10,7 @@ package top.sywyar.pixivdownload.push;
  * </ul>
  *
  * <p>{@link #CARD} 是<b>结构化</b>目标格式：它没有通道无关的源表示，<b>只能作为目标</b>，由声明支持它的通道
- * （如飞书 interactive 卡片）用 title / 正文 / level 自行构建；其卡片正文以 {@link #MARKDOWN} 内联文本承载。
+ * 用 title / 正文 / level 自行构建；其卡片正文以 {@link #MARKDOWN} 内联文本承载。
  * 因此 {@code CARD} 可达 ⟺ {@code MARKDOWN} 可达（见 {@link PushFormatConverter}）。
  */
 public enum PushFormat {
@@ -21,7 +21,7 @@ public enum PushFormat {
     /** 轻量 Markdown（业务撰写的默认源格式）。 */
     MARKDOWN,
 
-    /** HTML 富文本（如 Telegram 的 {@code parse_mode=HTML}）。 */
+    /** HTML 富文本。 */
     HTML,
 
     /** 结构化卡片（通道自行构建，正文以 Markdown 内联承载）。仅作目标格式，不可作源。 */

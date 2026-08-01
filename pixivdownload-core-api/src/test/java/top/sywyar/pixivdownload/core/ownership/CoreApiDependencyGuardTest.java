@@ -21,6 +21,9 @@ import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
 import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
 import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
@@ -36,6 +39,9 @@ import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
@@ -51,13 +57,22 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.core.stats.StatsAggregates;
 import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
@@ -102,8 +117,11 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.ai..",
                         "top.sywyar.pixivdownload.config..",
                         "top.sywyar.pixivdownload.core.archive..",
+                        "top.sywyar.pixivdownload.core.artwork..",
                         "top.sywyar.pixivdownload.core.collection..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
+                        "top.sywyar.pixivdownload.core.download..",
+                        "top.sywyar.pixivdownload.core.ffmpeg..",
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
                         "top.sywyar.pixivdownload.core.pixiv..",
@@ -214,6 +232,7 @@ class CoreApiDependencyGuardTest {
     void coreApiContainsSharedPureValuesAndResolvers() {
         assertThat(CLASSES.contain(WorkActionResult.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivWorkFileNameFormatter.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkFileNameTemplateRef.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivCookieUserResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivCoverUrlResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivDescriptionHtml.class.getName())).isTrue();
@@ -230,11 +249,19 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(WorkDeletionService.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkVisibilityService.class.getName())).isTrue();
         assertThat(CLASSES.contain(DownloadPathGuard.class.getName())).isTrue();
+        assertThat(CLASSES.contain(DownloadPathRejectedException.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkFileNameCatalog.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkTagCatalog.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkMetadata.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkRestriction.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkVisibilityScope.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkAuthorLookup.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadCompletion.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadHistory.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadLookup.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadStatistics.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkSeriesObservation.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkSeriesObserver.class.getName())).isTrue();
     }
 
     @Test
@@ -254,9 +281,10 @@ class CoreApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("core-api 模块应包含宿主配置、路径、代理与请求解析契约")
+    @DisplayName("core-api 模块应包含宿主运行时稳定契约")
     void coreApiContainsHostRuntimeContracts() {
         assertThat(CLASSES.contain(DownloadSettings.class.getName())).isTrue();
+        assertThat(CLASSES.contain(InteractiveDownloadExecutionLane.class.getName())).isTrue();
         assertThat(CLASSES.contain(MultiModeSettings.class.getName())).isTrue();
         assertThat(CLASSES.contain(DebugSettings.class.getName())).isTrue();
         assertThat(CLASSES.contain(RuntimePathProvider.class.getName())).isTrue();
@@ -267,6 +295,11 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(AcquisitionCredentialResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(ApplicationModeProvider.class.getName())).isTrue();
         assertThat(CLASSES.contain(LocalRequestTrust.class.getName())).isTrue();
+        assertThat(CLASSES.contain(FfmpegCommandResolver.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ResolvedFfmpegCommand.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivThumbnailFetcher.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivThumbnailFetchException.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivThumbnailFailure.class.getName())).isTrue();
     }
 
     @Test

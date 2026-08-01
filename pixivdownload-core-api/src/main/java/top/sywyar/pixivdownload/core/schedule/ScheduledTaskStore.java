@@ -84,22 +84,6 @@ public interface ScheduledTaskStore {
                         String expectedCode,
                         Long nextRunTime);
 
-    /** 同一 credential policy/account 下尚未挂起的任务批量挂起。 */
-    int suspendByCredentialAccount(String policyOwnerPluginId,
-                                   String policyId,
-                                   String accountKey,
-                                   ScheduleSuspendReason reason,
-                                   String code,
-                                   String detailJson);
-
-    /** 仅精确匹配 reason + code 的同账号任务批量恢复。 */
-    int resumeByCredentialAccount(String policyOwnerPluginId,
-                                  String policyId,
-                                  String accountKey,
-                                  ScheduleSuspendReason expectedReason,
-                                  String expectedCode,
-                                  Long nextRunTime);
-
     /**
      * CAS 编辑已经当前 owner 校验的定义，并在同一事务清空 checkpoint 与该任务全部中性 pending。
      * 同时解除可由有效定义修复的迁移、来源或执行器不可用挂起；人工、凭证、策略与 QUIESCED 挂起保持不变。

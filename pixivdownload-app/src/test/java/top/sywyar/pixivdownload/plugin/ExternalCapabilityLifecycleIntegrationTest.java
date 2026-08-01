@@ -18,7 +18,8 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionReg
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.ExternalRuntimeCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PluginCapabilityContributionAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PushChannelCapabilityAdapter;
@@ -36,8 +37,8 @@ import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionHandle;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
@@ -62,6 +63,8 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("外置 capability invocation 与插件生命周期交叉验证")
 class ExternalCapabilityLifecycleIntegrationTest {
+
+    private static final PushChannelId PUSH_CHANNEL_ID = new PushChannelId("test-channel");
 
     private static final String PLUGIN_ID = "capability-probe";
 
@@ -95,8 +98,10 @@ class ExternalCapabilityLifecycleIntegrationTest {
                     mock(PluginScheduleContributionRegistrar.class);
             when(scheduleRegistrar.register(any(), same(registered), any())).thenReturn(Optional.empty());
             QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
+            PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+            PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
             PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
-                    scheduleRegistrar, new PluginStreamRegistry(), queueRegistry);
+                    scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry);
 
             ExternalCapabilityInvocationRegistry invocationRegistry =
                     new ExternalCapabilityInvocationRegistry();
@@ -121,11 +126,11 @@ class ExternalCapabilityLifecycleIntegrationTest {
 
             PluginLifecycleState lifecycleState = new PluginLifecycleState();
             PluginLifecycleService service = new PluginLifecycleService(
-                    parent, runtime, new PluginApplicationContextFactory(),
+                    parent, runtime, new PluginApplicationContextFactory(streamRegistry, taskRegistry),
                     mock(PluginControllerRegistrar.class), webRegistrar, scheduleRegistrar,
                     quiescer, capabilityRegistrar, pluginRegistry, lifecycleState);
             service.startAll();
-            PushChannel proxy = pushRegistry.byType(PushChannelType.BARK).orElseThrow();
+            PushChannel proxy = pushRegistry.byId(new PushChannelId("test-channel")).orElseThrow();
             ConfigurableApplicationContext child = service.contextFor(PLUGIN_ID).orElseThrow();
             assertThat(service.generation(PLUGIN_ID)).contains(9L);
             assertThat(queueRegistry.operationsForOwner(PLUGIN_ID)).singleElement()
@@ -167,7 +172,7 @@ class ExternalCapabilityLifecycleIntegrationTest {
             assertThat(stopThread.isAlive()).isFalse();
             assertThat(invocationFailure.get()).isNull();
             assertThat(stopFailure.get()).isNull();
-            assertThat(pushRegistry.byType(PushChannelType.BARK)).isEmpty();
+            assertThat(pushRegistry.byId(PUSH_CHANNEL_ID)).isEmpty();
             assertThat(queueRegistry.operationsForOwner(PLUGIN_ID)).isEmpty();
             assertThat(child.isActive()).isFalse();
             assertThat(service.contextFor(PLUGIN_ID)).isEmpty();
@@ -196,8 +201,8 @@ class ExternalCapabilityLifecycleIntegrationTest {
         PushChannel blockingPushChannel(BlockingControl control) {
             return new PushChannel() {
                 @Override
-                public PushChannelType type() {
-                    return PushChannelType.BARK;
+                public PushChannelId type() {
+                    return PUSH_CHANNEL_ID;
                 }
 
                 @Override

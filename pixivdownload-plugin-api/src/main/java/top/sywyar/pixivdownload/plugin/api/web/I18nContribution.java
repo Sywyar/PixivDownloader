@@ -4,7 +4,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 插件声明的 i18n namespace。bundle 解析必须经声明方插件的 ClassLoader。
  *
  * @param namespace 前端 {@code PixivI18n.create} 使用的 namespace 名
- * @param baseName  ResourceBundle baseName，如 {@code i18n.web.gallery}
+ * @param baseName  ResourceBundle baseName，如 {@code i18n.web.examplefeature}
  * @param order     {@code /api/i18n/meta} 合并各插件 namespace 后的展示顺序，升序；
  *                  同 order 保持注册顺序。未声明（二参构造器）时取 {@link Integer#MAX_VALUE}，
  *                  自然追加在所有声明了顺序的 namespace 之后。

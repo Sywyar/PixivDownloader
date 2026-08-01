@@ -135,7 +135,7 @@ function loadVue(opts) {
         // 默认捕获 rAF 回调而不自动执行：测试经 queueVue.flush() 确定性 flush。
         requestAnimationFrame: cb => { record.rafQueued++; record.rafCb = cb; return 1; },
         // 共享格式化桩（batch-queue.js 全局函数；此处隔离注入）。
-        buildQueueItemHtml: (q, o) => { record.rows = (record.rows || 0) + 1; return '<div class="queue-item" data-id="' + (q && q.id) + '">' + (q && q.id) + (o && o.queueId != null ? ':' + o.queueId : '') + '</div>'; },
+        buildQueueItemHtml: (q, o) => { record.rows = (record.rows || 0) + 1; return '<div class="queue-item" data-id="' + (q && q.id) + '">' + (q && q.id) + (o && o.queueKey != null ? ':' + o.queueKey : '') + '</div>'; },
         formatCurrentCardHtml: item => '<strong>cur</strong>' + (item ? item.id : 'none'),
         bt: (k, fb) => (fb != null ? fb : k),
         // refreshDownloadFromState 回调（模拟真实门面回灌：调对应 sync）。
@@ -290,9 +290,18 @@ async function main() {
         const { api } = loadVue({});
         await api.mountDownloadQueue();
         const list = api.__test.listComponent();
-        ok('6: 列表模板含 q-item-host + :key + v-html', /q-item-host/.test(list.template) && /:key="q.id"/.test(list.template) && /v-html="rowHtml\(q\)"/.test(list.template));
+        ok('6: 列表模板含 q-item-host + 复合 :key + v-html', /q-item-host/.test(list.template) && /:key="rowKey\(q\)"/.test(list.template) && /v-html="rowHtml\(q\)"/.test(list.template));
         const lv = list.setup();
         ok('6: 行 HTML 走共享 buildQueueItemHtml', /class="queue-item"/.test(lv.rowHtml({ id: '9' })));
+        const opaqueId = ' work /<img src=x> "\' ';
+        const illustKey = lv.rowKey({ kind: 'illust', id: opaqueId });
+        const novelKey = lv.rowKey({ kind: 'novel', id: opaqueId });
+        ok('6: Vue 行键按作品类型与原始不透明 id 组成复合身份',
+            illustKey !== novelKey
+            && illustKey !== lv.rowKey({ kind: 'illust', id: opaqueId.trim() }));
+        ok('6: Vue 行键编码后不含空白、斜杠、引号或 HTML 片段',
+            /^q:[0-9a-f]*\.[0-9a-f]*$/.test(illustKey)
+            && !/[<>"'\/\s]/.test(illustKey));
         const stats = api.__test.statsComponent();
         ok('6: 统计模板保留 5 计数 id + 速度 id', /id="stat-count-pending"/.test(stats.template) && /id="stat-speed-value"/.test(stats.template) && /id="stat-speed-unit"/.test(stats.template));
         ok('6: 统计标签经 bt（label）派生而非写死 data-i18n', /label\('dashboard.stat.queued'/.test(stats.template) && stats.template.indexOf('data-i18n') < 0);
@@ -382,9 +391,10 @@ async function main() {
         const entry = api.__test.scheduleEntry(8);
         const comp = api.__test.schedComponent(entry);
         ok('11: 四段结构镜像 renderScheduleQueueBody', /schedule-queue-status/.test(comp.template) && /schedule-queue-stats/.test(comp.template) && /schedule-queue-current/.test(comp.template) && /schedule-queue-list/.test(comp.template));
-        ok('11: 列表行带 :key + queueId（局部刷新口径） + q-item-host', /q-item-host/.test(comp.template) && /:key="q.id"/.test(comp.template));
+        ok('11: 列表行带复合 :key（局部刷新口径） + q-item-host', /q-item-host/.test(comp.template) && /:key="rowKey\(q\)"/.test(comp.template));
         const v = comp.setup();
-        ok('11: 计划行走共享 buildQueueItemHtml（removable:false + queueId）', /:5</.test(v.rowHtml({ id: '5' })));
+        ok('11: 计划行走共享 buildQueueItemHtml（removable:false + queueKey）',
+            /:q:[0-9a-f]*\.[0-9a-f]*</.test(v.rowHtml({ kind: 'illust', id: '5' })));
         ok('11: 计划当前卡走共享 formatCurrentCardHtml', typeof v.currentHtml === 'function' && /<strong>cur<\/strong>/.test(v.currentHtml()));
     }
 

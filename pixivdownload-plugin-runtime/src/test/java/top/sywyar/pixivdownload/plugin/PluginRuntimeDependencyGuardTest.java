@@ -5,6 +5,11 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -16,12 +21,32 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate;
+import top.sywyar.pixivdownload.plugin.runtime.http.PluginRestTemplateAdapter;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 
 /**
  * plugin-runtime 边界守卫：证明本模块是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接——
  * 承载 {@link ConditionalOnPluginEnabled} / {@link OnPluginEnabledCondition} / {@link PluginToggleProperties}
- * 三件套与 {@code plugin.runtime} 子包（{@link PluginRuntimeManager} 目录定位 / 加载 / 启动 / 诊断，
- * {@link PixivPluginDiscoveryBridge} 把外置插件的 PixivFeaturePlugin 暴露给核心）。允许 Spring（条件 / 环境 /
+ * 三件套、{@code plugin.runtime} 子包（{@link PluginRuntimeManager} 目录定位 / 加载 / 启动 / 诊断，
+ * {@link PixivPluginDiscoveryBridge} 把外置插件的 PixivFeaturePlugin 暴露给核心）
+ * 以及计划能力租约 / 迁移协议（{@code core.schedule.capability} / {@code core.schedule.migration}；
+ * 保留原 FQN 供宿主 registrar 与工作台消费）。允许 Spring（条件 / 环境 /
  * {@code @ConfigurationProperties} 绑定）、PF4J、slf4j、<b>plugin-api</b>（发现桥接产出 PixivFeaturePlugin 需跨边界
  * 共享契约）与 JDK，但<b>零 app / 具体插件类反向依赖</b>，尤其<b>不得回指组合根 {@code BuiltInPlugins} /
  * 运行时 {@code PluginRegistry} / {@code CorePlugin}</b>（它们与本模块共享拆分包
@@ -30,12 +55,30 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
  * <p>本守卫在 {@code pixivdownload-plugin-runtime} 模块内自包含运行：{@link ClassFileImporter} 扫描本模块 main
  * classpath 上的 {@code top.sywyar.pixivdownload..} 类。本模块编译期依赖 plugin-api 后，plugin-api 的契约类也会落到
  * classpath、被一并导入；签名模块也会随统一验签依赖进入 classpath。故各规则的<b>主语集合显式限定</b>为本模块自身的
- * {@code plugin} / {@code plugin.runtime} 类，不把 plugin-api / 签名模块自己的依赖面误算进本模块。app 的
+ * {@code plugin} / {@code plugin.runtime} / {@code core.schedule.capability} /
+ * {@code core.schedule.migration} 类，不把 plugin-api / 签名模块自己的依赖面误算进本模块。app 的
  * {@code PluginApiDependencyGuardTest}、core-api 的 {@code CoreApiDependencyGuardTest} 各自从自己模块的 classpath
  * 断言，与本守卫正交。
  */
 class PluginRuntimeDependencyGuardTest {
 
+    private static final Pattern PRIVATE_HTTP_ARTIFACT = Pattern.compile(
+            "(?i)(?:httpclient|httpcore|httpasyncclient).*");
+    private static final Set<DependencyCoordinate> EXPECTED_POM_DEPENDENCIES = Set.of(
+            dependency("top.sywyar.lovepopup", "pixivdownload-plugin-api", "compile"),
+            dependency("top.sywyar.lovepopup", "pixivdownload-plugin-signature", "compile"),
+            dependency("org.springframework", "spring-context", "compile"),
+            dependency("org.springframework", "spring-web", "compile"),
+            dependency("org.springframework", "spring-tx", "compile"),
+            dependency("org.springframework.boot", "spring-boot", "compile"),
+            dependency("org.pf4j", "pf4j", "compile"),
+            dependency("org.slf4j", "slf4j-api", "compile"),
+            dependency("org.junit.jupiter", "junit-jupiter", "test"),
+            dependency("org.assertj", "assertj-core", "test"),
+            dependency("org.springframework.boot", "spring-boot-test", "test"),
+            dependency("org.mockito", "mockito-core", "test"),
+            dependency("org.junit.platform", "junit-platform-launcher", "test"),
+            dependency("com.tngtech.archunit", "archunit", "test"));
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
@@ -45,20 +88,26 @@ class PluginRuntimeDependencyGuardTest {
     void pluginRuntimeIsSelfContained() {
         classes()
                 .that().resideInAnyPackage("top.sywyar.pixivdownload.plugin",
-                        "top.sywyar.pixivdownload.plugin.runtime..")
+                        "top.sywyar.pixivdownload.plugin.runtime..",
+                        "top.sywyar.pixivdownload.core.schedule.capability..",
+                        "top.sywyar.pixivdownload.core.schedule.migration..")
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.plugin",
                         "top.sywyar.pixivdownload.plugin.runtime..",
                         "top.sywyar.pixivdownload.plugin.api..",
                         "top.sywyar.pixivdownload.plugin.signature",
+                        "top.sywyar.pixivdownload.core.schedule.capability..",
+                        "top.sywyar.pixivdownload.core.schedule.migration..",
                         "java..", "org.springframework..", "org.pf4j..", "org.slf4j..")
                 .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接 / "
-                        + "描述符 / 兼容性 / 状态模型：只能依赖 JDK、Spring（条件 / 绑定）、PF4J（PluginManager 等）、slf4j、"
+                        + "描述符 / 兼容性 / 状态模型 / 计划能力租约与迁移协议：只能依赖 JDK、Spring（条件 / 绑定）、"
+                        + "PF4J（PluginManager 等）、slf4j、"
                         + "plugin-api（跨插件契约，发现桥接产出 PixivFeaturePlugin、兼容判定委托 PluginApiVersion）与自身包 "
                         + "top.sywyar.pixivdownload.plugin（三件套）/ top.sywyar.pixivdownload.plugin.runtime..（PF4J 封装 + "
-                        + "发现桥接 + descriptor / status 子包），不得依赖任何 app 业务包或具体插件实现包（本规则主语已排除 "
-                        + "plugin.api / plugin.signature 自身，只约束本模块的 plugin / plugin.runtime 类）")
+                        + "发现桥接 + descriptor / status 子包）/ core.schedule.capability / core.schedule.migration，"
+                        + "不得依赖任何 app 业务包或具体插件实现包（本规则主语已排除 plugin.api / plugin.signature 自身，"
+                        + "只约束本模块拥有的运行时类）")
                 .check(CLASSES);
     }
 
@@ -79,6 +128,98 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention.class.getName()))
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 推流注册中心只依赖稳定 stream 契约、slf4j 与 JDK")
+    void pluginRuntimeStreamRegistryStaysAtStableContractBoundary() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.stream..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin.runtime.stream..",
+                        "top.sywyar.pixivdownload.plugin.api.stream..",
+                        "java..", "org.slf4j..")
+                .because("全局推流注册中心属于 plugin-runtime 宿主设施；插件只经 plugin-api 的 owner-scoped "
+                        + "registrar 登记，注册中心不得反向依赖 app、具体插件或 Spring 组件扫描")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(PluginStreamRegistry.class.getName())).isTrue();
+        assertThat(Modifier.isFinal(PluginStreamRegistry.class.getModifiers()))
+                .as("生命周期测试需要用受控子类观察 close 顺序")
+                .isFalse();
+        assertThat(PluginStreamRegistry.class.getDeclaredAnnotations())
+                .as("注册中心由 app 组合根显式装配，runtime 不得自行组件扫描")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 后台任务注册中心只依赖稳定 task 契约与 JDK")
+    void pluginRuntimeTaskRegistryStaysAtStableContractBoundary() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.task..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin.runtime.task..",
+                        "top.sywyar.pixivdownload.plugin.api.task..",
+                        "java..")
+                .because("全局后台任务注册中心属于 plugin-runtime 父加载器设施；插件只经 plugin-api 的 "
+                        + "owner-scoped registrar 登记包装器，注册中心不得反向依赖 app、具体插件或 Spring")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(PluginRuntimeTaskRegistry.class.getName())).isTrue();
+        assertThat(Modifier.isFinal(PluginRuntimeTaskRegistry.class.getModifiers()))
+                .as("app 生命周期测试需要用受控子类观察清退顺序")
+                .isFalse();
+        assertThat(PluginRuntimeTaskRegistry.class.getDeclaredAnnotations())
+                .as("注册中心由 app 组合根显式装配，runtime 不得自行组件扫描")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime HTTP bridge 只做稳定传输契约与 Spring-Web 的机械映射")
+    void pluginRuntimeHttpBridgeStaysMechanical() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.http..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin.runtime.http..",
+                        "top.sywyar.pixivdownload.plugin.api.http..",
+                        "java..",
+                        "org.springframework.http..",
+                        "org.springframework.web.client..")
+                .because("HTTP bridge 只转换 URI、方法、头、请求原始字节、live 响应流与 RestTemplate "
+                        + "错误 / 关闭语义；代理选择、Apache 客户端、插件配置和业务策略不得进入 plugin-runtime")
+                .check(CLASSES);
+
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.http..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "top.sywyar.pixivdownload.config..")
+                .because("具体 HTTP 客户端与代理解析只属于 app，runtime bridge 不得复制宿主实现")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(ManagedPluginRestTemplate.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PluginRestTemplateAdapter.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime POM 依赖面固定且 HTTP bridge 只使用 Spring-Web")
+    void pluginRuntimePomMatchesAllowlistWithoutPrivateHttpImplementation()
+            throws IOException {
+        List<DependencyCoordinate> dependencies = dependencyCoordinates(modulePom());
+
+        assertThat(dependencies)
+                .containsExactlyInAnyOrderElementsOf(EXPECTED_POM_DEPENDENCIES);
+        assertThat(dependencies)
+                .as("dependency 坐标必须为不可隐藏实现的字面量")
+                .noneMatch(DependencyCoordinate::hasPlaceholder);
+        assertThat(dependencies)
+                .as("Apache 等具体 HTTP 栈只属于 app 适配层")
+                .noneMatch(dependency ->
+                        dependency.groupId().startsWith("org.apache.httpcomponents")
+                                || PRIVATE_HTTP_ARTIFACT.matcher(
+                                        dependency.artifactId()).matches());
     }
 
     @Test
@@ -195,5 +336,119 @@ class PluginRuntimeDependencyGuardTest {
                 .isTrue();
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 应包含计划能力租约、迁移协议与生命周期准入视图")
+    void pluginRuntimeContainsScheduleRuntimeBoundary() {
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry.class.getName()))
+                .isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain.class.getName()))
+                .isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationAdapter.class.getName()))
+                .isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission.class.getName()))
+                .isTrue();
+    }
+
+    private static Path modulePom() {
+        Path reactorPom = Path.of("pixivdownload-plugin-runtime", "pom.xml");
+        return Files.isRegularFile(reactorPom) ? reactorPom : Path.of("pom.xml");
+    }
+
+    private static List<DependencyCoordinate> dependencyCoordinates(Path pom)
+            throws IOException {
+        Document document = parsePom(pom);
+        List<DependencyCoordinate> dependencies = new ArrayList<>();
+        NodeList dependencyGroups = document.getElementsByTagNameNS("*", "dependencies");
+        for (int groupIndex = 0; groupIndex < dependencyGroups.getLength(); groupIndex++) {
+            Node dependencyGroup = dependencyGroups.item(groupIndex);
+            String parentName = localName(dependencyGroup.getParentNode());
+            if (!"project".equals(parentName) && !"profile".equals(parentName)) {
+                continue;
+            }
+            NodeList children = dependencyGroup.getChildNodes();
+            for (int childIndex = 0; childIndex < children.getLength(); childIndex++) {
+                Node child = children.item(childIndex);
+                if (!(child instanceof Element dependency)
+                        || !"dependency".equals(localName(dependency))) {
+                    continue;
+                }
+                String artifactId = directChildText(dependency, "artifactId");
+                if (artifactId != null && !artifactId.isBlank()) {
+                    String groupId = directChildText(dependency, "groupId");
+                    String scope = directChildText(dependency, "scope");
+                    dependencies.add(dependency(
+                            groupId == null ? "" : groupId.trim(),
+                            artifactId.trim(),
+                            scope == null || scope.isBlank() ? "compile" : scope.trim()));
+                }
+            }
+        }
+        return List.copyOf(dependencies);
+    }
+
+    private static Document parsePom(Path pom) throws IOException {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        try {
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            try (InputStream input = Files.newInputStream(pom)) {
+                return factory.newDocumentBuilder().parse(input);
+            }
+        } catch (ParserConfigurationException | SAXException | IllegalArgumentException failure) {
+            throw new IllegalStateException("Failed to parse Maven POM safely: " + pom, failure);
+        }
+    }
+
+    private static String directChildText(Element parent, String childName) {
+        NodeList children = parent.getChildNodes();
+        for (int index = 0; index < children.getLength(); index++) {
+            Node child = children.item(index);
+            if (child instanceof Element && childName.equals(localName(child))) {
+                return child.getTextContent();
+            }
+        }
+        return null;
+    }
+
+    private static String localName(Node node) {
+        if (node == null) {
+            return null;
+        }
+        return node.getLocalName() == null ? node.getNodeName() : node.getLocalName();
+    }
+
+    private static DependencyCoordinate dependency(
+            String groupId,
+            String artifactId,
+            String scope
+    ) {
+        return new DependencyCoordinate(groupId, artifactId, scope);
+    }
+
+    private record DependencyCoordinate(
+            String groupId,
+            String artifactId,
+            String scope
+    ) {
+        private boolean hasPlaceholder() {
+            return groupId.contains("${")
+                    || artifactId.contains("${")
+                    || scope.contains("${");
+        }
     }
 }

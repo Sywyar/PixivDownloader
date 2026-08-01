@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.tts;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.io.ByteArrayOutputStream;
@@ -32,7 +31,7 @@ import java.util.concurrent.TimeoutException;
  * 微软 Edge「大声朗读」（Read Aloud）在线 TTS 客户端。
  *
  * <p>该服务没有公开的 REST 接口，只能通过 WebSocket（{@code wss://speech.platform.bing.com/...}）合成，
- * 因此用 JDK 自带的 {@link java.net.http.WebSocket} 直接对接，不引入额外依赖。协议要点：
+ * 因此经宿主稳定 WebSocket 契约使用 JDK {@link java.net.http.WebSocket} 协议面。协议要点：
  * <ol>
  *   <li>连接 URL 需带固定的 {@code TrustedClientToken} 以及随时间变化的 {@code Sec-MS-GEC} 安全令牌；</li>
  *   <li>连接后先发 {@code speech.config} 文本帧（音频输出格式），再发 {@code ssml} 文本帧（要朗读的内容）；</li>
@@ -40,7 +39,7 @@ import java.util.concurrent.TimeoutException;
  *       并以 {@code Path:turn.end} 文本帧表示合成结束。</li>
  * </ol>
  *
- * <p>所有外发连接复用全局代理设置（与下载/Pixiv 代理一致），便于在受限网络环境下访问。
+ * <p>外发连接的路由与具体传输由宿主统一解析；本客户端只拥有 Edge 协议和异步会话生命周期。
  * 每次合成对应一个受管异步会话；Bean 停止时先拒绝新会话，再中止连接并排空所有已经进入的监听器回调。
  */
 @Component
@@ -63,7 +62,6 @@ public class EdgeTtsClient {
      */
     private static volatile long clockSkewSeconds = 0L;
 
-    private final OutboundProxySettings proxyConfig;
     private final EdgeTtsVersionService versionService;
     private final EdgeTtsWebSocketConnector connector;
     private final MessageResolver messages;
@@ -71,11 +69,9 @@ public class EdgeTtsClient {
     private final Set<AsyncSession> sessions = new HashSet<>();
     private boolean acceptingSessions = true;
 
-    public EdgeTtsClient(OutboundProxySettings proxyConfig,
-                         EdgeTtsVersionService versionService,
+    public EdgeTtsClient(EdgeTtsVersionService versionService,
                          EdgeTtsWebSocketConnector connector,
                          MessageResolver messages) {
-        this.proxyConfig = proxyConfig;
         this.versionService = versionService;
         this.connector = connector;
         this.messages = messages;
@@ -202,8 +198,7 @@ public class EdgeTtsClient {
             return new Handshake403(serverEpoch);
         }
         if (!(cause instanceof ClientStopping)) {
-            log.warn("{}: {}", logMessage("tts.log.websocket-connect-failed",
-                    proxyConfig.getHost(), proxyConfig.getPort(), proxyConfig.isEnabled()),
+            log.warn("{}: {}", logMessage("tts.log.websocket-connect-failed"),
                     cause.getClass().getSimpleName());
         }
         return new EdgeTtsException(message("tts.edge.error.connect-failed"), cause);

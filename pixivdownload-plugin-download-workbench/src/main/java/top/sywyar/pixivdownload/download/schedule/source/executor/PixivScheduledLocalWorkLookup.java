@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.source.executor;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
 
 /** Pixiv 来源发现使用的本地作品终态查询端口。 */
 @FunctionalInterface

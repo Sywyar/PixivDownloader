@@ -21,6 +21,7 @@
     // 该卡片，并在替换前后保留其内部「队列正文/待重试面板」的 innerHTML / 滚动位置 / 展开折叠态。
     // 队列正文照常由 SSE / 快照单独更新。
     let scheduleBannerSignature = null;
+    let scheduleCredentialPolicyGroupsCache = [];
     // 初始为 true：静态 HTML 的 #schedule-list 自带 .schedule-empty 占位符，首次加载到任务时需要先清空它再 diff。
     let scheduleEmptyStateRendered = true;
     const scheduleCardSignatures = new Map();
@@ -134,62 +135,59 @@
             ? normalized : '';
     }
 
-    function scheduleSourcePresentationI18nKey(sourceType, rawPresentation, property) {
-        const runtime = scheduleSourceRuntime();
-        const descriptor = runtime && typeof runtime.descriptor === 'function'
-            ? runtime.descriptor(sourceType) : null;
-        const declaredNamespace = scheduleI18nToken(
-            descriptor && descriptor.presentation && descriptor.presentation.displayNamespace, 64);
-        const requestedNamespace = scheduleI18nToken(
-            rawPresentation && rawPresentation.namespace, 64);
-        const key = scheduleI18nToken(rawPresentation && rawPresentation[property], 192);
-        return declaredNamespace && requestedNamespace === declaredNamespace && key
-            ? `${declaredNamespace}:${key}` : null;
-    }
-
     function scheduleCredentialCapabilities(sourceType, context) {
         const runtime = scheduleSourceRuntime();
-        const unavailable = {supportsCookie: false, supportsProxy: false, presentation: {}};
+        const unavailable = {supportsCredential: false, supportsProxy: false, presentation: {}};
         if (!runtime || !sourceType) return unavailable;
         try {
-            const actions = runtime.credentialActions(sourceType, context || {});
-            if (!actions) {
-                return unavailable;
-            }
-            if (typeof actions.then === 'function') {
-                Promise.resolve(actions).catch(() => {});
-                return unavailable;
-            }
-            const rawPresentation = actions.presentation && typeof actions.presentation === 'object'
-                ? actions.presentation : {};
-            const presentation = {};
-            Object.keys(rawPresentation).forEach(key => {
-                if (key !== 'clearProxyConfirmKey' && key !== 'clearCredentialConfirmKey'
-                    && typeof rawPresentation[key] === 'string') {
-                    presentation[key] = rawPresentation[key];
-                }
-            });
-            presentation.clearProxyConfirmI18nKey = scheduleSourcePresentationI18nKey(
-                sourceType, rawPresentation, 'clearProxyConfirmKey');
-            presentation.clearCredentialConfirmI18nKey = scheduleSourcePresentationI18nKey(
-                sourceType, rawPresentation, 'clearCredentialConfirmKey');
+            const contribution = runtime.credentialContribution(sourceType, context || {});
+            if (!contribution) return unavailable;
             return {
-                supportsCookie: actions.supportsCookie === true,
-                supportsProxy: actions.supportsProxy === true,
-                presentation
+                supportsCredential: contribution.supportsCredential === true,
+                supportsProxy: contribution.supportsProxy === true,
+                presentation: contribution.presentation || {}
             };
         } catch (e) {
             return unavailable;
         }
     }
 
+    function scheduleTaskCredentialPolicy(task) {
+        const value = task && task.credentialPolicy && typeof task.credentialPolicy === 'object'
+            ? task.credentialPolicy : {};
+        const publicationId = Number(value.publicationId);
+        return Object.freeze({
+            ownerPluginId: String(value.ownerPluginId || ''),
+            policyId: String(value.policyId || ''),
+            accountKey: String(value.accountKey || ''),
+            bound: value.bound === true,
+            available: value.available === true,
+            publicationId: Number.isSafeInteger(publicationId) && publicationId > 0
+                ? publicationId : null,
+            statusCode: typeof value.statusCode === 'string' ? value.statusCode : null,
+            acknowledgedEventTime: value.acknowledgedEventTime == null
+                ? null : value.acknowledgedEventTime
+        });
+    }
+
+    function scheduleTaskCredentialPresentation(task) {
+        const runtime = scheduleSourceRuntime();
+        if (!runtime || !task || typeof runtime.credentialTaskPresentation !== 'function') return null;
+        try {
+            return runtime.credentialTaskPresentation(
+                task.sourceType || task.type, task, {task, mode: state.mode});
+        } catch (e) {
+            return null;
+        }
+    }
+
     function scheduleOverrideActionLabel(capabilities) {
         const p = capabilities.presentation || {};
         if (p.overrideLabel) return p.overrideLabel;
-        if (capabilities.supportsCookie && capabilities.supportsProxy) {
+        if (capabilities.supportsCredential && capabilities.supportsProxy) {
             return bt('schedule.action.override-both', '🔑 指定单独的代理 / 凭证');
         }
-        if (capabilities.supportsCookie) {
+        if (capabilities.supportsCredential) {
             return bt('schedule.action.override-credential', '🔑 指定单独凭证');
         }
         return bt('schedule.action.override-proxy', '🌐 指定单独代理');
@@ -216,7 +214,7 @@
 
     function updateScheduleCredentialControls(prefix, sourceType, context) {
         const capabilities = scheduleCredentialCapabilities(sourceType, context);
-        [['proxy', capabilities.supportsProxy], ['cookie', capabilities.supportsCookie]]
+        [['proxy', capabilities.supportsProxy], ['cookie', capabilities.supportsCredential]]
             .forEach(([kind, supported]) => {
                 const checkbox = document.getElementById(`${prefix}-${kind}-enabled`);
                 const row = document.getElementById(`${prefix}-${kind}-row`);
@@ -229,7 +227,7 @@
                 if (row) row.style.display = supported && checkbox.checked ? '' : 'none';
             });
         applyScheduleCredentialPresentation(prefix, capabilities, context && context.task
-            ? context.task.cookieBound : false);
+            ? scheduleTaskCredentialPolicy(context.task).bound : false);
         return capabilities;
     }
 
@@ -411,7 +409,7 @@
                 bt('schedule.error.concurrent-change', '任务状态已变化，请刷新后重试'), 'error');
             return;
         }
-        // 单独代理 / 单独 cookie 的输入先行校验（创建与编辑共用一套规则，避免任务保存后才发现设置失败）。
+        // 单独代理 / 单独凭证的输入先行校验（创建与编辑共用一套规则）。
         const prevTask = editing ? scheduleTaskById(editingToken.taskId) : null;
         const ov = readScheduleOverrideInputs('sch', snap.sourceType, {task: prevTask});
         const ovError = await validateScheduleOverrideInputs(ov, prevTask, snap.sourceType);
@@ -430,7 +428,7 @@
             if (!scheduleSubmissionCurrent(sourceLease, editingToken)) return;
             if (!confirmed) return;
         }
-        // 编辑时取消勾选 = 清除已生效的单独代理 / Cookie：先确认后果再保存。
+        // 编辑时取消勾选 = 清除已生效的单独代理 / 凭证：先确认后果再保存。
         const confirmedClears = await confirmScheduleOverrideClears(ov, prevTask, sourceLease);
         if (!scheduleSubmissionCurrent(sourceLease, editingToken)) return;
         if (!confirmedClears) return;
@@ -471,26 +469,27 @@
             const saved = await res.json().catch(() => null);
             assertScheduleSubmissionCurrent(sourceLease, editingToken);
             const taskId = editing ? editingToken.taskId : (saved && saved.id != null ? saved.id : null);
-            // 应用单独代理 / 单独 cookie（任务本体已保存，失败不回滚，提示去列表弹窗重试）。
+            // 应用单独代理 / 单独凭证（任务本体已保存，失败不回滚，提示去列表弹窗重试）。
             let overrideResult = {ok: true, applied: false};
             if (taskId != null) {
                 overrideResult = await applyScheduleOverrides(
-                    taskId, ov, prevTask, sourceLease.signal, sourceLease.activationToken);
+                    taskId, ov, prevTask, snap.sourceType, sourceLease.signal);
                 assertScheduleSubmissionCurrent(sourceLease, editingToken);
             }
-            // solo 模式下新建任务且未指定单独 cookie 时，用当前输入框里的 Cookie 自动授权绑定，
-            // 省去手动绑定一步（指定了单独 cookie 则以 applyScheduleOverrides 的绑定为准）。
-            let autoAuthResult = null;
-            if (!editing && appMode === 'solo' && !ov.cookieChecked && taskId != null) {
+            // solo 模式下新建任务且未指定单独凭证时，请来源插件在当前 publication 内尝试绑定
+            // 自己保存的凭证。宿主只接收状态，不读取、缓存或回填 secret。
+            let autoAuthStatus = null;
+            if (!editing && appMode === 'solo' && !ov.credentialChecked && taskId != null) {
                 try {
                     const runtime = scheduleSourceRuntime();
-                    if (runtime && typeof runtime.invokeCredentialAction === 'function') {
-                        autoAuthResult = await runtime.invokeCredentialAction(
-                            snap.sourceType, 'autoAuthorize', [taskId], {task: saved});
+                    if (runtime && typeof runtime.bindSavedCredential === 'function') {
+                        const result = await runtime.bindSavedCredential(
+                            snap.sourceType, taskId, {task: saved});
                         assertScheduleSubmissionCurrent(sourceLease, editingToken);
+                        autoAuthStatus = result && result.status;
                     }
                 } catch (e) {
-                    autoAuthResult = 'failed';
+                    autoAuthStatus = 'failed';
                 }
             }
             // 先重置表单（resetScheduleForm 末尾会清空状态），再写入成功提示，
@@ -501,14 +500,15 @@
                 setScheduleFormStatus(bt('schedule.status.saved-override-failed',
                     '任务已保存，但专用代理 / 来源凭证设置失败：{reason}；请在任务列表中重试',
                     {reason: overrideResult.error}), 'error');
-            } else if (ov.cookieChecked && ov.cookieValue && overrideResult.applied) {
+            } else if (ov.credentialChecked
+                    && (ov.credentialValue || ov.useSavedCredential) && overrideResult.applied) {
                 setScheduleFormStatus(bt('schedule.status.saved-overrides',
                     '已保存，专用代理 / 来源凭证设置已应用'), 'success');
-            } else if (autoAuthResult === 'authorized') {
+            } else if (autoAuthStatus === 'bound') {
                 setScheduleFormStatus(bt('schedule.status.saved-authorized',
                     '已保存并自动绑定来源凭证'), 'success');
-            } else if (autoAuthResult === 'no-cookie') {
-                setScheduleFormStatus(bt('schedule.status.saved-no-cookie',
+            } else if (autoAuthStatus === 'missing') {
+                setScheduleFormStatus(bt('schedule.status.saved-no-credential',
                     '已保存；当前没有可用的来源凭证，任务将以受限模式运行；如需登录态，请在任务列表中绑定专用来源凭证'), 'success');
             } else {
                 setScheduleFormStatus(bt('schedule.status.saved', '已保存'), 'success');
@@ -543,7 +543,7 @@
             srcEl.style.display = 'none';
             srcEl.textContent = '';
         }
-        // 单独代理 / 单独 cookie 控件复位（取消勾选、清空输入、恢复默认占位符）。
+        // 单独代理 / 单独凭证控件复位（取消勾选、清空输入、恢复默认占位符）。
         const proxyEn = document.getElementById('sch-proxy-enabled');
         if (proxyEn) proxyEn.checked = false;
         const proxyIn = document.getElementById('sch-proxy');
@@ -558,7 +558,7 @@
         updateSaveScheduleCardVisibility();
     }
 
-    // ── 单独代理 / 单独 cookie（存为计划任务卡片与「指定单独的 代理/cookie」弹窗共用） ─────────────
+    // ── 单独代理 / 单独凭证（存为计划任务卡片与覆盖弹窗共用） ─────────────
 
     // 复选框联动：勾选才显示输入区（prefix='sch' 卡片 / 'sch-ov' 弹窗）。
     function onScheduleOverrideToggle(prefix) {
@@ -569,12 +569,13 @@
         });
     }
 
-    // cookie 输入框复位：凭证绝不回显，已绑定时仅用占位符说明「留空保持不变」。
+    // 凭证输入框复位：凭证绝不回显，已绑定时仅用占位符说明「留空保持不变」。
     function setScheduleCookieInput(inputId, bound, presentation) {
         const el = document.getElementById(inputId);
         if (!el) return;
         const p = presentation || {};
         el.value = '';
+        if (el.dataset) delete el.dataset.useSavedCredential;
         el.placeholder = bound
             ? (p.boundPlaceholder || bt('schedule.field.credential.placeholder-bound',
                 '已绑定凭证（不回显）；留空保持不变，填写则替换'))
@@ -582,7 +583,7 @@
                 '粘贴来源凭证，或点右侧按钮填入'));
     }
 
-    // 「使用当前保存的cookie」：把 Cookie 卡片当前保存的 cookie 填入指定输入框。
+    // 「使用当前保存的凭证」只记录一次性选择，不把插件 secret 复制到宿主 DOM。
     async function fillScheduleCookieFromSaved(inputId) {
         const el = document.getElementById(inputId);
         if (!el) return;
@@ -592,17 +593,19 @@
             : null;
         const preview = task ? null : currentScheduleSourcePreview();
         const sourceType = task ? (task.sourceType || task.type) : (preview && preview.sourceType);
-        const runtime = scheduleSourceRuntime();
-        try {
-            const cookie = await runtime.invokeCredentialAction(
-                sourceType, 'savedCookie', [], {task, mode: state.mode});
-            if (!cookie) throw new Error('empty source credential');
-            el.value = String(cookie);
-            report('');
-        } catch (e) {
-            report(bt('schedule.error.no-cookie', '当前来源没有可用的已保存凭证'), 'error');
+        const capabilities = scheduleCredentialCapabilities(sourceType, {task, mode: state.mode});
+        if (!capabilities.supportsCredential) {
+            report(bt('schedule.error.no-credential', '当前来源没有可用的已保存凭证'), 'error');
             return;
         }
+        const p = capabilities.presentation || {};
+        el.value = '';
+        if (el.dataset) el.dataset.useSavedCredential = 'true';
+        el.placeholder = p.savedSelectionPlaceholder
+            || `•••••••• · ${p.savedCredentialLabel
+                || bt('schedule.action.use-saved-credential', '使用当前保存的凭证')}`;
+        report(bt('schedule.status.saved-credential-selected',
+            '已选择使用当前保存的来源凭证；凭证内容不会填入页面'), 'success');
     }
 
     // 与后端 OutboundProxyOverride.parse 同口径：严格 host:port——host 段只允许主机名 / IPv4 字符，
@@ -619,35 +622,41 @@
 
     function readScheduleOverrideInputs(prefix, sourceType, context) {
         const capabilities = scheduleCredentialCapabilities(sourceType, context);
+        const credentialInput = document.getElementById(`${prefix}-cookie`);
+        const credentialValue = ((credentialInput || {}).value || '').trim();
         return {
             supportsProxy: capabilities.supportsProxy,
-            supportsCookie: capabilities.supportsCookie,
+            supportsCredential: capabilities.supportsCredential,
             presentation: capabilities.presentation,
             proxyChecked: capabilities.supportsProxy
                 && !!(document.getElementById(`${prefix}-proxy-enabled`) || {}).checked,
             proxyValue: ((document.getElementById(`${prefix}-proxy`) || {}).value || '').trim(),
-            cookieChecked: capabilities.supportsCookie
+            credentialChecked: capabilities.supportsCredential
                 && !!(document.getElementById(`${prefix}-cookie-enabled`) || {}).checked,
-            cookieValue: ((document.getElementById(`${prefix}-cookie`) || {}).value || '').trim()
+            credentialValue,
+            useSavedCredential: capabilities.supportsCredential && !credentialValue
+                && !!(credentialInput && credentialInput.dataset
+                    && credentialInput.dataset.useSavedCredential === 'true')
         };
     }
 
-    // 输入合法性：代理须为 host:port；勾选单独 cookie 时，要么填了含 PHPSESSID 的值，
-    // 要么任务此前已绑定（留空 = 保持不变）。返回错误文案或 null。
+    // 代理由宿主校验 host:port；凭证格式完全交给当前来源 contribution。
+    // 留空只能表示保持已绑定凭证，或使用来源已保存凭证。
     async function validateScheduleOverrideInputs(ov, prevTask, sourceType) {
         if (ov.proxyChecked && !isValidProxyHostPort(ov.proxyValue)) {
             return bt('schedule.error.proxy-format', '代理格式无效，应为 host:port（例如 127.0.0.1:7890）');
         }
-        if (ov.cookieChecked && ov.cookieValue) {
+        if (ov.credentialChecked && ov.credentialValue) {
             try {
-                const error = await scheduleSourceRuntime().invokeCredentialAction(
-                    sourceType, 'validateCookie', [ov.cookieValue], {task: prevTask});
+                const error = await scheduleSourceRuntime().validateCredential(
+                    sourceType, ov.credentialValue, {task: prevTask});
                 if (error) return String(error);
             } catch (e) {
                 return bt('schedule.error.authorize', '授权失败');
             }
         }
-        if (ov.cookieChecked && !ov.cookieValue && !(prevTask && prevTask.cookieBound)) {
+        if (ov.credentialChecked && !ov.credentialValue && !ov.useSavedCredential
+                && !(prevTask && scheduleTaskCredentialPolicy(prevTask).bound)) {
             return (ov.presentation || {}).emptyCredentialMessage
                 || bt('schedule.error.override-credential-empty',
                     '请填写单独凭证（或点「使用当前保存的凭证」），或取消勾选');
@@ -655,7 +664,7 @@
         return null;
     }
 
-    // 取消勾选 = 清除已生效的单独设置：弹窗确认后果（回退全局代理 / 解除 Cookie 转受限模式）。
+    // 取消勾选 = 清除已生效的单独设置：弹窗确认回退全局代理或解除凭证的后果。
     async function confirmScheduleOverrideClears(ov, prevTask, sourceLease) {
         if (!prevTask) return true;
         if (ov.supportsProxy && !ov.proxyChecked && prevTask.proxy) {
@@ -667,10 +676,11 @@
             if (sourceLease && !scheduleLeaseCurrent(sourceLease)) return false;
             if (!confirmed) return false;
         }
-        if (ov.supportsCookie && !ov.cookieChecked && prevTask.cookieBound) {
+        if (ov.supportsCredential && !ov.credentialChecked
+                && scheduleTaskCredentialPolicy(prevTask).bound) {
             const confirmed = await uiConfirmKey(
                 (ov.presentation || {}).clearCredentialConfirmI18nKey
-                    || 'schedule.confirm.clear-cookie',
+                    || 'schedule.confirm.clear-credential',
                 (ov.presentation || {}).clearCredentialConfirm
                     || '将解除该任务绑定的凭证；需要登录态的来源可能无法继续运行。确定吗？');
             if (sourceLease && !scheduleLeaseCurrent(sourceLease)) return false;
@@ -680,13 +690,13 @@
     }
 
     /**
-     * 把单独 代理/cookie 的选择落到后端（只发必要的请求）。返回 {ok, applied, error}：
+     * 把单独代理 / 凭证选择交给后端与来源 contribution。返回 {ok, applied, error}：
      * applied=true 表示至少发生了一次变更。任何一步失败即中止后续调用（任务本体的保存不回滚）。
-     * cookie 留空且此前已绑定 = 保持不变；代理值与现状相同也不重复提交。
+     * 凭证留空且此前已绑定 = 保持不变；代理值与现状相同也不重复提交。
      */
-    async function applyScheduleOverrides(taskId, ov, prevTask, signal, activationToken) {
+    async function applyScheduleOverrides(taskId, ov, prevTask, sourceType, signal) {
         const hadProxy = !!(prevTask && prevTask.proxy);
-        const wasBound = !!(prevTask && prevTask.cookieBound);
+        const wasBound = !!(prevTask && scheduleTaskCredentialPolicy(prevTask).bound);
         let applied = false;
         if (ov.supportsProxy && ov.proxyChecked && ov.proxyValue && (!prevTask || prevTask.proxy !== ov.proxyValue)) {
             const err = await postScheduleProxy(taskId, ov.proxyValue, signal);
@@ -697,14 +707,40 @@
             if (err) return {ok: false, applied, error: err};
             applied = true;
         }
-        if (ov.supportsCookie && ov.cookieChecked && ov.cookieValue) {
-            const err = await postScheduleCookie(
-                taskId, ov.cookieValue, activationToken, signal);
-            if (err) return {ok: false, applied, error: err};
+        const runtime = scheduleSourceRuntime();
+        if (ov.supportsCredential && ov.credentialChecked && ov.credentialValue) {
+            let result;
+            try {
+                result = await runtime.bindCredential(
+                    sourceType, taskId, ov.credentialValue, {task: prevTask});
+            } catch (e) {
+                result = {ok: false, error: bt('schedule.error.authorize', '授权失败')};
+            }
+            if (!result || !result.ok) return {ok: false, applied, error:
+                (result && result.error) || bt('schedule.error.authorize', '授权失败')};
             applied = true;
-        } else if (ov.supportsCookie && !ov.cookieChecked && wasBound) {
-            const err = await postScheduleRevokeCookie(taskId, signal);
-            if (err) return {ok: false, applied, error: err};
+        } else if (ov.supportsCredential && ov.credentialChecked && ov.useSavedCredential) {
+            let result;
+            try {
+                result = await runtime.bindSavedCredential(sourceType, taskId, {task: prevTask});
+            } catch (e) {
+                result = {ok: false, error: bt('schedule.error.authorize', '授权失败')};
+            }
+            if (!result || !result.ok) return {ok: false, applied, error:
+                (result && result.error) || (ov.presentation || {}).emptyCredentialMessage
+                    || bt('schedule.error.no-credential', '当前来源没有可用的已保存凭证')};
+            applied = true;
+        } else if (ov.supportsCredential && !ov.credentialChecked && wasBound) {
+            let result;
+            try {
+                result = await runtime.revokeCredential(sourceType, taskId, {task: prevTask});
+            } catch (e) {
+                result = {ok: false, error: bt(
+                    'schedule.error.revoke-credential', '解除来源凭证失败')};
+            }
+            if (!result || !result.ok) return {ok: false, applied, error:
+                (result && result.error)
+                    || bt('schedule.error.revoke-credential', '解除来源凭证失败')};
             applied = true;
         }
         return {ok: true, applied};
@@ -725,43 +761,6 @@
             return err.error || err.message || bt('schedule.error.proxy-save', '单独代理设置失败');
         } catch (e) {
             return bt('schedule.error.proxy-save', '单独代理设置失败');
-        }
-    }
-
-    // 授权绑定单独 cookie。成功返回 null，失败返回错误文案（含后端「与已绑定相同」等原因）。
-    async function postScheduleCookie(taskId, cookie, activationToken, signal) {
-        try {
-            const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Acquisition-Credential': cookie
-                },
-                signal,
-                body: JSON.stringify({activationToken})
-            });
-            if (res.ok) return null;
-            const err = await res.json().catch(() => ({}));
-            return err.error || err.message || bt('schedule.error.authorize', '授权失败');
-        } catch (e) {
-            return bt('schedule.error.authorize', '授权失败');
-        }
-    }
-
-    // 解除绑定的 cookie（任务转受限模式）。成功返回 null，失败返回错误文案。
-    async function postScheduleRevokeCookie(taskId, signal) {
-        try {
-            const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/revoke-cookie`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                signal
-            });
-            if (res.ok) return null;
-            const err = await res.json().catch(() => ({}));
-            return err.error || err.message || bt('schedule.error.revoke-cookie', '解除来源凭证失败');
-        } catch (e) {
-            return bt('schedule.error.revoke-cookie', '解除来源凭证失败');
         }
     }
 
@@ -821,13 +820,13 @@
         const params = restored.params || {};
         if (flEl) flEl.value = (Number.isFinite(params.fetchLimit) && params.fetchLimit > 0)
             ? params.fetchLimit : 0;
-        // 单独代理 / 单独 cookie 回灌：代理可回显；cookie 凭证不回显，仅恢复勾选态（留空保存 = 保持不变）。
+        // 单独代理 / 凭证回灌：代理可回显；凭证仅恢复勾选态（留空保存 = 保持不变）。
         const proxyEn = document.getElementById('sch-proxy-enabled');
         if (proxyEn) proxyEn.checked = !!task.proxy;
         const proxyIn = document.getElementById('sch-proxy');
         if (proxyIn) proxyIn.value = task.proxy || '';
         const cookieEn = document.getElementById('sch-cookie-enabled');
-        if (cookieEn) cookieEn.checked = !!task.cookieBound;
+        if (cookieEn) cookieEn.checked = scheduleTaskCredentialPolicy(task).bound;
         updateScheduleCredentialControls('sch', sourceType, {task});
         onScheduleOverrideToggle('sch');
         document.getElementById('sch-submit').textContent = bt('schedule.action.save', '💾 保存修改');
@@ -847,14 +846,16 @@
         }
     }
 
-    function scheduleStatusLabel(code) {
+    function scheduleStatusLabel(task) {
+        const credentialPresentation = scheduleTaskCredentialPresentation(task);
+        if (credentialPresentation && credentialPresentation.statusLabel) {
+            return credentialPresentation.statusLabel;
+        }
+        const code = task && task.lastStatus;
         if (!code) return bt('schedule.run-status.none', '尚未运行');
         if (code === 'OK') return bt('schedule.run-status.ok', '正常');
-        if (code === 'AUTH_EXPIRED') return bt('schedule.run-status.auth-expired',
-            '登录凭证已失效，请重新绑定有效凭证');
         if (code === 'ERROR') return bt('schedule.run-status.error', '运行出错');
         if (code === 'PAUSED') return bt('schedule.run-status.paused', '已手动暂停');
-        if (code === 'OVERUSE_PAUSED') return bt('schedule.run-status.overuse-paused', '已暂停：检测到过度访问警告');
         if (code === 'SOURCE_UNAVAILABLE') return bt('schedule.light.source-unavailable', '来源能力当前不可用，等待插件恢复');
         if (code === 'EXECUTOR_UNAVAILABLE') return bt('schedule.light.executor-unavailable', '作品执行能力当前不可用，等待插件恢复');
         if (code === 'QUIESCED') return bt('schedule.light.quiesced', '插件正在安全停用，等待能力恢复');
@@ -891,6 +892,30 @@
             return null;
         }
         return null;
+    }
+
+    // 单项作品失败属于 workType owner，不属于取得来源。只信任活动下载类型 manifest 声明的
+    // i18nNamespace；插件缺席、namespace 不匹配或旧缓存只有 sourceType 时一律退回宿主通用文案。
+    function localizeScheduleWorkMachineCode(value, workType) {
+        const code = safeScheduleMachineCode(value);
+        if (!code) return null;
+        if (code.startsWith('schedule.')) {
+            const translated = bt(code, '');
+            return translated && translated !== code ? translated : null;
+        }
+        try {
+            const registry = window.PixivBatch && window.PixivBatch.queueTypes;
+            const descriptor = registry && typeof registry.manifestDescriptor === 'function'
+                ? registry.manifestDescriptor(workType) : null;
+            const namespace = scheduleI18nToken(descriptor && descriptor.i18nNamespace, 64);
+            if (!namespace || !code.startsWith(`${namespace}.`)
+                    || typeof pageI18n === 'undefined' || !pageI18n) return null;
+            const translated = pageI18n.t(
+                `${namespace}:${code.slice(namespace.length + 1)}`, '');
+            return translated && translated !== code ? translated : null;
+        } catch (e) {
+            return null;
+        }
     }
 
     function scheduleFailureReason(t) {
@@ -933,16 +958,27 @@
                 text: reason || bt('schedule.light.migration-error', '任务数据需要修复，无法运行')
             };
         }
+        const credentialPresentation = scheduleTaskCredentialPresentation(t);
+        if (credentialPresentation && credentialPresentation.lightTone
+                && credentialPresentation.lightText) {
+            return {
+                tone: credentialPresentation.lightTone,
+                live: false,
+                text: credentialPresentation.lightText
+            };
+        }
         // 挂起态优先于中断结果：挂起任务不会被自动重排，不能显示「已重新排期补齐」。
-        if (t.lastStatus === 'OVERUSE_PAUSED') {
-            return {tone: 'red', live: false, text: bt('schedule.light.overuse-paused', '已暂停：检测到过度访问警告（账号级）')};
+        if (t.suspendReason && t.suspendReason !== 'MANUAL') {
+            const reason = localizeScheduleMachineCode(
+                t.suspendCode, t.sourceType || t.type);
+            return {
+                tone: 'red',
+                live: false,
+                text: reason || bt('schedule.light.suspended', '任务已挂起，等待恢复')
+            };
         }
         if (t.lastStatus === 'PAUSED') {
             return {tone: 'gray', live: false, text: bt('schedule.light.paused', '已手动暂停')};
-        }
-        if (t.lastStatus === 'AUTH_EXPIRED') {
-            return {tone: 'red', live: false, text: bt('schedule.light.auth-expired',
-                '运行失败，来源登录凭证已失效，请重新绑定有效凭证')};
         }
         if (t.lastOutcome === 'INTERRUPTED' || t.lastStatus === 'INTERRUPTED') {
             return {tone: 'red', live: false, text: bt('schedule.light.interrupted', '运行失败，上次运行被中断，已重新排期补齐')};
@@ -1082,14 +1118,14 @@
             [bt('schedule.snapshot.field.type', '任务类型'),
                 t.sourceAvailable === false ? sourceType : scheduleTypeLabel(sourceType)],
             [bt('schedule.snapshot.field.trigger', '触发方式'), scheduleTriggerLabel(t)],
-            [bt('schedule.snapshot.field.cookie', '来源凭证'), t.cookieBound
+            [bt('schedule.snapshot.field.cookie', '来源凭证'), scheduleTaskCredentialPolicy(t).bound
                 ? bt('schedule.credential.bound', '已绑定凭证')
                 : bt('schedule.credential.unbound', '未绑定凭证')],
             [bt('schedule.snapshot.field.proxy', '单独代理'), t.proxy ? t.proxy : bt('schedule.snapshot.value.global-proxy', '使用全局代理设置')],
             [bt('schedule.snapshot.field.enabled', '启用状态'), t.enabled ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用')],
             [bt('schedule.snapshot.field.next-run', '下次运行'), fmtScheduleTime(t.nextRunTime)],
             [bt('schedule.snapshot.field.last-run', '上次运行'), fmtScheduleTime(t.lastRunTime)],
-            [bt('schedule.snapshot.field.last-status', '运行状态'), scheduleStatusLabel(t.lastStatus)]
+            [bt('schedule.snapshot.field.last-status', '运行状态'), scheduleStatusLabel(t)]
         ];
         if (kind) basicRows.splice(2, 0,
             [bt('schedule.snapshot.field.kind', '作品类型'), scheduleKindLabel(kind)]);
@@ -1143,7 +1179,7 @@
         el.style.color = STATUS_COLORS[type] || '#666';
     }
 
-    // 打开弹窗并按任务现状预填：代理可回显；cookie 仅恢复勾选态（凭证不回显，留空保存 = 保持不变）。
+    // 打开弹窗并按任务现状预填：代理可回显；凭证只恢复勾选态，不回显原值。
     function showScheduleOverrideModal(id) {
         const task = scheduleTaskById(id);
         const modal = document.getElementById('schedule-override-modal');
@@ -1162,10 +1198,10 @@
         const proxyIn = document.getElementById('sch-ov-proxy');
         if (proxyIn) proxyIn.value = task.proxy || '';
         const cookieEn = document.getElementById('sch-ov-cookie-enabled');
-        if (cookieEn) cookieEn.checked = !!task.cookieBound;
+        if (cookieEn) cookieEn.checked = scheduleTaskCredentialPolicy(task).bound;
         const capabilities = updateScheduleCredentialControls(
             'sch-ov', sourceType, {task});
-        if (!capabilities.supportsCookie && !capabilities.supportsProxy) return;
+        if (!capabilities.supportsCredential && !capabilities.supportsProxy) return;
         modal.dataset.taskId = String(Number(id));
         modal.dataset.sourceType = sourceType;
         modal.dataset.sourceActivationToken = sourceActivationToken;
@@ -1238,7 +1274,7 @@
         const confirmedClears = await confirmScheduleOverrideClears(ov, task, sourceLease);
         if (!scheduleLeaseCurrent(sourceLease) || !confirmedClears) return;
         const result = await applyScheduleOverrides(
-            id, ov, task, sourceLease.signal, expectedActivationToken);
+            id, ov, task, sourceType, sourceLease.signal);
         if (!scheduleLeaseCurrent(sourceLease)) return;
         if (!result.ok) {
             setScheduleOverrideStatus(result.error, 'error');
@@ -1258,12 +1294,18 @@
     // 不含队列正文 / 待重试面板内容——那两个面板的 DOM 在 diff 替换时被「内 HTML + 滚动位置」整体迁移到新卡片上。
     function scheduleCardRenderSignature(t) {
         const credentialUi = scheduleTaskCredentialUi(t);
+        const credentialPolicy = scheduleTaskCredentialPolicy(t);
+        const credentialPresentation = scheduleTaskCredentialPresentation(t) || {};
         return JSON.stringify([
-            t.name, t.enabled, t.sourceType, t.cookieBound, t.proxy, t.runState,
+            t.name, t.enabled, t.sourceType, credentialPolicy, t.proxy, t.runState,
             t.lastStatus, t.lastMessage, t.runStartedTime, t.nextRunTime, t.lastRunTime,
             t.presentationJson, t.presentation, t.sourceAvailable, t.sourceActivationToken,
-            t.accountId, t.ackWarningTime, t.pendingRetryArmed, t.suspendReason, t.suspendCode,
-            credentialUi.badgeLabel, credentialUi.overrideLabel, credentialUi.showOverride
+            t.pendingRetryArmed, t.suspendReason, t.suspendCode,
+            credentialPresentation.statusLabel, credentialPresentation.lightTone,
+            credentialPresentation.lightText, credentialPresentation.suspended,
+            credentialPresentation.manualRecoveryRequired,
+            credentialUi.badgeLabel, credentialUi.overrideLabel, credentialUi.showOverride,
+            credentialUi.bound
         ]);
     }
 
@@ -1274,34 +1316,47 @@
             && runtime.isAvailable(sourceType));
         const capabilities = sourceActive
             ? scheduleCredentialCapabilities(sourceType, {task})
-            : {supportsCookie: false, supportsProxy: false, presentation: {}};
+            : {supportsCredential: false, supportsProxy: false, presentation: {}};
         const p = capabilities.presentation || {};
+        const bound = scheduleTaskCredentialPolicy(task).bound;
         let badgeLabel = null;
-        if (capabilities.supportsCookie) {
-            badgeLabel = task.cookieBound
+        if (capabilities.supportsCredential) {
+            badgeLabel = bound
                 ? (p.boundLabel || bt('schedule.credential.bound', '已绑定凭证'))
                 : (p.unboundLabel || bt('schedule.credential.unbound', '未绑定凭证'));
-        } else if (!sourceActive && task.cookieBound) {
+        } else if (!sourceActive && bound) {
             badgeLabel = bt('schedule.credential.bound', '已绑定凭证');
         }
         return {
             badgeLabel,
-            showOverride: sourceActive && (capabilities.supportsCookie || capabilities.supportsProxy),
+            bound,
+            showOverride: sourceActive && (capabilities.supportsCredential || capabilities.supportsProxy),
             overrideLabel: scheduleOverrideActionLabel(capabilities),
             proxyLabel: p.proxyBadgeLabel || bt('schedule.badge.custom-proxy', '单独代理')
         };
     }
 
-    // 过度访问横幅是一个独立区段（按 accountId 分组、行为是账号级，不绑定任何具体卡片）；
-    // 签名只看「哪些账号挂起 + 各账号挂起任务数」，签名相同就不重建横幅 DOM。
-    function scheduleBannerRenderSignature(tasks) {
-        const counts = new Map();
-        tasks.forEach(t => {
-            if (t.lastStatus === 'OVERUSE_PAUSED' && t.accountId) {
-                counts.set(t.accountId, (counts.get(t.accountId) || 0) + 1);
-            }
-        });
-        return JSON.stringify([...counts.entries()].sort());
+    // 凭证策略横幅是插件贡献的纯展示数据；签名包含完整 owner/policy/publication/account/
+    // suspend identity，避免不同 publication 或不同挂起事件被宿主错误合并。
+    function scheduleBannerRenderSignature(groups) {
+        return JSON.stringify((Array.isArray(groups) ? groups : []).map(group => [
+            group.identityKey,
+            group.sourceType,
+            group.title,
+            group.description,
+            group.actions
+        ]));
+    }
+
+    function scheduleCredentialPolicyGroups(tasks) {
+        const runtime = scheduleSourceRuntime();
+        if (!runtime || typeof runtime.credentialPolicyGroups !== 'function') return [];
+        try {
+            const groups = runtime.credentialPolicyGroups(tasks, {mode: state.mode});
+            return Array.isArray(groups) ? groups : [];
+        } catch (e) {
+            return [];
+        }
     }
 
     async function loadScheduleTasks() {
@@ -1333,6 +1388,7 @@
             }
             const tasks = await res.json();
             scheduleTasksCache = Array.isArray(tasks) ? tasks : [];
+            scheduleCredentialPolicyGroupsCache = scheduleCredentialPolicyGroups(scheduleTasksCache);
 
             // 不论列表是否为空：清理已不存在任务的 SSE 监听 / 模型 / 缓存，
             // 否则旧 handler 残留在 state.sseListeners，可能消费同 artworkId 的事件、并阻止
@@ -1378,23 +1434,25 @@
         list.innerHTML = `<div class="schedule-empty">${escHtml(text)}</div>`;
         scheduleEmptyStateRendered = true;
         scheduleBannerSignature = null;
+        scheduleCredentialPolicyGroupsCache = [];
         scheduleCardSignatures.clear();
     }
 
-    // 横幅按 accountId 分组、与卡片解耦：签名只看挂起账号的集合与各账号挂起任务计数，签名不变就不动 DOM。
+    // 横幅分组与文案由 owner 插件贡献；宿主只按规范化 pure data diff 并绑定固定动作入口。
     function renderScheduleBannersDiff(list) {
-        const sig = scheduleBannerRenderSignature(scheduleTasksCache);
+        const sig = scheduleBannerRenderSignature(scheduleCredentialPolicyGroupsCache);
         if (sig === scheduleBannerSignature) return;
         scheduleBannerSignature = sig;
-        const html = renderOveruseBanners(scheduleTasksCache);
-        let wrap = list.querySelector(':scope > .schedule-overuse-banners');
+        const html = renderCredentialPolicyBanners(scheduleCredentialPolicyGroupsCache);
+        let wrap = list.querySelector(':scope > .schedule-credential-policy-banners');
         if (html) {
-            const wrapped = `<div class="schedule-overuse-banners">${html}</div>`;
-            if (wrap) {
-                wrap.outerHTML = wrapped;
-            } else {
-                list.insertAdjacentHTML('afterbegin', wrapped);
+            if (!wrap) {
+                wrap = document.createElement('div');
+                wrap.className = 'schedule-credential-policy-banners';
+                list.insertAdjacentElement('afterbegin', wrap);
             }
+            wrap.innerHTML = html;
+            bindScheduleCredentialPolicyActions(wrap);
         } else if (wrap) {
             wrap.remove();
         }
@@ -1410,7 +1468,7 @@
         });
         const liveIds = new Set();
         // 锚点：插入卡片的位置紧跟横幅之后（或在列表最前端，如无横幅）。
-        const banners = list.querySelector(':scope > .schedule-overuse-banners');
+        const banners = list.querySelector(':scope > .schedule-credential-policy-banners');
         let prev = banners;
         scheduleTasksCache.forEach(t => {
             const id = Number(t.id);
@@ -1509,6 +1567,7 @@
         const kindLabel = scheduleKindLabel(kind);
         const triggerLabel = scheduleTriggerLabel(t);
         const credentialUi = scheduleTaskCredentialUi(t);
+        const credentialPresentation = scheduleTaskCredentialPresentation(t) || {};
         const enabledLabel = t.enabled ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用');
         const light = scheduleStatusLight(t);
 
@@ -1516,11 +1575,11 @@
         // busy=运行/排队中；suspended=任意 canonical 挂起原因（兼容旧状态字段只作降级）。
         const busy = ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(t.runState);
         const paused = t.suspendReason === 'MANUAL' || t.lastStatus === 'PAUSED';
-        const suspended = !!t.suspendReason || paused
-            || t.lastStatus === 'OVERUSE_PAUSED' || t.lastStatus === 'AUTH_EXPIRED';
+        const suspended = !!t.suspendReason || paused || credentialPresentation.suspended === true;
         const automaticSuspension = ['SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE', 'QUIESCED']
             .includes(t.suspendReason);
-        const manualRecoveryRequired = suspended && !automaticSuspension;
+        const manualRecoveryRequired = credentialPresentation.manualRecoveryRequired === true
+            || (suspended && !automaticSuspension);
         const busyTip = bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作');
         const runTip = busy ? busyTip
             : (!t.enabled ? bt('schedule.disabled.run-disabled', '任务已停用，请先启用')
@@ -1546,7 +1605,7 @@
                     <span class="schedule-card-name">${escHtml(t.name)}</span>
                     <span class="schedule-badge">${escHtml(typeLabel)}</span>
                     ${kind ? `<span class="schedule-badge">${escHtml(kindLabel)}</span>` : ''}
-                    ${credentialUi.badgeLabel ? `<span class="schedule-badge${t.cookieBound ? ' schedule-badge-ok' : ''}">${escHtml(credentialUi.badgeLabel)}</span>` : ''}
+                    ${credentialUi.badgeLabel ? `<span class="schedule-badge${credentialUi.bound ? ' schedule-badge-ok' : ''}">${escHtml(credentialUi.badgeLabel)}</span>` : ''}
                     ${t.proxy ? `<span class="schedule-badge schedule-badge-ok" title="${escHtml(t.proxy)}">${escHtml(credentialUi.proxyLabel)}</span>` : ''}
                     <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ' schedule-badge-disabled'}">${escHtml(enabledLabel)}</span>
                 </div>
@@ -1609,7 +1668,10 @@
             const raw = storeGet(scheduleQueueCacheKey(id));
             if (!raw) return null;
             const parsed = JSON.parse(raw);
-            return parsed && Array.isArray(parsed.items) ? parsed : null;
+            if (!parsed || !Array.isArray(parsed.items)) return null;
+            // liveStatus 只属于当前进程/当前 publication 的瞬时投影，绝不能从持久缓存复活。
+            parsed.items = scheduleQueueItemsWithoutLiveStatus(parsed.items);
+            return parsed;
         } catch (e) {
             return null;
         }
@@ -1617,8 +1679,16 @@
 
     function writeScheduleQueueCache(id, data) {
         try {
-            storeSet(scheduleQueueCacheKey(id), JSON.stringify(data));
+            const persistent = Object.assign({}, data, {
+                items: scheduleQueueItemsWithoutLiveStatus(
+                    data && Array.isArray(data.items) ? data.items : [])
+            });
+            storeSet(scheduleQueueCacheKey(id), JSON.stringify(persistent));
         } catch (e) { /* 存储不可用时忽略：内存渲染仍可工作 */ }
+    }
+
+    function scheduleQueueItemsWithoutLiveStatus(items) {
+        return items.map(item => Object.assign({}, item, {liveStatus: null}));
     }
 
     // 缓存里随队列一起记录的「该队列所属那一轮运行的完成时刻」（写入时取任务当时的 lastRunTime）。
@@ -1651,7 +1721,8 @@
     // 直接喂给 buildQueueItemHtml 渲染，保证两处队列完全一致）。后端 4s 快照提供权威的发现/终态，
     // SSE 提供运行中的逐图实时进度。
     const scheduleQueueModels = {};
-    // 已登记的 SSE 监听器：taskId → { artworkIdKey: fn }，用于精确解绑、避免重复注册或误删工作区监听。
+    // 已登记的 SSE 监听器：taskId → { compositeQueueKey: {workId, fn} }，用于精确解绑、
+    // 避免同 raw id 的不同 workType 覆盖彼此或误删工作区监听。
     const scheduleSseHandlers = {};
     // 上一轮轮询时仍在运行的展开任务：用于在运行结束的那一拍补拉一次最终终态快照。
     const scheduleQueueWasRunning = new Set();
@@ -1692,6 +1763,31 @@
         return scheduleTasksCache.find(t => Number(t.id) === Number(id)) || null;
     }
 
+    function encodedScheduleQueueIdentityPart(value) {
+        const raw = value == null ? '' : String(value);
+        let encoded = '';
+        for (let index = 0; index < raw.length; index++) {
+            encoded += raw.charCodeAt(index).toString(16).padStart(4, '0');
+        }
+        return encoded;
+    }
+
+    function scheduleQueueIdentity(workType, workId) {
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (queueTypes && typeof queueTypes.queueKey === 'function') {
+            return queueTypes.queueKey(workType, workId);
+        }
+        const type = workType == null ? '' : String(workType).trim();
+        return `q:${encodedScheduleQueueIdentityPart(type)}.${encodedScheduleQueueIdentityPart(workId)}`;
+    }
+
+    function scheduleQueueItemKey(item) {
+        const q = item && typeof item === 'object' ? item : {};
+        return scheduleQueueIdentity(
+            q.workType != null ? q.workType : q.kind,
+            q.workId != null ? q.workId : q.id);
+    }
+
     // 后端队列项状态 → 工作区队列状态 + 原始状态码（未翻译，渲染时再 bt()）。
     // 不在这里 bake bt() 结果：模型会落到 localStorage 与跨语言切换的渲染轮次，bake 后无法跟随语言变化。
     function scheduleStatusToQueue(it) {
@@ -1711,10 +1807,29 @@
 
     // 后端队列项 → 工作区队列项（同 state.queue 形状），供 buildQueueItemHtml 渲染。
     // 注意：title / lastMessage 不在这里写入；只存 rawTitle / rawStatus、校验后的 failureCode 与
-    // failureSourceType，渲染时由 localizeScheduleQueueItem 用当前语言派生 title / lastMessage。
+    // authoritative failureWorkType，渲染时由 localizeScheduleQueueItem 用当前语言派生 title / lastMessage。
     function scheduleItemToQueue(it, type, task) {
         const mapped = scheduleStatusToQueue(it);
-        const workType = it.workType || it.kind;
+        const workType = String(it.workType == null ? (it.kind == null ? '' : it.kind) : it.workType).trim()
+            || 'unknown';
+        const workId = String(it.workId == null ? (it.id == null ? '' : it.id) : it.workId);
+        const presentation = it.presentation && typeof it.presentation === 'object'
+            && !Array.isArray(it.presentation) ? it.presentation : {};
+        const presentationAttributes = it.presentationAttributes
+            && typeof it.presentationAttributes === 'object' && !Array.isArray(it.presentationAttributes)
+            ? it.presentationAttributes
+            : (presentation.attributes && typeof presentation.attributes === 'object'
+                && !Array.isArray(presentation.attributes) ? presentation.attributes : {});
+        const result = it.result && typeof it.result === 'object' && !Array.isArray(it.result)
+            ? it.result : {};
+        const resultAttributes = it.resultAttributes && typeof it.resultAttributes === 'object'
+            && !Array.isArray(it.resultAttributes)
+            ? it.resultAttributes
+            : (result.attributes && typeof result.attributes === 'object'
+                && !Array.isArray(result.attributes) ? result.attributes : {});
+        // 在调用 owner hook 前固定 raw 状态；owner 即使就地修改传入 DTO，也不能改写宿主随后展示的状态。
+        const rawLiveStatus = it.liveStatus && typeof it.liveStatus === 'object'
+            && !Array.isArray(it.liveStatus) ? Object.assign({}, it.liveStatus) : null;
         const registry = window.PixivBatch && window.PixivBatch.queueTypes;
         const base = registry && typeof registry.scheduledQueueItem === 'function'
             ? registry.scheduledQueueItem(workType, it, {
@@ -1722,26 +1837,41 @@
                 task: task || null
             })
             : {
-                id: String(it.workId == null ? (it.id == null ? '' : it.id) : it.workId),
-                kind: workType || 'unknown',
-                rawTitle: it.title && String(it.title).trim() ? String(it.title) : null,
-                source: 'schedule',
-                xRestrict: it.xRestrict == null ? null : it.xRestrict,
-                isAi: it.ai === true
+                id: workId,
+                kind: workType,
+                rawTitle: it.title && String(it.title).trim()
+                    ? String(it.title)
+                    : (presentation.title && String(presentation.title).trim()
+                        ? String(presentation.title) : null),
+                author: it.author && String(it.author).trim()
+                    ? String(it.author)
+                    : (presentation.author && String(presentation.author).trim()
+                        ? String(presentation.author) : null),
+                thumbnailReference: it.thumbnailReference && String(it.thumbnailReference).trim()
+                    ? String(it.thumbnailReference)
+                    : (presentation.thumbnailReference && String(presentation.thumbnailReference).trim()
+                        ? String(presentation.thumbnailReference) : null),
+                presentationAttributes: Object.assign({}, presentationAttributes),
+                resultAttributes: Object.assign({}, resultAttributes),
+                source: 'schedule'
             };
         return Object.assign({}, base, {
+            // workType + 原样 String workId 由宿主盖章；owner 映射只能补展示字段，不能改写作品身份。
+            id: workId,
+            kind: workType,
+            workId: workId,
+            workType: workType,
+            queueKey: scheduleQueueIdentity(workType, workId),
             status: mapped.status,
             rawStatus: mapped.rawStatus,
             failureCode: mapped.failureCode || null,
-            failureSourceType: mapped.status === 'failed' ? (type || null) : null,
+            failureWorkType: mapped.status === 'failed' ? workType : null,
             totalImages: 0,
             downloadedCount: 0,
             imageProgress: null,
             ugoiraProgress: null,
-            // 「下载即自动翻译」实时态（仅小说、后端读取时叠加）：raw 字段，由共享渲染器本地化展示。
-            translatePhase: it.translatePhase || null,
-            translateElapsed: it.translateElapsedSeconds == null ? 0 : it.translateElapsedSeconds,
-            translateSeriesPending: it.translateSeriesPending == null ? 0 : it.translateSeriesPending
+            // 中性 raw 状态只交给 workType 所有者解释，共享计划模块不识别任何私有阶段。
+            liveStatus: rawLiveStatus
         });
     }
 
@@ -1765,10 +1895,10 @@
                 break;
             case 'failed':
                 // failureMessage / lastMessage 仅用于兼容旧 localStorage；它们仍须通过机器码校验和
-                // 当前来源 namespace 翻译，绝不把旧缓存或后端自由文本直接展示。
-                lastMessage = localizeScheduleMachineCode(
+                // 当前作品类型 manifest 的 owner namespace 翻译，绝不把旧缓存误投到任务来源 namespace。
+                lastMessage = localizeScheduleWorkMachineCode(
                     q.failureCode || q.failureMessage || q.lastMessage,
-                    q.failureSourceType || q.sourceType)
+                    q.failureWorkType || q.workType || q.kind)
                     || bt('schedule.queue.status.failed', '失败');
                 break;
             case 'downloaded':
@@ -1788,11 +1918,11 @@
     function mergeScheduleQueueModel(id, incoming, type) {
         const prev = scheduleQueueModels[Number(id)] || [];
         const task = scheduleTaskById(id);
-        const prevById = {};
-        prev.forEach(q => { prevById[q.id] = q; });
+        const prevByKey = new Map();
+        prev.forEach(q => { prevByKey.set(scheduleQueueItemKey(q), q); });
         return incoming.map(it => {
             const q = scheduleItemToQueue(it, type, task);
-            const old = prevById[q.id];
+            const old = prevByKey.get(scheduleQueueItemKey(q));
             if (old && q.status === 'pending' && old.status === 'downloading') {
                 q.status = 'downloading';
                 q.totalImages = old.totalImages || 0;
@@ -1992,21 +2122,24 @@
         const statusLine = `<div class="schedule-queue-status">${escHtml(statusText)}</div>`;
         const statsLine = `<div class="schedule-queue-stats">${escHtml(formatStatsText(s.pending, s.success, s.failed, s.active, s.skipped))}</div>`;
         const currentCard = `<div class="schedule-queue-current">${formatCurrentCardHtml(current)}</div>`;
-        // 每行带上 data-queue-id（= 模型项 id），供 flushScheduleQueueRows 局部替换单行 outerHTML 时定位。
+        // 每行带上宿主盖章的复合 data-queue-key，供 flushScheduleQueueRows 局部替换单行 outerHTML 时定位。
         const listInner = localized.length
-            ? localized.map(q => buildQueueItemHtml(q, {removable: false, queueId: q.id})).join('')
+            ? localized.map(q => buildQueueItemHtml(q, {
+                removable: false,
+                queueKey: scheduleQueueItemKey(q)
+            })).join('')
             : `<div class="queue-empty">${escHtml(bt('status.queue-empty', '队列为空'))}</div>`;
         const listCard = `<div class="schedule-queue-list">${listInner}</div>`;
         return statusLine + statsLine + currentCard + listCard;
     }
 
     // 标记某任务的某行待刷新：只 patch 完模型后调用，合批后由 flushScheduleQueueRows 局部替换该行。
-    function markScheduleQueueRowDirty(id, qId) {
+    function markScheduleQueueRowDirty(id, queueKey) {
         id = Number(id);
         if (!scheduleExpandedQueues.has(id)) return; // 已折叠：无可见 DOM，丢弃
         let set = scheduleQueueDirtyRows.get(id);
         if (!set) { set = new Set(); scheduleQueueDirtyRows.set(id, set); }
-        set.add(String(qId));
+        set.add(String(queueKey));
         if (!scheduleQueueRowFlushHandles.has(id)) {
             scheduleQueueRowFlushHandles.set(id,
                 setTimeout(() => flushScheduleQueueRows(id), SCHEDULE_QUEUE_ROW_FLUSH_MS));
@@ -2046,15 +2179,19 @@
             renderScheduleQueueBodyInto(id); // 列表尚未渲染或模型缺失：整块兜底（频率低，可接受）
             return;
         }
-        const byId = {};
-        model.forEach(q => { byId[q.id] = q; });
+        const byKey = new Map();
+        model.forEach(q => { byKey.set(scheduleQueueItemKey(q), q); });
         let needFull = false;
-        dirty.forEach(qId => {
-            const q = byId[qId];
+        dirty.forEach(queueKey => {
+            const q = byKey.get(queueKey);
             if (!q) return; // 模型里已无此项（被快照重建移除）：留给后续整块渲染
-            const row = listEl.querySelector(`.queue-item[data-queue-id="${qId}"]`);
+            const row = Array.from(listEl.querySelectorAll('.queue-item[data-queue-key]'))
+                .find(candidate => candidate.getAttribute('data-queue-key') === queueKey);
             if (!row) { needFull = true; return; }
-            row.outerHTML = buildQueueItemHtml(localizeScheduleQueueItem(q), {removable: false, queueId: q.id});
+            row.outerHTML = buildQueueItemHtml(localizeScheduleQueueItem(q), {
+                removable: false,
+                queueKey: scheduleQueueItemKey(q)
+            });
         });
         if (needFull) {
             renderScheduleQueueBodyInto(id);
@@ -2109,18 +2246,47 @@
         id = Number(id);
         const model = scheduleQueueModels[id];
         if (!model) return;
+        // 快照可能新增/移除同 raw id 的类型。每次据权威模型完整重建监听，确保既有回调也拿到
+        // 最新的歧义集合，不能让先注册的单类型回调在后来出现同 id 跨类型时继续误收旧事件。
+        unsubscribeScheduleQueueSse(id);
         ensureSharedSSE();
-        if (!scheduleSseHandlers[id]) scheduleSseHandlers[id] = {};
+        scheduleSseHandlers[id] = Object.create(null);
         const handlers = scheduleSseHandlers[id];
-        model.forEach(q => {
-            const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const eligible = model.filter(q => {
             if (queueTypes && typeof queueTypes.supportsScheduledSse === 'function'
-                && !queueTypes.supportsScheduledSse(q.kind)) return;
-            const key = String(q.id);
-            if (handlers[key]) return; // 已注册
-            const fn = data => applyScheduleQueueSse(id, key, data);
-            handlers[key] = fn;
-            addSSEListener(key, fn);
+                && !queueTypes.supportsScheduledSse(
+                    q.workType != null ? q.workType : q.kind)) return false;
+            return true;
+        });
+        const identitiesByWorkId = new Map();
+        eligible.forEach(q => {
+            const workId = String(q.workId != null ? q.workId : q.id);
+            const queueKey = scheduleQueueItemKey(q);
+            let identities = identitiesByWorkId.get(workId);
+            if (!identities) {
+                identities = new Set();
+                identitiesByWorkId.set(workId, identities);
+            }
+            identities.add(queueKey);
+        });
+        eligible.forEach(q => {
+            const workId = String(q.workId != null ? q.workId : q.id);
+            const queueKey = scheduleQueueItemKey(q);
+            if (handlers[queueKey]) return; // 已注册
+            const fn = data => {
+                const eventWorkType = data && data.workType != null
+                    ? String(data.workType).trim() : '';
+                const eventQueueKey = eventWorkType
+                    ? scheduleQueueIdentity(eventWorkType, workId) : null;
+                // 旧聚合事件没有 workType：仅当该 raw id 唯一时兼容路由；一旦同 id 跨类型，
+                // 必须等事件携带 workType 才能更新，宁可等待下一次快照也不能串写另一类型。
+                if (eventQueueKey ? eventQueueKey !== queueKey
+                    : identitiesByWorkId.get(workId).size > 1) return;
+                applyScheduleQueueSse(id, queueKey, data);
+            };
+            handlers[queueKey] = {workId, fn};
+            addSSEListener(workId, fn);
         });
     }
 
@@ -2130,7 +2296,10 @@
         cancelScheduleQueueFlush(id);
         const handlers = scheduleSseHandlers[id];
         if (!handlers) return;
-        Object.keys(handlers).forEach(key => removeSSEListener(key, handlers[key]));
+        Object.keys(handlers).forEach(queueKey => {
+            const handler = handlers[queueKey];
+            if (handler) removeSSEListener(handler.workId, handler.fn);
+        });
         delete scheduleSseHandlers[id];
     }
 
@@ -2165,11 +2334,11 @@
         });
     }
 
-    function applyScheduleQueueSse(id, qId, data) {
+    function applyScheduleQueueSse(id, queueKey, data) {
         id = Number(id);
         const model = scheduleQueueModels[id];
         if (!model || !data) return;
-        const q = model.find(x => x.id === qId);
+        const q = model.find(item => scheduleQueueItemKey(item) === queueKey);
         if (!q || data.cancelled) return;
         // SSE 同步对齐 rawStatus，让 localizeScheduleQueueItem 在渲染时派生出正确语言的 lastMessage；
         // downloading 不对应后端 raw 状态，置为 'downloading' 与 q.status 同步，localizer 走默认分支
@@ -2190,7 +2359,7 @@
         }
         // 只 patch 模型 + 标记脏行：不在每个事件里整块重建 DOM。合批后只替换变化的单行，
         // 统计 / 当前下载项由更低频的 meta 刷新处理，使高频进度事件不再阻塞主线程。
-        markScheduleQueueRowDirty(id, qId);
+        markScheduleQueueRowDirty(id, queueKey);
     }
 
     async function runScheduleTask(id) {
@@ -2217,33 +2386,35 @@
         } catch (e) { /* ignore */ }
     }
 
-    // 过度访问账号级暂停横幅：把 OVERUSE_PAUSED 的任务按 accountId 分组，每组给两个账号级恢复按钮。
-    function renderOveruseBanners(tasks) {
-        const groups = new Map();
-        tasks.forEach(t => {
-            if (t.lastStatus !== 'OVERUSE_PAUSED' || !t.accountId) return;
-            const list = groups.get(t.accountId) || [];
-            list.push(t);
-            groups.set(t.accountId, list);
-        });
-        if (groups.size === 0) return '';
-        const defaultMinutes = 60;
-        let html = '';
-        groups.forEach((list, accountId) => {
-            const acc = encodeURIComponent(accountId);
-            html += `
-            <div class="schedule-overuse-banner">
-                <div class="schedule-overuse-title">${escHtml(bt('schedule.overuse.banner.title', '⚠️ 过度访问暂停'))}</div>
-                <div class="schedule-overuse-desc">${escHtml(bt('schedule.overuse.banner.desc',
-                    '账号 {account} 有 {count} 个计划任务因检测到 Pixiv 过度访问警告被暂停。',
-                    {account: accountId, count: list.length}))}</div>
-                <div class="schedule-overuse-actions">
-                    <button class="btn btn-red" onclick="resumeScheduleAccountIgnore('${acc}')">${escHtml(bt('schedule.overuse.action.ignore', '无视风险，继续下载！(可能会导致删号)'))}</button>
-                    <button class="btn btn-blue" onclick="resumeScheduleAccountDefer('${acc}')">${escHtml(bt('schedule.overuse.action.defer', '我已知晓，在 {minutes} 分钟后继续所有同账号任务', {minutes: defaultMinutes}))}</button>
+    function scheduleCredentialPolicyActionClass(tone) {
+        if (tone === 'danger') return 'btn-red';
+        if (tone === 'primary') return 'btn-blue';
+        return 'btn-gray';
+    }
+
+    function renderCredentialPolicyBanners(groups) {
+        return (Array.isArray(groups) ? groups : []).map((group, groupIndex) => `
+            <div class="schedule-credential-policy-banner">
+                <div class="schedule-credential-policy-title">${escHtml(group.title)}</div>
+                <div class="schedule-credential-policy-desc">${escHtml(group.description)}</div>
+                <div class="schedule-credential-policy-actions">
+                    ${group.actions.map((action, actionIndex) => `<button type="button"
+                        class="btn ${scheduleCredentialPolicyActionClass(action.tone)}"
+                        data-credential-policy-group="${groupIndex}"
+                        data-credential-policy-action="${actionIndex}">${escHtml(action.label)}</button>`).join('')}
                 </div>
-            </div>`;
+            </div>`).join('');
+    }
+
+    function bindScheduleCredentialPolicyActions(container) {
+        container.querySelectorAll('[data-credential-policy-action]').forEach(button => {
+            button.addEventListener('click', () => {
+                applyScheduleCredentialPolicyAction(
+                    Number(button.dataset.credentialPolicyGroup),
+                    Number(button.dataset.credentialPolicyAction),
+                    button);
+            });
         });
-        return html;
     }
 
     async function pauseScheduleTask(id) {
@@ -2274,45 +2445,65 @@
         }
     }
 
-    async function resumeScheduleAccount(accountId, mode, minutes) {
-        const body = {mode};
-        if (mode === 'defer') body.minutes = minutes;
-        try {
-            const res = await fetch(`${BASE}/api/schedule/account/${accountId}/resume`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body)
-            });
-            if (res.ok) {
-                setScheduleListStatus(bt('schedule.status.account-resumed', '已恢复该账号的所有任务'), 'success');
-                loadScheduleTasks();
-            } else {
-                const err = await res.json().catch(() => ({}));
-                setScheduleListStatus(err.error || err.message || bt('schedule.error.resume', '恢复失败'), 'error');
-            }
-        } catch (e) {
-            setScheduleListStatus(bt('schedule.error.resume', '恢复失败'), 'error');
+    function scheduleCredentialPolicyPromptValue(prompt, input) {
+        if (prompt.inputType !== 'number') return String(input);
+        let value = Number(input);
+        if (!Number.isFinite(value)) return null;
+        if (Number.isFinite(prompt.min) && value < prompt.min) value = prompt.min;
+        return value;
+    }
+
+    async function applyScheduleCredentialPolicyAction(groupIndex, actionIndex, button) {
+        const group = scheduleCredentialPolicyGroupsCache[groupIndex];
+        const action = group && group.actions[actionIndex];
+        if (!group || !action) return;
+        if (action.confirmMessage) {
+            const confirmed = await uiConfirmKey(
+                'schedule.credential-policy.confirm', action.confirmMessage);
+            if (!confirmed) return;
         }
-    }
-
-    async function resumeScheduleAccountIgnore(accountId) {
-        if (!await uiConfirmKey('schedule.overuse.confirm.ignore',
-            '确定无视过度访问警告并立即继续下载吗？短时间内继续大量下载可能导致账号被封禁。')) return;
-        resumeScheduleAccount(accountId, 'ignore');
-    }
-
-    async function resumeScheduleAccountDefer(accountId) {
-        const input = await uiPromptKey(
-            'schedule.overuse.prompt.minutes',
-            '延迟多少分钟后继续？（最低 60）',
-            '60',
-            {inputType: 'number', min: 60, step: 1}
-        );
-        if (input == null) return;
-        let minutes = parseInt(input, 10);
-        if (!Number.isFinite(minutes) || minutes < 60) minutes = 60;
-        resumeScheduleAccount(accountId, 'defer', minutes);
+        const parameters = {};
+        if (action.prompt) {
+            const prompt = action.prompt;
+            const input = await uiPromptKey(
+                'schedule.credential-policy.prompt',
+                prompt.message,
+                prompt.defaultValue,
+                {inputType: prompt.inputType, min: prompt.min, step: prompt.step}
+            );
+            if (input == null) return;
+            const value = scheduleCredentialPolicyPromptValue(prompt, input);
+            if (value == null) {
+                setScheduleListStatus(
+                    bt('schedule.error.credential-policy-parameter', '输入值无效，请重新输入'), 'error');
+                return;
+            }
+            parameters[prompt.parameterName] = value;
+        }
+        const runtime = scheduleSourceRuntime();
+        if (!runtime || typeof runtime.applyCredentialPolicyAction !== 'function') return;
+        if (button) button.disabled = true;
+        try {
+            const result = await runtime.applyCredentialPolicyAction(group.sourceType, {
+                identity: group.identity,
+                actionId: action.actionId,
+                parameters
+            }, {mode: state.mode});
+            if (result && result.ok) {
+                setScheduleListStatus(
+                    bt('schedule.status.credential-policy-applied', '凭证策略操作已应用'), 'success');
+            } else {
+                setScheduleListStatus((result && result.error)
+                    || bt('schedule.error.credential-policy-action', '凭证策略操作失败'), 'error');
+            }
+            await loadScheduleTasks();
+        } catch (e) {
+            setScheduleListStatus(
+                bt('schedule.error.credential-policy-action', '凭证策略操作失败'), 'error');
+            await loadScheduleTasks();
+        } finally {
+            if (button && button.isConnected) button.disabled = false;
+        }
     }
 
     async function togglePendingPanel(id) {

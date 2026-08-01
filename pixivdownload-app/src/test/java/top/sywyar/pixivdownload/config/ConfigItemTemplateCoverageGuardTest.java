@@ -11,8 +11,6 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
-import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -27,10 +25,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * GUI {@link ConfigFieldRegistry}）相互漂移。
  *
  * <ul>
- *   <li><b>前缀覆盖</b>：扫描到的每个 {@code @ConfigurationProperties} 前缀，模板里至少要出现一个对应键
- *       —— 漏掉整段前缀（如曾经的 {@code plugin-catalog.*}）会被这条挡下。</li>
+ *   <li><b>前缀覆盖</b>：扫描到的每个 {@code @ConfigurationProperties} 前缀，模板里至少要出现一个对应键，
+ *       除非它是明确登记的开放式或插件自有配置前缀
+ *       —— 漏掉整段宿主前缀（如曾经的 {@code plugin-catalog.*}）会被这条挡下。</li>
  *   <li><b>GUI → 模板</b>：每个 GUI 配置字段都必须对应模板里的真实可写键 —— GUI 有字段、模板却没有
- *       （如曾经的 {@code plugins.plugin-market.enabled}）
  *       会被挡下。</li>
  *   <li><b>模板 → GUI</b>：每个模板键都要有 GUI 字段，除非登记在 {@link #TEMPLATE_KEYS_WITHOUT_GUI_FIELD}。</li>
  * </ul>
@@ -56,16 +54,14 @@ class ConfigItemTemplateCoverageGuardTest {
             "app.language", "app.theme", "app.config-menu-expand-all", "plugin-catalog.repositories");
 
     /**
-     * 插件启停键仍写入模板并由启动 / Web 插件前端消费，但桌面 GUI 配置页不呈现这些开关。
+     * 有意不要求核心模板提供任何键的 {@code @ConfigurationProperties} 前缀：
+     * <ul>
+     *   <li>插件自有配置前缀由对应外置插件贡献，不能塞回核心模板；</li>
+     *   <li>{@code plugins} 是按任意插件 id 展开的宿主启停表，缺项默认启用，只有显式管理动作才持久化具体键。</li>
+     * </ul>
      */
-    private static final Set<String> OFFICIAL_EXTERNAL_PLUGIN_TOGGLE_KEYS = Set.of(
-            "plugins.gallery.enabled", "plugins.duplicate.enabled", "plugins.stats.enabled", "plugins.gui-theme.enabled");
-
-    /**
-     * App 侧仅保留调用门面 / 运行期选择状态，模板与 GUI 字段由外置官方插件贡献的前缀。
-     * 这些前缀不能重新塞回核心默认模板，否则插件缺失 / 禁用时 GUI 字段无法自然消失。
-     */
-    private static final Set<String> EXTERNAL_PLUGIN_OWNED_PREFIXES = Set.of("narration-tts", "notification");
+    private static final Set<String> CONFIGURATION_PROPERTIES_PREFIXES_WITHOUT_TEMPLATE_KEYS = Set.of(
+            "narration-tts", "notification", "plugins");
 
     @Test
     @DisplayName("每个 @ConfigurationProperties 前缀在 config.yaml 模板中至少有一个键")
@@ -75,13 +71,13 @@ class ConfigItemTemplateCoverageGuardTest {
 
         assertThat(prefixes).as("应扫描到 @ConfigurationProperties 前缀").isNotEmpty();
         Set<String> uncovered = prefixes.stream()
-                .filter(prefix -> !EXTERNAL_PLUGIN_OWNED_PREFIXES.contains(prefix))
+                .filter(prefix -> !CONFIGURATION_PROPERTIES_PREFIXES_WITHOUT_TEMPLATE_KEYS.contains(prefix))
                 .filter(prefix -> templateKeys.stream()
                         .noneMatch(k -> k.equals(prefix) || k.startsWith(prefix + ".")))
                 .collect(Collectors.toCollection(TreeSet::new));
         assertThat(uncovered)
                 .as("以下 @ConfigurationProperties 前缀在 DefaultConfigTemplate 中无任何键"
-                        + "（新增配置项前缀必须进模板）")
+                        + "（新增宿主配置项前缀必须进模板，开放式或插件自有前缀须显式登记）")
                 .isEmpty();
     }
 
@@ -101,7 +97,7 @@ class ConfigItemTemplateCoverageGuardTest {
     void everyTemplateKeyHasGuiFieldOrIsExempt() {
         Set<String> templateMissingFromGui = new TreeSet<>(templateKeys());
         templateMissingFromGui.removeAll(guiFieldKeys());
-        templateMissingFromGui.removeAll(templateKeysWithoutGuiField());
+        templateMissingFromGui.removeAll(TEMPLATE_KEYS_WITHOUT_GUI_FIELD);
         assertThat(templateMissingFromGui)
                 .as("以下模板配置键既无 GUI 字段、也不在显式豁免清单（新增配置项必须做 GUI 配套或登记豁免）")
                 .isEmpty();
@@ -116,6 +112,12 @@ class ConfigItemTemplateCoverageGuardTest {
                 .collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(templateKeys()).doesNotContainAnyElementsOf(notificationKeys);
+    }
+
+    @Test
+    @DisplayName("核心默认模板不声明任何具体插件启停键")
+    void pluginToggleKeysAreExcludedFromCoreTemplate() {
+        assertThat(templateKeys()).noneMatch(ConfigItemTemplateCoverageGuardTest::isPluginToggleKey);
     }
 
     // ---- helpers --------------------------------------------------------------
@@ -136,19 +138,8 @@ class ConfigItemTemplateCoverageGuardTest {
         return keys;
     }
 
-    private static Set<String> templateKeysWithoutGuiField() {
-        Set<String> keys = new TreeSet<>(TEMPLATE_KEYS_WITHOUT_GUI_FIELD);
-        keys.addAll(pluginToggleKeysWithoutGuiField());
-        return keys;
-    }
-
-    private static Set<String> pluginToggleKeysWithoutGuiField() {
-        Set<String> keys = BuiltInPlugins.createAll().stream()
-                .filter(plugin -> plugin.kind() == PluginKind.FEATURE)
-                .map(plugin -> "plugins." + plugin.id() + ".enabled")
-                .collect(Collectors.toCollection(TreeSet::new));
-        keys.addAll(OFFICIAL_EXTERNAL_PLUGIN_TOGGLE_KEYS);
-        return keys;
+    private static boolean isPluginToggleKey(String key) {
+        return key.startsWith("plugins.") && key.endsWith(".enabled");
     }
 
     /** GUI 配置面板的全部字段键。 */

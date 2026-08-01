@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.douyin.download;
 
-import org.springframework.core.task.TaskExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
@@ -59,7 +59,7 @@ public class DouyinDownloadService {
     private final RuntimePair proxyRuntime;
     private final RuntimePair customRuntime;
     private final RuntimePair directRuntime;
-    private final TaskExecutor downloadTaskExecutor;
+    private final InteractiveDownloadExecutionLane interactiveDownloadExecutionLane;
     private final DouyinPluginSettingsService settingsService;
     private final DouyinHistoryService historyService;
     private final DouyinWorkDownloadExecutor workDownloadExecutor;
@@ -71,9 +71,9 @@ public class DouyinDownloadService {
     public DouyinDownloadService(DouyinUrlParser parser,
                                  DouyinClient client,
                                  DouyinMediaDownloader mediaDownloader,
-                                 TaskExecutor downloadTaskExecutor,
+                                 InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                  RuntimePathProvider runtimePathProvider) {
-        this(parser, client, mediaDownloader, downloadTaskExecutor,
+        this(parser, client, mediaDownloader, interactiveDownloadExecutionLane,
                 requireRuntimePathProvider(runtimePathProvider)
                         .resolvePluginDataDirectory("douyin")
                         .resolve("downloads")
@@ -87,11 +87,11 @@ public class DouyinDownloadService {
                                  DouyinMediaDownloader inheritMediaDownloader,
                                  DouyinMediaDownloader proxyMediaDownloader,
                                  DouyinMediaDownloader directMediaDownloader,
-                                 TaskExecutor downloadTaskExecutor,
+                                 InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                  DouyinPluginSettingsService settingsService) {
         this(parser, inheritClient, proxyClient, directClient,
                 inheritMediaDownloader, proxyMediaDownloader, directMediaDownloader,
-                downloadTaskExecutor, settingsService, null);
+                interactiveDownloadExecutionLane, settingsService, null);
     }
 
     public DouyinDownloadService(DouyinUrlParser parser,
@@ -101,12 +101,12 @@ public class DouyinDownloadService {
                                  DouyinMediaDownloader inheritMediaDownloader,
                                  DouyinMediaDownloader proxyMediaDownloader,
                                  DouyinMediaDownloader directMediaDownloader,
-                                 TaskExecutor downloadTaskExecutor,
+                                 InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                  DouyinPluginSettingsService settingsService,
                                  DouyinHistoryService historyService) {
         this(parser, inheritClient, proxyClient, proxyClient, directClient,
                 inheritMediaDownloader, proxyMediaDownloader, proxyMediaDownloader, directMediaDownloader,
-                downloadTaskExecutor, settingsService, historyService);
+                interactiveDownloadExecutionLane, settingsService, historyService);
     }
 
     public DouyinDownloadService(DouyinUrlParser parser,
@@ -118,7 +118,7 @@ public class DouyinDownloadService {
                                  DouyinMediaDownloader proxyMediaDownloader,
                                  DouyinMediaDownloader customMediaDownloader,
                                  DouyinMediaDownloader directMediaDownloader,
-                                 TaskExecutor downloadTaskExecutor,
+                                 InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                  DouyinPluginSettingsService settingsService,
                                  DouyinHistoryService historyService) {
         this.parser = parser;
@@ -126,7 +126,7 @@ public class DouyinDownloadService {
         this.proxyRuntime = new RuntimePair(proxyClient, proxyMediaDownloader);
         this.customRuntime = new RuntimePair(customClient, customMediaDownloader);
         this.directRuntime = new RuntimePair(directClient, directMediaDownloader);
-        this.downloadTaskExecutor = downloadTaskExecutor;
+        this.interactiveDownloadExecutionLane = interactiveDownloadExecutionLane;
         this.settingsService = settingsService;
         this.historyService = historyService;
         this.workDownloadExecutor = new DouyinWorkDownloadExecutor(historyService);
@@ -135,10 +135,10 @@ public class DouyinDownloadService {
     DouyinDownloadService(DouyinUrlParser parser,
                           DouyinClient client,
                           DouyinMediaDownloader mediaDownloader,
-                          TaskExecutor downloadTaskExecutor,
+                          InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                           Path downloadDirectory) {
         this(parser, client, client, client, mediaDownloader, mediaDownloader, mediaDownloader,
-                downloadTaskExecutor,
+                interactiveDownloadExecutionLane,
                 DouyinPluginSettingsService.fixed(downloadDirectory, DouyinProxyMode.INHERIT),
                 null);
     }
@@ -200,7 +200,7 @@ public class DouyinDownloadService {
                 throw new QueueNotAcceptingException(QUEUE_TYPE);
             }
             try {
-                downloadTaskExecutor.execute(task);
+                interactiveDownloadExecutionLane.execute(task);
             } catch (RuntimeException | Error failure) {
                 task.rejectSubmission();
                 removeStatus(status);

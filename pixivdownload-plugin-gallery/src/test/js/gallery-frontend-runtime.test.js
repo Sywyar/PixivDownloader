@@ -563,7 +563,7 @@ async function main() {
             work: {}, media: {kind: 'LIVE_PHOTO_VIDEO', url: '/live.mp4'}, host
         });
         const text = env.api.renderStandardMedia({
-            work: {}, media: {kind: 'TEXT', content: 'plain text'}, host
+            work: {}, media: {kind: 'TEXT', content: 'rogue inline body'}, host
         });
         const cover = env.api.renderStandardMedia({
             work: {}, media: {kind: 'COVER', url: '/cover.png'}, host
@@ -580,10 +580,13 @@ async function main() {
             && ugoira && ugoira.tagName === 'IMG');
         ok('VIDEO 使用标准 video fallback', video && video.tagName === 'VIDEO');
         ok('renderStandardMedia LIVE_PHOTO_VIDEO 返回 video', live && live.tagName === 'VIDEO');
-        ok('TEXT 使用安全正文 fallback', text && text.tagName === 'ARTICLE'
-            && text.textContent === 'plain text');
+        ok('TEXT 标准 fallback 不消费来源正文逃生字段', text && text.tagName === 'ARTICLE'
+            && text.textContent === 'gallery:frontend.media.text-empty'
+            && !text.textContent.includes('rogue inline body'));
         ok('renderStandardMedia UNKNOWN 返回可见 fallback Node', unknown && unknown.nodeType === 1);
         ok('UNKNOWN fallback 显示稳定机器类型', unknown.textContent.includes('UNKNOWN'));
+        ok('UNKNOWN fallback 不回显来源私有载荷',
+            !unknown.textContent.includes('<script>unsafe</script>'));
         ok('renderStandardMedia 不负责 append', host.children.length === 0);
         ok('UNKNOWN 文案经 textContent 安全写入', env.document.innerHtmlWrites === 0 && unknown.textContent.length > 0);
     }

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;

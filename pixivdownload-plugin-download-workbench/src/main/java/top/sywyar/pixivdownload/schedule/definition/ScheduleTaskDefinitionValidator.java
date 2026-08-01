@@ -106,6 +106,14 @@ public final class ScheduleTaskDefinitionValidator {
                 if (ScheduledSensitiveFieldNames.isSensitiveFieldName(fieldName)) {
                     throw new IllegalArgumentException("schedule definition contains a credential field");
                 }
+                if (ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(fieldName)
+                        && (!entry.getValue().isValueNode()
+                        || entry.getValue().isNull()
+                        || !ScheduledSensitiveFieldNames.isSafeMetadataValue(
+                        fieldName, entry.getValue().asText()))) {
+                    throw new IllegalArgumentException(
+                            "schedule definition contains invalid credential metadata");
+                }
                 validateJsonNode(entry.getValue(), embeddedDepth);
             });
             return;
@@ -119,22 +127,20 @@ public final class ScheduleTaskDefinitionValidator {
         }
         String text = node.textValue();
         validateUnicodeScalarText(text, "schedule definition text");
+        String trimmed = text.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            JsonNode embedded = readEmbeddedJson(trimmed);
+            if (embedded != null) {
+                if (embeddedDepth >= MAX_EMBEDDED_JSON_DEPTH) {
+                    throw new IllegalArgumentException(
+                            "schedule definition embedded JSON is too deeply nested");
+                }
+                validateJsonNode(embedded, embeddedDepth + 1);
+                return;
+            }
+        }
         if (ScheduledCredentialText.containsCredentialMaterial(text)) {
             throw new IllegalArgumentException("schedule definition contains credential material");
-        }
-        String trimmed = text.trim();
-        if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
-            return;
-        }
-        JsonNode embedded = readEmbeddedJson(trimmed);
-        if (embedded == null) {
-            return;
-        }
-        if (embedded.isObject() || embedded.isArray()) {
-            if (embeddedDepth >= MAX_EMBEDDED_JSON_DEPTH) {
-                throw new IllegalArgumentException("schedule definition embedded JSON is too deeply nested");
-            }
-            validateJsonNode(embedded, embeddedDepth + 1);
         }
     }
 

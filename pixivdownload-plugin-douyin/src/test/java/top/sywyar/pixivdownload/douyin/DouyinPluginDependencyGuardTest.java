@@ -21,6 +21,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Douyin 外置插件模块依赖边界")
 class DouyinPluginDependencyGuardTest {
 
+    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
+            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
+            "org/apache/hc/core5/http/HttpRequest.class",
+            "org/apache/http/client/HttpClient.class",
+            "org/apache/http/nio/client/HttpAsyncClient.class"
+    };
+    private static final String APP_PREFIX = "top.sywyar.pixivdownload.";
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload.douyin");
@@ -41,11 +49,37 @@ class DouyinPluginDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("生产代码不得依赖宿主私有 HTTP 类型")
+    void productionCodeDoesNotDependOnPrivateHttpTypes() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.douyin..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "org.apache.http..")
+                .orShould().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "org.springframework.http.client."
+                                + "HttpComponentsClientHttpRequestFactory")
+                .because("插件只能经稳定 HTTP 契约消费宿主传输能力")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void testClasspathExcludesHostApplicationAndPrivateHttpStack() {
+        ClassLoader classLoader = getClass().getClassLoader();
+        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
+            assertThat(classLoader.getResource(resource)).as(resource).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("POM 与生产源码不得恢复 PixivDownload artifact 或已移除宿主类型")
     void moduleDoesNotRestoreAppArtifactOrConcreteHostImports() throws IOException {
         Path moduleRoot = moduleRoot();
         String pom = Files.readString(moduleRoot.resolve("pom.xml"));
-        assertThat(pom).doesNotContain("<artifactId>PixivDownload</artifactId>");
+        assertThat(pom).doesNotContain(
+                "<artifactId>PixivDownload</artifactId>",
+                "<artifactId>httpclient5</artifactId>");
 
         String productionSource;
         try (Stream<Path> files = Files.walk(moduleRoot.resolve("src/main/java"))) {
@@ -56,15 +90,23 @@ class DouyinPluginDependencyGuardTest {
                     .reduce("", (left, right) -> left + '\n' + right);
         }
         assertThat(productionSource).doesNotContain(
-                "top.sywyar.pixivdownload.config.ProxyConfig",
-                "top.sywyar.pixivdownload.config.RuntimeFiles",
-                "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
-                "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
-                "top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec",
-                "top.sywyar.pixivdownload.core.download.queue.",
-                "top.sywyar.pixivdownload.common.NetworkUtils",
-                "top.sywyar.pixivdownload.common.UuidUtils",
-                "top.sywyar.pixivdownload.setup.SetupService");
+                "org.apache.hc.",
+                "org.apache.http.",
+                "HttpComponentsClientHttpRequestFactory",
+                "DouyinRestTemplateFactory",
+                appType("config.ProxyConfig"),
+                appType("config.RuntimeFiles"),
+                appType("core.appconfig.DownloadConfig"),
+                appType("core.appconfig.MultiModeConfig"),
+                appType("core.db.pathprefix.PathPrefixCodec"),
+                appType("core.download.queue."),
+                appType("common.NetworkUtils"),
+                appType("common.UuidUtils"),
+                appType("setup.SetupService"));
+        assertThat(productionSource).contains(
+                "OutboundHttpClientFactory",
+                "ManagedPluginRestTemplate",
+                "PluginRestTemplateAdapter");
     }
 
     @Test
@@ -90,5 +132,9 @@ class DouyinPluginDependencyGuardTest {
         } catch (IOException failure) {
             throw new IllegalStateException("Failed to read " + path, failure);
         }
+    }
+
+    private static String appType(String relativeName) {
+        return APP_PREFIX + relativeName;
     }
 }

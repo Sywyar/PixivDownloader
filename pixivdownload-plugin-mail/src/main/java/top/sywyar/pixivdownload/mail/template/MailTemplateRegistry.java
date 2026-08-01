@@ -42,15 +42,15 @@ public class MailTemplateRegistry {
 
     /** 发送测试 / "邮件配置成功" 通知。 */
     public static final String TEMPLATE_CONFIG_SUCCESS = "mail-config-success";
-    /** 过度访问警告 → 账号级暂停通知。 */
+    /** 凭证策略要求账号级暂停；模板 id 保留已发布兼容值。 */
     public static final String TEMPLATE_OVERUSE_PAUSED = "overuse-paused";
-    /** cookie 依赖型任务 dead cookie → 任务级挂起通知。 */
+    /** 任务凭证不可用并被挂起；模板 id 保留已发布兼容值。 */
     public static final String TEMPLATE_AUTH_EXPIRED = "auth-expired";
-    /** 单作品连续失败熔断挂起通知。 */
+    /** 连续执行失败触发凭证故障熔断；模板 id 保留已发布兼容值。 */
     public static final String TEMPLATE_CIRCUIT_BREAKER = "circuit-breaker";
     /** 单作品自动重试达到 {@code schedule.pending-max-attempts} 上限 → 需人工处理。 */
     public static final String TEMPLATE_PENDING_EXHAUSTED = "pending-exhausted";
-    /** cookie 失效但任务无需 cookie → 自动降级为受限模式、运行成功。 */
+    /** 不可用凭证被撤销，任务以来源策略允许的受限能力继续成功；模板 id 保留已发布兼容值。 */
     public static final String TEMPLATE_DEGRADED_ANONYMOUS = "degraded-anonymous";
     /** 整轮运行失败（非鉴权类异常）→ 进入 ERROR 状态。 */
     public static final String TEMPLATE_RUN_FAILED = "run-failed";

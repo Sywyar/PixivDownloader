@@ -120,9 +120,9 @@ class GuiConfigSectionResolverTest {
                 section("plugin-b", "section-a", "fixture.group", group, 10, "fixture.a"),
                 section("plugin-a", "section-z", "fixture.group", group, 10, "fixture.z"));
         RecordingContext ctx = new RecordingContext(List.of(
-                field("fixture.a", group),
-                field("fixture.b", group),
-                field("fixture.z", group)));
+                pluginField("fixture.a", group, "plugin-b"),
+                pluginField("fixture.b", group, "plugin-b"),
+                pluginField("fixture.z", group, "plugin-a")));
 
         ConfigSection resolved = GuiConfigSectionResolver.createSections(
                         ctx,
@@ -142,7 +142,8 @@ class GuiConfigSectionResolverTest {
     @DisplayName("声明式 notice 渲染在 section 内容前并保留旧提示行样式")
     void sectionNoticeRendersBeforeContentWithLegacyHintStyle() {
         String group = "Fixture Group";
-        RecordingContext ctx = new RecordingContext(List.of(field("fixture.enabled", group)));
+        RecordingContext ctx = new RecordingContext(List.of(
+                pluginField("fixture.enabled", group, "fixture")));
         GuiConfigSectionSpec declared = section(
                 "fixture",
                 "fixture.notice",
@@ -179,7 +180,7 @@ class GuiConfigSectionResolverTest {
     @DisplayName("声明式 section 优先后不会额外注册过渡 adapter 字段")
     void declaredSectionDoesNotDuplicateTransitionAdapterFields() {
         String group = ConfigFieldRegistry.groupAi();
-        ConfigFieldSpec aiBaseUrl = field("ai.base-url", group);
+        ConfigFieldSpec aiBaseUrl = pluginField("ai.base-url", group, "fixture-ai");
         GuiConfigSectionSpec declared = section(
                 "fixture-ai", "fixture.ai.section", GuiConfigGroups.AI, group, 10, "ai.base-url");
         RecordingContext ctx = new RecordingContext(List.of(aiBaseUrl));
@@ -288,7 +289,8 @@ class GuiConfigSectionResolverTest {
     @DisplayName("单卡片声明式 section 仍保留迁移前的卡片切换控件")
     void singleCardSectionStillRendersCardSwitcher() {
         String group = "Fixture Group";
-        RecordingContext ctx = new RecordingContext(List.of(field("fixture.enabled", group)));
+        RecordingContext ctx = new RecordingContext(List.of(
+                pluginField("fixture.enabled", group, "fixture")));
         GuiConfigSectionSpec declared = cardSection(
                 "fixture", "fixture.single-card", "fixture.group", group, 10,
                 List.of(new GuiConfigFieldLayoutSpec("fixture.enabled", "only", "Only", 10)));
@@ -305,7 +307,7 @@ class GuiConfigSectionResolverTest {
     @DisplayName("声明式字段 visibleWhen 隐藏时同步隐藏字段后间距")
     void declaredVisibleWhenHidesFieldRowSpacing() {
         String group = "Fixture Group";
-        List<ConfigFieldSpec> fields = switchingFields(group);
+        List<ConfigFieldSpec> fields = switchingFields(group, "fixture");
         RecordingContext ctx = new RecordingContext(fields);
         GuiConfigSectionSpec declared = section(
                 "fixture", "fixture.visible", "fixture.group", group, 10,
@@ -341,7 +343,8 @@ class GuiConfigSectionResolverTest {
     void plainGroupVisibleWhenHidesFieldRowSpacing() {
         String group = "Fixture Group";
         ConfigFieldSnapshot snapshot = new ConfigFieldSnapshot(
-                List.of("Server Group", group), switchingFields(group), List.of(), List.of());
+                List.of("Server Group", group), switchingFields(group, ConfigFieldSpec.CORE_OWNER),
+                List.of(), List.of());
         ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
                 path -> path, snapshot);
         JPanel content = configTabContent(panel, group);
@@ -578,7 +581,7 @@ class GuiConfigSectionResolverTest {
     @DisplayName("声明式单卡片 section 可按枚举字段恢复子卡片切换布局")
     void singleCardSectionRestoresNestedEnumSwitcherLayout() {
         String group = "Fixture Group";
-        List<ConfigFieldSpec> fields = nestedSwitchingFields(group);
+        List<ConfigFieldSpec> fields = nestedSwitchingFields(group, "fixture");
         RecordingContext ctx = new RecordingContext(fields);
         GuiConfigSectionSpec declared = cardSection(
                 "fixture", "fixture.nested-card", "fixture.group", group, 10,
@@ -607,13 +610,13 @@ class GuiConfigSectionResolverTest {
     void notificationSectionsRestoreLegacyCompactScenarioAndServiceCards() {
         String group = "Notification Group";
         RecordingContext ctx = new RecordingContext(List.of(
-                boolField("push.enabled", group),
-                boolField("notification.scenario.run-summary.enabled", group),
-                boolField("notification.scenario.run-failed.enabled", group),
-                boolField("mail.enabled", group),
-                field("mail.host", group),
-                boolField("push.bark.enabled", group),
-                field("push.bark.server", group)));
+                pluginBoolField("push.enabled", group, "push"),
+                pluginBoolField("notification.scenario.run-summary.enabled", group, "notification"),
+                pluginBoolField("notification.scenario.run-failed.enabled", group, "notification"),
+                pluginBoolField("mail.enabled", group, "mail"),
+                pluginField("mail.host", group, "mail"),
+                pluginBoolField("push.bark.enabled", group, "push"),
+                pluginField("push.bark.server", group, "push")));
         GuiConfigSectionSpec notice = new GuiConfigSectionSpec(
                 "mail",
                 "notification.service.notice",
@@ -666,8 +669,10 @@ class GuiConfigSectionResolverTest {
                 List.of(
                         new GuiConfigFieldLayoutSpec("mail.enabled", "mail", "邮件 / SMTP", 10),
                         new GuiConfigFieldLayoutSpec("mail.host", "mail", "邮件 / SMTP", 20),
-                        new GuiConfigFieldLayoutSpec("push.bark.enabled", "bark", "Bark", 30),
-                        new GuiConfigFieldLayoutSpec("push.bark.server", "bark", "Bark", 40)));
+                        new GuiConfigFieldLayoutSpec(
+                                "push.bark.enabled", "bark", "Bark", 30, "push"),
+                        new GuiConfigFieldLayoutSpec(
+                                "push.bark.server", "bark", "Bark", 40, "push")));
 
         ConfigSection resolved = singleSection(ctx, group, List.of(
                 services,
@@ -737,8 +742,8 @@ class GuiConfigSectionResolverTest {
     void presetLocksDeclaredKeysOnly() {
         String group = "Fixture Group";
         RecordingContext ctx = new RecordingContext(List.of(
-                field("fixture.endpoint", group),
-                field("fixture.model", group)));
+                pluginField("fixture.endpoint", group, "fixture"),
+                pluginField("fixture.model", group, "fixture")));
         GuiConfigSectionSpec declared = presetSection(group);
 
         ConfigSection resolved = singleSection(ctx, group, List.of(declared));
@@ -807,8 +812,15 @@ class GuiConfigSectionResolverTest {
     }
 
     private static GuiConfigSectionSpec cardSection(String pluginId, String sectionId, String groupId,
-                                                    String group, int order,
-                                                    List<GuiConfigFieldLayoutSpec> layouts) {
+                                                     String group, int order,
+                                                     List<GuiConfigFieldLayoutSpec> layouts) {
+        Set<String> owners = new java.util.LinkedHashSet<>();
+        owners.add(pluginId);
+        layouts.stream()
+                .map(GuiConfigFieldLayoutSpec::ownerPluginId)
+                .filter(owner -> owner != null && !owner.isBlank())
+                .map(String::trim)
+                .forEach(owners::add);
         return new GuiConfigSectionSpec(
                 pluginId,
                 sectionId,
@@ -828,7 +840,8 @@ class GuiConfigSectionResolverTest {
                 List.of(),
                 List.of(),
                 false,
-                true);
+                true,
+                owners);
     }
 
     private static GuiConfigSectionSpec presetSection(String group) {
@@ -887,30 +900,43 @@ class GuiConfigSectionResolverTest {
                 .build();
     }
 
-    private static List<ConfigFieldSpec> switchingFields(String group) {
+    private static ConfigFieldSpec pluginBoolField(String key, String group, String pluginId) {
+        return ConfigFieldSpec.builder(key, key, FieldType.BOOL, group)
+                .ownerPluginId(pluginId)
+                .defaultValue("true")
+                .build();
+    }
+
+    private static List<ConfigFieldSpec> switchingFields(String group, String ownerPluginId) {
         ConfigFieldSpec engine = ConfigFieldSpec.builder("fixture.engine", "Engine", FieldType.ENUM, group)
+                .ownerPluginId(ownerPluginId)
                 .defaultValue("first")
                 .enumValues("first", "second")
                 .build();
         ConfigFieldSpec first = ConfigFieldSpec.builder("fixture.first", "First", FieldType.STRING, group)
+                .ownerPluginId(ownerPluginId)
                 .visibleWhen(snap -> snap.equals("fixture.engine", "first"))
                 .build();
         ConfigFieldSpec second = ConfigFieldSpec.builder("fixture.second", "Second", FieldType.STRING, group)
+                .ownerPluginId(ownerPluginId)
                 .visibleWhen(snap -> snap.equals("fixture.engine", "second"))
                 .build();
         return List.of(engine, first, second);
     }
 
-    private static List<ConfigFieldSpec> nestedSwitchingFields(String group) {
+    private static List<ConfigFieldSpec> nestedSwitchingFields(String group, String ownerPluginId) {
         ConfigFieldSpec engine = ConfigFieldSpec.builder("fixture.engine", "Engine", FieldType.ENUM, group)
+                .ownerPluginId(ownerPluginId)
                 .defaultValue("first")
                 .enumValues("first", "second")
                 .build();
         ConfigFieldSpec first = ConfigFieldSpec.builder("fixture.first", "First", FieldType.STRING, group)
+                .ownerPluginId(ownerPluginId)
                 .visibleWhen(snap -> snap.equals("fixture.engine", "first"))
                 .visibleWhenConditions(List.of(GuiConfigCondition.equalsTo("fixture.engine", "first")))
                 .build();
         ConfigFieldSpec second = ConfigFieldSpec.builder("fixture.second", "Second", FieldType.STRING, group)
+                .ownerPluginId(ownerPluginId)
                 .visibleWhen(snap -> snap.equals("fixture.engine", "second"))
                 .visibleWhenConditions(List.of(GuiConfigCondition.equalsTo("fixture.engine", "second")))
                 .build();

@@ -8,10 +8,13 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
-import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.PropertySource;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
-import java.util.Map;
 import java.util.Objects;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * 每外置插件子 {@code ApplicationContext} 工厂：为一个外置插件包（{@link PluginContextModule}）建立一个子
@@ -33,22 +36,34 @@ import java.util.Objects;
  *       自动装配、不向父 context 的请求分发 / 注册中心注册任何东西。</li>
  * </ul>
  *
- * <p>本类是无状态 POJO（不带 Spring 注解），由核心壳侧装配为 Bean 并按外置插件生命周期调用。它<b>不</b>持有所创建
+ * <p>本类是不带 Spring 注解的宿主装配 POJO，持有子 context 创建所需的属性源与宿主运行时设施，但<b>不</b>持有所创建
  * 子 context 的引用，生命周期（持有 / 关闭）由调用方（核心壳侧的子 context 管理器）负责。
  */
 public final class PluginApplicationContextFactory {
 
     private static final Logger log = LoggerFactory.getLogger(PluginApplicationContextFactory.class);
+    private static final String PLUGIN_STREAM_REGISTRAR_BEAN_NAME = "pluginStreamRegistrar";
+    private static final String PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME = "pluginRuntimeTaskRegistrar";
     public static final String SCOPED_PROPERTY_SOURCE_PREFIX = "pixivdownloadPluginScoped:";
+    public static final String SENSITIVE_PROPERTY_MASK_SOURCE_PREFIX = "pixivdownloadPluginSensitiveMask:";
+    private static final String SENSITIVE_PROPERTY_UPDATE_MASK_SUFFIX = ":updating";
 
     private final PluginContextPropertySourceProvider propertySourceProvider;
+    private final PluginStreamRegistry pluginStreamRegistry;
+    private final PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry;
 
-    public PluginApplicationContextFactory() {
-        this(PluginContextPropertySourceProvider.EMPTY);
+    public PluginApplicationContextFactory(PluginStreamRegistry pluginStreamRegistry,
+                                           PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
+        this(PluginContextPropertySourceProvider.EMPTY, pluginStreamRegistry, pluginRuntimeTaskRegistry);
     }
 
-    public PluginApplicationContextFactory(PluginContextPropertySourceProvider propertySourceProvider) {
+    public PluginApplicationContextFactory(PluginContextPropertySourceProvider propertySourceProvider,
+                                           PluginStreamRegistry pluginStreamRegistry,
+                                           PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
         this.propertySourceProvider = Objects.requireNonNull(propertySourceProvider, "propertySourceProvider");
+        this.pluginStreamRegistry = Objects.requireNonNull(pluginStreamRegistry, "pluginStreamRegistry");
+        this.pluginRuntimeTaskRegistry =
+                Objects.requireNonNull(pluginRuntimeTaskRegistry, "pluginRuntimeTaskRegistry");
     }
 
     /**
@@ -72,8 +87,15 @@ public final class PluginApplicationContextFactory {
         // 先挂父 context：合并父环境属性源（供条件 / 属性解析）+ 让子 context 找不到的依赖向父解析核心 API/服务 Bean。
         // 须早于 register（@Configuration 条件评估在注册与刷新期进行）。
         child.setParent(parent);
-        replaceScopedPropertySource(child.getEnvironment(), module.sourcePluginId(),
-                propertySourceProvider.propertiesFor(module.sourcePluginId()));
+        replaceScopedPropertySources(child.getEnvironment(), module.sourcePluginId(),
+                propertySourceProvider.snapshotFor(module.sourcePluginId()));
+        // owner 由宿主固化：插件只得到当前 child context 本地的 owner-scoped registrar，父 context 不暴露它。
+        child.getBeanFactory().registerSingleton(
+                PLUGIN_STREAM_REGISTRAR_BEAN_NAME,
+                pluginStreamRegistry.registrarForPlugin(module.sourcePluginId()));
+        child.getBeanFactory().registerSingleton(
+                PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME,
+                pluginRuntimeTaskRegistry.registrarForPlugin(module.sourcePluginId()));
         child.register(PluginContextInfrastructureConfiguration.class);
         for (Class<?> configurationClass : module.configurationClasses()) {
             child.register(configurationClass);
@@ -85,27 +107,91 @@ public final class PluginApplicationContextFactory {
         return child;
     }
 
-    public static void replaceScopedPropertySource(ConfigurableEnvironment environment,
-                                                   String ownerPluginId,
-                                                   Map<String, ?> properties) {
+    /**
+     * 以 fail-closed 顺序替换一个子 context 的 owner 属性源与敏感属性遮罩。
+     *
+     * <p>owner 属性源位于子环境最高优先级，确保系统属性、环境变量或父配置不能覆盖宿主为当前 owner
+     * 解密出的值；敏感属性遮罩紧随其后，使当前 owner 未持有的敏感 key 也不会回落到其它父属性源。
+     */
+    public static void replaceScopedPropertySources(ConfigurableEnvironment environment,
+                                                    String ownerPluginId,
+                                                    PluginContextPropertySnapshot snapshot) {
         Objects.requireNonNull(environment, "environment");
         String owner = Objects.requireNonNull(ownerPluginId, "ownerPluginId").trim();
         if (owner.isEmpty()) {
             throw new IllegalArgumentException("ownerPluginId must not be blank");
         }
-        String sourceName = SCOPED_PROPERTY_SOURCE_PREFIX + owner;
+        PluginContextPropertySnapshot propertySnapshot =
+                Objects.requireNonNull(snapshot, "snapshot");
+        String scopedSourceName = SCOPED_PROPERTY_SOURCE_PREFIX + owner;
+        String maskSourceName = SENSITIVE_PROPERTY_MASK_SOURCE_PREFIX + owner;
+        String updateMaskSourceName = maskSourceName + SENSITIVE_PROPERTY_UPDATE_MASK_SUFFIX;
         MutablePropertySources sources = environment.getPropertySources();
-        sources.remove(sourceName);
-        if (properties == null || properties.isEmpty()) {
-            return;
+
+        LinkedHashSet<String> maskKeys =
+                new LinkedHashSet<>(propertySnapshot.sensitivePropertyKeys());
+        collectExistingMaskKeys(sources.get(maskSourceName), maskKeys);
+        collectExistingMaskKeys(sources.get(updateMaskSourceName), maskKeys);
+
+        SensitivePropertyMaskSource maskSource = null;
+        if (!maskKeys.isEmpty()) {
+            maskSource = new SensitivePropertyMaskSource(
+                    maskSourceName, maskKeys);
         }
-        MapPropertySource scoped = new MapPropertySource(sourceName, Map.copyOf(properties));
-        if (sources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
-            sources.addAfter(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, scoped);
-        } else if (sources.contains(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME)) {
-            sources.addAfter(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, scoped);
-        } else {
-            sources.addFirst(scoped);
+        MapPropertySource scopedSource = null;
+        if (!propertySnapshot.ownerProperties().isEmpty()) {
+            scopedSource = new MapPropertySource(
+                    scopedSourceName, propertySnapshot.ownerProperties());
+        }
+
+        boolean replacementComplete = false;
+        if (maskSource != null) {
+            SensitivePropertyMaskSource updateMask = new SensitivePropertyMaskSource(
+                    updateMaskSourceName, maskKeys);
+            if (sources.contains(updateMaskSourceName)) {
+                sources.replace(updateMaskSourceName, updateMask);
+            } else {
+                sources.addFirst(updateMask);
+            }
+        }
+        try {
+            sources.remove(scopedSourceName);
+            sources.remove(maskSourceName);
+            if (maskSource != null) {
+                sources.addFirst(maskSource);
+            }
+            if (scopedSource != null) {
+                sources.addFirst(scopedSource);
+            }
+            replacementComplete = true;
+        } finally {
+            if (replacementComplete) {
+                sources.remove(updateMaskSourceName);
+            }
+        }
+    }
+
+    private static void collectExistingMaskKeys(
+            PropertySource<?> propertySource, Set<String> destination) {
+        if (propertySource instanceof SensitivePropertyMaskSource existing) {
+            destination.addAll(existing.getSource());
+        }
+    }
+
+    private static final class SensitivePropertyMaskSource extends PropertySource<Set<String>> {
+
+        private SensitivePropertyMaskSource(String name, Set<String> sensitivePropertyKeys) {
+            super(name, Set.copyOf(sensitivePropertyKeys));
+        }
+
+        @Override
+        public Object getProperty(String name) {
+            return source.contains(name) ? "" : null;
+        }
+
+        @Override
+        public boolean containsProperty(String name) {
+            return source.contains(name);
         }
     }
 }

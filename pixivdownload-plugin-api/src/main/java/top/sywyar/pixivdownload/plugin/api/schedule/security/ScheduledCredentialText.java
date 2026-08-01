@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.security;
 
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * 计划任务稳定契约共用的纯 JDK 凭证文本判定。它只识别明确的请求头、Cookie、token、secret 与签名形态，
- * 供插件值对象在进入宿主持久化、队列或展示边界前拒绝敏感材料。
+ * 供插件值对象在进入宿主持久化、队列或展示边界前拒绝敏感材料；来源 owner 仍须补充自己的专属字段赋值形态。
  */
 public final class ScheduledCredentialText {
 
@@ -19,22 +20,12 @@ public final class ScheduledCredentialText {
                             + "(?=[A-Za-z0-9._~+/=-]{6,}(?:[,;\\s]|$))"
                             + "(?:(?=[A-Za-z0-9._~+/=-]*[0-9._~+/=-])"
                             + "[A-Za-z0-9._~+/=-]+|[A-Za-z0-9]{20,})");
-    private static final Pattern PHPSESSID =
-            Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s&]+");
-    private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
-            "(?i)\\b((?:[A-Za-z0-9_-]*(?:token|secret|password|passwd|credential|signature)"
-                    + "(?:[_-]?(?:value|header))?|"
-                    + "[A-Za-z0-9_-]*(?:cookie|authorization)(?:[_-]?(?:value|header))?|"
-                    + "[A-Za-z0-9_.-]*(?:session|sessionid|sessid)(?:[_-]?ss)?"
-                    + "(?:[_-]?value)?|"
-                    + "[A-Za-z0-9_.-]*session[_-]?key(?:[_-]?value)?|"
-                    + "(?:[A-Za-z0-9_.-]*[._-])?sid(?:[_-]?value)?|"
-                    + "sid[_-]?(?:guard|tt)|ttwid|odin[_-]?tt|uid[_-]?tt|s[_-]?v[_-]?web[_-]?id|"
-                    + "api[_-]?key(?:[_-]?value)?|"
-                    + "(?:signed|temporary)[_-]?url(?:[_-]?value)?|"
-                    + "[A-Za-z0-9_.-]*auth|wordpress[_-]logged[_-]in[_-][A-Za-z0-9]+|"
-                    + "[A-Za-z0-9_.-]*remember[_-]me|rtfa|cf[_-]clearance|sig)"
-                    + "\\s*[:=]\\s*)[^\\s;&,]+");
+    private static final Pattern FIELD_ASSIGNMENT = Pattern.compile(
+            "(?i)(?=(?<![A-Za-z0-9_])"
+                    + "(?:['\"]([^'\"\\r\\n]{1,128})['\"]|"
+                    + "([A-Za-z][^\\s:='\"{}\\[\\],;&]{0,127}))"
+                    + "\\s*[:=]\\s*"
+                    + "(?:['\"]([^'\"\\r\\n]*)['\"]|([^\\s;&,}\\]]+)))");
 
     private ScheduledCredentialText() {
     }
@@ -44,10 +35,21 @@ public final class ScheduledCredentialText {
         if (text == null || text.isEmpty()) {
             return false;
         }
-        return COOKIE_HEADER.matcher(text).find()
+        if (COOKIE_HEADER.matcher(text).find()
                 || AUTHORIZATION_HEADER.matcher(text).find()
-                || BEARER_VALUE.matcher(text).find()
-                || PHPSESSID.matcher(text).find()
-                || SENSITIVE_ASSIGNMENT.matcher(text).find();
+                || BEARER_VALUE.matcher(text).find()) {
+            return true;
+        }
+        Matcher matcher = FIELD_ASSIGNMENT.matcher(text);
+        while (matcher.find()) {
+            String fieldName = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+            String value = matcher.group(3) != null ? matcher.group(3) : matcher.group(4);
+            if (ScheduledSensitiveFieldNames.isSensitiveFieldName(fieldName)
+                    || (ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(fieldName)
+                    && !ScheduledSensitiveFieldNames.isSafeMetadataValue(fieldName, value))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

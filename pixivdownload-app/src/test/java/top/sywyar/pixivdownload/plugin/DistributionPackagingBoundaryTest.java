@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Properties;
@@ -66,6 +67,10 @@ class DistributionPackagingBoundaryTest {
 
     private static final boolean REQUIRE_PACKAGED_ARTIFACTS =
             Boolean.getBoolean("distribution.packaging.require-artifacts");
+    private static final boolean REQUIRE_PRODUCTION_CREDENTIAL_KEY =
+            Boolean.getBoolean("distribution.packaging.require-production-credential-key");
+    private static final String PLUGIN_CREDENTIAL_KEY_RESOURCE =
+            "BOOT-INF/classes/plugin-credential-key.properties";
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
@@ -425,6 +430,37 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
+    @DisplayName("boot jar 固化合法的插件凭证密钥配置，正式产物必须使用独立生产密钥")
+    void bootJarContainsExpectedPluginCredentialKeyProfile() {
+        Path bootJar = locateBootJar();
+        requireAvailable(bootJar != null,
+                "boot jar 尚未生成（需 package 阶段），无法验证插件凭证密钥配置");
+
+        Properties properties = loadUtf8Properties(bootJar, PLUGIN_CREDENTIAL_KEY_RESOURCE);
+        String profile = properties.getProperty("profile");
+        String currentKey = properties.getProperty("current-key-base64");
+        String openSourceFallback = properties.getProperty("open-source-fallback-key-base64");
+
+        assertThat(profile).isIn("open-source", "production");
+        assertCanonicalBase64Key(currentKey, "当前插件凭证主密钥");
+        assertCanonicalBase64Key(openSourceFallback, "开源回退插件凭证主密钥");
+        if (REQUIRE_PRODUCTION_CREDENTIAL_KEY) {
+            assertThat(profile).as("正式发布必须使用 production profile").isEqualTo("production");
+            assertThat(currentKey)
+                    .as("正式发布的当前密钥必须不同于公开回退密钥")
+                    .isNotEqualTo(openSourceFallback);
+        } else if ("open-source".equals(profile)) {
+            assertThat(currentKey)
+                    .as("开源 profile 应使用提交的公开回退密钥")
+                    .isEqualTo(openSourceFallback);
+        } else {
+            assertThat(currentKey)
+                    .as("production profile 的当前密钥必须不同于公开回退密钥")
+                    .isNotEqualTo(openSourceFallback);
+        }
+    }
+
+    @Test
     @DisplayName("download-workbench 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
     void downloadWorkbenchPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(DOWNLOAD_WORKBENCH_CLASSES_PROPERTY, "pixivdownload-plugin-download-workbench",
@@ -673,6 +709,34 @@ class DistributionPackagingBoundaryTest {
         } catch (IOException e) {
             throw new IllegalStateException("读取 i18n 资源失败: " + resource, e);
         }
+    }
+
+    private static Properties loadUtf8Properties(Path jar, String resource) {
+        try (JarFile jarFile = new JarFile(jar.toFile())) {
+            JarEntry entry = jarFile.getJarEntry(resource);
+            assertThat(entry).as("boot jar 应包含 %s", resource).isNotNull();
+            try (InputStream input = jarFile.getInputStream(entry)) {
+                Properties properties = new Properties();
+                properties.load(new InputStreamReader(input, StandardCharsets.UTF_8));
+                return properties;
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("读取 boot jar 资源失败: " + resource, e);
+        }
+    }
+
+    private static void assertCanonicalBase64Key(String value, String description) {
+        assertThat(value).as(description).isNotBlank().doesNotContain("@");
+        byte[] decoded;
+        try {
+            decoded = Base64.getDecoder().decode(value);
+        } catch (IllegalArgumentException e) {
+            throw new AssertionError(description + " 必须使用标准 Base64", e);
+        }
+        assertThat(decoded).as(description + " 解码长度").hasSize(32);
+        assertThat(Base64.getEncoder().encodeToString(decoded))
+                .as(description + " 必须使用 canonical Base64")
+                .isEqualTo(value);
     }
 
     private static Path locateConfiguredDir(String property) {

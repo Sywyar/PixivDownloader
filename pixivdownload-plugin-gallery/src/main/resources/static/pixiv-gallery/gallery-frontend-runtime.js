@@ -556,8 +556,8 @@ function galleryFrontendRenderStandardMedia(input) {
         article.className = 'gallery-media gallery-media-text';
         const content = documentRef.createElement('pre');
         content.className = 'gallery-media-text-content';
-        content.textContent = media.content == null ? galleryFrontendTranslate(
-            'gallery:frontend.media.text-empty', null, 'gallery:frontend.media.text-empty') : String(media.content);
+        content.textContent = galleryFrontendTranslate(
+            'gallery:frontend.media.text-empty', null, 'gallery:frontend.media.text-empty');
         article.appendChild(content);
         return article;
     }
@@ -571,11 +571,6 @@ function galleryFrontendRenderStandardMedia(input) {
     label.textContent = galleryFrontendTranslate('gallery:frontend.media.unknown', null,
         'gallery:frontend.media.unknown');
     unknown.appendChild(label);
-    if (media.content != null && String(media.content)) {
-        const content = documentRef.createElement('pre');
-        content.textContent = String(media.content);
-        unknown.appendChild(content);
-    }
     return unknown;
 }
 

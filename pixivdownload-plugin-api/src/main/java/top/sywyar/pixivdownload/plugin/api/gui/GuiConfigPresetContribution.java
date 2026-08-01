@@ -14,10 +14,12 @@ import java.util.Map;
  * @param i18nNamespace optional i18n namespace; blank means the plugin display namespace
  * @param cardId optional card id for card-switcher layouts
  * @param order preset ordering hint
- * @param matchFieldKey optional field used to infer the selected preset from current values
+ * @param matchFieldKey optional same-owner, non-sensitive field used to infer the selected preset from current values
  * @param matchValue optional value matched against {@code matchFieldKey}
- * @param values config field values applied when the preset is selected
- * @param lockedFieldKeys config field keys locked while this preset is selected; null means all value keys
+ * @param values same-owner, non-sensitive config field values applied when the preset is selected; sensitive and
+ *               {@link GuiConfigFieldType#PASSWORD} fields are never writable by presets
+ * @param lockedFieldKeys same-owner, non-sensitive config field keys locked while this preset is selected; null
+ *                        means all value keys
  * @param matchMode comparison mode used for {@code matchFieldKey}/{@code matchValue}
  */
 public record GuiConfigPresetContribution(

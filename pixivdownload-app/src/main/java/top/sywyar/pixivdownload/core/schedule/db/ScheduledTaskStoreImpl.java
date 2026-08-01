@@ -170,36 +170,6 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     }
 
     @Override
-    public int suspendByCredentialAccount(String policyOwnerPluginId,
-                                          String policyId,
-                                          String accountKey,
-                                          ScheduleSuspendReason reason,
-                                          String code,
-                                          String detailJson) {
-        requireText(policyOwnerPluginId, "credential policy owner");
-        requireText(policyId, "credential policy id");
-        requireText(accountKey, "credential account key");
-        Objects.requireNonNull(reason, "reason");
-        return mapper.suspendByCredentialAccount(policyOwnerPluginId, policyId, accountKey,
-                reason, code, detailJson);
-    }
-
-    @Override
-    public int resumeByCredentialAccount(String policyOwnerPluginId,
-                                         String policyId,
-                                         String accountKey,
-                                         ScheduleSuspendReason expectedReason,
-                                         String expectedCode,
-                                         Long nextRunTime) {
-        requireText(policyOwnerPluginId, "credential policy owner");
-        requireText(policyId, "credential policy id");
-        requireText(accountKey, "credential account key");
-        Objects.requireNonNull(expectedReason, "expectedReason");
-        return mapper.resumeByCredentialAccount(policyOwnerPluginId, policyId, accountKey,
-                expectedReason, expectedCode, nextRunTime);
-    }
-
-    @Override
     @Transactional
     public OptionalLong updateDefinition(long id,
                                          long expectedStateVersion,

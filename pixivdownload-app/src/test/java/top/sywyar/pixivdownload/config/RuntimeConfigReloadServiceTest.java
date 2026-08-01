@@ -14,6 +14,8 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
@@ -22,6 +24,9 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextPropertySnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
@@ -114,7 +119,9 @@ class RuntimeConfigReloadServiceTest {
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.setEnvironment(parentEnvironment);
             parent.refresh();
-            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginApplicationContextFactory factory =
+                    new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
             PluginContextModule module = new PluginContextModule(
                     "fixture", getClass().getClassLoader(), List.of(FixtureGuestInviteConfiguration.class));
             var child = factory.create(parent, module);
@@ -154,7 +161,9 @@ class RuntimeConfigReloadServiceTest {
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.setEnvironment(parentEnvironment);
             parent.refresh();
-            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginApplicationContextFactory factory =
+                    new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
             PluginContextModule module = new PluginContextModule(
                     "fixture", getClass().getClassLoader(), List.of(FixtureGuestInviteConfiguration.class));
             var child = factory.create(parent, module);
@@ -233,7 +242,9 @@ class RuntimeConfigReloadServiceTest {
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.setEnvironment(environment);
             parent.refresh();
-            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginApplicationContextFactory factory =
+                    new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
             PluginContextModule module = new PluginContextModule(
                     "fixture", getClass().getClassLoader(), List.of(FixturePluginConfiguration.class));
             var firstChild = factory.create(parent, module);
@@ -305,7 +316,25 @@ class RuntimeConfigReloadServiceTest {
                 new NotificationConfig(),
                 lifecycleService,
                 environment,
-                new PluginCredentialStore());
+                credentialPropertySourceProvider());
+    }
+
+    private static PluginCredentialPropertySourceService credentialPropertySourceProvider() {
+        PluginCredentialPropertySourceService service =
+                mock(PluginCredentialPropertySourceService.class);
+        when(service.snapshotFor(any())).thenAnswer(invocation -> {
+            String owner = invocation.getArgument(0);
+            try {
+                Map<String, Object> ownerProperties = new java.util.LinkedHashMap<>();
+                ownerProperties.putAll(new PluginCredentialStore().readAll(owner));
+                Set<String> sensitiveKeys = new java.util.LinkedHashSet<>(ownerProperties.keySet());
+                sensitiveKeys.add("fixture.api-key");
+                return new PluginContextPropertySnapshot(ownerProperties, sensitiveKeys);
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        });
+        return service;
     }
 
     private static void serveContext(

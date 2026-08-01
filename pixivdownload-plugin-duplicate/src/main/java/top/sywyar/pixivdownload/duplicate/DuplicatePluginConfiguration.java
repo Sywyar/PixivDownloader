@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -47,16 +48,27 @@ public class DuplicatePluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("duplicate")
     public DuplicateService duplicateService(ArtworkHashIndexQuery hashIndexQuery,
-                                             @Qualifier("duplicatePluginMessages") MessageResolver messages) {
+                                              @Qualifier("duplicatePluginMessages") MessageResolver messages) {
         return new DuplicateService(hashIndexQuery, messages);
+    }
+
+    @Bean(name = "duplicateScanTaskExecutor", destroyMethod = "shutdown")
+    @ConditionalOnPluginEnabled("duplicate")
+    public ThreadPoolTaskExecutor duplicateScanTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setThreadNamePrefix("duplicate-scan-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        return executor;
     }
 
     @Bean
     @ConditionalOnPluginEnabled("duplicate")
     public DuplicateScanService duplicateScanService(ArtworkHashIndexMaintenance hashIndexMaintenance,
-                                                     DuplicateService duplicateService,
-                                                     @Qualifier("duplicatePluginMessages") MessageResolver messages,
-                                                     @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
+                                                      DuplicateService duplicateService,
+                                                      @Qualifier("duplicatePluginMessages") MessageResolver messages,
+                                                      @Qualifier("duplicateScanTaskExecutor") TaskExecutor taskExecutor) {
         return new DuplicateScanService(hashIndexMaintenance, duplicateService, messages, taskExecutor);
     }
 

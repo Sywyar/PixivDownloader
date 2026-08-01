@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 
 /**
  * 宿主拥有的有界、可背压作品入口。{@link #submit(ScheduledWork)} 可以阻塞；来源不得先把无限分页积到内存。
+ * 提交的作品及本地完成结果不得包含原始凭据或可逆派生材料。
  */
 public interface ScheduledWorkSink {
 

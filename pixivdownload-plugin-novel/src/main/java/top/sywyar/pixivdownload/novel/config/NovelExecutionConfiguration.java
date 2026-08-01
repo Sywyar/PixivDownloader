@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 
@@ -29,6 +30,17 @@ public class NovelExecutionConfiguration {
     @Bean("novelTranslateTaskExecutor")
     public ThreadPoolTaskExecutor novelTranslateTaskExecutor(NovelExecutionSettings settings) {
         return fixedPool(settings.getNovelTranslateMaxConcurrent(), "pixiv-novel-tr-");
+    }
+
+    @Bean(name = "novelStatusTaskScheduler", destroyMethod = "shutdown")
+    public ThreadPoolTaskScheduler novelStatusTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("novel-status-scheduler-");
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return scheduler;
     }
 
     private static ThreadPoolTaskExecutor fixedPool(int concurrency, String threadNamePrefix) {

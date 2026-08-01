@@ -19,25 +19,65 @@
         return value == null ? '' : String(value);
     }
 
+    function showTextState(body, className, text) {
+        body.className = className;
+        body.textContent = text;
+    }
+
     function renderText(context) {
         const doc = ownerDocument(context);
+        const id = workId(context && context.work);
         const media = context && context.media ? context.media : {};
         const article = doc.createElement('article');
         article.className = 'gallery-media-text novel-gallery-media-text';
 
-        const content = media.content == null ? '' : String(media.content);
-        if (!content) {
-            const empty = doc.createElement('p');
-            empty.className = 'gallery-media-empty';
-            empty.textContent = translate(context, 'novel-gallery:frontend.text.empty');
-            article.appendChild(empty);
+        const body = doc.createElement('pre');
+        article.appendChild(body);
+        if (!id) {
+            showTextState(body, 'gallery-media-empty',
+                translate(context, 'novel-gallery:frontend.text.empty'));
             return article;
         }
 
-        const body = doc.createElement('pre');
-        body.className = 'gallery-media-text-content';
-        body.textContent = content;
-        article.appendChild(body);
+        const expectedUrl = '/api/gallery/novel/' + encodeURIComponent(id) + '/content';
+        const mediaUrl = media.url == null ? '' : String(media.url);
+        if (mediaUrl !== expectedUrl || typeof window.fetch !== 'function') {
+            showTextState(body, 'gallery-media-empty',
+                translate(context, 'novel-gallery:frontend.text.error'));
+            return article;
+        }
+
+        const generation = window.PixivGalleryFrontend
+            && typeof window.PixivGalleryFrontend.generation === 'function'
+            ? window.PixivGalleryFrontend.generation() : null;
+        showTextState(body, 'gallery-media-text-content gallery-media-text-loading',
+            translate(context, 'novel-gallery:frontend.text.loading'));
+        window.fetch(mediaUrl, {
+            credentials: 'same-origin',
+            headers: {'Accept': 'application/json'}
+        }).then(function (response) {
+            if (!response || !response.ok) throw new Error('novel-content-unavailable');
+            return response.json();
+        }).then(function (payload) {
+            if (generation != null
+                    && window.PixivGalleryFrontend.generation() !== generation) {
+                return;
+            }
+            const content = payload && payload.content != null ? String(payload.content) : '';
+            if (!content) {
+                showTextState(body, 'gallery-media-empty',
+                    translate(context, 'novel-gallery:frontend.text.empty'));
+                return;
+            }
+            showTextState(body, 'gallery-media-text-content', content);
+        }).catch(function () {
+            if (generation != null
+                    && window.PixivGalleryFrontend.generation() !== generation) {
+                return;
+            }
+            showTextState(body, 'gallery-media-empty',
+                translate(context, 'novel-gallery:frontend.text.error'));
+        });
         return article;
     }
 

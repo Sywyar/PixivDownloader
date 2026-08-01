@@ -68,6 +68,6 @@ class GalleryContractTest {
     }
 
     private static GalleryMediaAsset asset(GalleryWorkKey workKey, String mediaId, GalleryMediaKind kind) {
-        return new GalleryMediaAsset(new GalleryMediaKey(workKey, mediaId), kind, null, null, null, null, Map.of());
+        return new GalleryMediaAsset(new GalleryMediaKey(workKey, mediaId), kind, null, null, null, Map.of());
     }
 }

@@ -5,12 +5,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import org.springframework.test.util.ReflectionTestUtils;
-import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
@@ -27,9 +27,9 @@ import static org.mockito.Mockito.when;
 class ScheduleHostProductionWiringTest {
 
     @Test
-    @DisplayName("Spring Bean 工厂只保留接收通用执行引擎的九依赖装配")
+    @DisplayName("Spring Bean 工厂只保留通用执行引擎与宿主身份装配")
     void springFactoryWiresGenericExecutionEngine() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
 
         ScheduleExecutor executor = productionExecutor(registry, engine);
@@ -45,21 +45,23 @@ class ScheduleHostProductionWiringTest {
                     assertThat(method.getAnnotation(Bean.class)).isNotNull();
                     assertThat(method.getParameterTypes()).containsExactly(
                             ScheduledTaskStore.class,
-                            ScheduleCapabilityRegistry.class,
+                            ScheduleCapabilityAccess.class,
                             ScheduleRunState.class,
                             ObjectMapper.class,
-                            NotificationService.class,
-                            AppMessages.class,
-                            WebI18nBundleRegistry.class,
+                            NotificationDispatcher.class,
+                            MessageResolver.class,
+                            NamespaceMessageResolver.class,
                             UserDisplayNameProvider.class,
-                            ScheduleExecutionEngine.class);
+                            ScheduleExecutionEngine.class,
+                            org.springframework.transaction.PlatformTransactionManager.class,
+                            ScheduleHostIdentity.class);
                 });
     }
 
     @Test
     @DisplayName("来源可解析性只委派给通用执行引擎，不再读取旧来源桥")
     void productionExecutorDelegatesResolutionToGenericEngine() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
         ScheduleExecutor executor = productionExecutor(registry, engine);
         ScheduledTask task = mock(ScheduledTask.class);
@@ -70,7 +72,7 @@ class ScheduleHostProductionWiringTest {
     }
 
     private static ScheduleExecutor productionExecutor(
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleExecutionEngine engine) {
         ScheduleHostPluginConfiguration configuration = new ScheduleHostPluginConfiguration();
         ObjectMapper objectMapper = new ObjectMapper();
@@ -79,10 +81,12 @@ class ScheduleHostProductionWiringTest {
                 registry,
                 new ScheduleRunState(),
                 objectMapper,
-                mock(NotificationService.class),
-                mock(AppMessages.class),
-                mock(WebI18nBundleRegistry.class),
+                mock(NotificationDispatcher.class),
+                mock(MessageResolver.class),
+                mock(NamespaceMessageResolver.class),
                 mock(UserDisplayNameProvider.class),
-                engine);
+                engine,
+                mock(org.springframework.transaction.PlatformTransactionManager.class),
+                new ScheduleHostIdentity("fixture-host"));
     }
 }

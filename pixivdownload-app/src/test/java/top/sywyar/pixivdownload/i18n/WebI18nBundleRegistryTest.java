@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.MissingResourceException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -119,6 +121,17 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
+    @DisplayName("稳定命名空间端口返回本地化文案并用空结果表达缺失")
+    void namespaceMessageResolverReturnsLocalizedMessageOrEmpty() {
+        NamespaceMessageResolver resolver = builtInRegistry();
+
+        assertThat(resolver.resolve("common", Locale.US, "side-modules.tasks.title")).isPresent();
+        assertThat(resolver.resolve("common", Locale.US, "does-not-exist")).isEmpty();
+        assertThat(resolver.resolve("does-not-exist", Locale.US, "side-modules.tasks.title")).isEmpty();
+        assertThat(resolver.resolve("", Locale.US, "side-modules.tasks.title")).isEmpty();
+    }
+
+    @Test
     @DisplayName("register → unregister → 再 register 后快照与首次注册一致（可逆性）")
     void registerUnregisterRoundTrip() {
         WebI18nBundleRegistry registry = emptyRegistry();
@@ -137,6 +150,52 @@ class WebI18nBundleRegistryTest {
         WebI18nBundleRegistry registry = emptyRegistry();
         registry.unregister("never-registered");
         assertThat(registry.bundles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("安装器只在构造期解析一次，注销刷新不在关闭期重入 BeanFactory")
+    void installerProviderResolvedOnceBeforeLifecycleTeardown() {
+        AtomicInteger resolutions = new AtomicInteger();
+        ObjectProvider<ExternalPluginInstaller> installer = new ObjectProvider<>() {
+            @Override
+            public ExternalPluginInstaller getObject() {
+                return null;
+            }
+
+            @Override
+            public ExternalPluginInstaller getIfAvailable() {
+                resolutions.incrementAndGet();
+                return null;
+            }
+        };
+        WebI18nBundleRegistry registry =
+                new WebI18nBundleRegistry(new PluginRegistry(List.of()), installer);
+
+        registry.unregister("never-registered");
+        registry.bundles();
+        registry.supportedNamespaces();
+
+        assertThat(resolutions).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("安装态清点暂时不可用时保留旧快照且不阻断插件注销")
+    void installedInventoryFailureDoesNotBlockPluginUnregistration() {
+        AtomicInteger scans = new AtomicInteger();
+        WebI18nBundleRegistry registry = new WebI18nBundleRegistry(
+                new PluginRegistry(List.of()),
+                () -> {
+                    if (scans.getAndIncrement() == 0) {
+                        return List.of();
+                    }
+                    throw new IllegalStateException("fixture inventory unavailable");
+                });
+        registry.register("demo", LOADER, List.of(ns("demo")));
+
+        registry.unregister("demo");
+
+        assertThat(registry.resolve("demo")).isNull();
+        assertThat(scans.get()).isGreaterThanOrEqualTo(2);
     }
 
     @Test

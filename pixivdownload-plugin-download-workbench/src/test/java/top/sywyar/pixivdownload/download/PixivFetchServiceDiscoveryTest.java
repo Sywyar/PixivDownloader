@@ -6,20 +6,21 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 /**
@@ -34,20 +35,54 @@ class PixivFetchServiceDiscoveryTest {
     private static final String COOKIE = "PHPSESSID=12345_abcdefghijklmnop";
 
     @Mock
-    private RestTemplate restTemplate;
+    private PixivAjaxClient pixivAjaxClient;
 
     private PixivFetchService service;
 
     private void mockResponse(String json) {
-        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                .thenReturn(ResponseEntity.ok(json.getBytes(StandardCharsets.UTF_8)));
+        when(pixivAjaxClient.get(any(URI.class), any())).thenReturn(json);
     }
 
     private PixivFetchService service() {
         if (service == null) {
-            service = new PixivFetchService(restTemplate, MAPPER);
+            service = new PixivFetchService(pixivAjaxClient, MAPPER);
         }
         return service;
+    }
+
+    @Nested
+    @DisplayName("站内信失败投影")
+    class MessageThreadFailures {
+
+        @ParameterizedTest
+        @ValueSource(ints = {302, 403})
+        @DisplayName("站内信登录重定向与四百段响应映射为凭证不可用")
+        void mapsRedirectAndClientErrorToCredentialFailure(int status) {
+            when(pixivAjaxClient.get(any(URI.class), any()))
+                    .thenThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, status));
+
+            assertThatThrownBy(() -> service().fetchMessageThreads(COOKIE))
+                    .isInstanceOf(PixivFetchService.PixivFetchException.class)
+                    .hasMessageContaining(Integer.toString(status));
+        }
+
+        @Test
+        @DisplayName("站内信服务端与传输失败保持瞬时网络失败")
+        void preservesServerAndTransportFailures() {
+            PixivAjaxException serverFailure =
+                    new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 503);
+            when(pixivAjaxClient.get(any(URI.class), any())).thenThrow(serverFailure);
+
+            assertThatThrownBy(() -> service().fetchMessageThreads(COOKIE))
+                    .isSameAs(serverFailure);
+
+            PixivAjaxException transportFailure =
+                    new PixivAjaxException(PixivAjaxFailure.TRANSPORT, 0);
+            doThrow(transportFailure).when(pixivAjaxClient).get(any(URI.class), any());
+
+            assertThatThrownBy(() -> service().fetchMessageThreads(COOKIE))
+                    .isSameAs(transportFailure);
+        }
     }
 
     @Nested

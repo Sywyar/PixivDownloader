@@ -22,6 +22,8 @@ import java.util.function.Supplier;
 public final class FieldRenderer {
 
     private static final String CREDENTIAL_CLEAR_REQUESTED = "pixivdownload.credential.clearRequested";
+    private static final String CREDENTIAL_STORED = "pixivdownload.credential.stored";
+    private static final String CREDENTIAL_STATUS_LABEL = "pixivdownload.credential.statusLabel";
     private static final double LABEL_WIDTH_RATIO = 0.25;
     private static final int MIN_LABEL_WIDTH = 96;
     private static final int MIN_DESCRIPTION_WIDTH = 120;
@@ -29,6 +31,8 @@ public final class FieldRenderer {
     private static final int DESCRIPTION_HEIGHT_PADDING = 2;
     private static final int DESCRIPTION_WIDTH_PADDING = 24;
     private static final Color VALIDATION_ERROR_COLOR = new Color(180, 40, 40);
+    private static final Color CREDENTIAL_SAVED_COLOR = new Color(0, 128, 96);
+    private static final Color CREDENTIAL_PENDING_COLOR = new Color(180, 100, 0);
 
     private FieldRenderer() {}
 
@@ -51,10 +55,24 @@ public final class FieldRenderer {
             return Boolean.TRUE.equals(control.getClientProperty(CREDENTIAL_CLEAR_REQUESTED));
         }
 
+        public boolean credentialStored() {
+            return Boolean.TRUE.equals(control.getClientProperty(CREDENTIAL_STORED));
+        }
+
+        public void setCredentialStored(boolean stored) {
+            control.putClientProperty(CREDENTIAL_STORED, stored);
+            updateCredentialStatus(control);
+        }
+
+        public String credentialStatusText() {
+            Object status = control.getClientProperty(CREDENTIAL_STATUS_LABEL);
+            return status instanceof JLabel label ? label.getText() : "";
+        }
+
         public void requestCredentialClear() {
-            control.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.TRUE);
             setValue.accept("");
-            control.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.TRUE);
+            control.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, credentialStored());
+            updateCredentialStatus(control);
         }
     }
 
@@ -155,9 +173,20 @@ public final class FieldRenderer {
 
     private static RenderedField renderPassword(ConfigFieldSpec spec) {
         JPasswordField pf = new JPasswordField(24);
+        pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
+        JLabel status = null;
+        if (spec.pluginContributed()) {
+            status = new JLabel();
+            status.setFont(status.getFont().deriveFont(Font.PLAIN, 11f));
+            status.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+            pf.putClientProperty(CREDENTIAL_STORED, Boolean.FALSE);
+            pf.putClientProperty(CREDENTIAL_STATUS_LABEL, status);
+            updateCredentialStatus(pf);
+        }
         pf.getDocument().addDocumentListener(new DocumentListener() {
             private void changed() {
                 pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
+                updateCredentialStatus(pf);
             }
 
             @Override
@@ -178,18 +207,29 @@ public final class FieldRenderer {
         JButton clear = new JButton(message("gui.button.clear-credential"));
         clear.addActionListener(event -> {
             pf.setText("");
-            pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.TRUE);
+            pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED,
+                    Boolean.TRUE.equals(pf.getClientProperty(CREDENTIAL_STORED)));
+            updateCredentialStatus(pf);
         });
         JPanel row = new JPanel(new BorderLayout(4, 0));
         row.setOpaque(false);
         row.add(pf, BorderLayout.CENTER);
         row.add(clear, BorderLayout.EAST);
-        RenderedPanel p = renderFieldPanel(spec, row);
+        JComponent controlRow = row;
+        if (status != null) {
+            JPanel credentialControl = new JPanel(new BorderLayout(0, 0));
+            credentialControl.setOpaque(false);
+            credentialControl.add(row, BorderLayout.CENTER);
+            credentialControl.add(status, BorderLayout.SOUTH);
+            controlRow = credentialControl;
+        }
+        RenderedPanel p = renderFieldPanel(spec, controlRow);
         return new RenderedField(p.panel(),
                 () -> new String(pf.getPassword()).trim(),
                 v -> {
                     pf.setText(v == null ? "" : v);
                     pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
+                    updateCredentialStatus(pf);
                 },
                 pf,
                 p.validationError());
@@ -312,6 +352,39 @@ public final class FieldRenderer {
 
     private static String message(String code, Object... args) {
         return GuiMessages.get(code, args);
+    }
+
+    private static void updateCredentialStatus(JComponent control) {
+        Object statusComponent = control.getClientProperty(CREDENTIAL_STATUS_LABEL);
+        if (!(statusComponent instanceof JLabel status)) {
+            return;
+        }
+        boolean clearRequested = Boolean.TRUE.equals(
+                control.getClientProperty(CREDENTIAL_CLEAR_REQUESTED));
+        boolean stored = Boolean.TRUE.equals(control.getClientProperty(CREDENTIAL_STORED));
+        boolean entered = control instanceof JPasswordField passwordField
+                && passwordField.getDocument().getLength() > 0;
+
+        String messageCode;
+        Color color;
+        if (clearRequested) {
+            messageCode = "gui.credential.status.clear-pending";
+            color = CREDENTIAL_PENDING_COLOR;
+        } else if (entered) {
+            messageCode = stored
+                    ? "gui.credential.status.replace-pending"
+                    : "gui.credential.status.save-pending";
+            color = CREDENTIAL_PENDING_COLOR;
+        } else if (stored) {
+            messageCode = "gui.credential.status.saved";
+            color = CREDENTIAL_SAVED_COLOR;
+        } else {
+            messageCode = "gui.credential.status.not-saved";
+            color = Color.GRAY;
+        }
+        status.setText(message(messageCode));
+        status.setToolTipText(status.getText());
+        status.setForeground(color);
     }
 
     private static JTextArea createTextArea(String text) {

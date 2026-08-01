@@ -4,21 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,28 +44,20 @@ public class PixivFetchService {
     /** 「已关注用户的新作」逐页安全上限（feed 窗口本就有限，仅作兜底防御）。 */
     private static final int FOLLOW_LATEST_MAX_PAGES = 100;
 
-    private final RestTemplate restTemplate;
+    private final PixivAjaxClient pixivAjaxClient;
     private final ObjectMapper objectMapper;
 
     // ---- 底层代理拉取 -------------------------------------------------------
 
     /** 经代理 GET 一个 Pixiv URL，按 UTF-8 解析为字符串。 */
     public String proxyGet(String url, String cookie) {
-        return exchange(restTemplate.exchange(url, HttpMethod.GET, buildEntity(cookie), byte[].class));
+        return proxyGetUri(URI.create(url), cookie);
     }
 
     /** 与 {@link #proxyGet} 相同，但接受已构造的 {@link URI}（调用方负责唯一一次编码）。 */
     public String proxyGetUri(URI uri, String cookie) {
-        return exchange(restTemplate.exchange(uri, HttpMethod.GET, buildEntity(cookie), byte[].class));
-    }
-
-    private HttpEntity<Void> buildEntity(String cookie) {
-        return new HttpEntity<>(PixivRequestHeaders.ajax(cookie));
-    }
-
-    private static String exchange(ResponseEntity<byte[]> response) {
-        byte[] body = response.getBody();
-        return body != null ? new String(body, StandardCharsets.UTF_8) : null;
+        String body = pixivAjaxClient.get(uri, cookie);
+        return body == null || body.isEmpty() ? null : body;
     }
 
     // ---- 高层作品发现 / 元数据解析（供后台调度复用） ------------------------
@@ -187,16 +173,6 @@ public class PixivFetchService {
             return new IllustSeriesMeta(s.path("caption").asText(""), extractSeriesCoverUrl(s));
         }
         return new IllustSeriesMeta("", "");
-    }
-
-    /**
-     * 拉取小说系列的富信息（简介 + 封面 URL + 系列标签），供计划任务下载时与 web 链路一致地补齐系列元数据。
-     * 取 {@code /ajax/novel/series/{id}} 的 {@code body.caption} / 封面 / tags。
-     */
-    public NovelSeriesMeta fetchNovelSeriesMeta(long seriesId, String cookie) throws IOException {
-        JsonNode b = requireBody(proxyGet(
-                "https://www.pixiv.net/ajax/novel/series/" + seriesId + "?lang=zh", cookie));
-        return new NovelSeriesMeta(b.path("caption").asText(""), extractSeriesCoverUrl(b), extractTags(b));
     }
 
     /** 解析单作品的原图 URL 列表（插画 / 漫画）。 */
@@ -599,66 +575,6 @@ public class PixivFetchService {
         return new ArrayList<>(ids.keySet());
     }
 
-    /**
-     * 拉取单本小说的完整详情（正文 markup、标签、内嵌图 URL、封面、系列、字数/收藏），
-     * 供调度的小说下载组装 {@code NovelDownloadRequest}。
-     */
-    public NovelDetail fetchNovelDetail(String novelId, String cookie) throws IOException {
-        return fetchNovelDetailCapture(novelId, cookie).detail();
-    }
-
-    /**
-     * 同 {@link #fetchNovelDetail}，但<b>额外保留</b>原始 {@code /ajax/novel/{id}} body，供
-     * meta 桥归一化小说 sidecar（剪枝时额外剥正文 {@code content} 与内嵌图 {@code textEmbeddedImages}）。
-     */
-    public NovelDetailCapture fetchNovelDetailCapture(String novelId, String cookie) throws IOException {
-        URI uri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("id", novelId))
-                .encode()
-                .toUri();
-        JsonNode b = requireBody(proxyGetUri(uri, cookie));
-        Long seriesId = null;
-        Long seriesOrder = null;
-        String seriesTitle = null;
-        JsonNode nav = b.path("seriesNavData");
-        if (nav.isObject()) {
-            long sid = nav.path("seriesId").asLong(0);
-            if (sid > 0) {
-                seriesId = sid;
-                seriesOrder = nav.path("order").asLong(0);
-                seriesTitle = nav.path("title").asText("");
-            }
-        }
-        String content = b.path("content").asText("");
-        NovelDetail detail = new NovelDetail(
-                Long.parseLong(novelId),
-                b.path("title").asText(""),
-                b.path("xRestrict").asInt(0),
-                b.path("aiType").asInt(0) >= 2,
-                b.path("bookmarkCount").asInt(-1),
-                parsePositiveLong(b.path("userId").asText(null)),
-                b.path("userName").asText(""),
-                b.path("description").asText(""),
-                extractTags(b),
-                seriesId,
-                seriesOrder,
-                seriesTitle,
-                content,
-                b.has("wordCount") ? b.path("wordCount").asInt(0) : null,
-                b.has("characterCount") ? b.path("characterCount").asInt(0) : null,
-                extractReadingTimeSeconds(b),
-                countPages(content),
-                b.path("isOriginal").asBoolean(false),
-                b.path("language").asText(""),
-                extractNovelCoverUrl(b),
-                extractUploadTimestamp(b),
-                extractTextEmbeddedImages(b)
-        );
-        return new NovelDetailCapture(detail, b);
-    }
-
     // ---- 解析辅助（与 PixivProxyController 同源，供服务端发现路径复用） ----------
 
     /* 标签词元（原名 + 英文翻译，已小写去重），供标签筛选的不区分大小写匹配。 */
@@ -678,11 +594,11 @@ public class PixivFetchService {
         return "";
     }
 
-    private static List<TagDto> extractTags(JsonNode body) {
+    private static List<WorkTag> extractTags(JsonNode body) {
         JsonNode tagsArr = body.path("tags").path("tags");
         if (!tagsArr.isArray() || tagsArr.isEmpty()) tagsArr = body.path("tags");
         if (!tagsArr.isArray() || tagsArr.isEmpty()) return List.of();
-        List<TagDto> out = new ArrayList<>();
+        List<WorkTag> out = new ArrayList<>();
         for (JsonNode t : tagsArr) {
             String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
             if (name.isEmpty()) continue;
@@ -692,129 +608,8 @@ public class PixivFetchService {
                 String en = translation.path("en").asText("");
                 if (!en.isEmpty()) translated = en;
             }
-            out.add(new TagDto(name, translated));
+            out.add(new WorkTag(null, name, translated));
         }
-        return out;
-    }
-
-    private static Integer extractReadingTimeSeconds(JsonNode node) {
-        for (String field : new String[]{"readingTimeSeconds", "readingTime", "readTime", "estimatedReadingTime"}) {
-            JsonNode value = node.path(field);
-            if (value.isMissingNode() || value.isNull()) continue;
-            if (value.isNumber()) {
-                int seconds = value.asInt(0);
-                return seconds > 0 ? seconds : null;
-            }
-            String digits = value.asText("").replaceAll("[^0-9]", "");
-            if (digits.isEmpty()) continue;
-            try {
-                int seconds = Integer.parseInt(digits);
-                return seconds > 0 ? seconds : null;
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return null;
-    }
-
-    private static String extractNovelCoverUrl(JsonNode node) {
-        for (String parent : List.of("imageUrls", "urls")) {
-            JsonNode urls = node.path(parent);
-            if (urls.isObject()) {
-                for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
-                    String cover = urls.path(key).asText("");
-                    if (!cover.isBlank()) return cover;
-                }
-            }
-        }
-        for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
-            String cover = node.path(key).asText("");
-            if (!cover.isBlank()) return cover;
-        }
-        return "";
-    }
-
-    /**
-     * 解析小说上传时间为 epoch 毫秒：先按 ISO 日期串候选 {@code uploadDate}/{@code createDate}/{@code updateDate}，
-     * 再兼容 {@code uploadTimestamp}（可能是 epoch 毫秒 / 秒数字，或 ISO 字符串）。类型安全，非法值不退化成 0。
-     */
-    static Long extractUploadTimestamp(JsonNode node) {
-        for (String field : List.of("uploadDate", "createDate", "updateDate")) {
-            String iso = node.path(field).asText(null);
-            if (iso == null || iso.isBlank()) continue;
-            try {
-                return OffsetDateTime.parse(iso).toInstant().toEpochMilli();
-            } catch (Exception ignored) {
-            }
-        }
-        return parseFlexibleEpochMillis(node.path("uploadTimestamp"));
-    }
-
-    /**
-     * 解析「可能是 epoch 毫秒 / epoch 秒数字，或 ISO 字符串」的时间值为 epoch 毫秒。
-     * 数字经 {@link EpochMillisNormalizer} 在毫秒/秒间消歧；非法字符串（既非 ISO 又非数字）返回
-     * {@code null}，<b>绝不</b>退化成 0。
-     */
-    static Long parseFlexibleEpochMillis(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        if (node.isNumber()) {
-            return normalizeEpochMillis(node.asLong());
-        }
-        if (node.isTextual()) {
-            String text = node.asText("").trim();
-            if (text.isEmpty()) {
-                return null;
-            }
-            try {
-                return OffsetDateTime.parse(text).toInstant().toEpochMilli();
-            } catch (Exception ignored) {
-                // 非 ISO，再试纯数字串
-            }
-            try {
-                return normalizeEpochMillis(Long.parseLong(text));
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    /** epoch 秒 ↔ 毫秒消歧；{@code <= 0} 视为无效。 */
-    private static Long normalizeEpochMillis(long value) {
-        if (value <= 0) {
-            return null;
-        }
-        return EpochMillisNormalizer.normalize(value);
-    }
-
-    private static Integer countPages(String content) {
-        if (content == null || content.isEmpty()) return 1;
-        int pages = 1;
-        int idx = 0;
-        while ((idx = content.indexOf("[newpage]", idx)) >= 0) {
-            pages++;
-            idx += "[newpage]".length();
-        }
-        return pages;
-    }
-
-    /** 抽取 {@code body.textEmbeddedImages} 中的 {@code original} URL（仅 pximg.net）。 */
-    private static Map<String, String> extractTextEmbeddedImages(JsonNode body) {
-        JsonNode node = body.path("textEmbeddedImages");
-        if (!node.isObject() || node.isEmpty()) return Map.of();
-        Map<String, String> out = new LinkedHashMap<>();
-        node.fields().forEachRemaining(e -> {
-            String url = e.getValue().path("urls").path("original").asText("");
-            if (url.isBlank()) return;
-            try {
-                String host = URI.create(url).getHost();
-                if (host == null || !host.endsWith(".pximg.net")) return;
-            } catch (IllegalArgumentException ignored) {
-                return;
-            }
-            out.put(e.getKey(), url);
-        });
         return out;
     }
 
@@ -826,15 +621,20 @@ public class PixivFetchService {
      * 读取站内信线程（{@code latest_message_threads2}），供计划任务过度访问检测 + cookie 存活探测复用。
      * 沿用 byte[].class + UTF-8 解析（不请求 {@code String.class}）。返回 {@code body} 节点。
      *
-     * <p>上游 4xx（含 401/403）、登录重定向导致的非 JSON 回包、或 {@code error=true} 都视为
+     * <p>上游 3xx/4xx（含登录重定向与 401/403）、非 JSON 回包、或 {@code error=true} 都视为
      * 「cookie 已死」并上抛 {@link PixivFetchException}——调用方（{@code OveruseWarningService}）据此判定 COOKIE_DEAD。
      */
     public JsonNode fetchMessageThreads(String cookie) throws IOException {
         String json;
         try {
             json = proxyGet(MESSAGE_THREADS_URL, cookie);
-        } catch (HttpClientErrorException e) {
-            throw new PixivFetchException("message threads http " + e.getStatusCode().value());
+        } catch (PixivAjaxException e) {
+            if (e.failure() == PixivAjaxFailure.HTTP_STATUS
+                    && e.statusCode() >= 300
+                    && e.statusCode() < 500) {
+                throw new PixivFetchException("message threads http " + e.statusCode());
+            }
+            throw e;
         }
         if (json == null || json.isBlank()) {
             throw new PixivFetchException("empty message threads response");
@@ -882,7 +682,7 @@ public class PixivFetchService {
      */
     public record ArtworkMeta(int illustType, String title, int xRestrict, boolean ai,
                               Long authorId, String authorName, Long seriesId, Long seriesOrder,
-                              int bookmarkCount, int pageCount, List<TagDto> tags,
+                              int bookmarkCount, int pageCount, List<WorkTag> tags,
                               String description, String seriesTitle) {
         /** illustType==2 为动图（ugoira）。 */
         public boolean isUgoira() {
@@ -901,36 +701,12 @@ public class PixivFetchService {
     public record ArtworkPages(List<String> urls, JsonNode body) {
     }
 
-    /** 小说详情 + 原始 {@code /ajax/novel/{id}} body（meta sidecar 归一化用）。 */
-    public record NovelDetailCapture(NovelDetail detail, JsonNode body) {
-    }
-
     /** 插画 / 漫画系列富信息（简介 + 封面 URL）。 */
     public record IllustSeriesMeta(String caption, String coverUrl) {
     }
 
-    /** 小说系列富信息（简介 + 封面 URL + 系列标签）。 */
-    public record NovelSeriesMeta(String caption, String coverUrl, List<TagDto> tags) {
-    }
-
     /** 动图帧信息。 */
     public record UgoiraInfo(String zipUrl, List<Integer> delays) {
-    }
-
-    /**
-     * 单本小说的完整发现 / 解析结果，供调度组装 {@code NovelDownloadRequest}。
-     *
-     * @param content         正文原始 markup（合订 / 再导出的权威源）
-     * @param embeddedImages  {@code [uploadedimage:id]} → pximg 原图 URL
-     * @param tags            标签（原名 + 英文翻译），同时供落库与服务端标签筛选
-     */
-    public record NovelDetail(long novelId, String title, int xRestrict, boolean ai, int bookmarkCount,
-                              Long authorId, String authorName, String description, List<TagDto> tags,
-                              Long seriesId, Long seriesOrder, String seriesTitle,
-                              String content, Integer wordCount, Integer textLength,
-                              Integer readingTimeSeconds, Integer pageCount, boolean original,
-                              String language, String coverUrl, Long uploadTimestamp,
-                              Map<String, String> embeddedImages) {
     }
 
     /** Pixiv AJAX 以 {@code error=true} 返回时抛出（常见于 Cookie 失效 / 受限作品需登录）。 */

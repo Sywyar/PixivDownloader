@@ -86,6 +86,24 @@ class GuiConfigContributionTest {
     }
 
     @Test
+    @DisplayName("PASSWORD 类型始终归一为敏感字段")
+    void passwordTypeIsAlwaysNormalizedToSensitive() {
+        GuiConfigFieldContribution field = new GuiConfigFieldContribution(
+                "demo.secret",
+                GuiConfigGroups.PLUGINS,
+                "field.secret.label",
+                "field.secret.help",
+                GuiConfigFieldType.PASSWORD,
+                "",
+                40,
+                false,
+                false);
+
+        assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD);
+        assertThat(field.sensitive()).isTrue();
+    }
+
+    @Test
     @DisplayName("条件工厂只产生 key/operator/value 三元组")
     void conditionFactoriesCreatePureTriples() {
         assertThat(GuiConfigCondition.isFalse("a"))
@@ -201,5 +219,20 @@ class GuiConfigContributionTest {
         assertThat(summary.arrayPath()).isEqualTo("results");
         assertThat(summary.statusPath()).isEqualTo("status");
         assertThat(summary.successStatus()).isEqualTo("OK");
+    }
+
+    @Test
+    @DisplayName("action 结果源不提供原始响应正文")
+    void actionResultSourcesExcludeRawResponseBodies() {
+        assertThat(GuiConfigActionResultSource.values())
+                .extracting(Enum::name)
+                .containsExactly(
+                        "REACHABLE",
+                        "HTTP_2XX",
+                        "HTTP_STATUS",
+                        "HTTP_STATUS_TEXT",
+                        "JSON",
+                        "SUMMARY")
+                .doesNotContain("RAW_BODY");
     }
 }

@@ -5,7 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Server 酱（Turbo / ³）通道配置，映射 {@code config.yaml} 中的 {@code push.serverchan.*}。
+ * Server 酱（Turbo / ³）通道配置，绑定插件子上下文中的 {@code push.serverchan.*}；字段由
+ * {@code config/plugins/push.properties} 与 {@code config/credentials/push.properties}
+ * 对应属性源提供。
  */
 @Data
 @Component

@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.plugin.api.gui;
 /**
  * Layout metadata for a contributed GUI configuration field.
  *
- * @param fieldKey config field key being placed
+ * @param fieldKey config field key being placed; the host accepts only fields owned by the contributing plugin
  * @param cardId optional card id for card-switcher layouts
  * @param cardLabelKey optional i18n key for the card label
  * @param i18nNamespace optional i18n namespace; blank means the plugin display namespace

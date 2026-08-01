@@ -5,11 +5,18 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** 单作品同步执行的安全结果；部分失败或关系未写入必须抛执行异常，不能返回已完成。 */
+/**
+ * 单作品同步执行的安全结果；部分失败或关系未写入必须抛执行异常，不能返回已完成。机器码与属性不得包含
+ * 原始凭据或可逆派生材料。
+ *
+ * <p>{@code liveStatusAvailable} 只声明当前结果允许宿主在展示队列时向同一作品执行器查询安全实时状态；
+ * 它不携带状态内容，也不允许宿主据此解释某个插件的私有阶段或属性。
+ */
 public record ScheduledWorkResult(
         Outcome outcome,
         String resultCode,
-        Map<String, String> attributes
+        Map<String, String> attributes,
+        boolean liveStatusAvailable
 ) {
 
     public static final int MAX_ATTRIBUTES = 16;
@@ -27,6 +34,16 @@ public record ScheduledWorkResult(
         SKIPPED
     }
 
+    /**
+     * 构造不需要实时状态叠加的结果。
+     */
+    public ScheduledWorkResult(
+            Outcome outcome,
+            String resultCode,
+            Map<String, String> attributes) {
+        this(outcome, resultCode, attributes, false);
+    }
+
     public ScheduledWorkResult {
         if (outcome == null) {
             throw new IllegalArgumentException("work outcome must not be null");
@@ -39,11 +56,13 @@ public record ScheduledWorkResult(
     }
 
     public static ScheduledWorkResult completed() {
-        return new ScheduledWorkResult(Outcome.COMPLETED, "work.completed", Map.of());
+        return new ScheduledWorkResult(
+                Outcome.COMPLETED, "work.completed", Map.of(), false);
     }
 
     public static ScheduledWorkResult alreadyCompleted() {
-        return new ScheduledWorkResult(Outcome.ALREADY_COMPLETED, "work.already-completed", Map.of());
+        return new ScheduledWorkResult(
+                Outcome.ALREADY_COMPLETED, "work.already-completed", Map.of(), false);
     }
 
     private static Map<String, String> validateAttributes(Map<String, String> values) {

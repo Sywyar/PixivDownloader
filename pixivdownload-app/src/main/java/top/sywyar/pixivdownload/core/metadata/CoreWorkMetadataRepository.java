@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
@@ -40,9 +41,6 @@ import java.util.Set;
 @Component
 @RequiredArgsConstructor
 public class CoreWorkMetadataRepository implements WorkMetadataRepository {
-
-    /** 插画侧「模板 id 缺省取 1」的既有规则（与画廊页装配一致）。 */
-    private static final long DEFAULT_FILE_NAME_TEMPLATE_ID = 1L;
 
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
@@ -91,13 +89,17 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         Map<Long, List<TagDto>> tagsByArtwork = pixivDatabase.getArtworkTags(artworkIds);
         Set<Long> templateIds = new HashSet<>();
         for (ArtworkRecord rec : records) {
-            templateIds.add(rec.fileName() == null ? DEFAULT_FILE_NAME_TEMPLATE_ID : rec.fileName());
+            templateIds.add(rec.fileName() == null
+                    ? PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID
+                    : rec.fileName());
         }
         Map<Long, String> templates = pixivDatabase.getFileNameTemplates(templateIds);
 
         List<WorkMetadata> out = new ArrayList<>(records.size());
         for (ArtworkRecord rec : records) {
-            Long templateId = rec.fileName() == null ? DEFAULT_FILE_NAME_TEMPLATE_ID : rec.fileName();
+            Long templateId = rec.fileName() == null
+                    ? PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID
+                    : rec.fileName();
             Long seriesId = rec.seriesId();
             out.add(new WorkMetadata(
                     rec.artworkId(),
@@ -118,8 +120,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.moved(),
                     rec.moveFolder(),
                     rec.moveTime(),
-                    rec.fileName(),
-                    templates.get(templateId),
+                    new WorkFileNameTemplateRef(rec.fileName(), templates.get(templateId)),
                     rec.uploadTime(),
                     rec.isOriginal()));
         }
@@ -163,7 +164,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         Map<Long, String> seriesTitles = resolveNovelSeriesTitles(seriesIds);
         List<Long> novelIds = records.stream().map(NovelMetadataRow::novelId).toList();
         Map<Long, List<TagDto>> tagsByNovel = novelMetadataRepository.getNovelTagsBatch(novelIds);
-        // 小说侧没有「模板 id 缺省取 1」规则：仅 fileName 非空时补模板内容（与原画廊装配一致）
+        // 小说侧在模板目录键缺省时不补默认模板：仅 fileName 非空时补模板内容（保持既有画廊装配语义）
         Map<Long, String> templates = templateIds.isEmpty()
                 ? Map.of()
                 : pixivDatabase.getFileNameTemplates(templateIds);
@@ -189,8 +190,9 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     false,
                     null,
                     null,
-                    rec.fileName(),
-                    rec.fileName() == null ? null : templates.get(rec.fileName()),
+                    rec.fileName() == null
+                            ? null
+                            : new WorkFileNameTemplateRef(rec.fileName(), templates.get(rec.fileName())),
                     rec.uploadTime(),
                     rec.isOriginal()));
         }

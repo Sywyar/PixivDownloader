@@ -214,6 +214,25 @@ class ScheduleContractTest {
     }
 
     @Test
+    @DisplayName("作品结果显式声明实时状态可用性且旧构造默认关闭")
+    void workResultDeclaresLiveStatusAvailability() {
+        ScheduledWorkResult defaultResult = new ScheduledWorkResult(
+                ScheduledWorkResult.Outcome.COMPLETED,
+                "fixture.completed",
+                Map.of("detail", "safe"));
+        ScheduledWorkResult liveResult = new ScheduledWorkResult(
+                ScheduledWorkResult.Outcome.COMPLETED,
+                "fixture.completed",
+                Map.of("detail", "safe"),
+                true);
+
+        assertThat(defaultResult.liveStatusAvailable()).isFalse();
+        assertThat(ScheduledWorkResult.completed().liveStatusAvailable()).isFalse();
+        assertThat(ScheduledWorkResult.alreadyCompleted().liveStatusAvailable()).isFalse();
+        assertThat(liveResult.liveStatusAvailable()).isTrue();
+    }
+
+    @Test
     @DisplayName("来源 descriptor 保留迁移别名且不再实现旧来源桥")
     void sourceDescriptorIsPureMetadata() {
         Set<String> aliases = new LinkedHashSet<>(Set.of("USER_NEW"));
@@ -499,6 +518,8 @@ class ScheduleContractTest {
         Map<String, String> mutable = new LinkedHashMap<>();
         mutable.put("modifiedAt", "1720000000000");
         mutable.put("excerpt", "risk warning");
+        mutable.put("tokenCount", "2");
+        mutable.put("cookiePresent", "false");
 
         ScheduledGuardEvidence evidence = new ScheduledGuardEvidence(mutable);
         mutable.put("later", "changed");
@@ -506,6 +527,8 @@ class ScheduleContractTest {
         assertThat(evidence.attributes())
                 .containsEntry("modifiedAt", "1720000000000")
                 .containsEntry("excerpt", "risk warning")
+                .containsEntry("tokenCount", "2")
+                .containsEntry("cookiePresent", "false")
                 .doesNotContainKey("later");
         assertThatThrownBy(() -> evidence.attributes().put("extra", "value"))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -528,14 +551,64 @@ class ScheduleContractTest {
                 Map.of("connect.sid", "opaque-session-value")))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ScheduledGuardEvidence(
-                Map.of("sid_guard", "opaque-session-value")))
+                Map.of("excerpt", "Cookie: opaque-session-value")))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ScheduledGuardEvidence(
+                Map.of("excerpt", "{\"token\":\"opaque-token-value\"}")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ScheduledGuardEvidence(
+                Map.of("excerpt", "tokenCount=opaque-token-value")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ScheduledGuardEvidence(
+                Map.of("excerpt", "{\"cookiePresent\":\"opaque-cookie-value\"}")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ScheduledGuardEvidence(
+                Map.of("tokenCount", "opaque-token-value")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ScheduledGuardEvidence(
+                Map.of("cookiePresent", "opaque-cookie-value")))
+                .isInstanceOf(IllegalArgumentException.class);
+        for (String chainedFieldName : List.of(
+                "tokenCountValue",
+                "cookiePresentValue",
+                "sidCountHeader",
+                "tokenPresentCount",
+                "cookieEnabledVersion",
+                "sidCountPresent")) {
+            assertThatThrownBy(() -> new ScheduledGuardEvidence(
+                    Map.of(chainedFieldName, "opaque-credential-value")))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName(chainedFieldName))
+                    .isTrue();
+            assertThat(ScheduledSensitiveFieldNames
+                    .isSensitiveMetadataFieldName(chainedFieldName))
+                    .isFalse();
+            assertThat(ScheduledSensitiveFieldNames
+                    .isSafeMetadataValue(chainedFieldName, "0"))
+                    .isFalse();
+        }
         assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName("source.collectionId"))
                 .isFalse();
         assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName("seriesId")).isFalse();
         assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName("seriesID")).isFalse();
         assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName("userId")).isFalse();
         assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName("sidCount")).isFalse();
+        assertThat(ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName("sidCount")).isTrue();
+        assertThat(ScheduledSensitiveFieldNames.isSafeMetadataValue("sidCount", "0")).isTrue();
+        for (String punctuatedMetadata : List.of("tokenCount!", "token-co-unt")) {
+            assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName(punctuatedMetadata))
+                    .isFalse();
+            assertThat(ScheduledSensitiveFieldNames
+                    .isSensitiveMetadataFieldName(punctuatedMetadata))
+                    .isTrue();
+            assertThat(ScheduledSensitiveFieldNames
+                    .isSafeMetadataValue(punctuatedMetadata, "0"))
+                    .isTrue();
+            assertThat(ScheduledSensitiveFieldNames
+                    .isSafeMetadataValue(punctuatedMetadata, "opaque-token-value"))
+                    .isFalse();
+        }
+        assertThat(ScheduledSensitiveFieldNames.isSensitiveFieldName("signatureAlgorithm")).isTrue();
         assertThatThrownBy(() -> new ScheduledGuardEvidence(
                 Map.of("excerpt", "中".repeat(1_366))))
                 .isInstanceOf(IllegalArgumentException.class);

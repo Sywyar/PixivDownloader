@@ -2,8 +2,10 @@ package top.sywyar.pixivdownload.plugin.api.schedule.credential;
 
 /**
  * 宿主为每次能力调用独立提供的短生命周期凭证句柄。实现必须让 {@link #close()} 幂等并清除可清除的内存副本；
- * 宿主在调用结束的 finally 中执行最终关闭，插件不得缓存、转交句柄或 {@link #copySecret()} 的结果，也不得把凭证
- * 写入作品载荷、队列、pending、异常或日志。
+ * 宿主在调用结束的 finally 中执行最终关闭，插件不得缓存、转交句柄或 {@link #copySecret()} 的结果。
+ *
+ * <p>插件不得通过回调返回值、宿主提交入口、异常消息或 cause 等跨边界载体返回、提交或抛出原始凭据或
+ * 可逆派生材料，也不得将其写入作品载荷、队列、pending、checkpoint、状态、证据或日志。
  */
 public interface ScheduledCredentialHandle extends AutoCloseable {
 

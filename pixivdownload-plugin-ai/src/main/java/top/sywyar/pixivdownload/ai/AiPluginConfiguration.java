@@ -5,10 +5,12 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.ai.controller.AiStatusController;
 import top.sywyar.pixivdownload.ai.controller.AiTestController;
+import top.sywyar.pixivdownload.ai.http.AiHttpClientConfiguration;
 import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
@@ -17,6 +19,7 @@ import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import java.util.function.Supplier;
 
 @Configuration
+@Import(AiHttpClientConfiguration.class)
 public class AiPluginConfiguration {
 
     @Bean

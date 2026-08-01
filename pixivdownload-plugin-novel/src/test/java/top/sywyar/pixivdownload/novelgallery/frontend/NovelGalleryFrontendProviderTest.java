@@ -60,9 +60,12 @@ class NovelGalleryFrontendProviderTest {
                 .contains("registerDetailAction")
                 .contains("id: 'novel.text-renderer'")
                 .contains("mediaKinds: ['TEXT']")
-                .contains("media.content")
+                .contains("window.fetch(mediaUrl")
+                .contains("'/api/gallery/novel/'")
+                .contains("payload.content")
                 .contains("context.t")
                 .contains("textContent")
+                .doesNotContain("media.content")
                 .doesNotContain("innerHTML", "outerHTML", "insertAdjacentHTML", "eval(");
     }
 

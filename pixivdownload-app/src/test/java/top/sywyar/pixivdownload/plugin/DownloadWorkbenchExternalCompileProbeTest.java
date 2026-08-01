@@ -82,7 +82,8 @@ class DownloadWorkbenchExternalCompileProbeTest {
                         return List.of(new I18nContribution("batch", "i18n.web.batch", 5));
                     }
                     public List<UserscriptContribution> userscripts() {
-                        return List.of(new UserscriptContribution("classpath:/static/userscripts/*.user.js"));
+                        return List.of(new UserscriptContribution(
+                                "probe", "classpath:/static/userscripts/probe.user.js"));
                     }
                     public List<DownloadTypeDescriptor> downloadTypes() {
                         DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(

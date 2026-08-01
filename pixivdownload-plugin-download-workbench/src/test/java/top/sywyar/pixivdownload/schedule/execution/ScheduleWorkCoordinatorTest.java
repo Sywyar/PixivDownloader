@@ -9,6 +9,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
@@ -18,15 +19,18 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -53,6 +57,8 @@ class ScheduleWorkCoordinatorTest {
 
     private static final String ILLUST = "illust";
     private static final String NOVEL = "novel";
+    private static final ScheduleCapabilityOwner WORK_OWNER =
+            new ScheduleCapabilityOwner("fixture", "fixture", 1L);
 
     @Test
     @Timeout(5)
@@ -232,9 +238,9 @@ class ScheduleWorkCoordinatorTest {
                     coordinator, "runQueue");
             assertThat(queue).isNotNull();
             assertThat(queue.snapshot()).singleElement().satisfies(item -> {
-                assertThat(item.getId()).isEqualTo(workId);
-                assertThat(item.getStatus()).isEqualTo(ScheduleRunQueue.STATUS_FAILED);
-                assertThat(item.getMessage()).isEqualTo("schedule.work.plugin-failure");
+                assertThat(item.key().id()).isEqualTo(workId);
+                assertThat(item.status()).isEqualTo(ScheduleRunQueue.STATUS_FAILED);
+                assertThat(item.message()).isEqualTo("schedule.work.plugin-failure");
             });
         }
     }
@@ -276,7 +282,7 @@ class ScheduleWorkCoordinatorTest {
                 coordinator, "runQueue");
         assertThat(queue).isNotNull();
         assertThat(queue.snapshot())
-                .extracting(ScheduleRunQueue.Item::getStatus)
+                .extracting(ScheduleRunQueue.Item::status)
                 .containsExactly(
                         ScheduleRunQueue.STATUS_FAILED,
                         ScheduleRunQueue.STATUS_FAILED);
@@ -355,6 +361,131 @@ class ScheduleWorkCoordinatorTest {
         verify(store).upsertPendingWork(argThatPending(
                 ILLUST, "dispatch", "schedule.work.dispatch-failed"));
         assertCoordinatorAccountingCleared(coordinator, limiter);
+    }
+
+    @Test
+    @DisplayName("协调器原样保存第三方作品展示与已校验结果而不解释插件属性")
+    void coordinatorStoresNeutralPresentationAndValidatedResult() throws Exception {
+        String workType = "third-party.text";
+        ScheduledWorkResult result = new ScheduledWorkResult(
+                ScheduledWorkResult.Outcome.COMPLETED,
+                "third-party.completed",
+                Map.of(
+                        "title", "执行结果标题",
+                        "xRestrict", "2",
+                        "autoTranslateSubmitted", "true",
+                        "privatePhase", "indexing"),
+                true);
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store(),
+                Map.of(workType, executor(workType, (work, context) -> result)),
+                new SyncTaskExecutor(),
+                5);
+        ScheduledWork submitted = new ScheduledWork(
+                new ScheduledWorkKey(workType, "opaque/id"),
+                "third-party.work",
+                1,
+                "{}",
+                new ScheduledWorkPresentation(
+                        "来源标题",
+                        "来源作者",
+                        "thumbnail-ref",
+                        Map.of("sourceHint", "text")),
+                List.of());
+
+        coordinator.submit(submitted);
+        coordinator.drain();
+
+        ScheduleRunQueue.Run run = (ScheduleRunQueue.Run) ReflectionTestUtils.getField(
+                coordinator, "runQueue");
+        assertThat(run).isNotNull();
+        assertThat(run.snapshot()).singleElement().satisfies(item -> {
+            assertThat(item.key()).isEqualTo(submitted.key());
+            assertThat(item.presentation()).isEqualTo(submitted.presentation());
+            assertThat(item.result()).isEqualTo(result);
+            assertThat(item.result().attributes())
+                    .containsEntry("title", "执行结果标题")
+                    .containsEntry("autoTranslateSubmitted", "true")
+                    .containsEntry("privatePhase", "indexing");
+            assertThat(item.result().liveStatusAvailable()).isTrue();
+            assertThat(item.status()).isEqualTo(ScheduleRunQueue.STATUS_DOWNLOADED);
+            assertThat(item.message()).isEqualTo("third-party.completed");
+        });
+    }
+
+    @Test
+    @DisplayName("作品结果与失败码中的原始凭证回显只留下固定安全机器码")
+    void workCallbackExactCredentialEchoIsNormalized() throws Exception {
+        ScheduledTaskStore resultStore = store();
+        ScheduleWorkCoordinator resultCoordinator = coordinator(
+                resultStore,
+                Map.of(ILLUST, executor(
+                        ILLUST,
+                        (work, context) -> new ScheduledWorkResult(
+                                ScheduledWorkResult.Outcome.COMPLETED,
+                                "fixture-secret",
+                                Map.of()))),
+                new SyncTaskExecutor(),
+                5);
+
+        resultCoordinator.submit(work(ILLUST, "result-echo"));
+        assertThatThrownBy(resultCoordinator::drain)
+                .isInstanceOfSatisfying(
+                        ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.work.invalid-result"));
+        verify(resultStore).upsertPendingWork(argThatPending(
+                ILLUST, "result-echo", "schedule.work.invalid-result"));
+
+        ScheduledTaskStore failureStore = store();
+        ScheduleWorkCoordinator failureCoordinator = coordinator(
+                failureStore,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "fixture-secret");
+                })),
+                new SyncTaskExecutor(),
+                5);
+
+        failureCoordinator.submit(work(ILLUST, "failure-echo"));
+        assertThatCode(failureCoordinator::drain).doesNotThrowAnyException();
+        verify(failureStore).upsertPendingWork(argThatPending(
+                ILLUST, "failure-echo", "schedule.work.invalid-failure-code"));
+    }
+
+    @Test
+    @DisplayName("旧 pending 中的原始凭证回显在重放前被拒绝")
+    void legacyPendingCredentialEchoIsRejectedBeforeReplay() {
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store(),
+                Map.of(ILLUST, executor(
+                        ILLUST, (work, context) -> ScheduledWorkResult.completed())),
+                new SyncTaskExecutor(),
+                5,
+                new ScheduleWorkConcurrencyLimiter(),
+                8,
+                "sid=12345");
+        ScheduledPendingWork polluted = new ScheduledPendingWork(
+                1L,
+                ILLUST,
+                "legacy-echo",
+                "fixture.work",
+                1,
+                "{\"wrapper\":\"{\\\"cursor\\\":12345}\"}",
+                "[]",
+                "{}",
+                "fixture.retry",
+                "{}",
+                0,
+                1L,
+                null);
+
+        assertThatThrownBy(() -> coordinator.loadPending(List.of(polluted)))
+                .isInstanceOfSatisfying(
+                        ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.pending.payload-invalid"));
     }
 
     @Test
@@ -491,21 +622,145 @@ class ScheduleWorkCoordinatorTest {
             int credentialFailureLimit,
             ScheduleWorkConcurrencyLimiter concurrencyLimiter,
             int workConcurrencyLimit) {
+        return coordinator(
+                store, executors, taskExecutor, credentialFailureLimit,
+                concurrencyLimiter, workConcurrencyLimit, "fixture-secret");
+    }
+
+    @Test
+    @DisplayName("pending 耐久后才在作品租约内复制安全通知展示且隔离插件失败与凭证回显")
+    void pendingPresentationIsProjectedAfterPersistenceAndSanitized() throws Exception {
+        ScheduledTaskStore store = store();
+        Set<String> persistedIds = new HashSet<>();
+        List<String> projectedBeforePersistence = new ArrayList<>();
+        when(store.upsertPendingWork(any())).thenAnswer(invocation -> {
+            ScheduledPendingWork row = invocation.getArgument(0);
+            persistedIds.add(row.workId());
+            return 1;
+        });
+        ScheduledWorkNotificationPresentation safePresentation =
+                new ScheduledWorkNotificationPresentation(
+                        "fixture", "fixture.kind", "https://example.test/works/safe");
+        Map<String, ScheduledWorkExecutor> executors = Map.of(
+                ILLUST, retryingExecutorWithPresentation(
+                        ILLUST, safePresentation, persistedIds, projectedBeforePersistence),
+                NOVEL, retryingExecutorWithPresentation(
+                        NOVEL,
+                        new ScheduledWorkNotificationPresentation(
+                                "fixture", "fixture.kind",
+                                "https://example.test/works/fixture%252Dsecret"),
+                        persistedIds, projectedBeforePersistence),
+                "audio", new ScheduledWorkExecutor() {
+                    @Override
+                    public String workType() {
+                        return "audio";
+                    }
+
+                    @Override
+                    public ScheduledWorkResult execute(
+                            ScheduledWork work,
+                            ScheduledWorkContext context) throws ScheduledExecutionException {
+                        throw new ScheduledExecutionException(
+                                ScheduledFailure.Category.RETRYABLE_NETWORK,
+                                "fixture.retry");
+                    }
+
+                    @Override
+                    public ScheduledWorkNotificationPresentation notificationPresentation(
+                            ScheduledWork work) {
+                        if (!persistedIds.contains(work.key().id())) {
+                            projectedBeforePersistence.add(work.key().id());
+                        }
+                        throw new IllegalStateException("fixture projection failed");
+                    }
+                });
+        ObjectMapper objectMapper = new ObjectMapper();
+        ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(objectMapper);
+        List<ScheduledWork> works = List.of(
+                work(ILLUST, "safe"), work(NOVEL, "secret"), work("audio", "broken"));
+        List<ScheduledPendingWork> pendingRows = works.stream()
+                .map(work -> codec.toPendingWork(
+                        1L, work, "fixture.retry", "{}", 4, 1L, 2L))
+                .toList();
+        List<ScheduleExecutionResult.PendingExhausted> events = new ArrayList<>();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store, executors, new SyncTaskExecutor(), 5,
+                new ScheduleWorkConcurrencyLimiter(), 8, "fixture-secret", events::add);
+
+        coordinator.loadPending(pendingRows);
+        for (ScheduledWork work : works) {
+            coordinator.submit(work);
+        }
+        coordinator.drain();
+
+        assertThat(projectedBeforePersistence).isEmpty();
+        assertThat(events).hasSize(3);
+        assertThat(events.stream()
+                .filter(event -> ILLUST.equals(event.workType()))
+                .findFirst().orElseThrow().presentation())
+                .isEqualTo(safePresentation);
+        assertThat(events.stream()
+                .filter(event -> NOVEL.equals(event.workType()))
+                .findFirst().orElseThrow().presentation())
+                .isEqualTo(ScheduledWorkNotificationPresentation.empty());
+        assertThat(events.stream()
+                .filter(event -> "audio".equals(event.workType()))
+                .findFirst().orElseThrow().presentation())
+                .isEqualTo(ScheduledWorkNotificationPresentation.empty());
+        verify(store, times(3)).upsertPendingWork(any());
+    }
+
+    private static ScheduleWorkCoordinator coordinator(
+            ScheduledTaskStore store,
+            Map<String, ScheduledWorkExecutor> executors,
+            TaskExecutor taskExecutor,
+            int credentialFailureLimit,
+            ScheduleWorkConcurrencyLimiter concurrencyLimiter,
+            int workConcurrencyLimit,
+            String credentialSecret) {
+        return coordinator(
+                store, executors, taskExecutor, credentialFailureLimit,
+                concurrencyLimiter, workConcurrencyLimit, credentialSecret,
+                ignored -> {
+                });
+    }
+
+    private static ScheduleWorkCoordinator coordinator(
+            ScheduledTaskStore store,
+            Map<String, ScheduledWorkExecutor> executors,
+            TaskExecutor taskExecutor,
+            int credentialFailureLimit,
+            ScheduleWorkConcurrencyLimiter concurrencyLimiter,
+            int workConcurrencyLimit,
+            String credentialSecret,
+            java.util.function.Consumer<ScheduleExecutionResult.PendingExhausted>
+                    pendingExhaustedListener) {
         Map<String, Integer> limits = new LinkedHashMap<>();
         executors.keySet().forEach(workType -> limits.put(workType, workConcurrencyLimit));
+        Map<String, ScheduleCapabilityOwner> owners = new LinkedHashMap<>();
+        Map<String, Long> publicationIds = new LinkedHashMap<>();
+        executors.keySet().forEach(workType -> {
+            owners.put(workType, WORK_OWNER);
+            publicationIds.put(workType, 7L);
+        });
         ScheduledTaskDefinition task = new ScheduledTaskDefinition(
                 1L, "fixture-source", "fixture.definition", 1, "{}",
                 ScheduledTaskPresentation.empty());
+        ObjectMapper objectMapper = new ObjectMapper();
         return new ScheduleWorkCoordinator(
                 1L,
                 task,
                 ScheduledNetworkRoute.direct(),
                 () -> false,
-                new ScheduleCredentialMaterial("fixture-secret", "fixture-reference", "account-1"),
+                new ScheduleCredentialMaterial(
+                        credentialSecret, "fixture-reference", "account-1"),
                 store,
-                new ScheduleWorkPersistenceCodec(new ObjectMapper()),
+                new ScheduleWorkPersistenceCodec(objectMapper),
+                objectMapper,
                 executors,
-                new ScheduleRunQueue().begin(1L, ILLUST),
+                owners,
+                publicationIds,
+                new ScheduleRunQueue().begin(1L),
                 taskExecutor,
                 concurrencyLimiter,
                 8,
@@ -515,8 +770,7 @@ class ScheduleWorkCoordinatorTest {
                 0L,
                 ignored -> {
                 },
-                ignored -> {
-                });
+                pendingExhaustedListener);
     }
 
     private static ScheduledTaskStore store() {
@@ -532,6 +786,37 @@ class ScheduleWorkCoordinatorTest {
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.CREDENTIAL_INVALID, failureCode);
         });
+    }
+
+    private static ScheduledWorkExecutor retryingExecutorWithPresentation(
+            String workType,
+            ScheduledWorkNotificationPresentation presentation,
+            Set<String> persistedIds,
+            List<String> projectedBeforePersistence) {
+        return new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return workType;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork work,
+                    ScheduledWorkContext context) throws ScheduledExecutionException {
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.RETRYABLE_NETWORK,
+                        "fixture.retry");
+            }
+
+            @Override
+            public ScheduledWorkNotificationPresentation notificationPresentation(
+                    ScheduledWork work) {
+                if (!persistedIds.contains(work.key().id())) {
+                    projectedBeforePersistence.add(work.key().id());
+                }
+                return presentation;
+            }
+        };
     }
 
     private static ScheduledWorkExecutor executor(String workType, WorkExecution execution) {

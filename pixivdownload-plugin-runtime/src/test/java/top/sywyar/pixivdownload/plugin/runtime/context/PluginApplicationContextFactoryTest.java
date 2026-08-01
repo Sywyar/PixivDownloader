@@ -3,19 +3,29 @@ package top.sywyar.pixivdownload.plugin.runtime.context;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,7 +38,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("每外置插件子 ApplicationContext 工厂")
 class PluginApplicationContextFactoryTest {
 
-    private final PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+    private final PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+    private final PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
+    private final PluginApplicationContextFactory factory =
+            new PluginApplicationContextFactory(streamRegistry, taskRegistry);
 
     @Test
     @DisplayName("插件配置类在子 context 中实例化 Bean，并注入父 context 暴露的核心服务接口；插件 Bean 不在父 context")
@@ -91,8 +104,11 @@ class PluginApplicationContextFactoryTest {
     @Test
     @DisplayName("owner 属性源只进入对应插件子 context 且不进入父 context")
     void scopedPropertiesRemainInsideMatchingChildContext() {
-        PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(owner ->
-                Map.of("fixture.owner", owner));
+        PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
+                owner -> new PluginContextPropertySnapshot(
+                        Map.of("fixture.owner", owner), Set.of("fixture.owner")),
+                streamRegistry,
+                taskRegistry);
         try (AnnotationConfigApplicationContext parent =
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
             ConfigurableApplicationContext first = scopedFactory.create(parent, new PluginContextModule(
@@ -103,6 +119,283 @@ class PluginApplicationContextFactoryTest {
                 assertThat(first.getEnvironment().getProperty("fixture.owner")).isEqualTo("first");
                 assertThat(second.getEnvironment().getProperty("fixture.owner")).isEqualTo("second");
                 assertThat(parent.getEnvironment().getProperty("fixture.owner")).isNull();
+            } finally {
+                first.close();
+                second.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("两个 owner 只读取自己的敏感属性且双向遮蔽另一方属性")
+    void ownerSensitivePropertiesAreMutuallyIsolated() {
+        Set<String> sensitiveKeys = Set.of("fixture.first.secret", "fixture.second.secret");
+        PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
+                owner -> switch (owner) {
+                    case "first" -> new PluginContextPropertySnapshot(
+                            Map.of("fixture.first.secret", "first-value"), sensitiveKeys);
+                    case "second" -> new PluginContextPropertySnapshot(
+                            Map.of("fixture.second.secret", "second-value"), sensitiveKeys);
+                    default -> new PluginContextPropertySnapshot(Map.of(), sensitiveKeys);
+                },
+                streamRegistry,
+                taskRegistry);
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext first = scopedFactory.create(parent, new PluginContextModule(
+                    "first", getClass().getClassLoader(), List.of(PluginConfig.class)));
+            ConfigurableApplicationContext second = scopedFactory.create(parent, new PluginContextModule(
+                    "second", getClass().getClassLoader(), List.of(PluginConfig.class)));
+            try {
+                assertThat(first.getEnvironment().getProperty("fixture.first.secret"))
+                        .isEqualTo("first-value");
+                assertThat(first.getEnvironment().getProperty("fixture.second.secret")).isEmpty();
+                assertThat(Binder.get(first.getEnvironment())
+                        .bind("fixture.first.secret", String.class)
+                        .orElse(null))
+                        .isEqualTo("first-value");
+                assertThat(second.getEnvironment().getProperty("fixture.second.secret"))
+                        .isEqualTo("second-value");
+                assertThat(second.getEnvironment().getProperty("fixture.first.secret")).isEmpty();
+                assertThat(Binder.get(second.getEnvironment())
+                        .bind("fixture.second.secret", String.class)
+                        .orElse(null))
+                        .isEqualTo("second-value");
+            } finally {
+                first.close();
+                second.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("owner 属性优先于系统与父遗留值且普通父属性仍然可见")
+    void ownerPropertiesOverrideSystemAndLegacyValuesWithoutHidingOrdinaryParentProperties() {
+        String systemSecretKey = "fixture.owner.system-secret";
+        String legacySecretKey = "fixture.owner.legacy-secret";
+        String previousSystemValue = System.getProperty(systemSecretKey);
+        System.setProperty(systemSecretKey, "system-value");
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
+                    "legacyConfigYaml",
+                    Map.of(legacySecretKey, "legacy-value",
+                            "fixture.ordinary", "ordinary-value")));
+            PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
+                    owner -> new PluginContextPropertySnapshot(
+                            Map.of(systemSecretKey, "owner-system-value",
+                                    legacySecretKey, "owner-legacy-value"),
+                            Set.of(systemSecretKey, legacySecretKey)),
+                    streamRegistry,
+                    taskRegistry);
+
+            ConfigurableApplicationContext child = scopedFactory.create(parent, new PluginContextModule(
+                    "first", getClass().getClassLoader(), List.of(PluginConfig.class)));
+            try {
+                assertThat(parent.getEnvironment().getProperty(systemSecretKey)).isEqualTo("system-value");
+                assertThat(parent.getEnvironment().getProperty(legacySecretKey)).isEqualTo("legacy-value");
+                assertThat(child.getEnvironment().getProperty(systemSecretKey))
+                        .isEqualTo("owner-system-value");
+                assertThat(child.getEnvironment().getProperty(legacySecretKey))
+                        .isEqualTo("owner-legacy-value");
+                assertThat(child.getEnvironment().getProperty("fixture.ordinary"))
+                        .isEqualTo("ordinary-value");
+            } finally {
+                child.close();
+            }
+        } finally {
+            restoreSystemProperty(systemSecretKey, previousSystemValue);
+        }
+    }
+
+    @Test
+    @DisplayName("owner 缺失的敏感属性由遮罩截断且不会回落父遗留或系统值")
+    void missingOwnerSensitivePropertyDoesNotFallBackToParentOrSystem() {
+        String systemSecretKey = "fixture.owner.missing-system-secret";
+        String legacySecretKey = "fixture.owner.missing-legacy-secret";
+        String previousSystemValue = System.getProperty(systemSecretKey);
+        System.setProperty(systemSecretKey, "system-value");
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
+                    "legacyConfigYaml", Map.of(legacySecretKey, "legacy-value")));
+            PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
+                    owner -> new PluginContextPropertySnapshot(
+                            Map.of(), Set.of(systemSecretKey, legacySecretKey)),
+                    streamRegistry,
+                    taskRegistry);
+
+            ConfigurableApplicationContext child = scopedFactory.create(parent, new PluginContextModule(
+                    "first", getClass().getClassLoader(), List.of(PluginConfig.class)));
+            try {
+                assertThat(parent.getEnvironment().getProperty(systemSecretKey)).isEqualTo("system-value");
+                assertThat(parent.getEnvironment().getProperty(legacySecretKey)).isEqualTo("legacy-value");
+                assertThat(child.getEnvironment().getProperty(systemSecretKey)).isEmpty();
+                assertThat(child.getEnvironment().getProperty(legacySecretKey)).isEmpty();
+                assertThat(Binder.get(child.getEnvironment())
+                        .bind(systemSecretKey, String.class)
+                        .orElse("fallback-marker"))
+                        .isEmpty();
+                assertThat(Binder.get(child.getEnvironment())
+                        .bind(legacySecretKey, String.class)
+                        .orElse("fallback-marker"))
+                        .isEmpty();
+            } finally {
+                child.close();
+            }
+        } finally {
+            restoreSystemProperty(systemSecretKey, previousSystemValue);
+        }
+    }
+
+    @Test
+    @DisplayName("替换快照会撤回旧 owner 值且敏感遮罩缩减或清空后仍不回显")
+    void replacingSnapshotWithdrawsOldOwnerValuesWithoutShrinkingSensitiveMask() {
+        String firstSecret = "fixture.snapshot.first-secret";
+        String secondSecret = "fixture.snapshot.second-secret";
+        Set<String> sensitiveKeys = Set.of(firstSecret, secondSecret);
+        PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
+                owner -> new PluginContextPropertySnapshot(
+                        Map.of(firstSecret, "first-value"), sensitiveKeys),
+                streamRegistry,
+                taskRegistry);
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
+                    "legacyConfigYaml",
+                    Map.of(firstSecret, "legacy-first",
+                            secondSecret, "legacy-second",
+                            "fixture.ordinary", "ordinary-value")));
+            ConfigurableApplicationContext child = scopedFactory.create(parent, new PluginContextModule(
+                    "first", getClass().getClassLoader(), List.of(PluginConfig.class)));
+            try {
+                PluginApplicationContextFactory.replaceScopedPropertySources(
+                        child.getEnvironment(),
+                        "first",
+                        new PluginContextPropertySnapshot(
+                                Map.of(secondSecret, "second-value"), Set.of(secondSecret)));
+
+                assertThat(child.getEnvironment().getProperty(firstSecret)).isEmpty();
+                assertThat(child.getEnvironment().getProperty(secondSecret)).isEqualTo("second-value");
+                assertThat(child.getEnvironment().getProperty("fixture.ordinary"))
+                        .isEqualTo("ordinary-value");
+                assertThat(StreamSupport.stream(
+                                child.getEnvironment().getPropertySources().spliterator(), false)
+                        .map(propertySource -> propertySource.getName())
+                        .toList())
+                        .startsWith(
+                                PluginApplicationContextFactory.SCOPED_PROPERTY_SOURCE_PREFIX + "first",
+                                PluginApplicationContextFactory.SENSITIVE_PROPERTY_MASK_SOURCE_PREFIX + "first");
+
+                PluginApplicationContextFactory.replaceScopedPropertySources(
+                        child.getEnvironment(),
+                        "first",
+                        PluginContextPropertySnapshot.empty());
+
+                assertThat(child.getEnvironment().getProperty(firstSecret)).isEmpty();
+                assertThat(child.getEnvironment().getProperty(secondSecret)).isEmpty();
+                assertThat(child.getEnvironment().getProperty("fixture.ordinary"))
+                        .isEqualTo("ordinary-value");
+                assertThat(StreamSupport.stream(
+                                child.getEnvironment().getPropertySources().spliterator(), false)
+                        .map(propertySource -> propertySource.getName())
+                        .toList())
+                        .startsWith(
+                                PluginApplicationContextFactory.SENSITIVE_PROPERTY_MASK_SOURCE_PREFIX + "first")
+                        .doesNotContain(
+                                PluginApplicationContextFactory.SCOPED_PROPERTY_SOURCE_PREFIX + "first");
+            } finally {
+                child.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("工厂构造器必须显式接收共享推流与后台任务注册中心且不存在隐式新建入口")
+    void factoryRequiresExplicitSharedRuntimeRegistries() {
+        assertThat(Arrays.stream(PluginApplicationContextFactory.class.getConstructors())
+                .map(constructor -> List.of(constructor.getParameterTypes()))
+                .toList())
+                .containsExactlyInAnyOrder(
+                        List.of(PluginStreamRegistry.class, PluginRuntimeTaskRegistry.class),
+                        List.of(PluginContextPropertySourceProvider.class,
+                                PluginStreamRegistry.class,
+                                PluginRuntimeTaskRegistry.class));
+    }
+
+    @Test
+    @DisplayName("每个子 context 在 refresh 前获得本地 owner-scoped registrar 且同 token 跨 owner 隔离")
+    void injectsOwnerScopedStreamRegistrarBeforeRefresh() {
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext first = factory.create(parent, new PluginContextModule(
+                    "first", getClass().getClassLoader(), List.of(StreamPluginConfig.class)));
+            ConfigurableApplicationContext second = factory.create(parent, new PluginContextModule(
+                    "second", getClass().getClassLoader(), List.of(StreamPluginConfig.class)));
+            try {
+                PluginStreamRegistrar firstRegistrar = first.getBean(PluginStreamRegistrar.class);
+                PluginStreamRegistrar secondRegistrar = second.getBean(PluginStreamRegistrar.class);
+
+                assertThat(first.getBean(StreamPluginBean.class).streamRegistrar()).isSameAs(firstRegistrar);
+                assertThat(second.getBean(StreamPluginBean.class).streamRegistrar()).isSameAs(secondRegistrar);
+                assertThat(firstRegistrar).isNotSameAs(secondRegistrar);
+                assertThat(parent.getBeanNamesForType(PluginStreamRegistrar.class)).isEmpty();
+
+                AtomicInteger firstCloses = new AtomicInteger();
+                AtomicInteger secondCloses = new AtomicInteger();
+                firstRegistrar.register("same-token", firstCloses::incrementAndGet);
+                secondRegistrar.register("same-token", secondCloses::incrementAndGet);
+
+                assertThat(streamRegistry.activeStreamCount("first")).isOne();
+                assertThat(streamRegistry.activeStreamCount("second")).isOne();
+                assertThat(streamRegistry.closeForPlugin("first")).isOne();
+                assertThat(firstCloses).hasValue(1);
+                assertThat(secondCloses).hasValue(0);
+                assertThat(streamRegistry.activeStreamCount("second")).isOne();
+                assertThat(streamRegistry.closeForPlugin("second")).isOne();
+                assertThat(secondCloses).hasValue(1);
+            } finally {
+                first.close();
+                second.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("每个子 context 在 refresh 前获得本地 owner-scoped 后台任务 registrar")
+    void injectsOwnerScopedRuntimeTaskRegistrarBeforeRefresh() {
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext first = factory.create(parent, new PluginContextModule(
+                    "first-task-owner", getClass().getClassLoader(), List.of(TaskPluginConfig.class)));
+            ConfigurableApplicationContext second = factory.create(parent, new PluginContextModule(
+                    "second-task-owner", getClass().getClassLoader(), List.of(TaskPluginConfig.class)));
+            try {
+                PluginRuntimeTaskRegistrar firstRegistrar = first.getBean(PluginRuntimeTaskRegistrar.class);
+                PluginRuntimeTaskRegistrar secondRegistrar = second.getBean(PluginRuntimeTaskRegistrar.class);
+
+                assertThat(first.getBean(TaskPluginBean.class).taskRegistrar()).isSameAs(firstRegistrar);
+                assertThat(second.getBean(TaskPluginBean.class).taskRegistrar()).isSameAs(secondRegistrar);
+                assertThat(firstRegistrar).isNotSameAs(secondRegistrar);
+                assertThat(parent.getBeanNamesForType(PluginRuntimeTaskRegistrar.class)).isEmpty();
+
+                var firstTask = firstRegistrar.registerOneShot(() -> {
+                });
+                var secondTask = secondRegistrar.registerOneShot(() -> {
+                });
+                assertThat(taskRegistry.activeTaskCount("first-task-owner")).isOne();
+                assertThat(taskRegistry.activeTaskCount("second-task-owner")).isOne();
+                var firstTaskDrain = taskRegistry.prepareQuiesce("first-task-owner");
+                assertThat(firstTaskDrain.isDrained()).isFalse();
+                taskRegistry.cancelQuiescedTasks("first-task-owner", firstTaskDrain);
+                firstTask.run();
+                assertThat(firstTaskDrain.isDrained()).isTrue();
+                assertThat(taskRegistry.activeTaskCount("second-task-owner")).isOne();
+                var secondTaskDrain = taskRegistry.prepareQuiesce("second-task-owner");
+                assertThat(secondTaskDrain.isDrained()).isFalse();
+                taskRegistry.cancelQuiescedTasks("second-task-owner", secondTaskDrain);
+                secondTask.run();
+                assertThat(secondTaskDrain.isDrained()).isTrue();
             } finally {
                 first.close();
                 second.close();
@@ -213,6 +506,46 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
+    static final class StreamPluginBean {
+        private final PluginStreamRegistrar streamRegistrar;
+
+        StreamPluginBean(PluginStreamRegistrar streamRegistrar) {
+            this.streamRegistrar = streamRegistrar;
+        }
+
+        PluginStreamRegistrar streamRegistrar() {
+            return streamRegistrar;
+        }
+    }
+
+    static final class TaskPluginBean {
+        private final PluginRuntimeTaskRegistrar taskRegistrar;
+
+        TaskPluginBean(PluginRuntimeTaskRegistrar taskRegistrar) {
+            this.taskRegistrar = taskRegistrar;
+        }
+
+        PluginRuntimeTaskRegistrar taskRegistrar() {
+            return taskRegistrar;
+        }
+    }
+
+    @Configuration
+    static class StreamPluginConfig {
+        @Bean
+        StreamPluginBean streamPluginBean(PluginStreamRegistrar streamRegistrar) {
+            return new StreamPluginBean(streamRegistrar);
+        }
+    }
+
+    @Configuration
+    static class TaskPluginConfig {
+        @Bean
+        TaskPluginBean taskPluginBean(PluginRuntimeTaskRegistrar taskRegistrar) {
+            return new TaskPluginBean(taskRegistrar);
+        }
+    }
+
     public static class TransactionalPluginBean {
         private boolean written;
 
@@ -227,6 +560,14 @@ class PluginApplicationContextFactoryTest {
         @Bean
         TransactionalPluginBean transactionalPluginBean() {
             return new TransactionalPluginBean();
+        }
+    }
+
+    private static void restoreSystemProperty(String key, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, previousValue);
         }
     }
 }

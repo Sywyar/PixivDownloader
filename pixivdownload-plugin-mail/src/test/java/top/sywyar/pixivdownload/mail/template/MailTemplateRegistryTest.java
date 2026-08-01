@@ -163,7 +163,7 @@ class MailTemplateRegistryTest {
         ph.put("warning_excerpt", "policies excerpt");
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, Locale.SIMPLIFIED_CHINESE, ph);
-        assertThat(zh.subject()).contains("过度访问");
+        assertThat(zh.subject()).contains("凭证策略");
         assertThat(zh.htmlBody())
                 .contains("12345")
                 .contains("画师计划A（ID 1）")   // {{tasks_list_html}} 逐条任务名/ID
@@ -172,7 +172,7 @@ class MailTemplateRegistryTest {
                 .doesNotContain("{{");
 
         RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, Locale.US, ph);
-        assertThat(en.subject().toLowerCase()).contains("overuse");
+        assertThat(en.subject().toLowerCase()).contains("credential policy");
         assertThat(en.htmlBody()).doesNotContain("{{");
     }
 
@@ -235,7 +235,7 @@ class MailTemplateRegistryTest {
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_DEGRADED_ANONYMOUS,
                 Locale.SIMPLIFIED_CHINESE, ph);
-        assertThat(zh.subject()).contains("受限模式");
+        assertThat(zh.subject()).contains("受限能力");
         assertThat(zh.htmlBody())
                 .contains("搜索计划")
                 .contains("保存的搜索")        // {{task_type}}
@@ -248,6 +248,57 @@ class MailTemplateRegistryTest {
         RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_DEGRADED_ANONYMOUS, Locale.US, ph);
         assertThat(en.subject().toLowerCase()).contains("restricted");
         assertThat(en.htmlBody()).doesNotContain("{{");
+    }
+
+    @Test
+    @DisplayName("四个凭证场景保留兼容 id 与占位符，且中英文介质文案不解释具体来源或凭证格式")
+    void credentialScenariosRemainCompatibleAndSourceNeutral() throws Exception {
+        Map<String, String> ph = credentialScenarioPlaceholders();
+        for (String id : java.util.List.of(
+                "overuse-paused",
+                "auth-expired",
+                "circuit-breaker",
+                "degraded-anonymous")) {
+            RenderedMail zh = registry.render(id, Locale.SIMPLIFIED_CHINESE, ph);
+            RenderedMail en = registry.render(id, Locale.US, ph);
+            String rendered = zh.subject() + zh.htmlBody() + en.subject() + en.htmlBody();
+
+            assertThat(rendered)
+                    .contains("凭证")
+                    .containsIgnoringCase("credential")
+                    .doesNotContain("Cookie", "R-18", "站内信", "Pixiv sent")
+                    .doesNotContain("{{", "}}");
+        }
+
+        RenderedMail policyPause = registry.render(
+                "overuse-paused", Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(policyPause.htmlBody())
+                .contains("account-compat")
+                .contains("3")
+                .contains("task-list-html-compat")
+                .contains("policy-time-compat")
+                .contains("pause-time-compat")
+                .contains("policy-summary-compat");
+
+        RenderedMail suspended = registry.render(
+                "auth-expired", Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(suspended.htmlBody())
+                .contains("task-name-compat")
+                .contains("task-id-compat")
+                .contains("task-type-compat")
+                .contains("task-trigger-compat")
+                .contains("pause-time-compat");
+
+        RenderedMail circuitOpen = registry.render(
+                "circuit-breaker", Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(circuitOpen.subject()).contains("failure-count-compat");
+        assertThat(circuitOpen.htmlBody()).contains("failure-summary-compat");
+
+        RenderedMail restrictedContinuation = registry.render(
+                "degraded-anonymous", Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(restrictedContinuation.htmlBody())
+                .contains("completed-count-compat")
+                .contains("next-run-compat");
     }
 
     @Test
@@ -309,6 +360,26 @@ class MailTemplateRegistryTest {
         map.put("username", "管理员");
         map.put("smtp_host", "smtp.example.com");
         map.put("time", "2026-05-27 12:34:56");
+        return map;
+    }
+
+    private static Map<String, String> credentialScenarioPlaceholders() {
+        Map<String, String> map = new LinkedHashMap<>();
+        map.put("account_id", "account-compat");
+        map.put("tasks_count", "3");
+        map.put("tasks_list_html", "task-list-html-compat");
+        map.put("tasks_list_md", "task-list-md-compat");
+        map.put("warning_time", "policy-time-compat");
+        map.put("warning_excerpt", "policy-summary-compat");
+        map.put("task_name", "task-name-compat");
+        map.put("task_id", "task-id-compat");
+        map.put("task_type", "task-type-compat");
+        map.put("task_trigger", "task-trigger-compat");
+        map.put("consecutive_failures", "failure-count-compat");
+        map.put("last_error_excerpt", "failure-summary-compat");
+        map.put("completed", "completed-count-compat");
+        map.put("trigger_time", "pause-time-compat");
+        map.put("next_run_time", "next-run-compat");
         return map;
     }
 }

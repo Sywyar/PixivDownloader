@@ -9,14 +9,18 @@ import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialAccountIncident;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialIncidentPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialTaskSnapshot;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -52,6 +56,8 @@ import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCode
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
@@ -70,7 +76,7 @@ public final class ScheduleExecutionEngine {
     public static final int MAX_WORK_IN_FLIGHT = ScheduleExecutionPlanGate.MAX_IN_FLIGHT;
 
     private final ScheduledTaskStore store;
-    private final ScheduleCapabilityRegistry registry;
+    private final ScheduleCapabilityAccess registry;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
     private final ScheduleConfig config;
@@ -82,7 +88,7 @@ public final class ScheduleExecutionEngine {
 
     ScheduleExecutionEngine(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
             ScheduleConfig config,
@@ -96,7 +102,7 @@ public final class ScheduleExecutionEngine {
 
     public ScheduleExecutionEngine(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
             ScheduleConfig config,
@@ -272,6 +278,7 @@ public final class ScheduleExecutionEngine {
             ScheduleExecutionControlException,
             ScheduledExecutionException {
         return execute(task, ignored -> {
+        }, ignored -> {
         });
     }
 
@@ -283,7 +290,28 @@ public final class ScheduleExecutionEngine {
             ScheduleDefinitionException,
             ScheduleExecutionControlException,
             ScheduledExecutionException {
+        return execute(task, pendingExhaustedListener, ignored -> {
+        });
+    }
+
+    /**
+     * 执行一轮计划，并在账号级策略决定离开复合租约前发布其宿主持久化操作。
+     *
+     * <p>{@code policyAccountSuspensionPublisher} 只会在全部插件回调完成后、复合 execution lease 的
+     * 精确 publication barrier 内调用；实现只可执行宿主事务，不得回调插件能力。
+     */
+    public ScheduleExecutionResult execute(
+            ScheduledTask task,
+            Consumer<ScheduleExecutionResult.PendingExhausted> pendingExhaustedListener,
+            Consumer<ScheduleExecutionControlException> policyAccountSuspensionPublisher)
+            throws ScheduleSourceUnavailableException,
+            ScheduleExecutorUnavailableException,
+            ScheduleDefinitionException,
+            ScheduleExecutionControlException,
+            ScheduledExecutionException {
         Objects.requireNonNull(pendingExhaustedListener, "pendingExhaustedListener");
+        Objects.requireNonNull(
+                policyAccountSuspensionPublisher, "policyAccountSuspensionPublisher");
         SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
         if (planning == null) {
             throw new ScheduleSourceUnavailableException(task.sourceType());
@@ -384,6 +412,8 @@ public final class ScheduleExecutionEngine {
             cancellation.throwIfCancellationRequested();
             ScheduleCredentialMaterial credential = loadCredential(task, execution, plan);
             try (credential) {
+                validateStoredCredentialArtifacts(
+                        task, storedCheckpoint, credential);
                 GuardInvoker guardInvoker = new GuardInvoker(
                         task, definition, route, cancellation, credential, execution, plan);
                 CredentialProbeOutcome probeOutcome;
@@ -393,7 +423,8 @@ public final class ScheduleExecutionEngine {
                 } catch (Throwable primary) {
                     DeferredFatal fatalFailures = new DeferredFatal();
                     fatalFailures.capture(primary);
-                    propagateFailure(guardInvoker, 0L, primary, fatalFailures);
+                    propagateFailure(
+                            guardInvoker, credential, 0L, primary, fatalFailures);
                     throw new AssertionError("unreachable");
                 }
                 credentialRevoked = probeOutcome.revoked();
@@ -401,11 +432,14 @@ public final class ScheduleExecutionEngine {
                 try {
                     credentialRevoked |= guardInvoker.invoke(ScheduledGuardPoint.RUN_START, 0L, null);
                     AtomicReference<ScheduleWorkCoordinator> coordinatorRef = new AtomicReference<>();
-                    ScheduleRunQueue.Run queue = runQueue.begin(
-                            task.id(), plan.requiredWorkTypes().stream().sorted().findFirst().orElse("work"));
+                    ScheduleRunQueue.Run queue = runQueue.begin(task.id());
                     ScheduleWorkCoordinator coordinator = new ScheduleWorkCoordinator(
                             task.id(), definition, route, cancellation, credential,
-                            store, persistenceCodec, execution.workExecutors(), queue,
+                            store, persistenceCodec, objectMapper,
+                            execution.workExecutors(),
+                            execution.workExecutorOwners(),
+                            execution.workExecutorPublicationIds(),
+                            queue,
                             workTaskExecutor, workConcurrencyLimiter,
                             plan.maxInFlight(), workConcurrencyLimits,
                             config.getPendingMaxAttempts(),
@@ -464,12 +498,20 @@ public final class ScheduleExecutionEngine {
                                     return cancellation;
                                 }
                             };
-                            discovery = sourceExecutor.discover(context);
+                            try {
+                                discovery = sourceExecutor.discover(context);
+                            } catch (ScheduledExecutionException failure) {
+                                throw safePluginException(
+                                        failure, "schedule.execution.invalid-failure-code",
+                                        credential);
+                            }
+                            if (discovery == null) {
+                                throw pluginFailure("schedule.source.null-result");
+                            }
+                            validateCandidateCheckpoint(
+                                    plan, discovery.candidateCheckpoint(), credential);
+                            discovery = copyDiscoveryResult(discovery);
                         }
-                        if (discovery == null) {
-                            throw pluginFailure("schedule.source.null-result");
-                        }
-                        validateCandidateCheckpoint(plan, discovery.candidateCheckpoint());
                         if (pendingReplayPolicy == ScheduledPendingReplayPolicy.REDISCOVERED_ONLY) {
                             coordinator.replayUnseenPending(pendingReplayPolicy);
                         }
@@ -502,7 +544,8 @@ public final class ScheduleExecutionEngine {
                         abortExecutors(
                                 definition, execution.workExecutors(), fatalFailures);
                         propagateFailure(
-                                guardInvoker, coordinator.attemptedWorkCount(), primary, fatalFailures);
+                                guardInvoker, credential, coordinator.attemptedWorkCount(),
+                                primary, fatalFailures);
                         throw new AssertionError("unreachable");
                     }
                 } catch (ScheduleExecutionControlException | ScheduledExecutionException failure) {
@@ -511,6 +554,10 @@ public final class ScheduleExecutionEngine {
                     rethrowFatal(failure);
                     throw pluginFailure("schedule.execution.plugin-failure");
                 }
+            } catch (ScheduleExecutionControlException failure) {
+                publishPolicyAccountSuspension(
+                        task, execution, failure, policyAccountSuspensionPublisher);
+                throw failure;
             }
             execution.close();
             if (leaseCancellation.isCancellationRequested()) {
@@ -524,6 +571,25 @@ public final class ScheduleExecutionEngine {
             execution.close();
             planning.close();
         }
+        }
+    }
+
+    private void publishPolicyAccountSuspension(
+            ScheduledTask task,
+            ScheduleExecutionLease execution,
+            ScheduleExecutionControlException decision,
+            Consumer<ScheduleExecutionControlException> publisher)
+            throws ScheduleSourceUnavailableException {
+        if (decision.action() != ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT) {
+            return;
+        }
+        Optional<Boolean> published = registry.whileCurrentPublication(execution, () -> {
+            publisher.accept(decision);
+            return Boolean.TRUE;
+        });
+        if (published.isEmpty()) {
+            throw new ScheduleSourceUnavailableException(
+                    task.sourceType() + " (capability publication retired)");
         }
     }
 
@@ -628,18 +694,23 @@ public final class ScheduleExecutionEngine {
             try {
                 probe = policy.probe(context);
             } catch (ScheduledExecutionException failure) {
-                throw safePluginException(failure, "schedule.credential.probe-failed");
+                throw safePluginException(
+                        failure, "schedule.credential.probe-failed", credential);
             } catch (Throwable failure) {
                 rethrowFatal(failure);
                 throw pluginFailure("schedule.credential.probe-failed");
             }
-        }
-        if (probe == null) {
-            throw pluginFailure("schedule.credential.null-result");
-        }
-        if (!isSafeMachineCode(probe.code())
-                || !isSafeAccountKey(probe.accountKey())) {
-            throw pluginFailure("schedule.credential.invalid-result");
+            if (probe == null) {
+                throw pluginFailure("schedule.credential.null-result");
+            }
+            if (!isSafeMachineCode(probe.code())
+                    || !isSafeAccountKey(probe.accountKey())
+                    || credential.containsEcho(probe.code())
+                    || credential.containsEcho(probe.accountKey())) {
+                throw pluginFailure("schedule.credential.invalid-result");
+            }
+            probe = new ScheduledCredentialProbeResult(
+                    probe.status(), probe.accountKey(), probe.code(), probe.retryAfterMillis());
         }
         return switch (probe.status()) {
             case VALID -> {
@@ -653,7 +724,7 @@ public final class ScheduleExecutionEngine {
             }
             case INVALID -> {
                 if (plan.anonymousFallbackAllowed()) {
-                    credential.close();
+                    credential.revoke();
                     yield CredentialProbeOutcome.REVOKED;
                 }
                 throw control(ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
@@ -674,7 +745,6 @@ public final class ScheduleExecutionEngine {
         cancellation.throwIfCancellationRequested();
         var policy = execution.credentialPolicy().orElseThrow(() -> pluginFailure(
                 "schedule.credential.policy-unavailable"));
-        ScheduledCredentialBindResult result;
         try (ScheduleCredentialMaterial credential = new ScheduleCredentialMaterial(
                 candidateSecret, "scheduled-task:" + taskId + ":credential", null);
              var handle = credential.openHandle()) {
@@ -704,36 +774,49 @@ public final class ScheduleExecutionEngine {
                     return cancellation;
                 }
             };
+            ScheduledCredentialBindResult result;
             try {
                 result = policy.probeForBinding(context);
             } catch (ScheduledExecutionException failure) {
-                throw safePluginException(failure, "schedule.credential.bind-probe-failed");
+                throw safePluginException(
+                        failure, "schedule.credential.bind-probe-failed", credential);
             } catch (Throwable failure) {
                 rethrowFatal(failure);
                 throw pluginFailure("schedule.credential.bind-probe-failed");
             }
+            cancellation.throwIfCancellationRequested();
+            return validateCredentialBindResult(result, credential);
         }
-        cancellation.throwIfCancellationRequested();
+    }
+
+    private ScheduledCredentialBindResult validateCredentialBindResult(
+            ScheduledCredentialBindResult result,
+            ScheduleCredentialMaterial credential) throws ScheduledExecutionException {
         if (result == null || result.probeResult() == null
                 || !isSafeMachineCode(result.probeResult().code())
-                || !isSafeAccountKey(result.probeResult().accountKey())) {
+                || !isSafeAccountKey(result.probeResult().accountKey())
+                || credential.containsEcho(result.probeResult().code())
+                || credential.containsEcho(result.probeResult().accountKey())) {
             throw pluginFailure("schedule.credential.invalid-bind-result");
         }
         ScheduledGuardDecision decision = result.postBindResult().decision();
         if (decision.action() != ScheduledGuardDecision.Action.CONTINUE
-                && !isSafeMachineCode(decision.reasonCode())) {
+                && (!isSafeMachineCode(decision.reasonCode())
+                || credential.containsEcho(decision.reasonCode()))) {
             throw pluginFailure("schedule.credential.invalid-bind-result");
         }
         try {
             String initialPolicyStateJson = validateInitialPolicyState(
-                    result.initialPolicyStateJson());
+                    result.initialPolicyStateJson(), credential);
             ScheduledCredentialProbeResult probe = new ScheduledCredentialProbeResult(
                     result.probeResult().status(), result.probeResult().accountKey(),
                     result.probeResult().code(), result.probeResult().retryAfterMillis());
             ScheduledGuardResult postBind = new ScheduledGuardResult(
                     new ScheduledGuardDecision(
                             decision.action(), decision.reasonCode(), decision.retryAfterMillis()),
-                    sanitizeEvidence(result.postBindResult().evidence()));
+                    sanitizeEvidence(
+                            result.postBindResult().evidence(), credential,
+                            "schedule.credential.invalid-bind-result"));
             return new ScheduledCredentialBindResult(
                     probe, initialPolicyStateJson, postBind);
         } catch (ScheduledExecutionException failure) {
@@ -743,8 +826,13 @@ public final class ScheduleExecutionEngine {
         }
     }
 
-    private String validateInitialPolicyState(String initialPolicyStateJson)
+    private String validateInitialPolicyState(
+            String initialPolicyStateJson,
+            ScheduleCredentialMaterial credential)
             throws ScheduledExecutionException {
+        if (credential.containsEchoInJson(objectMapper, initialPolicyStateJson)) {
+            throw pluginFailure("schedule.credential.invalid-policy-state");
+        }
         ObjectReader strictReader = objectMapper.readerFor(JsonNode.class).with(
                 DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY,
                 DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
@@ -760,7 +848,13 @@ public final class ScheduleExecutionEngine {
                 var fields = node.fields();
                 while (fields.hasNext()) {
                     var field = fields.next();
-                    if (ScheduleCredentialRedactor.isSensitiveFieldName(field.getKey())) {
+                    if (credential.containsEcho(field.getKey())
+                            || ScheduleCredentialRedactor.isSensitiveFieldName(field.getKey())
+                            || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(field.getKey())
+                            && (!field.getValue().isValueNode()
+                            || field.getValue().isNull()
+                            || !ScheduleCredentialRedactor.isSafeMetadataValue(
+                            field.getKey(), field.getValue().asText())))) {
                         throw pluginFailure("schedule.credential.invalid-policy-state");
                     }
                     pending.addLast(field.getValue());
@@ -769,16 +863,41 @@ public final class ScheduleExecutionEngine {
                 node.forEach(pending::addLast);
             } else if (node.isTextual()) {
                 String text = node.textValue();
-                if (ScheduleCredentialRedactor.containsCredentialMaterial(text)) {
+                if (credential.containsEcho(text)) {
                     throw pluginFailure("schedule.credential.invalid-policy-state");
                 }
                 JsonNode embedded = readEmbeddedPolicyJson(strictReader, text);
                 if (embedded != null) {
                     pending.addLast(embedded);
+                } else if (ScheduleCredentialRedactor.containsCredentialMaterial(text)) {
+                    throw pluginFailure("schedule.credential.invalid-policy-state");
                 }
+            } else if (node.isValueNode()
+                    && !node.isNull()
+                    && credential.containsEcho(node.asText())) {
+                throw pluginFailure("schedule.credential.invalid-policy-state");
             }
         }
         return initialPolicyStateJson;
+    }
+
+    private void validateStoredCredentialArtifacts(
+            ScheduledTask task,
+            ScheduledCheckpoint storedCheckpoint,
+            ScheduleCredentialMaterial credential) throws ScheduledExecutionException {
+        if (storedCheckpoint != null
+                && (credential.containsEcho(storedCheckpoint.schema())
+                    || credential.containsEchoInJson(
+                        objectMapper, storedCheckpoint.payloadJson()))) {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.INVALID_DEFINITION,
+                    "schedule.checkpoint.payload-invalid");
+        }
+        String policyStateJson = task.credentialPolicyStateJson();
+        if (policyStateJson != null
+                && credential.containsEchoInJson(objectMapper, policyStateJson)) {
+            throw pluginFailure("schedule.credential.invalid-policy-state");
+        }
     }
 
     private JsonNode readStrictPolicyJson(ObjectReader strictReader, String json)
@@ -860,20 +979,16 @@ public final class ScheduleExecutionEngine {
                             return cancellation;
                         }
                     };
-                    entry.getValue().finishRun(context);
+                    try {
+                        entry.getValue().finishRun(context);
+                    } catch (ScheduledExecutionException failure) {
+                        throw safePluginException(
+                                failure, "schedule.work.finalizer-failed", credential);
+                    }
                 }
             } catch (ScheduledExecutionException failure) {
-                try {
-                    ScheduledExecutionException safeFailure = safePluginException(
-                            failure, "schedule.work.finalizer-failed");
-                    if (firstFailure == null) {
-                        firstFailure = safeFailure;
-                    }
-                } catch (Throwable failureProjectionFailure) {
-                    if (!fatalFailures.capture(failureProjectionFailure)
-                            && firstFailure == null) {
-                        firstFailure = pluginFailure("schedule.work.finalizer-failed");
-                    }
+                if (firstFailure == null) {
+                    firstFailure = failure;
                 }
             } catch (Throwable failure) {
                 if (!fatalFailures.capture(failure) && firstFailure == null) {
@@ -903,7 +1018,8 @@ public final class ScheduleExecutionEngine {
 
     private void validateCandidateCheckpoint(
             ScheduledExecutionPlan plan,
-            ScheduledCheckpoint checkpoint) throws ScheduledExecutionException {
+            ScheduledCheckpoint checkpoint,
+            ScheduleCredentialMaterial credential) throws ScheduledExecutionException {
         if (checkpoint == null) {
             return;
         }
@@ -913,7 +1029,24 @@ public final class ScheduleExecutionEngine {
                     ScheduledFailure.Category.INVALID_DEFINITION,
                     "schedule.checkpoint.plan-mismatch");
         }
+        if (credential.containsEcho(checkpoint.schema())
+                || credential.containsEchoInJson(
+                objectMapper, checkpoint.payloadJson())) {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.INVALID_DEFINITION,
+                    "schedule.checkpoint.payload-invalid");
+        }
         validateCheckpointPayload(checkpoint);
+    }
+
+    private static ScheduledDiscoveryResult copyDiscoveryResult(
+            ScheduledDiscoveryResult discovery) {
+        ScheduledCheckpoint checkpoint = discovery.candidateCheckpoint();
+        if (checkpoint == null) {
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        }
+        return ScheduledDiscoveryResult.withCheckpoint(new ScheduledCheckpoint(
+                checkpoint.schema(), checkpoint.version(), checkpoint.payloadJson()));
     }
 
     private void validateCheckpointPayload(ScheduledCheckpoint checkpoint)
@@ -1145,12 +1278,21 @@ public final class ScheduleExecutionEngine {
         return new ScheduledExecutionException(ScheduledFailure.Category.INTERNAL, code);
     }
 
-    private static ScheduledFailure safeFailure(Throwable failure) {
+    private static ScheduledFailure safeFailure(
+            Throwable failure,
+            ScheduleCredentialMaterial credential) {
         if (failure instanceof ScheduledExecutionException scheduled) {
             return safePluginException(
-                    scheduled, "schedule.execution.invalid-failure-code").toFailure();
+                    scheduled, "schedule.execution.invalid-failure-code", credential).toFailure();
         }
         if (failure instanceof ScheduleExecutionControlException control) {
+            if (credential.containsEcho(control.reasonCode())
+                    || containsEcho(control.evidence(), credential)) {
+                return new ScheduledFailure(
+                        ScheduledFailure.Category.INTERNAL,
+                        "schedule.execution.invalid-failure-code",
+                        0L);
+            }
             return new ScheduledFailure(
                     ScheduledFailure.Category.INTERNAL, control.reasonCode(), control.retryAfterMillis());
         }
@@ -1160,6 +1302,7 @@ public final class ScheduleExecutionEngine {
 
     private void propagateFailure(
             GuardInvoker guardInvoker,
+            ScheduleCredentialMaterial credential,
             long attempted,
             Throwable primary,
             DeferredFatal fatalFailures)
@@ -1169,7 +1312,7 @@ public final class ScheduleExecutionEngine {
                 && !(primary instanceof ScheduleExecutionControlException)) {
             ScheduledFailure safeFailure;
             try {
-                safeFailure = safeFailure(primary);
+                safeFailure = safeFailure(primary, credential);
             } catch (Throwable failureProjectionFailure) {
                 fatalFailures.capture(failureProjectionFailure);
                 safeFailure = new ScheduledFailure(
@@ -1187,7 +1330,7 @@ public final class ScheduleExecutionEngine {
         if (guardDecision != null) {
             throw guardDecision;
         }
-        rethrow(primary);
+        rethrow(primary, credential);
     }
 
     private static ScheduleExecutionControlException control(
@@ -1198,14 +1341,31 @@ public final class ScheduleExecutionEngine {
         return new ScheduleExecutionControlException(action, code, retryAfterMillis, evidence);
     }
 
-    private static void rethrow(Throwable failure)
+    private static ScheduleExecutionControlException control(
+            ScheduledGuardDecision.Action action,
+            String code,
+            long retryAfterMillis,
+            ScheduledGuardEvidence evidence,
+            ScheduledCredentialIncidentPresentation incidentPresentation) {
+        return new ScheduleExecutionControlException(
+                action, code, retryAfterMillis, evidence, incidentPresentation);
+    }
+
+    private static void rethrow(
+            Throwable failure,
+            ScheduleCredentialMaterial credential)
             throws ScheduleExecutionControlException, ScheduledExecutionException {
         rethrowFatal(failure);
         if (failure instanceof ScheduleExecutionControlException control) {
+            if (credential.containsEcho(control.reasonCode())
+                    || containsEcho(control.evidence(), credential)) {
+                throw pluginFailure("schedule.execution.invalid-failure-code");
+            }
             throw control;
         }
         if (failure instanceof ScheduledExecutionException scheduled) {
-            throw safePluginException(scheduled, "schedule.execution.invalid-failure-code");
+            throw safePluginException(
+                    scheduled, "schedule.execution.invalid-failure-code", credential);
         }
         throw pluginFailure("schedule.execution.failed");
     }
@@ -1213,12 +1373,25 @@ public final class ScheduleExecutionEngine {
     private static ScheduledExecutionException safePluginException(
             ScheduledExecutionException failure,
             String fallbackCode) {
+        return safePluginException(failure, fallbackCode, null);
+    }
+
+    private static ScheduledExecutionException safePluginException(
+            ScheduledExecutionException failure,
+            String fallbackCode,
+            ScheduleCredentialMaterial credential) {
         if (failure instanceof ScheduleCredentialCircuitOpenException circuitOpen) {
+            if (credential != null
+                    && (credential.containsEcho(circuitOpen.code())
+                    || credential.containsEcho(circuitOpen.lastFailureCode()))) {
+                return pluginFailure(fallbackCode);
+            }
             return circuitOpen;
         }
         try {
             String code = failure.code();
-            if (!isSafeMachineCode(code)) {
+            if (!isSafeMachineCode(code)
+                    || (credential != null && credential.containsEcho(code))) {
                 return pluginFailure(fallbackCode);
             }
             return new ScheduledExecutionException(
@@ -1241,11 +1414,29 @@ public final class ScheduleExecutionEngine {
                 && !ScheduleCredentialRedactor.containsCredentialMaterial(accountKey));
     }
 
-    private static ScheduledGuardEvidence sanitizeEvidence(ScheduledGuardEvidence evidence) {
+    private static ScheduledGuardEvidence sanitizeEvidence(
+            ScheduledGuardEvidence evidence,
+            ScheduleCredentialMaterial credential,
+            String fallbackCode) throws ScheduledExecutionException {
+        if (containsEcho(evidence, credential)) {
+            throw pluginFailure(fallbackCode);
+        }
         Map<String, String> sanitized = new LinkedHashMap<>();
         evidence.attributes().forEach((key, value) -> sanitized.put(
                 key, ScheduleCredentialRedactor.redact(value)));
         return new ScheduledGuardEvidence(sanitized);
+    }
+
+    private static boolean containsEcho(
+            ScheduledGuardEvidence evidence,
+            ScheduleCredentialMaterial credential) {
+        for (Map.Entry<String, String> entry : evidence.attributes().entrySet()) {
+            if (credential.containsEcho(entry.getKey())
+                    || credential.containsEcho(entry.getValue())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private enum CredentialProbeOutcome {
@@ -1327,12 +1518,13 @@ public final class ScheduleExecutionEngine {
                 if (decision.action() == ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE
                         && point == ScheduledGuardPoint.RUN_START
                         && plan.anonymousFallbackAllowed()) {
-                    credential.close();
+                    credential.revoke();
                     revoked = true;
                     continue;
                 }
                 throw control(decision.action(), decision.reasonCode(),
-                        decision.retryAfterMillis(), sanitizeEvidence(result.evidence()));
+                        decision.retryAfterMillis(), result.evidence(),
+                        incidentPresentation(decision, result.evidence()));
             }
             return revoked;
         }
@@ -1367,7 +1559,7 @@ public final class ScheduleExecutionEngine {
                     }
                     ScheduleExecutionControlException candidate = control(
                             decision.action(), decision.reasonCode(), decision.retryAfterMillis(),
-                            sanitizeEvidence(result.evidence()));
+                            result.evidence(), incidentPresentation(decision, result.evidence()));
                     if (failureDecision == null) {
                         failureDecision = candidate;
                     }
@@ -1432,20 +1624,87 @@ public final class ScheduleExecutionEngine {
                         return cancellation;
                     }
                 };
+                ScheduledGuardResult result;
                 try {
-                    ScheduledGuardResult result = guard.evaluate(context);
-                    if (result == null) {
-                        throw pluginFailure("schedule.guard.null-result");
-                    }
-                    return result;
+                    result = guard.evaluate(context);
                 } catch (ScheduledExecutionException scheduled) {
-                    throw safePluginException(scheduled, "schedule.guard.plugin-failure");
+                    throw safePluginException(
+                            scheduled, "schedule.guard.plugin-failure", credential);
                 } catch (Throwable callbackFailure) {
                     rethrowFatal(callbackFailure);
                     throw pluginFailure("schedule.guard.plugin-failure");
                 }
+                return validateGuardResult(result, credential);
             }
         }
 
+        private ScheduledCredentialIncidentPresentation incidentPresentation(
+                ScheduledGuardDecision decision,
+                ScheduledGuardEvidence evidence) {
+            if (decision.action() != ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT
+                    || taskRow.credentialPolicyOwnerPluginId() == null
+                    || taskRow.credentialPolicyId() == null
+                    || taskRow.credentialAccountKey() == null) {
+                return ScheduledCredentialIncidentPresentation.empty();
+            }
+            ScheduleCapabilityOwner policyOwner = execution.credentialPolicyOwner().orElse(null);
+            var policy = execution.credentialPolicy().orElse(null);
+            if (policyOwner == null || policy == null
+                    || !taskRow.credentialPolicyOwnerPluginId().equals(
+                    policyOwner.featurePluginId())
+                    || !taskRow.credentialPolicyId().equals(plan.credentialPolicyId())) {
+                return ScheduledCredentialIncidentPresentation.empty();
+            }
+            try {
+                List<ScheduledTask> affected = new ArrayList<>(
+                        store.findByCredentialAccount(
+                                taskRow.credentialPolicyOwnerPluginId(),
+                                taskRow.credentialPolicyId(),
+                                taskRow.credentialAccountKey()));
+                if (affected.isEmpty()) {
+                    affected.add(taskRow);
+                }
+                affected.sort(Comparator.comparingLong(ScheduledTask::id));
+                List<ScheduledCredentialTaskSnapshot> snapshots = affected.stream()
+                        .map(row -> new ScheduledCredentialTaskSnapshot(
+                                row.id(), row.stateVersion(),
+                                row.suspendReason() == ScheduleSuspendReason.CREDENTIAL,
+                                row.suspendReason() == ScheduleSuspendReason.POLICY,
+                                row.runState() != null || runState.get(row.id()) != null,
+                                row.suspendCode(), row.suspendDetailJson(),
+                                row.credentialPolicyStateJson()))
+                        .toList();
+                ScheduledCredentialIncidentPresentation presentation =
+                        policy.incidentPresentation(new ScheduledCredentialAccountIncident(
+                                taskRow.credentialAccountKey(), decision.reasonCode(),
+                                evidence, System.currentTimeMillis(), snapshots));
+                return presentation == null
+                        ? ScheduledCredentialIncidentPresentation.empty()
+                        : presentation;
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
+                return ScheduledCredentialIncidentPresentation.empty();
+            }
+        }
+
+    }
+
+    private static ScheduledGuardResult validateGuardResult(
+            ScheduledGuardResult result,
+            ScheduleCredentialMaterial credential) throws ScheduledExecutionException {
+        if (result == null) {
+            throw pluginFailure("schedule.guard.null-result");
+        }
+        ScheduledGuardDecision decision = result.decision();
+        if (decision.action() != ScheduledGuardDecision.Action.CONTINUE
+                && (!isSafeMachineCode(decision.reasonCode())
+                || credential.containsEcho(decision.reasonCode()))) {
+            throw pluginFailure("schedule.guard.invalid-result");
+        }
+        ScheduledGuardDecision safeDecision = new ScheduledGuardDecision(
+                decision.action(), decision.reasonCode(), decision.retryAfterMillis());
+        ScheduledGuardEvidence safeEvidence = sanitizeEvidence(
+                result.evidence(), credential, "schedule.guard.invalid-result");
+        return new ScheduledGuardResult(safeDecision, safeEvidence);
     }
 }

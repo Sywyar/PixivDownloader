@@ -4,19 +4,26 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
+import top.sywyar.pixivdownload.download.schedule.PixivScheduleSettings;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialAccountActionRequest;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialAccountIncident;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialTaskSnapshot;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
-import top.sywyar.pixivdownload.schedule.OveruseWarningService;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -117,9 +124,137 @@ class PixivScheduledCredentialPolicyTest {
         verify(localOnly, never()).probe(eq(COOKIE), anyLong());
     }
 
+    @Test
+    @DisplayName("任务展示状态完全由 Pixiv 策略解释并保留已确认事件时间")
+    void taskPresentationOwnsPixivCredentialState() {
+        PixivSchedulePersistenceCodec codec =
+                new PixivSchedulePersistenceCodec(new ObjectMapper());
+        PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
+                mock(OveruseWarningService.class), codec, new PixivScheduleSettings());
+
+        var expired = policy.taskPresentation(snapshot(
+                41L, 7L, true, false, false,
+                "CREDENTIAL_REJECTED", null, null));
+        var paused = policy.taskPresentation(snapshot(
+                42L, 8L, false, true, false,
+                PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
+                "{\"modifiedAt\":\"900\"}", codec.encodePolicyState(900L)));
+
+        assertThat(expired.statusCode()).isEqualTo("AUTH_EXPIRED");
+        assertThat(expired.acknowledgedEventTime()).isNull();
+        assertThat(paused.statusCode()).isEqualTo("OVERUSE_PAUSED");
+        assertThat(paused.acknowledgedEventTime()).isEqualTo(900L);
+    }
+
+    @Test
+    @DisplayName("忽略风险动作返回纯值 CAS 计划并以最新警告时间确认全部同账号任务")
+    void ignoreRiskReturnsStateCasPlan() {
+        PixivSchedulePersistenceCodec codec =
+                new PixivSchedulePersistenceCodec(new ObjectMapper());
+        PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
+                mock(OveruseWarningService.class), codec, new PixivScheduleSettings());
+        List<ScheduledCredentialTaskSnapshot> tasks = List.of(
+                snapshot(41L, 7L, false, true, false,
+                        PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
+                        "{\"modifiedAt\":\"800\"}", codec.encodePolicyState(null)),
+                snapshot(42L, 11L, false, true, false,
+                        PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
+                        "{\"modifiedAt\":\"900\"}", codec.encodePolicyState(700L)));
+
+        var plan = policy.prepareAccountAction(new ScheduledCredentialAccountActionRequest(
+                        "12345", PixivScheduledCredentialPolicy.ACTION_IGNORE_RISK,
+                        Map.of(), 1_000L, tasks))
+                .orElseThrow();
+
+        assertThat(plan.expectedSuspendCode())
+                .isEqualTo(PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE);
+        assertThat(plan.nextRunTime()).isEqualTo(1_000L);
+        assertThat(plan.stateUpdates()).extracting(update -> update.taskId())
+                .containsExactly(41L, 42L);
+        assertThat(plan.stateUpdates()).allSatisfy(update ->
+                assertThat(codec.decodeAcknowledgedWarningTime(update.nextPolicyStateJson()))
+                        .isEqualTo(900L));
+    }
+
+    @Test
+    @DisplayName("延迟动作采用插件配置默认值并拒绝低于策略下限的参数")
+    void deferUsesPluginSettingsAndEnforcesMinimum() {
+        PixivScheduleSettings settings = new PixivScheduleSettings();
+        settings.setOveruseDeferDefaultMinutes(120);
+        PixivSchedulePersistenceCodec codec =
+                new PixivSchedulePersistenceCodec(new ObjectMapper());
+        PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
+                mock(OveruseWarningService.class), codec, settings);
+        List<ScheduledCredentialTaskSnapshot> tasks = List.of(snapshot(
+                41L, 7L, false, true, false,
+                PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
+                "{\"modifiedAt\":\"800\"}", codec.encodePolicyState(null)));
+
+        var plan = policy.prepareAccountAction(new ScheduledCredentialAccountActionRequest(
+                        "12345", PixivScheduledCredentialPolicy.ACTION_DEFER,
+                        Map.of(), 1_000L, tasks))
+                .orElseThrow();
+
+        assertThat(plan.nextRunTime()).isEqualTo(1_000L + 120L * 60_000L);
+        assertThatThrownBy(() -> policy.prepareAccountAction(
+                new ScheduledCredentialAccountActionRequest(
+                        "12345", PixivScheduledCredentialPolicy.ACTION_DEFER,
+                        Map.of("minutes", "59"), 1_000L, tasks)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("账号策略事件由 Pixiv 策略投影为安全通知场景和参数")
+    void incidentPresentationOwnsPixivNotificationProjection() {
+        PixivScheduledCredentialPolicy policy = policy(mock(OveruseWarningService.class));
+        ScheduledCredentialTaskSnapshot task = snapshot(
+                41L, 7L, false, true, false,
+                PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
+                "{\"modifiedAt\":\"800\"}", null);
+
+        var presentation = policy.incidentPresentation(
+                new ScheduledCredentialAccountIncident(
+                        "12345",
+                        PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
+                        new ScheduledGuardEvidence(Map.of(
+                                "excerpt", "safe warning",
+                                "modifiedAt", "800")),
+                        900L,
+                        List.of(task)));
+        var unrelated = policy.incidentPresentation(
+                new ScheduledCredentialAccountIncident(
+                        "12345", "OTHER_POLICY_EVENT",
+                        ScheduledGuardEvidence.empty(), 900L, List.of(task)));
+
+        assertThat(presentation.scenarioId()).isEqualTo("overuse-paused");
+        assertThat(presentation.scalarAttributes())
+                .containsExactly(Map.entry("warning_excerpt", "safe warning"));
+        assertThat(presentation.timeAttributes())
+                .containsExactly(Map.entry("warning_time", 800L));
+        assertThat(unrelated.scenarioId()).isNull();
+        assertThat(unrelated.scalarAttributes()).isEmpty();
+        assertThat(unrelated.timeAttributes()).isEmpty();
+    }
+
     private static PixivScheduledCredentialPolicy policy(OveruseWarningService warningService) {
         return new PixivScheduledCredentialPolicy(
-                warningService, new PixivSchedulePersistenceCodec(new ObjectMapper()));
+                warningService,
+                new PixivSchedulePersistenceCodec(new ObjectMapper()),
+                new PixivScheduleSettings());
+    }
+
+    private static ScheduledCredentialTaskSnapshot snapshot(
+            long taskId,
+            long stateVersion,
+            boolean credentialSuspended,
+            boolean policySuspended,
+            boolean busy,
+            String suspendCode,
+            String suspendDetailJson,
+            String policyStateJson) {
+        return new ScheduledCredentialTaskSnapshot(
+                taskId, stateVersion, credentialSuspended, policySuspended, busy,
+                suspendCode, suspendDetailJson, policyStateJson);
     }
 
     private static ScheduledCredentialContext context(

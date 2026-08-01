@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.douyin.client.DouyinCookieValidator;
 import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
 import top.sywyar.pixivdownload.douyin.schedule.failure.DouyinScheduledFailureMapper;
 import top.sywyar.pixivdownload.douyin.schedule.network.DouyinScheduledRouteScope;
+import top.sywyar.pixivdownload.douyin.schedule.security.DouyinScheduledCredentialText;
 import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
@@ -100,7 +101,8 @@ public final class DouyinScheduledCredentialPolicy implements ScheduledCredentia
         String value = account.accountKey().trim();
         if (value.isEmpty() || value.length() > 256
                 || value.chars().anyMatch(Character::isISOControl)
-                || ScheduledCredentialText.containsCredentialMaterial(value)) {
+                || ScheduledCredentialText.containsCredentialMaterial(value)
+                || DouyinScheduledCredentialText.containsCredentialMaterial(value)) {
             return null;
         }
         return value;

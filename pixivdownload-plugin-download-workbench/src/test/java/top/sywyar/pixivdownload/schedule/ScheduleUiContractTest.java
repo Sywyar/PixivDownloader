@@ -31,7 +31,8 @@ class ScheduleUiContractTest {
                 .contains("code === 'MIGRATION_ERROR'")
                 .contains("const suspended = !!t.suspendReason")
                 .contains("const automaticSuspension = ['SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE', 'QUIESCED']")
-                .contains("const manualRecoveryRequired = suspended && !automaticSuspension")
+                .contains("const manualRecoveryRequired = credentialPresentation.manualRecoveryRequired === true")
+                .contains("|| (suspended && !automaticSuspension)")
                 .contains("schedule.disabled.run-capability")
                 .contains("schedule.meta.next-capability")
                 .contains("const runAttr = (t.enabled && !busy && !suspended)")
@@ -155,16 +156,16 @@ class ScheduleUiContractTest {
         String en = readSource("i18n/web/batch_en.properties");
         List<String> genericKeys = List.of(
                 "schedule.status.saved-authorized",
-                "schedule.status.saved-no-cookie",
+                "schedule.status.saved-no-credential",
                 "schedule.status.saved-overrides",
                 "schedule.status.saved-override-failed",
                 "schedule.status.override-saved",
                 "schedule.status.override-unchanged",
                 "schedule.confirm.delete",
                 "schedule.confirm.clear-proxy",
-                "schedule.confirm.clear-cookie",
-                "schedule.error.no-cookie",
-                "schedule.error.revoke-cookie",
+                "schedule.confirm.clear-credential",
+                "schedule.error.no-credential",
+                "schedule.error.revoke-credential",
                 "schedule.run-status.auth-expired",
                 "schedule.light.auth-expired",
                 "schedule.snapshot.field.cookie"
@@ -184,10 +185,13 @@ class ScheduleUiContractTest {
                 .contains("data-i18n=\"schedule.action.use-saved-credential\"")
                 .contains("data-i18n=\"schedule.field.credential.hint\"");
         assertThat(source)
-                .contains("scheduleSourcePresentationI18nKey")
-                .contains("Promise.resolve(actions).catch(() => {})")
+                .contains("runtime.credentialContribution(sourceType, context || {})")
+                .contains("runtime.credentialTaskPresentation")
+                .contains("runtime.applyCredentialPolicyAction")
                 .contains("clearProxyConfirmI18nKey")
-                .contains("clearCredentialConfirmI18nKey");
+                .contains("clearCredentialConfirmI18nKey")
+                .doesNotContain("scheduleSourcePresentationI18nKey")
+                .doesNotContain("Promise.resolve(actions)");
         assertThat(propertyValue(zh, "schedule.pixiv.confirm.clear-proxy")).contains("Pixiv");
         assertThat(propertyValue(zh, "schedule.pixiv.confirm.clear-cookie")).contains("Cookie", "R-18");
         assertThat(propertyValue(en, "schedule.pixiv.confirm.clear-proxy")).contains("Pixiv");

@@ -10,8 +10,10 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPubli
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthority;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -41,13 +43,16 @@ public class PluginRuntimeTaskQuiescer {
     private final PluginScheduleContributionRegistrar scheduleContributionRegistrar;
     private final PluginStreamRegistry pluginStreamRegistry;
     private final QueueOperationRegistry queueOperationRegistry;
+    private final PluginRuntimeTaskRegistry runtimeTaskRegistry;
 
     public PluginRuntimeTaskQuiescer(PluginScheduleContributionRegistrar scheduleContributionRegistrar,
                                      PluginStreamRegistry pluginStreamRegistry,
-                                     QueueOperationRegistry queueOperationRegistry) {
+                                     QueueOperationRegistry queueOperationRegistry,
+                                     PluginRuntimeTaskRegistry runtimeTaskRegistry) {
         this.scheduleContributionRegistrar = scheduleContributionRegistrar;
         this.pluginStreamRegistry = pluginStreamRegistry;
         this.queueOperationRegistry = queueOperationRegistry;
+        this.runtimeTaskRegistry = runtimeTaskRegistry;
     }
 
     /**
@@ -71,6 +76,11 @@ public class PluginRuntimeTaskQuiescer {
     /** 新 serving 发布前重新开放推流；存在上次关闭失败残留时拒绝开放。 */
     public void resumeStreams(String pluginId) {
         pluginStreamRegistry.resume(pluginId);
+    }
+
+    /** 新 serving 发布前为该 owner 开放一个新的中性后台任务 generation。 */
+    public void resumeTasks(String pluginId) {
+        runtimeTaskRegistry.resume(pluginId);
     }
 
     /** 禁止新推流并重试关闭全部既有 / 迟到连接；最终复核必须确认没有 callback 残留。 */
@@ -122,12 +132,55 @@ public class PluginRuntimeTaskQuiescer {
         }
     }
 
-    /** schedule 与 queue drains 已由生命周期持久化后，继续关闭 SSE 并发送队列取消。 */
+    /**
+     * 原子停止该 owner 接收新的中性后台任务，并在返回后立刻交给生命周期保存。取消 callback 不在本方法执行；
+     * 已保存 drain 的重试必须仍指向同一 owner generation。
+     */
+    public void prepareRuntimeTaskDrain(
+            String pluginId,
+            @Nullable PluginRuntimeTaskDrain persistedDrain,
+            Consumer<PluginRuntimeTaskDrain> recorder) {
+        Objects.requireNonNull(recorder, "recorder");
+        PluginRuntimeTaskDrain drain = requireValidTaskDrain(pluginId, Objects.requireNonNull(
+                runtimeTaskRegistry.prepareQuiesce(pluginId),
+                "runtime task registry returned null drain: " + pluginId));
+        if (persistedDrain == null) {
+            recorder.accept(drain);
+        } else {
+            requireSameTaskGeneration(pluginId, persistedDrain, drain);
+        }
+    }
+
+    /** schedule、task 与 queue drains 已由生命周期持久化后，发送任务取消、关闭 SSE 并发送队列取消。 */
     public void quiesceAfterScheduleWithdrawal(
-            String pluginId, List<QueueDrain> queueDrains) {
-        Throwable failure = closeStreams(pluginId);
+            String pluginId,
+            @Nullable PluginRuntimeTaskDrain runtimeTaskDrain,
+            List<QueueDrain> queueDrains) {
+        Throwable failure = cancelRuntimeTasks(pluginId, runtimeTaskDrain);
+        failure = mergeFailure(failure, closeStreams(pluginId));
         failure = cancelQueueTasks(pluginId, queueDrains, failure);
         rethrow(failure);
+    }
+
+    /** 兼容无中性任务 drain 的聚焦调用；生命周期主路径必须传入已保存的精确 drain。 */
+    public void quiesceAfterScheduleWithdrawal(
+            String pluginId, List<QueueDrain> queueDrains) {
+        quiesceAfterScheduleWithdrawal(pluginId, null, queueDrains);
+    }
+
+    private Throwable cancelRuntimeTasks(
+            String pluginId, @Nullable PluginRuntimeTaskDrain runtimeTaskDrain) {
+        if (runtimeTaskDrain == null) {
+            return null;
+        }
+        try {
+            runtimeTaskRegistry.cancelQuiescedTasks(pluginId, runtimeTaskDrain);
+            return null;
+        } catch (Throwable failure) {
+            log.warn("Error cancelling background tasks for plugin '{}' (failureType={})",
+                    pluginId, failure.getClass().getName());
+            return failure;
+        }
     }
 
     private Throwable closeStreams(String pluginId) {
@@ -208,6 +261,36 @@ public class PluginRuntimeTaskQuiescer {
         }
     }
 
+    private static void requireSameTaskGeneration(
+            String pluginId, PluginRuntimeTaskDrain expected, PluginRuntimeTaskDrain actual) {
+        if (!expected.ownerPluginId().equals(actual.ownerPluginId())
+                || expected.generation() != actual.generation()) {
+            throw new IllegalStateException("runtime task generation changed while quiescing plugin '"
+                    + pluginId + "': expected " + expected.ownerPluginId() + "#" + expected.generation()
+                    + ", got " + actual.ownerPluginId() + "#" + actual.generation());
+        }
+    }
+
+    private static PluginRuntimeTaskDrain requireValidTaskDrain(
+            String pluginId, PluginRuntimeTaskDrain drain) {
+        String ownerPluginId = drain.ownerPluginId();
+        long generation = drain.generation();
+        int activeCount = drain.activeCount();
+        if (!pluginId.equals(ownerPluginId)) {
+            throw new IllegalStateException("runtime task drain owner mismatch for plugin '"
+                    + pluginId + "': " + ownerPluginId);
+        }
+        if (generation <= 0) {
+            throw new IllegalStateException("runtime task drain generation must be positive for plugin '"
+                    + pluginId + "': " + generation);
+        }
+        if (activeCount < 0) {
+            throw new IllegalStateException("runtime task drain active count must not be negative for plugin '"
+                    + pluginId + "': " + activeCount);
+        }
+        return drain;
+    }
+
     private static QueueDrain requireValidDrain(String pluginId, String queueType, QueueDrain drain) {
         String drainType = drain.queueType();
         long generation = drain.generation();
@@ -233,6 +316,9 @@ public class PluginRuntimeTaskQuiescer {
     }
 
     private static Throwable mergeFailure(Throwable current, Throwable failure) {
+        if (failure == null) {
+            return current;
+        }
         if (current == null) {
             return failure;
         }

@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
 /**
- * One pure data condition evaluated by the host against the current config snapshot.
+ * One pure data condition evaluated by the host against the current config snapshot. A plugin-contributed
+ * condition may reference only fields owned by that same plugin.
  *
  * @param key      config key to inspect
  * @param operator comparison operator

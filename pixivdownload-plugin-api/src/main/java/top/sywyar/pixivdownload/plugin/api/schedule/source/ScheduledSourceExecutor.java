@@ -3,7 +3,10 @@ package top.sywyar.pixivdownload.plugin.api.schedule.source;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 
-/** 插件 child context 中的来源发现执行器。宿主仍拥有 tick、claim、并发、pending、取消和检查点提交。 */
+/**
+ * 插件 child context 中的来源发现执行器。宿主仍拥有 tick、claim、并发、pending、取消和检查点提交。
+ * 来源不得在发现结果、提交的作品或任何抛出异常中返回、提交或抛出原始凭据或可逆派生材料。
+ */
 public interface ScheduledSourceExecutor {
 
     String sourceType();

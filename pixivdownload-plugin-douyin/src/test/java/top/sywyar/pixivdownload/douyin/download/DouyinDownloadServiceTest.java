@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.douyin.download;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.core.task.TaskExecutor;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
@@ -283,7 +283,7 @@ class DouyinDownloadServiceTest {
         CountDownLatch releaseRecord = new CountDownLatch(1);
         history.blockRecord(recordEntered, releaseRecord);
         AtomicReference<Thread> worker = new AtomicReference<>();
-        TaskExecutor executor = task -> {
+        InteractiveDownloadExecutionLane executor = task -> {
             Thread thread = new Thread(task, "douyin-history-finalize-test");
             thread.setDaemon(true);
             worker.set(thread);
@@ -1052,7 +1052,7 @@ class DouyinDownloadServiceTest {
         assertThat(Files.exists(client.downloader.lastTarget)).isTrue();
     }
 
-    private DouyinDownloadService service(FakeClient client, TaskExecutor executor) {
+    private DouyinDownloadService service(FakeClient client, InteractiveDownloadExecutionLane executor) {
         return new DouyinDownloadService(new DouyinUrlParser(), client, client.downloader, executor, tempDir);
     }
 
@@ -1077,7 +1077,7 @@ class DouyinDownloadServiceTest {
         return List.copyOf(combined);
     }
 
-    private static final class CapturingExecutor implements TaskExecutor {
+    private static final class CapturingExecutor implements InteractiveDownloadExecutionLane {
         private final java.util.ArrayList<Runnable> tasks = new java.util.ArrayList<>();
 
         @Override

@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
@@ -16,6 +15,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -46,7 +46,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
@@ -390,7 +390,7 @@ class PluginClassLoaderLeakProbeTest {
                 owner, List.of(), List.of(), List.of(workExecutor), List.of(), List.of());
         ScheduleCapabilityPublication publication =
                 ScheduleCapabilityRegistryTestAccess.publish(schedule, bundle);
-        streams.register(PLUGIN_ID, "conn-1", () -> { /* no-op close */ });
+        streams.registrarForPlugin(PLUGIN_ID).register("conn-1", () -> { /* no-op close */ });
 
         // —— 接入后（确定性）：各注册中心暴露该插件；i18n / userscript 已从来源 loader 物化为宿主值 ——
         assertThat(routes.routes()).anyMatch(r -> r.pluginId().equals(PLUGIN_ID));
@@ -401,8 +401,8 @@ class PluginClassLoaderLeakProbeTest {
         assertThat(navigation.navigation()).anyMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts())
                 .anyMatch(u -> u.pluginId().equals(PLUGIN_ID) && u.classLoader() == probeCl);
-        assertThat(scripts.readContent("sample-plugin.user.js"))
-                .contains("Sample Plugin Userscript");
+        assertThat(scripts.scripts()).singleElement()
+                .satisfies(script -> assertThat(script.content()).contains("Sample Plugin Userscript"));
         var workHandle = schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE).orElseThrow();
         ScheduleSingleCapabilityLease<ScheduledWorkExecutor> workLease =
                 schedule.prepareAcquire(workHandle).orElseThrow();
@@ -414,9 +414,7 @@ class PluginClassLoaderLeakProbeTest {
 
         // —— 注销（与生命周期 teardown 等价的注册中心注销路径）——
         web.unregister(webHandle); // 精确 serving 注销 + ResourceBundle.clearCache(probeCl) + scriptRegistry.refresh
-        assertThat(scripts.getScripts()).isEmpty();
-        assertThatThrownBy(() -> scripts.readContent("sample-plugin.user.js"))
-                .isInstanceOf(IOException.class);
+        assertThat(scripts.scripts()).isEmpty();
         ScheduleGenerationDrain drain =
                 ScheduleCapabilityRegistryTestAccess.withdraw(schedule, publication).orElseThrow();
         assertThat(schedule.snapshotView().owners()).isEmpty();
@@ -443,7 +441,7 @@ class PluginClassLoaderLeakProbeTest {
         assertThat(i18n.resolve(NAMESPACE)).isNull();
         assertThat(navigation.navigation()).noneMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts()).noneMatch(u -> u.pluginId().equals(PLUGIN_ID));
-        assertThat(scripts.getScripts()).isEmpty();
+        assertThat(scripts.scripts()).isEmpty();
         assertThat(schedule.snapshotView().owners()).isEmpty();
         assertThat(schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE)).isEmpty();
         assertThat(streams.activeStreamCount(PLUGIN_ID)).isZero();
@@ -461,7 +459,7 @@ class PluginClassLoaderLeakProbeTest {
                 + ", i18n=" + (i18n.resolve(NAMESPACE) != null)
                 + ", nav=" + navigation.navigation().stream().anyMatch(n -> n.pluginId().equals(PLUGIN_ID))
                 + ", userscript=" + userscripts.userscripts().stream().anyMatch(u -> u.pluginId().equals(PLUGIN_ID))
-                + ", scriptSnapshot=" + scripts.getScripts().size()
+                + ", scriptSnapshot=" + scripts.scripts().size()
                 + ", scheduleOwners=" + schedule.snapshotView().owners().size()
                 + ", work=" + schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE).isPresent()
                 + ", stream=" + streams.activeStreamCount(PLUGIN_ID)
@@ -516,7 +514,8 @@ class PluginClassLoaderLeakProbeTest {
 
         @Override
         public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution("classpath:/test-userscripts/*.user.js"));
+            return List.of(new UserscriptContribution(
+                    "sample-plugin", "classpath:/test-userscripts/sample-plugin.user.js"));
         }
 
     }

@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -88,8 +89,8 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.moved()).isTrue();
             assertThat(meta.moveFolder()).isEqualTo("/moved/7");
             assertThat(meta.moveTime()).isEqualTo(1800L);
-            assertThat(meta.fileNameTemplateId()).isEqualTo(5L);
-            assertThat(meta.fileNameTemplate()).isEqualTo("{artwork_title}_p{page}");
+            assertThat(meta.fileNameTemplateRef()).isEqualTo(
+                    new WorkFileNameTemplateRef(5L, "{artwork_title}_p{page}"));
         }
 
         @Test
@@ -127,20 +128,22 @@ class CoreWorkMetadataRepositoryTest {
         }
 
         @Test
-        @DisplayName("模板 id 缺省时按默认模板 1 解析内容，fileNameTemplateId 字段保持 null")
+        @DisplayName("模板目录键缺省时解析默认模板且兼容键保持 null")
         void shouldFallBackToDefaultTemplateWhenTemplateIdIsNull() {
             when(pixivDatabase.getArtworks(anyCollection())).thenReturn(List.of(
                     artwork(7L, null, null, null, false)));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
             when(pixivDatabase.getArtworkTags(anyCollection())).thenReturn(Map.of());
-            when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of(1L, "默认模板"));
+            when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of(
+                    PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID, "默认模板"));
 
             Optional<WorkMetadata> found = repository.find(WorkType.ARTWORK, 7L);
 
             assertThat(found).isPresent();
-            assertThat(found.get().fileNameTemplateId()).isNull();
-            assertThat(found.get().fileNameTemplate()).isEqualTo("默认模板");
-            verify(pixivDatabase).getFileNameTemplates(Set.of(1L));
+            assertThat(found.get().fileNameTemplateRef()).isEqualTo(
+                    new WorkFileNameTemplateRef(null, "默认模板"));
+            verify(pixivDatabase).getFileNameTemplates(Set.of(
+                    PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID));
         }
     }
 
@@ -239,8 +242,8 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.moved()).isFalse();
             assertThat(meta.moveFolder()).isNull();
             assertThat(meta.moveTime()).isNull();
-            assertThat(meta.fileNameTemplateId()).isEqualTo(5L);
-            assertThat(meta.fileNameTemplate()).isEqualTo("{novel_title}");
+            assertThat(meta.fileNameTemplateRef()).isEqualTo(
+                    new WorkFileNameTemplateRef(5L, "{novel_title}"));
         }
 
         @Test
@@ -305,7 +308,7 @@ class CoreWorkMetadataRepositoryTest {
         }
 
         @Test
-        @DisplayName("模板 id 为空时不查模板池（小说侧无「缺省取默认模板 1」规则）")
+        @DisplayName("模板目录键为空时不查模板池（小说侧不补默认模板）")
         void shouldSkipTemplateLookupWhenTemplateIdMissing() {
             NovelMetadataRow noTemplate = new NovelMetadataRow(9L, "无模板", "/novels/9", 1, "", 1900L, 0, false,
                     null, null, null, null, null, null, null, null, false, null);
@@ -316,8 +319,7 @@ class CoreWorkMetadataRepositoryTest {
             Optional<WorkMetadata> found = repository.find(WorkType.NOVEL, 9L);
 
             assertThat(found).isPresent();
-            assertThat(found.get().fileNameTemplateId()).isNull();
-            assertThat(found.get().fileNameTemplate()).isNull();
+            assertThat(found.get().fileNameTemplateRef()).isNull();
             verify(pixivDatabase, never()).getFileNameTemplates(anyCollection());
         }
     }

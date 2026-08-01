@@ -8,8 +8,8 @@ import java.util.List;
  */
 public interface PushChannel {
 
-    /** 本通道类型。 */
-    PushChannelType type();
+    /** 本通道的稳定标识。 */
+    PushChannelId type();
 
     /**
      * 本通道是否具备发送所需设置。实现只检查自己的设置。

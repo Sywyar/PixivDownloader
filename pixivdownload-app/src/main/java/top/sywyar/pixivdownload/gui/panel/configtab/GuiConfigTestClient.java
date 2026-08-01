@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.common.web.GuiActionInvocationHeaders;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
@@ -8,9 +9,9 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
@@ -29,6 +30,8 @@ public final class GuiConfigTestClient {
 
     private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
     private static final int CONNECT_TIMEOUT_MS = 2000;
+    private static final int MAX_POST_RESPONSE_BYTES = 64 * 1024;
+    private static final int MAX_GET_RESPONSE_BYTES = 1024 * 1024;
     private static final String[] SCHEMES = {"http", "https"};
 
     private final int serverPort;
@@ -38,7 +41,11 @@ public final class GuiConfigTestClient {
     }
 
     /** 一次 POST 的结果。reachable=false 表示后端连接不上；否则带回 HTTP 状态码与响应正文。 */
-    public record Response(boolean reachable, int status, String body) {
+    public record Response(boolean reachable, int status, String body, boolean bodyLimitExceeded) {
+        public Response(boolean reachable, int status, String body) {
+            this(reachable, status, body, false);
+        }
+
         public boolean is2xx() {
             return status >= 200 && status < 300;
         }
@@ -46,13 +53,26 @@ public final class GuiConfigTestClient {
 
     /** 向 {@code /api/gui/<endpoint>} POST 一段 JSON；连接不上返回 reachable=false。 */
     public Response postJson(String endpoint, byte[] body, int readTimeoutMs) {
+        return postJson(endpoint, body, readTimeoutMs, null);
+    }
+
+    /**
+     * 向插件声明的 {@code /api/gui/<endpoint>} POST 一段 JSON，并携带宿主聚合时绑定的插件 owner。
+     * 后端会把 owner 与当前实际发布的精确 GUI POST 路由再次比对，避免可变 contribution getter
+     * 在聚合与发布之间把动作端点切换到其它插件。
+     */
+    public Response postJson(String endpoint, byte[] body, int readTimeoutMs, String pluginOwner) {
         for (String scheme : SCHEMES) {
             HttpURLConnection conn = null;
             try {
                 conn = open(scheme, endpoint, readTimeoutMs, "POST", true);
+                if (pluginOwner != null && !pluginOwner.isBlank()) {
+                    conn.setRequestProperty(GuiActionInvocationHeaders.PLUGIN_OWNER, pluginOwner);
+                }
                 conn.getOutputStream().write(body);
                 int status = conn.getResponseCode();
-                return new Response(true, status, readResponseBody(conn, status));
+                ResponseBody responseBody = readResponseBody(conn, status, MAX_POST_RESPONSE_BYTES);
+                return new Response(true, status, responseBody.body(), responseBody.limitExceeded());
             } catch (Exception ignored) {
                 // try the other scheme
             } finally {
@@ -71,7 +91,8 @@ public final class GuiConfigTestClient {
             try {
                 conn = open(scheme, endpoint, readTimeoutMs, "GET", false);
                 int status = conn.getResponseCode();
-                return new Response(true, status, readResponseBody(conn, status));
+                ResponseBody responseBody = readResponseBody(conn, status, MAX_GET_RESPONSE_BYTES);
+                return new Response(true, status, responseBody.body(), responseBody.limitExceeded());
             } catch (Exception ignored) {
                 // try the other scheme
             } finally {
@@ -127,22 +148,36 @@ public final class GuiConfigTestClient {
         return conn;
     }
 
-    private static String readResponseBody(HttpURLConnection conn, int status) {
+    private static ResponseBody readResponseBody(HttpURLConnection conn, int status, int maxBytes) {
         try (var stream = (status >= 200 && status < 300) ? conn.getInputStream() : conn.getErrorStream()) {
             if (stream == null) {
-                return "";
+                return new ResponseBody("", false);
             }
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-                return sb.toString();
-            }
+            return readBoundedUtf8(stream, maxBytes);
         } catch (IOException e) {
-            return "";
+            return new ResponseBody("", false);
         }
+    }
+
+    private static ResponseBody readBoundedUtf8(InputStream stream, int maxBytes) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(Math.min(maxBytes, 8 * 1024));
+        byte[] chunk = new byte[4 * 1024];
+        int total = 0;
+        int read;
+        while ((read = stream.read(chunk)) >= 0) {
+            if (read == 0) {
+                continue;
+            }
+            if (total > maxBytes - read) {
+                return new ResponseBody("", true);
+            }
+            buffer.write(chunk, 0, read);
+            total += read;
+        }
+        return new ResponseBody(buffer.toString(StandardCharsets.UTF_8), false);
+    }
+
+    private record ResponseBody(String body, boolean limitExceeded) {
     }
 
     private static SSLContext buildTrustAllSslContext() {

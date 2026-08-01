@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.schedule.execution;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialIncidentPresentation;
 
 /** Guard 或凭证策略要求宿主执行的稳定控制决定；不携带插件异常或凭证材料。 */
 public final class ScheduleExecutionControlException extends Exception {
@@ -10,17 +11,31 @@ public final class ScheduleExecutionControlException extends Exception {
     private final String reasonCode;
     private final long retryAfterMillis;
     private final ScheduledGuardEvidence evidence;
+    private final ScheduledCredentialIncidentPresentation incidentPresentation;
 
     public ScheduleExecutionControlException(
             ScheduledGuardDecision.Action action,
             String reasonCode,
             long retryAfterMillis,
             ScheduledGuardEvidence evidence) {
+        this(action, reasonCode, retryAfterMillis, evidence,
+                ScheduledCredentialIncidentPresentation.empty());
+    }
+
+    public ScheduleExecutionControlException(
+            ScheduledGuardDecision.Action action,
+            String reasonCode,
+            long retryAfterMillis,
+            ScheduledGuardEvidence evidence,
+            ScheduledCredentialIncidentPresentation incidentPresentation) {
         super(reasonCode);
         this.action = action;
         this.reasonCode = reasonCode;
         this.retryAfterMillis = retryAfterMillis;
         this.evidence = evidence == null ? ScheduledGuardEvidence.empty() : evidence;
+        this.incidentPresentation = incidentPresentation == null
+                ? ScheduledCredentialIncidentPresentation.empty()
+                : incidentPresentation;
     }
 
     public ScheduledGuardDecision.Action action() {
@@ -37,5 +52,9 @@ public final class ScheduleExecutionControlException extends Exception {
 
     public ScheduledGuardEvidence evidence() {
         return evidence;
+    }
+
+    public ScheduledCredentialIncidentPresentation incidentPresentation() {
+        return incidentPresentation;
     }
 }

@@ -25,17 +25,16 @@ import java.util.List;
  * @param seriesTitle        系列标题（仅 {@code seriesId > 0} 时补全），缺行时为 {@code null}
  * @param tags               作品标签（防御性拷贝，不可变）
  * @param downloadTime       下载落库时间（毫秒）
- * @param pageCount          本地文件计数（插画 = 图片页数；小说沿用 {@code count} 列语义）
+ * @param pageCount          当前来源投影声明的本地文件计数
  * @param extensions         文件扩展名记录
  * @param folder             作品目录（已解析路径前缀），可为 {@code null}
- * @param moved              是否已移动（小说侧无移动语义，恒为 {@code false}）
+ * @param moved              本地资产是否处于已移动状态
  * @param moveFolder         移动目标目录，可为 {@code null}
  * @param moveTime           移动时间（毫秒），可为 {@code null}
- * @param fileNameTemplateId 文件名模板 id（底层原值），可为 {@code null}
- * @param fileNameTemplate   文件名模板内容（插画侧沿用「{@code null} id 取默认模板 1」的既有规则补全）
- * @param uploadTime         Pixiv 真实上传时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
- *                           历史数据未捕获时为 {@code null}（源 illust {@code uploadDate} / novel {@code uploadTimestamp}）
- * @param isOriginal         原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）
+ * @param fileNameTemplateRef 文件名模板的中性引用，可为 {@code null}；目录键只是不透明兼容值
+ * @param uploadTime          来源提供的真实发布时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
+ *                            未捕获时为 {@code null}
+ * @param isOriginal          原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）
  */
 public record WorkMetadata(
         long workId,
@@ -56,8 +55,7 @@ public record WorkMetadata(
         boolean moved,
         String moveFolder,
         Long moveTime,
-        Long fileNameTemplateId,
-        String fileNameTemplate,
+        WorkFileNameTemplateRef fileNameTemplateRef,
         Long uploadTime,
         Boolean isOriginal) {
 

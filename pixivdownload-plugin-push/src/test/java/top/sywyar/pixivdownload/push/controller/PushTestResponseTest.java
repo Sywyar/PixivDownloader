@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.push.controller;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.TestMessageResolver;
 
@@ -18,7 +18,7 @@ class PushTestResponseTest {
     @DisplayName("受控失败原因按请求语言解析")
     void controlledDetailUsesRequestedLocale() {
         PushResult result = PushResult.failed(
-                PushChannelType.BARK, PushResult.DETAIL_SETTINGS_INCOMPLETE);
+                PushChannelIds.BARK, PushResult.DETAIL_SETTINGS_INCOMPLETE);
 
         String chinese = PushTestResponse.from(
                 List.of(result), TestMessageResolver.INSTANCE, Locale.SIMPLIFIED_CHINESE)
@@ -41,10 +41,10 @@ class PushTestResponseTest {
     @Test
     @DisplayName("外部脱敏诊断保持原文且解析器异常回退稳定原因键")
     void rawDetailAndResolverFailureRemainSafe() {
-        PushResult raw = PushResult.failed(PushChannelType.BARK, "HTTP 503: unavailable");
+        PushResult raw = PushResult.failed(PushChannelIds.BARK, "HTTP 503: unavailable");
         PushResult controlled = PushResult.failed(
-                PushChannelType.BARK, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
-        PushResult successful = PushResult.ok(PushChannelType.BARK);
+                PushChannelIds.BARK, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
+        PushResult successful = PushResult.ok(PushChannelIds.BARK);
 
         PushTestResponse response = PushTestResponse.from(
                 List.of(raw, controlled, successful), TestMessageResolver.THROWING, Locale.US);

@@ -1,13 +1,15 @@
 package top.sywyar.pixivdownload.plugin.api.web;
 
 /**
- * 插件声明的油猴脚本（userscript）扫描来源。脚本资源解析必须经声明方插件的
- * ClassLoader（由注册中心按宿主登记的 owner 解析），不做全局 {@code classpath:} 扫描假设。
+ * 插件声明的一份油猴脚本（userscript）。稳定安装标识与精确资源路径均由声明方拥有；
+ * 宿主只按已盖章 owner 的 ClassLoader 解析资源并物化目录，不从文件名猜测插件私有身份。
  *
- * @param classpathPattern 油猴脚本 classpath 匹配模式，如
- *                         {@code classpath:/static/userscripts/*.user.js}
+ * @param id                全局稳定的安装标识，用作 {@code /api/scripts/{id}/install} 路径段
+ * @param classpathResource 精确的脚本 classpath 资源，如
+ *                          {@code classpath:/static/userscripts/example.user.js}；不得使用通配符
  */
 public record UserscriptContribution(
-        String classpathPattern
+        String id,
+        String classpathResource
 ) {
 }

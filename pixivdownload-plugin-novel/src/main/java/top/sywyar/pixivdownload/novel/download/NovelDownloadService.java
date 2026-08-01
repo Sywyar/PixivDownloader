@@ -20,11 +20,12 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -91,7 +92,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final PixivBookmarkActions pixivBookmarkActions;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final PixivImageDownloader pixivImageDownloader;
-    private final TaskScheduler taskScheduler;
+    private final TaskScheduler statusRetentionScheduler;
     private final NovelDownloadExecutionLane downloadExecutionLane;
     private final MessageResolver messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
@@ -111,7 +112,8 @@ public class NovelDownloadService implements NovelDownloader {
                                 PixivBookmarkActions pixivBookmarkActions,
                                 @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
                                 PixivImageDownloader pixivImageDownloader,
-                                @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+                                @Qualifier("novelStatusTaskScheduler")
+                                TaskScheduler statusRetentionScheduler,
                                 NovelDownloadExecutionLane downloadExecutionLane,
                                 MessageResolver messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
@@ -128,7 +130,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.pixivBookmarkActions = pixivBookmarkActions;
         this.visitorDownloadQuotaService = visitorDownloadQuotaService;
         this.pixivImageDownloader = pixivImageDownloader;
-        this.taskScheduler = taskScheduler;
+        this.statusRetentionScheduler = statusRetentionScheduler;
         this.downloadExecutionLane = downloadExecutionLane;
         this.messages = messages;
         this.novelAutoTranslateService = novelAutoTranslateService;
@@ -352,10 +354,15 @@ public class NovelDownloadService implements NovelDownloader {
             log.error("novel download failed: id={}", novelId, e);
             status.setCompleted(true);
             status.setFailed(true);
-            status.setErrorMessage(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            status.setErrorMessage(e instanceof DownloadPathRejectedException
+                    ? messages.get("download.path.segment.invalid", other.getUsername())
+                    : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
             if (statusMap.get(statusKey) == status) {
-                QueueStatusRetention.schedule(taskTracker, NovelQueueTaskOwners.download(userUuid), taskScheduler,
+                QueueStatusRetention.schedule(
+                        taskTracker,
+                        NovelQueueTaskOwners.download(userUuid),
+                        statusRetentionScheduler,
                         Instant.now().plusSeconds(300),
                         () -> statusMap.remove(statusKey, status));
             }

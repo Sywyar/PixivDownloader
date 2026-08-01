@@ -1,0 +1,34 @@
+# Host-owned credential: migration must leave this value in config.yaml.
+server.ssl.key-store-password: host-ssl-password
+
+# AI plugin
+ai.api-key: legacy-ai-api-key
+ai.model: legacy-ai-model
+
+# Mail plugin
+mail.password: legacy-mail-password
+mail.host: smtp.example.test
+
+# TTS plugin
+narration-tts.voxcpm.api-key: legacy-voxcpm-api-key
+narration-tts.mimo.api-key: legacy-mimo-api-key
+narration-tts.cosyvoice.api-key: legacy-cosyvoice-api-key
+narration-tts.fish.api-key: legacy-fish-api-key
+narration-tts.minimax.api-key: legacy-minimax-api-key
+narration-tts.elevenlabs.api-key: legacy-elevenlabs-api-key
+narration-tts.qwen.api-key: legacy-qwen-api-key
+narration-tts.doubao.access-token: legacy-doubao-access-token
+narration-tts.engine: voxcpm
+
+# Push plugin
+push.bark.device-key: legacy-bark-device-key
+push.dingtalk.access-token: legacy-dingtalk-access-token
+push.dingtalk.secret: legacy-dingtalk-secret
+push.telegram.bot-token: legacy-telegram-bot-token
+push.feishu.webhook-key: legacy-feishu-webhook-key
+push.feishu.secret: legacy-feishu-secret
+push.wecom.key: legacy-wecom-key
+push.pushplus.token: legacy-pushplus-token
+push.serverchan.send-key: legacy-serverchan-send-key
+push.webhook.url: https://example.test/hook?token=legacy-webhook
+push.enabled: true

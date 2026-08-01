@@ -212,7 +212,12 @@ public final class ScheduleWorkPersistenceCodec {
     private void rejectCredentialMaterial(JsonNode node, String label) {
         if (node.isObject()) {
             node.fields().forEachRemaining(entry -> {
-                if (ScheduleCredentialRedactor.isSensitiveFieldName(entry.getKey())) {
+                if (ScheduleCredentialRedactor.isSensitiveFieldName(entry.getKey())
+                        || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(entry.getKey())
+                        && (!entry.getValue().isValueNode()
+                        || entry.getValue().isNull()
+                        || !ScheduleCredentialRedactor.isSafeMetadataValue(
+                        entry.getKey(), entry.getValue().asText())))) {
                     throw new IllegalArgumentException(label + " contains forbidden credential material");
                 }
                 rejectCredentialMaterial(entry.getValue(), label);
@@ -227,15 +232,15 @@ public final class ScheduleWorkPersistenceCodec {
             return;
         }
         String text = node.textValue();
-        rejectCredentialText(text, label);
         String nestedJson = text.trim();
-        if (!nestedJson.startsWith("{") && !nestedJson.startsWith("[")) {
-            return;
+        if (nestedJson.startsWith("{") || nestedJson.startsWith("[")) {
+            JsonNode nested = readEmbeddedJson(nestedJson, label);
+            if (nested != null) {
+                rejectCredentialMaterial(nested, label);
+                return;
+            }
         }
-        JsonNode nested = readEmbeddedJson(nestedJson, label);
-        if (nested != null) {
-            rejectCredentialMaterial(nested, label);
-        }
+        rejectCredentialText(text, label);
     }
 
     private JsonNode readEmbeddedJson(String json, String label) {

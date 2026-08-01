@@ -33,6 +33,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresenta
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
@@ -159,6 +160,7 @@ class PixivScheduledNovelWorkExecutorTest {
         ScheduledWorkResult normalResult = executor().execute(work("123"), normal.context());
 
         assertThat(normalResult.outcome()).isEqualTo(ScheduledWorkResult.Outcome.ALREADY_COMPLETED);
+        assertThat(normalResult.liveStatusAvailable()).isFalse();
         verify(workQueryService).hasWork(WorkType.NOVEL, 123L);
         verify(workQueryService, never()).hasActiveWork(WorkType.NOVEL, 123L);
         verify(normal.credential(), never()).copySecret();
@@ -171,6 +173,7 @@ class PixivScheduledNovelWorkExecutorTest {
         ScheduledWorkResult redownloadResult = executor().execute(work("123"), redownload.context());
 
         assertThat(redownloadResult.outcome()).isEqualTo(ScheduledWorkResult.Outcome.ALREADY_COMPLETED);
+        assertThat(redownloadResult.liveStatusAvailable()).isFalse();
         verify(workQueryService).hasActiveWork(WorkType.NOVEL, 123L);
         verify(workQueryService, never()).hasWork(WorkType.NOVEL, 123L);
         verify(redownload.credential(), never()).copySecret();
@@ -234,8 +237,8 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(result.attributes()).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "title", "标题",
                 "xRestrict", "1",
-                "ai", "true",
-                "autoTranslateSubmitted", "true"));
+                "ai", "true"));
+        assertThat(result.liveStatusAvailable()).isTrue();
         assertThat(fetches).hasValue(2);
         assertThat(OutboundProxyOverride.isActive()).isFalse();
         assertThat(OutboundProxyOverride.current()).isNull();
@@ -275,11 +278,11 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(other.isBookmark()).isTrue();
         assertThat(other.getCollectionId()).isEqualTo(88L);
         assertThat(other.getFormat()).isEqualTo("epub");
-        assertThat(other.isAutoTranslate()).isTrue();
-        assertThat(other.getAutoTranslateLanguage()).isEqualTo("english");
-        assertThat(other.getAutoTranslateSegmentSize()).isEqualTo(35);
-        assertThat(other.isAutoTranslateMerge()).isTrue();
-        assertThat(other.getAutoTranslateMergeFormat()).isEqualTo("html");
+        assertThat(other.isAutoTranslate()).isFalse();
+        assertThat(other.getAutoTranslateLanguage()).isNull();
+        assertThat(other.getAutoTranslateSegmentSize()).isNull();
+        assertThat(other.isAutoTranslateMerge()).isFalse();
+        assertThat(other.getAutoTranslateMergeFormat()).isNull();
         assertThat(other.getSeriesDescription()).isEqualTo("系列简介");
         assertThat(other.getSeriesCoverUrl()).isEqualTo("https://i.pximg.net/series-cover.jpg");
         assertThat(other.getSeriesTags()).singleElement().satisfies(tag -> {
@@ -290,8 +293,48 @@ class PixivScheduledNovelWorkExecutorTest {
         ArgumentCaptor<String> sidecarBody = ArgumentCaptor.forClass(String.class);
         verify(workMetaCaptureService).capture(
                 eq(WorkType.NOVEL), eq(123L), sidecarBody.capture(), eq("schedule"));
+        verify(novelAutoTranslateService).submit(
+                123L, 42L, "english", 35, true, "html");
         assertThat(objectMapper.readTree(sidecarBody.getValue()))
                 .isEqualTo(objectMapper.readTree(completeNovelResponse()).path("body"));
+    }
+
+    @Test
+    @DisplayName("小说执行器贡献自有命名空间和作品直链且非法身份降级为空")
+    void contributesNotificationPresentation() {
+        var presentation = executor().notificationPresentation(work("42"));
+
+        assertThat(presentation.displayNamespace()).isEqualTo("novel");
+        assertThat(presentation.displayNameKey()).isEqualTo("batch.user.kind-novel");
+        assertThat(presentation.referenceUrl())
+                .isEqualTo("https://www.pixiv.net/novel/show.php?id=42");
+        assertThat(executor().notificationPresentation(work("invalid")))
+                .isEqualTo(ScheduledWorkNotificationPresentation.empty());
+    }
+
+    @Test
+    @DisplayName("本轮自动翻译提交失败时不开放上一轮实时状态")
+    void failedAutoTranslateSubmissionDoesNotOptIntoStaleStatus() throws Exception {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull()))
+                .thenAnswer(invocation -> invocation.<URI>getArgument(0).toString().contains("/series/")
+                        ? completeSeriesResponse()
+                        : completeNovelResponse());
+        when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
+        when(novelAutoTranslateService.submit(
+                123L, 42L, "english", 35, true, "html"))
+                .thenThrow(new IllegalStateException("private submission failure"));
+        when(novelAutoTranslateService.getStatus(123L)).thenReturn(
+                new NovelAutoTranslateService.StatusView(
+                        "DONE", 99L, 0, "en", true, false, "old run"));
+
+        ScheduledWorkResult result = executor().execute(
+                work("123"),
+                context(completeDefinition(), ScheduledNetworkRoute.direct(), null).context());
+
+        assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
+        assertThat(result.liveStatusAvailable()).isFalse();
+        assertThat(executor().status(new ScheduledWorkKey("novel", "123")))
+                .containsEntry("phase", "DONE");
     }
 
     @Test
@@ -319,6 +362,7 @@ class PixivScheduledNovelWorkExecutorTest {
         ScheduledWorkResult result = executor().execute(work("123"), fixture.context());
 
         assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
+        assertThat(result.liveStatusAvailable()).isFalse();
         assertThat(OutboundProxyOverride.isActive()).isFalse();
         verify(fixture.credential(), never()).copySecret();
     }
@@ -380,6 +424,7 @@ class PixivScheduledNovelWorkExecutorTest {
                 "title", "标题",
                 "xRestrict", "1",
                 "ai", "true"));
+        assertThat(result.liveStatusAvailable()).isFalse();
         verify(pixivAjaxProxyClient, times(1)).get(any(URI.class), isNull());
         verifyNoInteractions(novelDownloader, workMetaCaptureService);
     }

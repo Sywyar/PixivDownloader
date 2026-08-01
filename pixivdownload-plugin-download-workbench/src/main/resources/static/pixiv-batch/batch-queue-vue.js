@@ -90,6 +90,27 @@
         return (s && typeof s === 'object') ? s : null;
     }
 
+    function encodedQueueIdentityPart(value) {
+        var raw = value == null ? '' : String(value);
+        var encoded = '';
+        for (var index = 0; index < raw.length; index++) {
+            encoded += raw.charCodeAt(index).toString(16).padStart(4, '0');
+        }
+        return encoded;
+    }
+
+    function queueRowKey(item) {
+        var q = item && typeof item === 'object' ? item : {};
+        var queueTypes = global.PixivBatch && global.PixivBatch.queueTypes;
+        if (queueTypes && typeof queueTypes.queueKey === 'function') {
+            return queueTypes.queueKey(q);
+        }
+        var type = q.workType != null ? q.workType : q.kind;
+        var workId = q.workId != null ? q.workId : q.id;
+        return 'q:' + encodedQueueIdentityPart(type == null ? '' : String(type).trim())
+            + '.' + encodedQueueIdentityPart(workId);
+    }
+
     /* ============================================================
        普通下载队列岛：一个共享 reactive store + 三个挂载点。
        - .dash-stats   ：5 张统计卡（队列/成功/失败/进行中/跳过）+ 总下载速度卡（同一 store.speed）。
@@ -148,20 +169,21 @@
         };
     }
 
-    // 队列列表组件：每行一个 display:contents 宿主 + v-html buildQueueItemHtml；:key=q.id 复用宿主，
+    // 队列列表组件：每行一个 display:contents 宿主 + v-html buildQueueItemHtml；复合 :key 复用宿主，
     // 单项进度 / 状态 / message 变化只让该行的 v-html 字符串变化、Vue 仅 patch 该行（不整队列重建）。
     function listComponent() {
         return {
             setup: function () {
                 return {
                     store: dlStore,
+                    rowKey: queueRowKey,
                     rowHtml: function (q) { return rowHtmlOf(q, { removable: true }); },
                     emptyText: function () { return tt('status.queue-empty', '队列为空'); }
                 };
             },
             template:
                 '<div v-if="!store.items.length" class="queue-empty">{{ emptyText() }}</div>'
-                + '<template v-else><div class="q-item-host" v-for="q in store.items" :key="q.id" v-html="rowHtml(q)"></div></template>'
+                + '<template v-else><div class="q-item-host" v-for="q in store.items" :key="rowKey(q)" v-html="rowHtml(q)"></div></template>'
         };
     }
 
@@ -275,7 +297,10 @@
                 return {
                     store: entry.store,
                     currentHtml: function () { return currentCardHtmlOf(entry.store.current); },
-                    rowHtml: function (q) { return rowHtmlOf(q, { removable: false, queueId: q.id }); },
+                    rowKey: queueRowKey,
+                    rowHtml: function (q) {
+                        return rowHtmlOf(q, { removable: false, queueKey: queueRowKey(q) });
+                    },
                     emptyText: function () { return tt('status.queue-empty', '队列为空'); }
                 };
             },
@@ -284,7 +309,7 @@
                 + '<div class="schedule-queue-stats">{{ store.statsText }}</div>'
                 + '<div class="schedule-queue-current" v-html="currentHtml()"></div>'
                 + '<div class="schedule-queue-list">'
-                + '<template v-if="store.items.length"><div class="q-item-host" v-for="q in store.items" :key="q.id" v-html="rowHtml(q)"></div></template>'
+                + '<template v-if="store.items.length"><div class="q-item-host" v-for="q in store.items" :key="rowKey(q)" v-html="rowHtml(q)"></div></template>'
                 + '<div v-else class="queue-empty">{{ emptyText() }}</div>'
                 + '</div>'
         };

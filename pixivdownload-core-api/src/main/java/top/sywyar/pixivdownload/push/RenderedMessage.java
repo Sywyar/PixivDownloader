@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.push;
 
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
+
 /**
  * 框架渲染产物——{@link PushFormatConverter} 把 {@link PushMessage} 协商 + 转换后交给通道的形态。
  * <p>
@@ -11,9 +13,13 @@ package top.sywyar.pixivdownload.push;
  * @param title  标题（已是目标格式下的文本；通道决定如何摆放，如作卡片 header）
  * @param body   正文（已渲染为 {@code format} 对应文本；{@link PushFormat#CARD} 时为 Markdown 内联文本）
  * @param format 本条消息已渲染成的格式
- * @param level  严重级别（透传，供通道映射到自身表现：卡片配色 / 字体色 / Bark level 等）
+ * @param level  中性严重程度（透传，供通道映射到自身表现）
  */
-public record RenderedMessage(String title, String body, PushFormat format, PushLevel level) {
+public record RenderedMessage(
+        String title,
+        String body,
+        PushFormat format,
+        NotificationSeverity level) {
 
     public RenderedMessage {
         if (title == null) {
@@ -26,7 +32,7 @@ public record RenderedMessage(String title, String body, PushFormat format, Push
             format = PushFormat.PLAIN_TEXT;
         }
         if (level == null) {
-            level = PushLevel.INFO;
+            level = NotificationSeverity.INFO;
         }
     }
 }

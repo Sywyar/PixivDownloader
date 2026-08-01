@@ -3,28 +3,27 @@ package top.sywyar.pixivdownload.schedule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.i18n.AppLocale;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
-import top.sywyar.pixivdownload.core.notification.NotificationService;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialIncidentPresentation;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialCircuitOpenException;
@@ -44,6 +43,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 
 /**
  * 计划任务 durable claim 的外层执行壳。插件能力解析、来源发现、作品执行、凭证、Guard、
@@ -56,42 +56,50 @@ public class ScheduleExecutor {
 
     private final ScheduledTaskStore store;
     /** owner 原子来源与作品能力 registry；所有插件行为只在 generation lease 内调用。 */
-    private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
+    private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
     private final ScheduleRunState runState;
     private final ObjectMapper objectMapper;
-    private final NotificationService notificationService;
-    private final AppMessages messages;
-    private final WebI18nBundleRegistry webI18nBundleRegistry;
+    private final NotificationDispatcher notificationDispatcher;
+    private final MessageResolver messages;
+    private final NamespaceMessageResolver namespaceMessageResolver;
     private final UserDisplayNameProvider userDisplayNameProvider;
     private final ScheduleExecutionEngine scheduleExecutionEngine;
+    private final TransactionTemplate transactions;
+    private final ScheduleHostIdentity hostIdentity;
 
     public ScheduleExecutor(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+            ScheduleCapabilityAccess scheduleCapabilityRegistry,
             ScheduleRunState runState,
             ObjectMapper objectMapper,
-            NotificationService notificationService,
-            AppMessages messages,
-            WebI18nBundleRegistry webI18nBundleRegistry,
+            NotificationDispatcher notificationDispatcher,
+            MessageResolver messages,
+            NamespaceMessageResolver namespaceMessageResolver,
             UserDisplayNameProvider userDisplayNameProvider,
-            ScheduleExecutionEngine scheduleExecutionEngine) {
+            ScheduleExecutionEngine scheduleExecutionEngine,
+            TransactionTemplate transactions,
+            ScheduleHostIdentity hostIdentity) {
         this.store = Objects.requireNonNull(store, "store");
         this.scheduleCapabilityRegistry = Objects.requireNonNull(
                 scheduleCapabilityRegistry, "scheduleCapabilityRegistry");
         this.runState = Objects.requireNonNull(runState, "runState");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
-        this.notificationService = Objects.requireNonNull(notificationService, "notificationService");
+        this.notificationDispatcher = Objects.requireNonNull(
+                notificationDispatcher, "notificationDispatcher");
         this.messages = Objects.requireNonNull(messages, "messages");
-        this.webI18nBundleRegistry = webI18nBundleRegistry;
+        this.namespaceMessageResolver = Objects.requireNonNull(
+                namespaceMessageResolver, "namespaceMessageResolver");
         this.userDisplayNameProvider = Objects.requireNonNull(
                 userDisplayNameProvider, "userDisplayNameProvider");
         this.scheduleExecutionEngine = Objects.requireNonNull(
                 scheduleExecutionEngine, "scheduleExecutionEngine");
+        this.transactions = Objects.requireNonNull(transactions, "transactions");
+        this.hostIdentity = Objects.requireNonNull(hostIdentity, "hostIdentity");
     }
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
-    /** 过度访问通知里逐条列出受影响任务的最大条数，超出附「等共 N 个」。 */
+    /** 账号级策略通知里逐条列出受影响任务的最大条数，超出附「等共 N 个」。 */
     private static final int TASK_LIST_LIMIT = 15;
 
     static RuntimeException propagate(Throwable failure) {
@@ -113,12 +121,12 @@ public class ScheduleExecutor {
      * 后台异步运行一个已经抢占瞬时态的任务。owner lease 必须由同步提交点在入队前取得并转交，
      * 使线程池排队时间也计入 generation drain；异步任务无论是否真正开始执行都会负责关闭它。
      */
-    @Async
+    @Async("scheduleRunTaskExecutor")
     public void runTaskAsync(
             long taskId,
             ScheduleRunState.Claim claim,
             ScheduleRunToken queuedToken,
-            ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease) {
+            ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease) {
         try (hostLease) {
             if (hostLease.cancellation().isCancellationRequested()) {
                 try {
@@ -167,7 +175,7 @@ public class ScheduleExecutor {
      * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
+        ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
         try (hostLease) {
             if (hostLease == null || !scheduleCapabilityRegistry.activate(hostLease)) {
                 log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
@@ -212,7 +220,7 @@ public class ScheduleExecutor {
             ScheduledTask task,
             ScheduleRunState.Claim claim,
             ScheduleRunToken queuedToken) {
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease;
+        ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease;
         try {
             hostLease = prepareHostLease();
         } catch (Throwable e) {
@@ -370,12 +378,8 @@ public class ScheduleExecutor {
         throw new IllegalStateException("active schedule claim could not be finalized");
     }
 
-    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
-        var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
-        if (handle == null) {
-            return null;
-        }
-        return scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
+    private ScheduleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
+        return scheduleCapabilityRegistry.prepareOwner(hostIdentity.featurePluginId()).orElse(null);
     }
 
     /**
@@ -457,8 +461,9 @@ public class ScheduleExecutor {
         ScheduleLastOutcome outcome = ScheduleLastOutcome.ERROR;
         String outcomeCode = null;
         String message = null;
-        ScheduleSuspendException suspendNotification = null;
-        OveruseWarningException overuseNotification = null;
+        ScheduleCredentialSuspensionNotice suspendNotification = null;
+        ScheduledCredentialIncidentPresentation policyAccountIncident =
+                ScheduledCredentialIncidentPresentation.empty();
         long suspendTriggerTime = 0L;
         // 本轮是否因凭证失效但策略允许匿名继续；运行成功后据此发一次降级通知。
         boolean[] degraded = {false};
@@ -473,15 +478,33 @@ public class ScheduleExecutor {
         String suspendCode = null;
         String suspendDetailJson = null;
         long retryAfterMillis = 0L;
+        boolean[] policyAccountSuspensionPersisted = {false};
+        AtomicReference<RuntimeException> policyAccountSuspensionFailure = new AtomicReference<>();
         try {
             ensureCapabilityAvailable(hostCancellation, task.sourceType());
             // 任务级代理覆盖调度主线程；作品执行器仍按解析后的中性 route 管理自己的网络作用域。
             OutboundProxyOverride.set(task.proxySnapshot());
             try {
-                ScheduleExecutionResult result = scheduleExecutionEngine.execute(task, event ->
-                        pendingNotifications.add(new PendingExhaustedNotification(
+                ScheduleExecutionResult result = scheduleExecutionEngine.execute(
+                        task,
+                        event -> pendingNotifications.add(new PendingExhaustedNotification(
                                 event.workType(), event.workId(), event.attempts(),
-                                event.triggerTime(), event.reasonCode())));
+                                event.triggerTime(), event.reasonCode(),
+                                event.presentation())),
+                        decision -> {
+                            try {
+                                suspendForRun(
+                                        task,
+                                        runningToken,
+                                        ScheduleSuspendReason.POLICY,
+                                        decision.reasonCode(),
+                                        safeGuardDetailJson(decision),
+                                        true);
+                                policyAccountSuspensionPersisted[0] = true;
+                            } catch (RuntimeException failure) {
+                                policyAccountSuspensionFailure.set(failure);
+                            }
+                        });
                 completedCount = result.completedWorkCount();
                 candidateCheckpoint.set(result.candidateCheckpoint());
                 degraded[0] = result.credentialRevoked();
@@ -499,20 +522,15 @@ public class ScheduleExecutor {
             switch (e.action()) {
                 case SUSPEND_CREDENTIAL -> {
                     requestedSuspend = ScheduleSuspendReason.CREDENTIAL;
-                    suspendNotification = new ScheduleSuspendException(
-                            ScheduleSuspendException.Reason.COOKIE_DEAD);
+                    suspendNotification = new ScheduleCredentialSuspensionNotice(
+                            ScheduleCredentialSuspensionNotice.Reason.CREDENTIAL_REJECTED);
                     suspendTriggerTime = System.currentTimeMillis();
                 }
                 case SUSPEND_POLICY_TASK -> requestedSuspend = ScheduleSuspendReason.POLICY;
                 case SUSPEND_POLICY_ACCOUNT -> {
                     requestedSuspend = ScheduleSuspendReason.POLICY;
                     suspendPolicyAccount = true;
-                    if ("PIXIV_OVERUSE".equals(e.reasonCode())) {
-                        long modifiedAt = parseLongOrZero(
-                                e.evidence().attributes().get("modifiedAt"));
-                        String excerpt = e.evidence().attributes().getOrDefault("excerpt", "");
-                        overuseNotification = new OveruseWarningException(modifiedAt, excerpt);
-                    }
+                    policyAccountIncident = e.incidentPresentation();
                 }
                 case RETRY_LATER, FAIL, REVOKE_CREDENTIAL_AND_CONTINUE, CONTINUE -> {
                     outcome = ScheduleLastOutcome.ERROR;
@@ -536,12 +554,12 @@ public class ScheduleExecutor {
                         suspendDetailJson = safeDetailJson(
                                 "consecutiveFailures", circuit.consecutiveFailures(),
                                 "lastErrorExcerpt", circuit.lastFailureCode());
-                        suspendNotification = new ScheduleSuspendException(
-                                ScheduleSuspendException.Reason.CIRCUIT_BREAKER,
+                        suspendNotification = new ScheduleCredentialSuspensionNotice(
+                                ScheduleCredentialSuspensionNotice.Reason.FAILURE_CIRCUIT_OPEN,
                                 circuit.consecutiveFailures(), circuit.lastFailureCode());
                     } else {
-                        suspendNotification = new ScheduleSuspendException(
-                                ScheduleSuspendException.Reason.COOKIE_DEAD);
+                        suspendNotification = new ScheduleCredentialSuspensionNotice(
+                                ScheduleCredentialSuspensionNotice.Reason.CREDENTIAL_REJECTED);
                     }
                 }
                 case INVALID_DEFINITION, PAYLOAD_UNSUPPORTED -> {
@@ -599,8 +617,19 @@ public class ScheduleExecutor {
                         saturatingFutureTime(completedAt, retryAfterMillis));
             }
             if (requestedSuspend != null) {
-                suspendForRun(task, runningToken, requestedSuspend, suspendCode,
-                        suspendDetailJson, suspendPolicyAccount);
+                if (suspendPolicyAccount) {
+                    RuntimeException persistenceFailure = policyAccountSuspensionFailure.get();
+                    if (persistenceFailure != null) {
+                        throw persistenceFailure;
+                    }
+                    if (!policyAccountSuspensionPersisted[0]) {
+                        throw new IllegalStateException(
+                                "credential account suspension left publication barrier without persistence");
+                    }
+                } else {
+                    suspendForRun(task, runningToken, requestedSuspend, suspendCode,
+                            suspendDetailJson, false);
+                }
                 ScheduleLastOutcome cancelledOutcome = requestedSuspend == ScheduleSuspendReason.QUIESCED
                         ? ScheduleLastOutcome.CANCELLED
                         : ScheduleLastOutcome.ERROR;
@@ -661,8 +690,8 @@ public class ScheduleExecutor {
             }
         }
         Long notificationNextRun = persistedNextRun(task.id(), nextRun);
-        if (overuseNotification != null) {
-            handleOveruse(task, overuseNotification);
+        if (policyAccountIncident.scenarioId() != null) {
+            handlePolicyAccountIncident(task, suspendCode, policyAccountIncident);
         }
         if (suspendNotification != null) {
             handleSuspend(task, suspendNotification, suspendTriggerTime);
@@ -691,17 +720,58 @@ public class ScheduleExecutor {
                 && accountPolicy
                 && task.credentialPolicyOwnerPluginId() != null
                 && task.credentialPolicyId() != null
-                && task.credentialAccountKey() != null) {
-            List<ScheduledTask> affected = store.findByCredentialAccount(
-                    task.credentialPolicyOwnerPluginId(), task.credentialPolicyId(),
-                    task.credentialAccountKey());
-            store.suspendByCredentialAccount(
-                    task.credentialPolicyOwnerPluginId(), task.credentialPolicyId(),
-                    task.credentialAccountKey(), reason, code, detailJson);
+                && task.credentialAccountKey() != null
+                && !task.credentialAccountKey().isBlank()) {
+            List<ScheduledTask> affected = transactions.execute(status ->
+                    suspendCredentialAccountWithCas(
+                            task, runningToken, reason, code, detailJson));
+            if (affected == null) {
+                throw new IllegalStateException(
+                        "credential account suspension transaction returned no result");
+            }
             affected.forEach(affectedTask -> runState.requestCancel(affectedTask.id()));
             return;
         }
         store.suspend(task.id(), runningToken.stateVersion(), reason, code, detailJson);
+    }
+
+    private List<ScheduledTask> suspendCredentialAccountWithCas(
+            ScheduledTask currentTask,
+            ScheduleRunToken runningToken,
+            ScheduleSuspendReason reason,
+            String code,
+            String detailJson) {
+        String ownerPluginId = currentTask.credentialPolicyOwnerPluginId();
+        String policyId = currentTask.credentialPolicyId();
+        String accountKey = currentTask.credentialAccountKey();
+        List<ScheduledTask> affected = new ArrayList<>();
+        boolean currentTaskIncluded = false;
+        for (ScheduledTask candidate : store.findByCredentialAccount(
+                ownerPluginId, policyId, accountKey)) {
+            if (candidate == null
+                    || candidate.suspendReason() != null
+                    || !Objects.equals(ownerPluginId,
+                            candidate.credentialPolicyOwnerPluginId())
+                    || !Objects.equals(policyId, candidate.credentialPolicyId())
+                    || !Objects.equals(accountKey, candidate.credentialAccountKey())) {
+                continue;
+            }
+            long expectedVersion = candidate.id() == currentTask.id()
+                    ? runningToken.stateVersion()
+                    : candidate.stateVersion();
+            if (store.suspend(candidate.id(), expectedVersion, reason, code, detailJson)
+                    .isEmpty()) {
+                throw new IllegalStateException(
+                        "credential account task changed during suspension");
+            }
+            affected.add(candidate);
+            currentTaskIncluded |= candidate.id() == currentTask.id();
+        }
+        if (!currentTaskIncluded) {
+            throw new IllegalStateException(
+                    "running task left its credential account during suspension");
+        }
+        return List.copyOf(affected);
     }
 
     private OptionalLong finishConcurrentSuspend(
@@ -743,14 +813,6 @@ public class ScheduleExecutor {
             return objectMapper.writeValueAsString(sanitized);
         } catch (Exception ignored) {
             return "{}";
-        }
-    }
-
-    private static long parseLongOrZero(String value) {
-        try {
-            return value == null ? 0L : Long.parseLong(value);
-        } catch (NumberFormatException ignored) {
-            return 0L;
         }
     }
 
@@ -802,49 +864,64 @@ public class ScheduleExecutor {
 
     /** 本轮中达到自动重试上限、需要在最终 next_run_time 确定后再发送的通知事件。 */
     private record PendingExhaustedNotification(
-            String workType, String workId, int attempts, long triggerTime, String reason) {}
+            String workType,
+            String workId,
+            int attempts,
+            long triggerTime,
+            String reason,
+            ScheduledWorkNotificationPresentation presentation) {
+    }
 
     // ── 自动挂起通知（邮件 + 推送并行，best-effort） ──────────────────────────────────
 
-    /** 过度访问：冻结同账号所有非挂起态任务 + 发 overuse-paused 通知（邮件 + 推送）。 */
-    private void handleOveruse(ScheduledTask task, OveruseWarningException e) {
-        String accountId = task.credentialAccountKey();
-        Locale locale = AppLocale.normalize(Locale.getDefault());
-        List<ScheduledTask> affected = collectFreezableTasks(task, accountId);
+    /** 账号级策略挂起完成后，按策略在 execution lease 内物化的安全场景投影发送通知。 */
+    private void handlePolicyAccountIncident(
+            ScheduledTask task,
+            String suspendCode,
+            ScheduledCredentialIncidentPresentation presentation) {
+        NotificationScenario scenario = NotificationScenario.findById(
+                presentation.scenarioId()).orElse(null);
+        if (scenario == null) {
+            log.warn("Scheduled task {} skipped unknown credential incident notification scenario",
+                    task.id());
+            return;
+        }
+        String accountKey = task.credentialAccountKey();
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
+        List<ScheduledTask> affected = collectAffectedPolicyTasks(
+                task, accountKey, suspendCode);
         int frozen = Math.max(1, affected.size());
-        Map<String, String> ph = new LinkedHashMap<>();
-        ph.put("account_id", accountId == null ? "-" : accountId);
+        Map<String, String> ph = new LinkedHashMap<>(presentation.scalarAttributes());
+        presentation.timeAttributes().forEach((key, value) -> ph.put(key, formatTime(value)));
+        ph.put("account_id", accountKey == null ? "-" : accountKey);
         ph.put("tasks_count", String.valueOf(frozen));
         ph.put("tasks_list_html", buildTaskList(locale, affected, true));
         ph.put("tasks_list_md", buildTaskList(locale, affected, false));
-        ph.put("warning_time", formatTime(e.modifiedAt()));
         ph.put("trigger_time", formatTime(System.currentTimeMillis()));
-        ph.put("warning_excerpt", e.excerpt());
-        sendNotification(NotificationScenario.OVERUSE_PAUSED, ph);
+        sendNotification(scenario, ph);
     }
 
-    /**
-     * 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）通知（邮件 + 推送）。
-     * 挂起任务被 {@code findDue} 状态门挡住、不会自动续跑，故<b>不传 next_run_time</b>——
-     * 否则通知里会出现一个永远不会自动到来的「下次预定运行」时间误导管理员；
-     * 模板 / 推送文案改为固定的「恢复方式：需重新授权 Cookie」行。
-     */
-    private void handleSuspend(ScheduledTask task, ScheduleSuspendException e, long triggerTime) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+    /** 任务级凭证挂起通知；具体凭证格式和恢复交互由策略 owner 展示。 */
+    private void handleSuspend(
+            ScheduledTask task,
+            ScheduleCredentialSuspensionNotice notice,
+            long triggerTime) {
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
         ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         ph.put("trigger_time", formatTime(triggerTime));
-        if (e.reason() == ScheduleSuspendException.Reason.CIRCUIT_BREAKER) {
-            ph.put("consecutive_failures", String.valueOf(e.consecutiveFailures()));
-            ph.put("last_error_excerpt", e.lastErrorExcerpt() == null ? "" : e.lastErrorExcerpt());
-            sendNotification(NotificationScenario.CIRCUIT_BREAKER, ph);
+        if (notice.reason()
+                == ScheduleCredentialSuspensionNotice.Reason.FAILURE_CIRCUIT_OPEN) {
+            ph.put("consecutive_failures", String.valueOf(notice.consecutiveFailures()));
+            ph.put("last_error_excerpt", notice.lastErrorExcerpt() == null
+                    ? "" : notice.lastErrorExcerpt());
+            sendNotification(NotificationScenario.CREDENTIAL_FAILURE_CIRCUIT_OPEN, ph);
         } else {
-            // reason 文案走模板 i18n，运行期只给一个稳定的 key 标识
-            ph.put("reason", e.reason().name());
-            sendNotification(NotificationScenario.AUTH_EXPIRED, ph);
+            ph.put("reason", notice.reason().name());
+            sendNotification(NotificationScenario.CREDENTIAL_SUSPENDED, ph);
         }
     }
 
@@ -866,15 +943,18 @@ public class ScheduleExecutor {
 
     /** 单个 pending-exhausted 事件的邮件 + 推送通知，best-effort、不影响调度。 */
     private void notifyPendingExhausted(ScheduledTask task, PendingExhaustedNotification event, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
         ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         ph.put("work_id", displayToken(event.workId()));
-        ph.put("work_kind", workKindLabel(locale, event.workType()));
-        ph.put("work_url", workUrl(event.workType(), event.workId()));
+        ph.put("work_kind", workKindLabel(locale, event.workType(), event.presentation()));
+        ph.put("work_url", event.presentation() == null
+                || event.presentation().referenceUrl() == null
+                ? ""
+                : event.presentation().referenceUrl());
         ph.put("attempts", String.valueOf(event.attempts()));
         ph.put("trigger_time", formatTime(event.triggerTime()));
         ph.put("next_run_time", formatTime(nextRun));
@@ -894,19 +974,19 @@ public class ScheduleExecutor {
         return ph;
     }
 
-    /** cookie 失效但任务无需 cookie → 已自动清除失效快照、降级匿名续跑且运行成功：发一次降级通知（best-effort）。 */
+    /** 凭证失效但策略允许匿名继续时发送一次降级通知（best-effort）。 */
     private void notifyDegradedAnonymous(ScheduledTask task, int completed, long triggerTime, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("completed", String.valueOf(completed));
         ph.put("trigger_time", formatTime(triggerTime));
         ph.put("next_run_time", formatTime(nextRun));
-        sendNotification(NotificationScenario.DEGRADED_ANONYMOUS, ph);
+        sendNotification(NotificationScenario.CREDENTIAL_REVOKED_CONTINUING, ph);
     }
 
     /** 运行成功且本轮有新下载：发摘要通知（best-effort）。 */
     private void notifyRunSummary(ScheduledTask task, int completed, long triggerTime, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("completed", String.valueOf(completed));
         ph.put("trigger_time", formatTime(triggerTime));
@@ -916,7 +996,7 @@ public class ScheduleExecutor {
 
     /** 整轮运行失败（状态由非 ERROR 转入 ERROR）：发失败通知（best-effort）。errorExcerpt 已脱敏、不含凭证。 */
     private void notifyRunFailure(ScheduledTask task, String errorExcerpt, long triggerTime, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("trigger_time", formatTime(triggerTime));
         ph.put("next_run_time", formatTime(nextRun));
@@ -924,19 +1004,24 @@ public class ScheduleExecutor {
         sendNotification(NotificationScenario.RUN_FAILED, ph);
     }
 
-    /** 取同 credential policy/account 下将被挂起的任务列表，供通知逐条列出。 */
-    private List<ScheduledTask> collectFreezableTasks(ScheduledTask current, String accountId) {
-        if (accountId == null || accountId.isBlank()) {
+    /** 取同 credential policy/account/reason 下已经持久化挂起的任务列表。 */
+    private List<ScheduledTask> collectAffectedPolicyTasks(
+            ScheduledTask current,
+            String accountKey,
+            String suspendCode) {
+        if (accountKey == null || accountKey.isBlank()
+                || current.credentialPolicyOwnerPluginId() == null
+                || current.credentialPolicyId() == null
+                || suspendCode == null) {
             return List.of(current);
         }
         List<ScheduledTask> result = new ArrayList<>();
         for (ScheduledTask t : store.findByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                accountId)) {
-            if (t.suspendReason() == null
-                    || (t.suspendReason() == ScheduleSuspendReason.POLICY
-                    && "PIXIV_OVERUSE".equals(t.suspendCode()))) {
+                current.credentialPolicyOwnerPluginId(),
+                current.credentialPolicyId(),
+                accountKey)) {
+            if (t.suspendReason() == ScheduleSuspendReason.POLICY
+                    && suspendCode.equals(t.suspendCode())) {
                 result.add(t);
             }
         }
@@ -958,12 +1043,13 @@ public class ScheduleExecutor {
             String name = t.name() == null ? "-" : t.name();
             // tasks_list_md 仅供推送（Markdown）消费，mail 用 tasks_list_html：md 分支对任务名做 Markdown
             // 字面转义，避免名字里的 * / _ 等被推送通道渲染器吞掉（与标量占位符在 PushMessageFactory 处一致）。
-            String item = messages.get(locale, "mail.template.overuse-paused.task-item",
+            String item = messages.get(locale, "schedule.notification.policy-account.task-item",
                     html ? escapeHtml(name) : escapeMarkdownLiteral(name), t.id());
             lines.add(html ? item : "- " + item);
         }
         if (tasks.size() > limit) {
-            String more = messages.get(locale, "mail.template.overuse-paused.task-more", tasks.size());
+            String more = messages.get(
+                    locale, "schedule.notification.policy-account.task-more", tasks.size());
             lines.add(html ? more : "- " + more);
         }
         return String.join(html ? "<br>" : "\n", lines);
@@ -988,32 +1074,38 @@ public class ScheduleExecutor {
             }
             String namespace = descriptor.presentation().displayNamespace();
             String key = descriptor.presentation().displayNameKey();
-            if (webI18nBundleRegistry != null) {
-                try {
-                    WebI18nBundleRegistry.RegisteredBundle bundle =
-                            webI18nBundleRegistry.resolve(namespace);
-                    if (bundle != null) {
-                        String label = bundle.load(locale).get(key);
-                        if (label != null && !label.isBlank()) {
-                            return label;
-                        }
-                    }
-                } catch (RuntimeException failure) {
-                    log.debug("Scheduled source {} display label could not be resolved from namespace {}",
-                            sourceType, namespace, failure);
+            try {
+                String label = namespaceMessageResolver.resolve(namespace, locale, key).orElse(null);
+                if (label != null && !label.isBlank()) {
+                    return label;
                 }
+            } catch (RuntimeException failure) {
+                log.debug("Scheduled source {} display label could not be resolved from namespace {}",
+                        sourceType, namespace, failure);
             }
             String fallback = messages.getOrDefault(locale, key, key);
             return fallback == null || fallback.isBlank() ? key : fallback;
         }
     }
 
-    private String workKindLabel(Locale locale, String workType) {
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(workType)) {
-            return messages.get(locale, "mail.template.pending-exhausted.kind.novel");
-        }
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST.equals(workType)) {
-            return messages.get(locale, "mail.template.pending-exhausted.kind.illust");
+    private String workKindLabel(
+            Locale locale,
+            String workType,
+            ScheduledWorkNotificationPresentation presentation) {
+        if (presentation != null
+                && presentation.displayNamespace() != null
+                && presentation.displayNameKey() != null) {
+            try {
+                String label = namespaceMessageResolver.resolve(
+                        presentation.displayNamespace(), locale,
+                        presentation.displayNameKey()).orElse(null);
+                if (label != null && !label.isBlank()) {
+                    return label;
+                }
+            } catch (RuntimeException failure) {
+                log.debug("Scheduled work {} display label could not be resolved from namespace {}",
+                        workType, presentation.displayNamespace(), failure);
+            }
         }
         return displayToken(workType);
     }
@@ -1021,26 +1113,11 @@ public class ScheduleExecutor {
     /** 触发方式的本地化标签：{@code interval} → 「每 N 分钟」、{@code cron} → 「Cron：表达式」。 */
     private String triggerLabel(Locale locale, String triggerKind, Integer intervalMinutes, String cronExpr) {
         if (ScheduledTask.TRIGGER_CRON.equals(triggerKind)) {
-            return messages.get(locale, "mail.template.common.trigger.cron", cronExpr == null ? "-" : cronExpr);
+            return messages.get(locale, "schedule.notification.common.trigger.cron", cronExpr == null ? "-" : cronExpr);
         }
         // 传 String 而非 Integer：避免 MessageFormat 对 ≥1000 的分钟数插入千分位分隔符（如 1,440）。
-        return messages.get(locale, "mail.template.common.trigger.interval",
+        return messages.get(locale, "schedule.notification.common.trigger.interval",
                 intervalMinutes == null ? "-" : String.valueOf(intervalMinutes));
-    }
-
-    /** 仅为已知 Pixiv 类型与十进制 ID 生成直链；其它插件的 opaque identity 不由宿主猜测 URL。 */
-    private static String workUrl(String workType, String workId) {
-        if (workId == null || workId.isBlank()
-                || !workId.chars().allMatch(Character::isDigit)) {
-            return "";
-        }
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(workType)) {
-            return "https://www.pixiv.net/novel/show.php?id=" + workId;
-        }
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST.equals(workType)) {
-            return "https://www.pixiv.net/artworks/" + workId;
-        }
-        return "";
     }
 
     private static String displayToken(String value) {
@@ -1081,14 +1158,14 @@ public class ScheduleExecutor {
 
     /**
      * 统一触发一个通知场景：扇出给所有介质（邮件 + 推送），全程 best-effort——
-     * {@link NotificationService} 对每个介质各自隔离，绝不影响调度。
+     * {@link NotificationDispatcher} 的宿主实现对每个介质各自隔离，绝不影响调度。
      */
     private void sendNotification(NotificationScenario scenario, Map<String, String> placeholders) {
         // 调度器无 HTTP 上下文，locale 显式取 JVM 系统语言归一值。
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         // 问候语称呼：用户设了称呼用称呼，否则回退本地化的「管理员」。邮件模板共用，统一在此补齐。
         placeholders.putIfAbsent("username", greetingName(locale));
-        notificationService.notify(scenario, locale, placeholders);
+        notificationDispatcher.notify(scenario, locale, placeholders);
     }
 
     /** 邮件问候称呼：用户自定义称呼优先，否则回退本地化默认「管理员 / administrator」。 */
@@ -1097,7 +1174,7 @@ public class ScheduleExecutor {
         if (displayName != null && !displayName.isBlank()) {
             return displayName;
         }
-        return messages.get(locale, "mail.template.placeholder.administrator");
+        return messages.get(locale, "schedule.notification.placeholder.administrator");
     }
 
     private static String formatTime(long epochMs) {

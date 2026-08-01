@@ -5,14 +5,18 @@ import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryMediaKey;
 import java.util.Map;
 import java.util.Objects;
 
-/** One concrete asset in the complete media set of a gallery work. */
+/**
+ * One resource locator in the neutral media set of a gallery work.
+ *
+ * <p>This contract carries display-safe locators and metadata only. Source-owned bodies,
+ * translations and persistence details stay behind the owning source endpoint.</p>
+ */
 public record GalleryMediaAsset(
         GalleryMediaKey key,
         GalleryMediaKind kind,
         String url,
         String thumbnailUrl,
         String mimeType,
-        String content,
         Map<String, String> attributes
 ) {
 
@@ -22,7 +26,6 @@ public record GalleryMediaAsset(
         url = blankToNull(url);
         thumbnailUrl = blankToNull(thumbnailUrl);
         mimeType = blankToNull(mimeType);
-        content = blankToNull(content);
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
     }
 

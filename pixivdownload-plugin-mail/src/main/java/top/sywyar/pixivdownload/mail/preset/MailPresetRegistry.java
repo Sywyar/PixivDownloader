@@ -15,7 +15,7 @@ import java.util.Optional;
  * 列表顺序即 GUI 下拉框顺序：常见个人邮箱 → 企业邮箱 → 自定义哨兵。
  * <p>
  * GUI 选中某预设时锁定 host / port / security 三项；选中 {@link MailPreset#CUSTOM_ID} 解锁。
- * 预设本身不进 {@code config.yaml}（配置语义仍是 host/port/security），加载时按已存 host 反查锁定。
+ * 预设 id 不单独持久化；加载时从 {@code config/plugins/mail.properties} 已保存的 host 反查锁定。
  */
 @Component
 public class MailPresetRegistry {
@@ -83,7 +83,8 @@ public class MailPresetRegistry {
     /**
      * 按 host 反查预设。匹配规则：第一个 host 与之相等（忽略大小写）的非 custom 预设。
      * <p>
-     * GUI 加载已有 config.yaml 时用此方法推断当前是哪一个预设；未命中时 GUI 应落到 {@code custom}。
+     * GUI 从 {@code config/plugins/mail.properties} 加载 host 后用此方法推断当前预设；
+     * 未命中时 GUI 应落到 {@code custom}。
      */
     public Optional<MailPreset> findByHost(String host) {
         if (host == null || host.isBlank()) {

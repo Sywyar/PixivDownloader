@@ -7,9 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultOperator;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -177,26 +175,15 @@ public class AiPlugin implements PixivFeaturePlugin {
                                         GuiConfigActionResultCondition.reachable(true),
                                         GuiConfigActionResultCondition.http2xx(true),
                                         GuiConfigActionResultCondition.jsonFalse("success")),
-                                List.of(GuiConfigActionResultArgument.json("error"))),
+                                List.of()),
                         new GuiConfigActionResultRule(
                                 "gui.config.ai.test.notice.failed",
                                 ID,
                                 40,
                                 List.of(
                                         GuiConfigActionResultCondition.reachable(true),
-                                        GuiConfigActionResultCondition.http2xx(false),
-                                        rawBodyCondition(GuiConfigActionResultOperator.NOT_BLANK)),
-                                List.of(rawBodyArgument())),
-                        new GuiConfigActionResultRule(
-                                "gui.config.ai.test.notice.failed",
-                                ID,
-                                50,
-                                List.of(
-                                        GuiConfigActionResultCondition.reachable(true),
-                                        GuiConfigActionResultCondition.http2xx(false),
-                                        rawBodyCondition(GuiConfigActionResultOperator.BLANK)),
-                                List.of(new GuiConfigActionResultArgument(
-                                        GuiConfigActionResultSource.HTTP_STATUS_TEXT, "", "")))),
+                                        GuiConfigActionResultCondition.http2xx(false)),
+                                List.of())),
                 null);
     }
 
@@ -229,14 +216,6 @@ public class AiPlugin implements PixivFeaturePlugin {
                 values,
                 preset.isCustom() ? List.of() : List.of("ai.base-url"),
                 GuiConfigPresetMatchMode.TRIMMED_TRAILING_SLASH_IGNORE_CASE);
-    }
-
-    private static GuiConfigActionResultCondition rawBodyCondition(GuiConfigActionResultOperator operator) {
-        return new GuiConfigActionResultCondition(GuiConfigActionResultSource.RAW_BODY, "", operator, "");
-    }
-
-    private static GuiConfigActionResultArgument rawBodyArgument() {
-        return new GuiConfigActionResultArgument(GuiConfigActionResultSource.RAW_BODY, "", "");
     }
 
     private static GuiConfigFieldContribution bool(String key, String defaultValue, int order,
