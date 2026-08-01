@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.duplicate;
 
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.util.JavacTask;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -19,6 +22,9 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import javax.tools.JavaCompiler;
+import javax.tools.StandardJavaFileManager;
+import javax.tools.ToolProvider;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -102,6 +108,11 @@ class DuplicatePluginModuleDependencyGuardTest {
 
         assertThat(appTypes).as("app owned production FQN set must be non-vacuous")
                 .hasSizeGreaterThan(400);
+        String packagePrivateFixture = "top.sywyar.pixivdownload.gui.panel."
+                + "StatusPanelThemeOption";
+        assertThat(appTypes)
+                .as("package-private top-level app types must be owned too")
+                .contains(packagePrivateFixture);
         collectAppTypeReferences(root, "src/main/java", appTypes, violations);
         collectAppTypeReferences(root, "src/test/java", appTypes, violations);
 
@@ -187,16 +198,55 @@ class DuplicatePluginModuleDependencyGuardTest {
 
     private static Set<String> appOwnedTypes(Path root) throws IOException {
         Path appSourceRoot = root.resolve("pixivdownload-app/src/main/java");
-        Set<String> types = new LinkedHashSet<>();
+        List<Path> sourcePaths;
         try (Stream<Path> sources = Files.walk(appSourceRoot)) {
-            sources.filter(path -> path.toString().endsWith(".java"))
-                    .map(appSourceRoot::relativize)
-                    .map(Path::toString)
-                    .filter(path -> !path.endsWith("package-info.java") && !path.endsWith("module-info.java"))
-                    .map(path -> path.substring(0, path.length() - ".java".length())
-                            .replace('\\', '.').replace('/', '.'))
+            sourcePaths = sources.filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> !path.getFileName().toString().equals("package-info.java")
+                            && !path.getFileName().toString().equals("module-info.java"))
                     .sorted()
-                    .forEach(types::add);
+                    .toList();
+        }
+
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+            throw new IllegalStateException("A JDK compiler is required for ownership checks");
+        }
+        Set<String> types = new LinkedHashSet<>();
+        try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(
+                null, null, StandardCharsets.UTF_8)) {
+            JavacTask task = (JavacTask) compiler.getTask(
+                    null,
+                    fileManager,
+                    null,
+                    List.of("-proc:none"),
+                    null,
+                    fileManager.getJavaFileObjectsFromPaths(sourcePaths));
+            for (CompilationUnitTree unit : task.parse()) {
+                String packageName = unit.getPackageName() == null
+                        ? ""
+                        : unit.getPackageName().toString();
+                Path source = Path.of(unit.getSourceFile().toUri());
+                String primaryType = source.getFileName().toString()
+                        .replaceFirst("\\.java$", "");
+                Set<String> sourceTypes = new LinkedHashSet<>();
+                unit.getTypeDecls().stream()
+                        .filter(ClassTree.class::isInstance)
+                        .map(ClassTree.class::cast)
+                        .map(type -> type.getSimpleName().toString())
+                        .filter(name -> !name.isBlank())
+                        .forEach(sourceTypes::add);
+                if (packageName.isBlank() || !sourceTypes.contains(primaryType)) {
+                    throw new IllegalStateException(
+                            "Cannot derive primary app type from " + root.relativize(source));
+                }
+                for (String sourceType : sourceTypes) {
+                    String appType = packageName + "." + sourceType;
+                    if (!types.add(appType)) {
+                        throw new IllegalStateException(
+                                "Duplicate app production type " + appType);
+                    }
+                }
+            }
         }
         return Set.copyOf(types);
     }
