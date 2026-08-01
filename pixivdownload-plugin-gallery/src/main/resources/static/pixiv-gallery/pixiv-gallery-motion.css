@@ -1,0 +1,97 @@
+/* ============================================================
+   pixiv-gallery 动效增强层
+   ------------------------------------------------------------
+   主画廊的页面专属动效增强，与全站共享层 /css/pixiv-motion.css 叠加生效。
+   覆盖范围：
+     1. 作品卡片阶梯入场（基于既有 cardIn，只统一令牌并补充错峰延迟）：
+        筛选 / 翻页 / 刷新触发网格重渲染时卡片按序入场，长列表在第 12 张后拉平。
+     2. 显隐联动：筛选面板开合、弹窗、筛选徽标 / 摘要条等以 display / class 翻转
+        控制的区域，重新显示时重放一次入场；消失侧保持瞬时。
+   颜色字面量只允许出现在自定义属性定义行；遵循 prefers-reduced-motion（共享层统一降级）。
+   ============================================================ */
+
+/* ---- 1. 作品卡片阶梯入场 ---- */
+.work-card {
+    animation-duration: var(--motion-med);
+    animation-timing-function: var(--motion-ease-out);
+}
+
+.work-card:nth-child(2) { animation-delay: .02s; }
+.work-card:nth-child(3) { animation-delay: .04s; }
+.work-card:nth-child(4) { animation-delay: .06s; }
+.work-card:nth-child(5) { animation-delay: .08s; }
+.work-card:nth-child(6) { animation-delay: .1s; }
+.work-card:nth-child(7) { animation-delay: .12s; }
+.work-card:nth-child(8) { animation-delay: .14s; }
+.work-card:nth-child(9) { animation-delay: .16s; }
+.work-card:nth-child(10) { animation-delay: .18s; }
+.work-card:nth-child(11) { animation-delay: .2s; }
+.work-card:nth-child(n+12) { animation-delay: .22s; }
+
+/* ---- 2. 显隐联动 ---- */
+@keyframes gallery-motion-panel-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes gallery-motion-fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes gallery-motion-dialog-in {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(.97);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes gallery-motion-pop {
+    from {
+        opacity: 0;
+        transform: scale(.5);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* 筛选面板：打开时自顶下滑入场（.open 翻转 display 触发重放，收起保持瞬时）。 */
+.filter-panel.open {
+    animation: gallery-motion-panel-in var(--motion-med) var(--motion-ease-out);
+}
+
+/* 弹窗：遮罩淡入 + 对话框弹性上浮。 */
+.modal-backdrop.open {
+    animation: gallery-motion-fade var(--motion-fast) ease-out;
+}
+
+.modal-backdrop.open .modal {
+    animation: gallery-motion-dialog-in var(--motion-med) var(--motion-ease-spring);
+}
+
+/* 筛选徽标：出现时弹性弹出。 */
+.filter-badge.visible {
+    animation: gallery-motion-pop var(--motion-fast) var(--motion-ease-spring);
+}
+
+/* 筛选摘要条与下载目录设置：出现时淡入。 */
+.filter-summary-bar.visible,
+.download-root-settings.visible {
+    animation: gallery-motion-fade var(--motion-fast) ease-out;
+}

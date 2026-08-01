@@ -1,0 +1,155 @@
+/* ============================================================
+   pixiv-motion — 全站共享动效层
+   ------------------------------------------------------------
+   所有用户可见页面统一接入的动效基座：
+     1. 动效令牌（时长 / 缓动 / 阴影 / 焦点环），页面专属动效层引用同一组令牌
+     2. 整页与顶部应用导航的入场
+     3. 按钮、链接、输入控件、统计卡等通用组件的微交互
+     4. 键盘可达的统一焦点样式
+   页面自有样式表在本层之后加载，可按需覆盖本层任何规则。
+   颜色一律经自定义属性引用（字面量只出现在属性定义行），深色模式经同一变量覆盖；
+   未定义 --brand 的页面经 var() 回退链取本页主色（如监控页的 --cyan），最终回退 currentColor。
+   系统开启「减少动态效果」时，本文件全部动画与过渡统一退场。
+   ============================================================ */
+
+:root {
+    /* 时长 */
+    --motion-instant: .12s;
+    --motion-fast: .18s;
+    --motion-med: .3s;
+    --motion-slow: .45s;
+    /* 缓动 */
+    --motion-ease-standard: cubic-bezier(.2, .6, .35, 1);
+    --motion-ease-out: cubic-bezier(.22, .61, .36, 1);
+    --motion-ease-spring: cubic-bezier(.34, 1.45, .64, 1);
+    /* 阴影 / 焦点环（字面量仅允许出现在自定义属性定义行） */
+    --motion-shadow-color: rgba(16, 24, 40, .16);
+    --motion-shadow: 0 3px 10px var(--motion-shadow-color);
+    --motion-shadow-lift: 0 6px 16px var(--motion-shadow-color);
+    --motion-focus-accent: var(--brand, var(--cyan, currentColor));
+    --motion-focus-ring: color-mix(in srgb, var(--motion-focus-accent) 28%, transparent);
+}
+
+html[data-theme="dark"] {
+    --motion-shadow-color: rgba(0, 0, 0, .5);
+}
+
+/* ---- 关键帧 ---- */
+@keyframes pixiv-motion-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes pixiv-motion-nav-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* ---- 入场 ---- */
+/* 整页淡入：仅透明度、不引入 transform，不影响 fixed 定位弹层。 */
+body {
+    animation: pixiv-motion-fade-in var(--motion-med) var(--motion-ease-out);
+}
+
+/* 顶部应用导航（下载工作台 / 监控 / 插件管理等顶栏页面）滑入。 */
+.app-nav {
+    animation: pixiv-motion-nav-in var(--motion-med) var(--motion-ease-out);
+}
+
+/* ---- 通用微交互 ---- */
+a {
+    transition: color var(--motion-fast) var(--motion-ease-standard),
+                background-color var(--motion-fast) var(--motion-ease-standard),
+                border-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+button,
+.btn,
+input[type="button"],
+input[type="submit"],
+summary {
+    transition: color var(--motion-fast) var(--motion-ease-standard),
+                background-color var(--motion-fast) var(--motion-ease-standard),
+                border-color var(--motion-fast) var(--motion-ease-standard),
+                opacity var(--motion-fast) var(--motion-ease-standard),
+                box-shadow var(--motion-fast) var(--motion-ease-standard),
+                transform var(--motion-fast) var(--motion-ease-standard);
+}
+
+/* 设计系统按钮：悬停上浮 + 按压回缩（禁用与加载态不动）。 */
+.btn:not(:disabled):not(.is-loading):hover {
+    transform: translateY(-1px);
+    box-shadow: var(--motion-shadow);
+}
+
+.btn:not(:disabled):not(.is-loading):active {
+    transform: translateY(0) scale(.97);
+    box-shadow: none;
+}
+
+/* 统计卡：悬停轻抬。 */
+.stat-card {
+    transition: transform var(--motion-fast) var(--motion-ease-standard),
+                box-shadow var(--motion-fast) var(--motion-ease-standard);
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--motion-shadow-lift);
+}
+
+/* 输入控件：边框与焦点环过渡。 */
+input:not([type=checkbox]):not([type=radio]),
+select,
+textarea {
+    transition: border-color var(--motion-fast) var(--motion-ease-standard),
+                box-shadow var(--motion-fast) var(--motion-ease-standard);
+}
+
+input:not([type=checkbox]):not([type=radio]):focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    border-color: var(--motion-focus-accent);
+    box-shadow: 0 0 0 3px var(--motion-focus-ring);
+}
+
+/* 键盘可达性：可聚焦控件统一焦点描边（只在键盘聚焦时出现，不移除页面既有样式）。 */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+summary:focus-visible {
+    outline: 2px solid var(--motion-focus-accent);
+    outline-offset: 2px;
+}
+
+/* ---- 主题切换：结构表面的颜色过渡，深浅色切换更柔和 ---- */
+body,
+.app-nav,
+.card,
+.sidebar,
+.topbar {
+    transition: background-color var(--motion-med) var(--motion-ease-standard),
+                border-color var(--motion-med) var(--motion-ease-standard),
+                color var(--motion-med) var(--motion-ease-standard);
+}
+
+/* ---- 动效偏好：系统开启「减少动态效果」时全部退场 ---- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}

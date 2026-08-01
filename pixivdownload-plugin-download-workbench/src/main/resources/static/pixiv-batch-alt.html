@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>下载工作台 · Pixiv 下载助手</title>
+    <link rel="icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/css/pixiv-tour.css">
+    <link rel="stylesheet" href="/css/pixiv-onboarding.css">
+    <link rel="stylesheet" href="/css/pixiv-motion.css">
+    <link rel="stylesheet" href="/css/pixiv-feedback.css">
+    <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt.css">
+    <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-motion.css">
+</head>
+<body>
+<header class="ab-topbar app-nav">
+    <div class="ab-brand">
+        <span class="ab-brand-mark ab-icon" id="abBrandMark" data-icon="download" aria-hidden="true"></span>
+        <div class="ab-brand-text">
+            <strong data-i18n="brand.name">Pixiv 下载助手</strong>
+            <span class="ab-brand-sub" data-i18n="brand.sub">批量下载工作台</span>
+        </div>
+    </div>
+    <nav class="ab-topnav" data-nav-slot="app.top" data-nav-current="download-workbench"
+         data-nav-link-class="ab-topnav-link" data-nav-active-class="is-active"
+         data-nav-target="_blank" data-nav-rel="noopener" aria-label="跨插件导航"></nav>
+    <div class="ab-topbar-actions">
+        <button type="button" class="ab-chip ab-chip--warn" id="abCookieChip">
+            <span class="ab-chip-dot" aria-hidden="true"></span>
+            <span class="ab-chip-label" data-i18n="cookie.status.missing">未保存 Cookie</span>
+        </button>
+        <button type="button" class="ab-iconbtn" id="abScriptsBtn" data-i18n-title="scripts.entry" title="油猴脚本">
+            <span class="ab-icon" data-icon="puzzle" aria-hidden="true"></span>
+        </button>
+        <div class="ab-version" id="abVersion">
+            <button type="button" class="ab-chip ab-chip--ghost" id="abVersionBtn">
+                <span class="ab-icon" data-icon="info" aria-hidden="true"></span>
+                <span id="abVersionText" data-i18n="app.loading">加载中…</span>
+                <span class="ab-icon" data-icon="chevron-down" aria-hidden="true"></span>
+            </button>
+            <div class="ab-menu" id="abVersionMenu" hidden>
+                <div class="ab-menu-head">
+                    <strong id="abAppName">PixivDownloader</strong>
+                    <span class="ab-muted" id="abAppVersion"></span>
+                </div>
+                <a class="ab-menu-item" id="abLinkGithub" href="#" target="_blank" rel="noopener" data-i18n="app.link.github">GitHub</a>
+                <a class="ab-menu-item" id="abLinkReleases" href="#" target="_blank" rel="noopener" data-i18n="app.link.releases">Releases</a>
+                <a class="ab-menu-item" id="abLinkDocs" href="#" target="_blank" rel="noopener" data-i18n="app.link.docs">文档</a>
+                <a class="ab-menu-item" id="abLinkLicense" href="#" target="_blank" rel="noopener" data-i18n="app.link.license">License</a>
+            </div>
+        </div>
+        <span id="abLangAnchor"></span>
+        <span id="abThemeAnchor"></span>
+        <button type="button" class="ab-btn ab-btn--primary ab-btn--sm" id="abAuthBtn" data-i18n="auth.login">登录</button>
+        <button type="button" class="ab-iconbtn ab-dock-toggle" id="abDockToggle" data-i18n-title="dock.toggle" title="下载面板">
+            <span class="ab-icon" data-icon="download" aria-hidden="true"></span>
+            <span class="ab-badge" id="abDockBadge" hidden>0</span>
+        </button>
+    </div>
+</header>
+
+<div class="ab-backend-banner" id="abBackendBanner" hidden>
+    <span class="ab-icon" data-icon="alert" aria-hidden="true"></span>
+    <span data-i18n="backend.unavailable">无法连接后端服务，请确认服务已启动后重试。</span>
+</div>
+
+<div class="ab-shell" id="abShell">
+    <aside class="ab-rail" id="abRail" aria-label="下载模式">
+        <div class="ab-rail-modes" id="abRailModes" role="tablist" aria-label="下载模式"></div>
+    </aside>
+
+    <main class="ab-stage" id="abStage" tabindex="-1">
+        <section class="ab-mode-panel" id="abModePanel" aria-live="polite"></section>
+    </main>
+
+    <div class="ab-dock-scrim" id="abDockScrim" hidden></div>
+    <aside class="ab-dock" id="abDock" aria-label="下载中心">
+        <div class="ab-dock-head">
+            <h2 class="ab-dock-title" data-i18n="dock.title">下载中心</h2>
+            <button type="button" class="ab-iconbtn ab-dock-close" id="abDockClose" data-i18n-title="common.close" title="关闭">
+                <span class="ab-icon" data-icon="x" aria-hidden="true"></span>
+            </button>
+        </div>
+        <div class="ab-dock-body" id="abDockBody"></div>
+    </aside>
+</div>
+
+<div class="ab-drawer-root" id="abDrawerRoot" hidden></div>
+<div class="ab-modal-root" id="abModalRoot" hidden></div>
+
+<script src="/js/pixiv-i18n.js"></script>
+<script src="/js/pixiv-theme.js"></script>
+<script src="/js/pixiv-lang-switcher.js"></script>
+<script src="/js/pixiv-navigation.js"></script>
+<script src="/js/pixiv-tour.js"></script>
+<script src="/js/pixiv-onboarding.js"></script>
+<script src="/js/pixiv-feedback.js"></script>
+<script src="/js/pixiv-vue.js"></script>
+<script src="/pixiv-batch-alt/alt-core.js"></script>
+<script src="/pixiv-batch-alt/alt-state.js"></script>
+<script src="/pixiv-batch-alt/alt-cookie.js"></script>
+<script src="/pixiv-batch-alt/alt-filters.js"></script>
+<script src="/pixiv-batch-alt/alt-settings.js"></script>
+<script src="/pixiv-batch-alt/alt-chrome.js"></script>
+<script src="/pixiv-batch-alt/alt-modes.js"></script>
+<script src="/pixiv-batch-alt/alt-schedule.js"></script>
+<script src="/pixiv-batch-alt/alt-queue.js"></script>
+<script src="/pixiv-batch-alt/alt-engine.js"></script>
+<script src="/pixiv-batch/batch-queue-types.js"></script>
+<script src="/pixiv-batch/batch-schedule-sources.js"></script>
+<script src="/pixiv-batch-alt/alt-extensions.js"></script>
+<script src="/pixiv-batch-alt/alt-init.js"></script>
+</body>
+</html>

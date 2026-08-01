@@ -51,6 +51,8 @@ class DownloadWorkbenchRequiredContextTest {
         for (String path : List.of(
                 "/pixiv-batch.html",
                 "/pixiv-batch/batch-core.js",
+                "/pixiv-batch-alt.html",
+                "/pixiv-batch-alt/alt-core.js",
                 "/api/download/pixiv",
                 "/api/download/cancel/123",
                 "/api/download/queue/clear",
@@ -85,10 +87,15 @@ class DownloadWorkbenchRequiredContextTest {
                         + "|" + resource.publicPathPrefix() + "|" + resource.exactFile())
                 .containsExactly(
                         "classpath:/static/|/pixiv-batch.html|true",
-                        "classpath:/static/pixiv-batch/|/pixiv-batch/|false");
+                        "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
+                        "classpath:/static/|/pixiv-batch-alt.html|true",
+                        "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false");
         assertThat(plugin.i18n())
                 .extracting(i18n -> i18n.namespace() + "|" + i18n.baseName())
-                .containsExactly("batch|i18n.web.batch", "userscript|i18n.web.userscript");
+                .containsExactly(
+                        "batch|i18n.web.batch",
+                        "batch-alt|i18n.web.batch-alt",
+                        "userscript|i18n.web.userscript");
         assertThat(plugin.userscripts())
                 .extracting(script -> script.id() + "|" + script.classpathResource())
                 .containsExactly(

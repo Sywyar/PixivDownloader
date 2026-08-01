@@ -54,6 +54,7 @@ class El {
         this.title = '';
         this.value = '';
         this.disabled = false;
+        this.focused = false;
         this._listeners = {};
         this._actionButtons = [];
     }
@@ -72,6 +73,7 @@ class El {
     click() {
         (this._listeners.click || []).forEach(fn => fn.call(this));
     }
+    focus() { this.focused = true; }
     scrollIntoView() {}
     getBoundingClientRect() { return { top: 20, left: 20, width: 120, height: 32 }; }
     get innerHTML() { return this._html; }
@@ -110,9 +112,11 @@ class El {
 function makeDocument(hasResultEntry) {
     const body = new El('body');
     const resultEntry = hasResultEntry ? new El('a') : null;
+    const elements = {};
     return {
         body,
         resultEntry,
+        elements,
         documentElement: { clientWidth: 1024, clientHeight: 768 },
         createElement: tag => new El(tag),
         addEventListener() {},
@@ -121,7 +125,7 @@ function makeDocument(hasResultEntry) {
             if (selector === RESULT_ENTRY_SELECTOR) {
                 return resultEntry;
             }
-            return null;
+            return elements[selector] || null;
         }
     };
 }
@@ -191,11 +195,16 @@ function clickAction(pop, act) {
     button.click();
 }
 
-function loadMonitorScenario(hasResultEntry) {
+function loadMonitorScenario(hasResultEntry, holdAtStart) {
     const document = makeDocument(hasResultEntry);
+    const startButton = new El('button');
+    let startButtonClicks = 0;
+    startButton.addEventListener('click', () => { startButtonClicks++; });
+    document.elements['#btn-start'] = startButton;
     const storage = {};
     storage[STORAGE_KEY] = JSON.stringify({ status: 'active', phase: 'download' });
     let nextTimer = 1;
+    let beforeStartCalls = 0;
     const sandbox = {
         document,
         location: { href: '/pixiv-batch.html' },
@@ -245,7 +254,8 @@ function loadMonitorScenario(hasResultEntry) {
         hooks: {
             switchToSingleImport() {},
             isExampleQueued: () => true,
-            isRunning: () => true
+            beforeStart: () => { beforeStartCalls++; },
+            isRunning: () => !holdAtStart
         }
     });
 
@@ -264,19 +274,31 @@ function loadMonitorScenario(hasResultEntry) {
     pop = findByClass(document.body, 'po-pop');
     clickAction(pop, 'next');
 
+    const spot = findByClass(document.body, 'po-spot');
+    if (holdAtStart && spot) spot.click();
     return {
         pop: findByClass(document.body, 'po-pop'),
-        resultEntry: document.resultEntry
+        resultEntry: document.resultEntry,
+        beforeStartCalls,
+        startButtonClicks,
+        startButtonFocused: startButton.focused
     };
 }
 
 async function main() {
     {
-        const { pop, resultEntry } = loadMonitorScenario(true);
+        const { startButtonClicks, startButtonFocused } = loadMonitorScenario(false, true);
+        ok('P: 聚光洞口把点击转交给层叠上下文内的真实控件', startButtonClicks === 1);
+        ok('P: 聚光洞口把焦点转交给真实控件', startButtonFocused);
+    }
+
+    {
+        const { pop, resultEntry, beforeStartCalls } = loadMonitorScenario(true);
 
         ok('M1: 下载中 marker 存在时保留旧的画廊导向文案',
             pop && pop.innerHTML.indexOf('完成后会自动带你去画廊查看') >= 0);
         ok('M1: 下载中 marker 存在时仍可解析结果入口', resultEntry !== null);
+        ok('M1: 开始下载前执行页面准备钩子', beforeStartCalls === 1);
     }
 
     {
