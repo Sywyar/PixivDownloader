@@ -57,6 +57,8 @@ class PluginArtifactScannerTest {
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
         assertThatThrownBy(() -> manager.loadPlugin(link))
                 .isInstanceOf(PluginRuntimeOperationException.class)
-                .hasMessageContaining("not found");
+                .hasMessageContaining("failed to freeze plugin artifact")
+                .hasRootCauseMessage("plugin artifact must be a plain regular file: "
+                        + link.toAbsolutePath().normalize());
     }
 }

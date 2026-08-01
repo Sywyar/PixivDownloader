@@ -334,7 +334,14 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private PluginTransactionRecoveryReport directoryLockFailureReport(IOException failure) {
-        Path stagingRoot = pluginsDir.toAbsolutePath().normalize().resolve(STAGING_DIR);
+        Path pluginsRoot = pluginsDir.toAbsolutePath().normalize();
+        Path stagingRoot = pluginsRoot.resolve(STAGING_DIR);
+        try {
+            assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
+        } catch (RecoveryValidationException e) {
+            return new PluginTransactionRecoveryReport(List.of(recoveryFailure(
+                    STAGING_DIR, stagingRoot, FailureKind.STAGING_ROOT_UNSAFE, e.getMessage())));
+        }
         return new PluginTransactionRecoveryReport(List.of(recoveryFailure(
                 STAGING_DIR, stagingRoot, FailureKind.RECOVERY_FAILED,
                 "plugin directory session lock unavailable: " + describeRecoveryFailure(failure))));
