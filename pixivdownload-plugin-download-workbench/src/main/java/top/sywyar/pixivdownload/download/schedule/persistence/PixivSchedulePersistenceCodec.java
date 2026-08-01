@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.persistence;
+package top.sywyar.pixivdownload.download.schedule.persistence;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -252,6 +252,22 @@ public final class PixivSchedulePersistenceCodec {
             updated.put("acknowledgedWarningTime", Long.toString(acknowledgedWarningTime));
         }
         return write(updated);
+    }
+
+    /** 从已脱敏的策略挂起详情读取警告事件时间；缺失或损坏时返回 {@code null}。 */
+    public Long decodeOveruseWarningTime(String suspendDetailJson) {
+        if (suspendDetailJson == null || suspendDetailJson.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode value = parseObject(suspendDetailJson, "Pixiv overuse suspend detail")
+                    .get("modifiedAt");
+            return value == null || value.isNull()
+                    ? null
+                    : parseLongText(value, "modifiedAt", true);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private Map<String, String> presentationAttributes(JsonNode root) {

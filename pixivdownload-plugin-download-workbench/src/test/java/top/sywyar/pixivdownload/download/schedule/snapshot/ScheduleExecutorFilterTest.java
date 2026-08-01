@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule;
+package top.sywyar.pixivdownload.download.schedule.snapshot;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -7,10 +7,10 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Download;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleWorkFilter;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot.Download;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot.Filters;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleWorkFilter;
 
 import java.util.List;
 

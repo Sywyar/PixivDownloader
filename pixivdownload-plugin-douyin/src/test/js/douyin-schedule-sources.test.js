@@ -26,6 +26,7 @@ const SOURCE_TYPES = [
     'douyin.account.favorite-folder',
     'douyin.account.favorite-collection'
 ];
+const SAVED_COOKIE = 'ttwid=tt; passport_csrf_token=csrf; sessionid=sid';
 
 function definition(source, fetchLimit = 25) {
     return JSON.stringify({source, fetchLimit});
@@ -40,8 +41,6 @@ function harness() {
     ]);
     const contributions = new Map();
     let initializer = null;
-    let active = true;
-    let assertActiveCalls = 0;
     const selectedSeriesSources = [];
     const requests = [];
     const runtime = {
@@ -86,7 +85,7 @@ function harness() {
                 cookie: {
                     getCookieHeaderStringFor(type) {
                         assert.equal(type, 'douyin');
-                        return 'ttwid=tt; passport_csrf_token=csrf; sessionid=sid';
+                        return SAVED_COOKIE;
                     }
                 }
             }
@@ -127,10 +126,7 @@ function harness() {
     initializer({
         descriptors: SOURCE_TYPES.map(sourceType => ({sourceType})),
         signal: new AbortController().signal,
-        assertActive() {
-            assertActiveCalls++;
-            if (!active) throw new Error('stale Douyin schedule source activation');
-        },
+        assertActive() {},
         registerSource(sourceType, contribution) {
             assert.ok(SOURCE_TYPES.includes(sourceType));
             assert.equal(contributions.has(sourceType), false);
@@ -144,29 +140,52 @@ function harness() {
         elements,
         contributions,
         requests,
-        selectedSeriesSources,
-        deactivate() { active = false; },
-        assertActiveCalls() { return assertActiveCalls; }
+        selectedSeriesSources
     };
 }
 
-test('Douyin 自动授权只通过中性凭证头传 Cookie', async () => {
+function credentialLease() {
+    const controller = new AbortController();
+    let current = true;
+    return {
+        lease: {
+            sourceType: 'douyin.user',
+            ownerPluginId: 'douyin',
+            packageId: 'douyin',
+            pluginGeneration: 1,
+            publicationId: 10,
+            activationToken: 'activation-douyin',
+            signal: controller.signal,
+            isCurrent() { return current; },
+            assertCurrent() {
+                if (!current) throw new Error('stale Douyin credential lease');
+            }
+        },
+        expire() {
+            current = false;
+            controller.abort();
+        }
+    };
+}
+
+test('固定凭证接口绑定已保存 Cookie 且不向宿主或 DOM 返回明文', async () => {
     const h = harness();
-    const actions = h.contributions.get('douyin.account.favorite-works').credentialActions();
+    const contribution = h.contributions.get('douyin.account.favorite-works');
+    const leaseState = credentialLease();
 
-    const result = await actions.autoAuthorize(42, {
-        activationToken: 'activation-douyin',
-        signal: new AbortController().signal,
-        assertCurrent() {}
-    });
+    const result = await contribution.bindSavedCredential(42, null, leaseState.lease);
 
-    assert.equal(result, 'authorized');
-    assert.equal(h.requests[0].url, '/api/schedule/tasks/42/authorize-cookie');
-    assert.equal(h.requests[0].init.headers['X-Acquisition-Credential'],
-        'ttwid=tt; passport_csrf_token=csrf; sessionid=sid');
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), {ok: true, status: 'bound'});
+    assert.equal(h.requests[0].url, '/api/schedule/tasks/42/credential');
+    assert.equal(h.requests[0].init.headers['X-Acquisition-Credential'], SAVED_COOKIE);
     assert.deepEqual(JSON.parse(h.requests[0].init.body), {
         activationToken: 'activation-douyin'
     });
+    assert.equal(JSON.stringify(result).includes('passport_csrf_token'), false);
+    assert.equal(contribution.savedCookie, undefined);
+    assert.equal(contribution.credentialActions, undefined);
+    assert.equal(Array.from(h.elements.values()).some(element =>
+        String(element.value || '').includes('passport_csrf_token')), false);
 });
 
 function manifestSource(sourceType, generation) {
@@ -202,6 +221,8 @@ function manifestSource(sourceType, generation) {
 
 function runtimeHarness(manifests) {
     const responses = manifests.slice();
+    const requests = [];
+    let savedCookieReads = 0;
     const document = {
         currentScript: null,
         head: null,
@@ -221,11 +242,49 @@ function runtimeHarness(manifests) {
         queueMicrotask,
         setTimeout,
         clearTimeout,
-        fetch: async () => ({ok: true, status: 200, json: async () => responses.shift()}),
+        BASE: '',
+        bt(_key, fallback, args) {
+            let value = fallback;
+            Object.entries(args || {}).forEach(([key, replacement]) => {
+                value = value.replace('{' + key + '}', String(replacement));
+            });
+            return value;
+        },
+        fetch: async (url, init) => {
+            requests.push({url, init: init || {}});
+            if (String(url).includes('/api/schedule/sources')) {
+                return {ok: true, status: 200, json: async () => responses.shift()};
+            }
+            return {ok: true, status: 200, json: async () => ({})};
+        },
         document,
         window: {
             location: {origin: 'http://localhost'},
-            PixivBatch: {},
+            PixivBatch: {
+                queueTypes: {
+                    descriptor(type) {
+                        assert.equal(type, 'douyin');
+                        return {
+                            cookie: {
+                                validate(cookie) {
+                                    const value = String(cookie || '');
+                                    const ok = /(?:^|;\s*)ttwid=/.test(value)
+                                        && /(?:^|;\s*)passport_csrf_token=/.test(value)
+                                        && /(?:^|;\s*)(?:sessionid|sessionid_ss|sid_tt|sid_guard)=/.test(value);
+                                    return {ok, empty: !value.trim(), missing: ok ? [] : ['sessionid']};
+                                }
+                            }
+                        };
+                    }
+                },
+                cookie: {
+                    getCookieHeaderStringFor(type) {
+                        assert.equal(type, 'douyin');
+                        savedCookieReads++;
+                        return SAVED_COOKIE;
+                    }
+                }
+            },
             dispatchEvent() {},
             addEventListener() {}
         }
@@ -243,7 +302,11 @@ function runtimeHarness(manifests) {
     };
     document.documentElement = document.head;
     vm.runInContext(runtimeSource, context, {filename: 'batch-schedule-sources.js'});
-    return context.window.PixivBatch.scheduleSources;
+    return {
+        runtime: context.window.PixivBatch.scheduleSources,
+        requests,
+        savedCookieReads() { return savedCookieReads; }
+    };
 }
 
 test('模块只注册九类稳定 Douyin 周期来源并统一生成字符串作品定义', () => {
@@ -330,7 +393,7 @@ test('真实来源 runtime 受控加载模块并在 publication 更替后使旧 
         revision: 3,
         sources: SOURCE_TYPES.map(sourceType => manifestSource(sourceType, 2))
     };
-    const runtime = runtimeHarness([first, empty, second]);
+    const runtime = runtimeHarness([first, empty, second]).runtime;
     await runtime.refresh(false);
     assert.equal(SOURCE_TYPES.every(sourceType => runtime.isAvailable(sourceType)), true);
     const oldLease = runtime.activationLease('douyin.user');
@@ -420,16 +483,99 @@ test('九类来源编辑回灌保持 canonical 字段并拒绝畸形定义', () 
     }), /invalid/i);
 });
 
-test('凭证动作读取 Douyin Cookie、复用队列校验并在 activation 失效后拒绝调用', () => {
+test('Douyin 来源实现全部固定凭证方法并由 lease 拒绝过期调用', async () => {
     const h = harness();
-    const actions = h.contributions.get('douyin.user').credentialActions();
-    assert.equal(actions.supportsCookie, true);
-    assert.equal(actions.supportsProxy, true);
-    assert.match(actions.savedCookie(), /passport_csrf_token=csrf/);
-    assert.equal(actions.validateCookie('ttwid=tt; passport_csrf_token=csrf; sid_tt=sid'), null);
-    assert.match(actions.validateCookie('ttwid=tt'), /missing/i);
-    assert.ok(h.assertActiveCalls() >= 3);
-    h.deactivate();
-    assert.throws(() => actions.savedCookie(), /stale/i);
-    assert.throws(() => actions.validateCookie(''), /stale/i);
+    const contribution = h.contributions.get('douyin.user');
+    const leaseState = credentialLease();
+    const fixedMethods = [
+        'credentialContribution',
+        'validateCredential',
+        'bindCredential',
+        'bindSavedCredential',
+        'revokeCredential',
+        'credentialTaskPresentation'
+    ];
+    fixedMethods.forEach(name => assert.equal(typeof contribution[name], 'function'));
+    assert.equal(contribution.credentialActions, undefined);
+    assert.doesNotMatch(moduleSource,
+        /cookieMode|cookieBound|accountId|ackWarningTime|sourceOwnerPluginId|task\.lastStatus/);
+
+    const metadata = contribution.credentialContribution();
+    assert.equal(metadata.supportsCredential, true);
+    assert.equal(metadata.supportsProxy, true);
+    assert.equal(metadata.supportsCookie, undefined);
+    assert.equal(metadata.savedCookie, undefined);
+    assert.equal(contribution.validateCredential(
+        'ttwid=tt; passport_csrf_token=csrf; sid_tt=sid', null, leaseState.lease), null);
+    assert.match(contribution.validateCredential('ttwid=tt', null, leaseState.lease), /missing/i);
+
+    const bound = await contribution.bindCredential(43, SAVED_COOKIE, null, leaseState.lease);
+    assert.deepEqual(JSON.parse(JSON.stringify(bound)), {ok: true, status: 'bound'});
+    const revoked = await contribution.revokeCredential(43, null, leaseState.lease);
+    assert.deepEqual(JSON.parse(JSON.stringify(revoked)), {ok: true, status: 'revoked'});
+    assert.equal(h.requests[0].url, '/api/schedule/tasks/43/credential');
+    assert.equal(h.requests[0].init.method, 'POST');
+    assert.equal(h.requests[1].url, '/api/schedule/tasks/43/credential');
+    assert.equal(h.requests[1].init.method, 'DELETE');
+
+    const presentation = contribution.credentialTaskPresentation({
+        credentialPolicy: {
+            ownerPluginId: 'douyin',
+            policyId: 'douyin.cookie',
+            publicationId: 10,
+            statusCode: 'AUTH_EXPIRED'
+        }
+    }, null, leaseState.lease);
+    assert.equal(presentation.lightTone, 'red');
+    assert.equal(presentation.suspended, true);
+    assert.equal(presentation.manualRecoveryRequired, true);
+    assert.equal(contribution.credentialTaskPresentation({
+        sourceOwnerPluginId: 'douyin',
+        lastStatus: 'AUTH_EXPIRED'
+    }, null, leaseState.lease), null);
+
+    leaseState.expire();
+    assert.throws(() => contribution.validateCredential('', null, leaseState.lease), /stale/i);
+    assert.throws(() => contribution.credentialTaskPresentation({}, null, leaseState.lease), /stale/i);
+});
+
+test('宿主 runtime 仅暴露固定凭证 surface 并过滤旧任意动作袋', async () => {
+    const manifest = {
+        epoch: 'douyin-credential-epoch',
+        revision: 1,
+        sources: SOURCE_TYPES.map(sourceType => manifestSource(sourceType, 1))
+    };
+    const h = runtimeHarness([manifest]);
+    const runtime = h.runtime;
+    await runtime.refresh(false);
+
+    [
+        'credentialContribution',
+        'validateCredential',
+        'bindCredential',
+        'bindSavedCredential',
+        'revokeCredential',
+        'credentialTaskPresentation'
+    ].forEach(name => assert.equal(typeof runtime[name], 'function'));
+    assert.equal(runtime.credentialActions, undefined);
+    assert.equal(runtime.invokeCredentialAction, undefined);
+
+    const metadata = runtime.credentialContribution('douyin.user', {});
+    assert.equal(metadata.supportsCredential, true);
+    assert.equal(metadata.supportsCookie, undefined);
+    assert.equal(metadata.savedCookie, undefined);
+
+    const result = await runtime.bindSavedCredential('douyin.user', 44, {});
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+        ok: true,
+        status: 'bound',
+        error: null
+    });
+    assert.equal(h.savedCookieReads(), 1);
+    const request = h.requests.find(item =>
+        String(item.url).endsWith('/api/schedule/tasks/44/credential'));
+    assert.ok(request);
+    assert.equal(request.init.headers['X-Acquisition-Credential'], SAVED_COOKIE);
+    assert.equal(JSON.stringify(result).includes('passport_csrf_token'), false);
+    assert.doesNotMatch(moduleSource, /authorize-cookie|revoke-cookie/);
 });

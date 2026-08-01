@@ -117,13 +117,16 @@ class ScheduleCapabilityAccessContractTest {
                         "snapshot",
                         "prepareOwner",
                         "prepareWorkExecutor",
+                        "prepareCredentialPolicy",
                         "credentialPolicyOwner",
                         "prepareSource",
                         "activate",
-                        "activate",
-                        "whileCurrentPublication",
-                        "prepareExpansion",
-                        "activate");
+                         "activate",
+                         "whileCurrentPublication",
+                         "whileCurrentPublication",
+                         "whileCurrentPublication",
+                         "prepareExpansion",
+                         "activate");
         assertThat(signatures)
                 .contains(
                         ScheduleCapabilityLease.class.getName(),

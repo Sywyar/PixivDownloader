@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFrontendContribution;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.LinkedHashMap;
 import java.util.List;

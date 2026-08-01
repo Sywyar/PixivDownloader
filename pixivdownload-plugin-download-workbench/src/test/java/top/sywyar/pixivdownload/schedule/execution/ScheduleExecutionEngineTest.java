@@ -50,6 +50,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleDefinitionException;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
 import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedException;
+import top.sywyar.pixivdownload.schedule.ScheduleSourceUnavailableException;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
 import java.util.ArrayList;
@@ -1147,6 +1148,76 @@ class ScheduleExecutionEngineTest {
     }
 
     @Test
+    @DisplayName("凭证探活失败的账号级决定在三参数 publication barrier 内仅发布一次")
+    void credentialProbeFailurePublishesAccountDecisionExactlyOnce() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicInteger discoveries = new AtomicInteger();
+        AtomicInteger executions = new AtomicInteger();
+        AtomicInteger failureGuards = new AtomicInteger();
+        AtomicInteger publisherCalls = new AtomicInteger();
+        List<String> events = new ArrayList<>();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            discoveries.incrementAndGet();
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            executions.incrementAndGet();
+            return ScheduledWorkResult.completed();
+        });
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context)
+                    throws ScheduledExecutionException {
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.CHALLENGE,
+                        "fixture.probe-challenge",
+                        1_234L);
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            failureGuards.incrementAndGet();
+            events.add("failure-guard");
+            assertThat(context.point()).isEqualTo(ScheduledGuardPoint.RUN_FAILURE);
+            assertThat(context.attemptedWorkCount()).isZero();
+            return new ScheduledGuardDecision(
+                    ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
+                    "fixture.probe-policy-suspend",
+                    0L);
+        });
+        ScheduleExecutionEngine engine = engine(store, source, executor, policy, guard);
+
+        assertThatThrownBy(() -> engine.execute(
+                task(),
+                ignored -> {
+                },
+                decision -> {
+                    assertThat(failureGuards).hasValue(1);
+                    publisherCalls.incrementAndGet();
+                    events.add("publisher");
+                    assertThat(decision.action()).isEqualTo(
+                            ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT);
+                    assertThat(decision.reasonCode()).isEqualTo(
+                            "fixture.probe-policy-suspend");
+                }))
+                .isInstanceOfSatisfying(ScheduleExecutionControlException.class, control -> {
+                    assertThat(control.action()).isEqualTo(
+                            ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT);
+                    assertThat(control.reasonCode()).isEqualTo(
+                            "fixture.probe-policy-suspend");
+                });
+        assertThat(failureGuards).hasValue(1);
+        assertThat(publisherCalls).hasValue(1);
+        assertThat(events).containsExactly("failure-guard", "publisher");
+        assertThat(discoveries).hasValue(0);
+        assertThat(executions).hasValue(0);
+    }
+
+    @Test
     @DisplayName("正式凭证探活拒绝账号与机器码中的原始凭证回显")
     void credentialProbeRejectsExactCredentialEcho() throws Exception {
         List<ProbeEchoCase> cases = List.of(
@@ -1784,6 +1855,84 @@ class ScheduleExecutionEngineTest {
         assertThat(secondGuardCalls).hasValue(0);
         assertThat(withdrawn.get()).isNotNull();
         assertThat(withdrawn.get().isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("账号级决定在 publication 撤回替换先赢时不执行旧代挂起写入")
+    void retiredAndReplacedPublicationSkipsStaleAccountSuspensionWrite() throws Exception {
+        CountDownLatch guardEntered = new CountDownLatch(1);
+        CountDownLatch allowGuardDecision = new CountDownLatch(1);
+        AtomicInteger suspensionWrites = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(
+                1, context -> ScheduledDiscoveryResult.withoutCheckpoint());
+        ScheduledWorkExecutor work = workExecutor(
+                context -> ScheduledWorkResult.completed());
+        ScheduledCredentialPolicy policy = credentialPolicy(new AtomicReference<>());
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() != ScheduledGuardPoint.RUN_START) {
+                return ScheduledGuardDecision.proceed();
+            }
+            guardEntered.countDown();
+            try {
+                if (!allowGuardDecision.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("fixture guard decision release timed out");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw ScheduledExecutionException.cancelled();
+            }
+            return new ScheduledGuardDecision(
+                    ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
+                    "fixture.stale-account-risk",
+                    0L);
+        });
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication first =
+                ScheduleCapabilityTestFixture.publish(
+                        registry,
+                        bindingBundle(
+                                new ScheduleCapabilityOwner(
+                                        "fixture", "fixture-package", 1L),
+                                source, work, policy, guard));
+        ScheduleExecutionEngine engine = engine(
+                storeWithCredential(), registry,
+                new ScheduleRunState(), new SyncTaskExecutor());
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<Throwable> execution = caller.submit(() -> catchThrowable(() ->
+                    engine.execute(
+                            task(),
+                            ignored -> {
+                            },
+                            ignored -> suspensionWrites.incrementAndGet())));
+
+            assertThat(guardEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            FakeScheduleCapabilityAccess.Drain drain =
+                    ScheduleCapabilityTestFixture.withdraw(registry, first).orElseThrow();
+            assertThat(drain.activeLeaseCount()).isEqualTo(1);
+            assertThat(drain.isDrained()).isFalse();
+            ScheduleCapabilityTestFixture.publish(
+                    registry,
+                    bindingBundle(
+                            new ScheduleCapabilityOwner(
+                                    "fixture", "fixture-package", 2L),
+                            sourceExecutor(
+                                    1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                            workExecutor(context -> ScheduledWorkResult.completed()),
+                            credentialPolicy(new AtomicReference<>()),
+                            guard(context -> ScheduledGuardDecision.proceed())));
+
+            allowGuardDecision.countDown();
+            assertThat(execution.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(ScheduleSourceUnavailableException.class);
+            assertThat(suspensionWrites).hasValue(0);
+            assertThat(drain.awaitDrained(
+                    System.nanoTime() + TimeUnit.SECONDS.toNanos(5))).isTrue();
+        } finally {
+            allowGuardDecision.countDown();
+            caller.shutdownNow();
+            caller.awaitTermination(5, TimeUnit.SECONDS);
+        }
     }
 
     @Test

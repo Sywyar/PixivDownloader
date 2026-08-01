@@ -121,6 +121,159 @@ window.PixivBatch.scheduleSources = (function () {
         return mode === 'watermark' || mode === 'per-run' ? mode : null;
     }
 
+    const CREDENTIAL_PRESENTATION_FIELDS = Object.freeze([
+        'boundLabel', 'unboundLabel', 'overrideLabel', 'modalTitle', 'modalIntro',
+        'proxyToggleLabel', 'credentialToggleLabel', 'savedCredentialLabel',
+        'boundPlaceholder', 'savedSelectionPlaceholder', 'placeholder', 'proxyHint',
+        'credentialHint', 'emptyCredentialMessage', 'proxyBadgeLabel',
+        'clearProxyConfirm', 'clearCredentialConfirm'
+    ]);
+
+    function boundedDisplayText(value, maxLength) {
+        const normalized = value == null ? '' : String(value);
+        return normalized.length <= maxLength && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(normalized)
+            ? normalized : '';
+    }
+
+    function normalizeCredentialContribution(raw, descriptor) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        if (typeof raw.then === 'function') {
+            Promise.resolve(raw).catch(() => {});
+            return null;
+        }
+        const value = raw.presentation && typeof raw.presentation === 'object'
+            && !Array.isArray(raw.presentation) ? raw.presentation : {};
+        const presentation = {};
+        CREDENTIAL_PRESENTATION_FIELDS.forEach(name => {
+            const normalized = boundedDisplayText(value[name], 4096);
+            if (normalized) presentation[name] = normalized;
+        });
+        const namespace = i18nToken(
+            descriptor && descriptor.presentation && descriptor.presentation.displayNamespace, 64);
+        const requestedNamespace = i18nToken(value.namespace, 64);
+        const confirmKey = property => {
+            const key = i18nToken(value[property], 192);
+            return namespace && requestedNamespace === namespace && key
+                ? `${namespace}:${key}` : null;
+        };
+        presentation.clearProxyConfirmI18nKey = confirmKey('clearProxyConfirmKey');
+        presentation.clearCredentialConfirmI18nKey = confirmKey('clearCredentialConfirmKey');
+        return Object.freeze({
+            supportsCredential: raw.supportsCredential === true,
+            supportsProxy: raw.supportsProxy === true,
+            presentation: Object.freeze(presentation)
+        });
+    }
+
+    function normalizeCredentialTaskPresentation(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        if (typeof raw.then === 'function') {
+            Promise.resolve(raw).catch(() => {});
+            return null;
+        }
+        const tone = text(raw.lightTone);
+        return Object.freeze({
+            statusLabel: boundedDisplayText(raw.statusLabel, 4096) || null,
+            lightTone: ['green', 'yellow', 'red', 'gray'].includes(tone) ? tone : null,
+            lightText: boundedDisplayText(raw.lightText, 4096) || null,
+            suspended: raw.suspended === true,
+            manualRecoveryRequired: raw.manualRecoveryRequired === true
+        });
+    }
+
+    function machineToken(value, maxLength) {
+        const normalized = text(value);
+        return normalized.length <= maxLength && /^[A-Za-z][A-Za-z0-9._-]*$/.test(normalized)
+            ? normalized : '';
+    }
+
+    function normalizeCredentialPolicyAction(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        const actionId = machineToken(raw.actionId, 128);
+        const label = boundedDisplayText(raw.label, 4096);
+        if (!actionId || !label) return null;
+        const tone = text(raw.tone);
+        let prompt = null;
+        if (raw.prompt && typeof raw.prompt === 'object' && !Array.isArray(raw.prompt)) {
+            const parameterName = machineToken(raw.prompt.parameterName, 128);
+            const message = boundedDisplayText(raw.prompt.message, 4096);
+            const inputType = text(raw.prompt.inputType);
+            const min = Number(raw.prompt.min);
+            const step = Number(raw.prompt.step);
+            if (parameterName && message && (inputType === 'number' || inputType === 'text')) {
+                prompt = Object.freeze({
+                    parameterName,
+                    message,
+                    defaultValue: boundedDisplayText(raw.prompt.defaultValue, 256),
+                    inputType,
+                    min: Number.isFinite(min) ? min : null,
+                    step: Number.isFinite(step) && step > 0 ? step : null
+                });
+            }
+        }
+        return Object.freeze({
+            actionId,
+            label,
+            tone: ['danger', 'primary', 'secondary'].includes(tone) ? tone : 'secondary',
+            confirmMessage: boundedDisplayText(raw.confirmMessage, 4096) || null,
+            prompt
+        });
+    }
+
+    function normalizeCredentialPolicyGroup(raw, entry) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        const identity = raw.identity && typeof raw.identity === 'object'
+            && !Array.isArray(raw.identity) ? raw.identity : {};
+        const ownerPluginId = machineToken(identity.ownerPluginId, 128);
+        const policyId = machineToken(identity.policyId, 128);
+        const publicationId = Number(identity.publicationId);
+        const accountKey = boundedDisplayText(identity.accountKey, 1024).trim();
+        const suspendReason = machineToken(identity.suspendReason, 128);
+        const suspendCode = machineToken(identity.suspendCode, 160);
+        if (!ownerPluginId || ownerPluginId !== entry.descriptor.ownerPluginId
+                || !policyId || !Number.isSafeInteger(publicationId)
+                || publicationId !== entry.descriptor.publicationId
+                || !accountKey || !suspendReason || !suspendCode) return null;
+        const title = boundedDisplayText(raw.title, 4096);
+        const description = boundedDisplayText(raw.description, 8192);
+        const actions = Array.isArray(raw.actions)
+            ? raw.actions.map(normalizeCredentialPolicyAction).filter(Boolean) : [];
+        if (!title || !description || !actions.length) return null;
+        const normalizedIdentity = Object.freeze({
+            ownerPluginId, policyId, publicationId, accountKey, suspendReason, suspendCode
+        });
+        return Object.freeze({
+            sourceType: entry.descriptor.sourceType,
+            identity: normalizedIdentity,
+            identityKey: JSON.stringify(normalizedIdentity),
+            title,
+            description,
+            actions: Object.freeze(actions)
+        });
+    }
+
+    function normalizeCredentialOperationResult(raw) {
+        const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+        const status = text(value.status);
+        return Object.freeze({
+            ok: value.ok === true,
+            status: ['bound', 'missing', 'revoked', 'applied', 'unchanged', 'failed']
+                .includes(status) ? status : (value.ok === true ? 'applied' : 'failed'),
+            error: boundedDisplayText(value.error, 4096) || null
+        });
+    }
+
+    function normalizeCredentialValidation(value) {
+        if (value == null || value === '') return null;
+        return boundedDisplayText(value, 4096) || 'invalid credential';
+    }
+
+    function normalizedOperationPromise(value, normalizer) {
+        return value && typeof value.then === 'function'
+            ? Promise.resolve(value).then(normalizer)
+            : normalizer(value);
+    }
+
     function normalizeSource(epoch, raw) {
         if (!raw || typeof raw !== 'object') return null;
         const sourceType = text(raw.sourceType);
@@ -254,7 +407,10 @@ window.PixivBatch.scheduleSources = (function () {
     function contributionMethods(value) {
         const allowed = [
             'matches', 'preview', 'capture', 'restore', 'summary', 'fetchLimitMode',
-            'quickSourceNote', 'credentialActions', 'dispose'
+            'quickSourceNote', 'credentialContribution', 'validateCredential',
+            'bindCredential', 'bindSavedCredential', 'revokeCredential',
+            'credentialTaskPresentation', 'credentialPolicyGroups',
+            'applyCredentialPolicyAction', 'dispose'
         ];
         const out = {};
         allowed.forEach(name => {
@@ -889,31 +1045,133 @@ window.PixivBatch.scheduleSources = (function () {
             [entry ? scopedSourceContext(entry, context) : context], null);
     }
 
-    function credentialActions(sourceType, context) {
-        const entry = handler(sourceType);
-        return invoke(sourceType, 'credentialActions',
-            [entry ? scopedSourceContext(entry, context) : context], null);
+    function credentialLease(entry) {
+        if (!entry) {
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                'schedule source credential contribution is unavailable');
+        }
+        return Object.freeze({
+            sourceType: entry.descriptor.sourceType,
+            ownerPluginId: entry.descriptor.ownerPluginId,
+            packageId: entry.descriptor.packageId,
+            pluginGeneration: entry.descriptor.pluginGeneration,
+            publicationId: entry.descriptor.publicationId,
+            activationToken: entry.descriptor.activationToken,
+            signal: current.controller.signal,
+            isCurrent() { return isEntryCurrent(entry); },
+            assertCurrent() { assertEntryCurrent(entry); }
+        });
     }
 
-    function invokeCredentialAction(sourceType, actionName, args, context) {
+    function credentialContribution(sourceType, context) {
         const entry = handler(sourceType);
-        if (!entry) throw new Error('schedule source credential action is unavailable');
-        const actions = invoke(sourceType, 'credentialActions',
-            [scopedSourceContext(entry, context)], null);
-        const run = value => {
-            const action = value && value[text(actionName)];
-            if (typeof action !== 'function') {
-                throw new Error('schedule source credential action is unavailable');
+        if (!entry) return null;
+        try {
+            const raw = invokeSync(sourceType, 'credentialContribution',
+                [scopedSourceContext(entry, context), credentialLease(entry)], null);
+            return normalizeCredentialContribution(raw, entry.descriptor);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function invokeCredentialWrite(sourceType, method, args, context) {
+        const entry = handler(sourceType);
+        if (!entry || typeof entry.methods[method] !== 'function') {
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                'schedule source credential contribution is unavailable');
+        }
+        return invoke(sourceType, method, (Array.isArray(args) ? args : []).concat([
+            scopedSourceContext(entry, context), credentialLease(entry)
+        ]), null);
+    }
+
+    function validateCredential(sourceType, credential, context) {
+        const value = invokeCredentialWrite(
+            sourceType, 'validateCredential', [String(credential || '')], context);
+        return normalizedOperationPromise(value, normalizeCredentialValidation);
+    }
+
+    function bindCredential(sourceType, taskId, credential, context) {
+        const value = invokeCredentialWrite(sourceType, 'bindCredential',
+            [taskId, String(credential || '')], context);
+        return normalizedOperationPromise(value, normalizeCredentialOperationResult);
+    }
+
+    function bindSavedCredential(sourceType, taskId, context) {
+        const value = invokeCredentialWrite(
+            sourceType, 'bindSavedCredential', [taskId], context);
+        return normalizedOperationPromise(value, normalizeCredentialOperationResult);
+    }
+
+    function revokeCredential(sourceType, taskId, context) {
+        const value = invokeCredentialWrite(
+            sourceType, 'revokeCredential', [taskId], context);
+        return normalizedOperationPromise(value, normalizeCredentialOperationResult);
+    }
+
+    function jsonSnapshot(value, maxLength) {
+        try {
+            const json = JSON.stringify(value);
+            if (!json || json.length > maxLength) return null;
+            return freezeJsonValue(JSON.parse(json));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function credentialTaskPresentation(sourceType, task, context) {
+        const entry = handler(sourceType);
+        if (!entry) return null;
+        const taskSnapshot = jsonSnapshot(task, 262144);
+        if (!taskSnapshot) return null;
+        const raw = invokeSync(sourceType, 'credentialTaskPresentation', [
+            taskSnapshot, scopedSourceContext(entry, context), credentialLease(entry)
+        ], null);
+        return normalizeCredentialTaskPresentation(raw);
+    }
+
+    function credentialPolicyGroups(tasks, context) {
+        const taskSnapshots = Array.isArray(tasks)
+            ? tasks.slice(0, 512).map(task => jsonSnapshot(task, 262144)).filter(Boolean)
+            : [];
+        if (!taskSnapshots.length) return Object.freeze([]);
+        const seenOwners = new Set();
+        const groups = new Map();
+        current.handlers.forEach(entry => {
+            if (!isEntryCurrent(entry) || typeof entry.methods.credentialPolicyGroups !== 'function') return;
+            const ownerKey = ownerIdentity(current.epoch, entry.descriptor)
+                + ':' + (entry.descriptor.frontend ? entry.descriptor.frontend.moduleUrl : '');
+            if (seenOwners.has(ownerKey)) return;
+            seenOwners.add(ownerKey);
+            let raw;
+            try {
+                raw = invokeSync(entry.descriptor.sourceType, 'credentialPolicyGroups', [
+                    Object.freeze(taskSnapshots.slice()),
+                    scopedSourceContext(entry, context),
+                    credentialLease(entry)
+                ], []);
+            } catch (e) {
+                return;
             }
-            const lease = Object.freeze({
-                activationToken: entry.descriptor.activationToken,
-                signal: current.controller.signal,
-                isCurrent() { return isEntryCurrent(entry); },
-                assertCurrent() { assertEntryCurrent(entry); }
+            (Array.isArray(raw) ? raw : []).forEach(value => {
+                const group = normalizeCredentialPolicyGroup(value, entry);
+                if (group && !groups.has(group.identityKey)) groups.set(group.identityKey, group);
             });
-            return action.apply(null, (Array.isArray(args) ? args : []).concat([lease]));
-        };
-        return actions && typeof actions.then === 'function' ? actions.then(run) : run(actions);
+        });
+        return Object.freeze(Array.from(groups.values()));
+    }
+
+    function applyCredentialPolicyAction(sourceType, request, context) {
+        const snapshot = jsonSnapshot(request, 65536);
+        if (!snapshot) {
+            return Object.freeze({ok: false, status: 'failed', error: 'invalid credential action'});
+        }
+        const value = invokeCredentialWrite(
+            sourceType, 'applyCredentialPolicyAction', [snapshot], context);
+        return normalizedOperationPromise(value, normalizeCredentialOperationResult);
     }
 
     function isAvailable(sourceType) {
@@ -963,8 +1221,14 @@ window.PixivBatch.scheduleSources = (function () {
         summary,
         fetchLimitMode,
         quickSourceNote,
-        credentialActions,
-        invokeCredentialAction,
+        credentialContribution,
+        validateCredential,
+        bindCredential,
+        bindSavedCredential,
+        revokeCredential,
+        credentialTaskPresentation,
+        credentialPolicyGroups,
+        applyCredentialPolicyAction,
         isAvailable,
         activationToken,
         activationLease,

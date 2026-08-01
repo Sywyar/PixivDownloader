@@ -58,6 +58,16 @@ class MailPluginDependencyGuardTest {
         assertProductionSourcesExcludePrivateHttpReferences();
     }
 
+    @Test
+    @DisplayName("邮件介质生产实现与资源不得解释具体计划来源或作品类型")
+    void productionMailSurfaceIsScheduleSourceNeutral() throws IOException {
+        assertProductionSurfaceExcludes(List.of(
+                "www.pixiv.net/artworks/",
+                "template.common.task-type.user-new",
+                "pending-exhausted.kind.illust",
+                "pending-exhausted.kind.novel"));
+    }
+
     private static void assertProductionSourcesExcludePrivateHttpReferences() throws IOException {
         Path moduleRoot = moduleRoot();
         List<String> violations = new ArrayList<>();
@@ -75,6 +85,27 @@ class MailPluginDependencyGuardTest {
             }
         }
         assertThat(violations).as("Mail 插件生产源码中的宿主私有 HTTP 引用").isEmpty();
+    }
+
+    private static void assertProductionSurfaceExcludes(List<String> forbidden) throws IOException {
+        Path moduleRoot = moduleRoot();
+        List<String> violations = new ArrayList<>();
+        try (Stream<Path> sources = Files.walk(moduleRoot.resolve("src/main"))) {
+            for (Path source : sources.filter(Files::isRegularFile).sorted().toList()) {
+                String name = source.getFileName().toString();
+                if (!(name.endsWith(".java") || name.endsWith(".properties")
+                        || name.endsWith(".html"))) {
+                    continue;
+                }
+                String content = Files.readString(source);
+                for (String token : forbidden) {
+                    if (content.contains(token)) {
+                        violations.add(moduleRoot.relativize(source) + " -> " + token);
+                    }
+                }
+            }
+        }
+        assertThat(violations).as("Mail 介质中的来源私有计划语义").isEmpty();
     }
 
     private static Path moduleRoot() {

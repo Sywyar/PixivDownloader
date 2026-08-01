@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 import java.util.concurrent.LinkedBlockingQueue;
@@ -120,9 +120,9 @@ class ScheduleHostPluginConfigurationTest {
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleRunQueue runQueue = new ScheduleRunQueue();
         ObjectMapper objectMapper = new ObjectMapper();
-        PixivSchedulePersistenceCodec persistenceCodec =
-                configuration.pixivSchedulePersistenceCodec(objectMapper);
         ScheduleExecutionEngine executionEngine = mock(ScheduleExecutionEngine.class);
+        ScheduleCredentialService credentialService = mock(ScheduleCredentialService.class);
+        ScheduleHostIdentity hostIdentity = new ScheduleHostIdentity("fixture-host");
 
         ScheduleExecutor executor = configuration.scheduleExecutor(
                 store,
@@ -133,11 +133,13 @@ class ScheduleHostPluginConfigurationTest {
                 mock(MessageResolver.class),
                 mock(NamespaceMessageResolver.class),
                 mock(UserDisplayNameProvider.class),
-                executionEngine);
+                executionEngine,
+                mock(PlatformTransactionManager.class),
+                hostIdentity);
         ScheduleService service = configuration.scheduleService(
                 store, executor, config, runState, runQueue,
-                objectMapper, persistenceCodec, executionEngine,
-                mock(PlatformTransactionManager.class), registry);
+                objectMapper, credentialService,
+                mock(PlatformTransactionManager.class), registry, hostIdentity);
 
         assertThat(ReflectionTestUtils.getField(executor, "scheduleCapabilityRegistry"))
                 .isSameAs(registry);
@@ -145,9 +147,7 @@ class ScheduleHostPluginConfigurationTest {
                 .isSameAs(registry);
         assertThat(ReflectionTestUtils.getField(executor, "scheduleExecutionEngine"))
                 .isSameAs(executionEngine);
-        assertThat(ReflectionTestUtils.getField(service, "scheduleExecutionEngine"))
-                .isSameAs(executionEngine);
-        assertThat(ReflectionTestUtils.getField(service, "persistenceCodec"))
-                .isSameAs(persistenceCodec);
+        assertThat(ReflectionTestUtils.getField(service, "credentialService"))
+                .isSameAs(credentialService);
     }
 }

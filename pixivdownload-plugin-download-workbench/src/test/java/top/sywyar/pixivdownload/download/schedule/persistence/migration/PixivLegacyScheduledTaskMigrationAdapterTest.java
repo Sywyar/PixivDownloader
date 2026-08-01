@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.persistence.migration;
+package top.sywyar.pixivdownload.download.schedule.persistence.migration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,7 +10,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationResult;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskSnapshot;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
 import java.util.Map;

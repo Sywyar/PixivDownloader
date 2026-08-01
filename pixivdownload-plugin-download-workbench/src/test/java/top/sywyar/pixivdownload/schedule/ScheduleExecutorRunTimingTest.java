@@ -8,6 +8,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
@@ -39,7 +44,7 @@ import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialCircuitOpen
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionResult;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 import java.util.List;
@@ -49,6 +54,8 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,6 +77,21 @@ import static org.mockito.Mockito.when;
 class ScheduleExecutorRunTimingTest {
 
     private static final String WORK_TYPE = "fixture.work";
+    private static final PlatformTransactionManager NO_OP_TRANSACTION_MANAGER =
+            new PlatformTransactionManager() {
+                @Override
+                public TransactionStatus getTransaction(TransactionDefinition definition) {
+                    return new SimpleTransactionStatus();
+                }
+
+                @Override
+                public void commit(TransactionStatus status) {
+                }
+
+                @Override
+                public void rollback(TransactionStatus status) {
+                }
+            };
 
     @Mock
     private ScheduledTaskStore store;
@@ -92,7 +114,7 @@ class ScheduleExecutorRunTimingTest {
         objectMapper = new ObjectMapper();
         localRunState = new ScheduleRunState();
         defaultEngine = mock(ScheduleExecutionEngine.class);
-        lenient().when(defaultEngine.execute(any(ScheduledTask.class), any()))
+        lenient().when(defaultEngine.execute(any(ScheduledTask.class), any(), any()))
                 .thenReturn(emptyResult());
         executor = genericExecutor(defaultEngine);
 
@@ -126,7 +148,7 @@ class ScheduleExecutorRunTimingTest {
         ScheduledCheckpoint checkpoint =
                 new ScheduledCheckpoint("fixture.checkpoint", 1, "{\"cursor\":\"next\"}");
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenReturn(
+        when(engine.execute(eq(task), any(), any())).thenReturn(
                 new ScheduleExecutionResult(2, checkpoint, false, List.of()));
 
         genericExecutor(engine).runTaskAndRecord(task);
@@ -144,7 +166,7 @@ class ScheduleExecutorRunTimingTest {
     void sourceUnavailableSuspendsWithoutCheckpoint() throws Exception {
         ScheduledTask task = task(2L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any()))
+        when(engine.execute(eq(task), any(), any()))
                 .thenThrow(new ScheduleSourceUnavailableException("user-new"));
 
         genericExecutor(engine).runTaskAndRecord(task);
@@ -163,7 +185,7 @@ class ScheduleExecutorRunTimingTest {
     void executorUnavailableSuspendsWithoutPartialExecution() throws Exception {
         ScheduledTask task = task(3L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any()))
+        when(engine.execute(eq(task), any(), any()))
                 .thenThrow(new ScheduleExecutorUnavailableException("user-new", Set.of("novel")));
 
         genericExecutor(engine).runTaskAndRecord(task);
@@ -182,7 +204,7 @@ class ScheduleExecutorRunTimingTest {
     void invalidDefinitionSuspendsAsMigrationError() throws Exception {
         ScheduledTask task = task(4L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any()))
+        when(engine.execute(eq(task), any(), any()))
                 .thenThrow(new ScheduleDefinitionException("definition mismatch"));
 
         genericExecutor(engine).runTaskAndRecord(task);
@@ -201,7 +223,8 @@ class ScheduleExecutorRunTimingTest {
     void manualCancellationFinishesWithoutCheckpoint() throws Exception {
         ScheduledTask task = task(5L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(ScheduledExecutionException.cancelled());
+        when(engine.execute(eq(task), any(), any()))
+                .thenThrow(ScheduledExecutionException.cancelled());
 
         genericExecutor(engine).runTaskAndRecord(task);
 
@@ -216,7 +239,7 @@ class ScheduleExecutorRunTimingTest {
     void failureOutcomeRedactsCredentialForms() throws Exception {
         ScheduledTask task = task(6L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(new IllegalStateException(
+        when(engine.execute(eq(task), any(), any())).thenThrow(new IllegalStateException(
                 "PHPSESSID=cookie-secret; Authorization: Bearer bearer-secret "
                         + "token: token-secret url=https://example.test/a?X-Amz-Signature=signature-secret"));
 
@@ -233,7 +256,7 @@ class ScheduleExecutorRunTimingTest {
     void credentialSuspensionSendsAuthExpiredNotification() throws Exception {
         ScheduledTask task = task(7L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+        when(engine.execute(eq(task), any(), any())).thenThrow(new ScheduleExecutionControlException(
                 ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
                 "COOKIE_DEAD", 0L, ScheduledGuardEvidence.empty()));
 
@@ -244,40 +267,112 @@ class ScheduleExecutorRunTimingTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
         verify(notificationDispatcher).notify(
-                eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
+                eq(NotificationScenario.CREDENTIAL_SUSPENDED), any(), placeholders.capture());
         assertThat(placeholders.getValue()).doesNotContainKey("next_run_time");
     }
 
     @Test
-    @DisplayName("通用账号策略挂起覆盖同凭证账号")
+    @DisplayName("通用账号策略挂起按各任务 stateVersion 精确 CAS 且隔离其它 owner")
     void policyAccountSuspensionCoversCredentialAccount() throws Exception {
         long taskId = 8L;
         ScheduledTask task = task(
                 taskId, "user-new", userDefinition("100"), null, "{}", "credential-ref");
+        ScheduledTask persistedCurrent = org.mockito.Mockito.spy(task);
+        ScheduledTask sibling = org.mockito.Mockito.spy(task(
+                18L, "user-new", userDefinition("200"), null, "{}", "credential-ref-2"));
+        when(sibling.stateVersion()).thenReturn(9L);
+        when(sibling.credentialAccountKey()).thenReturn(Long.toString(taskId));
+        ScheduledTask otherOwner = org.mockito.Mockito.spy(task(
+                28L, "user-new", userDefinition("300"), null, "{}", "credential-ref-3"));
+        when(otherOwner.credentialPolicyOwnerPluginId()).thenReturn("other-owner");
         when(store.findByCredentialAccount(
                 DownloadWorkbenchPlugin.ID,
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
                 Long.toString(taskId)))
-                .thenReturn(List.of(task));
+                .thenReturn(List.of(persistedCurrent, sibling, otherOwner));
+        when(store.suspend(
+                taskId, 2L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}"))
+                .thenReturn(OptionalLong.of(3L));
+        when(store.suspend(
+                18L, 9L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}"))
+                .thenReturn(OptionalLong.of(10L));
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+        ScheduleExecutionControlException decision = new ScheduleExecutionControlException(
                 ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
-                "fixture.account-risk", 0L, ScheduledGuardEvidence.empty()));
+                "fixture.account-risk", 0L, ScheduledGuardEvidence.empty());
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Consumer<ScheduleExecutionControlException> publisher = invocation.getArgument(2);
+            publisher.accept(decision);
+            throw decision;
+        }).when(engine).execute(eq(task), any(), any());
 
         genericExecutor(engine).runTaskAndRecord(task);
 
-        verify(store).suspendByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                Long.toString(taskId),
-                ScheduleSuspendReason.POLICY,
-                "fixture.account-risk",
-                "{}");
+        verify(store).suspend(
+                taskId, 2L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}");
+        verify(store).suspend(
+                18L, 9L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}");
         verify(store, never()).suspend(
-                eq(taskId), anyLong(), any(ScheduleSuspendReason.class), any(), any());
+                eq(28L), anyLong(), any(ScheduleSuspendReason.class), any(), any());
         verify(store).finishCancelled(
                 eq(taskId), any(ScheduleRunToken.class), eq(ScheduleLastOutcome.ERROR),
                 anyLong(), eq("fixture.account-risk"), eq("fixture.account-risk"), any());
+    }
+
+    @Test
+    @DisplayName("账号策略逐任务挂起任一 CAS 失败时回滚整个事务")
+    void policyAccountSuspensionRollsBackWhenAnyTaskChanges() throws Exception {
+        long taskId = 81L;
+        ScheduledTask task = task(
+                taskId, "user-new", userDefinition("100"), null, "{}", "credential-ref");
+        ScheduledTask persistedCurrent = org.mockito.Mockito.spy(task);
+        ScheduledTask sibling = org.mockito.Mockito.spy(task(
+                82L, "user-new", userDefinition("200"), null, "{}", "credential-ref-2"));
+        when(sibling.stateVersion()).thenReturn(9L);
+        when(sibling.credentialAccountKey()).thenReturn(Long.toString(taskId));
+        when(store.findByCredentialAccount(
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                Long.toString(taskId)))
+                .thenReturn(List.of(persistedCurrent, sibling));
+        when(store.suspend(
+                taskId, 2L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}"))
+                .thenReturn(OptionalLong.of(3L));
+        when(store.suspend(
+                82L, 9L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}"))
+                .thenReturn(OptionalLong.empty());
+        ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
+        ScheduleExecutionControlException decision = new ScheduleExecutionControlException(
+                ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
+                "fixture.account-risk", 0L, ScheduledGuardEvidence.empty());
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Consumer<ScheduleExecutionControlException> publisher = invocation.getArgument(2);
+            publisher.accept(decision);
+            throw decision;
+        }).when(engine).execute(eq(task), any(), any());
+        RecordingTransactionManager transactionManager = new RecordingTransactionManager();
+
+        assertThatThrownBy(() -> genericExecutor(
+                engine, new TransactionTemplate(transactionManager)).runTaskAndRecord(task))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("credential account task changed during suspension");
+
+        assertThat(transactionManager.rolledBack.get()).isTrue();
+        assertThat(transactionManager.committed.get()).isFalse();
+        verify(store).suspend(
+                taskId, 2L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}");
+        verify(store).suspend(
+                82L, 9L, ScheduleSuspendReason.POLICY,
+                "fixture.account-risk", "{}");
     }
 
     @Test
@@ -285,7 +380,7 @@ class ScheduleExecutorRunTimingTest {
     void credentialCircuitSendsCircuitBreakerNotification() throws Exception {
         ScheduledTask task = task(9L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(
+        when(engine.execute(eq(task), any(), any())).thenThrow(
                 new ScheduleCredentialCircuitOpenException(
                         5, "pixiv.illust.access-unavailable"));
 
@@ -302,7 +397,7 @@ class ScheduleExecutorRunTimingTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
         verify(notificationDispatcher).notify(
-                eq(NotificationScenario.CIRCUIT_BREAKER), any(), placeholders.capture());
+                eq(NotificationScenario.CREDENTIAL_FAILURE_CIRCUIT_OPEN), any(), placeholders.capture());
         assertThat(placeholders.getValue())
                 .containsEntry("consecutive_failures", "5")
                 .containsEntry("last_error_excerpt", "pixiv.illust.access-unavailable")
@@ -317,7 +412,7 @@ class ScheduleExecutorRunTimingTest {
         when(task.credentialPolicyOwnerPluginId()).thenReturn("fixture-policy-owner");
         when(task.credentialPolicyId()).thenReturn("fixture-policy");
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenReturn(
+        when(engine.execute(eq(task), any(), any())).thenReturn(
                 new ScheduleExecutionResult(0, null, true, List.of()));
         when(store.removeCredential(10L, 3L, "fixture-policy-owner", "fixture-policy"))
                 .thenReturn(OptionalLong.of(4L));
@@ -339,7 +434,7 @@ class ScheduleExecutorRunTimingTest {
                 new Checkpoint("fixture.checkpoint", 1, "{\"cursor\":\"safe\"}"),
                 "{}", "credential-ref");
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+        when(engine.execute(eq(task), any(), any())).thenThrow(new ScheduleExecutionControlException(
                 ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE,
                 "fixture.failure-revoke", 0L, ScheduledGuardEvidence.empty()));
 
@@ -354,7 +449,7 @@ class ScheduleExecutorRunTimingTest {
         verify(store, never()).removeCredential(
                 eq(11L), anyLong(), anyString(), anyString());
         verify(notificationDispatcher, never()).notify(
-                eq(NotificationScenario.DEGRADED_ANONYMOUS), any(), any());
+                eq(NotificationScenario.CREDENTIAL_REVOKED_CONTINUING), any(), any());
     }
 
     @Test
@@ -378,7 +473,7 @@ class ScheduleExecutorRunTimingTest {
                             "novel", "batch.user.kind-novel",
                             "https://www.pixiv.net/novel/show.php?id=42")));
             return emptyResult();
-        }).when(engine).execute(eq(task), any());
+        }).when(engine).execute(eq(task), any(), any());
         when(namespaceMessageResolver.resolve(
                 eq("novel"), any(), eq("batch.user.kind-novel")))
                 .thenReturn(Optional.of("Novels"));
@@ -409,7 +504,7 @@ class ScheduleExecutorRunTimingTest {
     void notificationResolvesDescriptorTaskTypeLabel() throws Exception {
         ScheduledTask task = task(13L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+        when(engine.execute(eq(task), any(), any())).thenThrow(new ScheduleExecutionControlException(
                 ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
                 "COOKIE_DEAD", 0L, ScheduledGuardEvidence.empty()));
         when(namespaceMessageResolver.resolve(eq("fixture"), any(), eq("source.label")))
@@ -420,7 +515,7 @@ class ScheduleExecutorRunTimingTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
         verify(notificationDispatcher).notify(
-                eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
+                eq(NotificationScenario.CREDENTIAL_SUSPENDED), any(), placeholders.capture());
         assertThat(placeholders.getValue()).containsEntry("task_type", "Fixture source");
     }
 
@@ -429,7 +524,7 @@ class ScheduleExecutorRunTimingTest {
     void retryDelaySaturatesAtLongMaxValue() throws Exception {
         ScheduledTask task = task(14L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-        when(engine.execute(eq(task), any())).thenThrow(new ScheduledExecutionException(
+        when(engine.execute(eq(task), any(), any())).thenThrow(new ScheduledExecutionException(
                 ScheduledFailure.Category.RETRYABLE_NETWORK,
                 "fixture.retry-later", Long.MAX_VALUE));
 
@@ -557,7 +652,7 @@ class ScheduleExecutorRunTimingTest {
         LinkageError pluginFailure = new LinkageError("source plugin linkage failed");
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
         ScheduledTask task = task(19L, "user-new", userDefinition("100"), null, null, null);
-        when(engine.execute(eq(task), any())).thenThrow(pluginFailure);
+        when(engine.execute(eq(task), any(), any())).thenThrow(pluginFailure);
         ScheduleExecutor failingExecutor = genericExecutor(engine);
         ScheduleRunState.Claim claim = localRunState.tryMarkQueued(19L);
         ScheduleRunToken queued = new ScheduleRunToken(
@@ -626,14 +721,29 @@ class ScheduleExecutorRunTimingTest {
     }
 
     private ScheduleExecutor genericExecutor(ScheduleExecutionEngine engine) {
+        return genericExecutor(
+                engine, new TransactionTemplate(NO_OP_TRANSACTION_MANAGER));
+    }
+
+    private ScheduleExecutor genericExecutor(
+            ScheduleExecutionEngine engine,
+            TransactionTemplate transactions) {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         publishSource(registry);
-        return newExecutor(registry, engine);
+        return newExecutor(registry, engine, transactions);
     }
 
     private ScheduleExecutor newExecutor(
             ScheduleCapabilityAccess registry,
             ScheduleExecutionEngine engine) {
+        return newExecutor(
+                registry, engine, new TransactionTemplate(NO_OP_TRANSACTION_MANAGER));
+    }
+
+    private ScheduleExecutor newExecutor(
+            ScheduleCapabilityAccess registry,
+            ScheduleExecutionEngine engine,
+            TransactionTemplate transactions) {
         return new ScheduleExecutor(
                 store,
                 registry,
@@ -643,7 +753,10 @@ class ScheduleExecutorRunTimingTest {
                 messages,
                 namespaceMessageResolver,
                 userDisplayNameProvider,
-                engine);
+                engine,
+                transactions,
+                new ScheduleHostIdentity(
+                        ScheduleCapabilityTestFixture.DOWNLOAD_WORKBENCH_OWNER.featurePluginId()));
     }
 
     private FakeScheduleCapabilityAccess.Publication publishSource(
@@ -731,5 +844,26 @@ class ScheduleExecutorRunTimingTest {
     }
 
     private record Checkpoint(String schema, int version, String json) {
+    }
+
+    private static final class RecordingTransactionManager
+            implements PlatformTransactionManager {
+        private final AtomicBoolean committed = new AtomicBoolean();
+        private final AtomicBoolean rolledBack = new AtomicBoolean();
+
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) {
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {
+            committed.set(true);
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) {
+            rolledBack.set(true);
+        }
     }
 }

@@ -90,6 +90,14 @@ class ScheduleCapabilityRegistryTest {
             assertThat(ownerLease.capability()).isEqualTo(owner);
         }
 
+        var policyLease = access.prepareCredentialPolicy("credential:stable").orElseThrow();
+        try (policyLease) {
+            assertThat(access.activate(policyLease)).isTrue();
+            assertThat(policyLease.capability()).isSameAs(fixture.credentialPolicy());
+            assertThat(access.whileCurrentPublication(policyLease, () -> "policy-current"))
+                    .contains("policy-current");
+        }
+
         var planning = access.prepareSource("SOURCE_STABLE").orElseThrow();
         try (planning) {
             assertThat(access.activate(planning)).isTrue();
@@ -107,6 +115,8 @@ class ScheduleCapabilityRegistryTest {
                         .containsSame(fixture.credentialPolicy());
                 assertThat(execution.guard("guard:stable"))
                         .containsSame(fixture.guard());
+                assertThat(access.whileCurrentPublication(execution, () -> "execution-current"))
+                        .contains("execution-current");
             }
         }
 
@@ -421,6 +431,67 @@ class ScheduleCapabilityRegistryTest {
         assertThat(operationCalled).isFalse();
         assertThat(drain.isDrained()).isFalse();
 
+        planning.close();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("已撤回或被替换的凭证策略 publication 不进入单项宿主写入 barrier")
+    void retiredCredentialPolicySkipsSingleCurrentPublicationOperation() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityOwner owner = owner("policy-feature", "policy-package", 1L);
+        String policyId = "credential:policy-currentness";
+        ScheduleCapabilityPublication first = publish(
+                registry, policyOnlyBundle(owner, policyId));
+        var lease = registry.prepareCredentialPolicy(policyId).orElseThrow();
+        assertThat(registry.activate(lease)).isTrue();
+        ScheduleGenerationDrain drain = registry.withdraw(first).orElseThrow();
+        publish(registry, policyOnlyBundle(owner, policyId));
+        AtomicBoolean operationCalled = new AtomicBoolean();
+
+        assertThat(registry.whileCurrentPublication(lease, () -> {
+            operationCalled.set(true);
+            return "written";
+        })).isEmpty();
+        assertThat(operationCalled).isFalse();
+        assertThat(drain.isDrained()).isFalse();
+
+        lease.close();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("已撤回的复合 owner publication 不进入执行期宿主写入 barrier")
+    void retiredCompositeOwnerSkipsExecutionCurrentPublicationOperation() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        Fixture fixture = completeFixture(
+                owner("execution-barrier-feature", "execution-barrier-package", 1L),
+                "source:execution-barrier",
+                "SOURCE_EXECUTION_BARRIER",
+                "work:execution-barrier",
+                "credential:execution-barrier",
+                "guard:execution-barrier");
+        ScheduleCapabilityPublication publication = publish(registry, fixture.bundle());
+        SchedulePlanningLease planning = registry.prepareSource(
+                "source:execution-barrier").orElseThrow();
+        assertThat(registry.activate(planning)).isTrue();
+        ScheduleExecutionLease execution = registry.prepareExpansion(
+                planning,
+                plan("work:execution-barrier", "credential:execution-barrier",
+                        "guard:execution-barrier"))
+                .orElseThrow();
+        assertThat(registry.activate(execution)).isTrue();
+        ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
+        AtomicBoolean operationCalled = new AtomicBoolean();
+
+        assertThat(registry.whileCurrentPublication(execution, () -> {
+            operationCalled.set(true);
+            return "written";
+        })).isEmpty();
+        assertThat(operationCalled).isFalse();
+        assertThat(drain.isDrained()).isFalse();
+
+        execution.close();
         planning.close();
         assertThat(drain.isDrained()).isTrue();
     }
@@ -816,6 +887,12 @@ class ScheduleCapabilityRegistryTest {
             ScheduleGenerationDrain drain = registry.withdraw(publications.get(target)).orElseThrow();
             assertThat(cancellation.isCancellationRequested()).as(target.name()).isTrue();
             assertThat(drain.activeLeaseCount()).as(target.name()).isEqualTo(1);
+            AtomicBoolean operationCalled = new AtomicBoolean();
+            assertThat(registry.whileCurrentPublication(execution, () -> {
+                operationCalled.set(true);
+                return "written";
+            })).as(target.name()).isEmpty();
+            assertThat(operationCalled).as(target.name()).isFalse();
 
             execution.close();
             planning.close();

@@ -148,7 +148,7 @@ public class MailTestController {
 
     /**
      * 给 {@link #testAll} 用的示例占位符：合并了四个模板各自需要的所有 key（render 时多余 key 会被忽略），
-     * 用 i18n 取本地化的示例文本（任务名 / 站内信摘要 / 失败摘要等），保证两种 locale 下预览效果一致。
+     * 用 i18n 取本地化的示例文本（任务名 / 策略摘要 / 失败摘要等），保证两种 locale 下预览效果一致。
      */
     private Map<String, String> buildSamplePlaceholders(MailSenderSettings settings, Locale locale) {
         LocalDateTime now = LocalDateTime.now();
@@ -161,7 +161,7 @@ public class MailTestController {
         placeholders.put("username", greetingName(locale));
         placeholders.put("smtp_host", settings.host() == null ? "" : settings.host());
         placeholders.put("time", nowFormatted);
-        // overuse-paused
+        // 账号级凭证策略事件
         placeholders.put("account_id", messages.get(locale, "mail.template.sample.account-id"));
         placeholders.put("tasks_count", messages.get(locale, "mail.template.sample.tasks-count"));
         placeholders.put("tasks_list_html", messages.get(locale, "mail.template.sample.tasks-list-html"));
@@ -169,11 +169,11 @@ public class MailTestController {
         placeholders.put("warning_time", earlierFormatted);
         placeholders.put("trigger_time", nowFormatted);
         placeholders.put("warning_excerpt", messages.get(locale, "mail.template.sample.warning-excerpt"));
-        // auth-expired / circuit-breaker 公共
+        // 任务级凭证挂起 / 熔断公共
         placeholders.put("task_name", messages.get(locale, "mail.template.sample.task-name"));
         placeholders.put("task_id", messages.get(locale, "mail.template.sample.task-id"));
         // 任务级通知共用：任务类型 / 触发方式 / 下次预定运行 / 本轮新下载
-        placeholders.put("task_type", messages.get(locale, "mail.template.common.task-type.user-new"));
+        placeholders.put("task_type", messages.get(locale, "mail.template.sample.task-type"));
         // 用 Cron 触发示例（含裸星号）作为预览样本，与推送预览保持一致。
         placeholders.put("task_trigger", messages.get(locale, "mail.template.common.trigger.cron", "0 0 * * *"));
         placeholders.put("next_run_time", now.plusMinutes(60).format(TIME_FORMAT));
@@ -183,8 +183,8 @@ public class MailTestController {
         placeholders.put("last_error_excerpt", messages.get(locale, "mail.template.sample.last-error-excerpt"));
         // pending-exhausted
         placeholders.put("work_id", messages.get(locale, "mail.template.sample.work-id"));
-        placeholders.put("work_kind", messages.get(locale, "mail.template.pending-exhausted.kind.illust"));
-        placeholders.put("work_url", "https://www.pixiv.net/artworks/" + messages.get(locale, "mail.template.sample.work-id"));
+        placeholders.put("work_kind", messages.get(locale, "mail.template.sample.work-kind"));
+        placeholders.put("work_url", messages.get(locale, "mail.template.sample.work-url"));
         placeholders.put("attempts", messages.get(locale, "mail.template.sample.attempts"));
         return placeholders;
     }

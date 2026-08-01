@@ -8,6 +8,8 @@
     const DEFAULT_FETCH_LIMIT = 100;
     const MAX_FETCH_LIMIT = 5000;
     const FAVORITE_FOLDER_PREFIX = 'favorite-folder:';
+    const CREDENTIAL_POLICY_ID = 'douyin.cookie';
+    const CREDENTIAL_STATUS_AUTH_EXPIRED = 'AUTH_EXPIRED';
     const SOURCE = Object.freeze({
         USER: 'douyin.user',
         SEARCH: 'douyin.search',
@@ -415,9 +417,9 @@
         return typeof validate === 'function' ? validate(String(cookie || '')) : {ok: false, empty: true, missing: []};
     }
 
-    function credentialActions(api) {
+    function credentialContribution() {
         return Object.freeze({
-            supportsCookie: true,
+            supportsCredential: true,
             supportsProxy: true,
             presentation: Object.freeze({
                 boundLabel: t('schedule.credential.bound', 'Douyin Cookie bound'),
@@ -441,50 +443,99 @@
                 namespace: 'douyin',
                 clearProxyConfirmKey: 'schedule.confirm.clear-proxy',
                 clearCredentialConfirmKey: 'schedule.confirm.clear-cookie'
-            }),
-            savedCookie() {
-                api.assertActive();
-                return savedCookie();
-            },
-            validateCookie(cookie) {
-                api.assertActive();
-                const validation = cookieValidation(cookie);
-                if (validation && validation.ok) return null;
-                if (!cookie || (validation && validation.empty)) {
-                    return t('settings.cookie.empty', 'Douyin Cookie is empty');
-                }
-                return t('settings.cookie.missing',
-                    'Douyin Cookie is missing required fields: {fields}', {
-                        fields: Array.isArray(validation && validation.missing)
-                            ? validation.missing.join(', ') : ''
-                    });
-            },
-            async autoAuthorize(taskId, lease) {
-                api.assertActive();
-                const cookie = savedCookie();
-                if (!cookie || !cookieValidation(cookie).ok) return 'no-cookie';
-                try {
-                    const response = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Acquisition-Credential': cookie
-                        },
-                        signal: lease && lease.signal ? lease.signal : api.signal,
-                        body: JSON.stringify({
-                            activationToken: lease && lease.activationToken
-                        })
-                    });
-                    api.assertActive();
-                    if (lease && typeof lease.assertCurrent === 'function') lease.assertCurrent();
-                    return response.ok ? 'authorized' : 'failed';
-                } catch (e) {
-                    api.assertActive();
-                    return 'failed';
-                }
-            }
+            })
         });
+    }
+
+    function validateCredential(cookie, _context, lease) {
+        lease.assertCurrent();
+        const validation = cookieValidation(cookie);
+        if (validation && validation.ok) return null;
+        if (!cookie || (validation && validation.empty)) {
+            return t('settings.cookie.empty', 'Douyin Cookie is empty');
+        }
+        return t('settings.cookie.missing',
+            'Douyin Cookie is missing required fields: {fields}', {
+                fields: Array.isArray(validation && validation.missing)
+                    ? validation.missing.join(', ') : ''
+            });
+    }
+
+    async function credentialHttp(url, init, lease, successStatus) {
+        lease.assertCurrent();
+        try {
+            const response = await fetch(url, Object.assign({}, init, {signal: lease.signal}));
+            lease.assertCurrent();
+            if (response.ok) return {ok: true, status: successStatus};
+            const error = await response.json().catch(() => ({}));
+            lease.assertCurrent();
+            return {
+                ok: false,
+                status: 'failed',
+                error: error.error || error.message
+                    || t('schedule.credential.authorize-failed', 'Douyin credential authorization failed')
+            };
+        } catch (e) {
+            lease.assertCurrent();
+            return {
+                ok: false,
+                status: 'failed',
+                error: t('schedule.credential.authorize-failed',
+                    'Douyin credential authorization failed')
+            };
+        }
+    }
+
+    function bindCredential(taskId, cookie, _context, lease) {
+        const validation = validateCredential(cookie, null, lease);
+        if (validation) return {ok: false, status: 'failed', error: validation};
+        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/credential`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Acquisition-Credential': String(cookie)
+            },
+            body: JSON.stringify({activationToken: lease.activationToken})
+        }, lease, 'bound');
+    }
+
+    function bindSavedCredential(taskId, _context, lease) {
+        lease.assertCurrent();
+        const cookie = savedCookie();
+        if (!cookie || validateCredential(cookie, null, lease)) {
+            return {ok: false, status: 'missing'};
+        }
+        return bindCredential(taskId, cookie, null, lease);
+    }
+
+    function revokeCredential(taskId, _context, lease) {
+        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/credential`, {
+            method: 'DELETE',
+            credentials: 'same-origin'
+        }, lease, 'revoked');
+    }
+
+    function credentialTaskPresentation(task, _context, lease) {
+        lease.assertCurrent();
+        const policy = task && task.credentialPolicy && typeof task.credentialPolicy === 'object'
+            ? task.credentialPolicy : {};
+        const ownerPluginId = String(policy.ownerPluginId || '').trim();
+        const policyId = String(policy.policyId || '').trim();
+        const publicationId = Number(policy.publicationId);
+        const statusCode = String(policy.statusCode || '').trim();
+        if (ownerPluginId !== lease.ownerPluginId || policyId !== CREDENTIAL_POLICY_ID
+                || publicationId !== lease.publicationId
+                || statusCode !== CREDENTIAL_STATUS_AUTH_EXPIRED) return null;
+        return {
+            statusLabel: t('schedule.credential.expired',
+                'The Douyin Cookie is no longer valid; bind a valid Cookie'),
+            lightTone: 'red',
+            lightText: t('schedule.credential.expired',
+                'The Douyin Cookie is no longer valid; bind a valid Cookie'),
+            suspended: true,
+            manualRecoveryRequired: true
+        };
     }
 
     runtime.registerModule(MODULE_URL, function (api) {
@@ -502,7 +553,12 @@
                     const quick = normalizedQuickSource(context);
                     return quick && quick.sourceType === sourceType ? quick.label : null;
                 },
-                credentialActions: () => credentialActions(api)
+                credentialContribution,
+                validateCredential,
+                bindCredential,
+                bindSavedCredential,
+                revokeCredential,
+                credentialTaskPresentation
             });
         });
     });

@@ -2544,7 +2544,7 @@ body.schedule-modal-open {
 }
 
 /* ── 过度访问账号级暂停横幅 ─────────────────────────────────────── */
-.schedule-overuse-banner {
+.schedule-credential-policy-banner {
     border: 1px solid var(--line-strong, #ccc);
     border-left: 4px solid var(--danger-bg, #dc3545);
     background: var(--warning-bg);
@@ -2553,20 +2553,20 @@ body.schedule-modal-open {
     margin-bottom: 12px;
 }
 
-.schedule-overuse-title {
+.schedule-credential-policy-title {
     font-weight: 700;
     color: var(--warning-text);
     margin-bottom: 4px;
 }
 
-.schedule-overuse-desc {
+.schedule-credential-policy-desc {
     font-size: 13px;
     color: var(--text);
     margin-bottom: 10px;
     line-height: 1.6;
 }
 
-.schedule-overuse-actions {
+.schedule-credential-policy-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -3540,7 +3540,7 @@ html[data-theme="dark"] .pixiv-feedback-button--secondary {
     .schedule-form-actions,
     .schedule-card-actions,
     .schedule-meta-actions,
-    .schedule-overuse-actions {
+    .schedule-credential-policy-actions {
         width: 100%;
     }
 
@@ -3549,7 +3549,7 @@ html[data-theme="dark"] .pixiv-feedback-button--secondary {
     .schedule-form-actions .btn,
     .schedule-card-actions .btn,
     .schedule-meta-actions .btn,
-    .schedule-overuse-actions .btn {
+    .schedule-credential-policy-actions .btn {
         flex: 1 1 150px;
     }
 

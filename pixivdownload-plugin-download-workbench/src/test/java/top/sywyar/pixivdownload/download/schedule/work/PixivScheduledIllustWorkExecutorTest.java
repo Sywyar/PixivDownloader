@@ -37,7 +37,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificati
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
 

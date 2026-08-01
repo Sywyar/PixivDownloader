@@ -29,6 +29,9 @@ import static org.mockito.Mockito.when;
 @DisplayName("ScheduleRunner 宿主 owner 租约")
 class ScheduleRunnerLeaseTest {
 
+    private static final ScheduleHostIdentity HOST_IDENTITY = new ScheduleHostIdentity(
+            ScheduleCapabilityTestFixture.DOWNLOAD_WORKBENCH_OWNER.featurePluginId());
+
     @Test
     @DisplayName("宿主 publication 尚未发布或已撤回时 tick 不读取到期任务")
     void tickDoesNotReadTasksWithoutHostPublication() {
@@ -38,7 +41,8 @@ class ScheduleRunnerLeaseTest {
                 mock(ScheduleExecutor.class),
                 new ScheduleConfig(),
                 new ScheduleRunState(),
-                new FakeScheduleCapabilityAccess());
+                new FakeScheduleCapabilityAccess(),
+                HOST_IDENTITY);
 
         runner.tick();
 
@@ -63,7 +67,8 @@ class ScheduleRunnerLeaseTest {
                 mock(ScheduleExecutor.class),
                 new ScheduleConfig(),
                 new ScheduleRunState(),
-                registry);
+                registry,
+                HOST_IDENTITY);
         Thread tick = new Thread(runner::tick, "schedule-runner-lease-test");
         tick.start();
         try {
@@ -101,7 +106,7 @@ class ScheduleRunnerLeaseTest {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -142,7 +147,7 @@ class ScheduleRunnerLeaseTest {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -178,7 +183,7 @@ class ScheduleRunnerLeaseTest {
                     return Optional.of(queuedToken);
                 });
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -246,7 +251,9 @@ class ScheduleRunnerLeaseTest {
                 mock(top.sywyar.pixivdownload.i18n.MessageResolver.class),
                 mock(top.sywyar.pixivdownload.i18n.NamespaceMessageResolver.class),
                 mock(top.sywyar.pixivdownload.setup.UserDisplayNameProvider.class),
-                mock(top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine.class)) {
+                mock(top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine.class),
+                mock(org.springframework.transaction.support.TransactionTemplate.class),
+                HOST_IDENTITY) {
             @Override
             void runTaskAndRecord(
                     top.sywyar.pixivdownload.core.schedule.ScheduledTask task,
@@ -262,7 +269,7 @@ class ScheduleRunnerLeaseTest {
             }
         };
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 
@@ -291,7 +298,7 @@ class ScheduleRunnerLeaseTest {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
 
         runner.tick();
 

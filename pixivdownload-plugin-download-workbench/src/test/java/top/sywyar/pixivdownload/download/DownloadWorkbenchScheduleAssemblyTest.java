@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
+import top.sywyar.pixivdownload.download.schedule.PixivScheduleSettings;
 import top.sywyar.pixivdownload.download.schedule.guard.PixivOveruseExecutionGuard;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivCollectionScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledLocalWorkLookup;
@@ -25,11 +26,11 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
-import top.sywyar.pixivdownload.schedule.OveruseWarningService;
+import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
 
 import java.util.List;
 import java.util.Set;
@@ -127,7 +128,8 @@ class DownloadWorkbenchScheduleAssemblyTest {
         OveruseWarningService overuseWarningService = mock(OveruseWarningService.class);
         PixivScheduledCredentialPolicy credentialPolicy =
                 configuration.pixivScheduledCredentialPolicy(
-                        overuseWarningService, persistenceCodec);
+                        overuseWarningService, persistenceCodec,
+                        new PixivScheduleSettings());
         PixivOveruseExecutionGuard guard = configuration.pixivOveruseExecutionGuard(
                 overuseWarningService, persistenceCodec, objectMapper);
 

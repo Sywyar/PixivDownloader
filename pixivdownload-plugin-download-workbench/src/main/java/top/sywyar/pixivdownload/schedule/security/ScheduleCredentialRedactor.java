@@ -20,15 +20,13 @@ public final class ScheduleCredentialRedactor {
                     + "(?:[A-Za-z][A-Za-z0-9+.-]*\\s+)?[^\\s,;]+");
     private static final Pattern BEARER_VALUE =
             Pattern.compile("(?i)\\b(bearer\\s+)[A-Za-z0-9._~+/=-]+");
-    private static final Pattern PHPSESSID =
-            Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s&]+");
     private static final Pattern FIELD_ASSIGNMENT = Pattern.compile(
             "(?i)(?=((?<![A-Za-z0-9_])"
                     + "(?:['\"]([^'\"\\r\\n]{1,128})['\"]|"
                     + "([A-Za-z][^\\s:='\"{}\\[\\],;&]{0,127}))"
                     + "\\s*[:=]\\s*"
                     + "(?:['\"]([^'\"\\r\\n]*)['\"]|([^\\s;&,}\\]]+))))");
-    // 兼容既有 Pixiv Cookie 串与 URL 查询串：在专用凭证 pattern 后清理剩余 key=value 对。
+    // 清理 Cookie 与 URL 查询串中的剩余键值对，只保留严格安全的凭证元数据。
     private static final Pattern KEY_VALUE_PAIR =
             Pattern.compile("(?i)(^|[;\\s?&])([A-Za-z0-9_-]+)\\s*=\\s*([^;\\s&]+)");
 
@@ -43,7 +41,6 @@ public final class ScheduleCredentialRedactor {
         String redacted = COOKIE_HEADER.matcher(text).replaceAll("[redacted]");
         redacted = AUTHORIZATION_HEADER.matcher(redacted).replaceAll("[redacted]");
         redacted = BEARER_VALUE.matcher(redacted).replaceAll("[redacted]");
-        redacted = PHPSESSID.matcher(redacted).replaceAll("[redacted]");
         redacted = redactAssignments(redacted);
         return KEY_VALUE_PAIR.matcher(redacted).replaceAll(result -> {
             String fieldName = result.group(2);

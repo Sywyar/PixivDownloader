@@ -1,8 +1,8 @@
-package top.sywyar.pixivdownload.schedule.snapshot;
+package top.sywyar.pixivdownload.download.schedule.snapshot;
 
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot.Filters;
 
 import java.util.ArrayList;
 import java.util.List;

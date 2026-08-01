@@ -193,9 +193,14 @@ class PluginApiOwnershipGuardTest {
                             "ScheduleCapabilitySnapshot", "ScheduleExecutionLease",
                             "SchedulePlanningLease"),
                     types(API_PREFIX + "schedule.credential",
-                            "ScheduledCredentialBindResult", "ScheduledCredentialContext",
-                            "ScheduledCredentialHandle", "ScheduledCredentialPolicy",
-                            "ScheduledCredentialProbeResult", "ScheduledCredentialRequirement"),
+                            "ScheduledCredentialAccountActionPlan",
+                            "ScheduledCredentialAccountActionRequest",
+                            "ScheduledCredentialAccountIncident", "ScheduledCredentialBindResult",
+                            "ScheduledCredentialContext", "ScheduledCredentialHandle",
+                            "ScheduledCredentialIncidentPresentation", "ScheduledCredentialPolicy",
+                            "ScheduledCredentialProbeResult", "ScheduledCredentialRequirement",
+                            "ScheduledCredentialTaskPresentation",
+                            "ScheduledCredentialTaskSnapshot", "ScheduledCredentialTaskStateUpdate"),
                     types(API_PREFIX + "schedule.execution",
                             "ScheduledCancellation", "ScheduledExecutionContext", "ScheduledExecutionException",
                             "ScheduledExecutionPlan", "ScheduledFailure"),
@@ -235,7 +240,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件运行期后台任务协议", 4),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
-            Map.entry("计划任务协议", 50),
+            Map.entry("计划任务协议", 57),
             Map.entry("队列生命周期协议", 5)
     );
 

@@ -12,6 +12,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
+import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduleCredentialController;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 
@@ -43,7 +44,9 @@ class ScheduleControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(
-                new ScheduleController(scheduleService, WorkbenchTestMessages.messages())).build();
+                new ScheduleController(scheduleService, WorkbenchTestMessages.messages()),
+                new PixivScheduleCredentialController(
+                        scheduleService, WorkbenchTestMessages.messages())).build();
         objectMapper = new ObjectMapper();
     }
 
@@ -71,7 +74,7 @@ class ScheduleControllerTest {
                                 "activationToken", "activation-42"))))
                 .andExpect(status().isOk());
 
-        verify(scheduleService).authorizeCookie(
+        verify(scheduleService).bindCredential(
                 42L, "PHPSESSID=42_secret", "activation-42");
     }
 
@@ -85,8 +88,56 @@ class ScheduleControllerTest {
                                 "activationToken", "activation-42"))))
                 .andExpect(status().isOk());
 
-        verify(scheduleService).authorizeCookie(
+        verify(scheduleService).bindCredential(
                 42L, "header-credential-42", "activation-42");
+    }
+
+    @Test
+    @DisplayName("中性凭证端点仅通过取得凭证头绑定当前来源 publication")
+    void genericCredentialEndpointBindsCurrentSourcePublication() throws Exception {
+        mockMvc.perform(post("/api/schedule/tasks/{id}/credential", 43L)
+                        .header("X-Acquisition-Credential", "generic-credential-43")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "activationToken", "activation-43"))))
+                .andExpect(status().isOk());
+
+        verify(scheduleService).bindCredential(
+                43L, "generic-credential-43", "activation-43");
+    }
+
+    @Test
+    @DisplayName("中性凭证端点使用 DELETE 解除当前策略绑定")
+    void genericCredentialEndpointRevokesCurrentBinding() throws Exception {
+        mockMvc.perform(delete("/api/schedule/tasks/{id}/credential", 44L))
+                .andExpect(status().isOk());
+
+        verify(scheduleService).revokeCredential(44L);
+    }
+
+    @Test
+    @DisplayName("Pixiv 撤销 Cookie 兼容端点保留旧 POST 路由并委托通用凭证服务")
+    void pixivRevokeCookieCompatibilityRouteRevokesCurrentBinding() throws Exception {
+        mockMvc.perform(post("/api/schedule/tasks/{id}/revoke-cookie", 45L))
+                .andExpect(status().isOk());
+
+        verify(scheduleService).revokeCredential(45L);
+    }
+
+    @Test
+    @DisplayName("Pixiv 账号恢复兼容端点委托宿主解析当前策略 publication")
+    void pixivAccountResumeUsesCurrentPolicyPublicationAdapter() throws Exception {
+        mockMvc.perform(post("/api/schedule/account/{accountId}/resume", "account-45")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "mode", "defer",
+                                "minutes", 90))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        verify(scheduleService).applyCurrentCredentialPolicyAction(
+                "download-workbench", "pixiv-cookie", "account-45", "defer",
+                Map.of("minutes", "90"));
     }
 
     @Test

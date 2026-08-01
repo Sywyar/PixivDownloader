@@ -340,6 +340,7 @@ test('抓取上限展示只投影受控 i18n token 并拒绝嵌套 thenable', as
 });
 
 test('旧来源别名在描述、回灌、摘要、凭据与 activation lease 上统一归一化', async () => {
+    let credentialInvocation = null;
     const installers = new Map([
         ['/plugins/source-a.js', runtime => runtime.registerModule('/plugins/source-a.js', api => {
             api.registerSource('source-a', {
@@ -347,10 +348,14 @@ test('旧来源别名在描述、回灌、摘要、凭据与 activation lease �
                 capture: () => ({params: {captured: true}}),
                 restore: task => ({restoredFrom: task.sourceType}),
                 summary: task => ({summaryFrom: task.sourceType}),
-                credentialActions: () => ({probe: (value, lease) => {
+                bindCredential: (taskId, value, _context, lease) => {
                     lease.assertCurrent();
-                    return 'credential-' + value + '-' + lease.activationToken;
-                }})
+                    credentialInvocation = {
+                        taskId, value, sourceType: lease.sourceType,
+                        activationToken: lease.activationToken
+                    };
+                    return {ok: true, status: 'bound'};
+                }
             });
         })]
     ]);
@@ -368,8 +373,12 @@ test('旧来源别名在描述、回灌、摘要、凭据与 activation lease �
     assert.equal(runtime.captureForMode('user', {editingSourceType: 'SOURCE_A'}).sourceType, 'source-a');
     assert.equal(runtime.restoreTask({sourceType: 'SOURCE_A'}, {}).restoredFrom, 'SOURCE_A');
     assert.equal(runtime.summary({sourceType: 'SOURCE_A'}, {}).summaryFrom, 'SOURCE_A');
-    assert.equal(await runtime.invokeCredentialAction('SOURCE_A', 'probe', ['ok'], {}),
-        'credential-ok-activation-a');
+    const credentialResult = await runtime.bindCredential('SOURCE_A', 7, 'ok', {});
+    assert.equal(credentialResult.ok, true);
+    assert.equal(credentialResult.status, 'bound');
+    assert.deepEqual(JSON.parse(JSON.stringify(credentialInvocation)), {
+        taskId: 7, value: 'ok', sourceType: 'source-a', activationToken: 'activation-a'
+    });
 });
 
 test('来源选择先按作品类型收窄并对无上下文的多重匹配拒绝歧义', async () => {
@@ -454,7 +463,7 @@ test('同一 owner publication 的来源模块拒绝不一致 activation token',
     assert.equal(runtime.descriptor('source-a').sourceType, 'source-a');
 });
 
-test('publication 切换会撤销旧 handler 并丢弃旧异步结果', async () => {
+test('publication 切换会撤销旧 handler 并丢弃旧凭证写入结果', async () => {
     let resolveOld;
     let oldAborted = false;
     const oldSummary = new Promise(resolve => { resolveOld = resolve; });
@@ -466,9 +475,7 @@ test('publication 切换会撤销旧 handler 并丢弃旧异步结果', async ()
             capture: () => ({params: {generation: 1}}),
             restore: () => ({}),
             summary: () => ({sections: []}),
-            credentialActions: () => Object.assign(Object.create(null), {
-                probe: () => oldSummary
-            })
+            bindSavedCredential: () => oldSummary
         });
     }));
     installers.set('/plugins/source-b.js', validInitializer('/plugins/source-b.js', {
@@ -482,11 +489,11 @@ test('publication 切换会撤销旧 handler 并丢弃旧异步结果', async ()
     });
     const runtime = harness([manifest(1, [source()]), manifest(2, [next])], installers);
     await runtime.refresh(false);
-    const pending = runtime.invokeCredentialAction('source-a', 'probe', [], {});
+    const pending = runtime.bindSavedCredential('source-a', 'task-1', {});
     await runtime.refresh(false);
     assert.equal(oldAborted, true);
     assert.equal(runtime.captureForMode('user', {}).params.generation, 2);
-    resolveOld({sections: []});
+    resolveOld({ok: true, status: 'bound'});
     await assert.rejects(pending, /stale/);
 });
 
@@ -542,7 +549,87 @@ test('refresh 安装期新通知会 dirty 补拉到最新来源 manifest', async
     assert.equal(runtime.captureForMode('user', {}).params.generation, 2);
 });
 
-test('凭据 hook 返回的深层 action 绑定 publication lease 并拒绝 A→B 晚结果', async () => {
+test('固定凭证 surface 过滤任意动作袋并按完整策略 identity 隔离分组', async () => {
+    const installers = new Map();
+    installers.set('/plugins/source-a.js', runtime => runtime.registerModule('/plugins/source-a.js', api => {
+        api.registerSource('source-a', {
+            matches: () => true,
+            capture: () => ({params: {generation: 1}}),
+            restore: () => ({}),
+            summary: () => ({sections: []}),
+            credentialActions: () => ({secret: 'must-not-cross'}),
+            credentialContribution: () => ({
+                supportsCredential: true,
+                supportsProxy: false,
+                supportsCookie: true,
+                savedCredential: 'must-not-cross'
+            }),
+            credentialPolicyGroups: () => [{
+                identity: {
+                    ownerPluginId: 'owner-a', policyId: 'policy-a', publicationId: 11,
+                    accountKey: 'account-a', suspendReason: 'POLICY', suspendCode: 'INCIDENT_A'
+                },
+                title: 'Incident A',
+                description: 'First incident',
+                actions: [{
+                    actionId: 'recover-a', label: 'Recover A', tone: 'primary',
+                    credential: 'must-not-cross'
+                }]
+            }, {
+                identity: {
+                    ownerPluginId: 'owner-a', policyId: 'policy-a', publicationId: 11,
+                    accountKey: 'account-a', suspendReason: 'POLICY', suspendCode: 'INCIDENT_B'
+                },
+                title: 'Incident B',
+                description: 'Second incident',
+                actions: [{actionId: 'recover-b', label: 'Recover B', tone: 'danger'}]
+            }, {
+                identity: {
+                    ownerPluginId: 'forged-owner', policyId: 'policy-a', publicationId: 11,
+                    accountKey: 'account-a', suspendReason: 'POLICY', suspendCode: 'INCIDENT_C'
+                },
+                title: 'Forged owner',
+                description: 'Must be filtered',
+                actions: [{actionId: 'forged-owner', label: 'Forged owner'}]
+            }, {
+                identity: {
+                    ownerPluginId: 'owner-a', policyId: 'policy-a', publicationId: 22,
+                    accountKey: 'account-a', suspendReason: 'POLICY', suspendCode: 'INCIDENT_D'
+                },
+                title: 'Stale publication',
+                description: 'Must be filtered',
+                actions: [{actionId: 'stale-publication', label: 'Stale publication'}]
+            }]
+        });
+    }));
+    const runtime = harness([manifest(1, [source()])], installers);
+    await runtime.refresh(false);
+
+    assert.equal(runtime.credentialActions, undefined);
+    assert.equal(runtime.invokeCredentialAction, undefined);
+    const contribution = runtime.credentialContribution('source-a', {});
+    assert.equal(contribution.supportsCredential, true);
+    assert.equal(contribution.supportsCookie, undefined);
+    assert.equal(contribution.savedCredential, undefined);
+
+    const groups = runtime.credentialPolicyGroups([{
+        sourceType: 'source-a',
+        credentialPolicy: {
+            ownerPluginId: 'owner-a', policyId: 'policy-a', publicationId: 11,
+            accountKey: 'account-a', bound: true, available: true,
+            statusCode: 'PLUGIN_INCIDENT', acknowledgedEventTime: null
+        }
+    }], {});
+    assert.equal(groups.length, 2);
+    assert.deepEqual(Array.from(groups, group => group.identity.suspendCode), [
+        'INCIDENT_A', 'INCIDENT_B'
+    ]);
+    assert.notEqual(groups[0].identityKey, groups[1].identityKey);
+    assert.equal(groups[0].sourceType, 'source-a');
+    assert.equal(groups[0].actions[0].credential, undefined);
+});
+
+test('固定凭证策略 action 绑定 publication lease 并拒绝 A→B 晚结果', async () => {
     let releaseAction;
     let actionLease = null;
     const delayedAction = new Promise(resolve => { releaseAction = resolve; });
@@ -553,12 +640,10 @@ test('凭据 hook 返回的深层 action 绑定 publication lease 并拒绝 A→
             capture: () => ({params: {generation: 1}}),
             restore: () => ({}),
             summary: () => ({sections: []}),
-            credentialActions: () => Object.assign(Object.create(null), {
-                autoAuthorize(_taskId, lease) {
-                    actionLease = lease;
-                    return delayedAction;
-                }
-            })
+            applyCredentialPolicyAction(_request, _context, lease) {
+                actionLease = lease;
+                return delayedAction;
+            }
         });
     }));
     installers.set('/plugins/source-b.js', validInitializer('/plugins/source-b.js', {
@@ -570,12 +655,19 @@ test('凭据 hook 返回的深层 action 绑定 publication lease 并拒绝 A→
     });
     const runtime = harness([manifest(1, [source()]), manifest(2, [next])], installers);
     await runtime.refresh(false);
-    const pending = runtime.invokeCredentialAction('source-a', 'autoAuthorize', ['task-1'], {});
+    const pending = runtime.applyCredentialPolicyAction('source-a', {
+        identity: {
+            ownerPluginId: 'owner-a', policyId: 'policy-a', publicationId: 11,
+            accountKey: 'account-a', suspendReason: 'POLICY', suspendCode: 'INCIDENT_A'
+        },
+        actionId: 'recover',
+        parameters: {delay: 15}
+    }, {});
     await runtime.refresh(false);
     assert.equal(actionLease.signal.aborted, true);
     assert.equal(actionLease.activationToken, 'activation-a');
     assert.equal(actionLease.isCurrent(), false);
-    releaseAction({ok: true});
+    releaseAction({ok: true, status: 'applied'});
     await assert.rejects(pending, /stale/);
 });
 
@@ -600,7 +692,7 @@ test('matches 同步触发 unload 后不得返回旧 entry 或继续误选', asy
     assert.equal(runtime.isAvailable('source-a'), false);
 });
 
-test('同步宿主 API 明确拒绝 thenable，credentialActions 仍可异步', async () => {
+test('同步宿主 API 拒绝 thenable，凭证展示隔离异步违约而固定写入可异步', async () => {
     const installers = new Map([
         ['/plugins/source-a.js', runtime => runtime.registerModule('/plugins/source-a.js', api => {
             api.registerSource('source-a', {
@@ -611,7 +703,8 @@ test('同步宿主 API 明确拒绝 thenable，credentialActions 仍可异步', 
                 summary: () => Promise.resolve({sections: []}),
                 fetchLimitMode: () => Promise.resolve('watermark'),
                 quickSourceNote: () => Promise.resolve('late'),
-                credentialActions: () => Promise.resolve({savedCookie: () => Promise.resolve('cookie')})
+                credentialContribution: () => Promise.resolve({supportsCredential: true}),
+                bindSavedCredential: () => Promise.resolve({ok: true, status: 'bound'})
             });
         })]
     ]);
@@ -625,7 +718,10 @@ test('同步宿主 API 明确拒绝 thenable，credentialActions 仍可异步', 
     assert.throws(() => runtime.summary({sourceType: 'source-a'}, {}), /must return synchronously/);
     assert.throws(() => runtime.fetchLimitMode('source-a', {}, {}), /must return synchronously/);
     assert.throws(() => runtime.quickSourceNote('source-a', {}), /must return synchronously/);
-    assert.equal(await runtime.invokeCredentialAction('source-a', 'savedCookie', [], {}), 'cookie');
+    assert.equal(runtime.credentialContribution('source-a', {}), null);
+    const result = await runtime.bindSavedCredential('source-a', 'task-1', {});
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'bound');
 });
 
 test('matches thenable 被当作违约贡献隔离', async () => {
@@ -820,7 +916,7 @@ test('缺少前端模块时仍保留 descriptor 并进入只读降级', async ()
     assert.equal(runtime.summary({sourceType: 'source-a'}, {}), null);
 });
 
-test('Pixiv 来源模块只经受控 initializer 注册七个 canonical 来源并用 lease token 自动授权', async () => {
+test('Pixiv 来源模块只经固定凭证贡献面注册并在插件内部读取已保存凭证', async () => {
     let initializer = null;
     const requests = [];
     const context = vm.createContext({
@@ -866,23 +962,51 @@ test('Pixiv 来源模块只经受控 initializer 注册七个 canonical 来源�
         assert.equal(typeof value.capture, 'function');
         assert.equal(typeof value.restore, 'function');
         assert.equal(typeof value.summary, 'function');
+        assert.equal(typeof value.credentialContribution, 'function');
+        assert.equal(typeof value.bindSavedCredential, 'function');
+        assert.equal(typeof value.credentialPolicyGroups, 'function');
+        assert.equal(typeof value.applyCredentialPolicyAction, 'function');
+        assert.equal(value.credentialActions, undefined);
     });
+    assert.doesNotMatch(pixivModuleSource,
+        /cookieMode|cookieBound|accountId|ackWarningTime|sourceOwnerPluginId|task\.lastStatus/);
     assert.match(pixivModuleSource, /schedule\.pixiv\.fetch-limit\.hint\.watermark/);
     assert.match(pixivModuleSource, /schedule\.pixiv\.fetch-limit\.hint\.per-run/);
     assert.match(pixivModuleSource, /schedule\.pixiv\.confirm\.full-fetch/);
     assert.match(pixivModuleSource, /selectSeriesDataSource\('pixiv'\)/);
 
-    const result = await contributions.get('user-new').credentialActions().autoAuthorize(
-        42,
-        {
-            activationToken: 'activation-pixiv',
-            signal: apiSignal,
-            assertCurrent() {}
+    const credentialLease = {
+        sourceType: 'user-new',
+        ownerPluginId: 'pixivdownload.plugin.download-workbench',
+        packageId: 'pixivdownload-plugin-download-workbench',
+        pluginGeneration: 1,
+        publicationId: 11,
+        activationToken: 'activation-pixiv',
+        signal: apiSignal,
+        isCurrent: () => true,
+        assertCurrent() {}
+    };
+    const contribution = contributions.get('user-new');
+    assert.equal(contribution.credentialContribution({}, credentialLease).supportsCredential, true);
+    const presentation = contribution.credentialTaskPresentation({
+        credentialPolicy: {
+            ownerPluginId: 'pixivdownload.plugin.download-workbench',
+            policyId: 'pixiv-cookie',
+            publicationId: 11,
+            statusCode: 'AUTH_EXPIRED'
         }
-    );
-    assert.equal(result, 'authorized');
+    }, {}, credentialLease);
+    assert.equal(presentation.lightTone, 'red');
+    assert.equal(contribution.credentialTaskPresentation({
+        sourceOwnerPluginId: 'pixivdownload.plugin.download-workbench',
+        lastStatus: 'AUTH_EXPIRED'
+    }, {}, credentialLease), null);
+    const result = await contribution.bindSavedCredential(42, {}, credentialLease);
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'bound');
     assert.equal(requests[0].url, '/api/schedule/tasks/42/authorize-cookie');
     assert.equal(requests[0].init.headers['X-Acquisition-Credential'], 'PHPSESSID=42_secret');
+    assert.equal(Object.values(result).some(value => String(value).includes('42_secret')), false);
     assert.deepEqual(JSON.parse(requests[0].init.body), {
         activationToken: 'activation-pixiv'
     });

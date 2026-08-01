@@ -333,8 +333,9 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
                     List.of("LOCAL_FILE_DELETE_FAILED")),
             Map.entry("top.sywyar.pixivdownload.notification.NotificationScenario",
-                    List.of("OVERUSE_PAUSED", "AUTH_EXPIRED", "CIRCUIT_BREAKER", "PENDING_EXHAUSTED",
-                            "DEGRADED_ANONYMOUS", "RUN_FAILED", "RUN_SUMMARY")),
+                    List.of("POLICY_ACCOUNT_SUSPENDED", "CREDENTIAL_SUSPENDED",
+                            "CREDENTIAL_FAILURE_CIRCUIT_OPEN", "PENDING_EXHAUSTED",
+                            "CREDENTIAL_REVOKED_CONTINUING", "RUN_FAILED", "RUN_SUMMARY")),
             Map.entry("top.sywyar.pixivdownload.notification.NotificationSeverity",
                     List.of("INFO", "WARNING", "ERROR")),
             Map.entry("top.sywyar.pixivdownload.push.PushFormat",
@@ -761,7 +762,9 @@ class CoreApiOwnershipGuardTest {
                         "findCredentialMetadata",
                         "findPendingWork",
                         "incrementPendingAttempts",
-                        "deleteAllPendingWork");
+                        "deleteAllPendingWork",
+                        "suspendByCredentialAccount",
+                        "resumeByCredentialAccount");
     }
 
     @Test

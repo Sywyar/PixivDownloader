@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.dto;
+package top.sywyar.pixivdownload.download.schedule.credential.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;

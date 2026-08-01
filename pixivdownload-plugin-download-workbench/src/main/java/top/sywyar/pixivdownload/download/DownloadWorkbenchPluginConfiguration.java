@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.download;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -44,7 +45,13 @@ import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
 import top.sywyar.pixivdownload.download.controller.PixivProxyController;
 import top.sywyar.pixivdownload.download.controller.SSEController;
 import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
+import top.sywyar.pixivdownload.download.schedule.PixivScheduleSettings;
+import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
 import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
+import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduleCredentialController;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
+import top.sywyar.pixivdownload.download.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.download.schedule.guard.PixivOveruseExecutionGuard;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivCollectionScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivFollowLatestScheduledSourceExecutor;
@@ -61,9 +68,8 @@ import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
-import top.sywyar.pixivdownload.schedule.OveruseWarningService;
-import top.sywyar.pixivdownload.schedule.ScheduleConfig;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.schedule.ScheduleHostIdentity;
+import top.sywyar.pixivdownload.schedule.ScheduleService;
 
 /**
  * 下载工作台外置插件的 Bean 装配收敛点。子上下文只注册本配置类，不扫描应用根包；因此下载执行器、
@@ -92,10 +98,52 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
+    public ScheduleHostIdentity scheduleHostIdentity() {
+        return new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID);
+    }
+
+    @Bean
+    public OveruseWarningService overuseWarningService(PixivFetchService pixivFetchService) {
+        return new OveruseWarningService(pixivFetchService);
+    }
+
+    @Bean
+    public PixivSchedulePersistenceCodec pixivSchedulePersistenceCodec(
+            ObjectMapper objectMapper) {
+        return new PixivSchedulePersistenceCodec(objectMapper);
+    }
+
+    @Bean
+    public PixivLegacyScheduledTaskMigrationAdapter pixivLegacyScheduledTaskMigrationAdapter(
+            ObjectMapper objectMapper,
+            PixivSchedulePersistenceCodec codec) {
+        return new PixivLegacyScheduledTaskMigrationAdapter(objectMapper, codec);
+    }
+
+    @Bean
+    public PixivLegacySchedulePersistenceDescriptorProvider
+            pixivLegacySchedulePersistenceDescriptorProvider() {
+        return new PixivLegacySchedulePersistenceDescriptorProvider();
+    }
+
+    @Bean
     public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
                                        FfmpegCommandResolver ffmpegCommandResolver,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages);
+    }
+
+    @Bean
+    public PixivScheduleCredentialController pixivScheduleCredentialController(
+            ScheduleService scheduleService,
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new PixivScheduleCredentialController(scheduleService, messages);
+    }
+
+    @Bean
+    @ConfigurationProperties(prefix = "schedule")
+    public PixivScheduleSettings pixivScheduleSettings() {
+        return new PixivScheduleSettings();
     }
 
     @Bean
@@ -148,8 +196,10 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public PixivScheduledCredentialPolicy pixivScheduledCredentialPolicy(
             OveruseWarningService overuseWarningService,
-            PixivSchedulePersistenceCodec persistenceCodec) {
-        return new PixivScheduledCredentialPolicy(overuseWarningService, persistenceCodec);
+            PixivSchedulePersistenceCodec persistenceCodec,
+            PixivScheduleSettings settings) {
+        return new PixivScheduledCredentialPolicy(
+                overuseWarningService, persistenceCodec, settings);
     }
 
     @Bean
@@ -191,10 +241,10 @@ public class DownloadWorkbenchPluginConfiguration {
             PixivFetchService pixivFetchService,
             PixivSchedulePersistenceCodec persistenceCodec,
             PixivScheduledLocalWorkLookup localWorkLookup,
-            ScheduleConfig scheduleConfig) {
+            PixivScheduleSettings settings) {
         return new PixivScheduledSourceSupport(
                 objectMapper, pixivFetchService, persistenceCodec,
-                localWorkLookup, scheduleConfig::getInboxCheckEvery);
+                localWorkLookup, settings::getInboxCheckEvery);
     }
 
     @Bean

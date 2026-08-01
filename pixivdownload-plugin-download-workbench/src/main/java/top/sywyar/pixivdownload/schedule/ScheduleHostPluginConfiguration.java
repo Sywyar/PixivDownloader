@@ -15,24 +15,20 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
-import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleNetworkRouteResolver;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleWorkConcurrencyLimiter;
-import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
-import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 /**
  * 计划任务宿主插件的 Bean 装配收敛点。承载调度安全壳的全部托管 Bean：执行器 / 服务 / tick runner / 控制器 /
- * 运行状态 / 运行队列 / 过度访问告警。它们经 {@code @PluginManagedBean} 排除出根包扫描，由这里以 {@code @Bean}
+ * 运行状态与运行队列。它们经 {@code @PluginManagedBean} 排除出根包扫描，由这里以 {@code @Bean}
  * 显式提供（对标其它插件的收敛形态）。
  * <p>
  * 计划任务安全壳随 download-workbench 外置包加载；包级 feature id 仍只有 {@code download-workbench}，
@@ -44,7 +40,7 @@ import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
  * 根包扫描的语义 Store {@code core.schedule.ScheduledTaskStore} 读写——由 Spring 注入这些 {@code @Bean}。
  * <p>
  * <b>依赖方向：</b>调度壳只经 plugin-api 计划契约与 {@link ScheduleCapabilityAccess} generation lease
- * 调用来源、作品、凭证和 Guard 能力；具体 Pixiv / 小说执行实现由各 owner 的 child context 贡献。
+ * 调用来源、作品、凭证和 Guard 能力；具体实现由各 owner 的 child context 贡献。
  * 来源与作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
  */
 @Configuration
@@ -66,16 +62,6 @@ public class ScheduleHostPluginConfiguration {
     @Bean
     public ScheduleRunQueue scheduleRunQueue() {
         return new ScheduleRunQueue();
-    }
-
-    @Bean
-    public OveruseWarningService overuseWarningService(PixivFetchService pixivFetchService) {
-        return new OveruseWarningService(pixivFetchService);
-    }
-
-    @Bean
-    public PixivSchedulePersistenceCodec pixivSchedulePersistenceCodec(ObjectMapper objectMapper) {
-        return new PixivSchedulePersistenceCodec(objectMapper);
     }
 
     @Bean
@@ -153,19 +139,6 @@ public class ScheduleHostPluginConfiguration {
     }
 
     @Bean
-    public PixivLegacyScheduledTaskMigrationAdapter pixivLegacyScheduledTaskMigrationAdapter(
-            ObjectMapper objectMapper,
-            PixivSchedulePersistenceCodec codec) {
-        return new PixivLegacyScheduledTaskMigrationAdapter(objectMapper, codec);
-    }
-
-    @Bean
-    public PixivLegacySchedulePersistenceDescriptorProvider
-            pixivLegacySchedulePersistenceDescriptorProvider() {
-        return new PixivLegacySchedulePersistenceDescriptorProvider();
-    }
-
-    @Bean
     public ScheduleExecutor scheduleExecutor(ScheduledTaskStore store,
                                              ScheduleCapabilityAccess scheduleCapabilityRegistry,
                                              ScheduleRunState runState,
@@ -174,11 +147,27 @@ public class ScheduleHostPluginConfiguration {
                                              @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                              NamespaceMessageResolver namespaceMessageResolver,
                                              UserDisplayNameProvider userDisplayNameProvider,
-                                             ScheduleExecutionEngine scheduleExecutionEngine) {
+                                             ScheduleExecutionEngine scheduleExecutionEngine,
+                                             PlatformTransactionManager transactionManager,
+                                             ScheduleHostIdentity hostIdentity) {
         return new ScheduleExecutor(
                 store, scheduleCapabilityRegistry, runState, objectMapper,
                 notificationDispatcher, messages, namespaceMessageResolver,
-                userDisplayNameProvider, scheduleExecutionEngine);
+                userDisplayNameProvider, scheduleExecutionEngine,
+                new TransactionTemplate(transactionManager), hostIdentity);
+    }
+
+    @Bean
+    public ScheduleCredentialService scheduleCredentialService(
+            ScheduledTaskStore store,
+            ScheduleRunState runState,
+            ScheduleExecutionEngine scheduleExecutionEngine,
+            ScheduleCapabilityAccess scheduleCapabilityRegistry,
+            PlatformTransactionManager transactionManager,
+            ObjectMapper objectMapper) {
+        return new ScheduleCredentialService(
+                store, runState, scheduleExecutionEngine, scheduleCapabilityRegistry,
+                new TransactionTemplate(transactionManager), objectMapper);
     }
 
     @Bean
@@ -188,13 +177,14 @@ public class ScheduleHostPluginConfiguration {
                                            ScheduleRunState runState,
                                            ScheduleRunQueue runQueue,
                                            ObjectMapper objectMapper,
-                                           PixivSchedulePersistenceCodec persistenceCodec,
-                                           ScheduleExecutionEngine scheduleExecutionEngine,
+                                           ScheduleCredentialService credentialService,
                                            PlatformTransactionManager transactionManager,
-                                           ScheduleCapabilityAccess scheduleCapabilityRegistry) {
+                                           ScheduleCapabilityAccess scheduleCapabilityRegistry,
+                                           ScheduleHostIdentity hostIdentity) {
         return new ScheduleService(store, executor, config, runState, runQueue,
-                objectMapper, persistenceCodec, scheduleExecutionEngine,
-                new TransactionTemplate(transactionManager), scheduleCapabilityRegistry);
+                objectMapper, credentialService,
+                new TransactionTemplate(transactionManager), scheduleCapabilityRegistry,
+                hostIdentity);
     }
 
     @Bean
@@ -202,8 +192,10 @@ public class ScheduleHostPluginConfiguration {
                                          ScheduleExecutor executor,
                                          ScheduleConfig config,
                                          ScheduleRunState runState,
-                                         ScheduleCapabilityAccess scheduleCapabilityRegistry) {
-        return new ScheduleRunner(store, executor, config, runState, scheduleCapabilityRegistry);
+                                         ScheduleCapabilityAccess scheduleCapabilityRegistry,
+                                         ScheduleHostIdentity hostIdentity) {
+        return new ScheduleRunner(
+                store, executor, config, runState, scheduleCapabilityRegistry, hostIdentity);
     }
 
     @Bean

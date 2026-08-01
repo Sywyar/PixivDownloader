@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -23,6 +25,9 @@ public interface ScheduleCapabilityAccess {
 
     Optional<? extends ScheduleCapabilityLease<ScheduledWorkExecutor>> prepareWorkExecutor(
             String workType);
+
+    Optional<? extends ScheduleCapabilityLease<ScheduledCredentialPolicy>> prepareCredentialPolicy(
+            String policyId);
 
     Optional<ScheduleCapabilityOwner> credentialPolicyOwner(String policyId);
 
@@ -46,6 +51,30 @@ public interface ScheduleCapabilityAccess {
     <T> Optional<T> whileCurrentPublication(
             SchedulePlanningLease planning,
             Supplier<T> operation);
+
+    /**
+     * 仅在单项租约仍活动且精确 publication 仍当前时执行宿主操作。
+     *
+     * <p>插件行为回调必须在进入本方法前完成；操作不得调用租约能力。宿主会把 currentness 复核、
+     * 操作执行与 publication 撤回串行化。
+     */
+    <T> Optional<T> whileCurrentPublication(
+            ScheduleCapabilityLease<?> lease,
+            Supplier<T> operation);
+
+    /**
+     * 仅在复合执行租约仍活动且其中每个 owner 的精确 publication 都仍当前时执行宿主操作。
+     *
+     * <p>全部插件行为回调必须在进入本方法前完成；操作不得调用租约能力。宿主会把所有 owner 的
+     * currentness 复核、操作执行与 publication 撤回串行化。旧宿主实现默认 fail-closed，避免把
+     * 未受保护的写入误当成成功。
+     */
+    default <T> Optional<T> whileCurrentPublication(
+            ScheduleExecutionLease execution,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        return Optional.empty();
+    }
 
     /**
      * 准备一轮执行所需的原子复合租约。准备本身不转移 planning 租约的所有权。

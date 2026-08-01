@@ -9,14 +9,18 @@ import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialAccountIncident;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialIncidentPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialTaskSnapshot;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -52,6 +56,8 @@ import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCode
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
@@ -272,6 +278,7 @@ public final class ScheduleExecutionEngine {
             ScheduleExecutionControlException,
             ScheduledExecutionException {
         return execute(task, ignored -> {
+        }, ignored -> {
         });
     }
 
@@ -283,7 +290,28 @@ public final class ScheduleExecutionEngine {
             ScheduleDefinitionException,
             ScheduleExecutionControlException,
             ScheduledExecutionException {
+        return execute(task, pendingExhaustedListener, ignored -> {
+        });
+    }
+
+    /**
+     * 执行一轮计划，并在账号级策略决定离开复合租约前发布其宿主持久化操作。
+     *
+     * <p>{@code policyAccountSuspensionPublisher} 只会在全部插件回调完成后、复合 execution lease 的
+     * 精确 publication barrier 内调用；实现只可执行宿主事务，不得回调插件能力。
+     */
+    public ScheduleExecutionResult execute(
+            ScheduledTask task,
+            Consumer<ScheduleExecutionResult.PendingExhausted> pendingExhaustedListener,
+            Consumer<ScheduleExecutionControlException> policyAccountSuspensionPublisher)
+            throws ScheduleSourceUnavailableException,
+            ScheduleExecutorUnavailableException,
+            ScheduleDefinitionException,
+            ScheduleExecutionControlException,
+            ScheduledExecutionException {
         Objects.requireNonNull(pendingExhaustedListener, "pendingExhaustedListener");
+        Objects.requireNonNull(
+                policyAccountSuspensionPublisher, "policyAccountSuspensionPublisher");
         SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
         if (planning == null) {
             throw new ScheduleSourceUnavailableException(task.sourceType());
@@ -526,6 +554,10 @@ public final class ScheduleExecutionEngine {
                     rethrowFatal(failure);
                     throw pluginFailure("schedule.execution.plugin-failure");
                 }
+            } catch (ScheduleExecutionControlException failure) {
+                publishPolicyAccountSuspension(
+                        task, execution, failure, policyAccountSuspensionPublisher);
+                throw failure;
             }
             execution.close();
             if (leaseCancellation.isCancellationRequested()) {
@@ -539,6 +571,25 @@ public final class ScheduleExecutionEngine {
             execution.close();
             planning.close();
         }
+        }
+    }
+
+    private void publishPolicyAccountSuspension(
+            ScheduledTask task,
+            ScheduleExecutionLease execution,
+            ScheduleExecutionControlException decision,
+            Consumer<ScheduleExecutionControlException> publisher)
+            throws ScheduleSourceUnavailableException {
+        if (decision.action() != ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT) {
+            return;
+        }
+        Optional<Boolean> published = registry.whileCurrentPublication(execution, () -> {
+            publisher.accept(decision);
+            return Boolean.TRUE;
+        });
+        if (published.isEmpty()) {
+            throw new ScheduleSourceUnavailableException(
+                    task.sourceType() + " (capability publication retired)");
         }
     }
 
@@ -1290,6 +1341,16 @@ public final class ScheduleExecutionEngine {
         return new ScheduleExecutionControlException(action, code, retryAfterMillis, evidence);
     }
 
+    private static ScheduleExecutionControlException control(
+            ScheduledGuardDecision.Action action,
+            String code,
+            long retryAfterMillis,
+            ScheduledGuardEvidence evidence,
+            ScheduledCredentialIncidentPresentation incidentPresentation) {
+        return new ScheduleExecutionControlException(
+                action, code, retryAfterMillis, evidence, incidentPresentation);
+    }
+
     private static void rethrow(
             Throwable failure,
             ScheduleCredentialMaterial credential)
@@ -1462,7 +1523,8 @@ public final class ScheduleExecutionEngine {
                     continue;
                 }
                 throw control(decision.action(), decision.reasonCode(),
-                        decision.retryAfterMillis(), result.evidence());
+                        decision.retryAfterMillis(), result.evidence(),
+                        incidentPresentation(decision, result.evidence()));
             }
             return revoked;
         }
@@ -1497,7 +1559,7 @@ public final class ScheduleExecutionEngine {
                     }
                     ScheduleExecutionControlException candidate = control(
                             decision.action(), decision.reasonCode(), decision.retryAfterMillis(),
-                            result.evidence());
+                            result.evidence(), incidentPresentation(decision, result.evidence()));
                     if (failureDecision == null) {
                         failureDecision = candidate;
                     }
@@ -1573,6 +1635,55 @@ public final class ScheduleExecutionEngine {
                     throw pluginFailure("schedule.guard.plugin-failure");
                 }
                 return validateGuardResult(result, credential);
+            }
+        }
+
+        private ScheduledCredentialIncidentPresentation incidentPresentation(
+                ScheduledGuardDecision decision,
+                ScheduledGuardEvidence evidence) {
+            if (decision.action() != ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT
+                    || taskRow.credentialPolicyOwnerPluginId() == null
+                    || taskRow.credentialPolicyId() == null
+                    || taskRow.credentialAccountKey() == null) {
+                return ScheduledCredentialIncidentPresentation.empty();
+            }
+            ScheduleCapabilityOwner policyOwner = execution.credentialPolicyOwner().orElse(null);
+            var policy = execution.credentialPolicy().orElse(null);
+            if (policyOwner == null || policy == null
+                    || !taskRow.credentialPolicyOwnerPluginId().equals(
+                    policyOwner.featurePluginId())
+                    || !taskRow.credentialPolicyId().equals(plan.credentialPolicyId())) {
+                return ScheduledCredentialIncidentPresentation.empty();
+            }
+            try {
+                List<ScheduledTask> affected = new ArrayList<>(
+                        store.findByCredentialAccount(
+                                taskRow.credentialPolicyOwnerPluginId(),
+                                taskRow.credentialPolicyId(),
+                                taskRow.credentialAccountKey()));
+                if (affected.isEmpty()) {
+                    affected.add(taskRow);
+                }
+                affected.sort(Comparator.comparingLong(ScheduledTask::id));
+                List<ScheduledCredentialTaskSnapshot> snapshots = affected.stream()
+                        .map(row -> new ScheduledCredentialTaskSnapshot(
+                                row.id(), row.stateVersion(),
+                                row.suspendReason() == ScheduleSuspendReason.CREDENTIAL,
+                                row.suspendReason() == ScheduleSuspendReason.POLICY,
+                                row.runState() != null || runState.get(row.id()) != null,
+                                row.suspendCode(), row.suspendDetailJson(),
+                                row.credentialPolicyStateJson()))
+                        .toList();
+                ScheduledCredentialIncidentPresentation presentation =
+                        policy.incidentPresentation(new ScheduledCredentialAccountIncident(
+                                taskRow.credentialAccountKey(), decision.reasonCode(),
+                                evidence, System.currentTimeMillis(), snapshots));
+                return presentation == null
+                        ? ScheduledCredentialIncidentPresentation.empty()
+                        : presentation;
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
+                return ScheduledCredentialIncidentPresentation.empty();
             }
         }
 

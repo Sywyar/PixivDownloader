@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.persistence;
+package top.sywyar.pixivdownload.download.schedule.persistence;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

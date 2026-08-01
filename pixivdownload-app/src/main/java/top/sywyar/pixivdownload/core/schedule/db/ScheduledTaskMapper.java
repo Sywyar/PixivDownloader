@@ -218,38 +218,6 @@ public interface ScheduledTaskMapper {
                 @Param("expectedCode") String expectedCode,
                 @Param("nextRunTime") Long nextRunTime);
 
-    @Update("UPDATE scheduled_tasks SET suspend_reason = #{reason}, suspend_code = #{code},"
-            + " suspend_detail_json = #{detailJson},"
-            + " run_state = CASE WHEN run_state IN ('QUEUED','RUNNING')"
-            + "                  THEN 'CANCEL_REQUESTED' ELSE run_state END,"
-            + " state_version = state_version + 1"
-            + " WHERE storage_version = 1 AND suspend_reason IS NULL"
-            + " AND id IN (SELECT task_id FROM scheduled_task_credentials"
-            + "            WHERE policy_owner_plugin_id = #{policyOwnerPluginId}"
-            + "              AND policy_id = #{policyId} AND account_key = #{accountKey})")
-    int suspendByCredentialAccount(@Param("policyOwnerPluginId") String policyOwnerPluginId,
-                                   @Param("policyId") String policyId,
-                                   @Param("accountKey") String accountKey,
-                                   @Param("reason") ScheduleSuspendReason reason,
-                                   @Param("code") String code,
-                                   @Param("detailJson") String detailJson);
-
-    @Update("UPDATE scheduled_tasks SET suspend_reason = NULL, suspend_code = NULL,"
-            + " suspend_detail_json = NULL, next_run_time = #{nextRunTime},"
-            + " state_version = state_version + 1"
-            + " WHERE storage_version = 1 AND run_state IS NULL"
-            + " AND suspend_reason = #{expectedReason}"
-            + " AND (suspend_code = #{expectedCode} OR (suspend_code IS NULL AND #{expectedCode} IS NULL))"
-            + " AND id IN (SELECT task_id FROM scheduled_task_credentials"
-            + "            WHERE policy_owner_plugin_id = #{policyOwnerPluginId}"
-            + "              AND policy_id = #{policyId} AND account_key = #{accountKey})")
-    int resumeByCredentialAccount(@Param("policyOwnerPluginId") String policyOwnerPluginId,
-                                  @Param("policyId") String policyId,
-                                  @Param("accountKey") String accountKey,
-                                  @Param("expectedReason") ScheduleSuspendReason expectedReason,
-                                  @Param("expectedCode") String expectedCode,
-                                  @Param("nextRunTime") Long nextRunTime);
-
     @Select(value = "UPDATE scheduled_tasks SET name = #{update.name}, type = #{update.sourceType},"
             + " source_owner_plugin_id = #{update.sourceOwnerPluginId},"
             + " definition_schema = #{update.definitionSchema},"

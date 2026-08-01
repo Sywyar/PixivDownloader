@@ -289,6 +289,17 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
     }
 
     @Override
+    public Optional<? extends ScheduleCapabilityLease<ScheduledCredentialPolicy>>
+            prepareCredentialPolicy(String policyId) {
+        synchronized (lock) {
+            PolicyRoute route = policies.get(policyId);
+            return route == null
+                    ? Optional.empty()
+                    : Optional.of(new SingleLease<>(route.published, route.policy));
+        }
+    }
+
+    @Override
     public Optional<ScheduleCapabilityOwner> credentialPolicyOwner(String policyId) {
         synchronized (lock) {
             PolicyRoute route = policies.get(policyId);
@@ -353,6 +364,43 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
             }
             SourceRoute route = sources.get(planning.sourceType);
             if (route == null || route.published != planning.published) {
+                return Optional.empty();
+            }
+            return Optional.of(Objects.requireNonNull(
+                    operation.get(), "current publication operation result"));
+        }
+    }
+
+    @Override
+    public <T> Optional<T> whileCurrentPublication(
+            ScheduleCapabilityLease<?> lease,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (!(lease instanceof FakeScheduleCapabilityAccess.SingleLease<?> single)
+                || single.access() != this) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            if (single.phase != LeasePhase.ACTIVE || !isCurrent(single.published)) {
+                return Optional.empty();
+            }
+            return Optional.of(Objects.requireNonNull(
+                    operation.get(), "current publication operation result"));
+        }
+    }
+
+    @Override
+    public <T> Optional<T> whileCurrentPublication(
+            ScheduleExecutionLease lease,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (!(lease instanceof FakeScheduleCapabilityAccess.ExecutionLease execution)
+                || execution.access() != this) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            if (execution.phase != LeasePhase.ACTIVE
+                    || execution.publishedOwners.stream().anyMatch(owner -> !isCurrent(owner))) {
                 return Optional.empty();
             }
             return Optional.of(Objects.requireNonNull(

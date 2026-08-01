@@ -24,6 +24,7 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
@@ -36,12 +37,13 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
-import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialPolicyActionRequest;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialPolicyView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialBindingLease;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
 import java.util.Map;
@@ -119,10 +121,13 @@ class ScheduleServiceTest {
 
     private ScheduleService newService(ScheduleRunState runState,
                                        ScheduleCapabilityAccess capabilityRegistry) {
+        ScheduleCredentialService credentialService = new ScheduleCredentialService(
+                store, runState, scheduleExecutionEngine, capabilityRegistry,
+                transactionTemplate, objectMapper);
         return new ScheduleService(
                 store, executor, new ScheduleConfig(), runState, runQueue,
-                objectMapper, persistenceCodec, scheduleExecutionEngine,
-                transactionTemplate, capabilityRegistry);
+                objectMapper, credentialService, transactionTemplate,
+                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
     }
 
     private static ScheduledWork queueWork(String workType, String workId, String title) {
@@ -245,84 +250,6 @@ class ScheduleServiceTest {
                 effectivePolicyState,
                 credentialBound ? "scheduled-task:" + id + ":credential" : null,
                 0L);
-    }
-
-    @Test
-    @DisplayName("账号恢复 ignore：以版本化策略状态确认警告并精确恢复策略挂起")
-    void accountResumeIgnoreUpdatesPolicyStateAndResumesExactSuspension() {
-        ScheduledTask paused = task(
-                1L, true, null, ScheduleSuspendReason.POLICY, "PIXIV_OVERUSE",
-                "{\"modifiedAt\":\"999000\"}", "12345", EMPTY_POLICY_STATE, true);
-        when(store.findByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                "12345"))
-                .thenReturn(List.of(paused));
-        when(store.updateCredentialPolicyState(
-                eq(1L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq(EMPTY_POLICY_STATE), anyString(), anyLong()))
-                .thenReturn(OptionalLong.of(STATE_VERSION + 1));
-        when(store.resumeByCredentialAccount(
-                eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq("12345"), eq(ScheduleSuspendReason.POLICY),
-                eq("PIXIV_OVERUSE"), anyLong()))
-                .thenReturn(1);
-        AccountResumeRequest request = new AccountResumeRequest();
-        request.setMode(AccountResumeRequest.MODE_IGNORE);
-
-        newService().resumeAccount("12345", request);
-
-        ArgumentCaptor<String> newPolicyState = ArgumentCaptor.forClass(String.class);
-        verify(store).updateCredentialPolicyState(
-                eq(1L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq(EMPTY_POLICY_STATE), newPolicyState.capture(), anyLong());
-        assertThat(persistenceCodec.decodeAcknowledgedWarningTime(newPolicyState.getValue()))
-                .isEqualTo(999000L);
-        verify(store).resumeByCredentialAccount(
-                eq(DownloadWorkbenchPlugin.ID),
-                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
-                eq("12345"), eq(ScheduleSuspendReason.POLICY),
-                eq("PIXIV_OVERUSE"), anyLong());
-    }
-
-    @Test
-    @DisplayName("账号恢复 defer：分钟数低于下限时拒绝且不执行账号恢复")
-    void accountResumeDeferRejectsBelowMin() {
-        ScheduledTask paused = task(
-                1L, true, null, ScheduleSuspendReason.POLICY, "PIXIV_OVERUSE",
-                "{\"modifiedAt\":\"999000\"}", "12345", EMPTY_POLICY_STATE, true);
-        when(store.findByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                "12345"))
-                .thenReturn(List.of(paused));
-        AccountResumeRequest request = new AccountResumeRequest();
-        request.setMode(AccountResumeRequest.MODE_DEFER);
-        request.setMinutes(30);
-
-        assertThatThrownBy(() -> newService().resumeAccount("12345", request))
-                .isInstanceOf(LocalizedException.class);
-
-        verify(store, never()).resumeByCredentialAccount(
-                anyString(), anyString(), anyString(), any(), anyString(), anyLong());
-    }
-
-    @Test
-    @DisplayName("账号恢复：凭证账号下无任务时拒绝")
-    void accountResumeRejectsUnknownAccount() {
-        when(store.findByCredentialAccount(
-                DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                "nope"))
-                .thenReturn(List.of());
-        AccountResumeRequest request = new AccountResumeRequest();
-        request.setMode(AccountResumeRequest.MODE_IGNORE);
-
-        assertThatThrownBy(() -> newService().resumeAccount("nope", request))
-                .isInstanceOf(LocalizedException.class);
     }
 
     @Test
@@ -554,7 +481,7 @@ class ScheduleServiceTest {
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
                 .thenReturn(cookie);
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 5L, "  " + cookie + "  ", ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
@@ -591,7 +518,7 @@ class ScheduleServiceTest {
                 eq("PIXIV_COOKIE_INVALID"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 2));
 
-        newService().authorizeCookie(6L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(6L, cookie, ACTIVATION_TOKEN);
 
         verify(credentialBindingLease).probe(cookie);
         verify(store).bindCredential(
@@ -602,6 +529,38 @@ class ScheduleServiceTest {
         verify(store).resume(
                 eq(6L), eq(STATE_VERSION + 1), eq(ScheduleSuspendReason.CREDENTIAL),
                 eq("PIXIV_COOKIE_INVALID"), anyLong());
+    }
+
+    @Test
+    @DisplayName("authorizeCookie：同一策略切换账号时不继承旧账号策略状态")
+    void authorizeCookieResetsPolicyStateWhenAccountChanges() throws Exception {
+        String cookie = "PHPSESSID=67890_new; other=x";
+        stubBinding(cleanBinding("67890"));
+        String oldAccountState =
+                "{\"schema\":\"pixiv.schedule.credential-policy-state\",\"version\":1,"
+                        + "\"acknowledgedWarningTime\":123456}";
+        ScheduledTask current = task(
+                61L, true, null, null, null, null,
+                "12345", oldAccountState, true);
+        when(store.findById(61L)).thenReturn(current);
+        when(store.findCredentialSecret(
+                61L, DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
+                .thenReturn("PHPSESSID=12345_old; other=x");
+        when(store.bindCredential(
+                eq(61L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
+                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
+                eq("67890"), eq(EMPTY_POLICY_STATE), eq(cookie),
+                eq("scheduled-task:61:credential"), anyLong()))
+                .thenReturn(OptionalLong.of(STATE_VERSION + 1));
+
+        newService().bindCredential(61L, cookie, ACTIVATION_TOKEN);
+
+        verify(store).bindCredential(
+                eq(61L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
+                eq(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
+                eq("67890"), eq(EMPTY_POLICY_STATE), eq(cookie),
+                eq("scheduled-task:61:credential"), anyLong());
     }
 
     @Test
@@ -617,7 +576,7 @@ class ScheduleServiceTest {
                 eq("scheduled-task:7:credential"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().authorizeCookie(7L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(7L, cookie, ACTIVATION_TOKEN);
 
         verify(store).bindCredential(
                 eq(7L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
@@ -635,7 +594,7 @@ class ScheduleServiceTest {
                 EMPTY_POLICY_STATE, null));
         when(store.findById(8L)).thenReturn(task(8L));
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 8L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
@@ -661,7 +620,7 @@ class ScheduleServiceTest {
                 eq("PIXIV_OVERUSE"), anyString()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 2));
 
-        newService().authorizeCookie(9L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(9L, cookie, ACTIVATION_TOKEN);
 
         ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
         verify(store).suspend(
@@ -696,7 +655,7 @@ class ScheduleServiceTest {
                 beforeProbe.createdTime());
         when(store.findById(10L)).thenReturn(beforeProbe, changed);
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 10L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
@@ -724,7 +683,7 @@ class ScheduleServiceTest {
                 eq("scheduled-task:11:credential"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().authorizeCookie(11L, cookie, ACTIVATION_TOKEN);
+        newService().bindCredential(11L, cookie, ACTIVATION_TOKEN);
 
         verify(store, times(2)).findCredentialSecret(11L, owner, policyId);
         verify(store).bindCredential(
@@ -742,7 +701,7 @@ class ScheduleServiceTest {
                 any(), eq(ACTIVATION_TOKEN)))
                 .thenThrow(new ScheduleSourcePublicationChangedException(SOURCE_TYPE));
 
-        assertThatThrownBy(() -> newService().authorizeCookie(
+        assertThatThrownBy(() -> newService().bindCredential(
                 12L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
                         assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
@@ -764,7 +723,7 @@ class ScheduleServiceTest {
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().revokeCookie(20L);
+        newService().revokeCredential(20L);
 
         verify(store).removeCredential(
                 20L, STATE_VERSION, DownloadWorkbenchPlugin.ID,
@@ -782,7 +741,7 @@ class ScheduleServiceTest {
         when(store.removeCredential(21L, STATE_VERSION, owner, policyId))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().revokeCookie(21L);
+        newService().revokeCredential(21L);
 
         verify(store).removeCredential(21L, STATE_VERSION, owner, policyId);
         verify(store, never()).removeCredential(
@@ -1267,7 +1226,11 @@ class ScheduleServiceTest {
                 19L, true, null, reason, "fixture.code", "{}",
                 null, null, false);
 
-        ScheduleTaskView view = ScheduleTaskView.of(suspended, null, persistenceCodec);
+        ScheduleTaskView view = ScheduleTaskView.of(
+                suspended, null, null,
+                top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation.empty(),
+                false, null,
+                ScheduleCredentialPolicyView.unavailable(null, null, null, false));
 
         assertThat(view.lastStatus()).isEqualTo(reason.name());
         assertThat(view.suspendReason()).isEqualTo(reason.name());
@@ -1311,5 +1274,61 @@ class ScheduleServiceTest {
                 .isInstanceOf(LocalizedException.class);
 
         verify(store, never()).deleteAggregate(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("来源兼容适配器从中性快照解析当前凭证策略 publication")
+    void currentCredentialPolicyActionResolvesStampedPublication() {
+        String ownerPluginId = "third-party";
+        String policyId = "third-party-credential";
+        ScheduleCapabilityOwner owner =
+                new ScheduleCapabilityOwner(ownerPluginId, ownerPluginId, 2L);
+        ScheduledCredentialPolicy policy =
+                org.mockito.Mockito.mock(ScheduledCredentialPolicy.class);
+        when(policy.policyId()).thenReturn(policyId);
+        FakeScheduleCapabilityAccess capabilityRegistry =
+                new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
+                ScheduleCapabilityTestFixture.publish(
+                        capabilityRegistry,
+                        ScheduleCapabilityTestFixture.bundle(
+                                owner, List.of(), List.of(), List.of(),
+                                List.of(policy), List.of()));
+        ScheduleCredentialService credentialService =
+                org.mockito.Mockito.mock(ScheduleCredentialService.class);
+        ScheduleService service = new ScheduleService(
+                store, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue,
+                objectMapper, credentialService, transactionTemplate,
+                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+
+        service.applyCurrentCredentialPolicyAction(
+                ownerPluginId, policyId, "account-42", "resume", Map.of("delay", "60"));
+
+        verify(credentialService).applyAccountAction(
+                ownerPluginId, policyId, publication.publicationId(),
+                "account-42", "resume", Map.of("delay", "60"));
+    }
+
+    @Test
+    @DisplayName("精确凭证策略动作缺 publication 时返回受控并发错误")
+    void credentialPolicyActionRejectsMissingPublication() {
+        ScheduleCredentialService credentialService =
+                org.mockito.Mockito.mock(ScheduleCredentialService.class);
+        ScheduleService service = new ScheduleService(
+                store, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue,
+                objectMapper, credentialService, transactionTemplate,
+                emptyCapabilityRegistry(), new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+        ScheduleCredentialPolicyActionRequest request =
+                new ScheduleCredentialPolicyActionRequest();
+        request.setOwnerPluginId("third-party");
+        request.setPolicyId("third-party-credential");
+        request.setAccountKey("account-42");
+        request.setActionId("resume");
+
+        assertThatThrownBy(() -> service.applyCredentialPolicyAction(request))
+                .isInstanceOf(LocalizedException.class);
+
+        verify(credentialService, never()).applyAccountAction(
+                anyString(), anyString(), anyLong(), anyString(), anyString(), any());
     }
 }

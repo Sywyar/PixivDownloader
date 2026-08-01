@@ -76,7 +76,7 @@ class PushMessageFactoryTest {
         PushMessage msg = factory.render(
                 "overuse-paused", NotificationSeverity.WARNING, Locale.US, ph);
 
-        assertThat(msg.title().toLowerCase()).contains("overuse");
+        assertThat(msg.title().toLowerCase()).contains("credential policy");
         assertThat(msg.content())
                 .contains("12345")
                 .contains("3")
@@ -129,6 +129,59 @@ class PushMessageFactoryTest {
     }
 
     @Test
+    @DisplayName("四个凭证场景保留兼容 id 与占位符，且中英文推送不解释具体来源或凭证格式")
+    void credentialScenariosRemainCompatibleAndSourceNeutral() {
+        Map<String, String> ph = credentialScenarioPlaceholders();
+        for (String id : List.of(
+                "overuse-paused",
+                "auth-expired",
+                "circuit-breaker",
+                "degraded-anonymous")) {
+            PushMessage zh = factory.render(
+                    id, NotificationSeverity.WARNING, Locale.SIMPLIFIED_CHINESE, ph);
+            PushMessage en = factory.render(
+                    id, NotificationSeverity.WARNING, Locale.US, ph);
+            String rendered = zh.title() + zh.content() + en.title() + en.content();
+
+            assertThat(rendered)
+                    .contains("凭证")
+                    .containsIgnoringCase("credential")
+                    .doesNotContain("Cookie", "R-18", "站内信", "Pixiv sent")
+                    .doesNotContain("{{", "}}");
+        }
+
+        PushMessage policyPause = factory.render(
+                "overuse-paused", NotificationSeverity.WARNING, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(policyPause.content())
+                .contains("account-compat")
+                .contains("3")
+                .contains("task-list-md-compat")
+                .contains("policy-time-compat")
+                .contains("pause-time-compat");
+
+        PushMessage suspended = factory.render(
+                "auth-expired", NotificationSeverity.WARNING, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(suspended.content())
+                .contains("task-name-compat")
+                .contains("task-id-compat")
+                .contains("task-type-compat")
+                .contains("task-trigger-compat")
+                .contains("pause-time-compat");
+
+        PushMessage circuitOpen = factory.render(
+                "circuit-breaker", NotificationSeverity.ERROR, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(circuitOpen.content())
+                .contains("failure-count-compat")
+                .contains("failure-summary-compat");
+
+        PushMessage restrictedContinuation = factory.render(
+                "degraded-anonymous", NotificationSeverity.WARNING, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(restrictedContinuation.content())
+                .contains("completed-count-compat")
+                .contains("next-run-compat");
+    }
+
+    @Test
     @DisplayName("插件中英文资源键完全一致并包含运行日志与受控详情")
     void pluginBundlesOwnAllRuntimeMessageKeys() throws IOException {
         Properties chinese = loadProperties("i18n/push/messages.properties");
@@ -157,5 +210,25 @@ class PushMessageFactoryTest {
             properties.load(reader);
         }
         return properties;
+    }
+
+    private static Map<String, String> credentialScenarioPlaceholders() {
+        Map<String, String> map = new LinkedHashMap<>();
+        map.put("account_id", "account-compat");
+        map.put("tasks_count", "3");
+        map.put("tasks_list_html", "task-list-html-compat");
+        map.put("tasks_list_md", "task-list-md-compat");
+        map.put("warning_time", "policy-time-compat");
+        map.put("warning_excerpt", "policy-summary-compat");
+        map.put("task_name", "task-name-compat");
+        map.put("task_id", "task-id-compat");
+        map.put("task_type", "task-type-compat");
+        map.put("task_trigger", "task-trigger-compat");
+        map.put("consecutive_failures", "failure-count-compat");
+        map.put("last_error_excerpt", "failure-summary-compat");
+        map.put("completed", "completed-count-compat");
+        map.put("trigger_time", "pause-time-compat");
+        map.put("next_run_time", "next-run-compat");
+        return map;
     }
 }

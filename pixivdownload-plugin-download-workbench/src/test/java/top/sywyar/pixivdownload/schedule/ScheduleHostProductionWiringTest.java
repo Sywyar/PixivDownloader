@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
 class ScheduleHostProductionWiringTest {
 
     @Test
-    @DisplayName("Spring Bean 工厂只保留接收通用执行引擎的九依赖装配")
+    @DisplayName("Spring Bean 工厂只保留通用执行引擎与宿主身份装配")
     void springFactoryWiresGenericExecutionEngine() {
         ScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
@@ -52,7 +52,9 @@ class ScheduleHostProductionWiringTest {
                             MessageResolver.class,
                             NamespaceMessageResolver.class,
                             UserDisplayNameProvider.class,
-                            ScheduleExecutionEngine.class);
+                            ScheduleExecutionEngine.class,
+                            org.springframework.transaction.PlatformTransactionManager.class,
+                            ScheduleHostIdentity.class);
                 });
     }
 
@@ -83,6 +85,8 @@ class ScheduleHostProductionWiringTest {
                 mock(MessageResolver.class),
                 mock(NamespaceMessageResolver.class),
                 mock(UserDisplayNameProvider.class),
-                engine);
+                engine,
+                mock(org.springframework.transaction.PlatformTransactionManager.class),
+                new ScheduleHostIdentity("fixture-host"));
     }
 }

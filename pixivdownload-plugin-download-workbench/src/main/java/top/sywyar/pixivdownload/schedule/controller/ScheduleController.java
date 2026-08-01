@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.schedule.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -12,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,9 +22,9 @@ import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
-import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
-import top.sywyar.pixivdownload.schedule.dto.CookieAuthorizeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ProxyOverrideRequest;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialBindRequest;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialPolicyActionRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingDeleteRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
@@ -42,7 +42,8 @@ import java.util.Map;
  * <p>所有路径都在 {@code /api/schedule/} 前缀下，由 {@code AuthFilter} 按 monitor 语义强制登录
  * （solo 与 multi 均仅管理员），不入 {@code isPublic()} / {@code GUEST_ALLOWED_*}。
  *
- * <p>响应一律走 {@link ScheduleTaskView}（<b>不含</b> cookie 快照）；cookie 绝不回显。
+ * <p>响应一律走 {@link ScheduleTaskView}。通用凭证绑定只接收中性取得凭证头与当前来源激活令牌；
+ * 来源专属兼容路由由对应来源的适配器拥有。
  */
 @RestController
 @RequestMapping("/api/schedule")
@@ -97,21 +98,30 @@ public class ScheduleController {
         return scheduleService.setEnabled(id, enabled);
     }
 
-    @PostMapping("/tasks/{id}/authorize-cookie")
-    public ScheduleTaskView authorizeCookie(@PathVariable long id,
-                                             @Valid @RequestBody CookieAuthorizeRequest req,
-                                             HttpServletRequest request) {
+    /** 经中性取得凭证头绑定任务当前执行计划声明的凭证策略。 */
+    @PostMapping("/tasks/{id}/credential")
+    public ScheduleTaskView bindCredential(
+            @PathVariable long id,
+            @Valid @RequestBody ScheduleCredentialBindRequest request,
+            @RequestHeader(AcquisitionCredentialResolver.HEADER_NAME)
+            String acquisitionCredential) {
         String credential = AcquisitionCredentialResolver.resolve(
-                request == null ? null
-                        : request.getHeader(AcquisitionCredentialResolver.HEADER_NAME),
-                req.getCookie());
-        return scheduleService.authorizeCookie(
-                id, credential, req.getActivationToken());
+                acquisitionCredential, null);
+        return scheduleService.bindCredential(id, credential, request.activationToken());
     }
 
-    @PostMapping("/tasks/{id}/revoke-cookie")
-    public ScheduleTaskView revokeCookie(@PathVariable long id) {
-        return scheduleService.revokeCookie(id);
+    /** 解除任务当前持久化的凭证策略绑定。 */
+    @DeleteMapping("/tasks/{id}/credential")
+    public ScheduleTaskView revokeCredential(@PathVariable long id) {
+        return scheduleService.revokeCredential(id);
+    }
+
+    /** 只接受精确 policy publication 身份；动作语义由当前凭证策略纯值规划。 */
+    @PostMapping("/credential-policies/actions")
+    public Map<String, Object> applyCredentialPolicyAction(
+            @Valid @RequestBody ScheduleCredentialPolicyActionRequest request) {
+        scheduleService.applyCredentialPolicyAction(request);
+        return Map.of("success", true);
     }
 
     /** 设置 / 清除任务级单独代理（host:port；body 的 proxy 为空 = 清除并回退全局代理设置）。 */
@@ -149,14 +159,6 @@ public class ScheduleController {
             return scheduleService.get(id);
         }
         return view;
-    }
-
-    /** 账号级（过度访问）恢复：同账号所有任务，{@code mode=ignore|defer}。 */
-    @PostMapping("/account/{accountId}/resume")
-    public Map<String, Object> resumeAccount(@PathVariable String accountId,
-                                             @RequestBody AccountResumeRequest req) {
-        scheduleService.resumeAccount(accountId, req);
-        return Map.of("success", true);
     }
 
     /** 隔离表（待重试）行列表。 */

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule;
+package top.sywyar.pixivdownload.download.schedule.credential;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;

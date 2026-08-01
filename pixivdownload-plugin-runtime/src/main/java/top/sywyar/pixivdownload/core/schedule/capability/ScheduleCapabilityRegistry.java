@@ -610,6 +610,12 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         return resolveCredentialPolicy(policyId).map(ScheduleCapabilityHandle::owner);
     }
 
+    @Override
+    public Optional<ScheduleSingleCapabilityLease<ScheduledCredentialPolicy>> prepareCredentialPolicy(
+            String policyId) {
+        return resolveCredentialPolicy(policyId).flatMap(this::prepareAcquire);
+    }
+
     public Optional<ScheduleCapabilityHandle<ScheduledExecutionGuard>> resolveGuard(String guardId) {
         CapabilityEntry<ScheduledExecutionGuard> entry = find(snapshot.guards(), guardId);
         return entry == null ? Optional.empty() : Optional.of(handle(
@@ -783,6 +789,79 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             return Optional.empty();
         }
         return whileCurrentPublication(concretePlanning, operation);
+    }
+
+    /**
+     * 仅当单项能力租约仍属于当前 publication 时执行一次短宿主持久化操作。
+     *
+     * <p>插件回调必须在进入本方法前完成；本方法只在 registry 锁内执行宿主操作，不读取或调用能力对象。
+     */
+    public <T> Optional<T> whileCurrentPublication(
+            ScheduleSingleCapabilityLease<?> lease,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (lease == null) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            ScheduleCapabilityHandle<?> handle = lease.handle();
+            PublishedOwner published = currentPublishedOwner(
+                    snapshot, handle.owner(), handle.publicationId());
+            if (!lease.root().isSingle()
+                    || published == null
+                    || published.leaseState() != lease.leaseState()
+                    || resolveCapability(snapshot, handle) == null) {
+                return Optional.empty();
+            }
+            return Optional.of(Objects.requireNonNull(
+                    operation.get(), "current publication operation result"));
+        }
+    }
+
+    @Override
+    public <T> Optional<T> whileCurrentPublication(
+            ScheduleCapabilityLease<?> lease,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (!(lease instanceof ScheduleSingleCapabilityLease<?> concreteLease)) {
+            return Optional.empty();
+        }
+        return whileCurrentPublication(concreteLease, operation);
+    }
+
+    /**
+     * 仅当复合执行租约的全部 owner 仍属于当前 publication 时执行一次短宿主持久化操作。
+     *
+     * <p>插件回调必须在进入本方法前完成；currentness 复核、操作执行与任一 owner 撤回共用 registry 锁。
+     */
+    public <T> Optional<T> whileCurrentPublication(
+            ScheduleExecutionLease execution,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (execution == null) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            if (!execution.isActive()
+                    || !matchesOwnerState(execution.sourceOwnerState())
+                    || execution.additionalOwnerStates().stream()
+                            .anyMatch(owner -> !matchesOwnerState(owner))) {
+                return Optional.empty();
+            }
+            return Optional.of(Objects.requireNonNull(
+                    operation.get(), "current publication operation result"));
+        }
+    }
+
+    @Override
+    public <T> Optional<T> whileCurrentPublication(
+            top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease execution,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (!(execution instanceof ScheduleExecutionLease concreteExecution)) {
+            return Optional.empty();
+        }
+        return whileCurrentPublication(concreteExecution, operation);
     }
 
     /**

@@ -12,9 +12,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
-import top.sywyar.pixivdownload.schedule.OveruseWarningService;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
 
 import java.util.Arrays;
 import java.util.Map;

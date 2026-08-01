@@ -11,7 +11,7 @@ class ScheduleCredentialRedactorTest {
     @Test
     @DisplayName("完整脱敏 Cookie、Basic、Bearer、token、credential 与签名参数")
     void redactsSupportedCredentialFormsWithoutLeavingHeaderValues() {
-        String raw = "Cookie: PHPSESSID=cookie-secret; device=device-secret\n"
+        String raw = "Cookie: session_id=cookie-secret; device=device-secret\n"
                 + "Authorization: Basic basic-secret\n"
                 + "Proxy-Authorization: Bearer proxy-secret\n"
                 + "token: token-secret access_token=access-secret\n"
@@ -49,7 +49,6 @@ class ScheduleCredentialRedactorTest {
     void recognizesCredentialMaterialAndLeavesOrdinaryTextAlone() {
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("refresh_token")).isTrue();
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("x-amz-credential")).isTrue();
-        assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("PHPSESSID")).isTrue();
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("session_key")).isTrue();
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("tokenCountValue")).isTrue();
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("cookiePresentValue")).isTrue();
@@ -69,5 +68,13 @@ class ScheduleCredentialRedactorTest {
         assertThat(ScheduleCredentialRedactor.containsCredentialMaterial(
                 "tokenCount=2; cookiePresent=false")).isFalse();
         assertThat(ScheduleCredentialRedactor.containsCredentialMaterial("ordinary search text")).isFalse();
+    }
+
+    @Test
+    @DisplayName("未知来源键值对不需要宿主识别字段名也会脱敏")
+    void redactsUnknownSourceKeyValuePairWithoutSourceSpecificNames() {
+        assertThat(ScheduleCredentialRedactor.redact(
+                "vendor_identity=opaque-source-secret"))
+                .isEqualTo("[redacted]");
     }
 }

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.snapshot;
+package top.sywyar.pixivdownload.download.schedule.snapshot;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;

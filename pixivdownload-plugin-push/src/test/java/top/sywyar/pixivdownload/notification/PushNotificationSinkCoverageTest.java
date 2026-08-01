@@ -51,7 +51,10 @@ class PushNotificationSinkCoverageTest {
                 dispatcher,
                 TestMessageResolver.INSTANCE);
 
-        enabledSink.deliver(NotificationScenario.CIRCUIT_BREAKER, Locale.SIMPLIFIED_CHINESE, Map.of());
+        enabledSink.deliver(
+                NotificationScenario.CREDENTIAL_FAILURE_CIRCUIT_OPEN,
+                Locale.SIMPLIFIED_CHINESE,
+                Map.of());
 
         assertThat(dispatcher.message).isNotNull();
         assertThat(dispatcher.message.level()).isEqualTo(NotificationSeverity.ERROR);

@@ -46,7 +46,7 @@ import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
 import java.util.Map;
@@ -584,17 +584,21 @@ class ScheduleServiceDefinitionSaveTest {
     private ScheduleService service(
             FakeScheduleCapabilityAccess registry,
             PlatformTransactionManager transactionManager) {
+        ScheduleRunState runState = new ScheduleRunState();
+        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+        ScheduleCredentialService credentialService = new ScheduleCredentialService(
+                store, runState, executionEngine, registry, transactions, objectMapper);
         return new ScheduleService(
                 store,
                 executor,
                 new ScheduleConfig(),
-                new ScheduleRunState(),
+                runState,
                 runQueue,
                 objectMapper,
-                new PixivSchedulePersistenceCodec(objectMapper),
-                executionEngine,
-                new TransactionTemplate(transactionManager),
-                registry);
+                credentialService,
+                transactions,
+                registry,
+                new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
     }
 
     private static ScheduleTaskRequest request(String activationToken) {

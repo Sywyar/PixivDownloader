@@ -1,9 +1,9 @@
-package top.sywyar.pixivdownload.schedule.persistence.migration;
+package top.sywyar.pixivdownload.download.schedule.persistence.migration;
 
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptor;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptorProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -81,8 +81,8 @@ public class NotificationPushTestController {
     }
 
     /**
-     * 预览用示例占位符：复用邮件侧同名 {@code mail.template.sample.*} 文案（推送与邮件共用同一套占位符键），
-     * 单一事实源、避免重复维护示例数据；多余 key 在渲染时被忽略。绝不含任何凭证。
+     * 预览用中性示例占位符；推送与邮件保持同一套运行时占位符键，但介质插件不解释具体来源或作品类型。
+     * 多余 key 在渲染时被忽略。绝不含任何凭证。
      */
     private Map<String, String> buildSamplePlaceholders(Locale locale) {
         LocalDateTime now = LocalDateTime.now();
@@ -95,7 +95,7 @@ public class NotificationPushTestController {
         ph.put("trigger_time", now.format(TIME_FORMAT));
         ph.put("task_name", messages.get(locale, "push.sample.task-name"));
         ph.put("task_id", messages.get(locale, "push.sample.task-id"));
-        ph.put("task_type", messages.get(locale, "push.sample.task-type.user-new"));
+        ph.put("task_type", messages.get(locale, "push.sample.task-type"));
         // 用 Cron 触发示例（含裸星号）作为预览样本：可在各渠道直观验证 Cron 表达式的 * 不被渲染器吞掉。
         ph.put("task_trigger", messages.get(locale, "push.sample.trigger.cron", "0 0 * * *"));
         ph.put("next_run_time", now.plusMinutes(60).format(TIME_FORMAT));
@@ -103,8 +103,8 @@ public class NotificationPushTestController {
         ph.put("consecutive_failures", messages.get(locale, "push.sample.consecutive-failures"));
         ph.put("last_error_excerpt", messages.get(locale, "push.sample.last-error-excerpt"));
         ph.put("work_id", messages.get(locale, "push.sample.work-id"));
-        ph.put("work_kind", messages.get(locale, "push.sample.work-kind.illust"));
-        ph.put("work_url", "https://www.pixiv.net/artworks/" + messages.get(locale, "push.sample.work-id"));
+        ph.put("work_kind", messages.get(locale, "push.sample.work-kind"));
+        ph.put("work_url", messages.get(locale, "push.sample.work-url"));
         ph.put("attempts", messages.get(locale, "push.sample.attempts"));
         return ph;
     }

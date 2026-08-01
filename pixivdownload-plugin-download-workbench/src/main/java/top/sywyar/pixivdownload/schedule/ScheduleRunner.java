@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilit
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +37,7 @@ public class ScheduleRunner {
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
     private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
+    private final ScheduleHostIdentity hostIdentity;
 
     /** 单飞：上一轮 tick 仍在跑（任务多 / 抓取慢）时直接跳过本轮，避免重入。 */
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -47,7 +47,7 @@ public class ScheduleRunner {
             scheduler = "downloadWorkbenchTaskScheduler")
     public void tick() {
         ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease =
-                scheduleCapabilityRegistry.prepareOwner(DownloadWorkbenchPlugin.ID).orElse(null);
+                scheduleCapabilityRegistry.prepareOwner(hostIdentity.featurePluginId()).orElse(null);
         try (hostLease) {
             if (hostLease == null || !scheduleCapabilityRegistry.activate(hostLease)) {
                 return;

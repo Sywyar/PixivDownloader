@@ -303,6 +303,91 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("通用 schedule 宿主不得依赖下载工作台的具体计划策略")
+    void scheduleHostDoesNotDependOnConcreteWorkbenchSchedulePolicy() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.download.schedule..")
+                .orShould().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin")
+                .because("调度宿主只能经稳定契约接收来源、凭证、风险与持久化贡献")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("通用 schedule 源码不得重新解释 Pixiv 凭证策略 wire")
+    void scheduleHostSourceDoesNotInterpretPixivCredentialPolicy() throws IOException {
+        Path sourceRoot = repositoryRoot().resolve(
+                "pixivdownload-plugin-download-workbench/src/main/java/"
+                        + "top/sywyar/pixivdownload/schedule");
+        List<Path> sources;
+        try (Stream<Path> paths = Files.walk(sourceRoot)) {
+            sources = paths
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .sorted()
+                    .toList();
+        }
+        assertThat(sources)
+                .as("generic schedule source set must be non-vacuous")
+                .hasSizeGreaterThan(20);
+        String[] forbidden = {
+                "top.sywyar.pixivdownload.download.schedule.",
+                "DownloadWorkbenchPlugin",
+                "PixivScheduled",
+                "PixivSchedule",
+                "PIXIV_OVERUSE",
+                "CookieAuthorizeRequest",
+                "AccountResumeRequest",
+                "authorize-cookie",
+                "revoke-cookie",
+                "/accounts/",
+                "cookieMode",
+                "cookieBound",
+                "accountId",
+                "ackWarningTime"
+        };
+        for (Path source : sources) {
+            assertThat(read(source))
+                    .as(repositoryRoot().relativize(source).toString())
+                    .doesNotContain(forbidden);
+        }
+    }
+
+    @Test
+    @DisplayName("通用凭证宿主不得硬编码来源会话字段或策略私有命名")
+    void genericCredentialHostDoesNotHardcodeSourceCredentialSemantics() throws IOException {
+        Path root = repositoryRoot().resolve("pixivdownload-plugin-download-workbench");
+        List<Path> genericCredentialSources = List.of(
+                root.resolve("src/main/java/top/sywyar/pixivdownload/schedule/security/"
+                        + "ScheduleCredentialRedactor.java"),
+                root.resolve("src/main/resources/static/pixiv-batch/modes/schedule.js"));
+        String[] forbidden = {
+                "PHPSESSID",
+                "authorize-cookie",
+                "revoke-cookie",
+                "clear-cookie",
+                "no-cookie",
+                "schedule-overuse"
+        };
+
+        for (Path source : genericCredentialSources) {
+            assertThat(Files.isRegularFile(source))
+                    .as(root.relativize(source).toString())
+                    .isTrue();
+            assertThat(read(source))
+                    .as(root.relativize(source).toString())
+                    .doesNotContainIgnoringCase(forbidden);
+        }
+        Path stylesheet = root.resolve(
+                "src/main/resources/static/pixiv-batch/pixiv-batch.css");
+        assertThat(read(stylesheet))
+                .as(root.relativize(stylesheet).toString())
+                .doesNotContain("schedule-overuse");
+    }
+
+    @Test
     @DisplayName("计划队列投影不得解释具体作品类型与插件私有实时状态")
     void scheduleQueueProjectionDoesNotInterpretPluginPrivateLiveStatus() {
         Path root = repositoryRoot().resolve(

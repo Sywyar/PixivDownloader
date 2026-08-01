@@ -24,8 +24,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
-import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
 
 import java.io.IOException;
 import java.util.Arrays;

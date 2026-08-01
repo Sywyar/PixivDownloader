@@ -28,6 +28,11 @@
         perRunHintKey: 'schedule.pixiv.fetch-limit.hint.per-run',
         fullFetchConfirmKey: 'schedule.pixiv.confirm.full-fetch'
     });
+    const CREDENTIAL_POLICY_ID = 'pixiv-cookie';
+    const CREDENTIAL_STATUS_AUTH_EXPIRED = 'AUTH_EXPIRED';
+    const CREDENTIAL_STATUS_OVERUSE_PAUSED = 'OVERUSE_PAUSED';
+    const OVERUSE_SUSPEND_REASON = 'POLICY';
+    const OVERUSE_SUSPEND_CODE = 'PIXIV_OVERUSE';
 
     function canonicalSourceType(value) {
         const normalized = value == null ? '' : String(value).trim();
@@ -603,9 +608,9 @@
         };
     }
 
-    function credentialActions(api) {
+    function credentialContribution() {
         return Object.freeze({
-            supportsCookie: true,
+            supportsCredential: true,
             supportsProxy: true,
             presentation: Object.freeze({
                 boundLabel: bt('schedule.cookie.bound', '已绑定 Cookie'),
@@ -624,43 +629,203 @@
                 namespace: 'batch',
                 clearProxyConfirmKey: 'schedule.pixiv.confirm.clear-proxy',
                 clearCredentialConfirmKey: 'schedule.pixiv.confirm.clear-cookie'
-            }),
-            savedCookie() {
-                api.assertActive();
-                return getCookieInputHeaderString().trim();
-            },
-            validateCookie(cookie) {
-                api.assertActive();
-                return /(?:^|;\s*)PHPSESSID=/.test(String(cookie || ''))
-                    ? null
-                    : bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权');
-            },
-            async autoAuthorize(taskId, lease) {
-                api.assertActive();
-                const cookie = getCookieInputHeaderString().trim();
-                if (!cookie || !/(?:^|;\s*)PHPSESSID=/.test(cookie)) return 'no-cookie';
-                try {
-                    const response = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Acquisition-Credential': cookie
-                        },
-                        signal: lease && lease.signal ? lease.signal : api.signal,
-                        body: JSON.stringify({
-                            activationToken: lease && lease.activationToken
-                        })
-                    });
-                    api.assertActive();
-                    if (lease && typeof lease.assertCurrent === 'function') lease.assertCurrent();
-                    return response.ok ? 'authorized' : 'failed';
-                } catch (e) {
-                    api.assertActive();
-                    return 'failed';
-                }
-            }
+            })
         });
+    }
+
+    function validateCredential(cookie, _context, lease) {
+        lease.assertCurrent();
+        return /(?:^|;\s*)PHPSESSID=/.test(String(cookie || ''))
+            ? null
+            : bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权');
+    }
+
+    async function credentialHttp(url, init, lease, successStatus) {
+        lease.assertCurrent();
+        try {
+            const response = await fetch(url, Object.assign({}, init, {signal: lease.signal}));
+            lease.assertCurrent();
+            if (response.ok) return {ok: true, status: successStatus};
+            const error = await response.json().catch(() => ({}));
+            lease.assertCurrent();
+            return {
+                ok: false,
+                status: 'failed',
+                error: error.error || error.message || bt('schedule.error.authorize', '授权失败')
+            };
+        } catch (e) {
+            lease.assertCurrent();
+            return {
+                ok: false,
+                status: 'failed',
+                error: bt('schedule.error.authorize', '授权失败')
+            };
+        }
+    }
+
+    function bindCredential(taskId, cookie, _context, lease) {
+        const validation = validateCredential(cookie, null, lease);
+        if (validation) return {ok: false, status: 'failed', error: validation};
+        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Acquisition-Credential': String(cookie)
+            },
+            body: JSON.stringify({activationToken: lease.activationToken})
+        }, lease, 'bound');
+    }
+
+    function bindSavedCredential(taskId, _context, lease) {
+        lease.assertCurrent();
+        const cookie = getCookieInputHeaderString().trim();
+        if (!cookie || validateCredential(cookie, null, lease)) {
+            return {ok: false, status: 'missing'};
+        }
+        return bindCredential(taskId, cookie, null, lease);
+    }
+
+    function revokeCredential(taskId, _context, lease) {
+        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/revoke-cookie`, {
+            method: 'POST',
+            credentials: 'same-origin'
+        }, lease, 'revoked');
+    }
+
+    function normalizedCredentialPolicy(task, lease) {
+        const value = task && task.credentialPolicy && typeof task.credentialPolicy === 'object'
+            ? task.credentialPolicy : {};
+        const publicationId = Number(value.publicationId);
+        return {
+            ownerPluginId: String(value.ownerPluginId || '').trim(),
+            policyId: String(value.policyId || '').trim(),
+            publicationId: Number.isSafeInteger(publicationId) && publicationId > 0
+                ? publicationId : null,
+            accountKey: String(value.accountKey || '').trim(),
+            bound: value.bound === true,
+            statusCode: String(value.statusCode || '').trim(),
+            acknowledgedEventTime: value.acknowledgedEventTime == null
+                ? null : value.acknowledgedEventTime
+        };
+    }
+
+    function credentialTaskPresentation(task, _context, lease) {
+        lease.assertCurrent();
+        const policy = normalizedCredentialPolicy(task, lease);
+        if (policy.ownerPluginId !== lease.ownerPluginId
+                || policy.policyId !== CREDENTIAL_POLICY_ID
+                || policy.publicationId !== lease.publicationId) return null;
+        if (policy.statusCode === CREDENTIAL_STATUS_AUTH_EXPIRED) {
+            return {
+                statusLabel: bt('schedule.run-status.auth-expired',
+                    '登录凭证已失效，请重新绑定有效凭证'),
+                lightTone: 'red',
+                lightText: bt('schedule.light.auth-expired',
+                    '运行失败，来源登录凭证已失效，请重新绑定有效凭证'),
+                suspended: true,
+                manualRecoveryRequired: true
+            };
+        }
+        if (policy.statusCode === CREDENTIAL_STATUS_OVERUSE_PAUSED
+                || (task.suspendReason === OVERUSE_SUSPEND_REASON
+                    && task.suspendCode === OVERUSE_SUSPEND_CODE)) {
+            return {
+                statusLabel: bt('schedule.run-status.overuse-paused',
+                    '已暂停：检测到过度访问警告'),
+                lightTone: 'red',
+                lightText: bt('schedule.light.overuse-paused',
+                    '已暂停：检测到过度访问警告（账号级）'),
+                suspended: true,
+                manualRecoveryRequired: true
+            };
+        }
+        return null;
+    }
+
+    function credentialPolicyGroups(tasks, _context, lease) {
+        lease.assertCurrent();
+        const groups = new Map();
+        (Array.isArray(tasks) ? tasks : []).forEach(task => {
+            if (!Object.values(SOURCE).includes(taskSourceType(task))) return;
+            const policy = normalizedCredentialPolicy(task, lease);
+            const overuse = policy.statusCode === CREDENTIAL_STATUS_OVERUSE_PAUSED
+                || (task.suspendReason === OVERUSE_SUSPEND_REASON
+                    && task.suspendCode === OVERUSE_SUSPEND_CODE);
+            if (!overuse || !policy.accountKey
+                    || policy.ownerPluginId !== lease.ownerPluginId
+                    || policy.policyId !== CREDENTIAL_POLICY_ID
+                    || policy.publicationId !== lease.publicationId) return;
+            const suspendReason = task.suspendReason || OVERUSE_SUSPEND_REASON;
+            const suspendCode = task.suspendCode || OVERUSE_SUSPEND_CODE;
+            const identity = {
+                ownerPluginId: policy.ownerPluginId,
+                policyId: policy.policyId,
+                publicationId: policy.publicationId,
+                accountKey: policy.accountKey,
+                suspendReason,
+                suspendCode
+            };
+            const key = JSON.stringify(identity);
+            const value = groups.get(key) || {identity, tasks: []};
+            value.tasks.push(task);
+            groups.set(key, value);
+        });
+        return Array.from(groups.values()).map(group => ({
+            identity: group.identity,
+            title: bt('schedule.overuse.banner.title', '⚠️ 过度访问暂停'),
+            description: bt('schedule.overuse.banner.desc',
+                '账号 {account} 有 {count} 个计划任务因检测到 Pixiv 过度访问警告被暂停。', {
+                    account: group.identity.accountKey,
+                    count: group.tasks.length
+                }),
+            actions: [{
+                actionId: 'ignore',
+                label: bt('schedule.overuse.action.ignore',
+                    '无视风险，继续下载！(可能会导致删号)'),
+                tone: 'danger',
+                confirmMessage: bt('schedule.overuse.confirm.ignore',
+                    '确定无视过度访问警告并立即继续下载吗？短时间内继续大量下载可能导致账号被封禁。')
+            }, {
+                actionId: 'defer',
+                label: bt('schedule.overuse.action.defer',
+                    '我已知晓，在 {minutes} 分钟后继续所有同账号任务', {minutes: 60}),
+                tone: 'primary',
+                prompt: {
+                    parameterName: 'minutes',
+                    message: bt('schedule.overuse.prompt.minutes', '延迟多少分钟后继续？（最低 60）'),
+                    defaultValue: '60',
+                    inputType: 'number',
+                    min: 60,
+                    step: 1
+                }
+            }]
+        }));
+    }
+
+    function applyCredentialPolicyAction(request, _context, lease) {
+        lease.assertCurrent();
+        const identity = request && request.identity && typeof request.identity === 'object'
+            ? request.identity : {};
+        if (identity.ownerPluginId !== lease.ownerPluginId
+                || identity.policyId !== CREDENTIAL_POLICY_ID
+                || Number(identity.publicationId) !== lease.publicationId) {
+            return {ok: false, status: 'failed', error: bt(
+                'schedule.error.concurrent-change', '任务状态已变化，请刷新后重试')};
+        }
+        return credentialHttp(`${BASE}/api/schedule/credential-policies/actions`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                ownerPluginId: identity.ownerPluginId,
+                policyId: identity.policyId,
+                publicationId: identity.publicationId,
+                accountKey: identity.accountKey,
+                actionId: request.actionId,
+                parameters: request.parameters || {}
+            })
+        }, lease, 'applied');
     }
 
     runtime.registerModule(MODULE_URL, function (api) {
@@ -679,7 +844,14 @@
                     const quick = normalizedQuickSource(context);
                     return quick && quick.sourceType === sourceType ? quick.label : null;
                 },
-                credentialActions: () => credentialActions(api)
+                credentialContribution,
+                validateCredential,
+                bindCredential,
+                bindSavedCredential,
+                revokeCredential,
+                credentialTaskPresentation,
+                credentialPolicyGroups,
+                applyCredentialPolicyAction
             });
         });
     });
