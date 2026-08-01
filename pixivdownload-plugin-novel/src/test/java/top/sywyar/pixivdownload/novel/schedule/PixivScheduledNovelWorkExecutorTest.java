@@ -33,6 +33,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresenta
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
@@ -296,6 +297,19 @@ class PixivScheduledNovelWorkExecutorTest {
                 123L, 42L, "english", 35, true, "html");
         assertThat(objectMapper.readTree(sidecarBody.getValue()))
                 .isEqualTo(objectMapper.readTree(completeNovelResponse()).path("body"));
+    }
+
+    @Test
+    @DisplayName("小说执行器贡献自有命名空间和作品直链且非法身份降级为空")
+    void contributesNotificationPresentation() {
+        var presentation = executor().notificationPresentation(work("42"));
+
+        assertThat(presentation.displayNamespace()).isEqualTo("novel");
+        assertThat(presentation.displayNameKey()).isEqualTo("batch.user.kind-novel");
+        assertThat(presentation.referenceUrl())
+                .isEqualTo("https://www.pixiv.net/novel/show.php?id=42");
+        assertThat(executor().notificationPresentation(work("invalid")))
+                .isEqualTo(ScheduledWorkNotificationPresentation.empty());
     }
 
     @Test

@@ -33,6 +33,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresenta
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
@@ -109,6 +110,19 @@ class PixivScheduledIllustWorkExecutorTest {
         assertThat(fixture.credential().lastCopy()).isNull();
         verifyNoInteractions(fetchService, localWorkLookup, artworkDownloader,
                 workMetadataCapture);
+    }
+
+    @Test
+    @DisplayName("插画执行器贡献自有命名空间和作品直链且非法身份降级为空")
+    void contributesNotificationPresentation() {
+        var presentation = executor().notificationPresentation(work("123"));
+
+        assertThat(presentation.displayNamespace()).isEqualTo("batch");
+        assertThat(presentation.displayNameKey()).isEqualTo("batch.user.kind-illust");
+        assertThat(presentation.referenceUrl())
+                .isEqualTo("https://www.pixiv.net/artworks/123");
+        assertThat(executor().notificationPresentation(work("invalid")))
+                .isEqualTo(ScheduledWorkNotificationPresentation.empty());
     }
 
     @ParameterizedTest(name = "redownloadDeleted={0}, verifyFiles={1}")

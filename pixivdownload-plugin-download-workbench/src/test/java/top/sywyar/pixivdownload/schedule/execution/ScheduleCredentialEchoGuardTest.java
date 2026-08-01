@@ -163,6 +163,30 @@ class ScheduleCredentialEchoGuardTest {
     }
 
     @Test
+    @DisplayName("URL 百分号单次或重复编码均不能隐藏活动凭证回显")
+    void materialMatchesRepeatedPercentEncodedText() {
+        try (ScheduleCredentialMaterial material = new ScheduleCredentialMaterial(
+                "fixture-secret", "fixture-reference", null);
+             ScheduleCredentialMaterial shortValue = new ScheduleCredentialMaterial(
+                     "sid=12345", "fixture-reference", null)) {
+            assertThat(material.containsEchoInPercentEncodedText(
+                    "https://example.test/?q=fixture%2Dsecret")).isTrue();
+            assertThat(material.containsEchoInPercentEncodedText(
+                    "https://example.test/?q=fixture%252Dsecret")).isTrue();
+            assertThat(material.containsEchoInPercentEncodedText(
+                    "https://example.test/?q=fixture%25252Dsecret")).isTrue();
+            assertThat(material.containsEchoInPercentEncodedText(
+                    "https://example.test/?q=public%2Dreference+value")).isFalse();
+            assertThat(material.containsEchoInPercentEncodedText(
+                    "https://example.test/?q=100%25")).isFalse();
+            assertThat(shortValue.containsEchoInPercentEncodedText(
+                    "https://example.test/?q=12345")).isTrue();
+            assertThat(shortValue.containsEchoInPercentEncodedText(
+                    "https://example.test/?q=12%253345")).isTrue();
+        }
+    }
+
+    @Test
     @DisplayName("空凭证和只有空白的凭证不会产生匹配片段")
     void ignoresMissingAndWhitespaceOnlyCredentials() {
         try (ScheduleCredentialEchoGuard missing = new ScheduleCredentialEchoGuard(null);

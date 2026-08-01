@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunStatistics;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
@@ -594,9 +595,12 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         runQueue.mark(work.key(),
                 ScheduleRunQueue.STATUS_FAILED, failure.code());
         if (completion.retry() && attempts == pendingMaxAttempts) {
+            ScheduledWorkNotificationPresentation presentation =
+                    safeNotificationPresentation(work);
             ScheduleExecutionResult.PendingExhausted event =
                     new ScheduleExecutionResult.PendingExhausted(
-                            work.key().workType(), work.key().id(), attempts, now, failure.code());
+                            work.key().workType(), work.key().id(), attempts, now,
+                            failure.code(), presentation);
             pendingExhausted.add(event);
             try {
                 pendingExhaustedListener.accept(event);
@@ -686,6 +690,44 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                     "schedule.work.payload-invalid");
+        }
+    }
+
+    /**
+     * 在精确作品执行器 publication 租约仍有效时，把插件展示投影复制为宿主纯值。
+     * 普通插件失败只降级为空投影，不得反向破坏已经完成的 pending 耐久记账。
+     */
+    private ScheduledWorkNotificationPresentation safeNotificationPresentation(
+            ScheduledWork work) {
+        if (cancellation.isCancellationRequested()) {
+            return ScheduledWorkNotificationPresentation.empty();
+        }
+        ScheduledWorkExecutor executor = executors.get(work.key().workType());
+        if (executor == null) {
+            return ScheduledWorkNotificationPresentation.empty();
+        }
+        try {
+            ScheduledWorkNotificationPresentation candidate =
+                    executor.notificationPresentation(work);
+            if (candidate == null) {
+                return ScheduledWorkNotificationPresentation.empty();
+            }
+            ScheduledWorkNotificationPresentation copy =
+                    new ScheduledWorkNotificationPresentation(
+                            candidate.displayNamespace(),
+                            candidate.displayNameKey(),
+                            candidate.referenceUrl());
+            if (credential.containsEcho(copy.displayNamespace())
+                    || credential.containsEcho(copy.displayNameKey())
+                    || credential.containsEchoInPercentEncodedText(
+                    copy.referenceUrl())) {
+                return ScheduledWorkNotificationPresentation.empty();
+            }
+            return copy;
+        } catch (VirtualMachineError | ThreadDeath fatal) {
+            throw fatal;
+        } catch (Throwable ignored) {
+            return ScheduledWorkNotificationPresentation.empty();
         }
     }
 

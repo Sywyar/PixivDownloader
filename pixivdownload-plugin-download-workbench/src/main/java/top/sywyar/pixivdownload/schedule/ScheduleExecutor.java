@@ -43,6 +43,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 
 /**
  * 计划任务 durable claim 的外层执行壳。插件能力解析、来源发现、作品执行、凭证、Guard、
@@ -478,7 +479,8 @@ public class ScheduleExecutor {
                 ScheduleExecutionResult result = scheduleExecutionEngine.execute(task, event ->
                         pendingNotifications.add(new PendingExhaustedNotification(
                                 event.workType(), event.workId(), event.attempts(),
-                                event.triggerTime(), event.reasonCode())));
+                                event.triggerTime(), event.reasonCode(),
+                                event.presentation())));
                 completedCount = result.completedWorkCount();
                 candidateCheckpoint.set(result.candidateCheckpoint());
                 degraded[0] = result.credentialRevoked();
@@ -799,7 +801,13 @@ public class ScheduleExecutor {
 
     /** 本轮中达到自动重试上限、需要在最终 next_run_time 确定后再发送的通知事件。 */
     private record PendingExhaustedNotification(
-            String workType, String workId, int attempts, long triggerTime, String reason) {}
+            String workType,
+            String workId,
+            int attempts,
+            long triggerTime,
+            String reason,
+            ScheduledWorkNotificationPresentation presentation) {
+    }
 
     // ── 自动挂起通知（邮件 + 推送并行，best-effort） ──────────────────────────────────
 
@@ -870,8 +878,11 @@ public class ScheduleExecutor {
         ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         ph.put("work_id", displayToken(event.workId()));
-        ph.put("work_kind", workKindLabel(locale, event.workType()));
-        ph.put("work_url", workUrl(event.workType(), event.workId()));
+        ph.put("work_kind", workKindLabel(locale, event.workType(), event.presentation()));
+        ph.put("work_url", event.presentation() == null
+                || event.presentation().referenceUrl() == null
+                ? ""
+                : event.presentation().referenceUrl());
         ph.put("attempts", String.valueOf(event.attempts()));
         ph.put("trigger_time", formatTime(event.triggerTime()));
         ph.put("next_run_time", formatTime(nextRun));
@@ -999,12 +1010,24 @@ public class ScheduleExecutor {
         }
     }
 
-    private String workKindLabel(Locale locale, String workType) {
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(workType)) {
-            return messages.get(locale, "schedule.notification.pending-exhausted.kind.novel");
-        }
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST.equals(workType)) {
-            return messages.get(locale, "schedule.notification.pending-exhausted.kind.illust");
+    private String workKindLabel(
+            Locale locale,
+            String workType,
+            ScheduledWorkNotificationPresentation presentation) {
+        if (presentation != null
+                && presentation.displayNamespace() != null
+                && presentation.displayNameKey() != null) {
+            try {
+                String label = namespaceMessageResolver.resolve(
+                        presentation.displayNamespace(), locale,
+                        presentation.displayNameKey()).orElse(null);
+                if (label != null && !label.isBlank()) {
+                    return label;
+                }
+            } catch (RuntimeException failure) {
+                log.debug("Scheduled work {} display label could not be resolved from namespace {}",
+                        workType, presentation.displayNamespace(), failure);
+            }
         }
         return displayToken(workType);
     }
@@ -1017,21 +1040,6 @@ public class ScheduleExecutor {
         // 传 String 而非 Integer：避免 MessageFormat 对 ≥1000 的分钟数插入千分位分隔符（如 1,440）。
         return messages.get(locale, "schedule.notification.common.trigger.interval",
                 intervalMinutes == null ? "-" : String.valueOf(intervalMinutes));
-    }
-
-    /** 仅为已知 Pixiv 类型与十进制 ID 生成直链；其它插件的 opaque identity 不由宿主猜测 URL。 */
-    private static String workUrl(String workType, String workId) {
-        if (workId == null || workId.isBlank()
-                || !workId.chars().allMatch(Character::isDigit)) {
-            return "";
-        }
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(workType)) {
-            return "https://www.pixiv.net/novel/show.php?id=" + workId;
-        }
-        if (PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST.equals(workType)) {
-            return "https://www.pixiv.net/artworks/" + workId;
-        }
-        return "";
     }
 
     private static String displayToken(String value) {

@@ -19,15 +19,18 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -624,6 +627,89 @@ class ScheduleWorkCoordinatorTest {
                 concurrencyLimiter, workConcurrencyLimit, "fixture-secret");
     }
 
+    @Test
+    @DisplayName("pending 耐久后才在作品租约内复制安全通知展示且隔离插件失败与凭证回显")
+    void pendingPresentationIsProjectedAfterPersistenceAndSanitized() throws Exception {
+        ScheduledTaskStore store = store();
+        Set<String> persistedIds = new HashSet<>();
+        List<String> projectedBeforePersistence = new ArrayList<>();
+        when(store.upsertPendingWork(any())).thenAnswer(invocation -> {
+            ScheduledPendingWork row = invocation.getArgument(0);
+            persistedIds.add(row.workId());
+            return 1;
+        });
+        ScheduledWorkNotificationPresentation safePresentation =
+                new ScheduledWorkNotificationPresentation(
+                        "fixture", "fixture.kind", "https://example.test/works/safe");
+        Map<String, ScheduledWorkExecutor> executors = Map.of(
+                ILLUST, retryingExecutorWithPresentation(
+                        ILLUST, safePresentation, persistedIds, projectedBeforePersistence),
+                NOVEL, retryingExecutorWithPresentation(
+                        NOVEL,
+                        new ScheduledWorkNotificationPresentation(
+                                "fixture", "fixture.kind",
+                                "https://example.test/works/fixture%252Dsecret"),
+                        persistedIds, projectedBeforePersistence),
+                "audio", new ScheduledWorkExecutor() {
+                    @Override
+                    public String workType() {
+                        return "audio";
+                    }
+
+                    @Override
+                    public ScheduledWorkResult execute(
+                            ScheduledWork work,
+                            ScheduledWorkContext context) throws ScheduledExecutionException {
+                        throw new ScheduledExecutionException(
+                                ScheduledFailure.Category.RETRYABLE_NETWORK,
+                                "fixture.retry");
+                    }
+
+                    @Override
+                    public ScheduledWorkNotificationPresentation notificationPresentation(
+                            ScheduledWork work) {
+                        if (!persistedIds.contains(work.key().id())) {
+                            projectedBeforePersistence.add(work.key().id());
+                        }
+                        throw new IllegalStateException("fixture projection failed");
+                    }
+                });
+        ObjectMapper objectMapper = new ObjectMapper();
+        ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(objectMapper);
+        List<ScheduledWork> works = List.of(
+                work(ILLUST, "safe"), work(NOVEL, "secret"), work("audio", "broken"));
+        List<ScheduledPendingWork> pendingRows = works.stream()
+                .map(work -> codec.toPendingWork(
+                        1L, work, "fixture.retry", "{}", 4, 1L, 2L))
+                .toList();
+        List<ScheduleExecutionResult.PendingExhausted> events = new ArrayList<>();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store, executors, new SyncTaskExecutor(), 5,
+                new ScheduleWorkConcurrencyLimiter(), 8, "fixture-secret", events::add);
+
+        coordinator.loadPending(pendingRows);
+        for (ScheduledWork work : works) {
+            coordinator.submit(work);
+        }
+        coordinator.drain();
+
+        assertThat(projectedBeforePersistence).isEmpty();
+        assertThat(events).hasSize(3);
+        assertThat(events.stream()
+                .filter(event -> ILLUST.equals(event.workType()))
+                .findFirst().orElseThrow().presentation())
+                .isEqualTo(safePresentation);
+        assertThat(events.stream()
+                .filter(event -> NOVEL.equals(event.workType()))
+                .findFirst().orElseThrow().presentation())
+                .isEqualTo(ScheduledWorkNotificationPresentation.empty());
+        assertThat(events.stream()
+                .filter(event -> "audio".equals(event.workType()))
+                .findFirst().orElseThrow().presentation())
+                .isEqualTo(ScheduledWorkNotificationPresentation.empty());
+        verify(store, times(3)).upsertPendingWork(any());
+    }
+
     private static ScheduleWorkCoordinator coordinator(
             ScheduledTaskStore store,
             Map<String, ScheduledWorkExecutor> executors,
@@ -632,6 +718,23 @@ class ScheduleWorkCoordinatorTest {
             ScheduleWorkConcurrencyLimiter concurrencyLimiter,
             int workConcurrencyLimit,
             String credentialSecret) {
+        return coordinator(
+                store, executors, taskExecutor, credentialFailureLimit,
+                concurrencyLimiter, workConcurrencyLimit, credentialSecret,
+                ignored -> {
+                });
+    }
+
+    private static ScheduleWorkCoordinator coordinator(
+            ScheduledTaskStore store,
+            Map<String, ScheduledWorkExecutor> executors,
+            TaskExecutor taskExecutor,
+            int credentialFailureLimit,
+            ScheduleWorkConcurrencyLimiter concurrencyLimiter,
+            int workConcurrencyLimit,
+            String credentialSecret,
+            java.util.function.Consumer<ScheduleExecutionResult.PendingExhausted>
+                    pendingExhaustedListener) {
         Map<String, Integer> limits = new LinkedHashMap<>();
         executors.keySet().forEach(workType -> limits.put(workType, workConcurrencyLimit));
         Map<String, ScheduleCapabilityOwner> owners = new LinkedHashMap<>();
@@ -667,8 +770,7 @@ class ScheduleWorkCoordinatorTest {
                 0L,
                 ignored -> {
                 },
-                ignored -> {
-                });
+                pendingExhaustedListener);
     }
 
     private static ScheduledTaskStore store() {
@@ -684,6 +786,37 @@ class ScheduleWorkCoordinatorTest {
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.CREDENTIAL_INVALID, failureCode);
         });
+    }
+
+    private static ScheduledWorkExecutor retryingExecutorWithPresentation(
+            String workType,
+            ScheduledWorkNotificationPresentation presentation,
+            Set<String> persistedIds,
+            List<String> projectedBeforePersistence) {
+        return new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return workType;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork work,
+                    ScheduledWorkContext context) throws ScheduledExecutionException {
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.RETRYABLE_NETWORK,
+                        "fixture.retry");
+            }
+
+            @Override
+            public ScheduledWorkNotificationPresentation notificationPresentation(
+                    ScheduledWork work) {
+                if (!persistedIds.contains(work.key().id())) {
+                    projectedBeforePersistence.add(work.key().id());
+                }
+                return presentation;
+            }
+        };
     }
 
     private static ScheduledWorkExecutor executor(String workType, WorkExecution execution) {

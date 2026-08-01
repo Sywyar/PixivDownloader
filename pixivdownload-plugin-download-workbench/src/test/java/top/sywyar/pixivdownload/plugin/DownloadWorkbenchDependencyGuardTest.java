@@ -310,15 +310,19 @@ class DownloadWorkbenchDependencyGuardTest {
         List<Path> genericHostSources = List.of(
                 root.resolve("schedule/ScheduleRunQueue.java"),
                 root.resolve("schedule/ScheduleService.java"),
+                root.resolve("schedule/ScheduleExecutor.java"),
                 root.resolve("schedule/execution/ScheduleWorkCoordinator.java"),
                 root.resolve("schedule/dto/ScheduleQueueView.java"));
         List<String> forbidden = List.of(
                 "KIND_NOVEL",
+                "WORK_TYPE_ILLUST",
                 "WORK_TYPE_NOVEL",
                 "autoTranslateSubmitted",
                 "TranslateStatus",
                 "translatePhase",
-                "xRestrict");
+                "xRestrict",
+                "pixiv.net/artworks",
+                "novel/show.php");
 
         for (Path source : genericHostSources) {
             assertThat(read(source))

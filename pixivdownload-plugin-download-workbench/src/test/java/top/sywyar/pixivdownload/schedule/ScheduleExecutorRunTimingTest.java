@@ -34,6 +34,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialCircuitOpenException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
@@ -357,7 +358,7 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
-    @DisplayName("pending 通知保留不透明作品身份且仅为已知 Pixiv 类型生成直链")
+    @DisplayName("pending 通知不解释不透明身份并仅消费作品执行器贡献的展示")
     void pendingNotificationPreservesOpaqueIdentity() throws Exception {
         ScheduledTask task = task(12L, "user-new", userDefinition("100"), null, null, null);
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
@@ -366,13 +367,21 @@ class ScheduleExecutorRunTimingTest {
             java.util.function.Consumer<ScheduleExecutionResult.PendingExhausted> listener =
                     invocation.getArgument(1);
             listener.accept(new ScheduleExecutionResult.PendingExhausted(
-                    "video", "video:abc/1", 5, 1_000L, "video.failed"));
+                    "video", "video:abc/1", 5, 1_000L, "video.failed",
+                    ScheduledWorkNotificationPresentation.empty()));
             listener.accept(new ScheduleExecutionResult.PendingExhausted(
-                    "video", "123456", 5, 1_500L, "video.failed"));
+                    "novel", "184467440737095516160", 5, 1_500L, "novel.failed",
+                    ScheduledWorkNotificationPresentation.empty()));
             listener.accept(new ScheduleExecutionResult.PendingExhausted(
-                    "novel", "184467440737095516160", 5, 2_000L, "novel.failed"));
+                    "fixture", "opaque:slug/42", 5, 2_000L, "fixture.failed",
+                    new ScheduledWorkNotificationPresentation(
+                            "novel", "batch.user.kind-novel",
+                            "https://www.pixiv.net/novel/show.php?id=42")));
             return emptyResult();
         }).when(engine).execute(eq(task), any());
+        when(namespaceMessageResolver.resolve(
+                eq("novel"), any(), eq("batch.user.kind-novel")))
+                .thenReturn(Optional.of("Novels"));
 
         genericExecutor(engine).runTaskAndRecord(task);
 
@@ -385,13 +394,14 @@ class ScheduleExecutorRunTimingTest {
                 .containsEntry("work_kind", "video")
                 .containsEntry("work_url", "");
         assertThat(placeholders.getAllValues().get(1))
-                .containsEntry("work_id", "123456")
-                .containsEntry("work_kind", "video")
+                .containsEntry("work_id", "184467440737095516160")
+                .containsEntry("work_kind", "novel")
                 .containsEntry("work_url", "");
         assertThat(placeholders.getAllValues().get(2))
-                .containsEntry("work_id", "184467440737095516160")
+                .containsEntry("work_id", "opaque:slug/42")
+                .containsEntry("work_kind", "Novels")
                 .containsEntry("work_url",
-                        "https://www.pixiv.net/novel/show.php?id=184467440737095516160");
+                        "https://www.pixiv.net/novel/show.php?id=42");
     }
 
     @Test

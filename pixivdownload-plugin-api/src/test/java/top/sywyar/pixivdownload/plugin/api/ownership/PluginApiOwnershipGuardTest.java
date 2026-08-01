@@ -214,7 +214,8 @@ class PluginApiOwnershipGuardTest {
                             "ScheduledWorkSink"),
                     types(API_PREFIX + "schedule.work",
                             "ScheduledWork", "ScheduledWorkContext", "ScheduledWorkExecutor", "ScheduledWorkKey",
-                            "ScheduledWorkPresentation", "ScheduledWorkRelation", "ScheduledWorkResult",
+                            "ScheduledWorkNotificationPresentation", "ScheduledWorkPresentation",
+                            "ScheduledWorkRelation", "ScheduledWorkResult",
                             "ScheduledWorkRunContext", "ScheduledWorkRunStatistics"))),
             Map.entry("队列生命周期协议", types(API_PREFIX + "download.queue",
                     "QueueDrain", "QueueGenerationDrain", "QueueNotAcceptingException", "QueueOperations",
@@ -234,7 +235,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件运行期后台任务协议", 4),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
-            Map.entry("计划任务协议", 49),
+            Map.entry("计划任务协议", 50),
             Map.entry("队列生命周期协议", 5)
     );
 

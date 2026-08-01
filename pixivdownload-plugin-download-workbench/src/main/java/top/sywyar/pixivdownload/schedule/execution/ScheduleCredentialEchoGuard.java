@@ -52,6 +52,22 @@ final class ScheduleCredentialEchoGuard implements AutoCloseable {
         return false;
     }
 
+    /**
+     * 在已经被声明为可逆编码载体的文本中做保守子串检测。与普通字段边界不同，URL 即使只携带
+     * 一个短凭证片段也会形成泄漏，因此这里不对短片段放宽。
+     */
+    synchronized boolean matchesSubstring(String candidate) {
+        if (closed || candidate == null || candidate.isEmpty()) {
+            return false;
+        }
+        for (Fragment fragment : fragments) {
+            if (contains(candidate, secretSnapshot, fragment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public synchronized void close() {
         if (closed) {

@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -94,6 +95,20 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     @Override
     public int maxConcurrency() {
         return downloadExecutionLane.capacity();
+    }
+
+    @Override
+    public ScheduledWorkNotificationPresentation notificationPresentation(
+            ScheduledWork work) {
+        try {
+            long novelId = decodeWorkId(work);
+            return new ScheduledWorkNotificationPresentation(
+                    "novel",
+                    "batch.user.kind-novel",
+                    "https://www.pixiv.net/novel/show.php?id=" + novelId);
+        } catch (ScheduledExecutionException failure) {
+            return ScheduledWorkNotificationPresentation.empty();
+        }
     }
 
     @Override

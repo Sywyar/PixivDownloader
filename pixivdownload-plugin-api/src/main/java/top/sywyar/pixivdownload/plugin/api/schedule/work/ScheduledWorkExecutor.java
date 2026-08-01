@@ -26,6 +26,17 @@ public interface ScheduledWorkExecutor {
     }
 
     /**
+     * 同步提供作品进入异步通知时的安全展示投影。实现必须快速返回，不得访问网络、文件或其它外部系统，
+     * 不得产生外部副作用，也不得读取、派生或保留任何凭证材料。默认不提供展示信息。
+     *
+     * @param work 已通过计划作品信封校验的作品
+     * @return 仅含受控展示 token 与安全 HTTPS 引用的纯值投影
+     */
+    default ScheduledWorkNotificationPresentation notificationPresentation(ScheduledWork work) {
+        return ScheduledWorkNotificationPresentation.empty();
+    }
+
+    /**
      * 本执行器在一轮来源发现正常结束、全部在途作品排空且失败作品已耐久记入 pending 后的轮末动作。
      * 宿主在 {@code RUN_END} Guard 与 checkpoint 提交前、仍持有全部相关 owner 执行租约时，对每个本轮所需
      * work type 恰好调用一次。实现需要系列合订等轮级后处理时可覆盖；默认无动作。

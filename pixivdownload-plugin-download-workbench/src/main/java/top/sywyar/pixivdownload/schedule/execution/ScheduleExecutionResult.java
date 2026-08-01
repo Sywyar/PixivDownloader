@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkNotificationPresentation;
 
 import java.util.List;
 
@@ -24,7 +25,16 @@ public record ScheduleExecutionResult(
             String workId,
             int attempts,
             long triggerTime,
-            String reasonCode
+            String reasonCode,
+            ScheduledWorkNotificationPresentation presentation
     ) {
+        public PendingExhausted {
+            presentation = presentation == null
+                    ? ScheduledWorkNotificationPresentation.empty()
+                    : new ScheduledWorkNotificationPresentation(
+                    presentation.displayNamespace(),
+                    presentation.displayNameKey(),
+                    presentation.referenceUrl());
+        }
     }
 }

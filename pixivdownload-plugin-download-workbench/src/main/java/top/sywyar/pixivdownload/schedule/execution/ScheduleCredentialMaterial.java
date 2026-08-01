@@ -5,12 +5,19 @@ import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 
 /** 宿主在复合租约内读取并在整轮结束清零的凭证材料；每次插件调用仍取得独立句柄副本。 */
 final class ScheduleCredentialMaterial implements AutoCloseable {
+
+    private static final int MAX_PERCENT_DECODE_ROUNDS = 16;
 
     private char[] secret;
     private final ScheduleCredentialEchoGuard echoGuard;
@@ -34,6 +41,36 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
 
     boolean containsEcho(String candidate) {
         return echoGuard.matches(candidate);
+    }
+
+    /**
+     * 检测 URL 等可逆百分号编码文本中的活动凭证回显。每轮只解释 {@code %HH}，不把加号改为空格；
+     * 最多重复解码固定轮数，超过上限仍可继续解码的输入按可疑材料 fail-closed。
+     */
+    boolean containsEchoInPercentEncodedText(String candidate) {
+        if (echoGuard.matchesSubstring(candidate)) {
+            return true;
+        }
+        if (candidate == null || candidate.isEmpty()) {
+            return false;
+        }
+        String current = candidate;
+        for (int round = 0; round < MAX_PERCENT_DECODE_ROUNDS; round++) {
+            String decoded;
+            try {
+                decoded = decodePercentEncodedOnce(current);
+            } catch (IllegalArgumentException failure) {
+                return true;
+            }
+            if (decoded.equals(current)) {
+                return false;
+            }
+            if (echoGuard.matchesSubstring(decoded)) {
+                return true;
+            }
+            current = decoded;
+        }
+        return hasPercentEscape(current);
     }
 
     boolean containsEchoInJson(ObjectMapper objectMapper, String candidate) {
@@ -88,6 +125,49 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
                 || token == JsonToken.VALUE_TRUE
                 || token == JsonToken.VALUE_FALSE
                 || token == JsonToken.VALUE_NULL;
+    }
+
+    private static String decodePercentEncodedOnce(String value) {
+        if (!hasPercentEscape(value)) {
+            return value;
+        }
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(value.length());
+        for (int index = 0; index < value.length();) {
+            char current = value.charAt(index);
+            if (current == '%' && index + 2 < value.length()) {
+                int high = Character.digit(value.charAt(index + 1), 16);
+                int low = Character.digit(value.charAt(index + 2), 16);
+                if (high >= 0 && low >= 0) {
+                    bytes.write((high << 4) | low);
+                    index += 3;
+                    continue;
+                }
+            }
+            int codePoint = value.codePointAt(index);
+            bytes.writeBytes(new String(Character.toChars(codePoint))
+                    .getBytes(StandardCharsets.UTF_8));
+            index += Character.charCount(codePoint);
+        }
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes.toByteArray()))
+                    .toString();
+        } catch (CharacterCodingException failure) {
+            throw new IllegalArgumentException("invalid percent-encoded UTF-8", failure);
+        }
+    }
+
+    private static boolean hasPercentEscape(String value) {
+        for (int index = 0; index + 2 < value.length(); index++) {
+            if (value.charAt(index) == '%'
+                    && Character.digit(value.charAt(index + 1), 16) >= 0
+                    && Character.digit(value.charAt(index + 2), 16) >= 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     synchronized ScheduledCredentialHandle openHandle() {
