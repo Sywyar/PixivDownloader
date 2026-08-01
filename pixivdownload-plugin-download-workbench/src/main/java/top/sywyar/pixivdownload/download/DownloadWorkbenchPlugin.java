@@ -79,6 +79,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return List.of(
                 WebRouteContribution.visitor("/pixiv-batch.html"),
                 WebRouteContribution.visitor("/pixiv-batch/**"),
+                WebRouteContribution.visitor("/pixiv-batch-alt.html"),
+                WebRouteContribution.visitor("/pixiv-batch-alt/**"),
                 WebRouteContribution.admin("/api/schedule/**"),
                 WebRouteContribution.invitedGuest("/api/download/status/active"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
@@ -111,7 +113,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     public List<StaticResourceContribution> staticResources() {
         return List.of(
                 new StaticResourceContribution("classpath:/static/", "/pixiv-batch.html", true),
-                new StaticResourceContribution("classpath:/static/pixiv-batch/", "/pixiv-batch/"));
+                new StaticResourceContribution("classpath:/static/pixiv-batch/", "/pixiv-batch/"),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-batch-alt.html", true),
+                new StaticResourceContribution("classpath:/static/pixiv-batch-alt/", "/pixiv-batch-alt/"));
     }
 
     @Override
@@ -139,6 +143,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         // 第三参为 /api/i18n/meta 的全局展示顺序（保持历史 namespace 顺序）。
         return List.of(
                 new I18nContribution("batch", "i18n.web.batch", 5),
+                new I18nContribution("batch-alt", "i18n.web.batch-alt", 6),
                 new I18nContribution("userscript", "i18n.web.userscript", 16));
     }
 

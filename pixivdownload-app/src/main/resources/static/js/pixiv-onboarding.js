@@ -109,6 +109,18 @@
         backdrop.className = 'po-backdrop';
         var spot = document.createElement('div');
         spot.className = 'po-spot';
+        var self = this;
+        spot.addEventListener('click', function () {
+            if (!self.interactiveEl) {
+                return;
+            }
+            if (typeof self.interactiveEl.focus === 'function') {
+                self.interactiveEl.focus();
+            }
+            if (typeof self.interactiveEl.click === 'function') {
+                self.interactiveEl.click();
+            }
+        });
         var pop = document.createElement('div');
         pop.className = 'po-pop';
         pop.setAttribute('role', 'dialog');
@@ -132,6 +144,8 @@
      */
     Overlay.prototype.render = function (opts) {
         this.ensure();
+        this._clearInteractive();
+        this.spot.style.pointerEvents = 'none';
         this.targetSelector = opts.targetSelector || null;
         this.interactiveSelector = opts.interactiveSelector || null;
         this.centered = !!opts.centered;
@@ -175,6 +189,7 @@
                 this.interactiveEl = inter;
             }
         }
+        this.spot.style.pointerEvents = inter ? 'auto' : 'none';
         if (this.centered) {
             return; // 居中模态：CSS 已固定，无需定位聚光
         }
@@ -787,6 +802,7 @@
     }
 
     function stepStart() {
+        callHook('beforeStart');
         overlay.render({
             targetSelector: config.sel.startButton,
             interactiveSelector: config.sel.startButton,

@@ -1,0 +1,180 @@
+/* ============================================================
+   pixiv-batch-alt — 页面专属动效层
+   与全站共享动效层 /css/pixiv-motion.css 互补：共享层负责整页入场、
+   按钮 / 输入微交互与「减少动态效果」降级；本层负责本页组件的级联入场、
+   骨架屏、状态灯脉冲、队列项与卡片的进入 / 退出。
+   时长与缓动一律引用共享令牌（--motion-*）。
+   ============================================================ */
+
+/* ---- 关键帧 ---- */
+@keyframes ab-shimmer {
+    from {
+        background-position: 200% 0;
+    }
+    to {
+        background-position: -200% 0;
+    }
+}
+
+@keyframes ab-pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: .45;
+        transform: scale(.78);
+    }
+}
+
+@keyframes ab-stagger-in {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(.985);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes ab-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes ab-rise-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* ---- 级联入场：凡带 --stagger 的卡片按序浮入 ---- */
+.ab-work,
+.ab-quick-action,
+.ab-user-card,
+.ab-collection-card,
+.ab-script-card,
+.ab-schedule-card,
+.ab-queue-item,
+.ab-rail-item {
+    animation: ab-stagger-in var(--motion-slow) var(--motion-ease-out) backwards;
+    animation-delay: calc(var(--stagger, 0) * 36ms);
+}
+
+.ab-rail-item {
+    animation-delay: calc(var(--stagger, 0) * 55ms);
+}
+
+/* 舞台块级容器淡入 */
+.ab-mode-head,
+.ab-account,
+.ab-composer,
+.ab-enqueue-bar,
+.ab-artist,
+.ab-series-head,
+.ab-stage-title,
+.ab-inline-warn,
+.ab-dock-stats,
+.ab-dock-controls,
+.ab-current,
+.ab-quota,
+.ab-archive,
+.ab-queue-ops {
+    animation: ab-rise-in var(--motion-med) var(--motion-ease-out) backwards;
+}
+
+/* 钻取区块：追加出现（非替换）时自下而上展开 */
+.ab-drill {
+    animation: ab-rise-in var(--motion-slow) var(--motion-ease-out);
+    border-top: 1px dashed var(--line);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ab-drill-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ab-drill-head h3 {
+    font-size: 15px;
+}
+
+/* 入队条吸附于网格上方滚动 */
+.ab-enqueue-bar {
+    position: sticky;
+    top: 66px;
+    z-index: 20;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+/* 当前下载卡的完成脉冲：进度环满值时轻微缩放一次 */
+.ab-ring-fill {
+    transition: stroke-dashoffset var(--motion-slow) var(--motion-ease-standard);
+}
+
+/* 队列项状态切换：整卡淡入以提示变化 */
+.ab-queue-item[data-status="downloading"] {
+    animation: ab-fade-in var(--motion-fast) var(--motion-ease-standard);
+}
+
+/* 顶栏品牌徽标呼吸光 */
+.ab-brand-mark {
+    position: relative;
+    overflow: hidden;
+}
+
+:root {
+    --sheen-grad: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .35) 50%, transparent 70%);
+}
+
+.ab-brand-mark::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--sheen-grad);
+    transform: translateX(-120%);
+    animation: ab-sheen 4.8s var(--motion-ease-standard) infinite;
+}
+
+@keyframes ab-sheen {
+    0%, 62% {
+        transform: translateX(-120%);
+    }
+    82%, 100% {
+        transform: translateX(120%);
+    }
+}
+
+/* 「减少动态效果」：共享层已全局归零动画 / 过渡时长，
+   此处仅补级联延迟清零，避免 backwards 延迟造成内容晚现。 */
+@media (prefers-reduced-motion: reduce) {
+    .ab-work,
+    .ab-quick-action,
+    .ab-user-card,
+    .ab-collection-card,
+    .ab-script-card,
+    .ab-schedule-card,
+    .ab-queue-item,
+    .ab-rail-item {
+        animation-delay: 0ms;
+    }
+
+    .ab-brand-mark::after {
+        animation: none;
+    }
+}

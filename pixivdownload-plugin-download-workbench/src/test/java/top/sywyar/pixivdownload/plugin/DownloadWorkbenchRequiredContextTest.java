@@ -66,6 +66,8 @@ class DownloadWorkbenchRequiredContextTest {
                 .containsOnly(DownloadWorkbenchPlugin.ID);
         assertThat(registry.isDeclared("/pixiv-batch.html")).isTrue();
         assertThat(registry.isDeclared("/pixiv-batch/batch-core.js")).isTrue();
+        assertThat(registry.isDeclared("/pixiv-batch-alt.html")).isTrue();
+        assertThat(registry.isDeclared("/pixiv-batch-alt/alt-core.js")).isTrue();
         assertThat(registry.isDeclared("/api/download/pixiv")).isTrue();
         assertThat(registry.isDeclared("/api/download/cancel/123")).isTrue();
         assertThat(registry.isDeclared("/api/download/queue/clear")).isTrue();
@@ -97,10 +99,15 @@ class DownloadWorkbenchRequiredContextTest {
                         + "|" + resource.publicPathPrefix() + "|" + resource.exactFile())
                 .containsExactly(
                         "classpath:/static/|/pixiv-batch.html|true",
-                        "classpath:/static/pixiv-batch/|/pixiv-batch/|false");
+                        "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
+                        "classpath:/static/|/pixiv-batch-alt.html|true",
+                        "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false");
         assertThat(plugin.i18n())
                 .extracting(i18n -> i18n.namespace() + "|" + i18n.baseName())
-                .containsExactly("batch|i18n.web.batch", "userscript|i18n.web.userscript");
+                .containsExactly(
+                        "batch|i18n.web.batch",
+                        "batch-alt|i18n.web.batch-alt",
+                        "userscript|i18n.web.userscript");
         assertThat(plugin.userscripts())
                 .extracting(script -> script.classpathPattern())
                 .containsExactly("classpath:/static/userscripts/*.user.js");

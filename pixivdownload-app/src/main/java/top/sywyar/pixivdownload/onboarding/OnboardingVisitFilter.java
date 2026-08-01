@@ -23,6 +23,7 @@ import java.io.IOException;
 public class OnboardingVisitFilter extends OncePerRequestFilter {
 
     private static final String BATCH_PAGE = "/pixiv-batch.html";
+    private static final String BATCH_ALT_PAGE = "/pixiv-batch-alt.html";
 
     private final OnboardingProgressService progressService;
 
@@ -35,7 +36,7 @@ public class OnboardingVisitFilter extends OncePerRequestFilter {
             return;
         }
         String path = req.getRequestURI();
-        if (BATCH_PAGE.equals(path)) {
+        if (BATCH_PAGE.equals(path) || BATCH_ALT_PAGE.equals(path)) {
             progressService.recordBatchVisit();
         }
     }
