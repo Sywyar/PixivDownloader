@@ -34,7 +34,9 @@ build/
 !**/src/test/**/build/
 
 ### VS Code ###
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
 /pixiv-download-Enn/
 /pixiv-download/
 /config/

@@ -1,0 +1,43 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Compile Developer Runtime",
+      "type": "process",
+      "command": "${workspaceFolder}/mvnw",
+      "windows": {
+        "command": "${workspaceFolder}\\mvnw.cmd"
+      },
+      "args": [
+        "-pl",
+        "pixivdownload-official-plugins",
+        "-am",
+        "compile",
+        "-Dexec.skip=true"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Compile Application",
+      "type": "process",
+      "command": "${workspaceFolder}/mvnw",
+      "windows": {
+        "command": "${workspaceFolder}\\mvnw.cmd"
+      },
+      "args": [
+        "-pl",
+        "pixivdownload-app",
+        "-am",
+        "compile",
+        "-Dexec.skip=true"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -245,5 +245,32 @@
                 </plugins>
             </build>
         </profile>
+        <profile>
+            <id>recovery-mode</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <configuration>
+                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                            <useTestClasspath>false</useTestClasspath>
+                            <arguments>
+                                <argument>--pixivdownload.recovery-sentinel.required=true</argument>
+                            </arguments>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>run-recovery-launcher</id>
+                                <phase>process-classes</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 </project>

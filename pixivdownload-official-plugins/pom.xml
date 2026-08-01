@@ -18,66 +18,116 @@
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-ai</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-download-workbench</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-douyin</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-duplicate</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-gallery</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-gui-theme</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-mail</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-notification</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-novel</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-push</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-recovery-sentinel</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-stats</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-tts</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>dev-mode</id>
+            <dependencies>
+                <dependency>
+                    <groupId>top.sywyar.lovepopup</groupId>
+                    <artifactId>PixivDownload</artifactId>
+                    <version>${project.version}</version>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <configuration>
+                            <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
+                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                            <jvmArguments>-Dpixivdownload.plugin-dev.enabled=true -Dpixivdownload.plugin-dev.root=${maven.multiModuleProjectDirectory}</jvmArguments>
+                            <useTestClasspath>false</useTestClasspath>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>run-development-launcher</id>
+                                <phase>process-classes</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Developer Mode",
+      "mainClass": "top.sywyar.pixivdownload.gui.GuiLauncher",
+      "projectName": "PixivDownload",
+      "cwd": "${workspaceFolder}",
+      "vmArgs": [
+        "-Dpixivdownload.plugin-dev.enabled=true",
+        "-Dpixivdownload.plugin-dev.root=${workspaceFolder}"
+      ],
+      "preLaunchTask": "Compile Developer Runtime",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Missing Required Plugin",
+      "mainClass": "top.sywyar.pixivdownload.gui.GuiLauncher",
+      "projectName": "PixivDownload",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "--pixivdownload.recovery-sentinel.required=true"
+      ],
+      "preLaunchTask": "Compile Application",
+      "console": "integratedTerminal"
+    }
+  ]
+}
