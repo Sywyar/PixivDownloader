@@ -871,6 +871,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         requiredOwners.put(planning.owner(), sourceOwner);
         Map<String, ScheduledWorkExecutor> workExecutors = new LinkedHashMap<>();
         Map<String, ScheduleCapabilityOwner> workExecutorOwners = new LinkedHashMap<>();
+        Map<String, Long> workExecutorPublicationIds = new LinkedHashMap<>();
         for (String workType : workTypes) {
             WorkRoute route = current.worksByType().get(workType);
             if (route == null) {
@@ -883,6 +884,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             requiredOwners.put(route.owner(), published);
             workExecutors.put(workType, route.executor());
             workExecutorOwners.put(workType, route.owner());
+            workExecutorPublicationIds.put(workType, route.publicationId());
         }
 
         ScheduledCredentialPolicy credentialPolicy = null;
@@ -936,7 +938,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
 
         return Optional.of(new ScheduleExecutionLease(
                 planning, branch, sourceState, additionalOwners, source,
-                workExecutors, workExecutorOwners,
+                workExecutors, workExecutorOwners, workExecutorPublicationIds,
                 credentialPolicy, credentialPolicyOwner, guards, guardOwners));
     }
 

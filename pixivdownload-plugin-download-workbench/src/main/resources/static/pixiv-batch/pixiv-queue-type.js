@@ -369,13 +369,52 @@
             scheduledSse: true,
             scheduledQueueItem(item, ctx) {
                 const rawId = String(item.workId != null ? item.workId : (item.id == null ? '' : item.id));
+                const presentation = item.presentation && typeof item.presentation === 'object'
+                    && !Array.isArray(item.presentation) ? item.presentation : {};
+                const presentationAttributes = item.presentationAttributes
+                    && typeof item.presentationAttributes === 'object'
+                    && !Array.isArray(item.presentationAttributes)
+                    ? item.presentationAttributes
+                    : (presentation.attributes && typeof presentation.attributes === 'object'
+                        && !Array.isArray(presentation.attributes) ? presentation.attributes : {});
+                const resultAttributes = item.resultAttributes
+                    && typeof item.resultAttributes === 'object' && !Array.isArray(item.resultAttributes)
+                    ? item.resultAttributes : {};
+                const xRestrictRaw = resultAttributes.xRestrict != null
+                    ? resultAttributes.xRestrict
+                    : (presentationAttributes.xRestrict != null
+                        ? presentationAttributes.xRestrict : item.xRestrict);
+                const xRestrictNumber = Number(xRestrictRaw);
+                const aiRaw = resultAttributes.ai != null ? resultAttributes.ai
+                    : (resultAttributes.isAi != null ? resultAttributes.isAi
+                        : (presentationAttributes.ai != null ? presentationAttributes.ai
+                            : (presentationAttributes.isAi != null
+                                ? presentationAttributes.isAi
+                                : (item.ai != null ? item.ai : item.isAi))));
+                const normalizedAi = typeof aiRaw === 'string' ? aiRaw.trim().toLowerCase() : aiRaw;
                 return {
                     id: rawId,
                     kind: type,
                     cancelWorkKey: pixivCancelWorkKey(rawId),
-                    rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
-                    source: scheduledSourceStyle(ctx.sourceType),
-                    typeData: ctx.sourceType ? {sourceType: String(ctx.sourceType)} : null
+                    rawTitle: item.title && String(item.title).trim()
+                        ? String(item.title)
+                        : (presentation.title && String(presentation.title).trim()
+                            ? String(presentation.title)
+                            : (resultAttributes.title && String(resultAttributes.title).trim()
+                                ? String(resultAttributes.title) : null)),
+                    authorName: item.author && String(item.author).trim()
+                        ? String(item.author)
+                        : (presentation.author && String(presentation.author).trim()
+                            ? String(presentation.author) : ''),
+                    thumbnailReference: item.thumbnailReference
+                        || presentation.thumbnailReference || null,
+                    xRestrict: Number.isInteger(xRestrictNumber) && xRestrictNumber >= 0
+                        ? xRestrictNumber : null,
+                    isAi: normalizedAi === true || normalizedAi === 'true'
+                        || normalizedAi === 1 || normalizedAi === '1',
+                    source: scheduledSourceStyle(ctx && ctx.sourceType),
+                    typeData: ctx && ctx.sourceType
+                        ? {sourceType: String(ctx.sourceType)} : null
                 };
             },
             import: {

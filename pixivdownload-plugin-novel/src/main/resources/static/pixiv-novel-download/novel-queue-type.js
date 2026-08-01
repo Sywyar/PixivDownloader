@@ -467,15 +467,15 @@ async function getNovelUserMeta(userId, hookContext) {
 
     /* ============================================================
        下载即自动翻译：脱离下载 worker 的状态轮询
-       —— 翻译生命周期在服务端，前端只可视化；写入队列项的 raw 字段，渲染时再本地化文案。
+       —— 翻译生命周期在服务端，前端只把所有者 raw 状态写入中性 liveStatus。
     ============================================================ */
     async function pollNovelTranslateStatus(item, novelId, invocation) {
         assertNovelProcess(invocation);
-        item.translatePhase = 'QUEUED';
-        item.translateElapsed = 0;
-        item.translateSeriesPending = 0;
-        item.translateDone = false;
-        item.translateFailed = false;
+        item.liveStatus = {
+            phase: 'QUEUED',
+            elapsedSeconds: '0',
+            seriesPending: '0'
+        };
         renderQueue();
         const startedAt = Date.now();
         const MAX_POLL_MS = 30 * 60 * 1000;   // 安全上限：30 分钟后停止轮询
@@ -507,13 +507,13 @@ async function getNovelUserMeta(userId, hookContext) {
             const st = await res.json().catch(() => null);
             assertNovelProcess(invocation);
             if (!st || !st.phase) continue;
-            item.translatePhase = st.phase;
-            item.translateElapsed = st.elapsedSeconds || 0;
-            item.translateSeriesPending = st.seriesPending || 0;
+            item.liveStatus = {
+                phase: String(st.phase),
+                elapsedSeconds: String(st.elapsedSeconds == null ? 0 : st.elapsedSeconds),
+                seriesPending: String(st.seriesPending == null ? 0 : st.seriesPending)
+            };
             if (st.done || st.failed || st.phase === 'DONE' || st.phase === 'FAILED'
                 || st.phase === 'SAME_LANGUAGE') {
-                item.translateDone = !!st.done || st.phase === 'DONE' || st.phase === 'SAME_LANGUAGE';
-                item.translateFailed = !!st.failed || st.phase === 'FAILED';
                 saveQueue();
                 renderQueue();
                 return;
@@ -524,9 +524,7 @@ async function getNovelUserMeta(userId, hookContext) {
 
     function clearTranslateState(item, invocation) {
         assertNovelProcess(invocation);
-        item.translatePhase = null;
-        item.translateElapsed = 0;
-        item.translateSeriesPending = 0;
+        item.liveStatus = null;
         renderQueue();
     }
 
@@ -1144,6 +1142,83 @@ function novelQueueTags(item) {
     return tags;
 }
 
+function novelLiveStatusCount(value) {
+    const count = Number(value);
+    return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+
+// 小说插件拥有 phase 语义与文案；宿主只接收这项同步纯文本贡献，不识别翻译阶段。
+function novelQueueLiveStatus(item) {
+    const status = item && item.liveStatus && typeof item.liveStatus === 'object'
+        && !Array.isArray(item.liveStatus) ? item.liveStatus : null;
+    if (!status) return null;
+    const phase = String(status.phase || '').trim().toUpperCase();
+    const label = bt('novel:queue.translate.label', 'AI 翻译');
+    switch (phase) {
+        case 'QUEUED':
+            return {
+                label,
+                message: bt('novel:queue.message.translate-waiting', '排队等待翻译...'),
+                tone: 'info'
+            };
+        case 'WAITING_SERIES':
+            return {
+                label,
+                message: bt(
+                    'novel:queue.message.translate-wait-series',
+                    '等待前系列小说翻译完成，还有 {n} 个',
+                    {n: novelLiveStatusCount(status.seriesPending)}
+                ),
+                tone: 'warning'
+            };
+        case 'RESOLVING':
+            return {
+                label,
+                message: bt('novel:queue.message.translate-resolving', '识别目标语言中...'),
+                tone: 'info'
+            };
+        case 'TRANSLATING':
+            return {
+                label,
+                message: bt(
+                    'novel:queue.message.translating',
+                    'AI 翻译中（{sec}s）',
+                    {sec: novelLiveStatusCount(status.elapsedSeconds)}
+                ),
+                tone: 'info'
+            };
+        case 'MERGING':
+            return {
+                label,
+                message: bt('novel:queue.message.translate-merging', '生成译文合订本中...'),
+                tone: 'info'
+            };
+        case 'SAME_LANGUAGE':
+            return {
+                label,
+                message: bt(
+                    'novel:queue.message.translate-same-lang',
+                    '完成（源语言与目标一致，已跳过）'
+                ),
+                tone: 'success'
+            };
+        case 'DONE':
+            return {
+                label,
+                message: bt('novel:queue.message.translate-done', '完成（已翻译）'),
+                tone: 'success'
+            };
+        case 'FAILED':
+            return {
+                label,
+                message: bt('novel:queue.message.translate-failed', '完成（翻译失败）'),
+                tone: 'error'
+            };
+        default:
+            return null;
+    }
+}
+
 function novelCanonicalQueueItemUrl(item) {
     let novelId = item && item.novelId != null ? String(item.novelId).trim() : '';
     if (!novelId && item && item.id != null) {
@@ -1158,6 +1233,7 @@ const NOVEL_DESCRIPTOR = {
     slots: NOVEL_SLOTS,
     process: processNovelItem,
     queueTags: novelQueueTags,
+    queueLiveStatus: novelQueueLiveStatus,
     canonicalUrl: novelCanonicalQueueItemUrl,
     // 批量导入单作品：小说链接 / `novel:` 区段头 / 裸 id 的解析与入队项构造。
     import: {
@@ -1423,7 +1499,30 @@ if (window.PixivBatch && window.PixivBatch.queueTypes) {
             scheduledSse: false,
             scheduledQueueItem(item, ctx) {
                 const rawId = String(item.workId != null ? item.workId : (item.id == null ? '' : item.id));
-                const sourceType = String(ctx.sourceType || '');
+                const presentation = item.presentation && typeof item.presentation === 'object'
+                    && !Array.isArray(item.presentation) ? item.presentation : {};
+                const presentationAttributes = item.presentationAttributes
+                    && typeof item.presentationAttributes === 'object'
+                    && !Array.isArray(item.presentationAttributes)
+                    ? item.presentationAttributes
+                    : (presentation.attributes && typeof presentation.attributes === 'object'
+                        && !Array.isArray(presentation.attributes) ? presentation.attributes : {});
+                const resultAttributes = item.resultAttributes
+                    && typeof item.resultAttributes === 'object' && !Array.isArray(item.resultAttributes)
+                    ? item.resultAttributes : {};
+                const xRestrictRaw = resultAttributes.xRestrict != null
+                    ? resultAttributes.xRestrict
+                    : (presentationAttributes.xRestrict != null
+                        ? presentationAttributes.xRestrict : item.xRestrict);
+                const xRestrictNumber = Number(xRestrictRaw);
+                const aiRaw = resultAttributes.ai != null ? resultAttributes.ai
+                    : (resultAttributes.isAi != null ? resultAttributes.isAi
+                        : (presentationAttributes.ai != null ? presentationAttributes.ai
+                            : (presentationAttributes.isAi != null
+                                ? presentationAttributes.isAi
+                                : (item.ai != null ? item.ai : item.isAi))));
+                const normalizedAi = typeof aiRaw === 'string' ? aiRaw.trim().toLowerCase() : aiRaw;
+                const sourceType = String(ctx && ctx.sourceType || '');
                 const source = sourceType === 'search' ? 'search'
                     : sourceType === 'series' ? 'series'
                         : ['user-new', 'user-request', 'my-bookmarks', 'follow-latest', 'collection'].includes(sourceType)
@@ -1432,12 +1531,27 @@ if (window.PixivBatch && window.PixivBatch.queueTypes) {
                     id: 'n' + rawId,
                     novelId: rawId,
                     kind: context.type,
-                    rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
+                    rawTitle: item.title && String(item.title).trim()
+                        ? String(item.title)
+                        : (presentation.title && String(presentation.title).trim()
+                            ? String(presentation.title)
+                            : (resultAttributes.title && String(resultAttributes.title).trim()
+                                ? String(resultAttributes.title) : null)),
+                    authorName: item.author && String(item.author).trim()
+                        ? String(item.author)
+                        : (presentation.author && String(presentation.author).trim()
+                            ? String(presentation.author) : ''),
+                    thumbnailReference: item.thumbnailReference
+                        || presentation.thumbnailReference || null,
+                    xRestrict: Number.isInteger(xRestrictNumber) && xRestrictNumber >= 0
+                        ? xRestrictNumber : null,
+                    isAi: normalizedAi === true || normalizedAi === 'true'
+                        || normalizedAi === 1 || normalizedAi === '1',
                     source,
                     typeData: sourceType ? {sourceType} : null,
-                    translatePhase: item.translatePhase || null,
-                    translateElapsed: item.translateElapsedSeconds == null ? 0 : item.translateElapsedSeconds,
-                    translateSeriesPending: item.translateSeriesPending == null ? 0 : item.translateSeriesPending
+                    liveStatus: item.liveStatus && typeof item.liveStatus === 'object'
+                        && !Array.isArray(item.liveStatus)
+                        ? Object.assign({}, item.liveStatus) : null
                 };
             }
         });

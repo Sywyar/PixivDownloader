@@ -1122,23 +1122,48 @@ const DOUYIN_DESCRIPTOR = {
     scheduledSse: false,
     scheduledQueueItem(item, ctx) {
         const rawId = String(item.workId != null ? item.workId : (item.id == null ? '' : item.id));
+        const presentation = item.presentation && typeof item.presentation === 'object'
+            && !Array.isArray(item.presentation) ? item.presentation : {};
+        const presentationAttributes = item.presentationAttributes
+            && typeof item.presentationAttributes === 'object'
+            && !Array.isArray(item.presentationAttributes)
+            ? item.presentationAttributes
+            : (presentation.attributes && typeof presentation.attributes === 'object'
+                && !Array.isArray(presentation.attributes) ? presentation.attributes : {});
+        const resultAttributes = item.resultAttributes && typeof item.resultAttributes === 'object'
+            && !Array.isArray(item.resultAttributes) ? item.resultAttributes : {};
+        const owned = Object.assign({}, item, presentationAttributes, resultAttributes);
         const sourceType = ctx && ctx.sourceType ? String(ctx.sourceType) : null;
+        const sourceOrderValue = owned.sourceOrder == null || String(owned.sourceOrder).trim() === ''
+            ? NaN : Number(owned.sourceOrder);
+        const mediaCountValue = owned.mediaCount != null ? owned.mediaCount : owned.fileCount;
         return {
             id: rawId,
             kind: 'douyin',
             cancelWorkKey: douyinCancelWorkKey(rawId),
-            rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
+            rawTitle: item.title && String(item.title).trim()
+                ? String(item.title)
+                : (presentation.title && String(presentation.title).trim()
+                    ? String(presentation.title)
+                    : (resultAttributes.title && String(resultAttributes.title).trim()
+                        ? String(resultAttributes.title) : null)),
+            authorName: item.author && String(item.author).trim()
+                ? String(item.author)
+                : (presentation.author && String(presentation.author).trim()
+                    ? String(presentation.author) : ''),
+            thumbnailReference: item.thumbnailReference
+                || presentation.thumbnailReference || null,
             typeData: douyinNormalizeQueueTypeData({
-                input: item.url || item.pageUrl || rawId,
-                url: item.url || item.pageUrl || '',
+                input: owned.url || owned.pageUrl || rawId,
+                url: owned.url || owned.pageUrl || '',
                 douyinId: rawId,
                 sourceType,
-                sourceId: item.sourceId || null,
-                sourceTitle: item.sourceTitle || '',
-                sourceUrl: item.sourceUrl || null,
-                sourceOrder: Number.isInteger(item.sourceOrder) ? item.sourceOrder : null,
-                mediaKind: douyinQueueMediaKind(item),
-                mediaCount: douyinQueueMediaCount(item)
+                sourceId: owned.sourceId || null,
+                sourceTitle: owned.sourceTitle || '',
+                sourceUrl: owned.sourceUrl || null,
+                sourceOrder: Number.isSafeInteger(sourceOrderValue) ? sourceOrderValue : null,
+                mediaKind: douyinQueueMediaKind(owned),
+                mediaCount: douyinQueueMediaCount({mediaCount: mediaCountValue})
             })
         };
     },

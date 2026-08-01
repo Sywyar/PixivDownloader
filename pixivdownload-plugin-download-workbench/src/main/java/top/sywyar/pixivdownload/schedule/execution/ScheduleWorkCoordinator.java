@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
@@ -60,6 +61,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     private final ScheduleWorkPersistenceCodec persistenceCodec;
     private final ObjectMapper objectMapper;
     private final Map<String, ScheduledWorkExecutor> executors;
+    private final Map<String, ScheduleCapabilityOwner> executorOwners;
+    private final Map<String, Long> executorPublicationIds;
     private final ScheduleRunQueue.Run runQueue;
     private final TaskExecutor taskExecutor;
     private final ScheduleWorkConcurrencyLimiter concurrencyLimiter;
@@ -96,6 +99,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             ScheduleWorkPersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             Map<String, ScheduledWorkExecutor> executors,
+            Map<String, ScheduleCapabilityOwner> executorOwners,
+            Map<String, Long> executorPublicationIds,
             ScheduleRunQueue.Run runQueue,
             TaskExecutor taskExecutor,
             ScheduleWorkConcurrencyLimiter concurrencyLimiter,
@@ -115,6 +120,15 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         this.persistenceCodec = persistenceCodec;
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.executors = Map.copyOf(executors);
+        this.executorOwners = Map.copyOf(executorOwners);
+        this.executorPublicationIds = Map.copyOf(executorPublicationIds);
+        if (!this.executors.keySet().equals(this.executorOwners.keySet())
+                || !this.executors.keySet().equals(this.executorPublicationIds.keySet())
+                || this.executorPublicationIds.values().stream()
+                        .anyMatch(publicationId -> publicationId == null || publicationId <= 0L)) {
+            throw new IllegalArgumentException(
+                    "work executor identities must match executors");
+        }
         this.runQueue = runQueue;
         this.taskExecutor = Objects.requireNonNull(taskExecutor, "taskExecutor");
         this.concurrencyLimiter = Objects.requireNonNull(
@@ -184,7 +198,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             discover(work);
             if (row.attempts() >= pendingMaxAttempts) {
                 seen.add(work.key());
-                runQueue.mark(work.key().id(), work.key().workType(),
+                runQueue.mark(work.key(),
                         ScheduleRunQueue.STATUS_FAILED, row.reasonCode());
                 continue;
             }
@@ -208,7 +222,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         discover(work);
         if (pendingRow != null && pendingRow.attempts() >= pendingMaxAttempts) {
             seen.add(work.key());
-            runQueue.mark(work.key().id(), work.key().workType(),
+            runQueue.mark(work.key(),
                     ScheduleRunQueue.STATUS_FAILED, pendingRow.reasonCode());
             return;
         }
@@ -560,7 +574,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             store.deletePendingWork(taskId, work.key().workType(), work.key().id());
             pending.remove(work.key());
             typeStatistics.skipped++;
-            runQueue.mark(work.key().id(), work.key().workType(),
+            runQueue.mark(work.key(),
                     ScheduleRunQueue.STATUS_FAILED, failure.code());
             return;
         }
@@ -577,7 +591,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         store.upsertPendingWork(durable);
         pending.put(work.key(), durable);
         typeStatistics.pending++;
-        runQueue.mark(work.key().id(), work.key().workType(),
+        runQueue.mark(work.key(),
                 ScheduleRunQueue.STATUS_FAILED, failure.code());
         if (completion.retry() && attempts == pendingMaxAttempts) {
             ScheduleExecutionResult.PendingExhausted event =
@@ -613,30 +627,19 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     }
 
     private void discover(ScheduledWork work) {
-        runQueue.discovered(work.key().id(), work.key().workType());
-        String title = work.presentation().title();
-        Integer xRestrict = parseInteger(work.presentation().attributes().get("xRestrict"));
-        Boolean ai = parseBoolean(work.presentation().attributes().get("ai"));
-        runQueue.setMeta(work.key().id(), work.key().workType(), title, xRestrict, ai);
+        runQueue.discovered(
+                work,
+                executorOwners.get(work.key().workType()),
+                executorPublicationIds.get(work.key().workType()));
     }
 
     private void markResult(ScheduledWork work, ScheduledWorkResult result) {
-        String title = result.attributes().get("title");
-        if (title != null) {
-            runQueue.setMeta(
-                    work.key().id(), work.key().workType(), title,
-                    parseInteger(result.attributes().get("xRestrict")),
-                    parseBoolean(result.attributes().get("ai")));
-        }
         String status = switch (result.outcome()) {
             case COMPLETED -> ScheduleRunQueue.STATUS_DOWNLOADED;
             case ALREADY_COMPLETED -> ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED;
             case SKIPPED -> ScheduleRunQueue.STATUS_SKIPPED_FILTER;
         };
-        runQueue.mark(work.key().id(), work.key().workType(), status, result.resultCode());
-        if (Boolean.parseBoolean(result.attributes().get("autoTranslateSubmitted"))) {
-            runQueue.markAutoTranslateSubmitted(work.key().id(), work.key().workType());
-        }
+        runQueue.markResult(work.key(), result, status, result.resultCode());
     }
 
     private void throwTerminalFailure() throws ScheduledExecutionException {
@@ -768,7 +771,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             }
         }
         return new ScheduledWorkResult(
-                result.outcome(), result.resultCode(), result.attributes());
+                result.outcome(), result.resultCode(), result.attributes(),
+                result.liveStatusAvailable());
     }
 
     private static ScheduledExecutionException invalidWorkResult() {
@@ -793,18 +797,6 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         return code != null
                 && code.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
                 && !ScheduleCredentialRedactor.containsCredentialMaterial(code);
-    }
-
-    private static Integer parseInteger(String value) {
-        try {
-            return value == null ? null : Integer.valueOf(value);
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
-    }
-
-    private static Boolean parseBoolean(String value) {
-        return value == null ? null : Boolean.valueOf(value);
     }
 
     static final class CoordinatorSignal extends RuntimeException {

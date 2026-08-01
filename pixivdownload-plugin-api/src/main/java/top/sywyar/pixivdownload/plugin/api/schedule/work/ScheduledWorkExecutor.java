@@ -49,6 +49,11 @@ public interface ScheduledWorkExecutor {
     /**
      * 非阻塞读取一件作品当前可公开的运行状态属性，供宿主队列投影叠加。返回值只能包含安全机器码、原始数值或
      * 受控 token，不得包含凭证、异常、已本地化文案或插件对象；宿主仍须执行数量、UTF-8 大小与凭证材料校验后复制。
+     *
+     * <p>宿主只会在同一轮该作品的已校验 {@link ScheduledWorkResult} 明确声明
+     * {@link ScheduledWorkResult#liveStatusAvailable()} 为 {@code true} 时调用本方法；执行器不得依赖宿主
+     * 按作品类型或结果属性猜测是否需要状态叠加。
+     *
      * 默认返回空的不可变 Map，表示不提供实时状态。
      */
     default Map<String, String> status(ScheduledWorkKey key) {

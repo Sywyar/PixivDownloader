@@ -32,6 +32,23 @@ window.__scheduleTaskCredentialUi = scheduleTaskCredentialUi;
 window.__scheduleStatusLight = scheduleStatusLight;
 window.__scheduleItemToQueue = scheduleItemToQueue;
 window.__localizeScheduleQueueItem = localizeScheduleQueueItem;
+window.__scheduleQueueItemKey = scheduleQueueItemKey;
+window.__mergeScheduleQueueModel = mergeScheduleQueueModel;
+window.__setScheduleQueueModel = function (id, items) {
+    scheduleQueueModels[Number(id)] = items || [];
+};
+window.__getScheduleQueueModel = function (id) {
+    return scheduleQueueModels[Number(id)] || [];
+};
+window.__loadScheduleQueueModel = getScheduleQueueModel;
+window.__clearScheduleQueueModel = function (id) {
+    delete scheduleQueueModels[Number(id)];
+};
+window.__readScheduleQueueCache = readScheduleQueueCache;
+window.__writeScheduleQueueCache = writeScheduleQueueCache;
+window.__applyScheduleQueueSse = applyScheduleQueueSse;
+window.__subscribeScheduleQueueSse = subscribeScheduleQueueSse;
+window.__unsubscribeScheduleQueueSse = unsubscribeScheduleQueueSse;
 window.__pendingReasonText = pendingReasonText;
 window.__renderScheduleTaskCard = renderScheduleTaskCard;
 window.__renderScheduleSnapshotBody = renderScheduleSnapshotBody;
@@ -50,6 +67,7 @@ function deferred() {
 
 function harness(options) {
     const config = options || {};
+    const storage = new Map(Object.entries(config.storageEntries || {}));
     const elements = new Map();
     const element = (id, values) => {
         const value = Object.assign({
@@ -89,6 +107,7 @@ function harness(options) {
     const requests = [];
     const confirmCalls = [];
     const switchedModes = [];
+    const sseListeners = new Map();
     const lease = {
         activationToken: 'token-a',
         signal: new AbortController().signal,
@@ -129,7 +148,13 @@ function harness(options) {
         }
     };
     const sandbox = {
-        window: {PixivBatch: {scheduleSources: runtime, modes: {}}},
+        window: {
+            PixivBatch: {
+                scheduleSources: runtime,
+                queueTypes: config.queueTypes,
+                modes: {}
+            }
+        },
         document: {
             visibilityState: 'visible', body: {classList: {add() {}, remove() {}}},
             getElementById: id => elements.get(id) || null,
@@ -165,6 +190,33 @@ function harness(options) {
             switchedModes.push(mode);
             sandbox.state.mode = mode;
         },
+        mergeUgoiraProgress(current, incoming) {
+            return incoming || current || null;
+        },
+        ensureSharedSSE() {},
+        addSSEListener(workId, listener) {
+            const key = String(workId);
+            const listeners = sseListeners.get(key) || [];
+            listeners.push(listener);
+            sseListeners.set(key, listeners);
+        },
+        removeSSEListener(workId, listener) {
+            const key = String(workId);
+            const listeners = sseListeners.get(key) || [];
+            const index = listeners.indexOf(listener);
+            if (index >= 0) listeners.splice(index, 1);
+            if (listeners.length) sseListeners.set(key, listeners);
+            else sseListeners.delete(key);
+        },
+        storeGet(key) {
+            return storage.has(String(key)) ? storage.get(String(key)) : null;
+        },
+        storeSet(key, value) {
+            storage.set(String(key), String(value));
+        },
+        storeRemove(key) {
+            storage.delete(String(key));
+        },
         fetch(url, init) {
             fetchCount++;
             requests.push({url, init: init || {}});
@@ -191,6 +243,23 @@ function harness(options) {
         statusLight: sandbox.window.__scheduleStatusLight,
         queueItem: sandbox.window.__scheduleItemToQueue,
         localizeQueueItem: sandbox.window.__localizeScheduleQueueItem,
+        queueKey: sandbox.window.__scheduleQueueItemKey,
+        mergeQueue: sandbox.window.__mergeScheduleQueueModel,
+        setQueueModel: sandbox.window.__setScheduleQueueModel,
+        getQueueModel: sandbox.window.__getScheduleQueueModel,
+        loadQueueModel: sandbox.window.__loadScheduleQueueModel,
+        clearQueueModel: sandbox.window.__clearScheduleQueueModel,
+        readQueueCache: sandbox.window.__readScheduleQueueCache,
+        writeQueueCache: sandbox.window.__writeScheduleQueueCache,
+        applyQueueSse: sandbox.window.__applyScheduleQueueSse,
+        subscribeQueueSse: sandbox.window.__subscribeScheduleQueueSse,
+        unsubscribeQueueSse: sandbox.window.__unsubscribeScheduleQueueSse,
+        dispatchQueueSse(workId, data) {
+            (sseListeners.get(String(workId)) || []).slice().forEach(listener => listener(data));
+        },
+        queueSseListenerCount(workId) {
+            return (sseListeners.get(String(workId)) || []).length;
+        },
         pendingReason: sandbox.window.__pendingReasonText,
         renderTaskCard: sandbox.window.__renderScheduleTaskCard,
         renderSnapshot: sandbox.window.__renderScheduleSnapshotBody,
@@ -208,7 +277,8 @@ function harness(options) {
         get requests() { return requests; },
         get confirmCount() { return confirmCalls.length; },
         get confirmCalls() { return confirmCalls.slice(); },
-        get switchedModes() { return switchedModes.slice(); }
+        get switchedModes() { return switchedModes.slice(); },
+        storageValue(key) { return storage.get(String(key)); }
     };
 }
 
@@ -473,7 +543,13 @@ test('计划队列只持久化校验后的失败机器码并在渲染时按当�
     const key = 'douyin:schedule.upstream-response-invalid';
     const pluginTranslations = {[key]: '上游响应结构无法识别'};
     const h = harness({
-        descriptorNamespace: 'douyin',
+        descriptorNamespace: 'source-owner',
+        queueTypes: {
+            manifestDescriptor(workType) {
+                return workType === 'douyin'
+                    ? {i18nNamespace: 'douyin', displayNamespace: 'display-only'} : null;
+            }
+        },
         pluginTranslations,
         translations: {'schedule.queue.status.failed': '通用失败'}
     });
@@ -486,7 +562,8 @@ test('计划队列只持久化校验后的失败机器码并在渲染时按当�
     }, 'douyin.search', null);
 
     assert.equal(model.failureCode, machineCode);
-    assert.equal(model.failureSourceType, 'douyin.search');
+    assert.equal(model.failureWorkType, 'douyin');
+    assert.equal(Object.prototype.hasOwnProperty.call(model, 'failureSourceType'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(model, 'failureMessage'), false);
     assert.equal(h.localizeQueueItem(model).lastMessage, '上游响应结构无法识别');
 
@@ -496,15 +573,23 @@ test('计划队列只持久化校验后的失败机器码并在渲染时按当�
     const legacy = h.localizeQueueItem({
         status: 'failed',
         failureMessage: machineCode,
+        kind: 'douyin',
         failureSourceType: 'douyin.search'
     });
     assert.equal(legacy.lastMessage, 'Upstream response is unrecognized');
+
+    const sourceOnlyLegacy = h.localizeQueueItem({
+        status: 'failed',
+        failureMessage: machineCode,
+        failureSourceType: 'douyin.search'
+    });
+    assert.equal(sourceOnlyLegacy.lastMessage, '通用失败');
 
     const unknown = h.localizeQueueItem({
         status: 'failed',
         rawStatus: 'failed',
         failureCode: 'douyin.schedule.private-machine-code',
-        failureSourceType: 'douyin.search'
+        failureWorkType: 'douyin'
     });
     const maliciousLegacy = h.localizeQueueItem({
         status: 'failed',
@@ -524,6 +609,200 @@ test('计划队列只持久化校验后的失败机器码并在渲染时按当�
     assert.equal(freeText.failureCode, null);
     assert.equal(Object.prototype.hasOwnProperty.call(freeText, 'failureMessage'), false);
     assert.equal(h.localizeQueueItem(freeText).lastMessage, '通用失败');
+});
+
+test('计划队列只投影中性 DTO 与 raw liveStatus 并把私有语义留给 owner', () => {
+    const dto = {
+        status: 'running',
+        workId: 'opaque-1',
+        workType: 'third-party',
+        title: 'Neutral title',
+        author: 'Neutral author',
+        thumbnailReference: 'thumb:opaque-1',
+        presentationAttributes: {xRestrict: '2', ai: 'true'},
+        resultAttributes: {privateResult: 'done'},
+        liveStatus: {phase: 'PRIVATE_PHASE', elapsedSeconds: '12'}
+    };
+    const fallbackHarness = harness({});
+    const fallback = fallbackHarness.queueItem(dto, 'third-party.source', null);
+
+    assert.equal(fallback.id, 'opaque-1');
+    assert.equal(fallback.kind, 'third-party');
+    assert.equal(fallback.rawTitle, 'Neutral title');
+    assert.equal(fallback.author, 'Neutral author');
+    assert.equal(fallback.thumbnailReference, 'thumb:opaque-1');
+    assert.equal(fallback.presentationAttributes.xRestrict, '2');
+    assert.equal(fallback.resultAttributes.privateResult, 'done');
+    assert.equal(fallback.liveStatus.phase, 'PRIVATE_PHASE');
+    assert.notEqual(fallback.liveStatus, dto.liveStatus);
+    assert.equal(Object.prototype.hasOwnProperty.call(fallback, 'xRestrict'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(fallback, 'isAi'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(fallback, 'translatePhase'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(fallback, 'translateElapsed'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(fallback, 'translateSeriesPending'), false);
+
+    let captured = null;
+    const ownerHarness = harness({
+        queueTypes: {
+            scheduledQueueItem(type, item, context) {
+                captured = {type, item, context};
+                item.workId = 'mutated-input-id';
+                item.workType = 'mutated-input-type';
+                item.liveStatus.phase = 'MUTATED_INPUT_STATUS';
+                return {
+                    id: 'owned-' + item.workId,
+                    kind: 'forged-kind',
+                    workId: 'forged-work-id',
+                    workType: 'forged-work-type',
+                    queueKey: 'forged-key',
+                    rawTitle: item.title
+                };
+            }
+        }
+    });
+    const task = {id: 7};
+    const owned = ownerHarness.queueItem(dto, 'third-party.source', task);
+    assert.equal(captured.type, 'third-party');
+    assert.equal(captured.item, dto);
+    assert.equal(captured.context.sourceType, 'third-party.source');
+    assert.equal(captured.context.task, task);
+    assert.equal(owned.id, 'opaque-1');
+    assert.equal(owned.kind, 'third-party');
+    assert.equal(owned.workId, 'opaque-1');
+    assert.equal(owned.workType, 'third-party');
+    assert.equal(owned.queueKey, ownerHarness.queueKey(owned));
+    assert.equal(owned.liveStatus.phase, 'PRIVATE_PHASE');
+    assert.match(source, /liveStatus/);
+    assert.doesNotMatch(source, /translatePhase|translateElapsed|translateSeriesPending/);
+});
+
+test('计划队列持久缓存剥离实时状态且旧缓存恢复时不会复活陈旧状态', () => {
+    const h = harness({});
+    h.writeQueueCache(7, {
+        startedTime: 100,
+        items: [{
+            workType: 'novel',
+            workId: 'opaque-7',
+            rawTitle: 'title',
+            liveStatus: {phase: 'TRANSLATING', elapsedSeconds: '12'}
+        }]
+    });
+
+    const persisted = JSON.parse(h.storageValue('pixiv_schedule_queue_7'));
+    assert.equal(persisted.items[0].workId, 'opaque-7');
+    assert.equal(persisted.items[0].liveStatus, null);
+
+    const legacy = harness({
+        storageEntries: {
+            pixiv_schedule_queue_8: JSON.stringify({
+                startedTime: 80,
+                items: [{
+                    workType: 'novel',
+                    workId: 'opaque-8',
+                    liveStatus: {phase: 'DONE'}
+                }]
+            })
+        }
+    });
+    const restored = legacy.readQueueCache(8);
+    assert.equal(restored.items[0].workId, 'opaque-8');
+    assert.equal(restored.items[0].liveStatus, null);
+    assert.equal(legacy.loadQueueModel(8)[0].liveStatus, null);
+});
+
+test('同 workId 的不同 workType 在快照合并与 SSE 更新中保持复合身份隔离', () => {
+    const h = harness({});
+    const previousIllust = h.queueItem({
+        status: 'pending',
+        workType: 'illust',
+        workId: 'same/id " <tag>',
+        liveStatus: {phase: 'ILLUST_OLD'}
+    }, 'pixiv.source', null);
+    previousIllust.status = 'idle';
+    previousIllust.totalImages = 2;
+    previousIllust.downloadedCount = 1;
+    const previousNovel = h.queueItem({
+        status: 'pending',
+        workType: 'novel',
+        workId: 'same/id " <tag>',
+        liveStatus: {phase: 'NOVEL_OLD'}
+    }, 'pixiv.source', null);
+    previousNovel.status = 'downloading';
+    previousNovel.totalImages = 9;
+    previousNovel.downloadedCount = 5;
+    h.setQueueModel(7, [previousIllust, previousNovel]);
+
+    const merged = h.mergeQueue(7, [{
+        status: 'pending',
+        workType: 'illust',
+        workId: 'same/id " <tag>',
+        liveStatus: {phase: 'ILLUST_NEW'}
+    }, {
+        status: 'pending',
+        workType: 'novel',
+        workId: 'same/id " <tag>',
+        liveStatus: {phase: 'NOVEL_NEW'}
+    }], 'pixiv.source');
+
+    assert.equal(merged[0].kind, 'illust');
+    assert.equal(merged[0].status, 'pending');
+    assert.equal(merged[0].downloadedCount, 1);
+    assert.equal(merged[0].liveStatus.phase, 'ILLUST_NEW');
+    assert.equal(merged[1].kind, 'novel');
+    assert.equal(merged[1].status, 'downloading');
+    assert.equal(merged[1].downloadedCount, 5);
+    assert.equal(merged[1].liveStatus.phase, 'NOVEL_NEW');
+    assert.notEqual(h.queueKey(merged[0]), h.queueKey(merged[1]));
+    assert.doesNotMatch(h.queueKey(merged[0]), /same\/id|<tag>|"/);
+
+    h.setQueueModel(7, merged);
+    h.applyQueueSse(7, h.queueKey(merged[0]), {
+        totalImages: 4,
+        downloadedCount: 3
+    });
+    const afterSse = h.getQueueModel(7);
+    assert.equal(afterSse[0].status, 'downloading');
+    assert.equal(afterSse[0].downloadedCount, 3);
+    assert.equal(afterSse[1].status, 'downloading');
+    assert.equal(afterSse[1].downloadedCount, 5);
+    assert.equal(afterSse[1].liveStatus.phase, 'NOVEL_NEW');
+
+    const rawWorkId = 'same/id " <tag>';
+    h.setQueueModel(7, [afterSse[0]]);
+    h.subscribeQueueSse(7);
+    assert.equal(h.queueSseListenerCount(rawWorkId), 1);
+    h.setQueueModel(7, afterSse);
+    h.subscribeQueueSse(7);
+    assert.equal(h.queueSseListenerCount(rawWorkId), 2);
+    h.dispatchQueueSse(rawWorkId, {totalImages: 8, downloadedCount: 7});
+    assert.equal(afterSse[0].downloadedCount, 3);
+    assert.equal(afterSse[1].downloadedCount, 5);
+    h.dispatchQueueSse(rawWorkId, {
+        workType: 'novel',
+        totalImages: 8,
+        downloadedCount: 7
+    });
+    assert.equal(afterSse[0].downloadedCount, 3);
+    assert.equal(afterSse[1].downloadedCount, 7);
+    h.unsubscribeQueueSse(7);
+    assert.equal(h.queueSseListenerCount(rawWorkId), 0);
+});
+
+test('计划队列 workId 按 String 原样保留空白与特殊字符', () => {
+    const h = harness({});
+    const workId = `  /"'<> opaque id  `;
+    const item = h.queueItem({
+        status: 'pending',
+        workType: 'third-party',
+        workId
+    }, 'third-party.source', null);
+
+    assert.equal(item.id, workId);
+    assert.equal(item.workId, workId);
+    assert.equal(item.kind, 'third-party');
+    assert.equal(item.workType, 'third-party');
+    assert.equal(item.queueKey, h.queueKey(item));
+    assert.doesNotMatch(item.queueKey, /opaque id|[<>"'\/]/);
 });
 
 test('pending 原因只展示已注册机器码翻译且不回显未知或畸形详情', () => {

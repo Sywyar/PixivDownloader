@@ -89,6 +89,21 @@ class ScheduleCapabilityAccessContractTest {
     }
 
     @Test
+    @DisplayName("单项与复合租约暴露精确作品执行器 publication 身份")
+    void leasesExposeExactWorkExecutorPublicationIdentity() {
+        assertThat(Arrays.stream(ScheduleCapabilityLease.class.getDeclaredMethods())
+                .map(Method::getName))
+                .contains("owner", "publicationId");
+        assertThat(Arrays.stream(ScheduleExecutionLease.class.getDeclaredMethods())
+                .map(Method::getName))
+                .contains(
+                        "workExecutorOwner",
+                        "workExecutorOwners",
+                        "workExecutorPublicationId",
+                        "workExecutorPublicationIds");
+    }
+
+    @Test
     @DisplayName("稳定访问面只暴露快照、准备、激活与 currentness 操作")
     void accessSurfaceRemainsNarrowAndDoesNotExposeRuntimeImplementations() {
         Method[] methods = ScheduleCapabilityAccess.class.getDeclaredMethods();

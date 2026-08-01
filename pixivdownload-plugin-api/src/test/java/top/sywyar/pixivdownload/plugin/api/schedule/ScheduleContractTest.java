@@ -214,6 +214,25 @@ class ScheduleContractTest {
     }
 
     @Test
+    @DisplayName("作品结果显式声明实时状态可用性且旧构造默认关闭")
+    void workResultDeclaresLiveStatusAvailability() {
+        ScheduledWorkResult defaultResult = new ScheduledWorkResult(
+                ScheduledWorkResult.Outcome.COMPLETED,
+                "fixture.completed",
+                Map.of("detail", "safe"));
+        ScheduledWorkResult liveResult = new ScheduledWorkResult(
+                ScheduledWorkResult.Outcome.COMPLETED,
+                "fixture.completed",
+                Map.of("detail", "safe"),
+                true);
+
+        assertThat(defaultResult.liveStatusAvailable()).isFalse();
+        assertThat(ScheduledWorkResult.completed().liveStatusAvailable()).isFalse();
+        assertThat(ScheduledWorkResult.alreadyCompleted().liveStatusAvailable()).isFalse();
+        assertThat(liveResult.liveStatusAvailable()).isTrue();
+    }
+
+    @Test
     @DisplayName("来源 descriptor 保留迁移别名且不再实现旧来源桥")
     void sourceDescriptorIsPureMetadata() {
         Set<String> aliases = new LinkedHashSet<>(Set.of("USER_NEW"));

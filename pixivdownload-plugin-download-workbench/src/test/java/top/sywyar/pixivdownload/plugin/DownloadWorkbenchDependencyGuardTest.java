@@ -303,6 +303,31 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("计划队列投影不得解释具体作品类型与插件私有实时状态")
+    void scheduleQueueProjectionDoesNotInterpretPluginPrivateLiveStatus() {
+        Path root = repositoryRoot().resolve(
+                "pixivdownload-plugin-download-workbench/src/main/java/top/sywyar/pixivdownload");
+        List<Path> genericHostSources = List.of(
+                root.resolve("schedule/ScheduleRunQueue.java"),
+                root.resolve("schedule/ScheduleService.java"),
+                root.resolve("schedule/execution/ScheduleWorkCoordinator.java"),
+                root.resolve("schedule/dto/ScheduleQueueView.java"));
+        List<String> forbidden = List.of(
+                "KIND_NOVEL",
+                "WORK_TYPE_NOVEL",
+                "autoTranslateSubmitted",
+                "TranslateStatus",
+                "translatePhase",
+                "xRestrict");
+
+        for (Path source : genericHostSources) {
+            assertThat(read(source))
+                    .as(source.getFileName().toString())
+                    .doesNotContain(forbidden.toArray(String[]::new));
+        }
+    }
+
+    @Test
     @DisplayName("下载工作台计划任务来源 / 执行器不得依赖 novel 包")
     void downloadScheduleSourcesAndRunnerDoNotDependOnNovel() {
         noClasses()

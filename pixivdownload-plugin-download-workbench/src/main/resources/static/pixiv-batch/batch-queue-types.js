@@ -11,6 +11,9 @@ window.PixivBatch.queueTypes = (function () {
     const QUEUE_TAG_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
     const MAX_QUEUE_TAGS = 8;
     const MAX_QUEUE_TAG_LABEL_LENGTH = 48;
+    const QUEUE_LIVE_STATUS_TONES = new Set(['info', 'success', 'warning', 'error']);
+    const MAX_QUEUE_LIVE_STATUS_LABEL_LENGTH = 48;
+    const MAX_QUEUE_LIVE_STATUS_MESSAGE_LENGTH = 256;
     const MAX_CANCEL_WORK_KEY_LENGTH = 4096;
     const EMPTY_QUEUE_TAGS = Object.freeze([]);
     const SLOT_MODE = Object.freeze({
@@ -52,6 +55,32 @@ window.PixivBatch.queueTypes = (function () {
         return value == null ? '' : String(value).trim();
     }
 
+    function opaqueText(value) {
+        return value == null ? '' : String(value);
+    }
+
+    // 作品身份是 workType + 不透明 workId。每个 UTF-16 code unit 固定编码为 4 位十六进制，
+    // 既不会因分隔符产生碰撞，也不会把引号、斜杠或 HTML 片段带进 DOM attribute / selector。
+    function encodedQueueIdentityPart(value) {
+        const raw = opaqueText(value);
+        let encoded = '';
+        for (let index = 0; index < raw.length; index++) {
+            encoded += raw.charCodeAt(index).toString(16).padStart(4, '0');
+        }
+        return encoded;
+    }
+
+    function queueKey(itemOrType, workId) {
+        const item = itemOrType && typeof itemOrType === 'object' ? itemOrType : null;
+        const type = item
+            ? text(item.workType != null ? item.workType : item.kind)
+            : text(itemOrType);
+        const id = item
+            ? opaqueText(item.workId != null ? item.workId : item.id)
+            : opaqueText(workId);
+        return `q:${encodedQueueIdentityPart(type)}.${encodedQueueIdentityPart(id)}`;
+    }
+
     function normalizedCancelWorkKey(value) {
         if (typeof value !== 'string' || value.length === 0
             || value.length > MAX_CANCEL_WORK_KEY_LENGTH || value.trim() === '') {
@@ -76,19 +105,25 @@ window.PixivBatch.queueTypes = (function () {
         return Object.freeze(value);
     }
 
-    // 队列标签钩子只读取一个与持久化模型断开的中性快照，不能借渲染修改宿主队列；
+    // 队列展示钩子只读取一个与持久化模型断开的中性快照，不能借渲染修改宿主队列；
     // 不复制消息、下载明细等高频大字段，避免大队列每次进度刷新都克隆完整行模型。
     function queueItemSnapshot(value) {
         const raw = value && typeof value === 'object' ? value : {};
+        const workType = text(raw.workType != null ? raw.workType : raw.kind);
+        const workId = opaqueText(raw.workId != null ? raw.workId : raw.id);
         try {
             const json = JSON.stringify({
-                id: raw.id,
-                kind: raw.kind,
+                id: workId,
+                kind: workType,
+                workId,
+                workType,
+                queueKey: queueKey(workType, workId),
                 source: raw.source,
                 typeData: raw.typeData || raw.pluginData || null,
                 xRestrict: raw.xRestrict,
                 isAi: raw.isAi === true,
-                ugoiraProgress: raw.ugoiraProgress || null
+                ugoiraProgress: raw.ugoiraProgress || null,
+                liveStatus: raw.liveStatus || null
             });
             if (json && json.length <= 131072) {
                 return freezeJsonValue(JSON.parse(json));
@@ -97,10 +132,14 @@ window.PixivBatch.queueTypes = (function () {
             // 非 JSON 值或循环引用降级为只含中性身份的快照。
         }
         return Object.freeze({
-            id: text(raw.id),
-            kind: text(raw.kind),
+            id: workId,
+            kind: workType,
+            workId,
+            workType,
+            queueKey: queueKey(workType, workId),
             source: text(raw.source),
-            typeData: null
+            typeData: null,
+            liveStatus: null
         });
     }
 
@@ -121,6 +160,19 @@ window.PixivBatch.queueTypes = (function () {
             return tags.length >= MAX_QUEUE_TAGS;
         });
         return tags.length ? Object.freeze(tags) : EMPTY_QUEUE_TAGS;
+    }
+
+    function normalizedQueueLiveStatus(value) {
+        if (!isPlainObject(value)) return null;
+        const label = text(value.label);
+        const message = text(value.message);
+        const tone = text(value.tone).toLowerCase();
+        if (!label || label.length > MAX_QUEUE_LIVE_STATUS_LABEL_LENGTH
+            || !message || message.length > MAX_QUEUE_LIVE_STATUS_MESSAGE_LENGTH
+            || !QUEUE_LIVE_STATUS_TONES.has(tone)) {
+            return null;
+        }
+        return Object.freeze({label, message, tone});
     }
 
     function normalizedModuleUrl(value) {
@@ -1170,6 +1222,26 @@ window.PixivBatch.queueTypes = (function () {
         }
     }
 
+    // 类型模块可把自己的 raw 实时状态解释成一行纯文本。宿主只接受同步、有界、固定 tone 的结果，
+    // 最终 HTML 仍由共享渲染器统一转义；插件卸载或 publication 过期时安全降级为不显示。
+    function queueLiveStatus(item) {
+        const type = text(item && (item.workType != null ? item.workType : item.kind));
+        const behavior = get(type);
+        if (!behavior || typeof behavior.queueLiveStatus !== 'function') return null;
+        try {
+            const value = behavior.queueLiveStatus(queueItemSnapshot(item));
+            if (value && typeof value.then === 'function') {
+                Promise.resolve(value).catch(() => undefined);
+                throw new Error('queueLiveStatus must return a synchronous object');
+            }
+            return normalizedQueueLiveStatus(value);
+        } catch (e) {
+            // 插件异常对象可能夹带私有运行态；只记录 owner 类型，不把异常内容泄漏到浏览器控制台。
+            console.warn('[queueTypes] 队列类型实时状态贡献失败：', type);
+            return null;
+        }
+    }
+
     function has(type) {
         return !!activeEntry(type);
     }
@@ -1503,21 +1575,45 @@ window.PixivBatch.queueTypes = (function () {
     function scheduledQueueItem(type, item, context) {
         const raw = item && typeof item === 'object' ? item : {};
         const ctx = context && typeof context === 'object' ? context : {};
+        const presentation = isPlainObject(raw.presentation) ? raw.presentation : {};
+        const presentationAttributes = isPlainObject(raw.presentationAttributes)
+            ? raw.presentationAttributes
+            : (isPlainObject(presentation.attributes) ? presentation.attributes : {});
+        const result = isPlainObject(raw.result) ? raw.result : {};
+        const resultAttributes = isPlainObject(raw.resultAttributes)
+            ? raw.resultAttributes
+            : (isPlainObject(result.attributes) ? result.attributes : {});
         const normalizedType = text(type) || text(raw.kind) || text(raw.workType) || 'unknown';
-        const rawId = text(raw.workId != null ? raw.workId : raw.id);
+        const rawId = opaqueText(raw.workId != null ? raw.workId : raw.id);
+        const rawLiveStatus = isPlainObject(raw.liveStatus) ? Object.assign({}, raw.liveStatus) : null;
         const fallback = {
             id: rawId,
             kind: normalizedType,
-            rawTitle: text(raw.title) || null,
-            source: text(ctx.source) || text(raw.source) || 'schedule',
-            xRestrict: raw.xRestrict == null ? null : raw.xRestrict,
-            isAi: raw.ai === true || raw.isAi === true
+            workId: rawId,
+            workType: normalizedType,
+            queueKey: queueKey(normalizedType, rawId),
+            rawTitle: text(raw.title) || text(presentation.title) || null,
+            author: text(raw.author) || text(presentation.author) || null,
+            thumbnailReference: text(raw.thumbnailReference)
+                || text(presentation.thumbnailReference) || null,
+            presentationAttributes: Object.assign({}, presentationAttributes),
+            resultAttributes: Object.assign({}, resultAttributes),
+            liveStatus: rawLiveStatus,
+            source: text(ctx.source) || text(raw.source) || 'schedule'
         };
         const behavior = get(normalizedType);
         if (!behavior || typeof behavior.scheduledQueueItem !== 'function') return fallback;
         try {
             const owned = behavior.scheduledQueueItem(raw, ctx);
-            return isPlainObject(owned) ? Object.assign(fallback, owned) : fallback;
+            if (!isPlainObject(owned)) return fallback;
+            return Object.assign(fallback, owned, {
+                id: rawId,
+                kind: normalizedType,
+                workId: rawId,
+                workType: normalizedType,
+                queueKey: queueKey(normalizedType, rawId),
+                liveStatus: rawLiveStatus
+            });
         } catch (e) {
             console.warn('[queueTypes] 计划队列项类型映射失败：', normalizedType, e);
             return fallback;
@@ -1821,7 +1917,9 @@ window.PixivBatch.queueTypes = (function () {
         bootstrap,
         refresh(force) { return refresh(!!force, false); },
         get,
+        queueKey,
         queueTags,
+        queueLiveStatus,
         canCancel,
         cancel,
         has,

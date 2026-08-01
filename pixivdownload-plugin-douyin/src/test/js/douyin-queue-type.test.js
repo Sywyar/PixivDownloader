@@ -668,13 +668,30 @@ function ok(label, cond) {
     ok('import 音乐链接使用关联作品来源关系', musicItem.typeData.sourceType === 'douyin.music');
 
     const scheduledItem = descriptor.scheduledQueueItem({
-        workId: 'scheduled-1', title: 'Scheduled work'
+        workId: 'scheduled-1',
+        workType: 'douyin',
+        title: 'Scheduled work',
+        author: 'Scheduled creator',
+        thumbnailReference: 'thumb:douyin:scheduled-1',
+        presentationAttributes: {
+            url: 'https://www.douyin.com/note/scheduled-1',
+            sourceId: 'folder-7',
+            mediaKind: 'LIVE_PHOTO'
+        },
+        resultAttributes: {fileCount: '2'}
     }, {sourceType: 'douyin.account.favorite-folder'});
-    ok('计划任务队列缺少媒体元数据时仍保留收藏夹来源标签且不臆测媒体类型',
-        !scheduledItem.typeData.mediaKind
-        && descriptor.queueTags(scheduledItem).map(tag => tag.id).join(',')
-            === 'origin.favorite-folder'
+    ok('计划任务队列从中性展示 DTO 与 owner 属性恢复标题、作者、缩略图和来源',
+        scheduledItem.rawTitle === 'Scheduled work'
+        && scheduledItem.authorName === 'Scheduled creator'
+        && scheduledItem.thumbnailReference === 'thumb:douyin:scheduled-1'
+        && scheduledItem.typeData.input === 'https://www.douyin.com/note/scheduled-1'
+        && scheduledItem.typeData.sourceId === 'folder-7'
         && scheduledItem.cancelWorkKey === 'scheduled-1');
+    ok('计划任务媒体与结果属性只由 Douyin owner 解释',
+        scheduledItem.typeData.mediaKind === 'LIVE_PHOTO'
+        && scheduledItem.typeData.mediaCount === 2
+        && descriptor.queueTags(scheduledItem).some(tag => tag.id === 'media.live-photo')
+        && descriptor.queueTags(scheduledItem).some(tag => tag.id === 'origin.favorite-folder'));
     ok('目标用户喜欢与账号喜欢统一贡献“喜欢”标签',
         descriptor.queueTags({kind: 'douyin', typeData: {
             sourceType: 'douyin.user.liked-works', sourceId: 'user-1'

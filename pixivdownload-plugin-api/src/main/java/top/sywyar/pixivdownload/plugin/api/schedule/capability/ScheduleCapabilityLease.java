@@ -14,6 +14,9 @@ public interface ScheduleCapabilityLease<T> extends AutoCloseable {
 
     ScheduleCapabilityOwner owner();
 
+    /** 宿主盖章的精确 publication；同一 owner 重新发布时该值也会变化。 */
+    long publicationId();
+
     T capability();
 
     ScheduledCancellation cancellation();

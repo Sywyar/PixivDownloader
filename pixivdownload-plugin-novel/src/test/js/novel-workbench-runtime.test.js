@@ -217,12 +217,58 @@ async function waitUntil(predicate) {
     assert.deepStrictEqual(Array.from(
         descriptor.queueTags(Object.assign({id: 'n42'}, novelQueueMeta)), tag => tag.id),
     ['media.novel', 'origin.collection', 'attribute.ai']);
+    const liveStatusCases = [
+        ['QUEUED', {}, '排队等待翻译...', 'info'],
+        ['WAITING_SERIES', {seriesPending: '3'}, '等待前系列小说翻译完成，还有 3 个', 'warning'],
+        ['RESOLVING', {}, '识别目标语言中...', 'info'],
+        ['TRANSLATING', {elapsedSeconds: '9'}, 'AI 翻译中（9s）', 'info'],
+        ['MERGING', {}, '生成译文合订本中...', 'info'],
+        ['SAME_LANGUAGE', {}, '完成（源语言与目标一致，已跳过）', 'success'],
+        ['DONE', {}, '完成（已翻译）', 'success'],
+        ['FAILED', {}, '完成（翻译失败）', 'error']
+    ];
+    liveStatusCases.forEach(([phase, values, message, tone]) => {
+        const status = descriptor.queueLiveStatus({
+            kind: 'novel',
+            liveStatus: Object.assign({phase}, values)
+        });
+        assert.strictEqual(status.label, 'AI 翻译');
+        assert.strictEqual(status.message, message);
+        assert.strictEqual(status.tone, tone);
+    });
+    assert.strictEqual(descriptor.queueLiveStatus({
+        kind: 'novel', liveStatus: {phase: 'OWNER_PRIVATE_UNKNOWN'}
+    }), null);
+    const scheduled = descriptor.scheduledQueueItem({
+        workId: '42',
+        workType: 'novel',
+        title: 'Scheduled novel',
+        author: 'Scheduled author',
+        thumbnailReference: 'thumb:novel:42',
+        presentationAttributes: {xRestrict: '1'},
+        resultAttributes: {xRestrict: '2', ai: 'true'},
+        liveStatus: {phase: 'TRANSLATING', elapsedSeconds: '7'}
+    }, {sourceType: 'series'});
+    assert.strictEqual(scheduled.id, 'n42');
+    assert.strictEqual(scheduled.novelId, '42');
+    assert.strictEqual(scheduled.rawTitle, 'Scheduled novel');
+    assert.strictEqual(scheduled.authorName, 'Scheduled author');
+    assert.strictEqual(scheduled.thumbnailReference, 'thumb:novel:42');
+    assert.strictEqual(scheduled.xRestrict, 2);
+    assert.strictEqual(scheduled.isAi, true);
+    assert.strictEqual(scheduled.source, 'series');
+    assert.strictEqual(scheduled.liveStatus.phase, 'TRANSLATING');
     assert.strictEqual(typeof descriptor.canonicalUrl, 'function');
     assert.strictEqual(descriptor.canonicalUrl({id: 'n42', novelId: '42'}),
         'https://www.pixiv.net/novel/show.php?id=42');
     assert.strictEqual(descriptor.canonicalUrl({id: 'n43'}),
         'https://www.pixiv.net/novel/show.php?id=43');
     assert.strictEqual(descriptor.canonicalUrl({id: 'invalid'}), '');
+    assert.ok(SOURCE.includes('item.liveStatus = {')
+        && SOURCE.includes('queueLiveStatus: novelQueueLiveStatus'));
+    assert.ok(!SOURCE.includes('translatePhase')
+        && !SOURCE.includes('translateElapsed')
+        && !SOURCE.includes('translateSeriesPending'));
 
     const item = {id: 'n42', novelId: '42', kind: 'novel', status: 'downloading'};
     const processing = descriptor.process(item, context);
@@ -255,6 +301,15 @@ async function waitUntil(predicate) {
         id: 'n42', kind: 'novel', isAi: true,
         typeData: {sourceType: 'my-bookmarks'}
     }), tag => tag.id), ['media.novel', 'origin.bookmark', 'attribute.ai']);
+    const runtimeLiveStatus = h.qt.queueLiveStatus({
+        id: 'n42',
+        kind: 'novel',
+        liveStatus: {phase: 'TRANSLATING', elapsedSeconds: '7'}
+    });
+    assert.strictEqual(runtimeLiveStatus.label, 'novel:queue.translate.label');
+    assert.strictEqual(runtimeLiveStatus.message, 'novel:queue.message.translating');
+    assert.strictEqual(runtimeLiveStatus.tone, 'info');
+    assert.ok(Object.isFrozen(runtimeLiveStatus));
     assert.strictEqual(h.qt.get('novel').canonicalUrl({id: 'n42', novelId: '42'}),
         'https://www.pixiv.net/novel/show.php?id=42');
 
@@ -272,13 +327,16 @@ async function waitUntil(predicate) {
     const runtimeProcessing = h.sandbox.window.PixivBatch.download.processSingle(runtimeItem);
     await waitUntil(() => !!runtimeSignal);
     await h.qt.refresh();
+    assert.strictEqual(h.qt.queueLiveStatus({
+        kind: 'novel', liveStatus: {phase: 'TRANSLATING'}
+    }), null);
     await runtimeProcessing;
     assert.ok(runtimeSignal.aborted && runtimeItem.status === 'paused'
         && runtimeItem.lastMessage === 'queue.message.type-unavailable',
     `Novel 在途历史请求在 publication 撤回后应由真实 workbench runtime 暂停且不误记失败：`
         + `aborted=${runtimeSignal.aborted}, status=${runtimeItem.status}, message=${runtimeItem.lastMessage}`);
 
-    console.log('novel-workbench-runtime.test.js: 22 assertions passed ✓');
+    console.log('novel-workbench-runtime.test.js: assertions passed ✓');
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

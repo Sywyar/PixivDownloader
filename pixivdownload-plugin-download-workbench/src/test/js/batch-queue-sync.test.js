@@ -303,6 +303,19 @@ function relationMergeBehavior(reasons) {
                 {id: 'media.ugoira', label: '<动图>'},
                 {id: 'origin.collection', label: '珍藏集'}
             ];
+        },
+        queueLiveStatus(item) {
+            if (item.id === 'status-safe') {
+                return {
+                    label: '<Owner status>',
+                    message: '<img src=x onerror=alert(1)>',
+                    tone: 'error'
+                };
+            }
+            if (item.id === 'status-tone') {
+                return {label: 'Owner', message: 'Unsafe', tone: 'url(javascript:alert(1))'};
+            }
+            return null;
         }
     };
     const html = queue.buildQueueItemHtml({
@@ -333,6 +346,25 @@ function relationMergeBehavior(reasons) {
         && douyinSchedule.includes('>Schedule</span>')
         && !douyinSchedule.includes('>Import</span>')
         && douyinSeries.includes('>Series</span>'));
+
+    const liveStatusHtml = queue.buildQueueItemHtml({
+        id: 'status-safe', kind: 'third-party', title: 'Status', status: 'idle',
+        liveStatus: {phase: 'PRIVATE'}
+    });
+    ok('11: 共享队列只渲染 owner 贡献的通用实时状态并对标签、消息再次转义',
+        liveStatusHtml.includes('class="q-live-status"')
+        && liveStatusHtml.includes('&lt;Owner status&gt;')
+        && liveStatusHtml.includes('&lt;img src=x onerror=alert(1)&gt;')
+        && !liveStatusHtml.includes('<Owner status>')
+        && !liveStatusHtml.includes('<img src=x onerror=alert(1)>')
+        && !liveStatusHtml.includes('q-translate'));
+    const unsafeToneHtml = queue.buildQueueItemHtml({
+        id: 'status-tone', kind: 'third-party', title: 'Unsafe', status: 'idle',
+        liveStatus: {phase: 'PRIVATE'}
+    });
+    ok('11: 共享渲染器拒绝固定 tone 白名单外的样式注入',
+        !unsafeToneHtml.includes('class="q-live-status"')
+        && !unsafeToneHtml.includes('javascript:alert'));
 }
 
 // ===== 12) 外部类型 patch 只能原子更新受控字段，并立即统计 / 持久化 / 渲染 =====
@@ -496,7 +528,63 @@ function relationMergeBehavior(reasons) {
         && !Object.prototype.hasOwnProperty.call(item, 'cancelRequested'));
 }
 
-console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (14 scenarios) ✓`);
+// ===== 15) 不透明作品 id / 小说 id / 行键只能作为转义文本或编码 URL 输出 =====
+{
+    const {sandbox, queue} = load();
+    sandbox.window.PixivBatch.queueTypes = {
+        get() { return null; },
+        queueTags() { return []; }
+    };
+    const opaqueId = ' <img src=x onerror=alert(1)>" / ';
+    const illustHtml = queue.buildQueueItemHtml({
+        id: opaqueId, kind: 'illust', title: 'Unsafe id', status: 'idle'
+    }, {removable: true, queueKey: opaqueId});
+    const novelHtml = queue.buildQueueItemHtml({
+        id: 'n' + opaqueId, novelId: opaqueId, kind: 'novel', title: 'Unsafe novel id', status: 'idle'
+    }, {removable: true, queueKey: opaqueId});
+    const currentHtml = sandbox.formatCurrentCardHtml({
+        id: opaqueId, title: 'Unsafe current id', status: 'idle'
+    });
+
+    ok('15: 不透明 id 与复合行键进入 HTML 属性或文本前完成转义',
+        illustHtml.includes('data-queue-key=" &lt;img')
+        && illustHtml.includes('data-queue-remove-id=" &lt;img')
+        && illustHtml.includes('ID:  &lt;img')
+        && currentHtml.includes('ID:  &lt;img')
+        && !illustHtml.includes('<img')
+        && !currentHtml.includes('<img'));
+    ok('15: 小说展示 id 完成转义且 canonical fallback 只使用 URL 编码值',
+        novelHtml.includes('ID:  &lt;img')
+        && novelHtml.includes('show.php?id=' + encodeURIComponent(opaqueId))
+        && !novelHtml.includes('<img'));
+
+    sandbox.state.queue = [{id: opaqueId, kind: 'illust', status: 'idle'}];
+    let clickHandler = null;
+    const root = {
+        addEventListener(type, handler) {
+            if (type === 'click') clickHandler = handler;
+        }
+    };
+    const removeButton = {
+        closest(selector) { return selector === '[data-queue-remove-id]' ? this : null; },
+        getAttribute(name) { return name === 'data-queue-remove-id' ? opaqueId : null; }
+    };
+    queue.bindQueueActions(root);
+    clickHandler({target: removeButton, preventDefault() {}, stopPropagation() {}});
+    ok('15: 含空白、斜杠、引号和 HTML 的原始 id 经委托属性精确移除，不拼接 CSS 选择器',
+        sandbox.state.queue.length === 0
+        && !QUEUE_SOURCE.includes('querySelector(`[data-queue-remove-id="${'));
+}
+
+ok('共享队列源码只调用中性 liveStatus 契约且不解释小说翻译阶段',
+    QUEUE_SOURCE.includes('formatQueueLiveStatusHtml')
+    && QUEUE_SOURCE.includes('registry.queueLiveStatus(q)')
+    && !QUEUE_SOURCE.includes('novelTranslateMessage')
+    && !QUEUE_SOURCE.includes('formatNovelTranslateHtml')
+    && !QUEUE_SOURCE.includes('translatePhase')
+    && !QUEUE_SOURCE.includes('queue.message.translate-'));
+
+console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (15 scenarios) ✓`);
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

@@ -404,12 +404,14 @@ public final class ScheduleExecutionEngine {
                 try {
                     credentialRevoked |= guardInvoker.invoke(ScheduledGuardPoint.RUN_START, 0L, null);
                     AtomicReference<ScheduleWorkCoordinator> coordinatorRef = new AtomicReference<>();
-                    ScheduleRunQueue.Run queue = runQueue.begin(
-                            task.id(), plan.requiredWorkTypes().stream().sorted().findFirst().orElse("work"));
+                    ScheduleRunQueue.Run queue = runQueue.begin(task.id());
                     ScheduleWorkCoordinator coordinator = new ScheduleWorkCoordinator(
                             task.id(), definition, route, cancellation, credential,
                             store, persistenceCodec, objectMapper,
-                            execution.workExecutors(), queue,
+                            execution.workExecutors(),
+                            execution.workExecutorOwners(),
+                            execution.workExecutorPublicationIds(),
+                            queue,
                             workTaskExecutor, workConcurrencyLimiter,
                             plan.maxInFlight(), workConcurrencyLimits,
                             config.getPendingMaxAttempts(),

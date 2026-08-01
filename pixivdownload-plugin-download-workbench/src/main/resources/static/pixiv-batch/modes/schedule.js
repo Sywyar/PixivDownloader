@@ -893,6 +893,30 @@
         return null;
     }
 
+    // 单项作品失败属于 workType owner，不属于取得来源。只信任活动下载类型 manifest 声明的
+    // i18nNamespace；插件缺席、namespace 不匹配或旧缓存只有 sourceType 时一律退回宿主通用文案。
+    function localizeScheduleWorkMachineCode(value, workType) {
+        const code = safeScheduleMachineCode(value);
+        if (!code) return null;
+        if (code.startsWith('schedule.')) {
+            const translated = bt(code, '');
+            return translated && translated !== code ? translated : null;
+        }
+        try {
+            const registry = window.PixivBatch && window.PixivBatch.queueTypes;
+            const descriptor = registry && typeof registry.manifestDescriptor === 'function'
+                ? registry.manifestDescriptor(workType) : null;
+            const namespace = scheduleI18nToken(descriptor && descriptor.i18nNamespace, 64);
+            if (!namespace || !code.startsWith(`${namespace}.`)
+                    || typeof pageI18n === 'undefined' || !pageI18n) return null;
+            const translated = pageI18n.t(
+                `${namespace}:${code.slice(namespace.length + 1)}`, '');
+            return translated && translated !== code ? translated : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function scheduleFailureReason(t) {
         return t ? localizeScheduleMachineCode(t.lastMessage, t.sourceType || t.type) : null;
     }
@@ -1609,7 +1633,10 @@
             const raw = storeGet(scheduleQueueCacheKey(id));
             if (!raw) return null;
             const parsed = JSON.parse(raw);
-            return parsed && Array.isArray(parsed.items) ? parsed : null;
+            if (!parsed || !Array.isArray(parsed.items)) return null;
+            // liveStatus 只属于当前进程/当前 publication 的瞬时投影，绝不能从持久缓存复活。
+            parsed.items = scheduleQueueItemsWithoutLiveStatus(parsed.items);
+            return parsed;
         } catch (e) {
             return null;
         }
@@ -1617,8 +1644,16 @@
 
     function writeScheduleQueueCache(id, data) {
         try {
-            storeSet(scheduleQueueCacheKey(id), JSON.stringify(data));
+            const persistent = Object.assign({}, data, {
+                items: scheduleQueueItemsWithoutLiveStatus(
+                    data && Array.isArray(data.items) ? data.items : [])
+            });
+            storeSet(scheduleQueueCacheKey(id), JSON.stringify(persistent));
         } catch (e) { /* 存储不可用时忽略：内存渲染仍可工作 */ }
+    }
+
+    function scheduleQueueItemsWithoutLiveStatus(items) {
+        return items.map(item => Object.assign({}, item, {liveStatus: null}));
     }
 
     // 缓存里随队列一起记录的「该队列所属那一轮运行的完成时刻」（写入时取任务当时的 lastRunTime）。
@@ -1651,7 +1686,8 @@
     // 直接喂给 buildQueueItemHtml 渲染，保证两处队列完全一致）。后端 4s 快照提供权威的发现/终态，
     // SSE 提供运行中的逐图实时进度。
     const scheduleQueueModels = {};
-    // 已登记的 SSE 监听器：taskId → { artworkIdKey: fn }，用于精确解绑、避免重复注册或误删工作区监听。
+    // 已登记的 SSE 监听器：taskId → { compositeQueueKey: {workId, fn} }，用于精确解绑、
+    // 避免同 raw id 的不同 workType 覆盖彼此或误删工作区监听。
     const scheduleSseHandlers = {};
     // 上一轮轮询时仍在运行的展开任务：用于在运行结束的那一拍补拉一次最终终态快照。
     const scheduleQueueWasRunning = new Set();
@@ -1692,6 +1728,31 @@
         return scheduleTasksCache.find(t => Number(t.id) === Number(id)) || null;
     }
 
+    function encodedScheduleQueueIdentityPart(value) {
+        const raw = value == null ? '' : String(value);
+        let encoded = '';
+        for (let index = 0; index < raw.length; index++) {
+            encoded += raw.charCodeAt(index).toString(16).padStart(4, '0');
+        }
+        return encoded;
+    }
+
+    function scheduleQueueIdentity(workType, workId) {
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (queueTypes && typeof queueTypes.queueKey === 'function') {
+            return queueTypes.queueKey(workType, workId);
+        }
+        const type = workType == null ? '' : String(workType).trim();
+        return `q:${encodedScheduleQueueIdentityPart(type)}.${encodedScheduleQueueIdentityPart(workId)}`;
+    }
+
+    function scheduleQueueItemKey(item) {
+        const q = item && typeof item === 'object' ? item : {};
+        return scheduleQueueIdentity(
+            q.workType != null ? q.workType : q.kind,
+            q.workId != null ? q.workId : q.id);
+    }
+
     // 后端队列项状态 → 工作区队列状态 + 原始状态码（未翻译，渲染时再 bt()）。
     // 不在这里 bake bt() 结果：模型会落到 localStorage 与跨语言切换的渲染轮次，bake 后无法跟随语言变化。
     function scheduleStatusToQueue(it) {
@@ -1711,10 +1772,29 @@
 
     // 后端队列项 → 工作区队列项（同 state.queue 形状），供 buildQueueItemHtml 渲染。
     // 注意：title / lastMessage 不在这里写入；只存 rawTitle / rawStatus、校验后的 failureCode 与
-    // failureSourceType，渲染时由 localizeScheduleQueueItem 用当前语言派生 title / lastMessage。
+    // authoritative failureWorkType，渲染时由 localizeScheduleQueueItem 用当前语言派生 title / lastMessage。
     function scheduleItemToQueue(it, type, task) {
         const mapped = scheduleStatusToQueue(it);
-        const workType = it.workType || it.kind;
+        const workType = String(it.workType == null ? (it.kind == null ? '' : it.kind) : it.workType).trim()
+            || 'unknown';
+        const workId = String(it.workId == null ? (it.id == null ? '' : it.id) : it.workId);
+        const presentation = it.presentation && typeof it.presentation === 'object'
+            && !Array.isArray(it.presentation) ? it.presentation : {};
+        const presentationAttributes = it.presentationAttributes
+            && typeof it.presentationAttributes === 'object' && !Array.isArray(it.presentationAttributes)
+            ? it.presentationAttributes
+            : (presentation.attributes && typeof presentation.attributes === 'object'
+                && !Array.isArray(presentation.attributes) ? presentation.attributes : {});
+        const result = it.result && typeof it.result === 'object' && !Array.isArray(it.result)
+            ? it.result : {};
+        const resultAttributes = it.resultAttributes && typeof it.resultAttributes === 'object'
+            && !Array.isArray(it.resultAttributes)
+            ? it.resultAttributes
+            : (result.attributes && typeof result.attributes === 'object'
+                && !Array.isArray(result.attributes) ? result.attributes : {});
+        // 在调用 owner hook 前固定 raw 状态；owner 即使就地修改传入 DTO，也不能改写宿主随后展示的状态。
+        const rawLiveStatus = it.liveStatus && typeof it.liveStatus === 'object'
+            && !Array.isArray(it.liveStatus) ? Object.assign({}, it.liveStatus) : null;
         const registry = window.PixivBatch && window.PixivBatch.queueTypes;
         const base = registry && typeof registry.scheduledQueueItem === 'function'
             ? registry.scheduledQueueItem(workType, it, {
@@ -1722,26 +1802,41 @@
                 task: task || null
             })
             : {
-                id: String(it.workId == null ? (it.id == null ? '' : it.id) : it.workId),
-                kind: workType || 'unknown',
-                rawTitle: it.title && String(it.title).trim() ? String(it.title) : null,
-                source: 'schedule',
-                xRestrict: it.xRestrict == null ? null : it.xRestrict,
-                isAi: it.ai === true
+                id: workId,
+                kind: workType,
+                rawTitle: it.title && String(it.title).trim()
+                    ? String(it.title)
+                    : (presentation.title && String(presentation.title).trim()
+                        ? String(presentation.title) : null),
+                author: it.author && String(it.author).trim()
+                    ? String(it.author)
+                    : (presentation.author && String(presentation.author).trim()
+                        ? String(presentation.author) : null),
+                thumbnailReference: it.thumbnailReference && String(it.thumbnailReference).trim()
+                    ? String(it.thumbnailReference)
+                    : (presentation.thumbnailReference && String(presentation.thumbnailReference).trim()
+                        ? String(presentation.thumbnailReference) : null),
+                presentationAttributes: Object.assign({}, presentationAttributes),
+                resultAttributes: Object.assign({}, resultAttributes),
+                source: 'schedule'
             };
         return Object.assign({}, base, {
+            // workType + 原样 String workId 由宿主盖章；owner 映射只能补展示字段，不能改写作品身份。
+            id: workId,
+            kind: workType,
+            workId: workId,
+            workType: workType,
+            queueKey: scheduleQueueIdentity(workType, workId),
             status: mapped.status,
             rawStatus: mapped.rawStatus,
             failureCode: mapped.failureCode || null,
-            failureSourceType: mapped.status === 'failed' ? (type || null) : null,
+            failureWorkType: mapped.status === 'failed' ? workType : null,
             totalImages: 0,
             downloadedCount: 0,
             imageProgress: null,
             ugoiraProgress: null,
-            // 「下载即自动翻译」实时态（仅小说、后端读取时叠加）：raw 字段，由共享渲染器本地化展示。
-            translatePhase: it.translatePhase || null,
-            translateElapsed: it.translateElapsedSeconds == null ? 0 : it.translateElapsedSeconds,
-            translateSeriesPending: it.translateSeriesPending == null ? 0 : it.translateSeriesPending
+            // 中性 raw 状态只交给 workType 所有者解释，共享计划模块不识别任何私有阶段。
+            liveStatus: rawLiveStatus
         });
     }
 
@@ -1765,10 +1860,10 @@
                 break;
             case 'failed':
                 // failureMessage / lastMessage 仅用于兼容旧 localStorage；它们仍须通过机器码校验和
-                // 当前来源 namespace 翻译，绝不把旧缓存或后端自由文本直接展示。
-                lastMessage = localizeScheduleMachineCode(
+                // 当前作品类型 manifest 的 owner namespace 翻译，绝不把旧缓存误投到任务来源 namespace。
+                lastMessage = localizeScheduleWorkMachineCode(
                     q.failureCode || q.failureMessage || q.lastMessage,
-                    q.failureSourceType || q.sourceType)
+                    q.failureWorkType || q.workType || q.kind)
                     || bt('schedule.queue.status.failed', '失败');
                 break;
             case 'downloaded':
@@ -1788,11 +1883,11 @@
     function mergeScheduleQueueModel(id, incoming, type) {
         const prev = scheduleQueueModels[Number(id)] || [];
         const task = scheduleTaskById(id);
-        const prevById = {};
-        prev.forEach(q => { prevById[q.id] = q; });
+        const prevByKey = new Map();
+        prev.forEach(q => { prevByKey.set(scheduleQueueItemKey(q), q); });
         return incoming.map(it => {
             const q = scheduleItemToQueue(it, type, task);
-            const old = prevById[q.id];
+            const old = prevByKey.get(scheduleQueueItemKey(q));
             if (old && q.status === 'pending' && old.status === 'downloading') {
                 q.status = 'downloading';
                 q.totalImages = old.totalImages || 0;
@@ -1992,21 +2087,24 @@
         const statusLine = `<div class="schedule-queue-status">${escHtml(statusText)}</div>`;
         const statsLine = `<div class="schedule-queue-stats">${escHtml(formatStatsText(s.pending, s.success, s.failed, s.active, s.skipped))}</div>`;
         const currentCard = `<div class="schedule-queue-current">${formatCurrentCardHtml(current)}</div>`;
-        // 每行带上 data-queue-id（= 模型项 id），供 flushScheduleQueueRows 局部替换单行 outerHTML 时定位。
+        // 每行带上宿主盖章的复合 data-queue-key，供 flushScheduleQueueRows 局部替换单行 outerHTML 时定位。
         const listInner = localized.length
-            ? localized.map(q => buildQueueItemHtml(q, {removable: false, queueId: q.id})).join('')
+            ? localized.map(q => buildQueueItemHtml(q, {
+                removable: false,
+                queueKey: scheduleQueueItemKey(q)
+            })).join('')
             : `<div class="queue-empty">${escHtml(bt('status.queue-empty', '队列为空'))}</div>`;
         const listCard = `<div class="schedule-queue-list">${listInner}</div>`;
         return statusLine + statsLine + currentCard + listCard;
     }
 
     // 标记某任务的某行待刷新：只 patch 完模型后调用，合批后由 flushScheduleQueueRows 局部替换该行。
-    function markScheduleQueueRowDirty(id, qId) {
+    function markScheduleQueueRowDirty(id, queueKey) {
         id = Number(id);
         if (!scheduleExpandedQueues.has(id)) return; // 已折叠：无可见 DOM，丢弃
         let set = scheduleQueueDirtyRows.get(id);
         if (!set) { set = new Set(); scheduleQueueDirtyRows.set(id, set); }
-        set.add(String(qId));
+        set.add(String(queueKey));
         if (!scheduleQueueRowFlushHandles.has(id)) {
             scheduleQueueRowFlushHandles.set(id,
                 setTimeout(() => flushScheduleQueueRows(id), SCHEDULE_QUEUE_ROW_FLUSH_MS));
@@ -2046,15 +2144,19 @@
             renderScheduleQueueBodyInto(id); // 列表尚未渲染或模型缺失：整块兜底（频率低，可接受）
             return;
         }
-        const byId = {};
-        model.forEach(q => { byId[q.id] = q; });
+        const byKey = new Map();
+        model.forEach(q => { byKey.set(scheduleQueueItemKey(q), q); });
         let needFull = false;
-        dirty.forEach(qId => {
-            const q = byId[qId];
+        dirty.forEach(queueKey => {
+            const q = byKey.get(queueKey);
             if (!q) return; // 模型里已无此项（被快照重建移除）：留给后续整块渲染
-            const row = listEl.querySelector(`.queue-item[data-queue-id="${qId}"]`);
+            const row = Array.from(listEl.querySelectorAll('.queue-item[data-queue-key]'))
+                .find(candidate => candidate.getAttribute('data-queue-key') === queueKey);
             if (!row) { needFull = true; return; }
-            row.outerHTML = buildQueueItemHtml(localizeScheduleQueueItem(q), {removable: false, queueId: q.id});
+            row.outerHTML = buildQueueItemHtml(localizeScheduleQueueItem(q), {
+                removable: false,
+                queueKey: scheduleQueueItemKey(q)
+            });
         });
         if (needFull) {
             renderScheduleQueueBodyInto(id);
@@ -2109,18 +2211,47 @@
         id = Number(id);
         const model = scheduleQueueModels[id];
         if (!model) return;
+        // 快照可能新增/移除同 raw id 的类型。每次据权威模型完整重建监听，确保既有回调也拿到
+        // 最新的歧义集合，不能让先注册的单类型回调在后来出现同 id 跨类型时继续误收旧事件。
+        unsubscribeScheduleQueueSse(id);
         ensureSharedSSE();
-        if (!scheduleSseHandlers[id]) scheduleSseHandlers[id] = {};
+        scheduleSseHandlers[id] = Object.create(null);
         const handlers = scheduleSseHandlers[id];
-        model.forEach(q => {
-            const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const eligible = model.filter(q => {
             if (queueTypes && typeof queueTypes.supportsScheduledSse === 'function'
-                && !queueTypes.supportsScheduledSse(q.kind)) return;
-            const key = String(q.id);
-            if (handlers[key]) return; // 已注册
-            const fn = data => applyScheduleQueueSse(id, key, data);
-            handlers[key] = fn;
-            addSSEListener(key, fn);
+                && !queueTypes.supportsScheduledSse(
+                    q.workType != null ? q.workType : q.kind)) return false;
+            return true;
+        });
+        const identitiesByWorkId = new Map();
+        eligible.forEach(q => {
+            const workId = String(q.workId != null ? q.workId : q.id);
+            const queueKey = scheduleQueueItemKey(q);
+            let identities = identitiesByWorkId.get(workId);
+            if (!identities) {
+                identities = new Set();
+                identitiesByWorkId.set(workId, identities);
+            }
+            identities.add(queueKey);
+        });
+        eligible.forEach(q => {
+            const workId = String(q.workId != null ? q.workId : q.id);
+            const queueKey = scheduleQueueItemKey(q);
+            if (handlers[queueKey]) return; // 已注册
+            const fn = data => {
+                const eventWorkType = data && data.workType != null
+                    ? String(data.workType).trim() : '';
+                const eventQueueKey = eventWorkType
+                    ? scheduleQueueIdentity(eventWorkType, workId) : null;
+                // 旧聚合事件没有 workType：仅当该 raw id 唯一时兼容路由；一旦同 id 跨类型，
+                // 必须等事件携带 workType 才能更新，宁可等待下一次快照也不能串写另一类型。
+                if (eventQueueKey ? eventQueueKey !== queueKey
+                    : identitiesByWorkId.get(workId).size > 1) return;
+                applyScheduleQueueSse(id, queueKey, data);
+            };
+            handlers[queueKey] = {workId, fn};
+            addSSEListener(workId, fn);
         });
     }
 
@@ -2130,7 +2261,10 @@
         cancelScheduleQueueFlush(id);
         const handlers = scheduleSseHandlers[id];
         if (!handlers) return;
-        Object.keys(handlers).forEach(key => removeSSEListener(key, handlers[key]));
+        Object.keys(handlers).forEach(queueKey => {
+            const handler = handlers[queueKey];
+            if (handler) removeSSEListener(handler.workId, handler.fn);
+        });
         delete scheduleSseHandlers[id];
     }
 
@@ -2165,11 +2299,11 @@
         });
     }
 
-    function applyScheduleQueueSse(id, qId, data) {
+    function applyScheduleQueueSse(id, queueKey, data) {
         id = Number(id);
         const model = scheduleQueueModels[id];
         if (!model || !data) return;
-        const q = model.find(x => x.id === qId);
+        const q = model.find(item => scheduleQueueItemKey(item) === queueKey);
         if (!q || data.cancelled) return;
         // SSE 同步对齐 rawStatus，让 localizeScheduleQueueItem 在渲染时派生出正确语言的 lastMessage；
         // downloading 不对应后端 raw 状态，置为 'downloading' 与 q.status 同步，localizer 走默认分支
@@ -2190,7 +2324,7 @@
         }
         // 只 patch 模型 + 标记脏行：不在每个事件里整块重建 DOM。合批后只替换变化的单行，
         // 统计 / 当前下载项由更低频的 meta 刷新处理，使高频进度事件不再阻塞主线程。
-        markScheduleQueueRowDirty(id, qId);
+        markScheduleQueueRowDirty(id, queueKey);
     }
 
     async function runScheduleTask(id) {

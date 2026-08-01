@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -34,6 +35,10 @@ public interface ScheduleExecutionLease extends AutoCloseable {
     Optional<ScheduleCapabilityOwner> workExecutorOwner(String workType);
 
     Map<String, ScheduleCapabilityOwner> workExecutorOwners();
+
+    OptionalLong workExecutorPublicationId(String workType);
+
+    Map<String, Long> workExecutorPublicationIds();
 
     Optional<ScheduledCredentialPolicy> credentialPolicy();
 

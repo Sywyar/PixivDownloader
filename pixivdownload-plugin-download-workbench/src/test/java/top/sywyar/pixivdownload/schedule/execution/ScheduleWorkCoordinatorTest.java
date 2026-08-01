@@ -9,6 +9,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
@@ -53,6 +54,8 @@ class ScheduleWorkCoordinatorTest {
 
     private static final String ILLUST = "illust";
     private static final String NOVEL = "novel";
+    private static final ScheduleCapabilityOwner WORK_OWNER =
+            new ScheduleCapabilityOwner("fixture", "fixture", 1L);
 
     @Test
     @Timeout(5)
@@ -232,9 +235,9 @@ class ScheduleWorkCoordinatorTest {
                     coordinator, "runQueue");
             assertThat(queue).isNotNull();
             assertThat(queue.snapshot()).singleElement().satisfies(item -> {
-                assertThat(item.getId()).isEqualTo(workId);
-                assertThat(item.getStatus()).isEqualTo(ScheduleRunQueue.STATUS_FAILED);
-                assertThat(item.getMessage()).isEqualTo("schedule.work.plugin-failure");
+                assertThat(item.key().id()).isEqualTo(workId);
+                assertThat(item.status()).isEqualTo(ScheduleRunQueue.STATUS_FAILED);
+                assertThat(item.message()).isEqualTo("schedule.work.plugin-failure");
             });
         }
     }
@@ -276,7 +279,7 @@ class ScheduleWorkCoordinatorTest {
                 coordinator, "runQueue");
         assertThat(queue).isNotNull();
         assertThat(queue.snapshot())
-                .extracting(ScheduleRunQueue.Item::getStatus)
+                .extracting(ScheduleRunQueue.Item::status)
                 .containsExactly(
                         ScheduleRunQueue.STATUS_FAILED,
                         ScheduleRunQueue.STATUS_FAILED);
@@ -355,6 +358,56 @@ class ScheduleWorkCoordinatorTest {
         verify(store).upsertPendingWork(argThatPending(
                 ILLUST, "dispatch", "schedule.work.dispatch-failed"));
         assertCoordinatorAccountingCleared(coordinator, limiter);
+    }
+
+    @Test
+    @DisplayName("协调器原样保存第三方作品展示与已校验结果而不解释插件属性")
+    void coordinatorStoresNeutralPresentationAndValidatedResult() throws Exception {
+        String workType = "third-party.text";
+        ScheduledWorkResult result = new ScheduledWorkResult(
+                ScheduledWorkResult.Outcome.COMPLETED,
+                "third-party.completed",
+                Map.of(
+                        "title", "执行结果标题",
+                        "xRestrict", "2",
+                        "autoTranslateSubmitted", "true",
+                        "privatePhase", "indexing"),
+                true);
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store(),
+                Map.of(workType, executor(workType, (work, context) -> result)),
+                new SyncTaskExecutor(),
+                5);
+        ScheduledWork submitted = new ScheduledWork(
+                new ScheduledWorkKey(workType, "opaque/id"),
+                "third-party.work",
+                1,
+                "{}",
+                new ScheduledWorkPresentation(
+                        "来源标题",
+                        "来源作者",
+                        "thumbnail-ref",
+                        Map.of("sourceHint", "text")),
+                List.of());
+
+        coordinator.submit(submitted);
+        coordinator.drain();
+
+        ScheduleRunQueue.Run run = (ScheduleRunQueue.Run) ReflectionTestUtils.getField(
+                coordinator, "runQueue");
+        assertThat(run).isNotNull();
+        assertThat(run.snapshot()).singleElement().satisfies(item -> {
+            assertThat(item.key()).isEqualTo(submitted.key());
+            assertThat(item.presentation()).isEqualTo(submitted.presentation());
+            assertThat(item.result()).isEqualTo(result);
+            assertThat(item.result().attributes())
+                    .containsEntry("title", "执行结果标题")
+                    .containsEntry("autoTranslateSubmitted", "true")
+                    .containsEntry("privatePhase", "indexing");
+            assertThat(item.result().liveStatusAvailable()).isTrue();
+            assertThat(item.status()).isEqualTo(ScheduleRunQueue.STATUS_DOWNLOADED);
+            assertThat(item.message()).isEqualTo("third-party.completed");
+        });
     }
 
     @Test
@@ -581,6 +634,12 @@ class ScheduleWorkCoordinatorTest {
             String credentialSecret) {
         Map<String, Integer> limits = new LinkedHashMap<>();
         executors.keySet().forEach(workType -> limits.put(workType, workConcurrencyLimit));
+        Map<String, ScheduleCapabilityOwner> owners = new LinkedHashMap<>();
+        Map<String, Long> publicationIds = new LinkedHashMap<>();
+        executors.keySet().forEach(workType -> {
+            owners.put(workType, WORK_OWNER);
+            publicationIds.put(workType, 7L);
+        });
         ScheduledTaskDefinition task = new ScheduledTaskDefinition(
                 1L, "fixture-source", "fixture.definition", 1, "{}",
                 ScheduledTaskPresentation.empty());
@@ -596,7 +655,9 @@ class ScheduleWorkCoordinatorTest {
                 new ScheduleWorkPersistenceCodec(objectMapper),
                 objectMapper,
                 executors,
-                new ScheduleRunQueue().begin(1L, ILLUST),
+                owners,
+                publicationIds,
+                new ScheduleRunQueue().begin(1L),
                 taskExecutor,
                 concurrencyLimiter,
                 8,

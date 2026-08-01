@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /** 一次调度执行的复合租约；所有 owner 由一个根状态和一个附加 owner 分支共同控制。 */
@@ -36,6 +37,7 @@ public final class ScheduleExecutionLease
     private ScheduledSourceExecutor sourceExecutor;
     private Map<String, ScheduledWorkExecutor> workExecutors;
     private Map<String, ScheduleCapabilityOwner> workExecutorOwners;
+    private Map<String, Long> workExecutorPublicationIds;
     private ScheduledCredentialPolicy credentialPolicy;
     private ScheduleCapabilityOwner credentialPolicyOwner;
     private Map<String, ScheduledExecutionGuard> guards;
@@ -49,6 +51,7 @@ public final class ScheduleExecutionLease
             SchedulePlanningLease.TransferredSource source,
             Map<String, ScheduledWorkExecutor> workExecutors,
             Map<String, ScheduleCapabilityOwner> workExecutorOwners,
+            Map<String, Long> workExecutorPublicationIds,
             ScheduledCredentialPolicy credentialPolicy,
             ScheduleCapabilityOwner credentialPolicyOwner,
             Map<String, ScheduledExecutionGuard> guards,
@@ -67,6 +70,7 @@ public final class ScheduleExecutionLease
         this.sourceExecutor = source.sourceExecutor();
         this.workExecutors = Map.copyOf(workExecutors);
         this.workExecutorOwners = Map.copyOf(workExecutorOwners);
+        this.workExecutorPublicationIds = Map.copyOf(workExecutorPublicationIds);
         this.credentialPolicy = credentialPolicy;
         this.credentialPolicyOwner = credentialPolicyOwner;
         this.guards = Map.copyOf(guards);
@@ -109,6 +113,19 @@ public final class ScheduleExecutionLease
     public synchronized Map<String, ScheduleCapabilityOwner> workExecutorOwners() {
         ensureActive();
         return Map.copyOf(workExecutorOwners);
+    }
+
+    @Override
+    public synchronized OptionalLong workExecutorPublicationId(String workType) {
+        ensureActive();
+        Long publicationId = workExecutorPublicationIds.get(workType);
+        return publicationId == null ? OptionalLong.empty() : OptionalLong.of(publicationId);
+    }
+
+    @Override
+    public synchronized Map<String, Long> workExecutorPublicationIds() {
+        ensureActive();
+        return Map.copyOf(workExecutorPublicationIds);
     }
 
     public synchronized Optional<ScheduledCredentialPolicy> credentialPolicy() {
@@ -191,6 +208,7 @@ public final class ScheduleExecutionLease
             sourceExecutor = null;
             workExecutors = Map.of();
             workExecutorOwners = Map.of();
+            workExecutorPublicationIds = Map.of();
             credentialPolicy = null;
             credentialPolicyOwner = null;
             guards = Map.of();

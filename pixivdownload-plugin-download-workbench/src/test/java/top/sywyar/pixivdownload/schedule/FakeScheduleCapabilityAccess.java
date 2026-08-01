@@ -504,6 +504,11 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
         }
 
         @Override
+        public long publicationId() {
+            return published.publicationId;
+        }
+
+        @Override
         public T capability() {
             synchronized (lock) {
                 ensureActive();
@@ -728,6 +733,28 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
                 ensureActive();
                 Map<String, ScheduleCapabilityOwner> values = new LinkedHashMap<>();
                 workRoutes.forEach((id, route) -> values.put(id, route.published.owner));
+                return Map.copyOf(values);
+            }
+        }
+
+        @Override
+        public java.util.OptionalLong workExecutorPublicationId(String workType) {
+            synchronized (lock) {
+                ensureActive();
+                WorkRoute route = workRoutes.get(workType);
+                return route == null
+                        ? java.util.OptionalLong.empty()
+                        : java.util.OptionalLong.of(route.published.publicationId);
+            }
+        }
+
+        @Override
+        public Map<String, Long> workExecutorPublicationIds() {
+            synchronized (lock) {
+                ensureActive();
+                Map<String, Long> values = new LinkedHashMap<>();
+                workRoutes.forEach((id, route) ->
+                        values.put(id, route.published.publicationId));
                 return Map.copyOf(values);
             }
         }

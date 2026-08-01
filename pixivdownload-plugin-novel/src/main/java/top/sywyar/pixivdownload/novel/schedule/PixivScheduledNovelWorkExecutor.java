@@ -210,7 +210,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             return new ScheduledWorkResult(
                     ScheduledWorkResult.Outcome.SKIPPED,
                     "pixiv.novel.filtered",
-                    resultAttributes(metadata, false));
+                    resultAttributes(metadata),
+                    false);
         }
 
         PixivScheduledNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(
@@ -228,6 +229,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         if (!downloaded) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.download-incomplete");
         }
+        boolean liveStatusAvailable = submitAutoTranslate(novelId, metadata, definition);
         try {
             workMetadataCapture.capture(WorkType.NOVEL, novelId, body.toString(), "schedule");
         } catch (RuntimeException e) {
@@ -237,7 +239,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         return new ScheduledWorkResult(
                 ScheduledWorkResult.Outcome.COMPLETED,
                 "work.completed",
-                resultAttributes(metadata, definition.download().novelAutoTranslate()));
+                resultAttributes(metadata),
+                liveStatusAvailable);
     }
 
     private PixivScheduledNovelMetadata.SeriesMetadata fetchSeriesBestEffort(
@@ -306,13 +309,6 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         other.setBookmark(download.bookmark());
         other.setCollectionId(download.collectionId());
         other.setFormat(download.novelFormat());
-        if (download.novelAutoTranslate()) {
-            other.setAutoTranslate(true);
-            other.setAutoTranslateLanguage(download.novelTranslateLanguage());
-            other.setAutoTranslateSegmentSize(download.novelTranslateSegmentSize());
-            other.setAutoTranslateMerge(download.novelMerge());
-            other.setAutoTranslateMergeFormat(download.novelMergeFormat());
-        }
         if (series != null) {
             if (series.description() != null && !series.description().isBlank()) {
                 other.setSeriesDescription(series.description());
@@ -326,6 +322,38 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         }
         request.setOther(other);
         return request;
+    }
+
+    /**
+     * 计划下载在落盘成功后自行提交翻译，使结果只在本轮确实建立了新状态时开放实时投影。
+     * 下载服务的交互式 best-effort 提交流程保持不变；计划请求关闭其自动提交位，避免重复任务。
+     */
+    private boolean submitAutoTranslate(
+            long novelId,
+            PixivScheduledNovelMetadata metadata,
+            PixivScheduledNovelDefinition definition) {
+        PixivScheduledNovelDefinition.Download download = definition.download();
+        if (!download.novelAutoTranslate()) {
+            return false;
+        }
+        try {
+            novelAutoTranslateService.submit(
+                    novelId,
+                    metadata.seriesId(),
+                    download.novelTranslateLanguage(),
+                    download.novelTranslateSegmentSize() == null
+                            ? 0
+                            : download.novelTranslateSegmentSize(),
+                    download.novelMerge(),
+                    download.novelMergeFormat());
+            return true;
+        } catch (RuntimeException failure) {
+            log.warn(
+                    "Scheduled novel auto-translate submission failed: novelId={}, errorType={}",
+                    novelId,
+                    failure.getClass().getSimpleName());
+            return false;
+        }
     }
 
     @Override
@@ -542,16 +570,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         seriesMetadataCache.keySet().removeIf(key -> key.taskId() == taskId);
     }
 
-    private static Map<String, String> resultAttributes(
-            PixivScheduledNovelMetadata metadata,
-            boolean autoTranslateSubmitted) {
-        if (autoTranslateSubmitted) {
-            return Map.of(
-                    "title", metadata.title(),
-                    "xRestrict", Integer.toString(metadata.xRestrict()),
-                    "ai", Boolean.toString(metadata.ai()),
-                    "autoTranslateSubmitted", "true");
-        }
+    private static Map<String, String> resultAttributes(PixivScheduledNovelMetadata metadata) {
         return Map.of(
                 "title", metadata.title(),
                 "xRestrict", Integer.toString(metadata.xRestrict()),

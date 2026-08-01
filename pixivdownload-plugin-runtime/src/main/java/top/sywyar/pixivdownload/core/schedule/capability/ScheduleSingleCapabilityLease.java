@@ -36,6 +36,11 @@ public final class ScheduleSingleCapabilityLease<T> implements ScheduleCapabilit
         return handle.owner();
     }
 
+    @Override
+    public long publicationId() {
+        return handle.publicationId();
+    }
+
     public synchronized T capability() {
         ensureActive();
         return capability;

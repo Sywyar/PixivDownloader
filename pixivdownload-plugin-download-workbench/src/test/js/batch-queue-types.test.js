@@ -306,7 +306,10 @@ const BASIC_INITIALIZER = `(function (context) {
             process: function () { return 'v' + context.manifest.pluginGeneration; },
             slots: {'cookie-tools': '<span data-slot-generation="' + context.manifest.pluginGeneration + '"></span>'},
             scheduledSse: false,
-            scheduledQueueItem: function (item) { return {id: 'owned-' + item.id}; },
+            scheduledQueueItem: function (item) {
+                testState.scheduledOwnerCalls = (testState.scheduledOwnerCalls || 0) + 1;
+                return {id: 'owned-' + item.id, ownerMapped: true};
+            },
             import: {matchUrl: function () { return 'x'; }, buildItem: function () { return {}; }},
             acquisition: {
                 user: {
@@ -397,6 +400,14 @@ function queueTagsInitializer(hookLiteral) {
         'scheduledSse: false,',
         `scheduledSse: false,
             queueTags: ${hookLiteral},`
+    );
+}
+
+function queueLiveStatusInitializer(hookLiteral) {
+    return BASIC_INITIALIZER.replace(
+        'scheduledSse: false,',
+        `scheduledSse: false,
+            queueLiveStatus: ${hookLiteral},`
     );
 }
 
@@ -552,7 +563,49 @@ const LATE_UI_INITIALIZER = `(function (context) {
         ok('旧 gallery reason namespace 不再进入预加载集合',
             !(await h.qt.i18nNamespaces()).includes('legacy-gallery'));
         ok('模块不能用 descriptor 覆盖 type', h.qt.descriptor('demo').type === 'demo');
-        ok('scheduledQueueItem 调用 owner hook', h.qt.scheduledQueueItem('demo', {id: '7'}, {}).id === 'owned-7');
+        const ownedScheduled = h.qt.scheduledQueueItem('demo', {id: '7'}, {});
+        ok('scheduledQueueItem 调用 owner hook 但保留宿主盖章身份',
+            h.sandbox.testState.scheduledOwnerCalls === 1
+            && ownedScheduled.id === '7' && ownedScheduled.kind === 'demo'
+            && ownedScheduled.workId === '7' && ownedScheduled.workType === 'demo'
+            && ownedScheduled.ownerMapped === true
+            && ownedScheduled.queueKey === h.qt.queueKey('demo', '7'));
+        const opaqueWorkId = `  /"'<> work id  `;
+        const opaqueScheduled = h.qt.scheduledQueueItem('demo', {
+            workId: opaqueWorkId,
+            liveStatus: {phase: 'REAL'}
+        }, {});
+        ok('不透明 workId 原样保留且复合 key 使用不含原文的安全编码',
+            opaqueScheduled.id === opaqueWorkId
+            && opaqueScheduled.workId === opaqueWorkId
+            && opaqueScheduled.queueKey === h.qt.queueKey('demo', opaqueWorkId)
+            && !opaqueScheduled.queueKey.includes(opaqueWorkId)
+            && opaqueScheduled.queueKey !== h.qt.queueKey('other', opaqueWorkId));
+        const neutralFallback = vm.runInContext(`window.PixivBatch.queueTypes.scheduledQueueItem(
+            'third-party',
+            {
+                workId: 'opaque-7',
+                workType: 'third-party',
+                title: 'Neutral title',
+                author: 'Neutral author',
+                thumbnailReference: 'thumb:opaque-7',
+                presentationAttributes: {xRestrict: '2', ai: 'true'},
+                resultAttributes: {resultCode: 'done'},
+                liveStatus: {phase: 'PRIVATE'}
+            },
+            {source: 'schedule'}
+        )`, h.sandbox);
+        ok('缺席 owner 的计划 DTO 只保留中性展示与 raw 状态，不猜测插件属性语义',
+            neutralFallback.id === 'opaque-7'
+            && neutralFallback.kind === 'third-party'
+            && neutralFallback.rawTitle === 'Neutral title'
+            && neutralFallback.author === 'Neutral author'
+            && neutralFallback.thumbnailReference === 'thumb:opaque-7'
+            && neutralFallback.liveStatus.phase === 'PRIVATE'
+            && neutralFallback.queueKey === h.qt.queueKey('third-party', 'opaque-7')
+            && neutralFallback.presentationAttributes.xRestrict === '2'
+            && !Object.prototype.hasOwnProperty.call(neutralFallback, 'xRestrict')
+            && !Object.prototype.hasOwnProperty.call(neutralFallback, 'isAi'));
         ok('scheduled SSE 能力来自 descriptor', h.qt.supportsScheduledSse('demo') === false);
         ok('缺席类型不会默认订阅 scheduled SSE', h.qt.supportsScheduledSse('missing') === false);
     }
@@ -941,6 +994,140 @@ const LATE_UI_INITIALIZER = `(function (context) {
         await lifecycle.qt.refresh();
         ok('queueTags 在 publication 撤回后立即缺席',
             activeTags.length === 1 && lifecycle.qt.queueTags({kind: 'demo'}).length === 0);
+    }
+
+    {
+        const maliciousInitializer = BASIC_INITIALIZER
+            .replace(
+                `scheduledQueueItem: function (item) {
+                testState.scheduledOwnerCalls = (testState.scheduledOwnerCalls || 0) + 1;
+                return {id: 'owned-' + item.id, ownerMapped: true};
+            },`,
+                `scheduledQueueItem: function () {
+                return {
+                    id: 'forged-id',
+                    kind: 'forged-kind',
+                    workId: 'forged-work-id',
+                    workType: 'forged-work-type',
+                    queueKey: 'forged-key',
+                    liveStatus: {phase: 'FORGED'},
+                    ownerMapped: true
+                };
+            },`)
+            .replace(
+                'scheduledSse: false,',
+                `scheduledSse: false,
+            queueLiveStatus: function (item) {
+                testState.liveDispatchKind = item.kind;
+                testState.liveDispatchPhase = item.liveStatus && item.liveStatus.phase;
+                return {label: 'Owner', message: item.liveStatus.phase, tone: 'info'};
+            },`);
+        const h = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: maliciousInitializer}
+        });
+        await h.qt.bootstrap();
+        const mapped = vm.runInContext(`window.PixivBatch.queueTypes.scheduledQueueItem(
+            'demo',
+            {workId: 'same-id', liveStatus: {phase: 'REAL'}},
+            {}
+        )`, h.sandbox);
+        const status = h.qt.queueLiveStatus(Object.assign({}, mapped, {kind: 'forged-after-host'}));
+        ok('恶意 owner 不能改写 kind/id/复合 key/raw liveStatus，解释器仍按 manifest workType 派发',
+            mapped.id === 'same-id'
+            && mapped.kind === 'demo'
+            && mapped.workId === 'same-id'
+            && mapped.workType === 'demo'
+            && mapped.queueKey === h.qt.queueKey('demo', 'same-id')
+            && mapped.liveStatus.phase === 'REAL'
+            && mapped.ownerMapped === true
+            && h.sandbox.testState.liveDispatchKind === 'demo'
+            && h.sandbox.testState.liveDispatchPhase === 'REAL'
+            && status && status.message === 'REAL');
+    }
+
+    {
+        const h = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: queueLiveStatusInitializer(`function (item) {
+                testState.liveStatusSnapshotFrozen = Object.isFrozen(item)
+                    && Object.isFrozen(item.liveStatus)
+                    && Object.isFrozen(item.liveStatus.details);
+                testState.liveStatusSnapshotHasMessage = Object.prototype.hasOwnProperty.call(
+                    item, 'lastMessage');
+                try { item.liveStatus.phase = 'FORGED'; } catch (e) {}
+                return {label: ' Status ', message: ' Working ', tone: ' SUCCESS '};
+            }`)}
+        });
+        await h.qt.bootstrap();
+        const sourceItem = {
+            id: '8',
+            kind: 'demo',
+            liveStatus: {phase: 'RUNNING', details: {attempt: 1}},
+            lastMessage: 'volatile host message'
+        };
+        const status = h.qt.queueLiveStatus(sourceItem);
+        ok('queueLiveStatus 使用隔离的深冻结 raw 快照并规范化纯文本结果',
+            h.sandbox.testState.liveStatusSnapshotFrozen === true
+            && h.sandbox.testState.liveStatusSnapshotHasMessage === false
+            && sourceItem.liveStatus.phase === 'RUNNING'
+            && status.label === 'Status'
+            && status.message === 'Working'
+            && status.tone === 'success'
+            && Object.isFrozen(status));
+
+        const invalid = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: queueLiveStatusInitializer(`function (item) {
+                if (item.liveStatus.phase === 'LABEL') {
+                    return {label: 'x'.repeat(49), message: 'ok', tone: 'info'};
+                }
+                if (item.liveStatus.phase === 'MESSAGE') {
+                    return {label: 'ok', message: 'x'.repeat(257), tone: 'info'};
+                }
+                return {label: 'ok', message: 'ok', tone: 'custom-css'};
+            }`)}
+        });
+        await invalid.qt.bootstrap();
+        ok('queueLiveStatus 拒绝超长文本与 tone 白名单外结果',
+            invalid.qt.queueLiveStatus({kind: 'demo', liveStatus: {phase: 'LABEL'}}) === null
+            && invalid.qt.queueLiveStatus({kind: 'demo', liveStatus: {phase: 'MESSAGE'}}) === null
+            && invalid.qt.queueLiveStatus({kind: 'demo', liveStatus: {phase: 'TONE'}}) === null);
+
+        const failing = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: queueLiveStatusInitializer(
+                `function () { throw new Error('live status failure'); }`)}
+        });
+        await failing.qt.bootstrap();
+        ok('queueLiveStatus 隔离 owner hook 异常并安全降级',
+            failing.qt.queueLiveStatus({kind: 'demo', liveStatus: {phase: 'RUNNING'}}) === null);
+
+        const asyncFailing = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: queueLiveStatusInitializer(
+                `function () { return Promise.reject(new Error('async live status failure')); }`)}
+        });
+        await asyncFailing.qt.bootstrap();
+        const asyncFallback = asyncFailing.qt.queueLiveStatus({
+            kind: 'demo', liveStatus: {phase: 'RUNNING'}
+        });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        ok('queueLiveStatus 拒绝异步结果并吸收 rejected Promise', asyncFallback === null);
+
+        const lifecycle = harness([
+            manifest(1, [typeDescriptor()]),
+            manifest(2, [])
+        ], {
+            '/modules/demo.js': {initializer: queueLiveStatusInitializer(
+                `function () { return {label: 'Demo', message: 'Running', tone: 'info'}; }`)}
+        });
+        await lifecycle.qt.bootstrap();
+        const oldBehavior = lifecycle.qt.descriptor('demo');
+        const activeStatus = lifecycle.qt.queueLiveStatus({
+            kind: 'demo', liveStatus: {phase: 'RUNNING'}
+        });
+        await lifecycle.qt.refresh();
+        assert.throws(() => oldBehavior.queueLiveStatus({liveStatus: {phase: 'RUNNING'}}), /stale/);
+        passed++;
+        ok('queueLiveStatus 随 publication 撤回且旧 hook 不能越代继续解释状态',
+            activeStatus.message === 'Running'
+            && lifecycle.qt.queueLiveStatus({kind: 'demo', liveStatus: {phase: 'RUNNING'}}) === null);
     }
 
     {

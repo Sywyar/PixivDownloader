@@ -633,6 +633,7 @@ class ScheduleCapabilityRegistryTest {
         ScheduleSingleCapabilityLease<ScheduledWorkExecutor> lease =
                 registry.prepareAcquire(current).orElseThrow();
         try (lease) {
+            assertThat(lease.publicationId()).isEqualTo(second.publicationId());
             assertThat(registry.activate(lease)).isTrue();
             assertThat(lease.capability()).isSameAs(fixture.workExecutor());
         }
@@ -658,6 +659,10 @@ class ScheduleCapabilityRegistryTest {
         assertThat(execution.workExecutor("work:dedupe")).containsSame(fixture.workExecutor());
         assertThat(execution.workExecutorOwner("work:dedupe")).contains(owner);
         assertThat(execution.workExecutorOwners()).containsOnly(Map.entry("work:dedupe", owner));
+        assertThat(execution.workExecutorPublicationId("work:dedupe"))
+                .hasValue(publication.publicationId());
+        assertThat(execution.workExecutorPublicationIds())
+                .containsOnly(Map.entry("work:dedupe", publication.publicationId()));
         assertThat(execution.credentialPolicy()).containsSame(fixture.credentialPolicy());
         assertThat(execution.credentialPolicyOwner()).contains(owner);
         assertThat(execution.guard("guard:dedupe")).containsSame(fixture.guard());
@@ -786,6 +791,12 @@ class ScheduleCapabilityRegistryTest {
             assertThat(resolvedWorkOwner.pluginGeneration()).isEqualTo(2L);
             assertThat(execution.workExecutorOwners())
                     .containsOnly(Map.entry("work:composite", workOwner));
+            assertThat(execution.workExecutorPublicationId("work:composite"))
+                    .hasValue(publications.get(CompositeOwner.WORK).publicationId());
+            assertThat(execution.workExecutorPublicationIds())
+                    .containsOnly(Map.entry(
+                            "work:composite",
+                            publications.get(CompositeOwner.WORK).publicationId()));
             ScheduleCapabilityOwner resolvedPolicyOwner =
                     execution.credentialPolicyOwner().orElseThrow();
             assertThat(resolvedPolicyOwner).isEqualTo(policyOwner);

@@ -39,6 +39,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
@@ -52,13 +53,14 @@ import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCod
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 计划任务的增删改查、Cookie 授权与「立即运行」入口。
@@ -70,11 +72,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ScheduleService {
 
-    private static final Set<String> TRANSLATE_PHASES = Set.of(
-            "QUEUED", "WAITING_SERIES", "RESOLVING", "TRANSLATING",
-            "MERGING", "SAME_LANGUAGE", "DONE", "FAILED");
     private static final int MAX_PLUGIN_STATUS_ENTRIES = 16;
+    private static final int MAX_PLUGIN_STATUS_KEY_BYTES = 64;
     private static final int MAX_PLUGIN_STATUS_VALUE_BYTES = 256;
+    private static final int MAX_PLUGIN_STATUS_TOTAL_BYTES = 4_096;
+    static final int MAX_PLUGIN_STATUS_RESPONSE_BYTES = 512 * 1024;
+    private static final Pattern PLUGIN_STATUS_KEY =
+            Pattern.compile("[A-Za-z][A-Za-z0-9._-]{0,63}");
 
     private final ScheduledTaskStore store;
     private final ScheduleExecutor executor;
@@ -85,11 +89,7 @@ public class ScheduleService {
     private final PixivSchedulePersistenceCodec persistenceCodec;
     private final ScheduleExecutionEngine scheduleExecutionEngine;
     private final TransactionTemplate transactionTemplate;
-    /**
-     * 作品类型执行器注册中心：队列视图的翻译状态叠加经小说执行器（{@code novel}）取得——它实现可选的
-     * {@code translateStatus} 能力。执行器缺席（小说插件被禁 / 卸载）时解析为空、不叠加翻译状态，队列视图照常返回。
-     * ScheduleService 因此不再 import 任何 novel 包类型。
-     */
+    /** 作品类型执行器注册中心；队列只经短租约读取插件主动开放的中性实时状态。 */
     private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
 
     public ScheduleSourceManifestView sources() {
@@ -217,52 +217,42 @@ public class ScheduleService {
         if (run == null) {
             return new ScheduleQueueView(id, null, false, 0, List.of());
         }
-        List<ScheduleQueueView.Item> items = run.snapshot().stream()
-                .map(this::toQueueItem)
+        List<ScheduleRunQueue.Item> snapshot = run.snapshot();
+        LiveStatusProjection liveStatusProjection = loadLiveStatuses(snapshot);
+        List<ScheduleQueueView.Item> items = snapshot.stream()
+                .map(item -> toQueueItem(
+                        item,
+                        liveStatusProjection.statuses()
+                                .getOrDefault(item.key(), Map.of())))
                 .toList();
-        return new ScheduleQueueView(id, run.startedTime(), run.truncated(), items.size(), items);
+        return new ScheduleQueueView(
+                id,
+                run.startedTime(),
+                run.truncated() || liveStatusProjection.truncated(),
+                items.size(),
+                items);
     }
 
     /**
-     * 把内存队列条目映射为对外视图，并为小说叠加「下载即自动翻译」的实时状态（读取时取，非阻塞）。
-     *
-     * <p>仅对<b>本轮确实提交过自动翻译</b>的条目（{@link ScheduleRunQueue.Item#isAutoTranslateSubmitted()}）叠加：
-     * 翻译状态按 {@code novelId} 全局保存且终态不随轮次清理，若对所有小说一律叠加，会把同一 {@code novelId} 上一轮
-     * （甚至别的任务）译过的旧 DONE/FAILED 误显示到本轮「已存在跳过」「未开启翻译」的条目上。
+     * 把内存队列条目映射为中性对外视图。展示属性和结果属性保持原始机器数据，由作品类型 owner
+     * 的前端模块解释；宿主不把未知属性提升成固定 wire 字段。
      */
-    private ScheduleQueueView.Item toQueueItem(ScheduleRunQueue.Item it) {
-        String translatePhase = null;
-        Long translateElapsed = null;
-        Integer translatePending = null;
-        if (ScheduleRunQueue.KIND_NOVEL.equals(it.getKind()) && it.isAutoTranslateSubmitted()) {
-            try {
-                TranslateStatus tv = null;
-                ScheduleCapabilityLease<ScheduledWorkExecutor> lease =
-                        scheduleCapabilityRegistry.prepareWorkExecutor(
-                                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL).orElse(null);
-                try (lease) {
-                    if (lease != null && scheduleCapabilityRegistry.activate(lease)) {
-                        Map<String, String> status = lease.capability().status(
-                                new ScheduledWorkKey(
-                                        PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL,
-                                        it.getId()));
-                        tv = safeTranslateStatus(status);
-                    }
-                }
-                if (tv != null) {
-                    translatePhase = tv.phase();
-                    translateElapsed = tv.elapsedSeconds();
-                    translatePending = tv.seriesPending();
-                }
-            } catch (RuntimeException ignored) {
-                // 插件执行器异常不得穿过边界破坏整份队列视图，也不保留 child classloader 的异常对象。
-                log.debug("Scheduled work translation status is temporarily unavailable");
-            }
-        }
+    private static ScheduleQueueView.Item toQueueItem(
+            ScheduleRunQueue.Item item,
+            Map<String, String> liveStatus) {
+        var presentation = item.presentation();
+        ScheduledWorkResult result = item.result();
         return new ScheduleQueueView.Item(
-                it.getId(), it.getTitle(), it.getKind(),
-                it.getXRestrict(), it.getAi(), it.getStatus(), it.getMessage(),
-                translatePhase, translateElapsed, translatePending);
+                item.key().id(),
+                item.key().workType(),
+                presentation.title(),
+                presentation.author(),
+                presentation.thumbnailReference(),
+                presentation.attributes(),
+                item.status(),
+                item.message(),
+                result == null ? Map.of() : result.attributes(),
+                liveStatus);
     }
 
     /**
@@ -496,47 +486,167 @@ public class ScheduleService {
         }
     }
 
-    private static Long parseLong(String value) {
+    private LiveStatusProjection loadLiveStatuses(
+            List<ScheduleRunQueue.Item> items) {
+        Map<LiveStatusOwnerKey, List<ScheduleRunQueue.Item>> byOwner =
+                new LinkedHashMap<>();
+        for (ScheduleRunQueue.Item item : items) {
+            ScheduledWorkResult result = item.result();
+            if (result != null && result.liveStatusAvailable()) {
+                LiveStatusOwnerKey ownerKey = new LiveStatusOwnerKey(
+                        item.key().workType(),
+                        item.workExecutorOwner(),
+                        item.workExecutorPublicationId());
+                byOwner.computeIfAbsent(ownerKey, ignored -> new ArrayList<>()).add(item);
+            }
+        }
+        if (byOwner.isEmpty()) {
+            return LiveStatusProjection.empty();
+        }
+
+        Map<ScheduledWorkKey, Map<String, String>> statuses = new LinkedHashMap<>();
+        LiveStatusBudget budget = new LiveStatusBudget();
+        for (Map.Entry<LiveStatusOwnerKey, List<ScheduleRunQueue.Item>> entry
+                : byOwner.entrySet()) {
+            loadLiveStatuses(entry.getKey(), entry.getValue(), statuses, budget);
+            if (budget.truncated()) {
+                break;
+            }
+        }
+        return new LiveStatusProjection(Map.copyOf(statuses), budget.truncated());
+    }
+
+    private void loadLiveStatuses(
+            LiveStatusOwnerKey ownerKey,
+            List<ScheduleRunQueue.Item> items,
+            Map<ScheduledWorkKey, Map<String, String>> target,
+            LiveStatusBudget budget) {
         try {
-            return value == null ? null : Long.valueOf(value);
-        } catch (NumberFormatException ignored) {
-            return null;
+            ScheduleCapabilityLease<ScheduledWorkExecutor> lease =
+                    scheduleCapabilityRegistry.prepareWorkExecutor(
+                            ownerKey.workType()).orElse(null);
+            try (lease) {
+                if (lease == null
+                        || !ownerKey.owner().equals(lease.owner())
+                        || ownerKey.publicationId() != lease.publicationId()
+                        || !scheduleCapabilityRegistry.activate(lease)) {
+                    return;
+                }
+                ScheduledWorkExecutor executor = lease.capability();
+                for (ScheduleRunQueue.Item item : items) {
+                    try {
+                        Map<String, String> status =
+                                safeLiveStatus(executor.status(item.key()));
+                        if (!status.isEmpty()) {
+                            if (!budget.reserve(liveStatusUtf8Bytes(status))) {
+                                return;
+                            }
+                            target.put(item.key(), status);
+                        }
+                    } catch (Throwable failure) {
+                        rethrowFatal(failure);
+                        log.debug(
+                                "Scheduled work live status item is temporarily unavailable for work type {}",
+                                ownerKey.workType());
+                    }
+                }
+            }
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            log.debug(
+                    "Scheduled work live status capability is temporarily unavailable for work type {}",
+                    ownerKey.workType());
         }
     }
 
-    private static TranslateStatus safeTranslateStatus(Map<String, String> status) {
-        if (status == null || status.isEmpty() || status.size() > MAX_PLUGIN_STATUS_ENTRIES) {
-            return null;
+    private static Map<String, String> safeLiveStatus(Map<String, String> status) {
+        if (status == null || status.isEmpty()) {
+            return Map.of();
         }
-        String phase = safeStatusValue(status.get("phase"));
-        if (phase == null || !TRANSLATE_PHASES.contains(phase)) {
-            return null;
+        if (status.size() > MAX_PLUGIN_STATUS_ENTRIES) {
+            return Map.of();
         }
-        Long elapsed = parseLong(safeStatusValue(status.get("elapsedSeconds")));
-        Integer pending = parseInteger(safeStatusValue(status.get("seriesPending")));
-        if ((elapsed != null && elapsed < 0L) || (pending != null && pending < 0)) {
-            return null;
+        Map<String, String> copy = new LinkedHashMap<>();
+        int totalBytes = 0;
+        for (Map.Entry<String, String> entry : status.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key == null
+                    || key.length() > MAX_PLUGIN_STATUS_KEY_BYTES
+                    || !PLUGIN_STATUS_KEY.matcher(key).matches()
+                    || value == null
+                    || value.length() > MAX_PLUGIN_STATUS_VALUE_BYTES
+                    || containsControlCharacter(value)
+                    || ScheduleCredentialRedactor.isSensitiveFieldName(key)
+                    || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(key)
+                    && !ScheduleCredentialRedactor.isSafeMetadataValue(key, value))
+                    || ScheduleCredentialRedactor.containsCredentialMaterial(value)) {
+                return Map.of();
+            }
+            int keyBytes = key.getBytes(StandardCharsets.UTF_8).length;
+            int valueBytes = value.getBytes(StandardCharsets.UTF_8).length;
+            if (keyBytes > MAX_PLUGIN_STATUS_KEY_BYTES
+                    || valueBytes > MAX_PLUGIN_STATUS_VALUE_BYTES) {
+                return Map.of();
+            }
+            totalBytes = Math.addExact(totalBytes, Math.addExact(keyBytes, valueBytes));
+            if (totalBytes > MAX_PLUGIN_STATUS_TOTAL_BYTES) {
+                return Map.of();
+            }
+            copy.put(key, value);
         }
-        return new TranslateStatus(phase, elapsed, pending);
+        return Map.copyOf(copy);
     }
 
-    private record TranslateStatus(String phase, Long elapsedSeconds, Integer seriesPending) {
-    }
-
-    private static String safeStatusValue(String value) {
-        if (value == null
-                || value.getBytes(StandardCharsets.UTF_8).length > MAX_PLUGIN_STATUS_VALUE_BYTES
-                || ScheduleCredentialRedactor.containsCredentialMaterial(value)) {
-            return null;
+    private static int liveStatusUtf8Bytes(Map<String, String> status) {
+        int total = 0;
+        for (Map.Entry<String, String> entry : status.entrySet()) {
+            total += entry.getKey().getBytes(StandardCharsets.UTF_8).length;
+            total += entry.getValue().getBytes(StandardCharsets.UTF_8).length;
         }
-        return value;
+        return total;
     }
 
-    private static Integer parseInteger(String value) {
-        try {
-            return value == null ? null : Integer.valueOf(value);
-        } catch (NumberFormatException ignored) {
-            return null;
+    private static boolean containsControlCharacter(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (Character.isISOControl(value.charAt(index))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record LiveStatusProjection(
+            Map<ScheduledWorkKey, Map<String, String>> statuses,
+            boolean truncated) {
+
+        private static LiveStatusProjection empty() {
+            return new LiveStatusProjection(Map.of(), false);
+        }
+    }
+
+    private record LiveStatusOwnerKey(
+            String workType,
+            ScheduleCapabilityOwner owner,
+            long publicationId) {
+    }
+
+    private static final class LiveStatusBudget {
+
+        private int retainedBytes;
+        private boolean truncated;
+
+        private boolean reserve(int bytes) {
+            if (bytes > MAX_PLUGIN_STATUS_RESPONSE_BYTES - retainedBytes) {
+                truncated = true;
+                return false;
+            }
+            retainedBytes += bytes;
+            return true;
+        }
+
+        private boolean truncated() {
+            return truncated;
         }
     }
 
