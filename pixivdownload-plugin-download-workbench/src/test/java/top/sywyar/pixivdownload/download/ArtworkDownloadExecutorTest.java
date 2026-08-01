@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -112,12 +113,17 @@ class ArtworkDownloadExecutorTest {
 
     @BeforeEach
     void setUp() {
-        LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+        LocaleContextHolder.setLocale(Locale.US);
         lenient().when(taskScheduler.schedule(any(Runnable.class), any(java.time.Instant.class)))
                 .thenReturn(mock(ScheduledFuture.class));
         lenient().when(downloadPathGuard.requireSafeDirectoryName(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         artworkDownloadExecutor = newExecutor(downloadTaskExecutor);
+    }
+
+    @AfterEach
+    void tearDown() {
+        LocaleContextHolder.resetLocaleContext();
     }
 
     private ArtworkDownloadExecutor newExecutor(InteractiveDownloadExecutionLane taskExecutor) {
@@ -850,27 +856,32 @@ class ArtworkDownloadExecutorTest {
             DownloadStatus status = new DownloadStatus(1L, "test", 5);
 
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.pending");
-            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("等待开始");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs()))
+                    .isEqualTo("Waiting to start");
 
             status.setCurrentImageIndex(2);
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.in-progress");
-            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("下载中 (3/5)");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs()))
+                    .isEqualTo("Downloading (3/5)");
 
             status.setCompleted(true);
             status.setSuccessCount(5);
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.completed");
-            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("已完成 (5/5)");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs()))
+                    .isEqualTo("Completed (5/5)");
 
             status.setCompleted(false);
             status.setCancelled(true);
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.cancelled");
-            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("已取消");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs()))
+                    .isEqualTo("Cancelled");
 
             status.setCancelled(false);
             status.setFailed(true);
-            status.setErrorMessage("网络超时");
+            status.setErrorMessage("Network timeout");
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.failed");
-            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("失败: 网络超时");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs()))
+                    .isEqualTo("Failed: Network timeout");
         }
     }
 

@@ -234,7 +234,7 @@ class SSEControllerTest {
     @Test
     @DisplayName("closeSSEConnection 应返回本地化响应并移除连接")
     void shouldCloseConnectionAndReturnLocalizedMessage() throws Exception {
-        LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+        LocaleContextHolder.setLocale(Locale.US);
         when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
 
         RecordingSseEmitter emitter = new RecordingSseEmitter();
@@ -245,7 +245,7 @@ class SSEControllerTest {
         assertThat(response.getBody()).isNotNull();
         DownloadResponse body = response.getBody();
         assertThat(body.isSuccess()).isTrue();
-        assertThat(body.getMessage()).isEqualTo("SSE连接已安全关闭");
+        assertThat(body.getMessage()).isEqualTo("SSE connection has been closed safely");
         assertThat(artworkEmitters()).doesNotContainKey("admin:999");
         assertThat(emitter.completed).isTrue();
     }

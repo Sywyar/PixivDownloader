@@ -48,10 +48,10 @@ class DownloadStatusControllerTest {
     @Test
     @DisplayName("GET /api/download/status 应返回服务状态")
     void shouldReturnServiceStatus() throws Exception {
-        mockMvc.perform(get("/api/download/status").locale(Locale.SIMPLIFIED_CHINESE))
+        mockMvc.perform(get("/api/download/status").locale(Locale.US))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.message").value("服务运行正常"));
+                .andExpect(jsonPath("$.message").value("Service is running normally"));
     }
 
     // ========== GET /api/download/status/{artworkId} ==========
@@ -84,10 +84,10 @@ class DownloadStatusControllerTest {
             when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
             when(artworkDownloadExecutor.getDownloadStatus(99999L)).thenReturn(null);
 
-            mockMvc.perform(get("/api/download/status/99999").locale(Locale.SIMPLIFIED_CHINESE))
+            mockMvc.perform(get("/api/download/status/99999").locale(Locale.US))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(false))
-                    .andExpect(jsonPath("$.message").value("未找到该作品的下载状态"));
+                    .andExpect(jsonPath("$.message").value("Download status for this artwork was not found"));
         }
     }
 

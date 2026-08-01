@@ -79,12 +79,12 @@ class DownloadTaskControllerTest {
             request.setImageUrls(List.of("https://i.pximg.net/img/12345_p0.jpg"));
 
             mockMvc.perform(post("/api/download/pixiv")
-                            .locale(Locale.SIMPLIFIED_CHINESE)
+                            .locale(Locale.US)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.message").value("下载任务已开始处理"));
+                    .andExpect(jsonPath("$.message").value("Download task has started"));
         }
 
         @Test

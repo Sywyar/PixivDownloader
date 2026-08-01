@@ -71,11 +71,12 @@ class DownloadQueueControllerTest {
     })
     @DisplayName("无 publication 的旧请求固定返回冲突且不解析当前队列")
     void identityLessLegacyRequestAlwaysReturnsStableConflict(String path) throws Exception {
-        mockMvc.perform(post(path).locale(Locale.SIMPLIFIED_CHINESE))
+        mockMvc.perform(post(path).locale(Locale.US))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("QUEUE_CANCEL_DESCRIPTOR_STALE"))
-                .andExpect(jsonPath("$.message").value("此取消请求已过期，请刷新下载页面后重试"));
+                .andExpect(jsonPath("$.message").value(
+                        "This cancel request is outdated. Refresh the download page and try again"));
 
         verifyNoInteractions(downloadControlPlane, requestOwnerIdentityResolver);
     }
@@ -100,7 +101,7 @@ class DownloadQueueControllerTest {
         mockMvc.perform(post("/api/download/queue/novel/cancel")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(cancelRequest(workKey, NOVEL_PUBLICATION))
-                        .locale(Locale.SIMPLIFIED_CHINESE))
+                        .locale(Locale.US))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
@@ -126,11 +127,11 @@ class DownloadQueueControllerTest {
         mockMvc.perform(post("/api/download/queue/{queueType}/cancel", " ")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(cancelRequest("novel/1", NOVEL_PUBLICATION))
-                        .locale(Locale.SIMPLIFIED_CHINESE))
+                        .locale(Locale.US))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("QUEUE_CANCEL_REQUEST_INVALID"))
-                .andExpect(jsonPath("$.message").value("请求参数错误"));
+                .andExpect(jsonPath("$.message").value("Invalid request parameters"));
 
         verifyNoInteractions(downloadControlPlane, requestOwnerIdentityResolver);
     }

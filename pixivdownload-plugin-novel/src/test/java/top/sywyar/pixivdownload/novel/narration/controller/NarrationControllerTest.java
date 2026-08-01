@@ -168,7 +168,8 @@ class NarrationControllerTest {
 
         assertEquals(503, resp.getStatusCode().value());
         assertTrue(resp.getBody() instanceof NovelErrorResponse);
-        assertEquals("AI 文本模型当前不可用，无法生成新的朗读脚本；请稍后再试或检查 AI 插件配置",
+        assertEquals("The AI text model is currently unavailable, so a new narration script cannot be "
+                        + "generated; try again later or check the AI plugin configuration",
                 ((NovelErrorResponse) resp.getBody()).error());
         verify(scriptService, org.mockito.Mockito.never())
                 .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));

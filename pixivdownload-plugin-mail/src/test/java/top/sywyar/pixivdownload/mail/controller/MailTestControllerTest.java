@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.mail.controller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.mail.template.RenderedMail;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -88,10 +90,13 @@ class MailTestControllerTest {
     @Test
     @DisplayName("testAll 在某模板发信失败时继续遍历后续模板，并把失败记入 failures")
     void testAllContinuesAfterPerTemplateFailure() throws Exception {
-        // 让 overuse-paused 兼容模板的中性 subject 触发失败，其它模板成功
+        String failingSubject = templateRegistry.render(
+                MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED,
+                LocaleContextHolder.getLocale(),
+                Map.of()).subject();
         doAnswer(invocation -> {
             String subject = invocation.getArgument(1);
-            if (subject != null && subject.contains("凭证策略")) {
+            if (failingSubject.equals(subject)) {
                 throw new MailService.MailSendException("smtp denied: 535");
             }
             return null;
