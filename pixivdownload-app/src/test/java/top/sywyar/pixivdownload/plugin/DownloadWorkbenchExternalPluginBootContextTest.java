@@ -255,6 +255,8 @@ class DownloadWorkbenchExternalPluginBootContextTest {
 
         assertRoute("/pixiv-batch.html", AccessPolicy.VISITOR);
         assertRoute("/pixiv-batch/**", AccessPolicy.VISITOR);
+        assertRoute("/pixiv-batch-alt.html", AccessPolicy.VISITOR);
+        assertRoute("/pixiv-batch-alt/**", AccessPolicy.VISITOR);
         assertRoute("/api/download/pixiv", AccessPolicy.VISITOR);
         assertRoute("/api/schedule/**", AccessPolicy.ADMIN);
         assertThat(routeAccessRegistry.isDeclared(
@@ -262,15 +264,20 @@ class DownloadWorkbenchExternalPluginBootContextTest {
 
         assertThat(staticResourceRegistry.resources())
                 .filteredOn(resource -> resource.pluginId().equals(PLUGIN_ID))
-                .hasSize(2)
+                .hasSize(4)
                 .allSatisfy(resource ->
                         assertThat(resource.classLoader()).isSameAs(externalClassLoader))
                 .extracting(resource ->
                         resource.contribution().publicPathPrefix())
-                .containsExactlyInAnyOrder("/pixiv-batch.html", "/pixiv-batch/");
+                .containsExactlyInAnyOrder(
+                        "/pixiv-batch.html", "/pixiv-batch/",
+                        "/pixiv-batch-alt.html", "/pixiv-batch-alt/");
         assertThat(externalClassLoader.getResource("static/pixiv-batch.html")).isNotNull();
         assertThat(externalClassLoader.getResource(
                 "static/pixiv-batch/pixiv-queue-type.js")).isNotNull();
+        assertThat(externalClassLoader.getResource("static/pixiv-batch-alt.html")).isNotNull();
+        assertThat(externalClassLoader.getResource(
+                "static/pixiv-batch-alt/alt-core.js")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-batch.html"))
                 .isNull();
 
@@ -282,6 +289,10 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                 .containsEntry("plugin.name", "下载工作台")
                 .containsEntry("nav.label", "下载");
         assertThat(webI18nBundleRegistry.resolve("userscript"))
+                .isNotNull()
+                .extracting(WebI18nBundleRegistry.RegisteredBundle::pluginId)
+                .isEqualTo(PLUGIN_ID);
+        assertThat(webI18nBundleRegistry.resolve("batch-alt"))
                 .isNotNull()
                 .extracting(WebI18nBundleRegistry.RegisteredBundle::pluginId)
                 .isEqualTo(PLUGIN_ID);

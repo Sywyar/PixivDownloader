@@ -576,8 +576,8 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("下载工作台仍只贡献一个 batch HTML 页面，常见布局副本资源不存在")
-    void noSecondBatchHtmlResourceIsPublished() throws IOException {
+    @DisplayName("下载工作台只贡献声明的主页面与候选页，常见布局副本资源不存在")
+    void onlyDeclaredBatchHtmlResourcesArePublished() throws IOException {
         ClassLoader loader = BatchLayoutContractTest.class.getClassLoader();
         List<URL> primaryPages = Collections.list(loader.getResources(BATCH_HTML));
         assertThat(primaryPages).as("测试 classpath 应只有一个真实 pixiv-batch.html").hasSize(1);
@@ -597,6 +597,8 @@ class BatchLayoutContractTest {
                         + resource.publicPathPrefix() + "|" + resource.exactFile())
                 .containsExactly(
                         "classpath:/static/|/pixiv-batch.html|true",
-                        "classpath:/static/pixiv-batch/|/pixiv-batch/|false");
+                        "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
+                        "classpath:/static/|/pixiv-batch-alt.html|true",
+                        "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false");
     }
 }
