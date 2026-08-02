@@ -324,37 +324,49 @@ const douyinItems = enqueued => bySource(enqueued, 'single-import-douyin');
     }
 
     {
+        const implicit = await runParse('123456', {douyinEnabled: true});
+        ok('i: Douyin 可用时无区段裸 ID 仍默认为 Pixiv artwork',
+            illustItems(implicit.enqueued).length === 1
+            && illustItems(implicit.enqueued)[0].id === '123456'
+            && douyinItems(implicit.enqueued).length === 0);
+        const explicit = await runParse('douyin:\n123456', {douyinEnabled: true});
+        ok('i: 显式 douyin 区段仍可导入数字作品 ID',
+            douyinItems(explicit.enqueued).length === 1
+            && douyinItems(explicit.enqueued)[0].douyinId === '123456');
+    }
+
+    {
         const {enqueued} = await runParse('123', {lowOrderEnabled: true});
         const ii = illustItems(enqueued);
-        ok('i: 更低 order 的第三方类型未声明 bareDefault 时不能抢占裸 ID',
+        ok('j: 更低 order 的第三方类型未声明 bareDefault 时不能抢占裸 ID',
             ii.length === 1 && ii[0].id === '123');
     }
 
     {
         const {enqueued, status} = await runParse(
             'https://www.pixiv.net/artworks/321', {ambiguousUrlEnabled: true});
-        ok('j: 两个 URL matcher 同时认领时不按 order 偷选', enqueued.length === 0);
-        ok('j: URL 归属歧义使用明确 warning 状态', !!status
+        ok('k: 两个 URL matcher 同时认领时不按 order 偷选', enqueued.length === 0);
+        ok('k: URL 归属歧义使用明确 warning 状态', !!status
             && status.message === 'status.single-import-ambiguous' && status.level === 'warning');
     }
 
     {
         const {enqueued, status} = await runParse('654', {secondBareDefaultEnabled: true});
-        ok('k: 多个 bareDefault 时拒绝裸 ID', enqueued.length === 0);
-        ok('k: 裸 ID 默认归属歧义使用明确 warning 状态', !!status
+        ok('l: 多个 bareDefault 时拒绝裸 ID', enqueued.length === 0);
+        ok('l: 裸 ID 默认归属歧义使用明确 warning 状态', !!status
             && status.message === 'status.single-import-ambiguous' && status.level === 'warning');
     }
 
     {
         const unavailable = await runParse('777', {pixivEnabled: false, novelEnabled: true});
-        ok('l: Pixiv 类型缺席时裸 ID 不会回退给其它类型', unavailable.enqueued.length === 0
+        ok('m: Pixiv 类型缺席时裸 ID 不会回退给其它类型', unavailable.enqueued.length === 0
             && unavailable.status.message === 'status.single-import-skipped-unavailable');
         const explicit = await runParse('novel:\n789', {pixivEnabled: false, novelEnabled: true});
-        ok('l: Pixiv 类型缺席不影响显式 novel 区段',
+        ok('m: Pixiv 类型缺席不影响显式 novel 区段',
             novelItems(explicit.enqueued).length === 1 && novelItems(explicit.enqueued)[0].id === 'n789');
     }
 
-    console.log(`\nsingle-import.test.js: ${passed} assertions passed (12 scenarios) ✓`);
+    console.log(`\nsingle-import.test.js: ${passed} assertions passed (13 scenarios) ✓`);
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);
     process.exit(1);

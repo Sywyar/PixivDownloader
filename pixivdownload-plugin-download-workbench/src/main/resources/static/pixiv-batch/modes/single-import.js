@@ -1,6 +1,5 @@
 'use strict';
-    function parseSingleImport() {
-        const text = document.getElementById('single-import-textarea').value;
+    function parseSingleImportText(text, importTypes) {
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         const qt = window.PixivBatch.queueTypes;
         // 裸 ID（可选 `| title`）。
@@ -9,9 +8,9 @@
         const sectionHeaderRegex = /^([A-Za-z]+)\s*[:：]\s*$/;
         // acquisitionModes=single-import 且模块成功激活的类型才会出现在这里；未声明的 import hook
         // 已由 queueTypes runtime 隔离，宿主不会看见或调用。
-        const importTypes = qt.contributionsOf('import');
-        const bareDefaults = importTypes.filter(type => type.bareDefault === true);
-        const importTypeFor = token => importTypes.find(t => {
+        const types = Array.isArray(importTypes) ? importTypes : qt.contributionsOf('import');
+        const bareDefaults = types.filter(type => type.bareDefault === true);
+        const importTypeFor = token => types.find(t => {
             const names = [t.sectionType].concat(Array.isArray(t.sectionAliases) ? t.sectionAliases : []);
             return names.some(name => String(name || '').toLowerCase() === token.toLowerCase());
         }) || null;
@@ -43,7 +42,7 @@
         let currentSection = bareDefaults.length === 1 ? bareDefaults[0] : UNAVAILABLE_SECTION;
         let currentSectionExplicit = false;
         let skippedUnavailable = 0;
-        let skippedAmbiguous = 0;
+        const rejected = [];
         for (const ln of lines) {
             const head = ln.match(sectionHeaderRegex);
             if (head) {
@@ -52,19 +51,22 @@
                 currentSectionExplicit = true;
                 continue;
             }
-            // 显式 URL 始终按其自身类型解析，无视所在区段。全部 matcher 都要执行；多个
-            // 类型同时认领时拒绝该行，不能让后端排序决定谁抢到成熟 URL 语义。
+            // 裸 ID 先按当前区段解析；无区段头时默认是 Pixiv artwork。只有非裸 ID
+            // 才交给各类型 URL matcher，避免支持数字输入的其它来源抢先认领。
+            const bare = ln.match(bareIdRegex);
             const urlMatches = [];
-            for (const it of importTypes) {
-                try {
-                    const match = it.matchUrl ? it.matchUrl(ln) : null;
-                    if (match != null) urlMatches.push({type: it, match});
-                } catch (e) {
-                    console.warn('[singleImport] 单作品解析钩子失败：', it.type, e);
+            if (!bare) {
+                for (const it of types) {
+                    try {
+                        const match = it.matchUrl ? it.matchUrl(ln) : null;
+                        if (match != null) urlMatches.push({type: it, match});
+                    } catch (e) {
+                        console.warn('[singleImport] 单作品解析钩子失败：', it.type, e);
+                    }
                 }
             }
             if (urlMatches.length > 1) {
-                skippedAmbiguous++;
+                rejected.push(ln);
                 continue;
             }
             if (urlMatches.length === 1) {
@@ -79,12 +81,11 @@
                 continue;
             }
             // 裸 ID / `id | title`：显式区段按区段解析；无区段头时只允许唯一 bareDefault。
-            const bare = ln.match(bareIdRegex);
             if (bare) {
                 const id = bare[1];
                 const titleRaw = (bare[2] || '').trim();
                 if (currentSection === UNAVAILABLE_SECTION) {
-                    if (!currentSectionExplicit && bareDefaults.length > 1) skippedAmbiguous++;
+                    if (!currentSectionExplicit && bareDefaults.length > 1) rejected.push(ln);
                     else skippedUnavailable++;
                 } else {
                     try {
@@ -97,27 +98,41 @@
             }
         }
         // 各桶去重后按后端贡献顺序入队。
-        const orderedTypes = importTypes.map(t => t.type);
-        let total = 0;
-        let added = 0;
+        const orderedTypes = types.map(t => t.type);
+        const groups = [];
+        const items = [];
         orderedTypes.forEach(type => {
             const b = buckets.get(type);
             if (!b) return;
             const deduped = dedupeQueueItems(b.items);
             if (!deduped.length) return;
-            total += deduped.length;
-            added += addItemsToQueue(deduped.map(x => x.id), deduped, b.source, '');
+            deduped.forEach(item => {
+                if (!item.source) item.source = b.source;
+                items.push(item);
+            });
+            groups.push({type, source: b.source, items: deduped});
+        });
+        return {items, groups, skippedUnavailable, rejected};
+    }
+
+    function parseSingleImport() {
+        const text = document.getElementById('single-import-textarea').value;
+        const parsed = parseSingleImportText(text);
+        const total = parsed.items.length;
+        let added = 0;
+        parsed.groups.forEach(group => {
+            added += addItemsToQueue(group.items.map(x => x.id), group.items, group.source, '');
         });
         if (!total) {
             setStatus(
-                skippedAmbiguous > 0
+                parsed.rejected.length > 0
                     ? bt('status.single-import-ambiguous',
-                        '已拒绝 {count} 个归属不明确的单作品输入', {count: skippedAmbiguous})
-                    : skippedUnavailable > 0
+                        '已拒绝 {count} 个归属不明确的单作品输入', {count: parsed.rejected.length})
+                    : parsed.skippedUnavailable > 0
                     ? bt('status.single-import-skipped-unavailable',
-                        '已跳过 {count} 个：所属作品类型当前不可用', {count: skippedUnavailable})
+                        '已跳过 {count} 个：所属作品类型当前不可用', {count: parsed.skippedUnavailable})
                     : bt('status.single-import-none', '未解析到任何单作品链接'),
-                (skippedAmbiguous > 0 || skippedUnavailable > 0) ? 'warning' : 'error');
+                (parsed.rejected.length > 0 || parsed.skippedUnavailable > 0) ? 'warning' : 'error');
             return;
         }
         setStatus(
@@ -137,4 +152,4 @@
 // ---- PixivBatch facade ----
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 window.PixivBatch.modes.singleImport = window.PixivBatch.modes.singleImport || {};
-window.PixivBatch.modes.singleImport = Object.assign(window.PixivBatch.modes.singleImport, { parseSingleImport, parseSingleImportFresh });
+window.PixivBatch.modes.singleImport = Object.assign(window.PixivBatch.modes.singleImport, { parseText: parseSingleImportText, parseSingleImport, parseSingleImportFresh });

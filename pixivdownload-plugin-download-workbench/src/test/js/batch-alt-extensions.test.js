@@ -17,6 +17,8 @@ const chromeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'r
     'static', 'pixiv-batch-alt', 'alt-chrome.js'), 'utf8');
 const queueSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-queue.js'), 'utf8');
+const coreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt', 'alt-core.js'), 'utf8');
 const pageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt.html'), 'utf8');
 const cssSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
@@ -42,6 +44,16 @@ const contributions = [
             return {id: 'x-' + match.id, kind: 'external', canonicalUrl: match.url, title};
         },
         source: 'single-import-external'
+    },
+    {
+        type: 'douyin', sectionType: 'douyin',
+        matchUrl(line) {
+            return /^\d+$/.test(String(line).trim()) ? String(line).trim() : null;
+        },
+        buildItem(id, title) {
+            return {id: 'd-' + id, douyinId: String(id), kind: 'douyin', title};
+        },
+        source: 'single-import-douyin'
     }
 ];
 
@@ -87,6 +99,13 @@ const parsed = sandbox.altParseImportText([
 assert.deepStrictEqual(Array.from(parsed.items, item => String(item.id)), ['123', '456', 'x-abc_1']);
 assert.strictEqual(parsed.items[2].source, 'single-import-external');
 assert.strictEqual(parsed.rejected.length, 0);
+const numericDefault = sandbox.altParseImportText('123456');
+assert.strictEqual(numericDefault.items.length, 1);
+assert.strictEqual(numericDefault.items[0].kind, 'illust');
+const explicitDouyin = sandbox.altParseImportText('douyin:\n123456');
+assert.strictEqual(explicitDouyin.items.length, 1);
+assert.strictEqual(explicitDouyin.items[0].kind, 'douyin');
+assert.strictEqual(explicitDouyin.items[0].douyinId, '123456');
 assert.strictEqual(sandbox.altNextCursor({nextCursor: '2'}, '1', true), '2');
 assert.throws(() => sandbox.altNextCursor({nextCursor: '1'}, '1', true), /分页游标未推进/);
 sandbox.window.PixivBatchAlt.schedule = {};
@@ -98,6 +117,29 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {attributes: {kind: '
 assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
 
 (async () => {
+    const feedbackCalls = [];
+    const feedbackSandbox = {
+        window: {
+            PixivBatchAlt: {},
+            PixivFeedback: {
+                confirm(options) {
+                    feedbackCalls.push(options);
+                    assert(options.confirmLabel);
+                    return Promise.resolve(true);
+                }
+            }
+        },
+        document: {addEventListener() {}},
+        console,
+        setTimeout,
+        clearTimeout
+    };
+    vm.createContext(feedbackSandbox);
+    vm.runInContext(coreSource, feedbackSandbox);
+    assert.strictEqual(await feedbackSandbox.window.PixivBatchAlt.core.abConfirm(
+        'dialog.confirm-clear-queue', '确认清除队列？'), true);
+    assert.strictEqual(feedbackCalls[0].confirmLabel, '确认');
+    assert(queueSource.includes("clearBtn.addEventListener('click', handleClear);"));
     assert.deepStrictEqual(Array.from(await sandbox.altI18nNamespaces()),
         ['batch-alt', 'batch', 'common', 'tour', 'novel', 'schedule-extra']);
     assert(pageSource.includes('data-nav-link-class="ab-topnav-link"'));

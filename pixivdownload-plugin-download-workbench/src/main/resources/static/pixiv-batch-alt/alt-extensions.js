@@ -345,15 +345,18 @@ function altParseImportText(text) {
             explicit = true;
             continue;
         }
+        const bare = line.match(/^(\d+)\s*(?:\|\s*(.*))?$/);
         const matches = [];
-        contributions.forEach(contribution => {
-            try {
-                const match = contribution.matchUrl && contribution.matchUrl(line);
-                if (match != null) matches.push({contribution, match});
-            } catch (e) {
-                console.warn('[batch-alt] 单作品解析钩子失败：', contribution.type, e);
-            }
-        });
+        if (!bare) {
+            contributions.forEach(contribution => {
+                try {
+                    const match = contribution.matchUrl && contribution.matchUrl(line);
+                    if (match != null) matches.push({contribution, match});
+                } catch (e) {
+                    console.warn('[batch-alt] 单作品解析钩子失败：', contribution.type, e);
+                }
+            });
+        }
         if (matches.length > 1) {
             rejected.push(line);
             continue;
@@ -365,7 +368,6 @@ function altParseImportText(text) {
             if (item) items.push(Object.assign({source: match.contribution.source}, item));
             continue;
         }
-        const bare = line.match(/^(\d+)\s*(?:\|\s*(.*))?$/);
         if (!bare) {
             if (/^https?:\/\//.test(line)) rejected.push(line);
             continue;

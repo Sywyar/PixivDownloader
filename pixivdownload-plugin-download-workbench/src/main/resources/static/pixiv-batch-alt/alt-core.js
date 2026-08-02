@@ -262,7 +262,7 @@ function abAlert(key, fallback, vars) {
         return window.PixivFeedback.alert({
             title: bt('dialog.title.notice', '提示'),
             message,
-            acceptLabel: bt('common.ok', '知道了')
+            confirmLabel: bt('common.ok', '知道了')
         });
     }
     return Promise.resolve(true);
@@ -275,7 +275,7 @@ function abConfirm(key, fallback, vars, options) {
         return window.PixivFeedback.confirm({
             title: opts.title || bt('dialog.title.confirm', '确认操作'),
             message,
-            acceptLabel: opts.acceptLabel || bt('common.confirm', '确认'),
+            confirmLabel: opts.confirmLabel || bt('common.confirm', '确认'),
             cancelLabel: bt('common.cancel', '取消'),
             danger: !!opts.danger
         });
@@ -294,7 +294,7 @@ function abPrompt(key, fallback, vars, options) {
             inputType: opts.inputType || 'text',
             min: opts.min,
             max: opts.max,
-            acceptLabel: opts.acceptLabel || bt('common.confirm', '确认'),
+            confirmLabel: opts.confirmLabel || bt('common.confirm', '确认'),
             cancelLabel: bt('common.cancel', '取消')
         });
     }
