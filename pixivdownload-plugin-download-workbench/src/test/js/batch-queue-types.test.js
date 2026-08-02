@@ -173,7 +173,19 @@ function harness(manifests, moduleScripts, options = {}) {
         documentElement: new El('html'),
         currentScript: null,
         createElement: tag => new El(tag),
-        querySelectorAll: selector => body.querySelectorAll(selector)
+        querySelectorAll: selector => body.querySelectorAll(selector),
+        getElementById(id) {
+            let found = null;
+            (function walk(n) {
+                if (found) return;
+                n.children.forEach(c => {
+                    if (found) return;
+                    if (c.getAttribute('id') === id) found = c;
+                    walk(c);
+                });
+            })(body);
+            return found;
+        }
     };
     const requests = [];
     const loads = [];
@@ -1903,6 +1915,63 @@ const LATE_UI_INITIALIZER = `(function (context) {
         && SOURCE.includes('slotRenderTail.catch(() => undefined)')
         && /snapshot !== current\) \{[\s\S]*?cleanupSlotRecord\(record\);[\s\S]*?slotMounts\.get\(target\)/
             .test(SOURCE));
+
+    {
+        // settings-card 槽位：类型 typed settings 声明的 cardId 已被宿主原生渲染时不再注入片段。
+        const settingsCardInitializer = `(function () {
+            return {descriptor: {
+                process: function () {},
+                settings: {
+                    'allowed-setting': {cardId: 'native-settings-card', type: 'forged'},
+                    other: {cardId: 'other-card'}
+                },
+                slots: {'settings-card': '<section class="plugin-card" data-settings-card="1"></section>'}
+            }};
+        })`;
+        const settingsCardSlot = () => uiSlotDescriptor({
+            slotId: 'demo.settings', target: 'settings-card', moduleUrl: '/modules/demo.js',
+            owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+        });
+        const noNative = harness([manifest(1, [typeDescriptor({
+            settings: ['allowed-setting', 'other']
+        })], 'epoch-a', [settingsCardSlot()])], {
+            '/modules/demo.js': {initializer: settingsCardInitializer}
+        }, {slotTarget: 'settings-card'});
+        await noNative.qt.bootstrap();
+        const injectedHost = noNative.slotParent.children.find(
+            node => node.getAttribute('data-vue-slot') === 'settings-card');
+        ok('无原生同 cardId 卡片时 settings-card 片段照常注入',
+            !!injectedHost && injectedHost.children.length === 1
+            && /data-settings-card/.test(injectedHost.children[0].html));
+
+        const nativeCard = new El('div');
+        nativeCard.setAttribute('id', 'native-settings-card');
+        const withNative = harness([manifest(1, [typeDescriptor({
+            settings: ['allowed-setting', 'other']
+        })], 'epoch-a', [settingsCardSlot()])], {
+            '/modules/demo.js': {initializer: settingsCardInitializer}
+        }, {slotTarget: 'settings-card'});
+        withNative.sandbox.document.body.appendChild(nativeCard);
+        await withNative.qt.bootstrap();
+        const skippedHost = withNative.slotParent.children.find(
+            node => node.getAttribute('data-vue-slot') === 'settings-card');
+        ok('typed settings 的 cardId 已原生在场时 settings-card 片段不再注入（避免双份设置卡）',
+            (!skippedHost || skippedHost.children.length === 0)
+            && withNative.slotMarker.parentNode === withNative.slotParent);
+    }
+
+    {
+        // renderSlots 导出为幂等可重入的槽位重渲染入口（alt 布局动态重建视图后重挂用）。
+        const h = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: BASIC_INITIALIZER}
+        }, {slotTarget: 'cookie-tools'});
+        await h.qt.bootstrap();
+        ok('queueTypes 门面导出幂等 renderSlots', typeof h.qt.renderSlots === 'function');
+        const renderAgain = h.qt.renderSlots();
+        ok('renderSlots 返回 Promise 且重入不抛', renderAgain && typeof renderAgain.catch === 'function');
+        await renderAgain;
+        ok('renderSlots 重入后锚点与模板仍在', h.slotMarker.parentNode === h.slotParent);
+    }
 
     console.log(`batch-queue-types.test.js: ${passed} assertions passed ✓`);
 })().catch(error => {

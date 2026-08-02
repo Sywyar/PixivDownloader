@@ -459,6 +459,11 @@ function scheduleTaskCard(task, idx) {
     queueToggle.addEventListener('click', () => {
         if (scheduleState.expandedQueues.has(task.id)) {
             scheduleState.expandedQueues.delete(task.id);
+            // 折叠：卸载该任务详情岛（再展开时命令式首屏 + 重挂）。
+            const vueCollapse = scheduleQueueVue();
+            if (vueCollapse && typeof vueCollapse.unmountScheduleQueue === 'function') {
+                vueCollapse.unmountScheduleQueue(task.id);
+            }
         } else {
             scheduleState.expandedQueues.add(task.id);
         }
@@ -581,6 +586,11 @@ async function deleteScheduleTask(task) {
     } catch (e) {
         abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
     }
+    // 任务下线：卸载其详情岛（列表重建后不再有该 box）。
+    const vueDelete = scheduleQueueVue();
+    if (vueDelete && typeof vueDelete.unmountScheduleQueue === 'function') {
+        vueDelete.unmountScheduleQueue(task.id);
+    }
     loadScheduleTasks(true);
 }
 
@@ -611,11 +621,21 @@ async function loadScheduleQueue(task, quiet) {
         if (!res.ok) throw await scheduleHttpError(res);
         data = await res.json();
     } catch (e) {
+        const vue = scheduleQueueVue();
+        if (vue && typeof vue.unmountScheduleQueue === 'function') vue.unmountScheduleQueue(task.id);
         box.replaceChildren(errorBox(String(e && e.message || bt('common.request-failed', '请求失败')),
             () => loadScheduleQueue(task, false)));
         return;
     }
     if (quiet && !document.getElementById('abScheduleQueue-' + task.id)) return;
+    const vue = scheduleQueueVue();
+    if (vue && typeof vue.ensureScheduleQueue === 'function'
+            && vue.ensureScheduleQueue(task.id, scheduleQueueVueContext(task.id, box, data))) {
+        // Vue 已（将）接管该 box：合并一次 reactive 同步（Vue 据 :key 仅 patch 变化，
+        // 不整块重建 .ab-schedule-queue），命令式只在 Vue 不可用 / 挂载失败时兜底。
+        vue.syncScheduleQueue(task.id);
+        return;
+    }
     renderScheduleQueue(box, task, data);
 }
 
@@ -627,50 +647,87 @@ const SCHEDULE_QUEUE_STATUS = {
     'failed': ['queue.status.failed', '失败']
 };
 
+function scheduleQueueVue() {
+    return window.PixivBatchAlt && window.PixivBatchAlt.queueVue;
+}
+
+// 本轮队列详情的展示模型派生（命令式 renderScheduleQueue 与 Vue 岛共用同一口径，避免两路分叉）。
+// 模型只存 raw 字段 + 渲染期经 bt() 派生的展示字段；Vue 岛只读本模型、不反向 import schedule 内部模型。
+function scheduleQueueDetailModel(data) {
+    const items = (data && Array.isArray(data.items)) ? data.items : [];
+    const total = data && data.total != null ? data.total : items.length;
+    const rows = items.map((item, index) => {
+        const statusDef = SCHEDULE_QUEUE_STATUS[item.status] || ['queue.status.pending', '待处理'];
+        let statusText = bt(statusDef[0], statusDef[1]);
+        if (item.message) {
+            const reason = localizeScheduleMachineCode(item.message);
+            if (reason) statusText += '：' + reason;
+        }
+        const translateText = item.translatePhase
+            ? bt('queue.translate.label', 'AI 翻译') + ' ' +
+                (item.translateElapsedSeconds != null
+                    ? bt('queue.message.translating', 'AI 翻译中（{sec}s）', {sec: item.translateElapsedSeconds})
+                    : '')
+            : '';
+        return {
+            key: 'sched:' + index + ':' + String(item.status || ''),
+            status: item.status,
+            title: (item.title && String(item.title).trim())
+                ? item.title
+                : bt('schedule.queue.no-title', '（暂无标题信息）'),
+            showTranslate: !!translateText,
+            translateText,
+            statusText
+        };
+    });
+    return {
+        startedText: bt('schedule.round.started', '本轮开始：{time}',
+            {time: fmtScheduleTime(data && data.startedTime)}),
+        statsText: bt('schedule.round.stats', '共 {count} 项', {count: total}),
+        truncated: !!(data && data.truncated),
+        truncatedText: bt('schedule.round.truncated', '作品过多，仅记录并展示前 {count} 项', {count: items.length}),
+        empty: !items.length,
+        emptyText: bt('schedule.round.empty', '本轮暂无记录'),
+        rows
+    };
+}
+
+// 计划队列详情 Vue 岛上下文：data 为最近一次 fetch 的原始响应，read() 派生展示模型。
+function scheduleQueueVueContext(id, box, data) {
+    return {
+        boxEl: box,
+        read() {
+            return scheduleQueueDetailModel(data || null);
+        }
+    };
+}
+
 function renderScheduleQueue(box, task, data) {
+    const model = scheduleQueueDetailModel(data);
     box.innerHTML = '';
     const head = el('div', 'ab-round-head');
-    head.appendChild(el('span', 'ab-muted',
-        bt('schedule.round.started', '本轮开始：{time}', {time: fmtScheduleTime(data.startedTime)})));
-    head.appendChild(el('span', 'ab-muted',
-        bt('schedule.round.stats', '共 {count} 项', {count: data.total ?? (data.items || []).length})));
+    head.appendChild(el('span', 'ab-muted', model.startedText));
+    head.appendChild(el('span', 'ab-muted', model.statsText));
     box.appendChild(head);
-    if (data.truncated) {
-        box.appendChild(el('p', 'ab-field-note',
-            bt('schedule.round.truncated', '作品过多，仅记录并展示前 {count} 项', {count: (data.items || []).length})));
+    if (model.truncated) {
+        box.appendChild(el('p', 'ab-field-note', model.truncatedText));
     }
-    const items = data.items || [];
-    if (!items.length) {
-        box.appendChild(el('p', 'ab-empty-line', bt('schedule.round.empty', '本轮暂无记录')));
+    if (model.empty) {
+        box.appendChild(el('p', 'ab-empty-line', model.emptyText));
         return;
     }
     const list = el('div', 'ab-round-list');
-    items.forEach(item => {
-        const row = el('div', 'ab-round-item');
-        const statusDef = SCHEDULE_QUEUE_STATUS[item.status] || ['queue.status.pending', '待处理'];
-        row.dataset.status = item.status;
-        const title = el('span', 'ab-round-title',
-            (item.title && String(item.title).trim())
-                ? item.title
-                : bt('schedule.queue.no-title', '（暂无标题信息）'));
-        row.appendChild(title);
+    model.rows.forEach(row => {
+        const item = el('div', 'ab-round-item');
+        item.dataset.status = row.status;
+        item.appendChild(el('span', 'ab-round-title', row.title));
         const right = el('span', 'ab-round-right');
-        if (item.translatePhase) {
-            const tr = el('span', 'ab-mini-badge ab-mini-badge--ai',
-                bt('queue.translate.label', 'AI 翻译') + ' ' +
-                (item.translateElapsedSeconds != null
-                    ? bt('queue.message.translating', 'AI 翻译中（{sec}s）', {sec: item.translateElapsedSeconds})
-                    : ''));
-            right.appendChild(tr);
+        if (row.showTranslate) {
+            right.appendChild(el('span', 'ab-mini-badge ab-mini-badge--ai', row.translateText));
         }
-        const statusEl = el('span', 'ab-round-status', bt(statusDef[0], statusDef[1]));
-        if (item.message) {
-            const reason = localizeScheduleMachineCode(item.message);
-            if (reason) statusEl.textContent += '：' + reason;
-        }
-        right.appendChild(statusEl);
-        row.appendChild(right);
-        list.appendChild(row);
+        right.appendChild(el('span', 'ab-round-status', row.statusText));
+        item.appendChild(right);
+        list.appendChild(item);
     });
     box.appendChild(list);
 }

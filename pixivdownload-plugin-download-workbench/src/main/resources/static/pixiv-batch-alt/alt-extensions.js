@@ -261,6 +261,9 @@ function appendExtensionCookieEditors(host) {
     const runtime = altQueueTypes();
     if (!runtime || !host) return;
     runtime.contributionsOf('cookie').forEach(contribution => {
+        // 类型经 cookie-tools 槽位提供自定义 Cookie 卡时，通用 typed 编辑器让位（避免双份编辑区）。
+        const behavior = typeof runtime.get === 'function' ? runtime.get(contribution.type) : null;
+        if (behavior && behavior.slots && behavior.slots['cookie-tools']) return;
         const section = el('section', 'ab-cookie-formats');
         section.appendChild(el('h4', 'ab-settings-group',
             bt('cookie.extension.title', '{type} 凭证', {type: altTypeLabel(contribution.type)})));
@@ -307,6 +310,21 @@ function appendExtensionCookieEditors(host) {
         section.appendChild(actions);
         host.appendChild(section);
     });
+}
+
+// alt 各视图（舞台 / 抽屉 / 弹窗）由 JS 动态重建，槽位锚点随视图一并重建；
+// 每次重建后调用本函数重挂槽位内容（共享 renderSlots 幂等可重入，无锚点的 target 空转）。
+function refreshAltSlots() {
+    const runtime = altQueueTypes();
+    if (!runtime || typeof runtime.renderSlots !== 'function') return;
+    try {
+        const pending = runtime.renderSlots();
+        if (pending && typeof pending.catch === 'function') {
+            pending.catch(e => console.warn('[batch-alt] 槽位重渲染失败：', e));
+        }
+    } catch (e) {
+        console.warn('[batch-alt] 槽位重渲染失败：', e);
+    }
 }
 
 function altParseImportText(text) {
@@ -395,6 +413,7 @@ function altParseImportText(text) {
 window.PixivBatchAlt.extensions = Object.assign(window.PixivBatchAlt.extensions || {}, {
     bootstrapAltExtensions,
     refreshAltI18n,
+    refreshAltSlots,
     altSourcesForMode,
     altTypesForSource,
     altSelectionForMode,

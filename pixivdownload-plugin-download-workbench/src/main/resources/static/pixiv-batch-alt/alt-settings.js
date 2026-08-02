@@ -359,7 +359,11 @@ function buildSettingsDrawerBody() {
     body.appendChild(namePreview);
 
     // —— 小说 ——
-    body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.novel', '小说设置')));
+    // 本分组即小说 typed settings 声明的 cardId（novel-settings-card）在 alt 的原生实现：
+    // 共享槽位管线据同 id 元素在场判定该类型的 settings-card 片段不再注入（避免双份设置卡）。
+    const novelGroup = el('h4', 'ab-settings-group', bt('settings.group.novel', '小说设置'));
+    novelGroup.id = 'novel-settings-card';
+    body.appendChild(novelGroup);
     const novelFmtSel = el('select', 'ab-input');
     ['txt', 'html', 'epub'].forEach(fmt => {
         const opt = el('option', '', fmt.toUpperCase());
@@ -420,6 +424,12 @@ function buildSettingsDrawerBody() {
         translateRows.forEach(r => body.appendChild(r));
     }
 
+    // 取得侧设置卡槽位：作品类型插件经 queueTypes 贡献自身设置卡（与旧布局 settings-card 槽位
+    // 同契约）；宿主已原生渲染同 cardId 卡片的类型由共享管线自动跳过，插件禁用时缺席。
+    const settingsCardSlot = document.createElement('template');
+    settingsCardSlot.setAttribute('data-qt-slot', 'settings-card');
+    body.appendChild(settingsCardSlot);
+
     return body;
 }
 
@@ -430,6 +440,8 @@ function openSettingsDrawer() {
         title: bt('settings.title', '下载设置'),
         body: buildSettingsDrawerBody()
     });
+    // 抽屉 body 重建后重挂 settings-card 槽位内容。
+    refreshAltSlots();
 }
 
 window.PixivBatchAlt.settings = Object.assign(window.PixivBatchAlt.settings, {

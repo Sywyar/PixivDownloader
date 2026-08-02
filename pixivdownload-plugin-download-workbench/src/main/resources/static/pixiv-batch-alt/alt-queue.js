@@ -354,6 +354,25 @@ function statCard(id, icon, labelKey, labelFallback) {
     return card;
 }
 
+/* ============================================================
+   下载坞 Vue 岛门面（alt-queue-vue.js）：激活时进度扇出改经 reactive store，
+   未激活 / 挂载失败时以下各渲染函数继续走既有命令式路径（首屏占位 + 回退）。
+   ============================================================ */
+function altQueueVue() {
+    return window.PixivBatchAlt && window.PixivBatchAlt.queueVue;
+}
+
+function altQueueVueActive() {
+    const vue = altQueueVue();
+    return !!(vue && typeof vue.isActive === 'function' && vue.isActive());
+}
+
+function ensureDockVue() {
+    const vue = altQueueVue();
+    if (!vue || typeof vue.ensure !== 'function') return;
+    vue.ensure();
+}
+
 function updateStats() {
     state.stats.success = state.queue.filter(q => q.status === 'completed').length;
     state.stats.failed = state.queue.filter(q => q.status === 'failed').length;
@@ -361,15 +380,25 @@ function updateStats() {
     state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
     const pending = state.queue.filter(q =>
         ['idle', 'pending', 'paused'].includes(q.status)).length;
-    const set = (id, value) => {
-        const node = document.getElementById(id);
-        if (node) animateCount(node, value);
-    };
-    set('abStatPending', pending);
-    set('abStatSuccess', state.stats.success);
-    set('abStatFailed', state.stats.failed);
-    set('abStatActive', state.stats.active);
-    set('abStatSkipped', state.stats.skipped);
+    if (altQueueVueActive()) {
+        altQueueVue().syncStats({
+            pending,
+            success: state.stats.success,
+            failed: state.stats.failed,
+            active: state.stats.active,
+            skipped: state.stats.skipped
+        });
+    } else {
+        const set = (id, value) => {
+            const node = document.getElementById(id);
+            if (node) animateCount(node, value);
+        };
+        set('abStatPending', pending);
+        set('abStatSuccess', state.stats.success);
+        set('abStatFailed', state.stats.failed);
+        set('abStatActive', state.stats.active);
+        set('abStatSkipped', state.stats.skipped);
+    }
     const badge = document.getElementById('abDockBadge');
     if (badge) {
         badge.textContent = String(pending);
@@ -380,6 +409,11 @@ function updateStats() {
 
 function renderDownloadSpeed(bytesPerSec) {
     const {value, unit} = formatSpeed(bytesPerSec);
+    dockState.speed = {value, unit};
+    if (altQueueVueActive()) {
+        altQueueVue().syncSpeed(value, unit);
+        return;
+    }
     const valEl = document.getElementById('abStatSpeed');
     const unitEl = document.getElementById('abStatSpeedUnit');
     if (valEl) valEl.textContent = value;
@@ -508,10 +542,17 @@ function renderDock() {
     renderQueue();
     updateStats();
     updateButtonsState();
+    // 首屏已由上方命令式渲染即时出图；随后尝试把统计 / 当前卡 / 队列列表升级为 Vue 主渲染
+    //（异步懒加载运行时，失败即保持命令式，不影响本函数返回）。
+    ensureDockVue();
 }
 
 // 当前下载卡：进度环 + 字节进度 + 动图阶段
 function renderCurrent(item) {
+    if (altQueueVueActive()) {
+        altQueueVue().syncCurrent(item);
+        return;
+    }
     const card = document.getElementById('abCurrentCard');
     if (!card) return;
     card.innerHTML = '';
@@ -666,6 +707,10 @@ function novelTranslateMessage(q) {
 }
 
 function renderQueue() {
+    if (altQueueVueActive()) {
+        altQueueVue().syncList();
+        return;
+    }
     const list = document.getElementById('abQueueList');
     if (!list) return;
     list.innerHTML = '';
@@ -849,5 +894,5 @@ window.PixivBatchAlt.queue = Object.assign(window.PixivBatchAlt.queue, {
     setDockStatus, updateStats, renderDownloadSpeed, updateButtonsState,
     renderDock, renderQueue, renderCurrent, progressExtras, miniProgress,
     renderQuotaBar, renderArchiveCard, updateArchiveCountdown, queueItemCard,
-    novelTranslateMessage
+    novelTranslateMessage, ensureDockVue, altQueueVueActive
 });

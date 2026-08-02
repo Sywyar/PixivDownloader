@@ -15,6 +15,8 @@ const initSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'res
     'static', 'pixiv-batch-alt', 'alt-init.js'), 'utf8');
 const chromeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-chrome.js'), 'utf8');
+const settingsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt', 'alt-settings.js'), 'utf8');
 const queueSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-queue.js'), 'utf8');
 const coreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
@@ -186,6 +188,22 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(queueSource.includes("el('div', 'ab-queue-item')"));
     assert(!queueSource.includes("el('div', 'ab-queue-item card')"));
     assert(/\.ab-queue-item\s*\{[^}]*border-radius:\s*0 4px 4px 0[^}]*background:\s*var\(--surface-2\)/s.test(cssSource));
+    // —— 插件槽位同步（settings-card / cookie-tools / import-hint 与旧布局同契约）——
+    assert(pageSource.includes('/js/pixiv-vue.js'));
+    assert(pageSource.includes('/pixiv-batch-alt/alt-queue-vue.js'));
+    assert(chromeSource.includes("setAttribute('data-qt-slot', 'cookie-tools')"));
+    assert(chromeSource.includes('refreshAltSlots();'));
+    assert(modesSource.includes("setAttribute('data-qt-slot', 'import-hint')"));
+    assert(modesSource.includes('refreshAltSlots();'));
+    assert(settingsSource.includes("setAttribute('data-qt-slot', 'settings-card')"));
+    assert(settingsSource.includes("novelGroup.id = 'novel-settings-card'"));
+    assert(settingsSource.includes('refreshAltSlots();'));
+    assert(/\[data-vue-slot\]\s*\{\s*display:\s*contents/.test(cssSource));
+    assert(/\[data-vue-slot\]:empty\s*\{\s*display:\s*none/.test(cssSource));
+    // —— 下载坞 Vue 岛门面（统计 / 当前卡 / 队列列表 reactive 主渲染，命令式回退）——
+    assert(queueSource.includes('altQueueVueActive()'));
+    assert(queueSource.includes('ensureDockVue();'));
+    assert(initSource.includes('renderDock();'));
     console.log('batch-alt-extensions.test.js: runtime, i18n and chrome regressions passed ✓');
 })().catch(error => {
     console.error(error);

@@ -264,6 +264,11 @@ function openCookieModal() {
     actions.appendChild(clearBtn);
     actions.appendChild(saveBtn);
     body.appendChild(actions);
+    // 插件自定义 Cookie 卡槽位（与旧布局 cookie-tools 槽位同契约）：提供自定义卡的类型
+    // 在此渲染其卡片（事件由插件经 pixivbatch:slotsrendered 自行绑定），其余类型走下方通用编辑器。
+    const cookieToolsSlot = document.createElement('template');
+    cookieToolsSlot.setAttribute('data-qt-slot', 'cookie-tools');
+    body.appendChild(cookieToolsSlot);
     appendExtensionCookieEditors(body);
 
     openModal({
@@ -273,6 +278,8 @@ function openCookieModal() {
         body,
         widthClass: 'ab-modal--wide'
     });
+    // 弹窗 body 重建后重挂 cookie-tools 槽位内容。
+    refreshAltSlots();
 }
 
 /* ============================================================

@@ -101,6 +101,9 @@
 <script src="/js/pixiv-tour.js"></script>
 <script src="/js/pixiv-onboarding.js"></script>
 <script src="/js/pixiv-feedback.js"></script>
+<!-- Vue 槽位挂载共享 helper（加性、加载即无副作用；运行时单一来源 /vendor/vue/ 由 PixivVue.ensure() 按需懒加载）。
+     下载坞统计 / 当前下载 / 队列列表（alt-queue-vue.js）与插件槽位（renderSlots 主路径）据此做 reactive 渲染；
+     缺失即优雅回退命令式渲染。 -->
 <script src="/js/pixiv-vue.js"></script>
 <script src="/pixiv-batch-alt/alt-core.js"></script>
 <script src="/pixiv-batch-alt/alt-state.js"></script>
@@ -111,6 +114,9 @@
 <script src="/pixiv-batch-alt/alt-modes.js"></script>
 <script src="/pixiv-batch-alt/alt-schedule.js"></script>
 <script src="/pixiv-batch-alt/alt-queue.js"></script>
+<!-- 下载坞 Vue 岛：统计卡 / 当前下载卡 / 队列列表 + 计划任务本轮队列详情的 reactive 主渲染，
+     命令式为首屏占位与回退（见文件头注释）。 -->
+<script src="/pixiv-batch-alt/alt-queue-vue.js"></script>
 <script src="/pixiv-batch-alt/alt-engine.js"></script>
 <script src="/pixiv-batch/batch-queue-types.js"></script>
 <script src="/pixiv-batch/batch-schedule-sources.js"></script>

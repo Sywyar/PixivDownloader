@@ -1708,12 +1708,24 @@ window.PixivBatch.queueTypes = (function () {
         return out;
     }
 
+    // 类型的 typed settings 声明（{cardId}）中已有任一 cardId 被宿主页面原生渲染时，
+    // 该类型的 settings-card 槽位片段不再注入——同 id 卡片只保留宿主原生那一份，
+    // 避免新旧布局并存或宿主内建同 id 区块时出现重复 id 与双份设置卡。
+    function hasNativeSettingsCard(behavior) {
+        const groups = behavior && isPlainObject(behavior.settings) ? behavior.settings : {};
+        return Object.keys(groups).some(key => {
+            const cardId = text(groups[key] && groups[key].cardId);
+            return !!cardId && !!document.getElementById(cardId);
+        });
+    }
+
     function collectSlotFragments() {
         const byTarget = new Map();
         current.orderedTypes.forEach(type => {
             const behavior = get(type);
             const slots = behavior && behavior.slots ? behavior.slots : {};
             Object.keys(slots).forEach(target => {
+                if (target === 'settings-card' && hasNativeSettingsCard(behavior)) return;
                 try {
                     const raw = slots[target];
                     const contribution = typeof raw === 'function' ? raw() : raw;
@@ -1949,6 +1961,9 @@ window.PixivBatch.queueTypes = (function () {
         uiSlots,
         downloadTypes,
         i18nNamespaces,
+        // 幂等可重入的槽位重渲染：动态重建视图的宿主页（如 alt 布局在 renderStage / 抽屉 / 弹窗
+        // 重建后锚点随之重建）在视图渲染完成后调用它重挂槽位；无锚点的 target 自动空转。
+        renderSlots,
         dispose,
         contractVersion: CONTRACT_VERSION
     });

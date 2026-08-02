@@ -145,6 +145,8 @@ function renderStage() {
     else if (mode === 'schedule') renderScheduleMode(panel);
     hydrateIcons(panel);
     if (pageI18n) pageI18n.apply(panel);
+    // 舞台重建后槽位锚点（如 import-hint）随之重建，经共享 renderSlots 重挂插件贡献片段。
+    refreshAltSlots();
 }
 
 /* ============================================================
@@ -1225,6 +1227,11 @@ function renderImportMode(panel) {
         list.appendChild(li);
     });
     help.appendChild(list);
+    // 取得侧导入示例槽位：作品类型插件经 queueTypes 贡献各自来源的链接示例
+    //（如小说 / Douyin 的 URL 示例），与旧布局 import-hint 槽位同契约；插件禁用时缺席。
+    const importHintSlot = document.createElement('template');
+    importHintSlot.setAttribute('data-qt-slot', 'import-hint');
+    help.appendChild(importHintSlot);
     composer.appendChild(help);
 
     const actions = el('div', 'ab-composer-actions');

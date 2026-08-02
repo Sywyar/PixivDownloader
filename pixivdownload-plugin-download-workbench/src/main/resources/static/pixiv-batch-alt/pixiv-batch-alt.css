@@ -2704,3 +2704,159 @@ textarea.ab-input {
         display: none;
     }
 }
+
+/* ============================================================
+   插件槽位宿主与插件贡献片段（cookie-tools / import-hint / settings-card）
+   与旧布局同契约：宿主插在 <template data-qt-slot> 原位，空宿主不参与布局，
+   非空宿主 display:contents 使片段作为父容器真实子节点排版。
+   ============================================================ */
+[data-vue-slot] {
+    display: contents;
+}
+
+[data-vue-slot]:empty {
+    display: none;
+}
+
+/* —— 插件自定义 Cookie 卡（cookie-tools 槽位贡献） —— */
+.cookie-type-card {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+
+.plugin-cookie-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+
+.cookie-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.cookie-row input {
+    flex: 1;
+    min-width: 180px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    font-size: 12px;
+    font-family: var(--mono);
+    background: var(--control-bg);
+    color: var(--text);
+}
+
+.cookie-row .btn-sm,
+.cookie-row .btn-cookie-save,
+.cookie-row .btn-cookie-clear {
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line-strong);
+    background: var(--control-bg);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cookie-row .btn-sm:hover,
+.cookie-row .btn-cookie-save:hover,
+.cookie-row .btn-cookie-clear:hover {
+    background: var(--hover-bg);
+}
+
+.cookie-row .btn-cookie-save {
+    border-color: var(--ok);
+    color: var(--ok);
+    background: var(--ok-soft);
+}
+
+.cookie-row .btn-cookie-clear {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: var(--danger-soft);
+}
+
+.cookie-status {
+    font-size: 12px;
+    margin-top: 8px;
+    min-height: 16px;
+    color: var(--muted);
+    word-break: break-word;
+}
+
+.cookie-status:empty {
+    display: none;
+}
+
+.cookie-status.is-ok {
+    color: var(--ok);
+}
+
+.cookie-status.is-warning {
+    color: var(--warn);
+}
+
+.cookie-status.is-error {
+    color: var(--danger);
+}
+
+.cookie-hint {
+    font-size: 11.5px;
+    color: var(--faint);
+    margin-top: 6px;
+}
+
+/* —— 导入示例（import-hint 槽位贡献） —— */
+.ab-import-help [data-vue-slot] > div {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.8;
+}
+
+.import-example-code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 1px 6px;
+    margin-left: 4px;
+    word-break: break-all;
+}
+
+/* —— 插件设置卡（settings-card 槽位贡献，设置抽屉内） —— */
+.ab-settings [data-vue-slot] > section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+}
+
+.ab-settings [data-vue-slot] > section > label {
+    font-weight: 600;
+}
+
+.ab-settings [data-vue-slot] > section > select {
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--control-bg);
+    color: var(--text);
+    font-size: 13px;
+}
+
+.ab-settings [data-vue-slot] > section > small {
+    color: var(--muted);
+    font-size: 12px;
+}
