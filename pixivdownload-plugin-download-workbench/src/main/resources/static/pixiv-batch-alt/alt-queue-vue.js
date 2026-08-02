@@ -139,7 +139,7 @@ function aqvExtrasHtml(q) {
     return node ? node.outerHTML : '';
 }
 
-function aqvRowModel(q, idx) {
+function aqvRowModel(q) {
     const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
     const xr = q.xRestrict == null ? null : Number(q.xRestrict);
     let xrTag;
@@ -163,7 +163,6 @@ function aqvRowModel(q, idx) {
         key: aqvRowKey(q),
         queueId: String(q.id),
         status: q.status,
-        style: {'--stagger': String(Math.min(idx, 12))},
         title: queueItemDisplayTitle(q),
         url: queueItemCanonicalUrl(q),
         canCancel: q.status === 'downloading'
@@ -270,7 +269,7 @@ function aqvCurrentComponent() {
 function aqvListComponent() {
     return {
         setup() {
-            const rows = aqvVue.computed(() => aqvStore.items.map((q, idx) => aqvRowModel(q, idx)));
+            const rows = aqvVue.computed(() => aqvStore.items.map(q => aqvRowModel(q)));
             const isEmpty = aqvVue.computed(() => !aqvStore.items.length);
             return {
                 rows,
@@ -303,7 +302,7 @@ function aqvListComponent() {
             + '</div>'
             + '<template v-else>'
             + '<div class="ab-queue-item" v-for="r in rows" :key="r.key"'
-            + ' :data-queue-id="r.queueId" :data-status="r.status" :style="r.style">'
+            + ' :data-queue-id="r.queueId" :data-status="r.status">'
             + '<div class="ab-queue-title">'
             + '<span class="ab-queue-name">{{ r.title }}</span>'
             + '<a class="ab-iconbtn ab-iconbtn--xs" :href="r.url" target="_blank" rel="noopener"'

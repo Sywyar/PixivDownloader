@@ -2,7 +2,8 @@
    pixiv-batch-alt — 页面专属动效层
    与全站共享动效层 /css/pixiv-motion.css 互补：共享层负责整页入场、
    按钮 / 输入微交互与「减少动态效果」降级；本层负责本页组件的级联入场、
-   骨架屏、状态灯脉冲、队列项与卡片的进入 / 退出。
+   骨架屏、状态灯脉冲与卡片的进入 / 退出。队列项为高频重建区域，
+   不做进入 / 状态切换动画（见 renderQueue 的逐进度重建）。
    时长与缓动一律引用共享令牌（--motion-*）。
    ============================================================ */
 
@@ -38,15 +39,6 @@
     }
 }
 
-@keyframes ab-fade-in {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
 @keyframes ab-rise-in {
     from {
         opacity: 0;
@@ -65,7 +57,6 @@
 .ab-collection-card,
 .ab-script-card,
 .ab-schedule-card,
-.ab-queue-item,
 .ab-rail-item {
     animation: ab-stagger-in var(--motion-slow) var(--motion-ease-out) backwards;
     animation-delay: calc(var(--stagger, 0) * 36ms);
@@ -127,11 +118,6 @@
     transition: stroke-dashoffset var(--motion-slow) var(--motion-ease-standard);
 }
 
-/* 队列项状态切换：整卡淡入以提示变化 */
-.ab-queue-item[data-status="downloading"] {
-    animation: ab-fade-in var(--motion-fast) var(--motion-ease-standard);
-}
-
 /* 顶栏品牌徽标呼吸光 */
 .ab-brand-mark {
     position: relative;
@@ -169,7 +155,6 @@
     .ab-collection-card,
     .ab-script-card,
     .ab-schedule-card,
-    .ab-queue-item,
     .ab-rail-item {
         animation-delay: 0ms;
     }

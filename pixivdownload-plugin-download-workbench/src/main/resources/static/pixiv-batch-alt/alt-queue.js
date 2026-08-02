@@ -721,16 +721,15 @@ function renderQueue() {
         list.appendChild(empty);
         return;
     }
-    state.queue.forEach((q, idx) => {
-        list.appendChild(queueItemRow(q, idx));
+    state.queue.forEach(q => {
+        list.appendChild(queueItemRow(q));
     });
 }
 
-function queueItemRow(q, idx) {
+function queueItemRow(q) {
     const row = el('div', 'ab-queue-item');
     row.dataset.queueId = String(q.id);
     row.dataset.status = q.status;
-    row.style.setProperty('--stagger', String(Math.min(idx, 12)));
 
     const titleRow = el('div', 'ab-queue-title');
     titleRow.appendChild(el('span', 'ab-queue-name', queueItemDisplayTitle(q)));
