@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - Pixiv 体验增强工具箱可选择为已删除作品显示边框，默认继承已下载作品样式，也可单独调整宽度、颜色与线型。
 - 新增显式插件开发模式：设置 `-Dpixivdownload.plugin-dev.enabled=true` 后会忽略 `plugins/` 目录，自动从仓库插件模块的 `target/classes` 加载已编译代码，并在控制台显示开发模式诊断。
 - `config.yaml` 新增 `plugins.<插件 id>.enabled` 开关，可按插件关闭可选功能；关闭后对应页面、API、导航和后台任务不注册，重新启用后继续使用既有数据。
-- 下载页支持在工作台布局与经典单列布局之间即时切换，并会在当前浏览器中记住选择；经典布局保留传统单列的信息与操作顺序。
+- 下载页可在新、旧布局页面之间切换；旧布局页面还支持横屏三栏与竖屏单列布局即时切换，并会在当前浏览器中记住选择。
 - 下载页预览结果支持折叠 / 展开，方便在加入队列后减少列表干扰。
 
 ### Changed

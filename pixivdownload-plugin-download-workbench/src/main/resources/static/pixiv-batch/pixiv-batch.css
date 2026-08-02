@@ -1066,29 +1066,45 @@
         }
 
         .batch-layout-toggle {
-            min-height: 38px;
+            min-height: 34px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 7px;
-            padding: 6px 11px;
-            border: 1px solid currentColor;
-            border-radius: 4px;
-            background: transparent;
+            gap: 6px;
+            padding: 6px 12px;
+            border: 1px solid color-mix(in srgb, var(--brand-text) 45%, transparent);
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--brand-text) 10%, transparent);
             color: var(--brand-text);
             font: inherit;
             font-size: 12px;
             font-weight: 600;
             line-height: 1.2;
+            text-decoration: none;
             cursor: pointer;
         }
 
         .batch-layout-toggle:hover {
-            opacity: .9;
+            background: color-mix(in srgb, var(--brand-text) 20%, transparent);
+            border-color: var(--brand-text);
+        }
+
+        .batch-page-layout-link {
+            background: var(--brand-text);
+            border-color: var(--brand-text);
+            color: var(--brand);
+        }
+
+        .batch-page-layout-link:hover {
+            background: color-mix(in srgb, var(--brand-text) 88%, transparent);
+        }
+
+        .batch-layout-toggle:active {
+            transform: translateY(1px);
         }
 
         .batch-layout-toggle:focus-visible {
-            outline: 2px solid currentColor;
+            outline: 2px solid var(--brand-text);
             outline-offset: 2px;
         }
 

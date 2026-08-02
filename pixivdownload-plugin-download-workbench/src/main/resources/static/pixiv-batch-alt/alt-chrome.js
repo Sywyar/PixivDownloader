@@ -64,6 +64,7 @@ function bindVersionMenu() {
 function renderAuthButton() {
     const btn = document.getElementById('abAuthBtn');
     if (!btn) return;
+    btn.setAttribute('data-i18n', isAdmin ? 'auth.logout' : 'auth.login');
     btn.textContent = isAdmin ? bt('auth.logout', '退出') : bt('auth.login', '登录');
     btn.classList.toggle('ab-btn--primary', !isAdmin);
     btn.classList.toggle('ab-btn--ghost', isAdmin);

@@ -24,10 +24,10 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 下载页经典 / 工作台双布局的静态资源契约守卫。运行态偏好、事件绑定与异常降级另由
+ * 下载页横屏 / 竖屏双布局的静态资源契约守卫。运行态偏好、事件绑定与异常降级另由
  * {@code pixivdownload-plugin-download-workbench/src/test/js/batch-layout.test.js} 通过真实脚本执行验证。
  */
-@DisplayName("下载页经典 / 工作台双布局静态契约守卫")
+@DisplayName("下载页横屏 / 竖屏双布局静态契约守卫")
 class BatchLayoutContractTest {
 
     private static final String STATIC_ROOT = "static/";
@@ -42,8 +42,8 @@ class BatchLayoutContractTest {
     private static final String INIT_JS = STATIC_ROOT + "pixiv-batch/batch-init.js";
     private static final String BATCH_I18N_ZH = "i18n/web/batch.properties";
     private static final String BATCH_I18N_EN = "i18n/web/batch_en.properties";
-    private static final String WORKBENCH_SCOPE = "html[data-batch-layout=\"workbench\"]";
-    private static final String CLASSIC_SCOPE = "html[data-batch-layout=\"classic\"]";
+    private static final String WORKBENCH_SCOPE = "html[data-batch-layout=\"landscape\"]";
+    private static final String CLASSIC_SCOPE = "html[data-batch-layout=\"portrait\"]";
 
     private static final Pattern SCRIPT_SRC = Pattern.compile(
             "<script\\s+[^>]*src=\"([^\"]+)\"[^>]*>", Pattern.CASE_INSENSITIVE);
@@ -213,6 +213,9 @@ class BatchLayoutContractTest {
         int baseCssAt = html.indexOf("href=\"/pixiv-batch/pixiv-batch.css\"");
 
         assertThat(baseCssAt).as("下载页必须加载共享基础 CSS").isGreaterThanOrEqualTo(0);
+        assertThat(html)
+                .contains("href=\"/pixiv-batch-alt.html\"")
+                .contains("data-i18n=\"page.switch-to-new-layout\"");
         assertThat(links)
                 .extracting(LayoutStyleLink::href)
                 .containsExactly(
@@ -221,14 +224,14 @@ class BatchLayoutContractTest {
         assertThat(links).allMatch(link -> link.offset() > baseCssAt);
         assertThat(links)
                 .extracting(LayoutStyleLink::token)
-                .containsExactly("workbench", "classic")
+                .containsExactly("landscape", "portrait")
                 .doesNotHaveDuplicates()
                 .allMatch(token -> !token.isBlank() && LAYOUT_TOKEN.matcher(token).matches());
 
         Set<String> available = new LinkedHashSet<>();
         links.forEach(link -> available.add(link.token()));
-        assertThat(attribute(root, "data-batch-layout")).isEqualTo("workbench").isIn(available);
-        assertThat(attribute(root, "data-batch-layout-default")).isEqualTo("workbench").isIn(available);
+        assertThat(attribute(root, "data-batch-layout")).isEqualTo("landscape").isIn(available);
+        assertThat(attribute(root, "data-batch-layout-default")).isEqualTo("landscape").isIn(available);
         assertThat(read(BASE_CSS)).as("共享基础 CSS 应能从插件 classpath 读取").isNotBlank();
         assertThat(read(WORKBENCH_LAYOUT_CSS)).as("workbench 投影应能从插件 classpath 读取").isNotBlank();
         assertThat(read(CLASSIC_LAYOUT_CSS)).as("classic 投影应能从插件 classpath 读取").isNotBlank();
@@ -282,10 +285,10 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("workbench 投影独立承载三栏、rail、dashboard、统计与队列断点")
-    void workbenchProjectionIsScopedAndIndependent() throws IOException {
+    @DisplayName("横屏投影独立承载三栏、rail、dashboard、统计与队列断点")
+    void landscapeProjectionIsScopedAndIndependent() throws IOException {
         String css = read(WORKBENCH_LAYOUT_CSS);
-        assertScopedProjection(css, WORKBENCH_SCOPE, "classic");
+        assertScopedProjection(css, WORKBENCH_SCOPE, "portrait");
 
         assertThat(css)
                 .contains("max-width: 1440px")
@@ -301,10 +304,10 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("classic 投影按传统顺序承载工具、模式、六列统计、操作区与队列")
-    void classicProjectionIsScopedAndIndependent() throws IOException {
+    @DisplayName("竖屏投影按传统顺序承载工具、模式、六列统计、操作区与队列")
+    void portraitProjectionIsScopedAndIndependent() throws IOException {
         String css = read(CLASSIC_LAYOUT_CSS);
-        assertScopedProjection(css, CLASSIC_SCOPE, "workbench");
+        assertScopedProjection(css, CLASSIC_SCOPE, "landscape");
 
         assertThat(css)
                 .contains("max-width: 1000px")
@@ -317,7 +320,7 @@ class BatchLayoutContractTest {
                 .contains("\"queue\"")
                 .contains("position: static")
                 .contains("grid-template-columns: repeat(6, minmax(0, 1fr))")
-                .contains(".batch-layout-action-host[data-batch-layout-action-host=\"classic\"]")
+                .contains(".batch-layout-action-host[data-batch-layout-action-host=\"portrait\"]")
                 .contains("grid-template-columns: repeat(3, minmax(0, 1fr))")
                 .contains("@media (max-width: 820px)")
                 .contains("@media (max-width: 560px)")
@@ -332,21 +335,21 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("经典布局在队列前声明唯一六按钮投影并保留全部原位锚点")
-    void classicActionProjectionIsDeclaredOnceBeforeQueue() throws IOException {
+    @DisplayName("竖屏布局在队列前声明唯一六按钮投影并保留全部原位锚点")
+    void portraitActionProjectionIsDeclaredOnceBeforeQueue() throws IOException {
         String html = read(BATCH_HTML);
         List<String> actionIds = List.of(
                 "btn-start", "btn-pause", "btn-retry",
                 "btn-export", "btn-export-failed", "btn-clear");
         Matcher hostMatcher = Pattern.compile(
-                "<div\\s+[^>]*data-batch-layout-action-host=\"classic\"[^>]*>",
+                "<div\\s+[^>]*data-batch-layout-action-host=\"portrait\"[^>]*>",
                 Pattern.CASE_INSENSITIVE).matcher(html);
 
-        assertThat(hostMatcher.find()).as("经典布局必须声明操作投影宿主").isTrue();
+        assertThat(hostMatcher.find()).as("竖屏布局必须声明操作投影宿主").isTrue();
         String host = hostMatcher.group();
         assertThat(attribute(host, "data-batch-layout-action-order"))
                 .isEqualTo(String.join(" ", actionIds));
-        assertThat(hostMatcher.find()).as("经典布局操作投影宿主必须唯一").isFalse();
+        assertThat(hostMatcher.find()).as("竖屏布局操作投影宿主必须唯一").isFalse();
         assertThat(html.indexOf(host)).isLessThan(html.indexOf("<aside class=\"queue-rail\">"));
 
         for (String id : actionIds) {
@@ -419,8 +422,8 @@ class BatchLayoutContractTest {
                 .doesNotContain("data-i18n")
                 .doesNotContain("title=")
                 .doesNotContain("aria-label=")
-                .doesNotContain("switch-to-classic")
-                .doesNotContain("switch-to-workbench");
+                .doesNotContain("switch-to-portrait")
+                .doesNotContain("switch-to-landscape");
     }
 
     @Test
@@ -471,8 +474,8 @@ class BatchLayoutContractTest {
 
         assertThat(js)
                 .contains("link[data-batch-layout-style]")
-                .doesNotContain("'workbench'")
-                .doesNotContain("'classic'");
+                .doesNotContain("'landscape'")
+                .doesNotContain("'portrait'");
         assertNoPattern(js, "布局控制器不得发起 fetch", "\\bfetch\\s*\\(");
         assertNoPattern(js, "布局控制器不得创建 XMLHttpRequest", "\\bXMLHttpRequest\\b");
         assertNoPattern(js, "布局控制器不得 reload / 导航", "\\b(?:window\\s*\\.\\s*)?location\\s*\\.");
@@ -568,11 +571,19 @@ class BatchLayoutContractTest {
     @Test
     @DisplayName("中英文布局 i18n 键集合一致并包含双向切换文案")
     void layoutI18nKeysMatchAcrossLocales() throws IOException {
+        String zhBundle = read(BATCH_I18N_ZH);
+        String enBundle = read(BATCH_I18N_EN);
         Set<String> zh = layoutKeys(BATCH_I18N_ZH);
         Set<String> en = layoutKeys(BATCH_I18N_EN);
 
-        assertThat(zh).containsExactly("layout.switch-to-classic", "layout.switch-to-workbench");
+        assertThat(zh).containsExactly("layout.switch-to-landscape", "layout.switch-to-portrait");
         assertThat(en).as("英文布局 i18n 键必须与中文完全一致").isEqualTo(zh);
+        assertThat(zhBundle)
+                .contains("layout.switch-to-landscape=横屏")
+                .contains("layout.switch-to-portrait=竖屏");
+        assertThat(enBundle)
+                .contains("layout.switch-to-landscape=Landscape")
+                .contains("layout.switch-to-portrait=Portrait");
     }
 
     @Test

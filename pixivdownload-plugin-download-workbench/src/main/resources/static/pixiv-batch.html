@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"
-      data-batch-layout="workbench"
-      data-batch-layout-default="workbench">
+      data-batch-layout="landscape"
+      data-batch-layout-default="landscape">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,10 +26,10 @@
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch.css">
     <link rel="stylesheet"
           href="/pixiv-batch/pixiv-batch-layout-workbench.css"
-          data-batch-layout-style="workbench">
+          data-batch-layout-style="landscape">
     <link rel="stylesheet"
           href="/pixiv-batch/pixiv-batch-layout-classic.css"
-          data-batch-layout-style="classic">
+          data-batch-layout-style="portrait">
     <!-- 下载页动效层：本页专属的分区入场、模式切换与预览级联等过渡 / 动画。 -->
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-motion.css">
 </head>
@@ -45,6 +45,13 @@
           data-nav-target="_blank" data-nav-rel="noopener" style="display:contents"></span>
     <div class="app-nav-spacer"></div>
     <div class="app-nav-actions" id="langSwitcherAnchor">
+        <a class="batch-layout-toggle batch-page-layout-link" href="/pixiv-batch-alt.html"
+           data-i18n-title="page.switch-to-new-layout"
+           data-i18n-aria-label="page.switch-to-new-layout"
+           title="新布局" aria-label="新布局">
+            <i class="fa-solid fa-border-all" aria-hidden="true"></i>
+            <span class="batch-layout-toggle-label" data-i18n="page.switch-to-new-layout">新布局</span>
+        </a>
         <button type="button" id="batch-layout-toggle" class="batch-layout-toggle" hidden disabled>
             <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
             <span class="batch-layout-toggle-label"></span>
@@ -656,7 +663,7 @@
 
         <!-- 布局操作投影：复用既有按钮节点，匹配的布局按声明顺序暂存于此。 -->
         <div class="batch-layout-action-host"
-             data-batch-layout-action-host="classic"
+             data-batch-layout-action-host="portrait"
              data-batch-layout-action-order="btn-start btn-pause btn-retry btn-export btn-export-failed btn-clear"></div>
 
         <!-- 右：常驻下载队列 rail（配额 / 压缩包 / 当前下载 / 队列 / 队列操作） -->

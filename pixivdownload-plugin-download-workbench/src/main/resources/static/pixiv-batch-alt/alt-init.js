@@ -4,7 +4,7 @@
    ============================================================ */
 async function initPageI18n() {
     try {
-        pageI18n = await PixivI18n.create({namespaces: ['batch-alt', 'common', 'tour']});
+        pageI18n = await PixivI18n.create({namespaces: ['batch-alt', 'batch', 'common', 'tour']});
     } catch {
         pageI18n = null;
     }

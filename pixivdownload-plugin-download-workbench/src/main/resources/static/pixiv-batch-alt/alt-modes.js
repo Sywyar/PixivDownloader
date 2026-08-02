@@ -1201,50 +1201,47 @@ function renderImportMode(panel) {
     textarea.id = 'abImportInput';
     textarea.rows = 8;
     textarea.spellcheck = false;
-    textarea.placeholder = bt('import.placeholder',
-        '粘贴作品链接或 ID，每行一个（兼容 One-Tab / N-Tab 导出格式）\nhttps://www.pixiv.net/artworks/12345678 | 标题\n87654321\nnovel:\n1234567');
+    textarea.placeholder = bt('batch:input.single-import.placeholder',
+        '粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...');
     composer.appendChild(textarea);
 
     const help = el('details', 'ab-import-help');
     help.appendChild(el('summary', '', bt('import.format.title', '导入格式说明')));
     const list = el('ul', 'ab-note-list');
     [
-        bt('import.format.line1', '每行格式：`url | title` 或 `id | title`，标题可留空（下载前自动获取真实标题）'),
-        bt('import.format.line2', '仅 ID 行默认按插画解析；`artwork:` / `novel:` 区段头（单独成行）控制其后仅 ID 行的解析类型'),
-        bt('import.format.line3', '兼容本页「导出全部」「导出未下载」的产物')
+        bt('batch:label.import-format', '导入格式：') + ' url | title '
+            + bt('batch:label.import-format-or', '或') + ' id | title',
+        bt('batch:label.import-example', '每行一条，例如：')
+            + bt('batch:label.import-example-value', 'https://www.pixiv.net/artworks/12345678 | 示例标题'),
+        bt('batch:label.import-bare-id-example', '仅 ID 示例：')
+            + bt('batch:label.import-bare-id-example-value', '12345678 | 示例标题'),
+        bt('batch:hint.import-bare-id', '仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。'),
+        bt('batch:hint.import-section-header', '区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。'),
+        bt('batch:hint.import-title-optional', '标题可留空；下载前会自动获取真实标题。兼容 One-Tab，N-Tab 等标签页管理插件导出格式。'),
+        bt('batch:hint.import-reimport', '也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。')
     ].forEach(text => {
         const li = el('li');
-        li.textContent = text.replace(/`/g, '');
+        li.textContent = text.replace(/<\/?code>/g, '');
         list.appendChild(li);
     });
     help.appendChild(list);
     composer.appendChild(help);
 
     const actions = el('div', 'ab-composer-actions');
-    const parseBtn = el('button', 'ab-btn ab-btn--primary');
-    parseBtn.type = 'button';
-    parseBtn.appendChild(abIconEl('zap'));
-    parseBtn.appendChild(el('span', '', bt('import.parse', '解析并预览')));
-    parseBtn.addEventListener('click', () => runImportParse());
-    const importBtn = el('button', 'ab-btn ab-btn--ghost');
+    const importBtn = el('button', 'ab-btn ab-btn--primary');
     importBtn.id = 'abBtnImport';
     importBtn.type = 'button';
     importBtn.appendChild(abIconEl('plus'));
     importBtn.appendChild(el('span', '', bt('import.enqueue', '导入并加入队列')));
-    importBtn.addEventListener('click', () => {
-        if (!importState.parsed.length) runImportParse(true);
-        else commitImport(false);
-    });
+    importBtn.addEventListener('click', () => runImportParse(false));
     const freshBtn = el('button', 'ab-btn ab-btn--danger-ghost');
     freshBtn.type = 'button';
     freshBtn.appendChild(abIconEl('refresh'));
     freshBtn.appendChild(el('span', '', bt('import.reimport', '清空队列后重新导入')));
     freshBtn.addEventListener('click', async () => {
         if (!await abConfirm('dialog.confirm-reparse', '确认清除当前队列并重新解析？')) return;
-        if (!importState.parsed.length) runImportParse(true);
-        else commitImport(true);
+        runImportParse(true);
     });
-    actions.appendChild(parseBtn);
     actions.appendChild(importBtn);
     actions.appendChild(freshBtn);
     composer.appendChild(actions);
@@ -1326,7 +1323,7 @@ function parseImportText(text) {
     return {items: unique, skippedUnavailable, rejected};
 }
 
-function runImportParse(autoCommit) {
+function runImportParse(clearFirst) {
     const textarea = document.getElementById('abImportInput');
     const result = document.getElementById('abImportResult');
     if (!textarea || !result) return;
@@ -1362,7 +1359,7 @@ function runImportParse(autoCommit) {
             bt('import.preview-more', '…以及另外 {count} 个', {count: parsed.items.length - 60})));
     }
     result.appendChild(preview);
-    if (autoCommit) commitImport(false);
+    commitImport(!!clearFirst);
 }
 
 function commitImport(clearFirst) {

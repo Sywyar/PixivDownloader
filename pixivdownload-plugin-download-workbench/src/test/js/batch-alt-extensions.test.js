@@ -15,6 +15,8 @@ const initSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'res
     'static', 'pixiv-batch-alt', 'alt-init.js'), 'utf8');
 const chromeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-chrome.js'), 'utf8');
+const queueSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt', 'alt-queue.js'), 'utf8');
 const pageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt.html'), 'utf8');
 const cssSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
@@ -97,9 +99,24 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
 
 (async () => {
     assert.deepStrictEqual(Array.from(await sandbox.altI18nNamespaces()),
-        ['batch-alt', 'common', 'tour', 'novel', 'schedule-extra']);
+        ['batch-alt', 'batch', 'common', 'tour', 'novel', 'schedule-extra']);
     assert(pageSource.includes('data-nav-link-class="ab-topnav-link"'));
     assert(pageSource.includes('data-nav-current="download-workbench"'));
+    assert(pageSource.includes('href="/pixiv-batch.html"'));
+    assert(pageSource.includes('data-i18n-title="page.switch-to-old-layout"'));
+    assert(pageSource.includes('data-i18n-aria-label="page.switch-to-old-layout"'));
+    assert(pageSource.includes('data-icon="grid"'));
+    assert(!pageSource.includes('data-i18n="page.switch-to-old-layout"'));
+    const topbarOrder = [
+        'id="abCookieChip"', 'id="abLangAnchor"', 'id="abVersion"', 'id="abScriptsBtn"',
+        'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'id="abDockToggle"', 'id="abAuthBtn"'
+    ].map(marker => pageSource.indexOf(marker));
+    assert(topbarOrder.every((position, index) => position >= 0
+        && (index === 0 || position > topbarOrder[index - 1])));
+    assert(pageSource.includes('<span id="abVersionText">加载中…</span>'));
+    assert(!pageSource.includes('id="abVersionText" data-i18n='));
+    assert(chromeSource.includes("fetch('/api/app/info', {credentials: 'same-origin'})"));
+    assert(chromeSource.includes("btn.setAttribute('data-i18n', isAdmin ? 'auth.logout' : 'auth.login');"));
     assert(cssSource.includes('.ab-topnav-link svg'));
     assert(cssSource.includes('.ab-backend-banner[hidden]'));
     assert(/\.ab-seg\s*\{[^}]*align-self:\s*flex-start[^}]*border-radius:\s*999px/s.test(cssSource));
@@ -113,6 +130,20 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(initSource.includes('PixivOnboarding.boot(buildOnboardingConfig(savedName))'));
     assert(initSource.includes('beforeStart: () => openDock()'));
     assert(modesSource.includes("importBtn.id = 'abBtnImport'"));
+    assert(modesSource.includes("importBtn.addEventListener('click', () => runImportParse(false));"));
+    assert(modesSource.includes('runImportParse(true);'));
+    assert(!modesSource.includes("bt('import.parse'"));
+    assert.strictEqual((modesSource.match(/bt\('import\.enqueue'/g) || []).length, 1);
+    assert(modesSource.includes("bt('batch:input.single-import.placeholder'"));
+    assert(modesSource.includes("const help = el('details', 'ab-import-help')"));
+    assert(modesSource.includes("bt('batch:label.import-format'"));
+    assert(modesSource.includes("bt('batch:hint.import-section-header'"));
+    assert(cssSource.includes('.ab-import-help summary'));
+    assert(!cssSource.includes('.ab-import-format-title'));
+    assert(/\.pixiv-theme-toggle--topbar svg\s*\{[^}]*fill:\s*none[^}]*stroke:\s*currentColor/s.test(cssSource));
+    assert(queueSource.includes("el('div', 'ab-queue-item')"));
+    assert(!queueSource.includes("el('div', 'ab-queue-item card')"));
+    assert(/\.ab-queue-item\s*\{[^}]*border-radius:\s*0 4px 4px 0[^}]*background:\s*var\(--surface-2\)/s.test(cssSource));
     console.log('batch-alt-extensions.test.js: runtime, i18n and chrome regressions passed ✓');
 })().catch(error => {
     console.error(error);

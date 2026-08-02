@@ -29,13 +29,11 @@
             <span class="ab-chip-dot" aria-hidden="true"></span>
             <span class="ab-chip-label" data-i18n="cookie.status.missing">未保存 Cookie</span>
         </button>
-        <button type="button" class="ab-iconbtn" id="abScriptsBtn" data-i18n-title="scripts.entry" title="油猴脚本">
-            <span class="ab-icon" data-icon="puzzle" aria-hidden="true"></span>
-        </button>
+        <span id="abLangAnchor"></span>
         <div class="ab-version" id="abVersion">
             <button type="button" class="ab-chip ab-chip--ghost" id="abVersionBtn">
                 <span class="ab-icon" data-icon="info" aria-hidden="true"></span>
-                <span id="abVersionText" data-i18n="app.loading">加载中…</span>
+                <span id="abVersionText">加载中…</span>
                 <span class="ab-icon" data-icon="chevron-down" aria-hidden="true"></span>
             </button>
             <div class="ab-menu" id="abVersionMenu" hidden>
@@ -49,13 +47,21 @@
                 <a class="ab-menu-item" id="abLinkLicense" href="#" target="_blank" rel="noopener" data-i18n="app.link.license">License</a>
             </div>
         </div>
-        <span id="abLangAnchor"></span>
+        <button type="button" class="ab-iconbtn" id="abScriptsBtn" data-i18n-title="scripts.entry" title="油猴脚本">
+            <span class="ab-icon" data-icon="puzzle" aria-hidden="true"></span>
+        </button>
+        <a class="ab-iconbtn" href="/pixiv-batch.html"
+           data-i18n-title="page.switch-to-old-layout"
+           data-i18n-aria-label="page.switch-to-old-layout"
+           title="旧布局" aria-label="旧布局">
+            <span class="ab-icon" data-icon="grid" aria-hidden="true"></span>
+        </a>
         <span id="abThemeAnchor"></span>
-        <button type="button" class="ab-btn ab-btn--primary ab-btn--sm" id="abAuthBtn" data-i18n="auth.login">登录</button>
         <button type="button" class="ab-iconbtn ab-dock-toggle" id="abDockToggle" data-i18n-title="dock.toggle" title="下载面板">
             <span class="ab-icon" data-icon="download" aria-hidden="true"></span>
             <span class="ab-badge" id="abDockBadge" hidden>0</span>
         </button>
+        <button type="button" class="ab-btn ab-btn--primary ab-btn--sm" id="abAuthBtn" data-i18n="auth.login">登录</button>
     </div>
 </header>
 

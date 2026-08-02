@@ -46,7 +46,7 @@ function altScheduleSources() {
 async function altI18nNamespaces() {
     const queue = altQueueTypes();
     const schedule = altScheduleSources();
-    return ['batch-alt', 'common', 'tour']
+    return ['batch-alt', 'batch', 'common', 'tour']
         .concat(queue ? await queue.i18nNamespaces() : [])
         .concat(schedule ? await schedule.i18nNamespaces() : [])
         .filter((value, index, all) => value && all.indexOf(value) === index);

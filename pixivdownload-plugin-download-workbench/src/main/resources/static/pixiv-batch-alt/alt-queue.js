@@ -52,6 +52,17 @@ function queueSourceText(source) {
     }[queueAcquisitionMode(source)] || bt('queue.source.import', '导入');
 }
 
+function queueDataSourceText(item) {
+    const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
+    try {
+        const source = runtime && runtime.dataSourceForType(item.kind, queueAcquisitionMode(item.source));
+        if (source) return typeof altSourceLabel === 'function' ? altSourceLabel(source) : source.id;
+    } catch (e) {
+        console.warn('[batch-alt] 队列数据来源解析失败：', item.kind, e);
+    }
+    return item && item.kind ? String(item.kind) : bt('queue.unknown', '未知');
+}
+
 // 渲染时派生队列项标题：模型里 title 只存原始字符串（可为空），此处补 i18n fallback。
 function queueItemDisplayTitle(q) {
     if (q && q.title) return q.title;
@@ -666,15 +677,15 @@ function renderQueue() {
         return;
     }
     state.queue.forEach((q, idx) => {
-        list.appendChild(queueItemCard(q, idx));
+        list.appendChild(queueItemRow(q, idx));
     });
 }
 
-function queueItemCard(q, idx) {
-    const card = el('div', 'ab-queue-item card');
-    card.dataset.queueId = String(q.id);
-    card.dataset.status = q.status;
-    card.style.setProperty('--stagger', String(Math.min(idx, 12)));
+function queueItemRow(q, idx) {
+    const row = el('div', 'ab-queue-item');
+    row.dataset.queueId = String(q.id);
+    row.dataset.status = q.status;
+    row.style.setProperty('--stagger', String(Math.min(idx, 12)));
 
     const titleRow = el('div', 'ab-queue-title');
     titleRow.appendChild(el('span', 'ab-queue-name', queueItemDisplayTitle(q)));
@@ -713,45 +724,43 @@ function queueItemCard(q, idx) {
         });
         titleRow.appendChild(remove);
     }
-    card.appendChild(titleRow);
+    row.appendChild(titleRow);
 
     const tags = el('div', 'ab-queue-tags');
+    tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--source', queueDataSourceText(q)));
     tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--mode', queueSourceText(q.source)));
     const xr = q.xRestrict == null ? null : Number(q.xRestrict);
     if (xr === 2) tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--r18g', 'R-18G'));
     else if (xr === 1) tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--r18', 'R-18'));
-    if (q.isAi === true) tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--ai', 'AI'));
+    else if (xr === null || !Number.isFinite(xr)) {
+        tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--unknown', bt('queue.unknown', '未知')));
+    } else tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--sfw', 'SFW'));
     const contributedTags = queueRuntime ? queueRuntime.queueTags(q) : [];
     contributedTags.forEach(tag => {
-        if (!tag || !tag.label || ['attribute.ai'].includes(tag.id)) return;
-        tags.appendChild(el('span', 'ab-queue-tag', tag.label));
+        if (!tag || !tag.label) return;
+        tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--plugin', tag.label));
     });
-    if (!contributedTags.length) {
-        const typeMeta = workTypeMeta({illustType: q.kind === 'novel' ? -1 : undefined}, q.kind);
-        tags.appendChild(el('span', 'ab-queue-tag', typeMeta.label));
-    }
-    card.appendChild(tags);
+    row.appendChild(tags);
 
     const metaLine = el('div', 'ab-queue-meta');
-    metaLine.textContent = 'ID: ' + (q.kind === 'novel'
+    metaLine.appendChild(document.createTextNode('ID: ' + (q.kind === 'novel'
         ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
-        : q.id);
-    card.appendChild(metaLine);
-
-    const statusLine = el('div', 'ab-queue-status');
+        : q.id) + ' | '));
+    const statusLine = el('span', 'ab-queue-status');
     statusLine.dataset.status = q.status;
     statusLine.textContent = queueItemMessage(q);
-    card.appendChild(statusLine);
+    metaLine.appendChild(statusLine);
+    row.appendChild(metaLine);
 
     if (q.totalImages > 0) {
-        card.appendChild(miniProgress(
+        row.appendChild(miniProgress(
             bt('status.image-progress', '{downloaded} / {total} 张',
                 {downloaded: q.downloadedCount || 0, total: q.totalImages}),
             null, pct(q), 'is-' + q.status));
     }
     const extras = progressExtras(q);
-    if (extras) card.appendChild(extras);
-    return card;
+    if (extras) row.appendChild(extras);
+    return row;
 }
 
 /* ============================================================
