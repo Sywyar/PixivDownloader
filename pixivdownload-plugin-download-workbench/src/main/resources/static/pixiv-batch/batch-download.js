@@ -1086,6 +1086,8 @@
             'warning'
         );
         updateButtonsState();
+        // 暂停时清除当前下载状态（回退 idle「无」）；恢复后由 resume 的渲染门面自动重新派生队首。
+        refreshCurrentCard();
     }
 
     function resume() {
@@ -1100,6 +1102,8 @@
         saveQueue();
         setStatus(bt('status.resume-download', '继续下载'), 'info');
         updateButtonsState();
+        // 恢复后经渲染门面重新派生队首（暂停期间当前卡已回退 idle「无」）。
+        refreshCurrentCard();
     }
 
     function forceClearBackendQueue() {

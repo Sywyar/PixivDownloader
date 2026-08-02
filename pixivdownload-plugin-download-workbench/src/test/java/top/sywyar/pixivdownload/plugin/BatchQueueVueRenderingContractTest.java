@@ -19,10 +19,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>下载页 {@code pixiv-batch.html} 在 {@code batch-queue.js} 之后加载 {@code batch-queue-vue.js}（注册 reactive 岛）；</li>
  *   <li>{@code batch-queue-vue.js} 暴露 {@code window.PixivBatch.queueVue} 既定 API、经共享 helper {@code PixivVue.mountOn}
- *       挂载、用 {@code requestAnimationFrame} 合批、行 / 当前卡共用 {@code buildQueueItemHtml} / {@code formatCurrentCardHtml}（不另造 HTML 语义）；</li>
+ *       挂载、用 {@code requestAnimationFrame} 合批、行 / 当前卡共用 {@code buildQueueItemHtml} / {@code formatCurrentCardHtml}
+ *       （当前卡经 {@code computeCurrentCardHtml} 从队列镜像派生，不另造 HTML 语义）；</li>
  *   <li>{@code batch-queue.js} 四个门面（{@code renderQueue} / {@code updateStats} / {@code setCurrent} /
  *       {@code renderDownloadSpeed}）在 Vue 激活时合并到 reactive store、否则命令式回退（{@code renderQueueImperative} /
- *       {@code setStatCount} / 速度 span 仍在）；</li>
+ *       {@code setStatCount} / 速度 span 仍在）；当前卡在 Vue 已接管时由响应式从队列镜像派生，{@code setCurrent} 每次
+ *       同步队列镜像 + 暂停标志保证实时更新；</li>
  *   <li>{@code schedule.js} 三个门面（{@code renderScheduleQueueBodyInto} / {@code flushScheduleQueueRows} /
  *       {@code refreshScheduleQueueMeta}）在 Vue 激活时走 {@code syncScheduleQueue}、否则命令式回退；折叠 / 任务下线卸载 reactive 岛；</li>
  *   <li>{@code pixiv-batch.css} 行宿主 {@code .q-item-host} 为 {@code display:contents}（v-html 渲染的 .queue-item 直接参与父布局）。</li>
@@ -75,8 +77,8 @@ class BatchQueueVueRenderingContractTest {
         String js = read(QUEUE_VUE_JS);
         assertThat(js).as("应挂到 window.PixivBatch.queueVue 命名空间").contains("PixivBatch.queueVue");
         for (String fn : new String[]{
-                "mountDownloadQueue:", "isDownloadActive:", "syncDownloadList:", "syncDownloadStats:",
-                "syncDownloadCurrent:", "syncDownloadSpeed:",
+                "mountDownloadQueue:", "isDownloadActive:", "isDownloadCurrentActive:", "syncDownloadList:",
+                "syncDownloadStats:", "syncDownloadPaused:", "syncDownloadSpeed:",
                 "ensureScheduleQueue:", "isScheduleActive:", "syncScheduleQueue:", "unmountScheduleQueue:",
                 "flush:"}) {
             assertThat(js).as("queueVue 门面应导出 " + fn).contains(fn);
@@ -100,6 +102,7 @@ class BatchQueueVueRenderingContractTest {
         String js = read(QUEUE_VUE_JS);
         assertThat(js).as("行 HTML 必须复用共享 buildQueueItemHtml").contains("'buildQueueItemHtml'");
         assertThat(js).as("当前卡必须复用共享 formatCurrentCardHtml").contains("'formatCurrentCardHtml'");
+        assertThat(js).as("当前卡两路共用 computeCurrentCardHtml 同一派生口径（含剩余计数行）").contains("'computeCurrentCardHtml'");
         assertThat(js).as("列表 / 计划详情行宿主为 q-item-host（v-html 透明宿主）").contains("q-item-host");
         assertThat(js).as("普通队列与计划队列列表都用复合作品身份复用宿主、仅 patch 变化行")
                 .contains(":key=\"rowKey(q)\"");
@@ -121,7 +124,9 @@ class BatchQueueVueRenderingContractTest {
 
         assertThat(js).as("updateStats 应在 Vue 激活时合并到 reactive store").contains("syncDownloadStats({");
         assertThat(js).as("updateStats 命令式回退仍逐项写 5 张统计卡").contains("setStatCount('stat-count-pending', pending)");
-        assertThat(js).as("setCurrent 应在 Vue 激活时写 reactive store").contains("syncDownloadCurrent(item)");
+        assertThat(js).as("setCurrent 在 Vue 已接管时同步队列镜像 + 暂停标志（当前卡由响应式实时派生）")
+                .contains("syncDownloadPaused(state.isPaused)")
+                .contains("syncDownloadList()");
         assertThat(js).as("renderDownloadSpeed 应在 Vue 激活时写 reactive store").contains("syncDownloadSpeed(value, unit)");
         assertThat(js).as("renderDownloadSpeed 命令式回退仍写速度 span").contains("getElementById('stat-speed-value')");
         assertThat(js).as("速度文案两路共享 formatSpeed 口径").contains("formatSpeed(bytesPerSec)");

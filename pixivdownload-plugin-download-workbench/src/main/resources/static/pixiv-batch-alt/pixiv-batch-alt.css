@@ -1707,6 +1707,13 @@ textarea.ab-input {
     font-variant-numeric: tabular-nums;
 }
 
+/* 队首进度卡下方的剩余计数行（「还有 X 个正在下载、Y 个排队中…」）；var(--muted) 自动适配深色模式。 */
+.ab-current-remaining {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
 .ab-queue-ops {
     display: flex;
     gap: 6px;

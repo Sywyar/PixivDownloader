@@ -614,6 +614,13 @@
             font-size: 13px;
         }
 
+        /* 队首进度卡下方的剩余计数行（「还有 X 个正在下载、Y 个排队中…」）；var(--muted) 自动适配深色模式。 */
+        #current-card .current-remaining {
+            margin-top: 6px;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
         /* ---- Queue ---- */
         #queue-list {
             max-height: 340px;

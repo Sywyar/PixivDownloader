@@ -549,20 +549,85 @@ function renderDock() {
 
 // 当前下载卡：进度环 + 字节进度 + 动图阶段
 function renderCurrent(item) {
-    if (altQueueVueActive()) {
-        altQueueVue().syncCurrent(item);
+    // 当前下载卡现由队列派生（队首未完成项 + 剩余计数），不再跟随事件到达顺序在不同作品间跳变；
+    // item 参数仅为兼容既有调用点（SSE 进度事件 / worker 启停 / 语言切换）与 currentItemId 语义。
+    state.currentItemId = item ? String(item.id) : null;
+    refreshCurrentCard();
+}
+
+// 队首未完成项 = 队列镜像中第一个 status 属于 downloading/pending/paused 的项（completed/failed/skipped/idle
+// 视为已结束）。含 pending/paused 是为了避免并发=1 时「上一项完成 → 下一项被认领」的间隙短暂闪「无」。暂停
+//（停止接受新任务）期间仍展示正在收尾下载的作品（drain）：有 downloading 项时照常展示队首；仅当没有任何
+// downloading 项时才回退 idle「无」。queue 参数传 reactive 队列镜像（Vue 路径）或 state.queue（命令式路径），
+// 两路共用同一口径。
+function currentFrontItem(queue, isPaused) {
+    for (let i = 0; i < queue.length; i++) {
+        const s = queue[i].status;
+        if (s === 'downloading') return queue[i];
+    }
+    if (isPaused) return null;
+    for (let i = 0; i < queue.length; i++) {
+        const s = queue[i].status;
+        if (s === 'pending' || s === 'paused') return queue[i];
+    }
+    return null;
+}
+
+// 剩余计数原始数据：{downloading, queued}。展示的队首不计入「还有」；文案渲染期经 bt 派生（模型不 bake 翻译）。
+function currentRemainingCounts(queue, front) {
+    let downloading = 0, queued = 0;
+    for (let i = 0; i < queue.length; i++) {
+        const s = queue[i].status;
+        if (s === 'downloading') downloading++;
+        else if (s === 'pending' || s === 'paused') queued++;
+    }
+    if (front) {
+        if (front.status === 'downloading') downloading--;
+        else queued--;
+    }
+    return {downloading, queued};
+}
+
+// 剩余计数行文案（命令式回退与 Vue 路径共用；两项都为 0 时返回空串）。
+function currentRemainingLineText(downloading, queued) {
+    if (downloading > 0 && queued > 0) {
+        return bt('status.current-remaining.both', '还有 {downloading} 个正在下载、{queued} 个排队中…',
+            {downloading: downloading, queued: queued});
+    }
+    if (downloading > 0) {
+        return bt('status.current-remaining.downloading', '还有 {count} 个正在下载…', {count: downloading});
+    }
+    if (queued > 0) {
+        return bt('status.current-remaining.queued', '还有 {count} 个排队中…', {count: queued});
+    }
+    return '';
+}
+
+// 当前卡刷新门面：Vue 已接管**且当前卡已由 Vue 渲染**（isCurrentActive）→ 同步最新队列镜像 + 暂停标志
+//（当前卡内容由响应式从镜像派生，Vue 只 patch 单卡）；否则命令式重建整卡（renderCurrentImperative）。
+// 每次刷新都同步队列镜像，保证任意进度 / 状态事件（renderCurrent / renderQueue / pause / resume）都让当前卡
+// 实时重算；镜像同步与 renderQueue 的列表同步同 key 合批去重。按当前卡挂载点单独判定，避免「统计 / 列表岛
+// 激活但当前卡挂载失败」时当前卡永久停留在初始「无」。
+function refreshCurrentCard() {
+    if (altQueueVueActive() && altQueueVue().isCurrentActive()) {
+        altQueueVue().syncList();
+        altQueueVue().syncPaused(state.isPaused);
         return;
     }
-    const card = document.getElementById('abCurrentCard');
-    if (!card) return;
-    card.innerHTML = '';
+    renderCurrentImperative(currentFrontItem(state.queue, state.isPaused));
+}
+
+// 当前卡内容节点构建（命令式回退与 Vue 主路径共用同一外观）：head + 队首进度信息（进度环 + 标题 + 详情 +
+// 流式图片进度条 + 附加进度）；item 为 null（空闲 / 暂停且无收尾任务）时仅 head + idle「无」。
+function buildCurrentCardContent(item) {
+    const card = el('div', '');
     const head = el('div', 'ab-current-head');
     head.appendChild(abIconEl('download'));
     head.appendChild(el('strong', '', bt('current.title', '当前下载')));
     card.appendChild(head);
     if (!item) {
         card.appendChild(el('p', 'ab-current-idle', bt('status.current-idle', '无')));
-        return;
+        return card;
     }
     const row = el('div', 'ab-current-row');
     const percent = item.totalImages > 0 ? pct(item) : 0;
@@ -579,8 +644,43 @@ function renderCurrent(item) {
     meta.appendChild(detail);
     row.appendChild(meta);
     card.appendChild(row);
+    // 流式图片进度条（与列表行 miniProgress 同口径，由 downloadedCount / totalImages 派生，始终实时可见）。
+    if (item.totalImages > 0) {
+        card.appendChild(miniProgress(
+            bt('status.image-progress', '{downloaded} / {total} 张',
+                {downloaded: item.downloadedCount || 0, total: item.totalImages}),
+            null, pct(item), 'is-image'));
+    }
     const extras = progressExtras(item);
     if (extras) card.appendChild(extras);
+    return card;
+}
+
+// 当前卡完整 HTML（Vue 主路径用，与 pixiv-batch.html 的 computeCurrentCardHtml 同手法）：内容节点 +
+// 剩余计数行；无未完成项（含暂停且无收尾任务）时回退 idle「无」。
+function computeCurrentCardHtml(queue, isPaused) {
+    const front = currentFrontItem(queue, isPaused);
+    const card = buildCurrentCardContent(front);
+    if (front) {
+        const counts = currentRemainingCounts(queue, front);
+        const line = currentRemainingLineText(counts.downloading, counts.queued);
+        if (line) card.appendChild(el('p', 'ab-current-remaining', line));
+    }
+    return card.innerHTML;
+}
+
+function renderCurrentImperative(item) {
+    const card = document.getElementById('abCurrentCard');
+    if (!card) return;
+    const content = buildCurrentCardContent(item);
+    card.innerHTML = '';
+    while (content.firstChild) card.appendChild(content.firstChild);
+    // 剩余计数行：仅队首存在时追加（空闲 / 暂停且无收尾任务时 item 为 null 已提前返回）。
+    if (item) {
+        const counts = currentRemainingCounts(state.queue, item);
+        const line = currentRemainingLineText(counts.downloading, counts.queued);
+        if (line) card.appendChild(el('p', 'ab-current-remaining', line));
+    }
 }
 
 function progressRing(percent) {
@@ -707,6 +807,8 @@ function novelTranslateMessage(q) {
 }
 
 function renderQueue() {
+    // 当前下载卡由 state.queue 派生：随队列每次变化一并刷新（Vue 接管后只合批同步 store，命令式回退时重建单卡）。
+    refreshCurrentCard();
     if (altQueueVueActive()) {
         altQueueVue().syncList();
         return;

@@ -7,7 +7,8 @@
 //  v-html 仅 patch 发生变化的单行 / 单字段，避免整队列 / 整块详情重建造成的主线程卡顿（INP 飙高）。
 //
 //  共享口径（不分叉、不复制第二套 HTML 语义）：行 HTML 仍由 batch-queue.js 的 buildQueueItemHtml 生成、
-//  当前下载卡仍由 formatCurrentCardHtml 生成、统计文案 / 速度文案仍由 formatStatsText / formatSpeed 生成；
+//  当前下载卡由 batch-queue.js 的 computeCurrentCardHtml 从 reactive 队列镜像派生（内部复用 formatCurrentCardHtml
+//  + 剩余计数行，命令式回退同一函数）、统计文案 / 速度文案仍由 formatStatsText / formatSpeed 生成；
 //  本模块只负责把这些共享格式化函数挂到 reactive 模板里（v-html / 插值），命令式回退路径与 Vue 路径共用同一套。
 //
 //  渐进式、加性、优雅降级：window.PixivVue 缺失 / Vue 运行时加载失败 / 挂载抛错时，本模块的 ensure/mount 一律
@@ -117,8 +118,9 @@
        - #current-card ：当前下载卡（v-html formatCurrentCardHtml）。
        - #queue-list   ：下载队列列表（v-for + :key + v-html buildQueueItemHtml）。
     ============================================================ */
-    var dlStore = null;     // Vue.reactive({ stats, speed, current, items })
+    var dlStore = null;     // Vue.reactive({ stats, speed, paused, items })
     var dlApps = [];        // [{ el, app }]
+    var dlCurrentApp = null;   // 当前卡专属挂载（供 isDownloadCurrentActive 判定；与统计 / 列表的岛级激活相互独立）
     var dlActive = false;
     var dlMounting = false;
 
@@ -126,8 +128,7 @@
         return Vue.reactive({
             stats: { pending: 0, success: 0, failed: 0, active: 0, skipped: 0 },
             speed: { value: '0', unit: 'B/s' },
-            current: null,   // 当前下载项（浅拷贝快照，便于 reactive 触发）或 null
-            currentRevision: 0,
+            paused: false,   // 暂停标志镜像（当前卡响应式派生用；暂停 / 恢复时由渲染门面同步）
             items: []        // state.queue 的浅快照（行对象引用，渲染时由 buildQueueItemHtml 读最新字段）
         });
     }
@@ -152,16 +153,17 @@
         };
     }
 
-    // 当前下载卡组件：display:contents 透明宿主 + v-html，使 formatCurrentCardHtml 的输出作为 #current-card 的
-    // 真实内容（与命令式 el.innerHTML = formatCurrentCardHtml(item) 视觉一致）。
+    // 当前下载卡组件：display:contents 透明宿主 + v-html，使派生结果作为 #current-card 的真实内容
+    //（与命令式 el.innerHTML 视觉一致）。卡片内容由 batch-queue.js 的 computeCurrentCardHtml 从 reactive
+    // 队列镜像 + 暂停标志派生：任何列表同步（renderQueue）或暂停 / 恢复同步都会让 Vue 重算本函数并只 patch
+    // 这一张卡；文案在渲染期经 bt 派生（跟随语言切换）。与命令式回退共用同一派生口径。
     function currentComponent() {
         return {
             setup: function () {
                 return {
                     store: dlStore,
                     currentHtml: function () {
-                        void dlStore.currentRevision;
-                        return currentCardHtmlOf(dlStore.current);
+                        return callG('computeCurrentCardHtml', [dlStore.items, dlStore.paused], '');
                     }
                 };
             },
@@ -187,9 +189,13 @@
         };
     }
 
-    function mountOne(el, comp) {
+    function mountOne(el, comp, kind) {
         return helper().mountOn(el, comp).then(function (h) {
-            if (h && h.app) { dlApps.push({ el: el, app: h.app }); }
+            if (h && h.app) {
+                var entry = {el: el, app: h.app};
+                dlApps.push(entry);
+                if (kind === 'current') { dlCurrentApp = entry; }
+            }
             return h;
         });
     }
@@ -208,9 +214,9 @@
             var currentEl = doc.getElementById('current-card');
             var listEl = doc.getElementById('queue-list');
             var pending = [];
-            if (statsEl) { pending.push(mountOne(statsEl, statsComponent())); }
-            if (currentEl) { pending.push(mountOne(currentEl, currentComponent())); }
-            if (listEl) { pending.push(mountOne(listEl, listComponent())); }
+            if (statsEl) { pending.push(mountOne(statsEl, statsComponent(), 'stats')); }
+            if (currentEl) { pending.push(mountOne(currentEl, currentComponent(), 'current')); }
+            if (listEl) { pending.push(mountOne(listEl, listComponent(), 'list')); }
             return global.Promise.all(pending).then(function () {
                 dlActive = dlApps.length > 0;
                 dlMounting = false;
@@ -246,6 +252,11 @@
 
     function isDownloadActive() { return dlActive; }
 
+    // 当前卡是否仍由 Vue 接管（专属判定）：当前卡挂载失败时即使统计 / 列表岛激活，渲染门面也走命令式当前卡。
+    function isDownloadCurrentActive() {
+        return !!(dlCurrentApp && doc.contains(dlCurrentApp.el));
+    }
+
     function downloadQueueSnapshot() {
         var st = batchState();
         return (st && Array.isArray(st.queue)) ? st.queue.slice() : [];
@@ -263,13 +274,9 @@
             };
         });
     }
-    function syncDownloadCurrent(item) {
-        schedule('dl:current', function () {
-            if (dlStore) {
-                dlStore.current = item ? Object.assign({}, item) : null;
-                // 空闲态的值仍是 null；递增 revision 让语言切换等显式刷新也能重新求值当前卡文案。
-                dlStore.currentRevision++;
-            }
+    function syncDownloadPaused(paused) {
+        schedule('dl:paused', function () {
+            if (dlStore) { dlStore.paused = !!paused; }
         });
     }
     function syncDownloadSpeed(value, unit) {
@@ -419,9 +426,10 @@
         // 普通下载队列
         mountDownloadQueue: mountDownloadQueue,
         isDownloadActive: isDownloadActive,
+        isDownloadCurrentActive: isDownloadCurrentActive,
         syncDownloadList: syncDownloadList,
         syncDownloadStats: syncDownloadStats,
-        syncDownloadCurrent: syncDownloadCurrent,
+        syncDownloadPaused: syncDownloadPaused,
         syncDownloadSpeed: syncDownloadSpeed,
         // 计划任务本轮队列详情
         ensureScheduleQueue: ensureScheduleQueue,
@@ -440,7 +448,7 @@
             schedComponent: schedComponent,
             reset: function () {
                 pendingJobs.clear(); rafScheduled = false;
-                dlStore = null; dlApps = []; dlActive = false; dlMounting = false;
+                dlStore = null; dlApps = []; dlCurrentApp = null; dlActive = false; dlMounting = false;
                 schedEntries.clear(); Vue = null;
             }
         }

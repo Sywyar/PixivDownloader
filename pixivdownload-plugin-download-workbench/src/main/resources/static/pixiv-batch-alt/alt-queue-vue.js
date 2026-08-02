@@ -101,7 +101,7 @@ function aqvBuildStore() {
     return aqvVue.reactive({
         stats: {pending: 0, success: 0, failed: 0, active: 0, skipped: 0},
         speed: {value: '0', unit: 'B/s'},
-        current: null,      // 当前下载项浅拷贝快照或 null
+        paused: false,      // 暂停标志镜像（当前卡响应式派生用；暂停 / 恢复时由渲染门面同步）
         items: []           // state.queue 浅快照（行对象引用，渲染期读最新字段）
     });
 }
@@ -132,7 +132,7 @@ function aqvTweenStat(key, to) {
     aqvRaf(step);
 }
 
-/* —— 展示模型派生：一次渲染内一次性算出该行 / 该卡全部展示字段，模板只读字段、显隐走方法 —— */
+/* —— 展示模型派生：一次渲染内一次性算出该行全部展示字段，模板只读字段、显隐走方法 —— */
 function aqvExtrasHtml(q) {
     if (typeof progressExtras !== 'function') return '';
     const node = progressExtras(q);
@@ -185,30 +185,6 @@ function aqvRowModel(q) {
     };
 }
 
-function aqvCurrentModel(item) {
-    if (!item) {
-        return {idle: true, ringText: '0%', ringStyle: {}, title: '', detail: '', extrasHtml: '', hasExtras: false};
-    }
-    const percent = item.totalImages > 0 ? pct(item) : 0;
-    const circumference = 2 * Math.PI * 26;
-    const extrasNode = typeof progressExtras === 'function' ? progressExtras(item) : null;
-    return {
-        idle: false,
-        ringText: Math.round(percent) + '%',
-        ringStyle: {
-            strokeDasharray: String(circumference),
-            strokeDashoffset: String(circumference * (1 - Math.min(100, Math.max(0, percent)) / 100))
-        },
-        title: queueItemDisplayTitle(item),
-        detail: item.totalImages > 0
-            ? aqvT('status.image-progress', '{downloaded} / {total} 张',
-                {downloaded: item.downloadedCount || 0, total: item.totalImages}) + ' · ' + percent + '%'
-            : queueItemMessage(item),
-        extrasHtml: extrasNode ? extrasNode.outerHTML : '',
-        hasExtras: !!extrasNode
-    };
-}
-
 /* —— 三个挂载点的组件：结构逐字镜像命令式 renderDock 统计卡 / renderCurrent / queueItemRow —— */
 function aqvStatsComponent() {
     return {
@@ -240,29 +216,21 @@ function aqvStatsComponent() {
 function aqvCurrentComponent() {
     return {
         setup() {
-            const cmodel = aqvVue.computed(() => aqvCurrentModel(aqvStore.current));
-            const isIdle = aqvVue.computed(() => cmodel.value.idle);
-            const hasExtras = aqvVue.computed(() => cmodel.value.hasExtras);
-            return {cmodel, isIdle, hasExtras, t: aqvT, icon: aqvIcon};
+            // 当前卡内容由 alt-queue.js 的 computeCurrentCardHtml 从 reactive 队列镜像 + 暂停标志派生
+            //（与 pixiv-batch.html 的 computeCurrentCardHtml 同手法：内容节点构建 + 剩余计数行，含进度环 /
+            // 流式图片进度条 / 附加进度）。任何列表同步或暂停 / 恢复同步都会让 Vue 重算本函数并只 patch 这一张
+            // 卡；文案在渲染期经 bt 派生（跟随语言切换）。单 v-html 模板（无 v-if / 成员链条件）规避 prod 模板
+            // 编译器的静态折叠崩溃，与命令式回退共用同一派生口径。
+            return {
+                store: aqvStore,
+                currentHtml() {
+                    return (typeof computeCurrentCardHtml === 'function')
+                        ? computeCurrentCardHtml(aqvStore.items, aqvStore.paused)
+                        : '';
+                }
+            };
         },
-        template:
-            '<div class="ab-current-head"><span class="ab-icon" v-html="icon(\'download\')"></span>'
-            + '<strong>{{ t(\'current.title\', \'当前下载\') }}</strong></div>'
-            + '<p v-if="isIdle" class="ab-current-idle">{{ t(\'status.current-idle\', \'无\') }}</p>'
-            + '<template v-else>'
-            + '<div class="ab-current-row">'
-            + '<span class="ab-ring">'
-            + '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" class="ab-ring-track"></circle>'
-            + '<circle cx="32" cy="32" r="26" class="ab-ring-fill" :style="cmodel.ringStyle"></circle></svg>'
-            + '<span class="ab-ring-text">{{ cmodel.ringText }}</span>'
-            + '</span>'
-            + '<div class="ab-current-meta">'
-            + '<div class="ab-current-title">{{ cmodel.title }}</div>'
-            + '<div class="ab-current-detail">{{ cmodel.detail }}</div>'
-            + '</div>'
-            + '</div>'
-            + '<span v-if="hasExtras" class="ab-flatten" v-html="cmodel.extrasHtml"></span>'
-            + '</template>'
+        template: '<span style="display:contents" v-html="currentHtml()"></span>'
     };
 }
 
@@ -331,9 +299,15 @@ function aqvListComponent() {
 }
 
 /* —— 挂载 / 卸载 / 重挂（renderDock 重建挂载点后旧宿主失效，探测并重挂） —— */
-function aqvMountOne(el, comp) {
+let aqvCurrentApp = null;   // 当前卡专属挂载（供 isCurrentActive 判定；与统计 / 列表的岛级激活相互独立）
+
+function aqvMountOne(el, comp, kind) {
     return aqvHelper().mountOn(el, comp).then(h => {
-        if (h && h.app) aqvApps.push({el, app: h.app});
+        if (h && h.app) {
+            const entry = {el, app: h.app};
+            aqvApps.push(entry);
+            if (kind === 'current') aqvCurrentApp = entry;
+        }
         return h;
     });
 }
@@ -342,6 +316,7 @@ function aqvTeardown() {
     aqvApps.splice(0).forEach(entry => {
         try { entry.app.unmount(); } catch (e) { /* 卸载失败忽略 */ }
     });
+    aqvCurrentApp = null;
     aqvActive = false;
 }
 
@@ -386,9 +361,9 @@ function aqvEnsure() {
         const statsEl = body.querySelector('.ab-dock-stats');
         const currentEl = body.querySelector('#abCurrentCard');
         const listEl = body.querySelector('#abQueueList');
-        if (statsEl) pending.push(aqvMountOne(statsEl, aqvStatsComponent()));
-        if (currentEl) pending.push(aqvMountOne(currentEl, aqvCurrentComponent()));
-        if (listEl) pending.push(aqvMountOne(listEl, aqvListComponent()));
+        if (statsEl) pending.push(aqvMountOne(statsEl, aqvStatsComponent(), 'stats'));
+        if (currentEl) pending.push(aqvMountOne(currentEl, aqvCurrentComponent(), 'current'));
+        if (listEl) pending.push(aqvMountOne(listEl, aqvListComponent(), 'list'));
         return Promise.all(pending).then(() => {
             aqvActive = aqvApps.length > 0;
             aqvMounting = false;
@@ -406,6 +381,11 @@ function aqvIsActive() {
     return aqvActive && aqvApps.length > 0 && aqvApps.every(entry => document.contains(entry.el));
 }
 
+// 当前卡是否仍由 Vue 接管（专属判定）：当前卡挂载失败时即使统计 / 列表岛激活，渲染门面也走命令式当前卡。
+function aqvIsCurrentActive() {
+    return !!(aqvCurrentApp && document.contains(aqvCurrentApp.el));
+}
+
 /* —— 同步入口（由 alt-queue.js 既有门面在 Vue 激活时调用） —— */
 function aqvSyncStats(counts) {
     aqvSchedule('stats', () => {
@@ -420,9 +400,9 @@ function aqvSyncSpeed(value, unit) {
     });
 }
 
-function aqvSyncCurrent(item) {
-    aqvSchedule('current', () => {
-        if (aqvStore) aqvStore.current = item ? Object.assign({}, item) : null;
+function aqvSyncPaused(paused) {
+    aqvSchedule('paused', () => {
+        if (aqvStore) aqvStore.paused = !!paused;
     });
 }
 
@@ -565,9 +545,10 @@ function aqvUnmountScheduleQueue(id) {
 window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {}, {
     ensure: aqvEnsure,
     isActive: aqvIsActive,
+    isCurrentActive: aqvIsCurrentActive,
     syncStats: aqvSyncStats,
     syncSpeed: aqvSyncSpeed,
-    syncCurrent: aqvSyncCurrent,
+    syncPaused: aqvSyncPaused,
     syncList: aqvSyncList,
     // 计划任务本轮队列详情
     ensureScheduleQueue: aqvEnsureScheduleQueue,
@@ -590,6 +571,7 @@ window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {
             aqvApps.splice(0).forEach(entry => {
                 try { entry.app.unmount(); } catch (e) { /* 忽略 */ }
             });
+            aqvCurrentApp = null;
             aqvStore = null;
             aqvActive = false;
             aqvMounting = false;

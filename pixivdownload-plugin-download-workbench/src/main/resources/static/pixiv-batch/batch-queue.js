@@ -933,18 +933,102 @@
     }
 
     function setCurrent(item) {
+        // 当前下载卡现由队列派生（队首未完成项 + 剩余计数），不再跟踪单一 currentItemId 触发整卡重建；
+        // item 参数仅为兼容既有调用点（processArtworkItem / processNovelItem / SSE 进度事件）与 currentItemId 语义。
         state.currentItemId = item ? String(item.id) : null;
-        if (downloadQueueVueActive()) {
-            queueVue().syncDownloadCurrent(item);
+        refreshCurrentCard();
+    }
+
+    // ----- 高频刷新防卡死：当前下载卡改 Vue 响应式挂载（与 #queue-list 同手法）-----
+    // 此前每个进度 SSE 事件、每个 worker 启停都 setCurrent → 整卡 innerHTML 重建；并发下载时 setCurrent
+    // 被不同作品反复调用，卡片在不同作品间闪烁、高度反复跳动（操作不一致）。改为：当前卡恒显示「队列最前面
+    // 的未完成项」状态（按队列顺序稳定，不再随事件到达顺序跳变），下方追加剩余计数行；队首作品切换时直接替换
+    //（不再回归「无」，仅在队列真正空闲或暂停时显示「无」）。Vue 挂载后当前卡由响应式派生（batch-queue-vue.js
+    // 从 reactive 队列镜像 + 暂停标志调用本段派生函数，Vue 只 patch 单卡）；Vue 不可用 / 挂载失败时退回命令式
+    // 派生（refreshCurrentCard 每次重建单卡，但内容稳定、不再跨作品闪烁）。formatCurrentCardHtml 与计划任务
+    // 本轮队列详情共用，故计数行另起、不烘焙进 formatCurrentCardHtml。
+
+    // 队首未完成项 = 队列镜像中第一个 status 属于 downloading/pending/paused 的项（completed/failed/skipped/idle
+    // 视为已结束）。含 pending/paused 是为了避免并发=1 时「上一项完成 → 下一项被认领」的间隙短暂闪「无」：该间隙
+    // 里没有 downloading 项，但有 pending 项，直接显示它（直接替换，不回归「无」）。暂停（停止接受新任务）期间
+    // 仍展示正在收尾下载的作品（drain）：有 downloading 项时照常展示队首；仅当没有任何 downloading 项时才
+    // 回退 idle「无」。queue 参数传 reactive 队列镜像（Vue 路径）或 state.queue（命令式路径），两路共用同一口径。
+    function currentFrontItem(queue, isPaused) {
+        for (let i = 0; i < queue.length; i++) {
+            const s = queue[i].status;
+            if (s === 'downloading') return queue[i];
+        }
+        if (isPaused) return null;
+        for (let i = 0; i < queue.length; i++) {
+            const s = queue[i].status;
+            if (s === 'pending' || s === 'paused') return queue[i];
+        }
+        return null;
+    }
+
+    // 剩余计数原始数据：{downloading, queued}。展示的队首不计入「还有」；文案渲染期经 bt 派生（模型不 bake 翻译）。
+    function currentRemainingCounts(queue, front) {
+        let downloading = 0, queued = 0;
+        for (let i = 0; i < queue.length; i++) {
+            const s = queue[i].status;
+            if (s === 'downloading') downloading++;
+            else if (s === 'pending' || s === 'paused') queued++;
+        }
+        if (front) {
+            if (front.status === 'downloading') downloading--;
+            else queued--;
+        }
+        return {downloading, queued};
+    }
+
+    // 剩余计数行 HTML（命令式回退与 Vue 路径共用；两项都为 0 时不输出该行）。
+    function buildCurrentRemainingLineHtml(downloading, queued) {
+        let text;
+        if (downloading > 0 && queued > 0) {
+            text = bt('status.current-remaining.both', '还有 {downloading} 个正在下载、{queued} 个排队中…',
+                {downloading: downloading, queued: queued});
+        } else if (downloading > 0) {
+            text = bt('status.current-remaining.downloading', '还有 {count} 个正在下载…', {count: downloading});
+        } else if (queued > 0) {
+            text = bt('status.current-remaining.queued', '还有 {count} 个排队中…', {count: queued});
+        } else {
+            return '';
+        }
+        return '<div class="current-remaining">' + esc(text) + '</div>';
+    }
+
+    // 当前卡完整 HTML：队首未完成项的进度卡 + 剩余计数行；无未完成项（含暂停）时回退 idle「无」。
+    function computeCurrentCardHtml(queue, isPaused) {
+        const front = currentFrontItem(queue, isPaused);
+        if (!front) {
+            return '<strong>' + esc(bt('label.current', '当前下载:')) + '</strong> '
+                + esc(bt('status.current-idle', '无'));
+        }
+        const counts = currentRemainingCounts(queue, front);
+        return formatCurrentCardHtml(front)
+            + buildCurrentRemainingLineHtml(counts.downloading, counts.queued);
+    }
+
+    // 当前卡刷新门面：Vue 已接管**且当前卡已由 Vue 渲染**（isDownloadCurrentActive）→ 同步最新队列镜像 +
+    // 暂停标志（当前卡内容由响应式从镜像派生，Vue 只 patch 单卡）；否则命令式重建整卡。每次刷新都同步队列镜像，
+    // 保证任意进度 / 状态事件（setCurrent / renderCurrent / pause / resume）都让当前卡实时重算，不依赖外部是否
+    // 另调 renderQueue；镜像同步与 renderQueue 的列表同步同 key 合批去重。按当前卡挂载点单独判定，避免「统计 /
+    // 列表岛激活但当前卡挂载失败」时当前卡永久停留在初始「无」。两条路径共用 computeCurrentCardHtml 同一派生口径。
+    function refreshCurrentCard() {
+        if (downloadQueueVueActive() && queueVue().isDownloadCurrentActive()) {
+            queueVue().syncDownloadList();
+            queueVue().syncDownloadPaused(state.isPaused);
             return;
         }
         const el = document.getElementById('current-card');
-        if (el) el.innerHTML = formatCurrentCardHtml(item);
+        if (el) el.innerHTML = computeCurrentCardHtml(state.queue, state.isPaused);
     }
 
     // 队列列表门面：Vue 岛激活时合并一次 reactive 同步（按 :key + v-html 仅 patch 变化的行，不整队列重建），
     // 否则命令式整块渲染。两路都刷新管理员打包按钮（仅依赖 state.queue，与渲染路径正交）。
     function renderQueue() {
+        // 当前下载卡由 state.queue 派生：随队列每次变化一并刷新（Vue 接管后只合批同步 store，命令式回退时重建单卡）。
+        refreshCurrentCard();
         if (downloadQueueVueActive()) {
             queueVue().syncDownloadList();
         } else {
