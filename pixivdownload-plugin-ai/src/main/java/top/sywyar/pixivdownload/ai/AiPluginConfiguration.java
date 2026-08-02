@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.ai.controller.AiStatusController;
@@ -46,7 +47,17 @@ public class AiPluginConfiguration {
         return new AiPresetRegistry();
     }
 
+    /**
+     * 本插件的 OpenAI 兼容 client，由宿主经 {@link AiChatClient} 能力适配发布为活动能力，插件子上下文内的
+     * AI 控制器也按同一契约注入它。
+     * <p>
+     * 父上下文另暴露宿主门面 {@code AiService}（同样实现 {@link AiChatClient}，供其它插件经 registry 消费），
+     * 因此本 Bean 必须标记 {@link Primary}：否则插件子上下文中 {@code AiChatClient} 类型的注入会同时命中
+     * {@code aiService} 与本 Bean，导致 {@code NoUniqueBeanDefinitionException} 使插件无法启动。本插件的自有
+     * client 是本上下文内该契约的默认目标；宿主门面语义不受影响。
+     */
     @Bean
+    @Primary
     @ConditionalOnPluginEnabled(AiPlugin.ID)
     public OpenAiCompatibleAiClient openAiCompatibleAiClient(AiConfig aiConfig,
                                                              @Qualifier("aiPluginMessages") MessageResolver messages,
