@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
@@ -23,6 +25,7 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.net.URI;
+import java.util.Locale;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.verify;
@@ -58,6 +61,7 @@ class PixivThumbnailProxyControllerTest {
 
     @BeforeEach
     void setUp() {
+        LocaleContextHolder.setLocale(Locale.US);
         ObjectMapper objectMapper = new ObjectMapper();
         PixivFetchService pixivFetchService = new PixivFetchService(pixivAjaxClient, objectMapper);
         PixivProxyController controller = new PixivProxyController(
@@ -69,7 +73,14 @@ class PixivThumbnailProxyControllerTest {
                 workVisibilityService,
                 MESSAGES
         );
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .defaultRequest(get("/").locale(Locale.US))
+                .build();
+    }
+
+    @AfterEach
+    void tearDown() {
+        LocaleContextHolder.resetLocaleContext();
     }
 
     @Test

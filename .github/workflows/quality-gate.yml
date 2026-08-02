@@ -36,7 +36,7 @@ jobs:
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
 
       - name: Run Java tests
-        run: mvn -B -ntp test -Dexec.skip=true
+        run: mvn -B -ntp test -Dexec.skip=true -Duser.language=en -Duser.country=US
 
   signature-guard:
     runs-on: ubuntu-latest

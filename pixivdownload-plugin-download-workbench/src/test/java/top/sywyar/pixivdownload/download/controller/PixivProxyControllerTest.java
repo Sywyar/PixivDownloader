@@ -274,11 +274,11 @@ class PixivProxyControllerTest {
             when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.empty());
             when(pixivProxyAccessPolicy.evaluate(isNull(), eq(false))).thenReturn(
                     new PixivProxyAccessDecision(
-                            PixivProxyAccessOutcome.OWNER_REQUIRED, "缺少用户 UUID", 0, 0));
+                            PixivProxyAccessOutcome.OWNER_REQUIRED, "missing user UUID", 0, 0));
 
             mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isUnauthorized())
-                    .andExpect(jsonPath("$.error").value("缺少用户 UUID"))
+                    .andExpect(jsonPath("$.error").value("missing user UUID"))
                     .andExpect(jsonPath("$.maxRequests").doesNotExist());
 
             verify(pixivProxyAccessPolicy).evaluate(isNull(), eq(false));
@@ -293,11 +293,11 @@ class PixivProxyControllerTest {
             when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.of(uuid));
             when(pixivProxyAccessPolicy.evaluate(uuid, false)).thenReturn(
                     new PixivProxyAccessDecision(
-                            PixivProxyAccessOutcome.RATE_LIMITED, "请求次数已达上限", 20, 24));
+                            PixivProxyAccessOutcome.RATE_LIMITED, "request limit reached", 20, 24));
 
             mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isTooManyRequests())
-                    .andExpect(jsonPath("$.error").value("请求次数已达上限"))
+                    .andExpect(jsonPath("$.error").value("request limit reached"))
                     .andExpect(jsonPath("$.maxRequests").value(20))
                     .andExpect(jsonPath("$.windowHours").value(24));
 

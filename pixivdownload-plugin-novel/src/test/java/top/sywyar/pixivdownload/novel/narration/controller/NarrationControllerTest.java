@@ -1,7 +1,10 @@
 package top.sywyar.pixivdownload.novel.narration.controller;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
@@ -20,6 +23,7 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
@@ -55,11 +59,17 @@ class NarrationControllerTest {
     private final NarrationTtsController ttsController =
             new NarrationTtsController(audioService, scriptService, NovelTestMessages.messageResolver());
 
-    @org.junit.jupiter.api.BeforeEach
+    @BeforeEach
     void setUp() {
+        LocaleContextHolder.setLocale(Locale.US);
         // 默认朗读引擎可用（多数 /script 用例的 happy path）；不可用 / 调试模式的用例各自覆盖。
         when(audioService.isEngineAvailable()).thenReturn(true);
         when(aiChatClient.isConfigured()).thenReturn(true);
+    }
+
+    @AfterEach
+    void tearDown() {
+        LocaleContextHolder.resetLocaleContext();
     }
 
     private NovelRecord novel(long id) {

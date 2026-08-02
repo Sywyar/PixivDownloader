@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -12,11 +13,14 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -34,7 +38,13 @@ class PixivBookmarkServiceTest {
 
     @BeforeEach
     void setUp() {
+        LocaleContextHolder.setLocale(Locale.US);
         service = new PixivBookmarkService(restTemplate, new ObjectMapper(), TestI18nBeans.appMessages());
+    }
+
+    @AfterEach
+    void tearDown() {
+        LocaleContextHolder.resetLocaleContext();
     }
 
     // ========== cookie 校验 ==========
@@ -51,7 +61,7 @@ class PixivBookmarkServiceTest {
             WorkActionResult result = service.bookmarkArtwork(12345L, cookie);
 
             assertThat(result.getStatus()).isEqualTo(WorkActionResult.SKIPPED);
-            assertThat(result.getMessage()).isEqualTo("未提供 Cookie");
+            assertThat(result.getMessage()).isEqualTo("Cookie was not provided");
             verifyNoInteractions(restTemplate);
         }
     }

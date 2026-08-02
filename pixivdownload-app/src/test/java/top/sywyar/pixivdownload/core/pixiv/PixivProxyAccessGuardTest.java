@@ -1,15 +1,19 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.i18n.LocaleContextHolder;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;
+
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
@@ -31,12 +35,18 @@ class PixivProxyAccessGuardTest {
 
     @BeforeEach
     void setUp() {
+        LocaleContextHolder.setLocale(Locale.US);
         multiModeConfig = new MultiModeConfig();
         multiModeConfig.setLimitPage(4);
         multiModeConfig.getQuota().setMaxProxyRequests(12);
         multiModeConfig.getQuota().setResetPeriodHours(6);
         policy = new PixivProxyAccessGuard(
                 setupService, userQuotaService, multiModeConfig, TestI18nBeans.appMessages());
+    }
+
+    @AfterEach
+    void tearDown() {
+        LocaleContextHolder.resetLocaleContext();
     }
 
     @Test
@@ -71,7 +81,7 @@ class PixivProxyAccessGuardTest {
         PixivProxyAccessDecision decision = policy.evaluate(null, false);
 
         assertThat(decision.outcome()).isEqualTo(PixivProxyAccessOutcome.OWNER_REQUIRED);
-        assertThat(decision.errorMessage()).isEqualTo("缺少用户 UUID");
+        assertThat(decision.errorMessage()).isEqualTo("missing user UUID");
         verify(userQuotaService, never()).checkAndReserveProxy(org.mockito.ArgumentMatchers.anyString());
     }
 
@@ -96,7 +106,7 @@ class PixivProxyAccessGuardTest {
         PixivProxyAccessDecision decision = policy.evaluate("owner-1", false);
 
         assertThat(decision.outcome()).isEqualTo(PixivProxyAccessOutcome.RATE_LIMITED);
-        assertThat(decision.errorMessage()).contains("每 6 小时最多 12 次");
+        assertThat(decision.errorMessage()).contains("max 12 times per 6 hours");
         assertThat(decision.maxRequests()).isEqualTo(12);
         assertThat(decision.windowHours()).isEqualTo(6);
         assertThat(policy.resolveSearchFillLimitPage(false)).isEqualTo(4);
