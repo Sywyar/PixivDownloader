@@ -135,6 +135,15 @@
     }
 
     /**
+     * 判断值是否为合法 Date 对象（跨 realm 安全，不依赖 instanceof）。
+     * 非法日期（getTime() 为 NaN）不算有效时间戳。
+     */
+    function isDateObject(value) {
+        return Object.prototype.toString.call(value) === '[object Date]'
+            && !Number.isNaN(value.getTime());
+    }
+
+    /**
      * before_send 过滤器：只放行三个调查事件，并对属性执行允许列表，
      * 删除 $current_url / $referrer / $referring_domain / pathname / hostname
      * 等无关浏览器环境属性，保留 distinct_id、$survey_id、$survey_response_*
@@ -147,6 +156,12 @@
      * 且本项目不调用 identify、不建立命名 Person，因此按最小化设计删除顶层
      * $set / $set_once / $unset，只保留摄取必需的 uuid / event / timestamp /
      * properties。
+     *
+     * timestamp：1.409.5 的 capture 在 before_send 阶段传递 Date 对象
+     * （b.timestamp = (options.timestamp) || new Date()），这里原样保留 Date
+     * 对象本身（不转字符串、不调用 Date.prototype.toJSON、不用当前时间替换）；
+     * 合法 ISO 字符串同样保留（测试 / 防御性输入）。null / undefined / 未知
+     * 类型一律省略，且不因未知类型抛错。
      */
     function beforeSendFilter(event) {
         if (!event || typeof event !== 'object') return null;
@@ -166,7 +181,9 @@
         });
         var minimal = {event: event.event, properties: out};
         if (typeof event.uuid === 'string') minimal.uuid = event.uuid;
-        if (typeof event.timestamp === 'string') minimal.timestamp = event.timestamp;
+        if (isDateObject(event.timestamp) || typeof event.timestamp === 'string') {
+            minimal.timestamp = event.timestamp;
+        }
         return minimal;
     }
 
@@ -211,9 +228,9 @@
     var autoDelay = AUTO_DELAY_MS;
     var i18nClient = null;
     var injectedAdapter = null;
-    var realSdkPromise = null;
-    var sdkLoading = false;
-    var postHogInitialized = false;
+    var runtimeGeneration = 0;
+    var sdkLoadOperation = null;
+    var sdkInitSignature = null;
     var autoTimerId = null;
     var autoFlowStarted = false;
     var autoRetryCount = 0;
@@ -236,6 +253,30 @@
     var sessionSeen = {};
     var appVersionPromise = null;
     var pendingTimers = [];
+
+    /* ------------------------------------------------------------
+       Runtime generation：异步生命周期代际。
+       - init 从未初始化状态进入时生成新 generation；
+       - destroy 使当前 generation 失效（initialized=false 且 generation 递增）；
+       - 所有异步流程在启动时捕获 generation，continuation 在打开/关闭 DOM、
+         写反馈状态、显示 Toast / 错误、请求 Survey、发送生命周期事件、
+         修改 submitting / flowRunning 等状态之前验证 generation；
+       - 旧 generation 的回调只能安全结束，不得影响新 generation。
+       generation 不上传 PostHog、不写入 localStorage。
+    ------------------------------------------------------------ */
+
+    function nextRuntimeGeneration() {
+        runtimeGeneration += 1;
+        return runtimeGeneration;
+    }
+
+    function currentRuntimeGeneration() {
+        return runtimeGeneration;
+    }
+
+    function isRuntimeGenerationActive(generation) {
+        return initialized && generation === runtimeGeneration;
+    }
 
     function safeLocalStorage() {
         try {
@@ -514,7 +555,7 @@
             capture_performance: false,
             capture_dead_clicks: false,
             capture_exceptions: false,
-            enable_heatmaps: false,
+            capture_heatmaps: false,
             disable_session_recording: true,
             disable_surveys: false,
             person_profiles: 'identified_only',
@@ -563,72 +604,143 @@
         return false;
     }
 
-    function loadSdkScript() {
-        if (sdkLoading) return realSdkPromise;
-        sdkLoading = true;
-        realSdkPromise = new Promise(function (resolve) {
+    /**
+     * 可取消的 SDK 加载器。保存显式操作状态（generation / promise / script /
+     * timeoutId / settled / cancel），不依赖私有 API 判断加载状态：
+     * - 已存在公开可用的 global.posthog（含 init 函数）时直接复用，不插 script；
+     * - 同一 generation 已有未取消的加载操作时返回同一个 Promise，不插第二个 script；
+     * - load 成功：清理 timeout 与 listener，generation 已失效则 resolve(null)；
+     * - load 失败 / 超时：清理 listener 与 timeout，resolve(null)，不永久悬挂；
+     * - cancel()（destroy 调用）：幂等，清理 timeout 与 listener，尝试移除模块
+     *   创建的 script，Promise 必然安全完成；浏览器后续即使完成底层资源下载，
+     *   旧回调也因 listener 已移除 + settled 守卫不生效。
+     */
+    function loadSdkScript(generation) {
+        if (global.posthog && typeof global.posthog.init === 'function') {
+            return Promise.resolve(global.posthog);
+        }
+        if (sdkLoadOperation && sdkLoadOperation.generation === generation) {
+            return sdkLoadOperation.promise;
+        }
+        var operation = {
+            generation: generation,
+            promise: null,
+            script: null,
+            timeoutId: null,
+            settled: false,
+            cancel: null,
+            onLoad: null,
+            onError: null
+        };
+        sdkLoadOperation = operation;
+        operation.promise = new Promise(function (resolve) {
             var script = null;
             var settled = false;
-            var timer = setTimeoutSafe(function () { finish(null); }, SDK_LOAD_TIMEOUT_MS);
             function finish(sdk) {
                 if (settled) return;
                 settled = true;
-                clearTimerSafe(timer);
+                operation.settled = true;
+                if (operation.timeoutId != null) {
+                    clearTimerSafe(operation.timeoutId);
+                    operation.timeoutId = null;
+                }
                 if (script) {
                     try {
-                        script.removeEventListener('load', onLoad);
-                        script.removeEventListener('error', onError);
+                        script.removeEventListener('load', operation.onLoad);
+                        script.removeEventListener('error', operation.onError);
                     } catch (_) {
                         // 清理尽力而为
                     }
                 }
                 resolve(sdk);
             }
-            function onLoad() {
+            operation.cancel = function () {
+                if (settled) return;
+                finish(null);
+                if (script && script.parentNode) {
+                    try {
+                        script.parentNode.removeChild(script);
+                    } catch (_) {
+                        // 移除尽力而为
+                    }
+                }
+            };
+            operation.onLoad = function () {
                 var sdk = global.posthog && typeof global.posthog.init === 'function'
                     ? global.posthog
                     : null;
+                if (!isRuntimeGenerationActive(generation)) sdk = null;
                 finish(sdk);
-            }
-            function onError() {
+            };
+            operation.onError = function () {
                 finish(null);
-            }
+            };
+            operation.timeoutId = setTimeoutSafe(function () {
+                operation.timeoutId = null;
+                if (settled) return;
+                finish(null);
+                if (script && script.parentNode) {
+                    try {
+                        script.parentNode.removeChild(script);
+                    } catch (_) {
+                        // 移除尽力而为
+                    }
+                }
+            }, SDK_LOAD_TIMEOUT_MS);
             try {
                 script = global.document.createElement('script');
                 script.src = SDK_URL;
                 script.async = true;
-                script.addEventListener('load', onLoad);
-                script.addEventListener('error', onError);
+                script.addEventListener('load', operation.onLoad);
+                script.addEventListener('error', operation.onError);
+                operation.script = script;
                 var head = global.document.head || documentElement();
                 (head || global.document.body || global.document.documentElement).appendChild(script);
             } catch (_) {
                 finish(null);
             }
         });
-        return realSdkPromise;
+        return operation.promise;
     }
 
+    /**
+     * PostHog 初始化幂等（不访问 __loaded 等私有字段）：
+     * - 同一页面中本模块已用相同公开配置签名初始化过的 singleton 直接复用，
+     *   不再次调用 sdk.init；
+     * - 先前的 init 抛错时不记录成功签名，后续允许重新尝试；
+     * - 重新 init 时配置签名发生变化 → fail closed：不静默切换 Project、
+     *   不把事件发送到不确定项目，只记录不含 token / Survey ID / 查询参数的
+     *   安全 warning，当前页面不显示调查。
+     */
     function initPostHog(sdk) {
-        if (postHogInitialized || !sdk || typeof sdk.init !== 'function') return;
-        postHogInitialized = true;
+        if (!sdk || typeof sdk.init !== 'function') return true;
+        var signature = config.projectToken + '|' + config.apiHost + '|'
+            + config.uiHost + '|' + POSTHOG_JS_VERSION;
+        if (sdkInitSignature === signature) return true;
+        if (sdkInitSignature !== null) {
+            warn('layout survey: posthog already initialized with a different public configuration by this module; survey disabled for this page');
+            return false;
+        }
         try {
             sdk.init(config.projectToken, buildSdkConfig());
         } catch (_) {
-            postHogInitialized = false;
+            sdkInitSignature = null;
             throw _;
         }
+        sdkInitSignature = signature;
+        return true;
     }
 
-    function resolveSdk() {
+    function resolveSdk(generation) {
         if (injectedAdapter) return Promise.resolve(injectedAdapter);
-        return loadSdkScript();
+        return loadSdkScript(generation);
     }
 
     /* ============================================================
        事件发送
     ============================================================ */
 
-    function sendSurveyEvent(name, properties) {
+    function sendSurveyEvent(generation, name, properties) {
         return new Promise(function (resolve, reject) {
             var settled = false;
             function finish(accepted) {
@@ -637,7 +749,12 @@
                 if (accepted) resolve();
                 else reject(new Error('posthog capture rejected event: ' + name));
             }
-            resolveSdk().then(function (sdk) {
+            resolveSdk(generation).then(function (sdk) {
+                if (!isRuntimeGenerationActive(generation)) {
+                    // destroy 后旧 generation 不再发送生命周期事件
+                    finish(false);
+                    return;
+                }
                 if (!sdk || typeof sdk.capture !== 'function') {
                     finish(false);
                     return;
@@ -657,7 +774,11 @@
         });
     }
 
-    function surveyEventProperties(extra) {
+    /**
+     * 构建生命周期事件属性。generation 已失效时解析为 null，调用方据此跳过
+     * 发送；属性本身不包含 generation。
+     */
+    function surveyEventProperties(generation, extra) {
         var props = {
             '$survey_id': dialogSurveyId,
             app_version: 'unknown',
@@ -668,6 +789,7 @@
             props[key] = extra[key];
         });
         return Promise.resolve(loadAppVersion()).then(function (version) {
+            if (!isRuntimeGenerationActive(generation)) return null;
             props.app_version = version || 'unknown';
             return props;
         });
@@ -675,9 +797,11 @@
 
     function sendShown() {
         if (shownSent || !dialogSurveyId) return;
+        var generation = currentRuntimeGeneration();
         shownSent = true;
-        surveyEventProperties().then(function (props) {
-            return sendSurveyEvent('survey shown', props);
+        surveyEventProperties(generation).then(function (props) {
+            if (!props) return;
+            return sendSurveyEvent(generation, 'survey shown', props);
         }).catch(function () {
             // shown 发送失败不影响用户填写调查
         });
@@ -685,8 +809,10 @@
 
     function sendDismissedBestEffort() {
         if (!dialogSurveyId) return Promise.resolve();
-        return surveyEventProperties().then(function (props) {
-            return sendSurveyEvent('survey dismissed', props);
+        var generation = currentRuntimeGeneration();
+        return surveyEventProperties(generation).then(function (props) {
+            if (!props) return;
+            return sendSurveyEvent(generation, 'survey dismissed', props);
         }).catch(function () {
             // 本地永久关闭优先；事件尽力而为
         });
@@ -769,6 +895,7 @@
 
     function openDialog(survey, choiceQuestion, suggestionQuestion) {
         if (dialogOpen || !global.document || !global.document.body) return false;
+        var generation = currentRuntimeGeneration();
         dialogOpen = true;
         dialogSurveyId = survey.id;
         dialogChoiceQuestion = choiceQuestion;
@@ -930,6 +1057,7 @@
             updateSubmitLabel();
             applyDialogTranslations();
             setTimeoutSafe(function () {
+                if (!isRuntimeGenerationActive(generation)) return;
                 try {
                     dialog.focus();
                 } catch (_) {
@@ -1194,8 +1322,10 @@
         var suggestionId = suggestionQuestion ? suggestionQuestion.id : null;
         var surveyId = dialogSurveyId;
         var snapshot = layoutSnapshot;
+        var generation = currentRuntimeGeneration();
 
-        surveyEventProperties({}).then(function (base) {
+        surveyEventProperties(generation, {}).then(function (base) {
+            if (!base) return;
             var props = {
                 '$survey_id': surveyId,
                 app_version: base.app_version,
@@ -1206,13 +1336,17 @@
             if (suggestion && suggestionId) {
                 props['$survey_response_' + suggestionId] = suggestion;
             }
-            return sendSurveyEvent('survey sent', props);
+            return sendSurveyEvent(generation, 'survey sent', props);
         }).then(function () {
+            // capture 已同步返回被接受的 CaptureResult，但若 generation 在结果
+            // 处理前已失效（destroy），旧回调不得再写状态 / 显示 Toast / 动 DOM。
+            if (!isRuntimeGenerationActive(generation)) return;
             submitting = false;
             writeState('submitted');
             closeDialog(true);
             showSuccessToast();
         }).catch(function () {
+            if (!isRuntimeGenerationActive(generation)) return;
             submitting = false;
             setSubmittingState(false);
             lastErrorKey = 'error-submit-failed';
@@ -1258,7 +1392,7 @@
         return found;
     }
 
-    function fetchMatchingSurvey(sdk) {
+    function fetchMatchingSurvey(sdk, generation) {
         return new Promise(function (resolve) {
             var settled = false;
             var surveyRequested = false;
@@ -1285,6 +1419,7 @@
             }
             function proceed() {
                 if (settled || surveyRequested) return;
+                if (!isRuntimeGenerationActive(generation)) return;
                 surveyRequested = true;
                 if (flagTimer != null) clearTimerSafe(flagTimer);
                 try {
@@ -1318,14 +1453,21 @@
 
     function showSurveyFlow() {
         if (flowRunning || dialogOpen) return Promise.resolve();
+        var generation = currentRuntimeGeneration();
         flowRunning = true;
-        return resolveSdk().then(function (sdk) {
+        function finishFlow(result) {
+            if (isRuntimeGenerationActive(generation)) flowRunning = false;
+            return result;
+        }
+        return resolveSdk(generation).then(function (sdk) {
+            if (!isRuntimeGenerationActive(generation)) return null;
             if (!sdk || typeof sdk.init !== 'function') return null;
-            initPostHog(sdk);
+            if (!initPostHog(sdk)) return null;
             // DNT / opt-out：不请求 Survey、不显示、不发 shown、不写状态、不报错。
             if (isCapturingDisabled(sdk)) return null;
-            return fetchMatchingSurvey(sdk);
+            return fetchMatchingSurvey(sdk, generation);
         }).then(function (survey) {
+            if (!isRuntimeGenerationActive(generation)) return null;
             if (!survey) return null;
             var choiceQuestion = resolveChoiceQuestion(survey);
             if (!choiceQuestion) {
@@ -1336,14 +1478,8 @@
             if (!openDialog(survey, choiceQuestion, suggestionQuestion)) return null;
             sendShown();
             return survey;
-        }).catch(function () {
-            // 调查的任何故障都静默结束，不影响下载工作台
-            return null;
-        }).then(function (result) {
-            flowRunning = false;
-            return result;
-        }, function () {
-            flowRunning = false;
+        }).then(finishFlow, function () {
+            finishFlow(null);
             return null;
         });
     }
@@ -1464,8 +1600,10 @@
     function scheduleAutoEvaluation(delay) {
         if (autoTimerId != null) return;
         if (autoFlowStarted) return;
+        var generation = currentRuntimeGeneration();
         var id = setTimeoutSafe(function () {
             autoTimerId = null;
+            if (!isRuntimeGenerationActive(generation)) return;
             evaluateAutoEligibility();
         }, delay);
         autoTimerId = id;
@@ -1497,6 +1635,9 @@
     function init(options) {
         if (initialized) return;
         initialized = true;
+        // 从未初始化状态进入 init 时生成新 generation（destroy 后重新 init
+        // 必然得到不同的 generation，旧异步回调不会影响新 generation）。
+        runtimeGeneration = nextRuntimeGeneration();
         options = options || {};
         pageType = options.page || detectPageType();
         storage = options.storage != null ? options.storage : safeLocalStorage();
@@ -1544,6 +1685,14 @@
             }
             pendingSurveyCancel = null;
         }
+        if (sdkLoadOperation && typeof sdkLoadOperation.cancel === 'function') {
+            try {
+                sdkLoadOperation.cancel();
+            } catch (_) {
+                // 取消尽力而为
+            }
+            sdkLoadOperation = null;
+        }
         removeListeners();
         pendingTimers.forEach(function (id) {
             try {
@@ -1554,17 +1703,22 @@
         });
         pendingTimers = [];
         initialized = false;
+        // 使当前 generation 失效：后续（destroy 后重新 init 之前的）异步
+        // continuation 全部被 isRuntimeGenerationActive 拦截。
+        runtimeGeneration += 1;
         autoTimerId = null;
         autoFlowStarted = false;
         autoRetryCount = 0;
         autoRetryStartedAt = 0;
         flowRunning = false;
         submitting = false;
-        realSdkPromise = null;
-        sdkLoading = false;
-        postHogInitialized = false;
         sessionState = null;
         appVersionPromise = null;
+        // 注意：sdkInitSignature 故意保留 —— destroy 后重新 init 时用于同一
+        // singleton 的幂等复用（签名一致）与 fail closed（签名变化）。
+        // destroy 不删除已加载完成的 vendor script、不调用 posthog.reset() /
+        // opt_out_capturing()、不改变匿名 distinct ID、不清除 PostHog 本地
+        // 持久化；已加载的 singleton 只随本模块不再被驱动发送调查事件。
     }
 
     /**
@@ -1609,6 +1763,7 @@
             resolveChoiceQuestion: resolveChoiceQuestion,
             resolveSuggestionQuestion: resolveSuggestionQuestion,
             beforeSendFilter: beforeSendFilter,
+            isDateObject: isDateObject,
             isAcceptedCaptureResult: isAcceptedCaptureResult,
             distinctSeenCount: distinctSeenCount
         })

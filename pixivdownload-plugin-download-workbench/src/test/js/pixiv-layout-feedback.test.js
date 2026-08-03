@@ -420,12 +420,13 @@ function walkAll(root, fn) {
 
 function createFakeAdapter(overrides) {
     overrides = overrides || {};
-    const calls = {init: [], capture: [], onFeatureFlags: [], getSurveys: []};
+    const calls = {init: [], capture: [], onFeatureFlags: [], getSurveys: [], results: []};
     let flagsListener = null;
     let sdkConfig = null;
     const adapter = {
         calls,
         surveys: overrides.surveys || [],
+        lastSurveyCallback: null,
         sdkConfig() { return sdkConfig; },
         emitFlags() {
             if (flagsListener) flagsListener();
@@ -441,19 +442,27 @@ function createFakeAdapter(overrides) {
             if (overrides.capture === 'null') return null;
             if (overrides.capture === 'false') return false;
             if (overrides.capture === 'reject') return undefined;
-            // 真实 posthog-js 语义：capture 构造 CaptureResult 事件对象，
+            // 真实 posthog-js 1.409.5 语义：capture 构造 CaptureResult 事件对象，
+            // timestamp 为 Date（b.timestamp = (options.timestamp) || new Date()），
             // before_send 返回 null/undefined 时事件被 SDK 丢弃（capture 返回 undefined）。
+            // 测试可通过 overrides.timestamp 覆盖 timestamp（Date / ISO string /
+            // null / undefined / 非法对象），hasOwnProperty 用于区分「未提供」与
+            // 「显式提供 undefined」。
             const event = {
                 uuid: 'evt-' + String(calls.capture.length),
                 event: name,
-                timestamp: new Date().toISOString(),
+                timestamp: Object.prototype.hasOwnProperty.call(overrides, 'timestamp')
+                    ? overrides.timestamp
+                    : new Date(),
                 properties: Object.assign({}, properties || {})
             };
             if (sdkConfig && typeof sdkConfig.before_send === 'function') {
                 const filtered = sdkConfig.before_send(event);
+                calls.results.push(filtered);
                 if (!filtered) return undefined;
                 return filtered;
             }
+            calls.results.push(event);
             return event;
         },
         has_opted_out_capturing() {
@@ -486,6 +495,7 @@ function createFakeAdapter(overrides) {
         },
         getActiveMatchingSurveys(cb, forceReload) {
             calls.getSurveys.push({forceReload});
+            adapter.lastSurveyCallback = cb;
             if (!overrides.stallSurveys) cb(adapter.surveys || []);
         }
     };
@@ -605,6 +615,9 @@ function createHarness(options) {
         },
         fetch(url, init) {
             fetchCalls.push({url, init});
+            if (typeof options.fetchImpl === 'function') {
+                return options.fetchImpl(url, init);
+            }
             if (options.fetch === 'fail') {
                 return Promise.reject(new Error('network down'));
             }
@@ -771,6 +784,23 @@ function seenSeed() {
         seen[id] = {firstSeenAt: 1, lastSeenAt: 1 + index};
     });
     return {[SEEN_KEY]: JSON.stringify(seen)};
+}
+
+function listenerCountFor(h, type) {
+    return ((h.document._events || {}).get(type) || []).length;
+}
+
+function reinitOptions(h, adapter) {
+    return {
+        page: 'batch',
+        adapter: adapter === undefined ? h.adapter : adapter,
+        i18n: createFakeI18n({}),
+        storage: h.storage,
+        timers: h.timers,
+        fetchImpl: h.sandbox.fetch.bind(h.sandbox),
+        minDistinctLayoutsSeen: 2,
+        autoDelayMs: 10000
+    };
 }
 
 /* ============================================================
@@ -1258,7 +1288,8 @@ function testSdkInitConfigPrivacy() {
         eq('pageview 关闭', c.capture_pageview, false);
         eq('pageleave 关闭', c.capture_pageleave, false);
         eq('replay 关闭', c.disable_session_recording, true);
-        eq('heatmap 关闭', c.enable_heatmaps, false);
+        eq('heatmap 关闭（capture_heatmaps）', c.capture_heatmaps, false);
+        eq('弃用的 enable_heatmaps 不再作为配置字段', c.enable_heatmaps, undefined);
         eq('error tracking 关闭', c.capture_exceptions, false);
         eq('web vitals 关闭', c.capture_performance, false);
         eq('dead clicks 关闭', c.capture_dead_clicks, false);
@@ -2095,6 +2126,323 @@ function testUnicodeLengthMatrix() {
    入口
 ============================================================ */
 
+/* ============================================================
+   SDK loader 取消与 runtime generation（异步销毁语义）
+============================================================ */
+
+function testDestroyDuringSdkLoad() {
+    const h = initHarness({adapter: null, batchLayout: 'landscape'});
+    let resolved = false;
+    const promise = h.api.open().then(value => { resolved = true; return value; });
+    return waitForFlush().then(() => {
+        eq('SDK 加载中恰好插入一个 script', h.scriptElements().length, 1);
+        h.api.destroy();
+        return waitForFlush().then(() => {
+            ok('open Promise 在 destroy 后安全完成（不永久 pending）', resolved);
+            const scripts = h.scriptElements();
+            eq('模块创建的未完成 script 被移除出 DOM', scripts[0].parentNode === null, true);
+            eq('load listener 已移除', (scripts[0].listeners.get('load') || []).length, 0);
+            eq('error listener 已移除', (scripts[0].listeners.get('error') || []).length, 0);
+            eq('destroy 后不显示弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+            eq('destroy 后不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+            eq('destroy 后无 Toast', h.toastCalls.length, 0);
+            h.timers.advance(30000);
+            return waitForFlush();
+        });
+    }).then(() => {
+        eq('SDK 加载取消后无任何后续动作', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后定时器无残留', h.timers.pending().length, 0);
+        eq('destroy 后无监听残留', listenerCountFor(h, 'pixiv:batch-layout-changed') === 0
+            && h.windowEvents.listenerCount('storage') === 0, true);
+    });
+}
+
+function testLateScriptLoadAfterDestroy() {
+    const h = initHarness({adapter: null, batchLayout: 'landscape'});
+    const promise = h.api.open();
+    return waitForFlush().then(() => {
+        eq('SDK 加载中插入一个 script', h.scriptElements().length, 1);
+        h.api.destroy();
+        h.sandbox.posthog = createFakeAdapter({surveys: [defaultSurvey()]});
+        h.fireScriptLoad();
+        return promise.then(() => waitForFlush());
+    }).then(() => {
+        eq('旧 script 迟到 load 不显示弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('旧 script 迟到 load 不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+        eq('旧 script 迟到 load 无 Toast', h.toastCalls.length, 0);
+    });
+}
+
+function testDestroyAndReInit() {
+    const h = initHarness({batchLayout: 'landscape'});
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('第一次 init 弹窗正常', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        h.api.destroy();
+        eq('destroy 关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        h.api.init(reinitOptions(h));
+        return h.api.open().then(() => waitForFlush());
+    }).then(() => {
+        eq('re-init 后弹窗可再次打开', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('同时最多一个调查弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('storage 监听不重复', h.windowEvents.listenerCount('storage'), 1);
+        eq('visibility 监听不重复', listenerCountFor(h, 'visibilitychange'), 1);
+        eq('layout 监听不重复', listenerCountFor(h, 'pixiv:batch-layout-changed'), 1);
+    });
+}
+
+function testReuseLoadedSdk() {
+    const adapter = createFakeAdapter({surveys: [defaultSurvey()]});
+    const h = initHarness({adapter: null, batchLayout: 'landscape'});
+    h.sandbox.posthog = adapter;
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('复用已存在 SDK 不插入 script', h.scriptElements().length, 0);
+        eq('SDK init 恰好一次', adapter.calls.init.length, 1);
+        eq('已加载 SDK 正常展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        return h.api.open().then(() => waitForFlush());
+    }).then(() => {
+        eq('重复 open 相同配置不重复 init', adapter.calls.init.length, 1);
+        eq('重复 open 不插入 script', h.scriptElements().length, 0);
+        h.api.destroy();
+        h.api.init(reinitOptions(h, null));
+        return h.api.open().then(() => waitForFlush());
+    }).then(() => {
+        eq('destroy 后重新 init 复用已加载 SDK', h.scriptElements().length, 0);
+        eq('destroy 后重新 init 相同签名不重复 init', adapter.calls.init.length, 1);
+        eq('destroy 后弹窗可再次打开', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testConfigMismatchFailsClosed() {
+    const h = initHarness({batchLayout: 'landscape'});
+    let surveysBefore = 0;
+    let captureBefore = 0;
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('配置 A 正常展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        surveysBefore = h.adapter.calls.getSurveys.length;
+        captureBefore = h.adapter.calls.capture.length;
+        h.api.destroy();
+        // 配置 B：projectToken / apiHost 变化
+        h.sandbox.PixivLayoutFeedbackPublicConfig = Object.freeze({
+            enabled: true,
+            projectToken: 'phc_second_project_token',
+            surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+            apiHost: 'https://proxy2.example.com',
+            uiHost: 'https://us.i.posthog.com'
+        });
+        h.api.init(reinitOptions(h));
+        return h.api.open().then(() => waitForFlush());
+    }).then(() => {
+        eq('配置签名变化 fail closed：不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('配置签名变化不请求 Survey', h.adapter.calls.getSurveys.length, surveysBefore);
+        eq('配置签名变化不发送事件', h.adapter.calls.capture.length, captureBefore);
+        const warnings = JSON.stringify(h.consoleWarn);
+        ok('记录安全 warning', warnings.indexOf('different public configuration') >= 0);
+        ok('warning 不含 Project token 实际值', warnings.indexOf('phc_second_project_token') < 0
+            && warnings.indexOf('phc_test_project_token') < 0);
+    });
+}
+
+function testDestroyDuringAppVersionWait() {
+    let resolveAppInfo = null;
+    const adapter = createFakeAdapter({surveys: [defaultSurvey()]});
+    const h = initHarness({
+        adapter,
+        batchLayout: 'landscape',
+        fetchImpl: () => new Promise(resolve => { resolveAppInfo = resolve; })
+    });
+    const promise = h.api.open();
+    return waitForFlush().then(() => {
+        eq('Survey 流程开始（弹窗已打开）', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        ok('appVersion fetch 尚未完成', typeof resolveAppInfo === 'function');
+        h.api.destroy();
+        resolveAppInfo({ok: true, json: () => Promise.resolve({name: 'x', version: '9.9.9'})});
+        return promise.then(() => waitForFlush());
+    }).then(() => {
+        eq('destroy 后 appVersion 完成不补发 shown', captureEvents(h).filter(e => e === 'survey shown').length, 0);
+        eq('destroy 后不重新打开弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后无 Toast', h.toastCalls.length, 0);
+        eq('destroy 后不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+    });
+}
+
+function testDestroyDuringSurveyWait() {
+    const adapter = createFakeAdapter({surveys: [defaultSurvey()], stallSurveys: true});
+    const h = initHarness({adapter, batchLayout: 'landscape'});
+    const promise = h.api.open();
+    return waitForFlush().then(() => {
+        ok('Survey 回调已注册', typeof adapter.lastSurveyCallback === 'function');
+        eq('Survey 等待期间不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        h.api.destroy();
+        adapter.lastSurveyCallback([defaultSurvey()]);
+        return promise.then(() => waitForFlush());
+    }).then(() => {
+        eq('destroy 后迟到 Survey 回调不打开弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后不发送 shown', captureEvents(h).length, 0);
+        eq('destroy 后不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+    });
+}
+
+function testDestroyDuringSubmit() {
+    const h = initHarness({batchLayout: 'landscape'});
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        selectChoice(h, 'pixiv-batch-landscape');
+        h.submitButton().click();
+        h.api.destroy();
+        return waitForFlush();
+    }).then(() => {
+        eq('destroy 后提交完成不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
+        eq('destroy 后不显示成功 Toast', h.toastCalls.length, 0);
+        eq('destroy 后无失败错误显示', h.document.querySelectorAll('[data-plf-error]').length, 0);
+        eq('destroy 后无弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后不发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 0);
+    });
+}
+
+function testOldGenerationCannotAffectNewGeneration() {
+    const adapter = createFakeAdapter({surveys: [defaultSurvey()], stallSurveys: true});
+    const h = initHarness({adapter, batchLayout: 'landscape'});
+    const oldOpen = h.api.open();
+    return waitForFlush().then(() => {
+        const gen1Callback = adapter.lastSurveyCallback;
+        ok('generation 1 已注册 Survey 回调', typeof gen1Callback === 'function');
+        h.api.destroy();
+        h.api.init(reinitOptions(h));
+        const newOpen = h.api.open();
+        return waitForFlush().then(() => {
+            h.timers.advance(10000);
+            return waitForFlush();
+        }).then(() => {
+            eq('generation 2 等待 Survey 期间不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+            gen1Callback([defaultSurvey()]);
+            adapter.lastSurveyCallback([defaultSurvey()]);
+            return Promise.all([oldOpen, newOpen]).then(() => waitForFlush());
+        });
+    }).then(() => {
+        eq('旧 generation 迟到回调不影响新 generation 弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('shown 只来自新 generation', captureEvents(h).filter(e => e === 'survey shown').length, 1);
+        eq('storage 监听唯一', h.windowEvents.listenerCount('storage'), 1);
+        eq('visibility 监听唯一', listenerCountFor(h, 'visibilitychange'), 1);
+        eq('layout 监听唯一', listenerCountFor(h, 'pixiv:batch-layout-changed'), 1);
+        eq('旧 generation 回调不再关闭新弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testDestroyIdempotence() {
+    const h = initHarness({batchLayout: 'landscape'});
+    doesNotThrow('destroy 一次', () => h.api.destroy());
+    doesNotThrow('destroy 二次', () => h.api.destroy());
+    doesNotThrow('destroy 三次', () => h.api.destroy());
+    eq('destroy 后无 storage 监听', h.windowEvents.listenerCount('storage'), 0);
+    eq('destroy 后无 layout 监听', listenerCountFor(h, 'pixiv:batch-layout-changed'), 0);
+    eq('destroy 后无 visibility 监听', listenerCountFor(h, 'visibilitychange'), 0);
+    eq('destroy 后定时器为空', h.timers.pending().length, 0);
+    doesNotThrow('从未 init 时 destroy 安全', () => createHarness({}).api.destroy());
+    const h2 = createHarness({batchLayout: 'landscape'});
+    doesNotThrow('无配置环境 destroy 安全', () => h2.api.destroy());
+}
+
+/* ============================================================
+   before_send timestamp（Date / string / 未知类型）
+============================================================ */
+
+function testBeforeSendTimestampMatrix() {
+    const filter = initHarness({}).api._internals.beforeSendFilter;
+    const base = {uuid: 'evt-1', event: 'survey sent', properties: {distinct_id: 'anon'}};
+
+    const dateTs = new Date('2026-03-01T12:00:00.000Z');
+    const outDate = filter(Object.assign({}, base, {timestamp: dateTs}));
+    ok('Date timestamp 保留原始对象', outDate.timestamp === dateTs);
+    eq('Date 时间值未被替换为当前时间', outDate.timestamp.getTime(), dateTs.getTime());
+    ok('保留的是 Date 而非字符串', Object.prototype.toString.call(outDate.timestamp) === '[object Date]');
+
+    const iso = '2026-03-01T12:00:00.000Z';
+    const outIso = filter(Object.assign({}, base, {timestamp: iso}));
+    eq('ISO string timestamp 保留', outIso.timestamp, iso);
+
+    eq('null timestamp 省略', filter(Object.assign({}, base, {timestamp: null})).timestamp, undefined);
+    eq('undefined timestamp 省略', filter(Object.assign({}, base, {timestamp: undefined})).timestamp, undefined);
+    eq('普通对象 timestamp 省略', filter(Object.assign({}, base, {timestamp: {evil: true}})).timestamp, undefined);
+    eq('非法 Date 省略', filter(Object.assign({}, base, {timestamp: new Date('invalid')})).timestamp, undefined);
+
+    ok('Date timestamp 不影响 uuid / event / properties',
+        outDate.uuid === 'evt-1' && outDate.event === 'survey sent' && outDate.properties.distinct_id === 'anon');
+}
+
+function testBeforeSendDateTimestampWithSurveyFields() {
+    const filter = initHarness({}).api._internals.beforeSendFilter;
+    const timestamp = new Date('2026-03-01T12:00:00.000Z');
+    const out = filter({
+        uuid: 'evt-2',
+        event: 'survey shown',
+        timestamp,
+        $set: {'$survey_x_responded': true},
+        $set_once: {'$initial_x': 'v'},
+        $unset: ['old'],
+        properties: {
+            distinct_id: 'anon-2',
+            token: 'phc_x',
+            '$survey_id': 's1',
+            '$survey_response_q-layout': 'pixiv-batch-portrait',
+            $current_url: 'http://localhost:6999/pixiv-batch.html'
+        }
+    });
+    ok('顶层 $set / $set_once / $unset 仍被删除',
+        out.$set === undefined && out.$set_once === undefined && out.$unset === undefined);
+    eq('$survey_id 保留', out.properties['$survey_id'], 's1');
+    eq('$survey_response_* 保留', out.properties['$survey_response_q-layout'], 'pixiv-batch-portrait');
+    ok('Date timestamp 与其他顶层字段并存', out.timestamp === timestamp);
+    ok('输出顶层字段仅 uuid / event / timestamp / properties',
+        Object.keys(out).every(k => ['uuid', 'event', 'timestamp', 'properties'].indexOf(k) >= 0));
+}
+
+function testFakeAdapterDefaultTimestampIsDate() {
+    const h = initHarness({batchLayout: 'landscape'});
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        const result = h.adapter.calls.results.find(r => r && r.event === 'survey shown');
+        ok('fake adapter 默认 timestamp 为 Date 对象', result
+            && Object.prototype.toString.call(result.timestamp) === '[object Date]');
+    });
+}
+
+function testFakeAdapterTimestampOverrides() {
+    return Promise.resolve().then(() => {
+        const adapter = createFakeAdapter({surveys: [defaultSurvey()], timestamp: null});
+        const h = initHarness({adapter, batchLayout: 'landscape'});
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            const result = h.adapter.calls.results.find(r => r && r.event === 'survey shown');
+            eq('null timestamp 在 before_send 后被省略', result.timestamp, undefined);
+        });
+    }).then(() => {
+        const adapter = createFakeAdapter({surveys: [defaultSurvey()], timestamp: {bad: true}});
+        const h = initHarness({adapter, batchLayout: 'landscape'});
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            const result = h.adapter.calls.results.find(r => r && r.event === 'survey shown');
+            eq('非法对象 timestamp 被省略', result.timestamp, undefined);
+        });
+    }).then(() => {
+        const fixed = new Date('2026-06-01T00:00:00.000Z');
+        const adapter = createFakeAdapter({surveys: [defaultSurvey()], timestamp: fixed});
+        const h = initHarness({adapter, batchLayout: 'landscape'});
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            const result = h.adapter.calls.results.find(r => r && r.event === 'survey shown');
+            ok('Date 覆盖值原样保留', result && result.timestamp === fixed);
+        });
+    });
+}
+
+/* ============================================================
+   SDK 初始化配置：Heatmap 弃用字段迁移
+============================================================ */
+
+function testSdkConfigHeatmapMigration() {
+    ok('生产源码不再包含 enable_heatmaps 配置字段', SOURCE.indexOf('enable_heatmaps') < 0);
+    ok('生产源码使用 capture_heatmaps', SOURCE.indexOf('capture_heatmaps') >= 0);
+}
+
+/* ============================================================
+   入口
+=========================================================== */
+
 async function run() {
     const step = async (name, fn) => {
         currentTest = name;
@@ -2158,6 +2506,21 @@ async function run() {
     await step('testCrossTabNeverAndSnoozeClosesOtherTab', testCrossTabNeverAndSnoozeClosesOtherTab);
     await step('testFreshCheckPreventsDuplicateSubmit', testFreshCheckPreventsDuplicateSubmit);
     await step('testUnicodeLengthMatrix', testUnicodeLengthMatrix);
+    await step('testDestroyDuringSdkLoad', testDestroyDuringSdkLoad);
+    await step('testLateScriptLoadAfterDestroy', testLateScriptLoadAfterDestroy);
+    await step('testDestroyAndReInit', testDestroyAndReInit);
+    await step('testReuseLoadedSdk', testReuseLoadedSdk);
+    await step('testConfigMismatchFailsClosed', testConfigMismatchFailsClosed);
+    await step('testDestroyDuringAppVersionWait', testDestroyDuringAppVersionWait);
+    await step('testDestroyDuringSurveyWait', testDestroyDuringSurveyWait);
+    await step('testDestroyDuringSubmit', testDestroyDuringSubmit);
+    await step('testOldGenerationCannotAffectNewGeneration', testOldGenerationCannotAffectNewGeneration);
+    await step('testDestroyIdempotence', testDestroyIdempotence);
+    await step('testBeforeSendTimestampMatrix', testBeforeSendTimestampMatrix);
+    await step('testBeforeSendDateTimestampWithSurveyFields', testBeforeSendDateTimestampWithSurveyFields);
+    await step('testFakeAdapterDefaultTimestampIsDate', testFakeAdapterDefaultTimestampIsDate);
+    await step('testFakeAdapterTimestampOverrides', testFakeAdapterTimestampOverrides);
+    await step('testSdkConfigHeatmapMigration', testSdkConfigHeatmapMigration);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 
