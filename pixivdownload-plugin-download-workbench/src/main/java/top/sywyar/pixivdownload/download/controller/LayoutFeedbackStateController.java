@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -148,19 +149,68 @@ public class LayoutFeedbackStateController {
     }
 
     /**
-     * Content-Type 判定：接受 application/json、application/json;charset=UTF-8 与
-     * 合法 application/*+json（参数部分忽略，大小写不敏感）；null / 空 / 非法
-     * MediaType 字符串 / text/plain 一律 415。
+     * Content-Type 判定（严格使用 Spring {@link MediaType} 标准解析）：
+     * - null / 空白 / 语法损坏（{@link InvalidMediaTypeException}）一律 415；
+     * - wildcard type（星号斜杠星号）与 wildcard subtype（application/*、
+     *   application/*+json）一律拒绝——subtype 中出现 {@code *} 的都不是可接受的
+     *   具体 JSON 类型；
+     * - 只接受 application/json 与具体的 application/*+json 子类型
+     *   （application/problem+json、application/vnd.example+json 等，大小写不敏感）；
+     * - 参数（charset 等）由 Spring 解析器严格校验：引号未闭合、空键会抛
+     *   {@link InvalidMediaTypeException} 而被拒绝；Spring 对缺失 {@code =} 的参数
+     *   会静默丢弃而不报错，因此由 {@link #areParametersWellFormed} 做补充校验，
+     *   语法损坏的参数不得被当作合法 JSON。
      */
     private static boolean isJsonContentType(String contentType) {
         if (contentType == null || contentType.isBlank()) {
             return false;
         }
-        String lower = contentType.toLowerCase(Locale.ROOT);
-        int semicolon = lower.indexOf(';');
-        String base = (semicolon >= 0 ? lower.substring(0, semicolon) : lower).trim();
-        return "application/json".equals(base)
-                || (base.startsWith("application/") && base.endsWith("+json"));
+        final MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(contentType);
+        } catch (InvalidMediaTypeException e) {
+            return false;
+        }
+        if (mediaType.isWildcardType() || mediaType.isWildcardSubtype()) {
+            return false;
+        }
+        if (!"application".equalsIgnoreCase(mediaType.getType())) {
+            return false;
+        }
+        String subtype = mediaType.getSubtype().toLowerCase(Locale.ROOT);
+        if (subtype.indexOf('*') >= 0) {
+            // application/*+json 这类 wildcard 基底不是合法具体 JSON 类型。
+            return false;
+        }
+        if (!areParametersWellFormed(contentType)) {
+            return false;
+        }
+        return "json".equals(subtype) || subtype.endsWith("+json");
+    }
+
+    /**
+     * 参数段补充校验：Spring 的 MimeType 解析器对分号参数段是宽松的——缺失 {@code =}
+     * 的参数会被静默丢弃而不抛错（例如 {@code application/json; invalid parameter}）。
+     * 这里对分号后的每个参数要求形如 {@code key=value} 且 key 非空；空参数（尾分号 /
+     * 连续分号）按 Spring 语义接受。
+     */
+    private static boolean areParametersWellFormed(String contentType) {
+        int semicolon = contentType.indexOf(';');
+        if (semicolon < 0) {
+            return true;
+        }
+        String[] parameters = contentType.substring(semicolon + 1).split(";");
+        for (String raw : parameters) {
+            String parameter = raw.trim();
+            if (parameter.isEmpty()) {
+                continue;
+            }
+            int eqIndex = parameter.indexOf('=');
+            if (eqIndex <= 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean isSolo() {

@@ -428,6 +428,93 @@ class LayoutFeedbackStateControllerTest {
     }
 
     /* ============================================================
+       Content-Type 严格解析（Spring MediaType）
+    ============================================================ */
+
+    @Test
+    @DisplayName("接受合法 application/json 与具体 +json 子类型（大小写与参数变体）")
+    void acceptsStrictJsonContentTypes() throws Exception {
+        List<String> accepted = List.of(
+                "application/json",
+                "application/json;charset=UTF-8",
+                "application/json; charset=UTF-8",
+                "APPLICATION/JSON",
+                "application/problem+json",
+                "application/vnd.pixivdownload+json",
+                "application/vnd.example+json;charset=UTF-8");
+        for (int i = 0; i < accepted.size(); i++) {
+            // 每个 Content-Type 用独立状态目录的 store（同一 store 重复 submitted 是
+            // 幂等 no-op，不会推进 revision，因此不能复用同一 store）。
+            Path dir = tempDir.resolve("accept-" + i);
+            LayoutFeedbackStateStore store = new LayoutFeedbackStateStore(
+                    new LayoutFeedbackStateFiles(mockRuntimePath(dir)));
+            mockMvc(SOLO, store, null).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                            .contentType(accepted.get(i))
+                            .content(commandBody("submitted", 0)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.state.status").value("submitted"))
+                    .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+        }
+    }
+
+    @Test
+    @DisplayName("拒绝 wildcard 与语法损坏 Content-Type → 415 且 no-store，不读 body、不调用 Store / InstallIdentityProvider、不创建文件、revision 不变")
+    void rejectsMalformedContentTypesWithoutSideEffects() throws Exception {
+        LayoutFeedbackStateStore store = spy(store());
+        InstallIdentityProvider identityProvider = mock(InstallIdentityProvider.class);
+        when(identityProvider.get()).thenReturn(INSTALL_ID);
+        LayoutFeedbackStateController controller = controller(SOLO, store, identityProvider);
+        List<String> rejected = List.of(
+                "",
+                "text/plain",
+                "text/json",
+                "application/xml",
+                "application/*",
+                "application/*+json",
+                "*/*",
+                "application/json; charset=\"unterminated",
+                "application/json; invalid parameter",
+                "application/json; ===",
+                "application/json garbage");
+        for (String contentType : rejected) {
+            final int[] reads = {0};
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", ENDPOINT) {
+                @Override
+                public ServletInputStream getInputStream() {
+                    reads[0]++;
+                    return new CountingStream(new ByteArrayInputStream(commandBody("submitted", 0)), reads);
+                }
+            };
+            request.addHeader(HttpHeaders.CONTENT_TYPE, contentType);
+            request.setParameter("surveyId", SURVEY_ID);
+            request.setContent(commandBody("submitted", 0));
+
+            org.springframework.http.ResponseEntity<?> response =
+                    controller.saveState(request, SURVEY_ID);
+
+            assertThat(response.getStatusCode().value())
+                    .as("Content-Type=" + contentType + " 应返回 415")
+                    .isEqualTo(415);
+            assertThat(response.getHeaders().getCacheControl())
+                    .as("Content-Type=" + contentType + " 响应必须 no-store, private")
+                    .contains("no-store").contains("private");
+            assertThat(reads[0]).as("Content-Type=" + contentType + " 不得读取请求体").isZero();
+        }
+        verify(store, never()).apply(any(), anyLong());
+        verify(store, never()).snapshot();
+        verify(store, never()).degraded();
+        verify(identityProvider, never()).get();
+        assertThat(Files.exists(tempDir.resolve("state/download-workbench/layout-feedback-state.json")))
+                .as("415 路径不得创建状态文件")
+                .isFalse();
+
+        MockMvc verifyMvc = mockMvc(SOLO, store, identityProvider);
+        verifyMvc.perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(0));
+    }
+
+    /* ============================================================
        缺 surveyId / Content-Type 错误路径（进入 Controller 后由
        statusResponse 统一返回，全部 no-store, private）
     ============================================================ */
