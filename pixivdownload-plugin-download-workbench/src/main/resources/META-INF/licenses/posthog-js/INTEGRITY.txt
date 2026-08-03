@@ -1,0 +1,26 @@
+posthog-js 1.409.5 vendored browser bundle integrity metadata
+=============================================================
+
+Package:       posthog-js
+Exact version: 1.409.5
+npm dist-tag:  latest
+License:       (Apache-2.0 AND MIT)
+
+npm registry metadata (npm view posthog-js@1.409.5):
+  version:         1.409.5
+  dist.integrity:  sha512-s1iJz+vq0YAluUD4OwLjUFIJt/9pqiiB6MITvHWIS16a7pqTJqbSLXsd5/8kJcIgfrOSZHe+mdYAXLYcJCS4LQ==
+  dist.tarball:    https://registry.npmjs.org/posthog-js/-/posthog-js-1.409.5.tgz
+  tarball SHA-256: 6E3EE32BF4FF59E40D55B08571DA177BC5BD212D36EFA0CE704B66CF70616018
+  repository:      https://github.com/PostHog/posthog-js
+
+Vendored file:
+  Path: static/vendor/posthog-js/1.409.5/array.full.js
+  Origin entry in npm tarball: dist/array.full.js
+  Size: 457495 bytes
+  SHA-256: 040788048DC5FFF275582A291C4FB3E83CC5CA66868CCDB9177B4D05D962B9F0
+
+The file was copied byte-for-byte from the official npm tarball without any
+modification, minification, or re-bundling. The upstream LICENSE file is kept
+as-is in this directory.
+
+Upstream source: https://github.com/PostHog/posthog-js

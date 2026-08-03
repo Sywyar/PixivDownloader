@@ -253,11 +253,29 @@ function buildDocument(options) {
     business.id = 'business-sentinel';
     business.setAttribute('data-state', 'keep');
 
+    const documentEvents = new MiniEventTarget();
+    const layoutChangeEvents = [];
+
     const document = {
         documentElement: html,
         head,
         body,
         activeElement: null,
+        documentEvents,
+        layoutChangeEvents,
+        addEventListener(type, listener) {
+            documentEvents.addEventListener(type, listener);
+        },
+        removeEventListener(type, listener) {
+            documentEvents.removeEventListener(type, listener);
+        },
+        dispatchEvent(event) {
+            const result = documentEvents.dispatchEvent(event);
+            if (event && event.type === 'pixiv:batch-layout-changed') {
+                layoutChangeEvents.push(event.detail || null);
+            }
+            return result;
+        },
         createElement(tagName) {
             const element = new MiniElement(tagName);
             element.ownerDocument = document;
@@ -367,6 +385,7 @@ function buildDocument(options) {
     setLayouts(layouts);
     return {
         document, html, head, body, button, label, business, setLayouts,
+        documentEvents, layoutChangeEvents,
         actions, origins, originalParents, actionHost, dashRun, wbActions, moreMenu, morePanel
     };
 }
@@ -969,7 +988,102 @@ function actionsAreAtOrigins(harness) {
         eq('DOM 中途异常不触发业务副作用', businessCallCount(h.calls), 0);
     }
 
-    console.log(`\nbatch-layout.test.js: ${passed} assertions passed (12 contract groups) ✓`);
+    // 13) pixiv:batch-layout-changed 事件：只在布局真正成功变化后派发；投影失败 /
+    //     根属性写入失败 / 重复应用同一布局不派发；previousLayout 表示应用前有效布局（无法识别为 null）。
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench'
+        });
+        h.api.applyStoredLayout();
+        h.dom.layoutChangeEvents.length = 0;
+
+        eq('成功变化返回新布局', h.api.applyLayout('classic', {persist: true}), 'classic');
+        eq('成功变化后根布局更新', rootLayout(h), 'classic');
+        eq('成功变化派发一次事件', h.dom.layoutChangeEvents.length, 1);
+        jsonEq('事件 detail.layout 正确', h.dom.layoutChangeEvents[0].layout, 'classic');
+        jsonEq('事件 detail.previousLayout 正确', h.dom.layoutChangeEvents[0].previousLayout, 'workbench');
+
+        eq('切换回 workbench', h.api.applyLayout('workbench', {persist: true}), 'workbench');
+        eq('再次成功变化派发事件', h.dom.layoutChangeEvents.length, 2);
+        jsonEq('回切 previousLayout 为 classic', h.dom.layoutChangeEvents[1].previousLayout, 'classic');
+
+        h.dom.layoutChangeEvents.length = 0;
+        eq('重复应用同一布局返回原布局', h.api.applyLayout('workbench', {persist: true}), 'workbench');
+        eq('重复应用同一布局不派发', h.dom.layoutChangeEvents.length, 0);
+
+        eq('未知布局归一化到默认布局', h.api.applyLayout('unknown', {persist: true}), 'workbench');
+        eq('未知布局归一化后不派发', h.dom.layoutChangeEvents.length, 0);
+        eq('未知布局不改根布局', rootLayout(h), 'workbench');
+    }
+
+    // 14) 投影失败 / 根属性写入失败败 / localStorage 失败时的事件语义�?
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench',
+            missingActionOrigin: 'btn-export'
+        });
+        const placement = actionPlacementSnapshot(h);
+        h.api.applyStoredLayout();
+        h.dom.layoutChangeEvents.length = 0;
+        eq('缺 origin 导致投影预检失败时 applyLayout 返回 null',
+            h.api.applyLayout('classic', {persist: true}), null);
+        eq('投影失败不派发事件', h.dom.layoutChangeEvents.length, 0);
+        eq('投影失败不改根布局', rootLayout(h), 'workbench');
+        ok('投影失败不移动任何节点', actionPlacementsMatch(placement));
+    }
+
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench'
+        });
+        h.api.applyStoredLayout();
+        const setAttribute = h.dom.html.setAttribute.bind(h.dom.html);
+        h.dom.html.setAttribute = function (name, value) {
+            if (name === 'data-batch-layout') throw new Error('simulated setAttribute failure');
+            return setAttribute(name, value);
+        };
+        h.dom.layoutChangeEvents.length = 0;
+        eq('根属性写入失败时 applyLayout 返回 null', h.api.applyLayout('classic', {persist: true}), null);
+        eq('根属性写入失败不派发事件', h.dom.layoutChangeEvents.length, 0);
+        eq('根属性写入失败根布局保持 workbench', rootLayout(h), 'workbench');
+    }
+
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench'
+        });
+        h.api.applyStoredLayout();
+        h.storage.throwOnSet = true;
+        h.dom.layoutChangeEvents.length = 0;
+        eq('localStorage 写入失败但布局成功时 applyLayout 返回新布局',
+            h.api.applyLayout('classic', {persist: true}), 'classic');
+        eq('localStorage 写入失败仍派发事件（布局已成功）', h.dom.layoutChangeEvents.length, 1);
+        jsonEq('事件语义与持久化无关', h.dom.layoutChangeEvents[0].layout, 'classic');
+        eq('localStorage 写入失败根布局已更新', rootLayout(h), 'classic');
+    }
+
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench'
+        });
+        h.api.applyStoredLayout();
+        h.dom.html.setAttribute('data-batch-layout', 'no-such-layout');
+        h.dom.layoutChangeEvents.length = 0;
+        eq('无法识别 previousLayout 时仍派发事件', h.api.applyLayout('classic', {persist: true}), 'classic');
+        eq('事件数量正确', h.dom.layoutChangeEvents.length, 1);
+        jsonEq('无法识别 previousLayout 时为 null', h.dom.layoutChangeEvents[0].previousLayout, null);
+    }
+
+    console.log(`\nbatch-layout.test.js: ${passed} assertions passed (14 contract groups) ✓`);
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

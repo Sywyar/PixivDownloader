@@ -82,6 +82,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/pixiv-batch/**"),
                 WebRouteContribution.visitor("/pixiv-batch-alt.html"),
                 WebRouteContribution.visitor("/pixiv-batch-alt/**"),
+                WebRouteContribution.visitor("/pixiv-layout-feedback/**"),
+                WebRouteContribution.visitor("/vendor/posthog-js/**"),
                 WebRouteContribution.admin("/api/schedule/**"),
                 WebRouteContribution.invitedGuest("/api/download/status/active"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
@@ -116,7 +118,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 new StaticResourceContribution("classpath:/static/", "/pixiv-batch.html", true),
                 new StaticResourceContribution("classpath:/static/pixiv-batch/", "/pixiv-batch/"),
                 new StaticResourceContribution("classpath:/static/", "/pixiv-batch-alt.html", true),
-                new StaticResourceContribution("classpath:/static/pixiv-batch-alt/", "/pixiv-batch-alt/"));
+                new StaticResourceContribution("classpath:/static/pixiv-batch-alt/", "/pixiv-batch-alt/"),
+                new StaticResourceContribution("classpath:/static/pixiv-layout-feedback/", "/pixiv-layout-feedback/"),
+                new StaticResourceContribution("classpath:/static/vendor/posthog-js/", "/vendor/posthog-js/"));
     }
 
     @Override
@@ -145,7 +149,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return List.of(
                 new I18nContribution("batch", "i18n.web.batch", 5),
                 new I18nContribution("batch-alt", "i18n.web.batch-alt", 6),
-                new I18nContribution("userscript", "i18n.web.userscript", 16));
+                new I18nContribution("userscript", "i18n.web.userscript", 16),
+                new I18nContribution("layout-feedback", "i18n.web.layout-feedback", 15));
     }
 
     @Override

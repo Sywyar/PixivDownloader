@@ -1,0 +1,30 @@
+posthog-js vendored bundle source information
+=============================================
+
+Upstream project : posthog-js
+Upstream repo    : https://github.com/PostHog/posthog-js
+Upstream license : (Apache-2.0 AND MIT) - see LICENSE in this directory
+npm package      : https://www.npmjs.com/package/posthog-js
+Exact version    : 1.409.5 (npm dist-tag "latest" on 2026-08-03)
+
+How this file was obtained (run from a machine with network access):
+
+  npm view posthog-js version --registry=https://registry.npmjs.org/
+  npm view posthog-js dist-tags --json --registry=https://registry.npmjs.org/
+  npm view posthog-js@1.409.5 version dist.integrity dist.tarball license repository \
+    --json --registry=https://registry.npmjs.org/
+  npm pack posthog-js@1.409.5 --registry=https://registry.npmjs.org/
+
+The vendored file is the official classic-script browser build
+dist/array.full.js from the npm tarball (the "array full" build that bundles
+surveys and all optional extensions so no external CDN dependency is loaded
+at runtime). It is committed byte-for-byte; it is never re-built or re-minified
+by this project.
+
+Update procedure (see docs/layout-survey.md):
+  1. change the exact version in pixivdownload-plugin-download-workbench/pom.xml
+     (<posthog-js.version>);
+  2. re-run the npm commands above for the new version;
+  3. replace static/vendor/posthog-js/<version>/array.full.js and this
+     directory's LICENSE / INTEGRITY.txt / SOURCE.txt;
+  4. bump plugin.version and publish a new immutable plugin release.

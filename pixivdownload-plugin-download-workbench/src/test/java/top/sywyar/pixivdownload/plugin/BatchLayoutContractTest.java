@@ -610,6 +610,8 @@ class BatchLayoutContractTest {
                         "classpath:/static/|/pixiv-batch.html|true",
                         "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
                         "classpath:/static/|/pixiv-batch-alt.html|true",
-                        "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false");
+                        "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false",
+                        "classpath:/static/pixiv-layout-feedback/|/pixiv-layout-feedback/|false",
+                        "classpath:/static/vendor/posthog-js/|/vendor/posthog-js/|false");
     }
 }

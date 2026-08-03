@@ -85,9 +85,16 @@ jobs:
       - name: Build + publish updated plugins (per-plugin, version-gated)
         # 仅对「plugin.version 尚无对应 Release」的插件单独编译（mvn -pl <module> -am，不全量构建）并发布；
         # 版本已发布的插件跳过、绝不重编译 / 重上传（不可变）。更新一个插件 = 只编译并发布这一个。
+        # 布局偏好调查的四个公开客户端配置经 Repository Variables（vars 上下文，不是 secrets）注入，
+        # 只作用于 download-workbench 插件；上游仓库缺少任意一项时构建明确失败。
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
+          PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN: ${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}
+          PIXIV_LAYOUT_SURVEY_ID: ${{ vars.PIXIV_LAYOUT_SURVEY_ID }}
+          PIXIV_LAYOUT_SURVEY_API_HOST: ${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}
+          PIXIV_LAYOUT_SURVEY_UI_HOST: ${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}
+          PIXIV_LAYOUT_SURVEY_REQUIRE_CONFIG: ${{ github.repository == 'Sywyar/PixivDownloader' }}
         run: |
           $publishArgs = @{
             Repo = $env:PLUGINS_REPO

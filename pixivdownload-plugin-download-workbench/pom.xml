@@ -12,6 +12,21 @@
     <name>PixivDownloader Download Workbench Plugin</name>
     <description>Official required external PF4J plugin for the download workbench, Pixiv fetch proxy, queue, userscripts, and scheduled download host.</description>
 
+    <properties>
+        <!--
+            布局偏好调查（PostHog API Survey）公开客户端配置。
+            默认全部留空：普通源码构建与普通 fork 构建生成 enabled=false，不连接 PostHog。
+            官方发行构建经 GitHub Actions Repository Variables 注入四项（vars 上下文，不是 secrets）；
+            部分提供时构建失败并列出缺失字段。posthog-js 是程序依赖，锁定精确版本，不允许部署变量覆盖。
+        -->
+        <pixiv.layout-survey.project-token></pixiv.layout-survey.project-token>
+        <pixiv.layout-survey.survey-id></pixiv.layout-survey.survey-id>
+        <pixiv.layout-survey.api-host></pixiv.layout-survey.api-host>
+        <pixiv.layout-survey.ui-host></pixiv.layout-survey.ui-host>
+        <pixiv.layout-survey.require-config>false</pixiv.layout-survey.require-config>
+        <posthog-js.version>1.409.5</posthog-js.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
@@ -149,6 +164,31 @@
                                 <argument>-Command</argument>
                                 <argument>&amp; '${maven.multiModuleProjectDirectory}/scripts/build-userscript-bundle.ps1' -Version '${app.release.version}'</argument>
                             </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>generate-layout-survey-public-config</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                            <executable>${powershell.executable}</executable>
+                            <arguments>
+                                <argument>-NoProfile</argument>
+                                <argument>-NonInteractive</argument>
+                                <argument>-File</argument>
+                                <argument>${maven.multiModuleProjectDirectory}/scripts/generate-layout-survey-public-config.ps1</argument>
+                            </arguments>
+                            <environmentVariables>
+                                <PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN>${pixiv.layout-survey.project-token}</PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN>
+                                <PIXIV_LAYOUT_SURVEY_ID>${pixiv.layout-survey.survey-id}</PIXIV_LAYOUT_SURVEY_ID>
+                                <PIXIV_LAYOUT_SURVEY_API_HOST>${pixiv.layout-survey.api-host}</PIXIV_LAYOUT_SURVEY_API_HOST>
+                                <PIXIV_LAYOUT_SURVEY_UI_HOST>${pixiv.layout-survey.ui-host}</PIXIV_LAYOUT_SURVEY_UI_HOST>
+                                <PIXIV_LAYOUT_SURVEY_OUTPUT_PATH>${project.build.outputDirectory}/static/pixiv-layout-feedback/public-config.js</PIXIV_LAYOUT_SURVEY_OUTPUT_PATH>
+                                <PIXIV_LAYOUT_SURVEY_REQUIRE_CONFIG>${pixiv.layout-survey.require-config}</PIXIV_LAYOUT_SURVEY_REQUIRE_CONFIG>
+                            </environmentVariables>
                         </configuration>
                     </execution>
                 </executions>

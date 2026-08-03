@@ -46,7 +46,7 @@ function altScheduleSources() {
 async function altI18nNamespaces() {
     const queue = altQueueTypes();
     const schedule = altScheduleSources();
-    return ['batch-alt', 'batch', 'common', 'tour']
+    return ['batch-alt', 'batch', 'common', 'tour', 'layout-feedback']
         .concat(queue ? await queue.i18nNamespaces() : [])
         .concat(schedule ? await schedule.i18nNamespaces() : [])
         .filter((value, index, all) => value && all.indexOf(value) === index);
@@ -57,6 +57,13 @@ async function refreshAltI18n() {
     pageI18n = await PixivI18n.create({namespaces: await altI18nNamespaces()});
     pageI18n.apply();
     document.title = bt('page.title', '下载工作台 · Pixiv 下载助手');
+    if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.refreshLanguage === 'function') {
+        try {
+            window.PixivLayoutFeedback.refreshLanguage(pageI18n);
+        } catch (e) {
+            console.warn('[batch-alt] 布局偏好调查语言刷新失败：', e);
+        }
+    }
 }
 
 async function bootstrapAltExtensions() {

@@ -933,11 +933,114 @@ class PluginReleaseScriptsTest {
         }
     }
 
-    private static String script(String name) throws IOException {
-        return Files.readString(repoRoot().resolve("scripts").resolve(name), StandardCharsets.UTF_8);
+    @Test
+    @DisplayName("布局偏好调查四个固定 Repository Variable 经 vars 上下文只传给 download-workbench")
+    void layoutSurveyVarsAreFixedPublicVarsPassedOnlyToDownloadWorkbench() throws Exception {
+        String release = workflow("release.yml");
+        String nightly = workflow("nightly.yml");
+        String publish = workflow("publish-plugins.yml");
+
+        // 1. 固定变量名存在且使用 vars（Repository Variables）而非 secrets
+        for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
+            String workflow = workflow(name);
+            for (String variable : List.of(
+                    "PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN",
+                    "PIXIV_LAYOUT_SURVEY_ID",
+                    "PIXIV_LAYOUT_SURVEY_API_HOST",
+                    "PIXIV_LAYOUT_SURVEY_UI_HOST")) {
+                assertThat(workflow).as(name).contains(variable);
+                assertThat(workflow).as(name).doesNotContain("secrets." + variable);
+                assertThat(workflow).as(name).contains("vars." + variable);
+            }
+            // 3. 不存在 enabled / SDK 版本 Repository Variable
+            assertThat(workflow).as(name).doesNotContain("PIXIV_LAYOUT_SURVEY_ENABLED");
+            assertThat(workflow).as(name).doesNotContain("PIXIV_LAYOUT_SURVEY_POSTHOG_JS_VERSION");
+        }
+
+        // 2. 上游正式发布缺配置时失败：require-config 按 github.repository 推导
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+            assertThat(workflow).as(name).contains(
+                    "-Dpixiv.layout-survey.project-token=${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}",
+                    "-Dpixiv.layout-survey.survey-id=${{ vars.PIXIV_LAYOUT_SURVEY_ID }}",
+                    "-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}",
+                    "-Dpixiv.layout-survey.ui-host=${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}",
+                    "-Dpixiv.layout-survey.require-config=${{ github.repository == 'Sywyar/PixivDownloader' }}");
+        }
+        // 4. 发布脚本只在 download-workbench 插件上应用调查配置（不传给其它插件）
+        assertThat(script("publish-plugin-releases.ps1"))
+                .contains("if ($Plugin.Id -eq \"download-workbench\")")
+                .doesNotContain("$Plugin.Id -eq \"stats\"");
+        // 5. 参数带引号安全传递（避免空格拆分）
+        assertThat(release).contains("\"-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}\"");
+        // 8/9/10/11. release / nightly / workflow_dispatch / workflow_call 流程保留
+        assertThat(release).contains("push:", "tags:", "workflow_dispatch:");
+        assertThat(nightly).contains("schedule:", "workflow_dispatch:");
+        assertThat(publish).contains("workflow_call:", "workflow_dispatch:");
     }
 
-    private static String innoScript() throws IOException {
+    @Test
+    @DisplayName("插件发布脚本把调查配置写入 download-workbench jar 后再计算 sha256 / 签名")
+    void publishScriptBakesSurveyConfigIntoWorkbenchJarBeforeSigning() throws Exception {
+        String publishScript = script("publish-plugin-releases.ps1");
+        String common = script("plugin-distribution-common.ps1");
+
+        assertThat(publishScript).contains(
+                "New-LayoutSurveyPublicConfig",
+                "if ($Plugin.Id -eq \"download-workbench\")",
+                "Update-JarFileEntry",
+                "\"static/pixiv-layout-feedback/public-config.js\"",
+                "generator",
+                "PIXIV_LAYOUT_SURVEY_OUTPUT_PATH",
+                "enabled: true");
+        // 签名 / sha256 覆盖最终字节：生成器替换发生在 Build-StagedPluginArtifact 内部，
+        // Write-StagedCompanionFiles 在构建返回之后才计算校验与签名。
+        assertThat(publishScript.indexOf("Update-JarFileEntry"))
+                .as("jar 内容替换必须先于 sha256 / 签名")
+                .isGreaterThan(publishScript.indexOf("Copy-Item $builtArtifact $stagedArtifact -Force"));
+        assertThat(publishScript.indexOf("Write-StagedCompanionFiles -StagedArtifact $stagedArtifact"))
+                .as("sha256 / 签名在 jar 内容替换之后")
+                .isGreaterThan(publishScript.indexOf("Update-JarFileEntry"));
+
+        assertThat(common).contains(
+                "function Update-JarFileEntry",
+                "[System.IO.Compression.ZipArchiveMode]::Update",
+                "so the signature always",
+                "covers the final artifact bytes");
+        // 上游缺配置时发布脚本明确失败
+        assertThat(publishScript).contains(
+                "refusing to publish download-workbench without a complete configuration");
+    }
+
+    @Test
+    @DisplayName("full-offline / 市场 manifest 仍覆盖最终公开配置字节（插件 jar 是不可变发布身份）")
+    void distributionStillCoversFinalPublicConfig() throws Exception {
+        String distribution = script("assemble-plugin-distribution.ps1");
+        String common = script("plugin-distribution-common.ps1");
+        assertThat(distribution).contains(
+                "Get-OfficialDistributionPlugins",
+                "plugins-manifest.json",
+                "SHA256SUMS");
+        // 发布脚本以 plugin.version 为不可变键，已有版本绝不重传
+        assertThat(script("publish-plugin-releases.ps1")).contains(
+                "Bump plugin.version instead of publishing new bytes under an existing tag",
+                "already published with expected assets; skip");
+        // 生成器只输出公开客户端配置，不含任何管理密钥
+        String generator = script("generate-layout-survey-public-config.ps1");
+        assertThat(generator)
+                .contains("PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN")
+                .contains("PIXIV_LAYOUT_SURVEY_ID")
+                .contains("PIXIV_LAYOUT_SURVEY_API_HOST")
+                .contains("PIXIV_LAYOUT_SURVEY_UI_HOST")
+                .contains("Object.freeze({")
+                .doesNotContain("personalApiKey")
+                .doesNotContain("serviceAccountToken")
+                .doesNotContain("-----BEGIN PRIVATE KEY-----");
+    }
+
+    private static String script(String name) throws IOException {
+        return Files.readString(repoRoot().resolve("scripts").resolve(name), StandardCharsets.UTF_8);
+    }    private static String innoScript() throws IOException {
         return Files.readString(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
                 .resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
     }

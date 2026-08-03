@@ -363,6 +363,43 @@ function Get-ZipEntryNames {
     }
 }
 
+function Update-JarFileEntry {
+    # Replace (or add) a single entry inside a jar with the bytes of a local file.
+    # Used by the release publisher to bake the generated layout-survey public
+    # client configuration into the download-workbench plugin jar before its
+    # SHA-256 and detached signature are computed, so the signature always
+    # covers the final artifact bytes.
+    param(
+        [Parameter(Mandatory = $true)][string]$JarPath,
+        [Parameter(Mandatory = $true)][string]$EntryName,
+        [Parameter(Mandatory = $true)][string]$SourceFile
+    )
+    Import-ZipFileAssembly
+    # ZipArchiveMode lives in System.IO.Compression.dll; under Windows PowerShell
+    # 5.1 the FileSystem assembly may already satisfy the ZipFile type check while
+    # ZipArchiveMode is still unresolved, so load it explicitly before use.
+    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $SourceFile -PathType Leaf)) {
+        throw "Source file for jar entry update not found: $SourceFile"
+    }
+    $archive = [System.IO.Compression.ZipFile]::Open(
+        $JarPath, [System.IO.Compression.ZipArchiveMode]::Update)
+    try {
+        $existing = $archive.GetEntry($EntryName)
+        if ($existing) { $existing.Delete() }
+        $entry = $archive.CreateEntry($EntryName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $stream = $entry.Open()
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($SourceFile)
+            $stream.Write($bytes, 0, $bytes.Length)
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 function Read-PluginDescriptor {
     param([Parameter(Mandatory = $true)][string]$JarPath)
     Import-ZipFileAssembly

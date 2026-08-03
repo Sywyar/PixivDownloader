@@ -73,7 +73,14 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build JAR
-        run: mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }} "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
+        run: >
+          mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
+          "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
+          "-Dpixiv.layout-survey.project-token=${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}"
+          "-Dpixiv.layout-survey.survey-id=${{ vars.PIXIV_LAYOUT_SURVEY_ID }}"
+          "-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}"
+          "-Dpixiv.layout-survey.ui-host=${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}"
+          "-Dpixiv.layout-survey.require-config=${{ github.repository == 'Sywyar/PixivDownloader' }}"
 
       - name: Verify packaged distribution boundaries
         run: |

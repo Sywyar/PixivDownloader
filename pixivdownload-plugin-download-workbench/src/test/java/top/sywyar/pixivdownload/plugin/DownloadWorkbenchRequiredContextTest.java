@@ -89,13 +89,16 @@ class DownloadWorkbenchRequiredContextTest {
                         "classpath:/static/|/pixiv-batch.html|true",
                         "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
                         "classpath:/static/|/pixiv-batch-alt.html|true",
-                        "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false");
+                        "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false",
+                        "classpath:/static/pixiv-layout-feedback/|/pixiv-layout-feedback/|false",
+                        "classpath:/static/vendor/posthog-js/|/vendor/posthog-js/|false");
         assertThat(plugin.i18n())
                 .extracting(i18n -> i18n.namespace() + "|" + i18n.baseName())
                 .containsExactly(
                         "batch|i18n.web.batch",
                         "batch-alt|i18n.web.batch-alt",
-                        "userscript|i18n.web.userscript");
+                        "userscript|i18n.web.userscript",
+                        "layout-feedback|i18n.web.layout-feedback");
         assertThat(plugin.userscripts())
                 .extracting(script -> script.id() + "|" + script.classpathResource())
                 .containsExactly(

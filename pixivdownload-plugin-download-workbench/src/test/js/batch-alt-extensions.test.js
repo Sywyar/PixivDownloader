@@ -143,7 +143,7 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert.strictEqual(feedbackCalls[0].confirmLabel, '确认');
     assert(queueSource.includes("clearBtn.addEventListener('click', handleClear);"));
     assert.deepStrictEqual(Array.from(await sandbox.altI18nNamespaces()),
-        ['batch-alt', 'batch', 'common', 'tour', 'novel', 'schedule-extra']);
+        ['batch-alt', 'batch', 'common', 'tour', 'layout-feedback', 'novel', 'schedule-extra']);
     assert(pageSource.includes('data-nav-link-class="ab-topnav-link"'));
     assert(pageSource.includes('data-nav-current="download-workbench"'));
     assert(pageSource.includes('href="/pixiv-batch.html"'));

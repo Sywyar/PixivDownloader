@@ -4,7 +4,7 @@
    ============================================================ */
 async function initPageI18n() {
     try {
-        pageI18n = await PixivI18n.create({namespaces: ['batch-alt', 'batch', 'common', 'tour']});
+        pageI18n = await PixivI18n.create({namespaces: ['batch-alt', 'batch', 'common', 'tour', 'layout-feedback']});
     } catch {
         pageI18n = null;
     }
@@ -175,9 +175,25 @@ async function init() {
             refreshCookieUi();
             syncFilterButtonBadge();
             refreshGuideFab();
+            // 布局偏好调查：已打开的弹窗用新语言刷新文案（不丢失选择与建议）
+            if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.refreshLanguage === 'function') {
+                try {
+                    window.PixivLayoutFeedback.refreshLanguage(pageI18n);
+                } catch (e) {
+                    console.warn('[batch-alt] 布局偏好调查语言刷新失败：', e);
+                }
+            }
         });
     }
     setupOnboardingOrTour();
+    // 布局偏好调查（PostHog API Survey）：不阻塞核心初始化；内部自行延迟与门禁
+    if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.init === 'function') {
+        try {
+            window.PixivLayoutFeedback.init({page: 'alt', i18n: pageI18n});
+        } catch (e) {
+            console.warn('[batch-alt] 布局偏好调查初始化失败：', e);
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
