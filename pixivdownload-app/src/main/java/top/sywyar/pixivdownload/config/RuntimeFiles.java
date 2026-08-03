@@ -51,6 +51,7 @@ public final class RuntimeFiles {
     public static final String BACKFILL_UNREACHABLE_FILE = "unreachable.json";
     public static final String DELETE_STAGING_DIR = "delete-staging";
     public static final String DOWNLOAD_ROOT_MARKER = "download_root_marker.txt";
+    public static final String INSTALL_IDENTITY_FILE = "install_identity.txt";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
     private static final String LEGACY_GUI_STATE_DIR = "_gui";
     private static final List<String> SQLITE_COMPANION_SUFFIXES = List.of("-wal", "-shm");
@@ -182,6 +183,14 @@ public final class RuntimeFiles {
      */
     public static Path resolveDownloadRootMarkerPath() {
         return stateDirectory().resolve(DOWNLOAD_ROOT_MARKER).normalize();
+    }
+
+    /**
+     * 安装身份标识文件：{@code data/install_identity.txt}。首次运行生成后永久保留，不随
+     * {@code state/} 丢弃重建；本方法只解析路径、不创建文件，创建由 {@link InstallIdentity} 负责。
+     */
+    public static Path resolveInstallIdentityPath() {
+        return dataDirectory().resolve(INSTALL_IDENTITY_FILE).normalize();
     }
 
     public static Path singleInstanceDirectory() {
