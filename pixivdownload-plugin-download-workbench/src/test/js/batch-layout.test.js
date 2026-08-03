@@ -535,6 +535,22 @@ function actionsAreAtOrigins(harness) {
 }
 
 (async function main() {
+    // 0) 编码守卫：生产脚本与测试文件不得包含 Unicode U+FFFD 替换字符。
+    for (const [label, filePath] of [
+        ['batch-layout.js', SOURCE_PATH],
+        ['batch-layout.test.js', __filename]
+    ]) {
+        const text = fs.readFileSync(filePath, 'utf8');
+        const bytes = fs.readFileSync(filePath);
+        ok(label + ' 文本不含 U+FFFD 替换字符', text.indexOf('\uFFFD') === -1);
+        ok(label + ' 字节流不含 U+FFFD 替换字符', (() => {
+            for (let i = 0; i < bytes.length - 2; i++) {
+                if (bytes[i] === 0xEF && bytes[i + 1] === 0xBF && bytes[i + 2] === 0xBD) return false;
+            }
+            return true;
+        })());
+    }
+
     ok('系列下载声明与快捷获取同语义的数据来源 radiogroup',
         HTML.includes('class="series-data-source-control data-source-control"')
         && HTML.includes('id="series-data-source-switcher" role="radiogroup"')
@@ -1018,7 +1034,7 @@ function actionsAreAtOrigins(harness) {
         eq('未知布局不改根布局', rootLayout(h), 'workbench');
     }
 
-    // 14) 投影失败 / 根属性写入失败败 / localStorage 失败时的事件语义�?
+    // 14) 投影失败 / 根属性写入失败 / localStorage 失败时的事件语义。
     {
         const h = createHarness({
             layouts: ['workbench', 'classic'],
@@ -1083,7 +1099,65 @@ function actionsAreAtOrigins(harness) {
         jsonEq('无法识别 previousLayout 时为 null', h.dom.layoutChangeEvents[0].previousLayout, null);
     }
 
-    console.log(`\nbatch-layout.test.js: ${passed} assertions passed (14 contract groups) ✓`);
+    // 15) 事件派发与持久化解耦：persist=false、applyStoredLayout、storage 同步均只在
+    //     实际布局变化时派发一次；重复同步同一布局不派发。
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench'
+        });
+        h.api.applyStoredLayout();
+        h.dom.layoutChangeEvents.length = 0;
+
+        eq('persist=false 成功变化返回新布局', h.api.applyLayout('classic', {persist: false}), 'classic');
+        eq('persist=false 成功变化派发一次事件', h.dom.layoutChangeEvents.length, 1);
+        jsonEq('persist=false 事件 detail.layout 正确', h.dom.layoutChangeEvents[0].layout, 'classic');
+        jsonEq('persist=false 事件 detail.previousLayout 正确', h.dom.layoutChangeEvents[0].previousLayout, 'workbench');
+        eq('persist=false 不写 localStorage', h.storage.setCalls.length, 0);
+
+        h.dom.layoutChangeEvents.length = 0;
+        eq('persist=false 重复应用当前布局不派发', h.api.applyLayout('classic', {persist: false}), 'classic');
+        eq('persist=false 重复应用事件数为 0', h.dom.layoutChangeEvents.length, 0);
+    }
+
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench',
+            storage: {[STORAGE_KEY]: 'classic'}
+        });
+        h.dom.layoutChangeEvents.length = 0;
+        eq('applyStoredLayout 保存布局与当前不同时派发', h.api.applyStoredLayout(), 'classic');
+        eq('applyStoredLayout 派发一次事件', h.dom.layoutChangeEvents.length, 1);
+        jsonEq('applyStoredLayout previousLayout 为当前布局', h.dom.layoutChangeEvents[0].previousLayout, 'workbench');
+
+        h.dom.layoutChangeEvents.length = 0;
+        eq('applyStoredLayout 再次应用同一布局不派发', h.api.applyStoredLayout(), 'classic');
+        eq('applyStoredLayout 重复应用事件数为 0', h.dom.layoutChangeEvents.length, 0);
+    }
+
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench'
+        });
+        h.api.bindLayoutToggle();
+        h.dom.layoutChangeEvents.length = 0;
+        h.dispatchStorage(STORAGE_KEY, 'classic');
+        eq('storage 同步外部偏好导致实际变化时派发', h.dom.layoutChangeEvents.length, 1);
+        jsonEq('storage 同步 detail.layout 正确', h.dom.layoutChangeEvents[0].layout, 'classic');
+        jsonEq('storage 同步 detail.previousLayout 正确', h.dom.layoutChangeEvents[0].previousLayout, 'workbench');
+
+        h.dom.layoutChangeEvents.length = 0;
+        h.dispatchStorage(STORAGE_KEY, 'classic');
+        eq('重复 storage 同步同一布局不派发', h.dom.layoutChangeEvents.length, 0);
+        eq('重复 storage 同步后根布局保持 classic', rootLayout(h), 'classic');
+    }
+
+    console.log(`\nbatch-layout.test.js: ${passed} assertions passed (15 contract groups) ✓`);
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

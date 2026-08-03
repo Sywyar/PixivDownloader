@@ -400,6 +400,59 @@ function Update-JarFileEntry {
     }
 }
 
+function Read-JarFileEntryBytes {
+    # Return the raw bytes of a single entry inside a jar (or $null when the
+    # entry does not exist). Used to byte-verify baked configuration entries
+    # before checksums / signatures are computed.
+    param(
+        [Parameter(Mandatory = $true)][string]$JarPath,
+        [Parameter(Mandatory = $true)][string]$EntryName
+    )
+    Import-ZipFileAssembly
+    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($JarPath)
+    try {
+        $entry = $archive.GetEntry($EntryName)
+        if (-not $entry) { return $null }
+        $stream = $entry.Open()
+        try {
+            $memory = New-Object System.IO.MemoryStream
+            $stream.CopyTo($memory)
+            return $memory.ToArray()
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
+function Assert-JarFileEntryEqualsFile {
+    # Byte-for-byte equality between a jar entry and a local file. Throws on
+    # missing entry, size mismatch, or any single-byte difference.
+    param(
+        [Parameter(Mandatory = $true)][string]$JarPath,
+        [Parameter(Mandatory = $true)][string]$EntryName,
+        [Parameter(Mandatory = $true)][string]$SourceFile
+    )
+    if (-not (Test-Path -LiteralPath $SourceFile -PathType Leaf)) {
+        throw "Source file for jar entry assertion not found: $SourceFile"
+    }
+    $entryBytes = Read-JarFileEntryBytes $JarPath $EntryName
+    if ($null -eq $entryBytes) {
+        throw "Jar entry '$EntryName' not found in $JarPath"
+    }
+    $sourceBytes = [System.IO.File]::ReadAllBytes($SourceFile)
+    if ($entryBytes.Length -ne $sourceBytes.Length) {
+        throw "Jar entry '$EntryName' length mismatch in $JarPath (entry $($entryBytes.Length) bytes vs source $($sourceBytes.Length) bytes)."
+    }
+    for ($i = 0; $i -lt $entryBytes.Length; $i++) {
+        if ($entryBytes[$i] -ne $sourceBytes[$i]) {
+            throw "Jar entry '$EntryName' byte mismatch at offset $i in $JarPath."
+        }
+    }
+}
+
 function Read-PluginDescriptor {
     param([Parameter(Mandatory = $true)][string]$JarPath)
     Import-ZipFileAssembly

@@ -341,11 +341,12 @@ function applyBatchLayout(layout, options) {
         try {
             window.localStorage.setItem(BATCH_LAYOUT_STORAGE_KEY, normalized);
         } catch (_) {
-            // 浏览器拒绝持久化时仍保留当前页面的即时布局�?        }
+            // 浏览器拒绝持久化时仍保留当前页面的即时布局。
+        }
     }
-    // 布局真正成功变化后派发自定义事件（DOM 投影失败 / 根属性写入失败 / 重复应用同一布局均不派发）�?
-    
-    // previousLayout 表示应用前的有效布局；无法识别时为 null�?
+    // 布局真正成功变化后派发自定义事件；
+    // DOM 投影失败 / 根属性写入失败 / 重复应用同一布局均不派发。
+    // previousLayout 表示应用前的有效布局；无法识别时为 null。
     const previousLayoutToken = previousLayout == null || layouts.indexOf(previousLayout) < 0
         ? null
         : previousLayout;
@@ -365,10 +366,8 @@ function dispatchBatchLayoutChanged(layout, previousLayout) {
     try {
         document.dispatchEvent(event);
     } catch (_) {
-        // 事件派发失败不影响布局结果�?    }
-}
+        // 事件派发失败不影响布局结果。
     }
-    return normalized;
 }
 
 function applyStoredBatchLayout() {

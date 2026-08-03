@@ -422,30 +422,65 @@ function createFakeAdapter(overrides) {
     overrides = overrides || {};
     const calls = {init: [], capture: [], onFeatureFlags: [], getSurveys: []};
     let flagsListener = null;
+    let sdkConfig = null;
     const adapter = {
         calls,
         surveys: overrides.surveys || [],
+        sdkConfig() { return sdkConfig; },
         emitFlags() {
             if (flagsListener) flagsListener();
         },
         init(token, config) {
             calls.init.push({token, config});
+            sdkConfig = config;
         },
         capture(name, properties) {
             calls.capture.push({name, properties});
             if (overrides.capture === 'throw') throw new Error('capture failed');
-            if (overrides.capture === 'reject') return false;
-            return true;
+            if (overrides.capture === 'undefined') return undefined;
+            if (overrides.capture === 'null') return null;
+            if (overrides.capture === 'false') return false;
+            if (overrides.capture === 'reject') return undefined;
+            // 真实 posthog-js 语义：capture 构造 CaptureResult 事件对象，
+            // before_send 返回 null/undefined 时事件被 SDK 丢弃（capture 返回 undefined）。
+            const event = {
+                uuid: 'evt-' + String(calls.capture.length),
+                event: name,
+                timestamp: new Date().toISOString(),
+                properties: Object.assign({}, properties || {})
+            };
+            if (sdkConfig && typeof sdkConfig.before_send === 'function') {
+                const filtered = sdkConfig.before_send(event);
+                if (!filtered) return undefined;
+                return filtered;
+            }
+            return event;
+        },
+        has_opted_out_capturing() {
+            return !!overrides.optedOut;
+        },
+        is_capturing() {
+            if (overrides.isCapturing !== undefined) return !!overrides.isCapturing;
+            return !overrides.optedOut;
         },
         onFeatureFlags(cb) {
             calls.onFeatureFlags.push(cb);
             flagsListener = cb;
+            if (overrides.syncFlagsCallback) {
+                // 真实 SDK 竞态：flags 已加载时同步调用 callback，然后才返回 off。
+                cb();
+                return function off() {
+                    calls.offCalls = (calls.offCalls || 0) + 1;
+                    if (flagsListener === cb) flagsListener = null;
+                };
+            }
             if (!overrides.stallFlags) {
                 Promise.resolve().then(() => {
                     if (flagsListener === cb) cb();
                 });
             }
             return function off() {
+                calls.offCalls = (calls.offCalls || 0) + 1;
                 if (flagsListener === cb) flagsListener = null;
             };
         },
@@ -982,7 +1017,7 @@ function testSuggestionHandling() {
     }).then(() => {
         const h3 = initHarness({batchLayout: 'landscape'});
         return h3.api.open().then(() => waitForFlush()).then(() => {
-            eq('maxlength 属性为 1000', h3.textarea().getAttribute('maxlength'), String(SUGGESTION_MAX));
+            ok('不再使用 UTF-16 语义的原生 maxlength', h3.textarea().getAttribute('maxlength') === null);
             selectChoice(h3, 'pixiv-batch-landscape');
             const emoji = '\ud83d\ude00';
             h3.textarea().value = emoji.repeat(500);
@@ -1000,12 +1035,13 @@ function testSuggestionHandling() {
             selectChoice(h4, 'pixiv-batch-landscape');
             h4.textarea().value = 'a'.repeat(1001);
             h4.textarea().dispatchEvent({type: 'input'});
+            eq('input 事件把 1001 个字符截断为 1000', h4.textarea().value.length, 1000);
+            eq('截断后计数器显示 1000', h4.counter().textContent.split(' ')[0], '1000');
             h4.submitButton().click();
             return waitForFlush();
         }).then(() => {
-            eq('超过 1000 字不发送', captureEvents(h4).filter(e => e === 'survey sent').length, 0);
-            eq('超长显示错误', h4.error().hidden, false);
-            eq('超长弹窗未关闭', h4.document.querySelectorAll('.plf-backdrop').length, 1);
+            const props = captureProps(h4, 'survey sent');
+            eq('截断后按 1000 code point 提交', props['$survey_response_q-suggestion'], 'a'.repeat(1000));
         });
     });
 }
@@ -1231,6 +1267,14 @@ function testSdkInitConfigPrivacy() {
         eq('persistence 使用 localStorage', c.persistence, 'localStorage');
         eq('cross_subdomain_cookie 关闭', c.cross_subdomain_cookie, false);
         eq('DNT 尊重', c.respect_dnt, true);
+        eq('campaign params 关闭', c.save_campaign_params, false);
+        eq('referrer 不保存', c.save_referrer, false);
+        eq('rageclick 关闭', c.rageclick, false);
+        eq('SDK 默认 Survey 自动展示关闭', c.disable_surveys_automatic_display, true);
+        eq('flags 只评估 Survey 相关', c.advanced_only_evaluate_survey_feature_flags, true);
+        eq('外部脚本依赖关闭', c.disable_external_dependency_loading, true);
+        eq('flags 请求超时较短', c.feature_flag_request_timeout_ms, 5000);
+        eq('surveys 请求超时较短', c.surveys_request_timeout_ms, 15000);
         ok('before_send 已注册', typeof c.before_send === 'function');
     });
 }
@@ -1318,9 +1362,29 @@ function testCorruptStateIsCleaned() {
         batchLayout: 'landscape',
         minDistinct: 1
     });
+    const removeCallsBefore = h.storage.removeCalls.length;
     h.timers.advance(11000);
     return waitForFlush().then(() => {
         eq('损坏状态安全清理后仍可展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        ok('损坏 SEEN_KEY 在记录/清理路径中被 removeItem', h.storage.removeCalls
+            .some(k => k === SEEN_KEY));
+        ok('损坏 STATE_KEY 在门禁检查路径中被 removeItem', h.storage.removeCalls
+            .slice(removeCallsBefore).some(k => k === STATE_KEY));
+    });
+}
+
+function testCorruptStateRemoveThrowsStillSafe() {
+    const h = initHarness({
+        storage: {[STATE_KEY]: '{not json', [SEEN_KEY]: '[[['},
+        batchLayout: 'landscape',
+        minDistinct: 1,
+        throwOnRemove: true
+    });
+    h.timers.advance(11000);
+    return waitForFlush().then(() => {
+        eq('removeItem 抛错时损坏状态仍安全降级', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        ok('removeItem 抛错时仍尝试清理', h.storage.removeCalls
+            .some(k => k === STATE_KEY || k === SEEN_KEY));
     });
 }
 
@@ -1351,21 +1415,20 @@ function testStorageThrowSafe() {
 }
 
 function testCrossTabStorageSync() {
-    const h = initHarness({batchLayout: 'landscape'});
-    return h.api.open().then(() => waitForFlush()).then(() => {
-        selectChoice(h, 'pixiv-batch-alt');
-        h.actionButton('never').click();
-        return waitForFlush();
-    }).then(() => {
-        const h2 = initHarness({storage: h.storage, batchLayout: 'landscape'});
-        h2.dispatchStorage(STATE_KEY, JSON.stringify({
-            surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', status: 'submitted',
-            updatedAt: 999, snoozedUntil: 0
-        }));
-        h2.timers.advance(11000);
-        return waitForFlush().then(() => {
-            eq('storage 事件同步后不展示', h2.document.querySelectorAll('.plf-backdrop').length, 0);
-        });
+    // 另一标签页写入 submitted 后，本标签页收到 storage 事件并同步状态。
+    const h2 = initHarness({
+        storage: seenSeed(),
+        batchLayout: 'landscape'
+    });
+    const submitted = JSON.stringify({
+        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', status: 'submitted',
+        updatedAt: 999, snoozedUntil: 0
+    });
+    h2.storage.values.set(STATE_KEY, submitted);
+    h2.dispatchStorage(STATE_KEY, submitted);
+    h2.timers.advance(11000);
+    return waitForFlush().then(() => {
+        eq('storage 事件同步后不展示', h2.document.querySelectorAll('.plf-backdrop').length, 0);
     });
 }
 
@@ -1590,6 +1653,445 @@ function testCurrentLayoutBadge() {
 }
 
 /* ============================================================
+   capture 返回值矩阵与 before_send 顶层字段
+============================================================ */
+
+function submitWithCaptureOverride(override) {
+    const h = initHarness({
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], capture: override}),
+        batchLayout: 'landscape'
+    });
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        selectChoice(h, 'pixiv-batch-landscape');
+        h.submitButton().click();
+        return waitForFlush();
+    }).then(() => h);
+}
+
+function testCaptureResultAcceptanceMatrix() {
+    return Promise.resolve().then(() => submitWithCaptureOverride(null)).then(h => {
+        eq('CaptureResult 对象 → 写 submitted',
+            JSON.parse(h.storage.getItem(STATE_KEY)).status, 'submitted');
+        eq('CaptureResult 对象 → 关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('CaptureResult 对象 → 成功 Toast 恰好一次', h.toastCalls.length, 1);
+    }).then(() => submitWithCaptureOverride('undefined')).then(h => {
+        eq('capture 返回 undefined → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
+        eq('capture 返回 undefined → 保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('capture 返回 undefined → 显示可重试错误', h.error().hidden, false);
+        eq('capture 返回 undefined → 不显示成功 Toast', h.toastCalls.length, 0);
+    }).then(() => submitWithCaptureOverride('null')).then(h => {
+        eq('capture 返回 null → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
+        eq('capture 返回 null → 保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    }).then(() => submitWithCaptureOverride('false')).then(h => {
+        eq('capture 返回 false → 不写 submitted（防御兼容）', h.storage.getItem(STATE_KEY) === null, true);
+        eq('capture 返回 false → 保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    }).then(() => submitWithCaptureOverride('throw')).then(h => {
+        eq('capture 同步抛错 → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
+        eq('capture 同步抛错 → 保留弹窗可重试', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    }).then(() => {
+        // before_send 返回 null → SDK 丢弃事件 → capture 返回 undefined（真实 1.409.5 语义）
+        const h = initHarness({
+            adapter: (() => {
+                const a = createFakeAdapter({surveys: [defaultSurvey()]});
+                a.capture = function (name, properties) {
+                    const event = {
+                        uuid: 'evt-x', event: name, timestamp: 't',
+                        properties: Object.assign({}, properties)
+                    };
+                    const config = this.sdkConfig();
+                    if (config && typeof config.before_send === 'function') {
+                        config.before_send(event);
+                    }
+                    // 模拟 before_send 链中后续过滤器返回 null：
+                    // SDK 丢弃整个事件，capture() 返回 undefined。
+                    return undefined;
+                };
+                return a;
+            })(),
+            batchLayout: 'landscape'
+        });
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            selectChoice(h, 'pixiv-batch-landscape');
+            h.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            eq('before_send 返回 null → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
+        });
+    });
+}
+
+function testBeforeSendTopLevelFields() {
+    const filter = initHarness({}).api._internals.beforeSendFilter;
+    const withSet = {
+        uuid: 'evt-1',
+        event: 'survey sent',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        $set: {'$survey_test_responded': true},
+        $set_once: {'$initial_test': 'x'},
+        $unset: ['old'],
+        properties: {
+            distinct_id: 'anon-1',
+            token: 'phc_x',
+            '$survey_id': 's1',
+            '$survey_response_q-layout': 'pixiv-batch-portrait',
+            '$survey_response_q-suggestion': 'keep me',
+            $current_url: 'http://localhost:6999/pixiv-batch.html'
+        }
+    };
+    const out = filter(withSet);
+    eq('顶层 $set 被删除', out.$set, undefined);
+    eq('顶层 $set_once 被删除', out.$set_once, undefined);
+    eq('顶层 $unset 被删除', out.$unset, undefined);
+    eq('保留 uuid', out.uuid, 'evt-1');
+    eq('保留 event', out.event, 'survey sent');
+    eq('保留 timestamp', out.timestamp, '2026-01-01T00:00:00.000Z');
+    ok('保留 distinct_id / token / $survey_id', out.properties.distinct_id === 'anon-1'
+        && out.properties.token === 'phc_x' && out.properties.$survey_id === 's1');
+    eq('Survey response 不丢失', out.properties['$survey_response_q-layout'], 'pixiv-batch-portrait');
+    eq('建议响应不丢失', out.properties['$survey_response_q-suggestion'], 'keep me');
+    eq('环境属性仍被过滤', out.properties.$current_url, undefined);
+    ok('输出不携带多余顶层字段', Object.keys(out).every(k => ['uuid', 'event', 'timestamp', 'properties'].indexOf(k) >= 0));
+    eq('非 Survey 事件仍返回 null', filter({uuid: 'e', event: '$pageview', properties: {}}), null);
+}
+
+function testSdkInitCapturesConfigForBeforeSend() {
+    const h = initHarness({batchLayout: 'landscape'});
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        ok('fake adapter 保存了 SDK config', h.adapter.sdkConfig() !== null);
+        eq('config 含 before_send', typeof h.adapter.sdkConfig().before_send, 'function');
+    });
+}
+
+/* ============================================================
+   DNT / opt-out 门禁
+============================================================ */
+
+function testDntGateSilentSkip() {
+    const h = initHarness({
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], optedOut: true}),
+        batchLayout: 'landscape'
+    });
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('DNT opt-out 时不显示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('DNT opt-out 不调用 getActiveMatchingSurveys', h.adapter.calls.getSurveys.length, 0);
+        eq('DNT opt-out 不调用 capture', h.adapter.calls.capture.length, 0);
+        eq('DNT opt-out 不写任何反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+        eq('DNT opt-out 无错误提示', h.document.querySelectorAll('[data-plf-error]').length, 0);
+    });
+}
+
+function testIsCapturingFalseSilentSkip() {
+    const h = initHarness({
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], isCapturing: false}),
+        batchLayout: 'landscape'
+    });
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('is_capturing() false 时不显示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('is_capturing() false 不请求 Survey', h.adapter.calls.getSurveys.length, 0);
+        eq('is_capturing() false 不调用 capture', h.adapter.calls.capture.length, 0);
+    });
+}
+
+function testDntGateAutoFlowSilent() {
+    const h = initHarness({
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], optedOut: true}),
+        storage: seenSeed(),
+        batchLayout: 'landscape'
+    });
+    h.timers.advance(11000);
+    return waitForFlush().then(() => {
+        eq('DNT opt-out 自动流程不显示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('DNT opt-out 自动流程不发 shown', h.adapter.calls.capture.length, 0);
+        eq('DNT opt-out 自动流程不写状态', h.storage.getItem(STATE_KEY) === null, true);
+    });
+}
+
+function testDntGateNormalCapturingStillShows() {
+    const h = initHarness({
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], optedOut: false}),
+        batchLayout: 'landscape'
+    });
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('正常 capturing 状态仍可显示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('正常 capturing 请求 Survey', h.adapter.calls.getSurveys.length, 1);
+    });
+}
+
+/* ============================================================
+   自动展示状态机
+============================================================ */
+
+function testAutoShowWaitsForSecondLayout() {
+    const h = initHarness({storage: {}, minDistinct: 2, batchLayout: 'landscape'});
+    h.timers.advance(11000);
+    return waitForFlush().then(() => {
+        eq('第一次 10s 检查只有一个布局不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('未达阈值不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        return waitForFlush();
+    }).then(() => {
+        h.timers.advance(0);
+        return waitForFlush();
+    }).then(() => {
+        eq('切换第二个布局后自动展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testAutoShowVisibilityReschedule() {
+    const h = initHarness({
+        storage: seenSeed(),
+        batchLayout: 'landscape',
+        visibilityState: 'hidden'
+    });
+    h.timers.advance(11000);
+    return waitForFlush().then(() => {
+        eq('初次检查时页面 hidden 不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('页面 hidden 不消耗自动流程机会', h.adapter.calls.getSurveys.length, 0);
+        h.document.visibilityState = 'visible';
+        h.document.dispatchEvent({type: 'visibilitychange'});
+        return waitForFlush();
+    }).then(() => {
+        h.timers.advance(0);
+        return waitForFlush();
+    }).then(() => {
+        eq('页面 visible 后重新调度并展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testAutoShowOverlayRetryLimit() {
+    const h = initHarness({batchLayout: 'landscape', storage: seenSeed()});
+    h.body.classList.add('pixiv-feedback-open');
+    h.timers.advance(11000);
+    return waitForFlush().then(() => {
+        eq('阻塞弹窗存在时暂缓', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        h.body.classList.remove('pixiv-feedback-open');
+        h.timers.advance(6000);
+        return waitForFlush();
+    }).then(() => {
+        eq('有限重试后展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    }).then(() => {
+        const h2 = initHarness({batchLayout: 'landscape', storage: seenSeed()});
+        h2.body.classList.add('pixiv-feedback-open');
+        h2.timers.advance(11000);
+        h2.timers.advance(10000);
+        h2.timers.advance(10000);
+        h2.timers.advance(10000);
+        return waitForFlush().then(() => {
+            eq('超过重试上限后停止', h2.document.querySelectorAll('.plf-backdrop').length, 0);
+            h2.body.classList.remove('pixiv-feedback-open');
+            h2.timers.advance(6000);
+            return waitForFlush();
+        }).then(() => {
+            eq('超过重试上限后不再展示', h2.document.querySelectorAll('.plf-backdrop').length, 0);
+        });
+    });
+}
+
+function testAutoFlowStartsSurveyFlowOnce() {
+    const h = initHarness({batchLayout: 'landscape', storage: seenSeed()});
+    h.timers.advance(11000);
+    return waitForFlush().then(() => {
+        eq('自动流程启动一次', h.adapter.calls.getSurveys.length, 1);
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        h.dispatchLayoutChanged('landscape', 'portrait');
+        return waitForFlush();
+    }).then(() => {
+        h.timers.advance(0);
+        return waitForFlush();
+    }).then(() => {
+        eq('多次 layout changed 不启动第二个 Survey 流程', h.adapter.calls.getSurveys.length, 1);
+        eq('自动流程开始后不重复请求 Survey', h.adapter.calls.capture
+            .filter(c => c.name === 'survey shown').length, 1);
+    });
+}
+
+/* ============================================================
+   onFeatureFlags 同步回调竞态
+============================================================ */
+
+function testSyncFlagsCallbackRace() {
+    const adapter = createFakeAdapter({surveys: [defaultSurvey()], syncFlagsCallback: true});
+    const h = initHarness({adapter, batchLayout: 'landscape'});
+    const promise = h.api.open();
+    return waitForFlush().then(() => {
+        eq('同步 callback 后 off 被调用', (adapter.calls.offCalls || 0) >= 1, true);
+        eq('getActiveMatchingSurveys 只调用一次', adapter.calls.getSurveys.length, 1);
+        return promise.then(() => waitForFlush());
+    }).then(() => {
+        eq('同步 flags 场景正常展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testSyncFlagsCallbackWithStalledSurveys() {
+    const adapter = createFakeAdapter({
+        surveys: [defaultSurvey()],
+        syncFlagsCallback: true,
+        stallSurveys: true
+    });
+    const h = initHarness({adapter, batchLayout: 'landscape'});
+    const promise = h.api.open();
+    return waitForFlush().then(() => {
+        eq('flags 超时与同步 callback 竞争只请求一次', adapter.calls.getSurveys.length, 1);
+        h.timers.advance(40000);
+        return promise.then(() => waitForFlush());
+    }).then(() => {
+        eq('竞争场景总超时后安全结束', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('竞争场景 off 已注销', (adapter.calls.offCalls || 0) >= 1, true);
+    });
+}
+
+function testDestroyCancelsSurveyFetch() {
+    const adapter = createFakeAdapter({
+        surveys: [defaultSurvey()],
+        syncFlagsCallback: true,
+        stallSurveys: true
+    });
+    const h = initHarness({adapter, batchLayout: 'landscape'});
+    const promise = h.api.open();
+    return waitForFlush().then(() => {
+        h.api.destroy();
+        return waitForFlush();
+    }).then(() => {
+        h.timers.advance(50000);
+        return promise.then(() => waitForFlush());
+    }).then(() => {
+        eq('destroy 后不再展示调查', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后不留下活动 flags 监听', (adapter.calls.offCalls || 0) >= 1, true);
+    });
+}
+
+/* ============================================================
+   跨标签页弱去重
+============================================================ */
+
+function crossTabState(stateStatus, snoozedUntil) {
+    return JSON.stringify({
+        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        status: stateStatus,
+        updatedAt: 999,
+        snoozedUntil: snoozedUntil || 0
+    });
+}
+
+function testCrossTabSubmittedClosesOtherTab() {
+    const h2 = initHarness({batchLayout: 'landscape'});
+    return h2.api.open().then(() => waitForFlush()).then(() => {
+        eq('标签页 B 弹窗已打开', h2.document.querySelectorAll('.plf-backdrop').length, 1);
+        const submitted = crossTabState('submitted');
+        h2.storage.values.set(STATE_KEY, submitted);
+        h2.dispatchStorage(STATE_KEY, submitted);
+        return waitForFlush();
+    }).then(() => {
+        eq('标签页 B 收到 submitted storage 事件后关闭', h2.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('标签页 B 不发送第二条 dismissed', captureEvents(h2).indexOf('survey dismissed'), -1);
+        eq('标签页 B 不写状态覆盖', JSON.parse(h2.storage.getItem(STATE_KEY)).status, 'submitted');
+        ok('标签页 B 显示非阻塞提示', h2.toastCalls.length === 1);
+    });
+}
+
+function testCrossTabNeverAndSnoozeClosesOtherTab() {
+    return Promise.resolve().then(() => {
+        const h2 = initHarness({batchLayout: 'landscape'});
+        return h2.api.open().then(() => waitForFlush()).then(() => {
+            const never = crossTabState('never');
+            h2.storage.values.set(STATE_KEY, never);
+            h2.dispatchStorage(STATE_KEY, never);
+            return waitForFlush();
+        }).then(() => {
+            eq('never 关闭另一标签页', h2.document.querySelectorAll('.plf-backdrop').length, 0);
+        });
+    }).then(() => {
+        const h3 = initHarness({batchLayout: 'landscape'});
+        return h3.api.open().then(() => waitForFlush()).then(() => {
+            const snoozed = crossTabState('snoozed', 2000000);
+            h3.storage.values.set(STATE_KEY, snoozed);
+            h3.dispatchStorage(STATE_KEY, snoozed);
+            return waitForFlush();
+        }).then(() => {
+            eq('有效 snooze 关闭另一标签页', h3.document.querySelectorAll('.plf-backdrop').length, 0);
+        });
+    });
+}
+
+function testFreshCheckPreventsDuplicateSubmit() {
+    // 标签页 B：弹窗打开、已选布局，但在提交瞬间另一标签页已写入 submitted。
+    const h2 = initHarness({batchLayout: 'landscape'});
+    return h2.api.open().then(() => waitForFlush()).then(() => {
+        selectChoice(h2, 'pixiv-batch-portrait');
+        h2.storage.values.set(STATE_KEY, crossTabState('submitted'));
+        h2.submitButton().click();
+        return waitForFlush();
+    }).then(() => {
+        eq('提交前 fresh check 阻止重复提交', captureEvents(h2).filter(e => e === 'survey sent').length, 0);
+        eq('fresh check 拦截后关闭弹窗', h2.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('不额外发送 dismissed', captureEvents(h2).indexOf('survey dismissed'), -1);
+    });
+}
+
+/* ============================================================
+   Unicode 1000 code point 统一
+============================================================ */
+
+function hasLoneSurrogates(text) {
+    return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
+}
+
+function testUnicodeLengthMatrix() {
+    const emoji = '\ud83d\ude00';
+    return Promise.resolve().then(() => {
+        const h = initHarness({batchLayout: 'landscape'});
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            selectChoice(h, 'pixiv-batch-landscape');
+            h.textarea().value = 'a'.repeat(1000);
+            h.textarea().dispatchEvent({type: 'input'});
+            eq('1000 个普通字符允许', h.counter().textContent.split(' ')[0], '1000');
+            h.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            eq('1000 个普通字符可提交', captureProps(h, 'survey sent')['$survey_response_q-suggestion'].length, 1000);
+        });
+    }).then(() => {
+        const h = initHarness({batchLayout: 'landscape'});
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            selectChoice(h, 'pixiv-batch-landscape');
+            h.textarea().value = 'a'.repeat(1001);
+            h.textarea().dispatchEvent({type: 'input'});
+            eq('1001 个普通字符截断为 1000', h.textarea().value.length, 1000);
+        });
+    }).then(() => {
+        const h = initHarness({batchLayout: 'landscape'});
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            selectChoice(h, 'pixiv-batch-landscape');
+            h.textarea().value = emoji.repeat(1000);
+            h.textarea().dispatchEvent({type: 'input'});
+            eq('1000 个 Emoji 计数器一致', h.counter().textContent.split(' ')[0], '1000');
+            eq('1000 个 Emoji 允许（2000 UTF-16 单元不受 maxlength 影响）', h.textarea().value.length, 2000);
+            h.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            const sent = captureProps(h, 'survey sent')['$survey_response_q-suggestion'];
+            eq('Emoji 提交校验与计数器一致', Array.from(sent).length, 1000);
+            ok('Emoji 提交内容完整无孤立代理', !hasLoneSurrogates(sent) && sent === emoji.repeat(1000));
+        });
+    }).then(() => {
+        const h = initHarness({batchLayout: 'landscape'});
+        return h.api.open().then(() => waitForFlush()).then(() => {
+            selectChoice(h, 'pixiv-batch-landscape');
+            h.textarea().value = emoji.repeat(1001);
+            h.textarea().dispatchEvent({type: 'input'});
+            eq('1001 个 Emoji 截断为 1000 个 code point', h.counter().textContent.split(' ')[0], '1000');
+            eq('截断后为 2000 个 UTF-16 单元', h.textarea().value.length, 2000);
+            ok('截断结果不包含孤立代理项', !hasLoneSurrogates(h.textarea().value));
+            eq('截断结果为完整 Emoji 序列', h.textarea().value, emoji.repeat(1000));
+            h.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            eq('截断后 Emoji 可提交', captureProps(h, 'survey sent')['$survey_response_q-suggestion'] !== undefined, true);
+        });
+    });
+}
+
+/* ============================================================
    入口
 ============================================================ */
 
@@ -1622,6 +2124,7 @@ async function run() {
     await step('testSuggestionNeverLogged', testSuggestionNeverLogged);
     await step('testSubmittedNeverSnoozedGatesAutoShow', testSubmittedNeverSnoozedGatesAutoShow);
     await step('testCorruptStateIsCleaned', testCorruptStateIsCleaned);
+    await step('testCorruptStateRemoveThrowsStillSafe', testCorruptStateRemoveThrowsStillSafe);
     await step('testStorageThrowSafe', testStorageThrowSafe);
     await step('testCrossTabStorageSync', testCrossTabStorageSync);
     await step('testSdkLoadFailure', testSdkLoadFailure);
@@ -1637,6 +2140,24 @@ async function run() {
     await step('testLanguageSwitchPreservesInput', testLanguageSwitchPreservesInput);
     await step('testReducedMotionAndA11yBasics', testReducedMotionAndA11yBasics);
     await step('testCurrentLayoutBadge', testCurrentLayoutBadge);
+    await step('testCaptureResultAcceptanceMatrix', testCaptureResultAcceptanceMatrix);
+    await step('testBeforeSendTopLevelFields', testBeforeSendTopLevelFields);
+    await step('testSdkInitCapturesConfigForBeforeSend', testSdkInitCapturesConfigForBeforeSend);
+    await step('testDntGateSilentSkip', testDntGateSilentSkip);
+    await step('testIsCapturingFalseSilentSkip', testIsCapturingFalseSilentSkip);
+    await step('testDntGateAutoFlowSilent', testDntGateAutoFlowSilent);
+    await step('testDntGateNormalCapturingStillShows', testDntGateNormalCapturingStillShows);
+    await step('testAutoShowWaitsForSecondLayout', testAutoShowWaitsForSecondLayout);
+    await step('testAutoShowVisibilityReschedule', testAutoShowVisibilityReschedule);
+    await step('testAutoShowOverlayRetryLimit', testAutoShowOverlayRetryLimit);
+    await step('testAutoFlowStartsSurveyFlowOnce', testAutoFlowStartsSurveyFlowOnce);
+    await step('testSyncFlagsCallbackRace', testSyncFlagsCallbackRace);
+    await step('testSyncFlagsCallbackWithStalledSurveys', testSyncFlagsCallbackWithStalledSurveys);
+    await step('testDestroyCancelsSurveyFetch', testDestroyCancelsSurveyFetch);
+    await step('testCrossTabSubmittedClosesOtherTab', testCrossTabSubmittedClosesOtherTab);
+    await step('testCrossTabNeverAndSnoozeClosesOtherTab', testCrossTabNeverAndSnoozeClosesOtherTab);
+    await step('testFreshCheckPreventsDuplicateSubmit', testFreshCheckPreventsDuplicateSubmit);
+    await step('testUnicodeLengthMatrix', testUnicodeLengthMatrix);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 

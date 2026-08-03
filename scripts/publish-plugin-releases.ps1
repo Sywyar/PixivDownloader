@@ -136,6 +136,25 @@ function Build-StagedPluginArtifact {
             -JarPath $stagedArtifact `
             -EntryName "static/pixiv-layout-feedback/public-config.js" `
             -SourceFile $layoutSurveyConfig
+        # 字节级验证：entry 必须存在、与生成文件逐字节一致、enabled=true 且四项值完整，
+        # 之后才计算 sha256 / 签名（签名必须覆盖最终 artifact 字节）。
+        Assert-JarFileEntryEqualsFile `
+            -JarPath $stagedArtifact `
+            -EntryName "static/pixiv-layout-feedback/public-config.js" `
+            -SourceFile $layoutSurveyConfig
+        $bakedBytes = Read-JarFileEntryBytes `
+            -JarPath $stagedArtifact `
+            -EntryName "static/pixiv-layout-feedback/public-config.js"
+        $bakedText = [System.Text.Encoding]::UTF8.GetString($bakedBytes)
+        if ($bakedText -notmatch "enabled: true") {
+            throw "Baked layout survey public-config.js is not enabled=true in $stagedArtifact"
+        }
+        foreach ($needle in @("projectToken:", "surveyId:", "apiHost:", "uiHost:")) {
+            if ($bakedText -notmatch [regex]::Escape($needle)) {
+                throw "Baked layout survey public-config.js is missing '$needle' in $stagedArtifact"
+            }
+        }
+        Write-Host "==> Verified layout survey public-config.js baked into $stagedArtifact (enabled, byte-identical)."
     }
     return $stagedArtifact
 }

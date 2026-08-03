@@ -18,7 +18,9 @@
  *   - 不发送 Cookie / 账号 / 作品 / 路径 / 浏览器指纹；
  *   - autocapture / pageview / pageleave / replay / heatmap / error tracking / web vitals 全关；
  *   - before_send 只放行 survey shown / survey sent / survey dismissed 三个事件并做属性允许列表；
- *   - 本地弱去重（localStorage + 匿名 distinct ID），不是不可绕过的选举系统。
+ *   - 本地弱去重（localStorage + 匿名 distinct ID），不是不可绕过的选举系统；
+ *   - 跨标签页弱去重：storage 事件与提交前 fresh 读取会关闭另一标签页已处理的弹窗，
+ *     但无法消除两个标签页完全同时点击的竞态，不引入浏览器指纹或账号绑定。
  */
 (function (global) {
     'use strict';
@@ -34,6 +36,10 @@
     var MIN_DISTINCT_LAYOUTS_SEEN = 2;
     var AUTO_DELAY_MS = 10 * 1000;
     var AUTO_RETRY_DELAY_MS = 5 * 1000;
+    var AUTO_OVERLAY_RETRY_LIMIT = 3;
+    var AUTO_OVERLAY_RETRY_DELAY_MS = 5 * 1000;
+    var AUTO_OVERLAY_RETRY_WINDOW_MS = 30 * 1000;
+    var AUTO_RESCHEDULE_DELAY_MS = 0;
     var SUGGESTION_MAX_CODE_POINTS = 1000;
     var SURVEY_SCHEMA_VERSION = '1';
     var SDK_LOAD_TIMEOUT_MS = 10 * 1000;
@@ -133,6 +139,14 @@
      * 删除 $current_url / $referrer / $referring_domain / pathname / hostname
      * 等无关浏览器环境属性，保留 distinct_id、$survey_id、$survey_response_*
      * 与 SDK 必要协议字段。
+     *
+     * 顶层字段：posthog-js 1.409.5 会把 Survey 生命周期事件的 $set / $set_once /
+     * $unset 提升为事件顶层字段（capture 方法内 b.$set = ...，详见 vendored
+     * array.full.js 的 capture 实现）。$set 只用于写 person property
+     * （$survey_<id>_responded / $survey_last_seen_date），与调查响应匹配无关，
+     * 且本项目不调用 identify、不建立命名 Person，因此按最小化设计删除顶层
+     * $set / $set_once / $unset，只保留摄取必需的 uuid / event / timestamp /
+     * properties。
      */
     function beforeSendFilter(event) {
         if (!event || typeof event !== 'object') return null;
@@ -150,7 +164,22 @@
                 out[key] = props[key];
             }
         });
-        return Object.assign({}, event, {properties: out});
+        var minimal = {event: event.event, properties: out};
+        if (typeof event.uuid === 'string') minimal.uuid = event.uuid;
+        if (typeof event.timestamp === 'string') minimal.timestamp = event.timestamp;
+        return minimal;
+    }
+
+    /**
+     * 判断 capture 返回值是否为 SDK 已接受事件的 CaptureResult。
+     * posthog-js 1.409.5 的 capture() 成功时返回 CaptureResult 对象（含 event
+     * 字段）；被丢弃（before_send 拒绝 / bot / 客户端限流 / DNT / 未初始化 /
+     * 已 opt-out）时返回 undefined。null / undefined / false 均视为未接受。
+     */
+    function isAcceptedCaptureResult(result, expectedEventName) {
+        return !!result
+            && typeof result === 'object'
+            && result.event === expectedEventName;
     }
 
     function distinctSeenCount(seen) {
@@ -185,10 +214,12 @@
     var realSdkPromise = null;
     var sdkLoading = false;
     var postHogInitialized = false;
-    var autoScheduled = false;
-    var autoRetried = false;
-    var autoClaimed = false;
+    var autoTimerId = null;
+    var autoFlowStarted = false;
+    var autoRetryCount = 0;
+    var autoRetryStartedAt = 0;
     var flowRunning = false;
+    var pendingSurveyCancel = null;
     var dialogOpen = false;
     var submitting = false;
     var shownSent = false;
@@ -266,24 +297,49 @@
         };
     }
 
-    function readStateRaw() {
-        if (sessionState) return sessionState;
-        if (!storage) return null;
+    /**
+     * 直接读取持久化状态（不走 sessionState 缓存），并以此刷新缓存。
+     * storage 不可用 / 不可读时降级到内存态；STATE_KEY JSON 损坏时尝试
+     * removeItem 清理并清空 sessionState，绝不因存储损坏中断页面。
+     */
+    function readStateFresh() {
+        if (!config) return null;
+        if (!storage) return sessionState;
+        var raw = null;
         try {
-            var raw = storage.getItem(STATE_KEY);
-            if (!raw) return null;
-            var parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object') return null;
-            sessionState = parsed;
-            return parsed;
+            raw = storage.getItem(STATE_KEY);
         } catch (_) {
+            // 存储不可读：保留内存态。
+            return sessionState;
+        }
+        if (!raw) {
+            sessionState = null;
             return null;
         }
+        var parsed = null;
+        try {
+            var candidate = JSON.parse(raw);
+            if (candidate && typeof candidate === 'object') parsed = candidate;
+        } catch (_) {
+            parsed = null;
+        }
+        if (!parsed) {
+            // 损坏 JSON：清理并清空会话状态。
+            try {
+                storage.removeItem(STATE_KEY);
+            } catch (_) {
+                // 清理尽力而为。
+            }
+            sessionState = null;
+            return null;
+        }
+        sessionState = parsed;
+        return parsed;
     }
 
     function readState() {
         if (!config) return null;
-        var state = readStateRaw();
+        var state = readStateFresh();
         if (!state || state.surveyId !== config.surveyId) return null;
         return state;
     }
@@ -317,19 +373,34 @@
     }
 
     function readSeenRaw() {
-        if (storage) {
-            try {
-                var raw = storage.getItem(SEEN_KEY);
-                if (!raw) return Object.assign({}, sessionSeen);
-                var parsed = JSON.parse(raw);
-                if (!parsed || typeof parsed !== 'object') return Object.assign({}, sessionSeen);
-                sessionSeen = parsed;
-                return parsed;
-            } catch (_) {
-                return Object.assign({}, sessionSeen);
-            }
+        if (!storage) return Object.assign({}, sessionSeen);
+        var raw = null;
+        try {
+            raw = storage.getItem(SEEN_KEY);
+        } catch (_) {
+            // 存储不可读：保留会话记录。
+            return Object.assign({}, sessionSeen);
         }
-        return Object.assign({}, sessionSeen);
+        if (!raw) return Object.assign({}, sessionSeen);
+        var parsed = null;
+        try {
+            var candidate = JSON.parse(raw);
+            if (candidate && typeof candidate === 'object') parsed = candidate;
+        } catch (_) {
+            parsed = null;
+        }
+        if (!parsed) {
+            // 损坏 JSON：清理并清空会话记录。
+            try {
+                storage.removeItem(SEEN_KEY);
+            } catch (_) {
+                // 清理尽力而为。
+            }
+            sessionSeen = {};
+            return {};
+        }
+        sessionSeen = parsed;
+        return Object.assign({}, parsed);
     }
 
     function writeSeen(seen) {
@@ -450,10 +521,46 @@
             persistence: 'localStorage',
             cross_subdomain_cookie: false,
             respect_dnt: true,
+            save_campaign_params: false,
+            save_referrer: false,
+            rageclick: false,
+            disable_surveys_automatic_display: true,
+            advanced_only_evaluate_survey_feature_flags: true,
+            disable_external_dependency_loading: true,
+            feature_flag_request_timeout_ms: 5000,
+            surveys_request_timeout_ms: 15000,
             mask_all_text: true,
             mask_all_element_attributes: true,
             before_send: beforeSendFilter
         };
+    }
+
+    /**
+     * DNT / opt-out 门禁：在 PostHog 初始化完成后、请求 Survey 之前检查。
+     * has_opted_out_capturing() 与 is_capturing() 都是 1.409.5 的正式公开方法
+     * （vendored array.full.js 中 this.has_opted_out_capturing=... 直接暴露）。
+     * opt-out / 不捕获时静默结束：不请求 Survey、不显示弹窗、不发 shown、
+     * 不写任何反馈状态、不向用户显示错误。方法不存在或抛错时不得阻断调查。
+     */
+    function isCapturingDisabled(sdk) {
+        if (!sdk) return false;
+        try {
+            if (typeof sdk.has_opted_out_capturing === 'function'
+                    && sdk.has_opted_out_capturing()) {
+                return true;
+            }
+        } catch (_) {
+            // 兼容性失败不得阻断调查。
+        }
+        try {
+            if (typeof sdk.is_capturing === 'function'
+                    && sdk.is_capturing() === false) {
+                return true;
+            }
+        } catch (_) {
+            // 兼容性失败不得阻断调查。
+        }
+        return false;
     }
 
     function loadSdkScript() {
@@ -537,7 +644,10 @@
                 }
                 try {
                     var result = sdk.capture(name, properties);
-                    finish(result !== false);
+                    // 只有 capture 返回非空 CaptureResult 对象（result.event === name）
+                    // 才视为 SDK 已接受事件；undefined / null / false 均视为未接受。
+                    // 这只证明 SDK 本地接受了事件，不保证 PostHog 服务端最终入库。
+                    finish(isAcceptedCaptureResult(result, name));
                 } catch (_) {
                     finish(false);
                 }
@@ -736,7 +846,9 @@
             var textarea = buildElement('textarea', 'plf-suggestion-input');
             textarea.id = 'plf-suggestion-input';
             textarea.rows = 3;
-            textarea.setAttribute('maxlength', String(SUGGESTION_MAX_CODE_POINTS));
+            // 不设原生 maxlength：它按 UTF-16 code unit 计数，与 1000 个
+            // Unicode code point 的限制语义冲突；截断统一在 input 事件中按
+            // code point 完成（onSuggestionInput）。
             textarea.setAttribute('data-i18n-placeholder', I18N_NS + ':suggestion-placeholder');
             textarea.placeholder = t('suggestion-placeholder', '例如：信息密度、导航位置、按钮大小、队列展示或移动端体验……');
             var counter = buildElement('span', 'plf-suggestion-counter');
@@ -869,6 +981,14 @@
     }
 
     function onSuggestionInput() {
+        if (dialogElements && dialogElements.textarea) {
+            var value = String(dialogElements.textarea.value);
+            var points = Array.from(value);
+            if (points.length > SUGGESTION_MAX_CODE_POINTS) {
+                // 按 code point 截断（不会切断代理对 / 组合字符）。
+                dialogElements.textarea.value = points.slice(0, SUGGESTION_MAX_CODE_POINTS).join('');
+            }
+        }
         updateCounterText();
         hideError();
     }
@@ -1042,7 +1162,7 @@
             return;
         }
         var suggestion = trimSuggestion();
-        if (suggestion.length > SUGGESTION_MAX_CODE_POINTS) {
+        if (codePointLength(suggestion) > SUGGESTION_MAX_CODE_POINTS) {
             lastErrorKey = 'error-suggestion-too-long';
             showError('error-suggestion-too-long');
             return;
@@ -1050,6 +1170,24 @@
         submitting = true;
         setSubmittingState(true);
         hideError();
+
+        // 发送前执行一次不走缓存的持久化状态读取：另一标签页可能已提交 /
+        // 永久关闭 / 进入有效 snooze，此时取消本次提交并关闭弹窗，不发送
+        // 第二条 survey sent（弱去重，无法消除完全同时点击的竞态）。
+        var freshState = readStateFresh();
+        if (freshState && freshState.surveyId === dialogSurveyId) {
+            var stateNow = timers.now();
+            if (freshState.status === 'submitted' || freshState.status === 'never'
+                    || (freshState.status === 'snoozed'
+                        && stateNow < (typeof freshState.snoozedUntil === 'number'
+                            ? freshState.snoozedUntil
+                            : 0))) {
+                submitting = false;
+                closeDialog(true);
+                showHandledElsewhereNote();
+                return;
+            }
+        }
 
         var choiceId = dialogChoiceQuestion.id;
         var suggestionQuestion = dialogSuggestionQuestion;
@@ -1092,6 +1230,18 @@
         }
     }
 
+    function showHandledElsewhereNote() {
+        // 非阻塞提示：同一调查已在另一标签页处理。不重复发送 dismissed、
+        // 不改写其它标签页的状态、不显示提交失败。
+        if (global.PixivFeedback && typeof global.PixivFeedback.toast === 'function') {
+            try {
+                global.PixivFeedback.toast({kind: 'info', message: t('handled-elsewhere', '该布局调查已在其他标签页处理。')});
+            } catch (_) {
+                // 提示失败不影响已关闭的弹窗
+            }
+        }
+    }
+
     /* ============================================================
        Survey 获取
     ============================================================ */
@@ -1111,6 +1261,7 @@
     function fetchMatchingSurvey(sdk) {
         return new Promise(function (resolve) {
             var settled = false;
+            var surveyRequested = false;
             var off = null;
             var flagTimer = null;
             var totalTimer = setTimeoutSafe(function () { finish(null); }, SURVEY_TOTAL_TIMEOUT_MS);
@@ -1119,29 +1270,48 @@
                 settled = true;
                 clearTimerSafe(totalTimer);
                 if (flagTimer != null) clearTimerSafe(flagTimer);
-                if (off) {
+                if (typeof off === 'function') {
                     try { off(); } catch (_) { /* 解除监听尽力而为 */ }
+                    off = null;
                 }
+                if (pendingSurveyCancel === cancel) pendingSurveyCancel = null;
                 resolve(survey);
             }
+            function cancel() {
+                // destroy() 等场景的外部取消：终止 flags 监听与定时器，让
+                // 待处理 Promise 安全结束（此后 getActiveMatchingSurveys
+                // 回调因 settled 直接返回，不产生额外副作用）。
+                finish(null);
+            }
             function proceed() {
+                if (settled || surveyRequested) return;
+                surveyRequested = true;
+                if (flagTimer != null) clearTimerSafe(flagTimer);
                 try {
                     sdk.getActiveMatchingSurveys(function (surveys) {
+                        if (settled) return;
                         finish(findTargetSurvey(surveys));
                     }, false);
                 } catch (_) {
                     finish(null);
                 }
             }
+            pendingSurveyCancel = cancel;
             flagTimer = setTimeoutSafe(function () { proceed(); }, FLAGS_TIMEOUT_MS);
             try {
                 off = sdk.onFeatureFlags(function () {
-                    if (flagTimer != null) clearTimerSafe(flagTimer);
                     proceed();
                 });
             } catch (_) {
+                off = null;
                 if (flagTimer != null) clearTimerSafe(flagTimer);
                 proceed();
+            }
+            // onFeatureFlags 可能在注册阶段同步调用 callback 并完成流程：
+            // 此时取消订阅返回值刚产生，必须立即注销，避免残留活动监听。
+            if (settled && typeof off === 'function') {
+                try { off(); } catch (_) { /* 解除监听尽力而为 */ }
+                off = null;
             }
         });
     }
@@ -1152,6 +1322,8 @@
         return resolveSdk().then(function (sdk) {
             if (!sdk || typeof sdk.init !== 'function') return null;
             initPostHog(sdk);
+            // DNT / opt-out：不请求 Survey、不显示、不发 shown、不写状态、不报错。
+            if (isCapturingDisabled(sdk)) return null;
             return fetchMatchingSurvey(sdk);
         }).then(function (survey) {
             if (!survey) return null;
@@ -1196,15 +1368,44 @@
         var layoutId = mapLayoutToken(detail.layout);
         if (!layoutId) return;
         recordSeen(layoutId, timers.now());
+        // 达到体验阈值且尚未开始自动流程时，重新调度一次自动检查。
+        if (!autoFlowStarted && seenCount() >= minDistinctLayouts) {
+            scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
+        }
+    }
+
+    function refreshStateFromStorage() {
+        readStateFresh();
+        if (!dialogOpen || !dialogSurveyId) return;
+        var state = readState();
+        if (!state) return;
+        var now = timers.now();
+        var handledElsewhere = state.status === 'submitted' || state.status === 'never'
+            || (state.status === 'snoozed'
+                && now < (typeof state.snoozedUntil === 'number' ? state.snoozedUntil : 0));
+        if (!handledElsewhere) return;
+        // 另一标签页已处理该调查：关闭当前弹窗；不重复发送 dismissed；
+        // 不改写另一标签页的状态；不显示提交失败；只显示非阻塞提示。
+        closeDialog(true);
+        showHandledElsewhereNote();
     }
 
     function onStorageEvent(event) {
         if (!event) return;
         if (event.key === STATE_KEY) {
-            sessionState = null;
+            refreshStateFromStorage();
         } else if (event.key === SEEN_KEY) {
             sessionSeen = {};
+            if (!autoFlowStarted && seenCount() >= minDistinctLayouts) {
+                scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
+            }
         }
+    }
+
+    function onVisibilityChange() {
+        // 页面重新可见时重新调度自动检查（初次检查时 hidden 不消耗机会）。
+        if (!isPageVisible()) return;
+        scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
     }
 
     function registerListeners() {
@@ -1220,6 +1421,11 @@
                 global.document.addEventListener('pixiv:batch-layout-changed', onLayoutChanged);
             } catch (_) {
                 // 布局事件不可用时静默降级
+            }
+            try {
+                global.document.addEventListener('visibilitychange', onVisibilityChange);
+            } catch (_) {
+                // 可见性事件不可用时静默降级
             }
         }
     }
@@ -1238,28 +1444,49 @@
             } catch (_) {
                 // 清理尽力而为
             }
+            try {
+                global.document.removeEventListener('visibilitychange', onVisibilityChange);
+            } catch (_) {
+                // 清理尽力而为
+            }
         }
     }
 
-    function scheduleAutoShow() {
-        if (autoScheduled) return;
-        autoScheduled = true;
-        setTimeoutSafe(runAutoAttempt, autoDelay);
+    /**
+     * 自动资格检查状态机：
+     * - 初始化后至少延迟 autoDelay（默认 10 秒）再评估；
+     * - 定时器真正执行时清除「已调度」标记，允许未来事件重新调度；
+     * - 页面不可见 / 未达体验阈值时不加载 SDK、不消耗本页面唯一自动流程机会；
+     * - 阻塞弹窗存在时按有限次数与有限总时间重试，不无限轮询；
+     * - 只有真正准备调用 showSurveyFlow() 时才设置 autoFlowStarted=true，
+     *   同一页面此后不再发起第二次自动 Survey 网络流程。
+     */
+    function scheduleAutoEvaluation(delay) {
+        if (autoTimerId != null) return;
+        if (autoFlowStarted) return;
+        var id = setTimeoutSafe(function () {
+            autoTimerId = null;
+            evaluateAutoEligibility();
+        }, delay);
+        autoTimerId = id;
     }
 
-    function runAutoAttempt() {
-        if (autoClaimed) return;
+    function evaluateAutoEligibility() {
+        if (autoFlowStarted) return;
         if (!config || !config.enabled) return;
         if (!stateAllowsShow(timers.now())) return;
         if (!isPageVisible()) return;
         if (hasBlockingOverlay()) {
-            if (autoRetried) return;
-            autoRetried = true;
-            setTimeoutSafe(runAutoAttempt, AUTO_RETRY_DELAY_MS);
+            // 有限重试：次数与总时间双上限，不无限轮询。
+            if (autoRetryCount >= AUTO_OVERLAY_RETRY_LIMIT) return;
+            if (autoRetryStartedAt === 0) autoRetryStartedAt = timers.now();
+            if (timers.now() - autoRetryStartedAt > AUTO_OVERLAY_RETRY_WINDOW_MS) return;
+            autoRetryCount++;
+            scheduleAutoEvaluation(AUTO_OVERLAY_RETRY_DELAY_MS);
             return;
         }
         if (seenCount() < minDistinctLayouts) return;
-        autoClaimed = true;
+        autoFlowStarted = true;
         showSurveyFlow();
     }
 
@@ -1295,7 +1522,7 @@
         var now = timers.now();
         recordSeen(currentLayoutId(), now);
         loadAppVersion();
-        scheduleAutoShow();
+        scheduleAutoEvaluation(autoDelay);
     }
 
     /**
@@ -1309,6 +1536,14 @@
 
     function destroy() {
         if (dialogOpen) closeDialog(false);
+        if (typeof pendingSurveyCancel === 'function') {
+            try {
+                pendingSurveyCancel();
+            } catch (_) {
+                // 取消尽力而为
+            }
+            pendingSurveyCancel = null;
+        }
         removeListeners();
         pendingTimers.forEach(function (id) {
             try {
@@ -1319,9 +1554,10 @@
         });
         pendingTimers = [];
         initialized = false;
-        autoScheduled = false;
-        autoRetried = false;
-        autoClaimed = false;
+        autoTimerId = null;
+        autoFlowStarted = false;
+        autoRetryCount = 0;
+        autoRetryStartedAt = 0;
         flowRunning = false;
         submitting = false;
         realSdkPromise = null;
@@ -1358,6 +1594,9 @@
             MIN_DISTINCT_LAYOUTS_SEEN: MIN_DISTINCT_LAYOUTS_SEEN,
             AUTO_DELAY_MS: AUTO_DELAY_MS,
             AUTO_RETRY_DELAY_MS: AUTO_RETRY_DELAY_MS,
+            AUTO_OVERLAY_RETRY_LIMIT: AUTO_OVERLAY_RETRY_LIMIT,
+            AUTO_OVERLAY_RETRY_DELAY_MS: AUTO_OVERLAY_RETRY_DELAY_MS,
+            AUTO_OVERLAY_RETRY_WINDOW_MS: AUTO_OVERLAY_RETRY_WINDOW_MS,
             SUGGESTION_MAX_CODE_POINTS: SUGGESTION_MAX_CODE_POINTS,
             SURVEY_SCHEMA_VERSION: SURVEY_SCHEMA_VERSION,
             SDK_LOAD_TIMEOUT_MS: SDK_LOAD_TIMEOUT_MS,
@@ -1370,6 +1609,7 @@
             resolveChoiceQuestion: resolveChoiceQuestion,
             resolveSuggestionQuestion: resolveSuggestionQuestion,
             beforeSendFilter: beforeSendFilter,
+            isAcceptedCaptureResult: isAcceptedCaptureResult,
             distinctSeenCount: distinctSeenCount
         })
     });
