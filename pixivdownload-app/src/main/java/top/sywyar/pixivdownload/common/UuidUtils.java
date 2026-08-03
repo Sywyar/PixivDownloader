@@ -22,8 +22,10 @@ public class UuidUtils {
             Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     /**
-     * 严格解析 UUID v4：外形合法且 {@code version()==4}、{@code variant()==2}
-     * （RFC 4122）才返回；其余一律返回 null，不抛异常。
+     * 严格解析 UUID v4：先校验 canonical 8-4-4-4-12 外形（两侧空白 / 末尾换行在 trim 后
+     * 检查），再要求 {@code version()==4}、{@code variant()==2}（RFC 4122）才返回；
+     * 其余一律返回 null，不抛异常。拒绝缺字符 / 多余字符 / 非标准短组 / 缺连字符 /
+     * version 非 4 / variant 非 2 的输入。
      *
      * <p>用于安装身份等要求真实 v4 的契约；普通 UUID 场景继续使用 {@link #UUID_PATTERN}，
      * 不把全局模式收紧成只接受 v4。
@@ -32,8 +34,12 @@ public class UuidUtils {
         if (text == null) {
             return null;
         }
+        String normalized = text.trim();
+        if (!UUID_PATTERN.matcher(normalized).matches()) {
+            return null;
+        }
         try {
-            UUID uuid = UUID.fromString(text.trim());
+            UUID uuid = UUID.fromString(normalized);
             return uuid.version() == 4 && uuid.variant() == 2 ? uuid : null;
         } catch (IllegalArgumentException e) {
             return null;

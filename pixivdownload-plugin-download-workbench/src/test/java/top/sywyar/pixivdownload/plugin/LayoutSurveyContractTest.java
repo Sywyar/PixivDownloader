@@ -166,6 +166,36 @@ class LayoutSurveyContractTest {
     }
 
     @Test
+    @DisplayName("Java 枚举小写 wire value 与前端状态校验字面量两端一致（无各自硬编码假协议）")
+    void javaWireValuesMatchFrontendLiterals() throws IOException {
+        String js = read(SURVEY_JS);
+        // 前端 applyServerSnapshot 只接受小写状态字面量；每个 Java wire value 必须真实出现。
+        for (top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision decision :
+                top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision.values()) {
+            String wire = decision.wireName();
+            assertThat(js).as("前端必须接受 Java 小写 wire value: " + wire)
+                    .contains("data.state.status !== '" + wire + "'")
+                    .contains("state.status === '" + wire + "'");
+        }
+        // 前端不得为兼容服务端而硬编码大写枚举名（大写只允许出现在 Java 旧值兼容入口）。
+        assertThat(js).as("前端不得包含大写旧枚举名").doesNotContain("'SUBMITTED'")
+                .doesNotContain("'NEVER'")
+                .doesNotContain("'SNOOZED'");
+        // 命令字面量同样与小写 wire 对齐：submitted / never / snooze / record_seen。
+        assertThat(js).contains("'record_seen'").contains("'snooze'")
+                .contains("command === 'submitted'").contains("command === 'never'");
+    }
+
+    @Test
+    @DisplayName("前端所有状态 GET 的 fetch init 携带 cache: 'no-store'")
+    void frontendStateGetsUseNoStore() throws IOException {
+        String js = read(SURVEY_JS);
+        int noStoreUses = countOccurrences(js, "cache: 'no-store'");
+        assertThat(noStoreUses).as("loadServerContext / refreshServerContext 至少两处 no-store").isGreaterThanOrEqualTo(2);
+        assertThat(js).contains("SERVER_STATE_URL");
+    }
+
+    @Test
     @DisplayName("两个页面恰好加载一次调查 CSS / 公开配置 / 业务脚本，且配置先于业务脚本")
     void pagesLoadSurveyAssetsExactlyOnceInOrder() throws IOException {
         for (String htmlResource : List.of(BATCH_HTML, BATCH_ALT_HTML)) {

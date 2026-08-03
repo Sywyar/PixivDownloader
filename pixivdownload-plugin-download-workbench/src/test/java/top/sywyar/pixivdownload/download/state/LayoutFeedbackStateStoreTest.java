@@ -64,6 +64,157 @@ class LayoutFeedbackStateStoreTest {
     ============================================================ */
 
     @Test
+    @DisplayName("懒加载：构造不访问磁盘、不创建目录、不隔离损坏文件")
+    void constructorDoesNotTouchDisk() throws IOException {
+        Path missingParent = tempDir.resolve("never-created").resolve("state");
+        Path file = missingParent.resolve("layout-feedback-state.json");
+        Path corrupt = tempDir.resolve("corrupt-state.json");
+        Files.createDirectories(corrupt.getParent());
+        Files.writeString(corrupt, "{not json", StandardCharsets.UTF_8);
+        LayoutFeedbackStateStore onCorrupt = new LayoutFeedbackStateStore(corrupt);
+
+        new LayoutFeedbackStateStore(file);
+
+        assertThat(Files.exists(file)).as("构造不得创建状态文件").isFalse();
+        assertThat(Files.exists(missingParent)).as("构造不得创建父目录").isFalse();
+        assertThat(Files.exists(corrupt)).as("构造不得隔离损坏文件").isTrue();
+        assertThat(corruptFilesOf(corrupt)).isEmpty();
+        assertThat(onCorrupt.degraded()).isFalse();
+    }
+
+    @Test
+    @DisplayName("首次 snapshot 才触发加载：损坏文件在首次访问前保持原样")
+    void firstSnapshotTriggersLoad() throws IOException {
+        Path file = stateFile();
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "{not json", StandardCharsets.UTF_8);
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(Files.exists(file)).as("构造后损坏文件未被移动").isTrue();
+        assertThat(corruptFiles()).isEmpty();
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+
+        assertThat(snapshot.revision()).isZero();
+        assertThat(Files.exists(file)).as("首次访问后损坏文件被隔离").isFalse();
+        assertThat(corruptFiles()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("多线程同时首次 snapshot 只加载一次，得到同一快照，不重复隔离")
+    void concurrentFirstSnapshotLoadsOnce() throws Exception {
+        Path file = stateFile();
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "{not json", StandardCharsets.UTF_8);
+        LayoutFeedbackStateStore store = store();
+
+        int threads = 8;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        java.util.concurrent.atomic.AtomicReference<LayoutFeedbackStateSnapshot> first =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        for (int i = 0; i < threads; i++) {
+            executor.submit(() -> {
+                try {
+                    start.await();
+                    LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+                    first.compareAndSet(null, snapshot);
+                    if (first.get() != snapshot) {
+                        throw new AssertionError("并发首次加载必须返回同一快照实例");
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdownNow();
+
+        assertThat(corruptFiles()).as("并发首次加载只隔离一次").hasSize(1);
+        assertThat(store.degraded()).isFalse();
+        assertThat(store.snapshot()).isSameAs(first.get());
+    }
+
+    @Test
+    @DisplayName("小写线格式状态文件 round-trip，落盘内容为小写 status")
+    void lowercaseWireFileRoundTrips() throws IOException {
+        LayoutFeedbackStateStore first = store();
+        first.apply(submitted(0), NOW);
+
+        String persisted = Files.readString(stateFile(), StandardCharsets.UTF_8);
+
+        assertThat(persisted).contains("\"status\":\"submitted\"");
+        assertThat(persisted).doesNotContain("SUBMITTED");
+        LayoutFeedbackStateStore second = new LayoutFeedbackStateStore(stateFile());
+        assertThat(second.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+    }
+
+    @Test
+    @DisplayName("f4d587b6 风格旧大写状态文件可正常加载，不隔离")
+    void legacyUpperCaseFileLoadsCompatibly() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":1,\"revision\":1,"
+                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"SUBMITTED\",\"updatedAt\":1,\"snoozedUntil\":0},"
+                        + "\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("旧大写文件不得被隔离").isEmpty();
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.revision()).isEqualTo(1);
+        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.state().surveyId()).isEqualTo(SURVEY_ID);
+    }
+
+    @Test
+    @DisplayName("旧大写文件在下一次实际状态变化后重新写为小写线格式")
+    void legacyUpperCaseFileMigratesToLowercaseOnNextWrite() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":1,\"revision\":1,"
+                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"NEVER\",\"updatedAt\":1,\"snoozedUntil\":0},"
+                        + "\"seen\":{}}",
+                StandardCharsets.UTF_8);
+        LayoutFeedbackStateStore store = store();
+        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
+
+        store.apply(recordSeen(1, "pixiv-batch-landscape"), NOW);
+
+        String persisted = Files.readString(stateFile(), StandardCharsets.UTF_8);
+        assertThat(persisted).contains("\"status\":\"never\"");
+        assertThat(persisted).doesNotContain("NEVER");
+        LayoutFeedbackStateStore reloaded = new LayoutFeedbackStateStore(stateFile());
+        assertThat(reloaded.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
+    }
+
+    @Test
+    @DisplayName("旧大写 snoozed 文件兼容读取且 snoozedUntil 保留")
+    void legacyUpperCaseSnoozedFileLoads() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":1,\"revision\":2,"
+                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"SNOOZED\",\"updatedAt\":1,\"snoozedUntil\":12345},"
+                        + "\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateSnapshot snapshot = store().snapshot();
+
+        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SNOOZED);
+        assertThat(snapshot.state().snoozedUntil()).isEqualTo(12345);
+        assertThat(corruptFiles()).isEmpty();
+    }
+
+    @Test
     @DisplayName("文件不存在 → 空状态、revision=0、store 可用")
     void missingFileYieldsEmptyUsableStore() {
         LayoutFeedbackStateStore store = store();
@@ -598,6 +749,15 @@ class LayoutFeedbackStateStoreTest {
 
     private java.util.List<Path> corruptFiles() throws IOException {
         try (var stream = Files.list(stateFile().getParent())) {
+            return stream.filter(path -> path.getFileName().toString().contains(".corrupt-")).toList();
+        }
+    }
+
+    private java.util.List<Path> corruptFilesOf(Path file) throws IOException {
+        if (!Files.isDirectory(file.getParent())) {
+            return java.util.List.of();
+        }
+        try (var stream = Files.list(file.getParent())) {
             return stream.filter(path -> path.getFileName().toString().contains(".corrupt-")).toList();
         }
     }

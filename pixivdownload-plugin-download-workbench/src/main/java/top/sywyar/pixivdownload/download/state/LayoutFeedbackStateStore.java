@@ -25,9 +25,10 @@ import java.util.Set;
  *
  * <p>设计要点：
  * <ul>
- *   <li><b>fail-open 启动</b>：文件不存在 / 损坏 / 超大 / 不可读都不会令 Bean 构造失败；
- *       损坏文件被 best-effort 重命名为 {@code *.corrupt-<timestamp>} 并隔离，I/O 不可用
- *       时 store 标记为 degraded；</li>
+ *   <li><b>懒加载 + fail-open</b>：构造不访问文件系统；首次 {@link #snapshot()} /
+ *       {@link #degraded()} / {@link #apply} 才加载（并发首次调用只加载一次）。文件不存在 /
+ *       损坏 / 超大 / 不可读都不会令 Bean 构造失败；损坏文件被 best-effort 重命名为
+ *       {@code *.corrupt-<timestamp>} 并隔离，I/O 不可用时 store 标记为 degraded；</li>
  *   <li><b>revision / CAS</b>：{@link #apply} 在锁内比较 expectedRevision，不一致不写文件、
  *       返回 {@link ApplyStatus#CONFLICT} 与当前快照；</li>
  *   <li><b>单调状态转移</b>：submitted &gt; never &gt; snoozed &gt; null，旧标签页的命令
@@ -62,20 +63,37 @@ public final class LayoutFeedbackStateStore {
 
     private final Path stateFile;
     private final Object lock = new Object();
-    private volatile LayoutFeedbackStateSnapshot current;
+    private volatile LayoutFeedbackStateSnapshot current = emptySnapshot();
     private volatile boolean degraded;
+    /** 是否已执行首次文件加载（在 {@link #lock} 内判定 / 写入）。 */
+    private boolean loaded;
 
     public LayoutFeedbackStateStore(LayoutFeedbackStateFiles files) {
         this(files.stateFile());
     }
 
+    /**
+     * 懒加载：构造只保存 {@code stateFile}，不访问文件系统、不创建目录、不隔离损坏文件。
+     * 首次调用 {@link #snapshot()} / {@link #degraded()} / {@link #apply} 时才执行
+     * {@link #ensureLoaded()}（并发首次调用在锁内只加载一次）。
+     */
     LayoutFeedbackStateStore(Path stateFile) {
         this.stateFile = stateFile;
-        this.current = loadInitial();
+    }
+
+    private void ensureLoaded() {
+        synchronized (lock) {
+            if (loaded) {
+                return;
+            }
+            loaded = true;
+            loadInitialIntoState();
+        }
     }
 
     /** 当前不可变快照（同一快照内 state 与 seen 一致）。 */
     public LayoutFeedbackStateSnapshot snapshot() {
+        ensureLoaded();
         synchronized (lock) {
             return current;
         }
@@ -83,11 +101,13 @@ public final class LayoutFeedbackStateStore {
 
     /** 状态存储是否可用；degraded 时 GET 仍可返回 scoped 身份，POST 返回 503。 */
     public boolean degraded() {
+        ensureLoaded();
         return degraded;
     }
 
     /** 在锁内应用命令：CAS 一致则转移状态并原子持久化，否则返回 CONFLICT 与当前快照。 */
     public ApplyResult apply(LayoutFeedbackCommandRequest request, long now) throws IOException {
+        ensureLoaded();
         synchronized (lock) {
             if (degraded) {
                 throw new IllegalStateException("layout feedback state store is degraded");
@@ -113,42 +133,45 @@ public final class LayoutFeedbackStateStore {
     }
 
     /* ------------------------------------------------------------
-       启动加载（fail-open）
+       启动加载（fail-open，首次访问时才执行）
     ------------------------------------------------------------ */
 
-    private LayoutFeedbackStateSnapshot loadInitial() {
+    private void loadInitialIntoState() {
         try {
             if (!Files.exists(stateFile)) {
-                return emptySnapshot();
+                current = emptySnapshot();
+                return;
             }
             if (!Files.isRegularFile(stateFile)) {
                 degraded = true;
                 log.warn("Layout feedback state path is not a regular file; store degraded: {}",
                         stateFile.getFileName());
-                return emptySnapshot();
+                current = emptySnapshot();
+                return;
             }
             long size = Files.size(stateFile);
             if (size > MAX_STATE_FILE_BYTES) {
                 quarantine("oversized");
-                return emptySnapshot();
+                current = emptySnapshot();
+                return;
             }
             byte[] bytes = Files.readAllBytes(stateFile);
             LayoutFeedbackStateDocument document = STRICT_MAPPER.readValue(bytes,
                     LayoutFeedbackStateDocument.class);
-            return document.toSnapshot();
+            current = document.toSnapshot();
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             // JSON 损坏 / schema 非法 / 字段错误：隔离损坏文件，store 继续可用。
             quarantine("corrupt");
-            return emptySnapshot();
+            current = emptySnapshot();
         } catch (IOException e) {
             degraded = true;
             log.warn("Layout feedback state store degraded ({}): {}",
                     stateFile.getFileName(), e.getMessage());
-            return emptySnapshot();
+            current = emptySnapshot();
         } catch (RuntimeException e) {
             // 记录构造校验等运行时失败同样按损坏隔离。
             quarantine("corrupt");
-            return emptySnapshot();
+            current = emptySnapshot();
         }
     }
 
