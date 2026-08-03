@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Locale;
 
 /**
  * 布局偏好调查的服务端状态端点：{@code GET /api/layout-feedback/state?surveyId=...} 返回
@@ -34,15 +35,17 @@ import java.io.IOException;
  * 仅 solo 模式启用，multi 模式一律 403（不调用 InstallIdentityProvider、不读取 body、
  * 不触发 Store 加载、不读写状态文件）。
  *
- * <p>POST 处理顺序固定为：模式检查 → query surveyId 校验 → Content-Length 前置限制 →
- * 有界读取 body → 严格 JSON 解析 → DTO 校验 → query / body surveyId 一致性 → Store
- * degraded 检查 → Store apply → 200 / 409。请求体在完整读取前受
+ * <p>POST 处理顺序固定为：模式检查 → query surveyId 校验（缺失由 Controller 自行返回
+ * 400）→ Content-Type 校验（null / 非 JSON / 非法字符串一律 415，读取 body 之前）→
+ * Content-Length 前置限制 → 有界读取 body → 严格 JSON 解析 → DTO 校验 → query / body
+ * surveyId 一致性 → Store degraded 检查 → Store apply → 200 / 409。请求体在完整读取前受
  * {@link #MAX_COMMAND_BODY_BYTES} 限制（chunked 流最多读 MAX+1），绝不使用
  * {@code readAllBytes()} 读取无界请求体。
  *
- * <p>全部响应携带 {@code Cache-Control: no-store, private}：scoped distinct ID / revision /
- * submitted·never·snoozed / seen 一律不得被代理或浏览器缓存。原始安装 UUID 只用于派生
- * scoped ID，绝不进入响应。
+ * <p>全部响应（含缺 surveyId 的 400 与错误 Content-Type 的 415，这些错误不再由 Spring
+ * 在进入 Controller 前生成）携带 {@code Cache-Control: no-store, private}：scoped
+ * distinct ID / revision / submitted·never·snoozed / seen 一律不得被代理或浏览器缓存。
+ * 原始安装 UUID 只用于派生 scoped ID，绝不进入响应。
  */
 @RestController
 @RequestMapping("/api/layout-feedback/state")
@@ -70,7 +73,7 @@ public class LayoutFeedbackStateController {
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<LayoutFeedbackStateResponse> getState(
-            @RequestParam("surveyId") String surveyId) {
+            @RequestParam(value = "surveyId", required = false) String surveyId) {
         if (!isSolo()) {
             return statusResponse(HttpStatus.FORBIDDEN);
         }
@@ -80,22 +83,24 @@ public class LayoutFeedbackStateController {
         return jsonResponse(HttpStatus.OK, buildResponse(store.snapshot(), surveyId));
     }
 
-    @PostMapping(
-            consumes = MediaType.APPLICATION_JSON_VALUE,
-            produces = MediaType.APPLICATION_JSON_VALUE
-    )
+    @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<LayoutFeedbackStateResponse> saveState(
             HttpServletRequest request,
-            @RequestParam("surveyId") String surveyId) {
+            @RequestParam(value = "surveyId", required = false) String surveyId) {
         // 1. 模式检查：multi 在任何 Store / 身份 / body 读取之前返回 403。
         if (!isSolo()) {
             return statusResponse(HttpStatus.FORBIDDEN);
         }
-        // 2. 校验 query surveyId。
+        // 2. 校验 query surveyId（required=false 让缺失值进入 Controller，
+        //    由这里统一返回带 no-store 的 400，而不是由 Spring 生成）。
         if (!LayoutFeedbackIdentityDeriver.isValidSurveyId(surveyId)) {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
-        // 3-4. 请求体前置限制 + 有界读取（Content-Length 声明超限立即 413，不读取 body）。
+        // 3. Content-Type 校验：null / 非法 / 非 JSON 一律 415（读取 body 之前）。
+        if (!isJsonContentType(request.getContentType())) {
+            return statusResponse(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        }
+        // 4-5. 请求体前置限制 + 有界读取（Content-Length 声明超限立即 413，不读取 body）。
         byte[] body;
         try {
             body = readBoundedBody(request);
@@ -105,7 +110,7 @@ public class LayoutFeedbackStateController {
             // body 读取 I/O 失败：客户端请求错误，不返回异常内容、不修改状态。
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
-        // 5. 严格解析 JSON（非 JSON / 未知字段 / 类型错误一律 400）。
+        // 6. 严格解析 JSON（非 JSON / 未知字段 / 类型错误一律 400）。
         LayoutFeedbackCommandRequest commandRequest;
         try {
             commandRequest = COMMAND_READER.readValue(body);
@@ -140,6 +145,22 @@ public class LayoutFeedbackStateController {
             return jsonResponse(HttpStatus.CONFLICT, response);
         }
         return jsonResponse(HttpStatus.OK, response);
+    }
+
+    /**
+     * Content-Type 判定：接受 application/json、application/json;charset=UTF-8 与
+     * 合法 application/*+json（参数部分忽略，大小写不敏感）；null / 空 / 非法
+     * MediaType 字符串 / text/plain 一律 415。
+     */
+    private static boolean isJsonContentType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return false;
+        }
+        String lower = contentType.toLowerCase(Locale.ROOT);
+        int semicolon = lower.indexOf(';');
+        String base = (semicolon >= 0 ? lower.substring(0, semicolon) : lower).trim();
+        return "application/json".equals(base)
+                || (base.startsWith("application/") && base.endsWith("+json"));
     }
 
     private boolean isSolo() {

@@ -423,7 +423,111 @@ class LayoutFeedbackStateControllerTest {
         mockMvc(SOLO).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
                         .contentType(MediaType.TEXT_PLAIN)
                         .content(commandBody("submitted", 0)))
-                .andExpect(status().isUnsupportedMediaType());
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+    }
+
+    /* ============================================================
+       缺 surveyId / Content-Type 错误路径（进入 Controller 后由
+       statusResponse 统一返回，全部 no-store, private）
+    ============================================================ */
+
+    @Test
+    @DisplayName("GET 缺 surveyId → 400 且 no-store, private")
+    void missingGetSurveyIdIsNoStore() throws Exception {
+        mockMvc(SOLO).perform(get(ENDPOINT))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+    }
+
+    @Test
+    @DisplayName("POST 缺 surveyId → 400 且 no-store, private，不读取 Store")
+    void missingPostSurveyIdIsNoStoreAndSkipsStore() throws Exception {
+        LayoutFeedbackStateStore store = spy(store());
+        mockMvc(SOLO, store, null).perform(post(ENDPOINT)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+        verify(store, never()).snapshot();
+        verify(store, never()).degraded();
+        verify(store, never()).apply(any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("text/plain → 415 且 no-store, private，不读取 body、不调用 Store")
+    void textPlainIsNoStoreAndSkipsBodyRead() throws IOException {
+        LayoutFeedbackStateStore store = spy(store());
+        LayoutFeedbackStateController controller = controller(SOLO, store, null);
+        final int[] reads = {0};
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", ENDPOINT) {
+            @Override
+            public ServletInputStream getInputStream() {
+                reads[0]++;
+                return new CountingStream(new ByteArrayInputStream(
+                        commandBody("submitted", 0)), reads);
+            }
+        };
+        request.setContentType(MediaType.TEXT_PLAIN_VALUE);
+        request.setParameter("surveyId", SURVEY_ID);
+        request.setContent(commandBody("submitted", 0));
+
+        org.springframework.http.ResponseEntity<?> response =
+                controller.saveState(request, SURVEY_ID);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(415);
+        assertThat(response.getHeaders().getCacheControl())
+                .contains("no-store").contains("private");
+        assertThat(reads[0]).as("415 不得读取请求体").isZero();
+        verify(store, never()).apply(any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("无 Content-Type → 415 且 no-store, private")
+    void missingContentTypeIsNoStore() throws Exception {
+        mockMvc(SOLO).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+    }
+
+    @Test
+    @DisplayName("非法 Content-Type 字符串 → 415 且 no-store, private")
+    void invalidContentTypeIsNoStore() throws IOException {
+        LayoutFeedbackStateController controller = controller(SOLO, store(), null);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", ENDPOINT);
+        request.setContentType("application/json garbage");
+        request.setParameter("surveyId", SURVEY_ID);
+        request.setContent(commandBody("submitted", 0));
+
+        org.springframework.http.ResponseEntity<?> response =
+                controller.saveState(request, SURVEY_ID);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(415);
+        assertThat(response.getHeaders().getCacheControl())
+                .contains("no-store").contains("private");
+    }
+
+    @Test
+    @DisplayName("application/json;charset=UTF-8 → 正常接受")
+    void jsonWithCharsetAccepted() throws Exception {
+        mockMvc(SOLO).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType("application/json;charset=UTF-8")
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state.status").value("submitted"))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+    }
+
+    @Test
+    @DisplayName("application/*+json → 接受（项目规范）")
+    void plusJsonContentTypeAccepted() throws Exception {
+        mockMvc(SOLO).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType("application/layout-feedback+json")
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state.status").value("submitted"))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
     }
 
     /* ============================================================
