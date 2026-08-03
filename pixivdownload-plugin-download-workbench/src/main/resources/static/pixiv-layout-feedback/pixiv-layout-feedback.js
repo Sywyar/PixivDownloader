@@ -14,11 +14,15 @@
  *
  * 隐私约束：
  *   - Project token / Survey ID / apiHost / uiHost 都是公开客户端配置，不是 Secret；
- *   - 不调用 posthog.identify()，只使用匿名 distinct ID；
+ *   - 不调用 posthog.identify()；solo 模式下使用服务端下发的中性安装身份
+ *     （data/install_identity.txt 的 UUID）作为匿名 distinct ID，multi 模式继续使用
+ *     SDK 生成的匿名 ID；
  *   - 不发送 Cookie / 账号 / 作品 / 路径 / 浏览器指纹；
  *   - autocapture / pageview / pageleave / replay / heatmap / error tracking / web vitals 全关；
  *   - before_send 只放行 survey shown / survey sent / survey dismissed 三个事件并做属性允许列表；
- *   - 本地弱去重（localStorage + 匿名 distinct ID），不是不可绕过的选举系统；
+ *   - 本地弱去重（localStorage + 匿名 distinct ID）不是不可绕过的选举系统；
+ *     solo 模式下「稍后再说 / 不再询问 / 已提交」与已体验布局由服务端
+ *     /api/layout-feedback/state 持久化到 state/，多个浏览器 / 设备共享同一去重结论；
  *   - 跨标签页弱去重：storage 事件与提交前 fresh 读取会关闭另一标签页已处理的弹窗，
  *     但无法消除两个标签页完全同时点击的竞态，不引入浏览器指纹或账号绑定。
  */
@@ -32,6 +36,9 @@
     var LAYOUT_IDS = ['pixiv-batch-landscape', 'pixiv-batch-portrait', 'pixiv-batch-alt'];
     var STATE_KEY = 'pixiv:layout-feedback:state:v1';
     var SEEN_KEY = 'pixiv:layout-feedback:seen:v1';
+    var SERVER_STATE_URL = '/api/layout-feedback/state';
+    var SERVER_STATE_TIMEOUT_MS = 3 * 1000;
+    var SERVER_SAVE_DEBOUNCE_MS = 400;
     var SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
     var MIN_DISTINCT_LAYOUTS_SEEN = 2;
     var AUTO_DELAY_MS = 10 * 1000;
@@ -261,6 +268,12 @@
     var sessionSeen = {};
     var appVersionPromise = null;
     var pendingTimers = [];
+    var serverBacked = false;
+    var serverDistinctId = null;
+    var serverState = null;
+    var serverSeen = null;
+    var serverStatePromise = null;
+    var serverSaveTimerId = null;
 
     /* ------------------------------------------------------------
        Runtime generation：异步生命周期代际。
@@ -346,6 +359,99 @@
         };
     }
 
+    function isPlainObject(value) {
+        return value != null && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    /**
+     * solo 模式服务端状态装载：GET /api/layout-feedback/state。
+     * - 成功且 available=true 时启用服务端模式（serverBacked=true），distinct_id 替换
+     *   SDK 匿名 ID，state / seen 作为服务端去重事实源；
+     * - 403（multi 模式）/ 网络失败 / 超时 / 无身份时保持 localStorage 模式，
+     *   调查仍按浏览器本地去重工作；
+     * - 只调用一次并缓存 Promise，全部路径都 resolve，不向调用方抛错。
+     */
+    function loadServerState() {
+        if (serverStatePromise) return serverStatePromise;
+        serverStatePromise = new Promise(function (resolve) {
+            var settled = false;
+            var timer = setTimeoutSafe(function () { finish(); }, SERVER_STATE_TIMEOUT_MS);
+            function finish() {
+                if (settled) return;
+                settled = true;
+                clearTimerSafe(timer);
+                resolve();
+            }
+            var request = null;
+            try {
+                request = fetchImpl(SERVER_STATE_URL, {
+                    credentials: 'same-origin',
+                    headers: {'Accept': 'application/json'}
+                });
+            } catch (_) {
+                finish();
+                return;
+            }
+            if (!request || typeof request.then !== 'function') {
+                finish();
+                return;
+            }
+            request.then(function (response) {
+                if (!response || !response.ok) throw new Error('http');
+                return response.json();
+            }).then(function (data) {
+                if (!data || data.available !== true) throw new Error('unavailable');
+                var distinctId = typeof data.distinctId === 'string' && data.distinctId
+                    ? data.distinctId
+                    : null;
+                if (!distinctId) throw new Error('no identity');
+                serverBacked = true;
+                serverDistinctId = distinctId;
+                serverState = isPlainObject(data.state) ? data.state : null;
+                serverSeen = isPlainObject(data.seen) ? data.seen : {};
+                sessionState = serverState;
+                sessionSeen = Object.assign({}, serverSeen);
+            }).catch(function () {
+                // 服务端不可用：保留 localStorage 模式
+            }).then(finish);
+        });
+        return serverStatePromise;
+    }
+
+    /**
+     * 立即把当前 state / seen 持久化到服务端（fire-and-forget，失败静默降级：
+     * 本页面会话内仍生效，下次加载恢复旧状态后可能再次出现调查）。
+     */
+    function saveServerState() {
+        if (!serverBacked) return;
+        var request = null;
+        try {
+            request = fetchImpl(SERVER_STATE_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                body: JSON.stringify({state: serverState || null, seen: serverSeen || {}}),
+                credentials: 'same-origin'
+            });
+        } catch (_) {
+            return;
+        }
+        if (request && typeof request.then === 'function') {
+            request.catch(function () {
+                // 持久化尽力而为
+            });
+        }
+    }
+
+    /** 布局体验记录的写入频率高于状态，合并去抖后一次性提交。 */
+    function scheduleServerSave() {
+        if (!serverBacked) return;
+        if (serverSaveTimerId != null) clearTimerSafe(serverSaveTimerId);
+        serverSaveTimerId = setTimeoutSafe(function () {
+            serverSaveTimerId = null;
+            saveServerState();
+        }, SERVER_SAVE_DEBOUNCE_MS);
+    }
+
     /**
      * 直接读取持久化状态（不走 sessionState 缓存），并以此刷新缓存。
      * storage 不可用 / 不可读时降级到内存态；STATE_KEY JSON 损坏时尝试
@@ -353,6 +459,10 @@
      */
     function readStateFresh() {
         if (!config) return null;
+        if (serverBacked) {
+            sessionState = serverState;
+            return serverState;
+        }
         if (!storage) return sessionState;
         var raw = null;
         try {
@@ -402,6 +512,11 @@
             snoozedUntil: snoozedUntil || 0
         };
         sessionState = state;
+        if (serverBacked) {
+            serverState = state;
+            saveServerState();
+            return;
+        }
         if (storage) {
             try {
                 storage.setItem(STATE_KEY, JSON.stringify(state));
@@ -422,6 +537,10 @@
     }
 
     function readSeenRaw() {
+        if (serverBacked) {
+            sessionSeen = Object.assign({}, serverSeen);
+            return Object.assign({}, serverSeen);
+        }
         if (!storage) return Object.assign({}, sessionSeen);
         var raw = null;
         try {
@@ -454,6 +573,11 @@
 
     function writeSeen(seen) {
         sessionSeen = seen;
+        if (serverBacked) {
+            serverSeen = seen;
+            scheduleServerSave();
+            return;
+        }
         if (storage) {
             try {
                 storage.setItem(SEEN_KEY, JSON.stringify(seen));
@@ -554,7 +678,7 @@
     ============================================================ */
 
     function buildSdkConfig() {
-        return {
+        var sdkConfig = {
             api_host: config.apiHost,
             ui_host: config.uiHost,
             autocapture: false,
@@ -582,6 +706,12 @@
             mask_all_element_attributes: true,
             before_send: beforeSendFilter
         };
+        // solo 模式：用服务端下发的安装身份 UUID 替换 SDK 匿名 distinct ID
+        //（不调用 identify()，只作为匿名身份；multi 模式保持 SDK 默认匿名 ID）。
+        if (serverBacked && serverDistinctId) {
+            sdkConfig.distinct_id = serverDistinctId;
+        }
+        return sdkConfig;
     }
 
     /**
@@ -1672,6 +1802,15 @@
         recordSeen(currentLayoutId(), now);
         loadAppVersion();
         scheduleAutoEvaluation(autoDelay);
+        // solo 模式服务端状态异步接管：localStorage 模式下的首屏写入不会回放，
+        // 服务端接管后把当前布局补录到服务端 seen（自动评估仍按原计划在
+        // autoDelay 之后读取服务端状态，去重与阈值语义不变）。
+        var initGeneration = runtimeGeneration;
+        loadServerState().then(function () {
+            if (!isRuntimeGenerationActive(initGeneration)) return;
+            if (!serverBacked) return;
+            recordSeen(currentLayoutId(), timers.now());
+        });
     }
 
     /**
@@ -1757,6 +1896,9 @@
             LAYOUT_IDS: Object.freeze(LAYOUT_IDS.slice()),
             STATE_KEY: STATE_KEY,
             SEEN_KEY: SEEN_KEY,
+            SERVER_STATE_URL: SERVER_STATE_URL,
+            SERVER_STATE_TIMEOUT_MS: SERVER_STATE_TIMEOUT_MS,
+            SERVER_SAVE_DEBOUNCE_MS: SERVER_SAVE_DEBOUNCE_MS,
             SNOOZE_MS: SNOOZE_MS,
             MIN_DISTINCT_LAYOUTS_SEEN: MIN_DISTINCT_LAYOUTS_SEEN,
             AUTO_DELAY_MS: AUTO_DELAY_MS,

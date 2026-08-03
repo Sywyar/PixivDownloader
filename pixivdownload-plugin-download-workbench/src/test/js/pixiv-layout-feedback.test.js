@@ -444,6 +444,7 @@ function createFakeAdapter(overrides) {
             if (overrides.capture === 'reject') return undefined;
             // 真实 posthog-js 1.409.5 语义：capture 构造 CaptureResult 事件对象，
             // timestamp 为 Date（b.timestamp = (options.timestamp) || new Date()），
+            // 并把当前 distinct_id（sdkConfig.distinct_id 或匿名 ID）写入 properties，
             // before_send 返回 null/undefined 时事件被 SDK 丢弃（capture 返回 undefined）。
             // 测试可通过 overrides.timestamp 覆盖 timestamp（Date / ISO string /
             // null / undefined / 非法对象），hasOwnProperty 用于区分「未提供」与
@@ -456,6 +457,9 @@ function createFakeAdapter(overrides) {
                     : new Date(),
                 properties: Object.assign({}, properties || {})
             };
+            if (sdkConfig && typeof sdkConfig.distinct_id === 'string') {
+                event.properties.distinct_id = sdkConfig.distinct_id;
+            }
             if (sdkConfig && typeof sdkConfig.before_send === 'function') {
                 const filtered = sdkConfig.before_send(event);
                 calls.results.push(filtered);
@@ -592,6 +596,7 @@ function createHarness(options) {
     const toastCalls = [];
     const consoleWarn = [];
     const scripts = [];
+    const serverPosts = [];
 
     const defaultConfig = {
         enabled: true,
@@ -620,6 +625,22 @@ function createHarness(options) {
             }
             if (options.fetch === 'fail') {
                 return Promise.reject(new Error('network down'));
+            }
+            if (url.indexOf('/api/layout-feedback/state') >= 0) {
+                if (init && init.method === 'POST') {
+                    serverPosts.push({url, body: JSON.parse(init.body || '{}')});
+                    return Promise.resolve({ok: true, json: () => Promise.resolve({})});
+                }
+                if (options.serverFetch === 'fail') {
+                    return Promise.reject(new Error('server down'));
+                }
+                if (options.serverFetch === '403') {
+                    return Promise.resolve({ok: false, status: 403, json: () => Promise.resolve({})});
+                }
+                if (options.serverState !== undefined) {
+                    return Promise.resolve({ok: true, json: () => Promise.resolve(options.serverState)});
+                }
+                return Promise.resolve({ok: true, json: () => Promise.resolve({available: false})});
             }
             if (options.fetch === 'no-version') {
                 return Promise.resolve({ok: true, json: () => Promise.resolve({name: 'x'})});
@@ -665,6 +686,7 @@ function createHarness(options) {
         storage,
         timers,
         fetchCalls,
+        serverPosts,
         toastCalls,
         consoleWarn,
         windowEvents,
@@ -784,6 +806,14 @@ function seenSeed() {
         seen[id] = {firstSeenAt: 1, lastSeenAt: 1 + index};
     });
     return {[SEEN_KEY]: JSON.stringify(seen)};
+}
+
+function seenObject() {
+    const seen = {};
+    LAYOUT_IDS.forEach((id, index) => {
+        seen[id] = {firstSeenAt: 1, lastSeenAt: 1 + index};
+    });
+    return seen;
 }
 
 function listenerCountFor(h, type) {
@@ -2513,6 +2543,164 @@ function testSdkConfigHeatmapMigration() {
 }
 
 /* ============================================================
+   solo 服务端模式（/api/layout-feedback/state）
+============================================================ */
+
+const SERVER_ID = 'install-00000000-0000-4000-8000-000000000000';
+
+function serverStateResponse(overrides) {
+    return Object.assign({
+        available: true,
+        distinctId: SERVER_ID,
+        state: null,
+        seen: {}
+    }, overrides || {});
+}
+
+function testServerModeUsesInstallIdentity() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    // 先让服务端状态装载完成（真实环境远早于 autoDelay 10 秒），再推进自动评估
+    return waitForFlush().then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        eq('solo 服务端模式自动展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        const cfg = h.adapter.sdkConfig();
+        eq('distinct_id 替换为安装身份', cfg.distinct_id, SERVER_ID);
+        const shown = h.adapter.calls.results.find(r => r && r.event === 'survey shown');
+        ok('shown 事件携带安装身份 distinct_id',
+            shown && shown.properties.distinct_id === SERVER_ID);
+        eq('服务端模式不写本地去重状态', h.storage.getItem(STATE_KEY) === null, true);
+    });
+}
+
+function testServerModeSubmittedStateGatesAutoShow() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({
+            state: {
+                surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                status: 'submitted',
+                updatedAt: 1,
+                snoozedUntil: 0
+            },
+            seen: seenObject()
+        })
+    });
+    // 先让服务端状态装载完成再推进自动评估
+    return waitForFlush().then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        eq('服务端 submitted 不再展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('不发送 shown', captureEvents(h).filter(e => e === 'survey shown').length, 0);
+        eq('不初始化 SDK', h.adapter.sdkConfig() === null, true);
+    });
+}
+
+function testServerModeSubmitPersistsToServer() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    return waitForFlush().then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        selectChoice(h, 'pixiv-batch-landscape');
+        h.submitButton().click();
+        return waitForFlush();
+    }).then(() => {
+        eq('服务端模式提交成功', captureEvents(h).filter(e => e === 'survey sent').length, 1);
+        eq('不写本地 localStorage 状态', h.storage.getItem(STATE_KEY) === null, true);
+        const post = h.serverPosts.find(p => p.body.state && p.body.state.status === 'submitted');
+        ok('提交状态 POST 到服务端', !!post);
+        eq('POST 携带 surveyId', post.body.state.surveyId, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+        ok('POST 携带已体验布局', !!post.body.seen && !!post.body.seen['pixiv-batch-landscape']);
+    });
+}
+
+function testServerModeSnoozeAndNeverPersist() {
+    return Promise.resolve().then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()})
+        });
+        return waitForFlush().then(() => {
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            const post = h.serverPosts.find(p => p.body.state && p.body.state.status === 'snoozed');
+            ok('稍后再说持久化到服务端', !!post);
+            ok('snooze 时间为 7 天后', post.body.state.snoozedUntil > 0);
+        });
+    }).then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()})
+        });
+        return waitForFlush().then(() => {
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            h.actionButton('never').click();
+            return waitForFlush();
+        }).then(() => {
+            const post = h.serverPosts.find(p => p.body.state && p.body.state.status === 'never');
+            ok('不再询问持久化到服务端', !!post);
+        });
+    });
+}
+
+function testServerModeSeenRecordsServerSide() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({}),
+        minDistinct: 2
+    });
+    return waitForFlush().then(() => {
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        h.timers.advance(600);
+        return waitForFlush();
+    }).then(() => {
+        const post = h.serverPosts.find(p => p.body.seen && p.body.seen['pixiv-batch-portrait']);
+        ok('布局体验记录 POST 到服务端', !!post);
+        ok('包含 init 补录的当前布局', !!post.body.seen['pixiv-batch-landscape']);
+    });
+}
+
+function testServerModeUnavailableFallsBackToLocal() {
+    return Promise.resolve().then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverFetch: '403',
+            minDistinct: 1
+        });
+        h.timers.advance(11000);
+        return waitForFlush().then(() => {
+            eq('403（multi 模式）回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+            ok('回退模式 SDK 不设置 distinct_id', h.adapter.sdkConfig().distinct_id === undefined);
+        });
+    }).then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverFetch: 'fail',
+            minDistinct: 1
+        });
+        h.timers.advance(11000);
+        return waitForFlush().then(() => {
+            eq('服务端不可达回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        });
+    });
+}
+
+/* ============================================================
    入口
 =========================================================== */
 
@@ -2598,6 +2786,12 @@ async function run() {
     await step('testFakeAdapterDefaultTimestampIsDate', testFakeAdapterDefaultTimestampIsDate);
     await step('testFakeAdapterTimestampOverrides', testFakeAdapterTimestampOverrides);
     await step('testSdkConfigHeatmapMigration', testSdkConfigHeatmapMigration);
+    await step('testServerModeUsesInstallIdentity', testServerModeUsesInstallIdentity);
+    await step('testServerModeSubmittedStateGatesAutoShow', testServerModeSubmittedStateGatesAutoShow);
+    await step('testServerModeSubmitPersistsToServer', testServerModeSubmitPersistsToServer);
+    await step('testServerModeSnoozeAndNeverPersist', testServerModeSnoozeAndNeverPersist);
+    await step('testServerModeSeenRecordsServerSide', testServerModeSeenRecordsServerSide);
+    await step('testServerModeUnavailableFallsBackToLocal', testServerModeUnavailableFallsBackToLocal);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 

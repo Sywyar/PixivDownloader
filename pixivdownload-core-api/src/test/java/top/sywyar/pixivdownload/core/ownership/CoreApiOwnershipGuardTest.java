@@ -134,7 +134,8 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
                     types("top.sywyar.pixivdownload.i18n",
                             "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver"),
-                    types("top.sywyar.pixivdownload.setup", "ApplicationModeProvider", "UserDisplayNameProvider"),
+                    types("top.sywyar.pixivdownload.setup",
+                            "ApplicationModeProvider", "InstallIdentityProvider", "UserDisplayNameProvider"),
                     types("top.sywyar.pixivdownload.web", "LocalRequestTrust"))),
             Map.entry("AI 调用稳定契约", union(
                     types("top.sywyar.pixivdownload.ai",

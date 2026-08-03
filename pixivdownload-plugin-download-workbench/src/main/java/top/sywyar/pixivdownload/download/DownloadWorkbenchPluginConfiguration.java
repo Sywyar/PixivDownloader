@@ -42,6 +42,7 @@ import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
 import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
+import top.sywyar.pixivdownload.download.controller.LayoutFeedbackStateController;
 import top.sywyar.pixivdownload.download.controller.PixivProxyController;
 import top.sywyar.pixivdownload.download.controller.SSEController;
 import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
@@ -63,11 +64,13 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSeriesSch
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
+import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateFiles;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 import top.sywyar.pixivdownload.schedule.ScheduleHostIdentity;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
 
@@ -305,6 +308,21 @@ public class DownloadWorkbenchPluginConfiguration {
     public BatchStateController batchStateController(BatchStateFiles batchStateFiles,
                                                      ApplicationModeProvider applicationModeProvider) {
         return new BatchStateController(batchStateFiles, applicationModeProvider);
+    }
+
+    @Bean
+    public LayoutFeedbackStateFiles layoutFeedbackStateFiles(RuntimePathProvider runtimePathProvider) {
+        return new LayoutFeedbackStateFiles(runtimePathProvider);
+    }
+
+    @Bean
+    public LayoutFeedbackStateController layoutFeedbackStateController(
+            LayoutFeedbackStateFiles layoutFeedbackStateFiles,
+            ObjectMapper objectMapper,
+            ApplicationModeProvider applicationModeProvider,
+            InstallIdentityProvider installIdentityProvider) {
+        return new LayoutFeedbackStateController(
+                layoutFeedbackStateFiles, objectMapper, applicationModeProvider, installIdentityProvider);
     }
 
     @Bean
