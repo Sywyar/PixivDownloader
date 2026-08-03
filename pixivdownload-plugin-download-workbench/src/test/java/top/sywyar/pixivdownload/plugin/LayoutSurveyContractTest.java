@@ -110,6 +110,62 @@ class LayoutSurveyContractTest {
     }
 
     @Test
+    @DisplayName("中英文隐私文案与真实身份模式一致：scoped 调查标识、multi 浏览器匿名、raw identity 不发送")
+    void privacyCopyMatchesIdentityModel() throws IOException {
+        String zh = read(I18N_ZH);
+        String en = read(I18N_EN);
+        String js = read(SURVEY_JS);
+
+        // 中文明确「匿名调查标识」（不再笼统声称 solo 为匿名浏览器标识）
+        assertThat(zh).contains("匿名调查标识");
+        assertThat(zh).contains("单人模式");
+        assertThat(zh).contains("随机安装身份");
+        assertThat(zh).contains("当前调查 ID");
+        assertThat(zh).contains("多人模式");
+        assertThat(zh).contains("匿名浏览器标识");
+        assertThat(zh).contains("原始安装身份");
+
+        // 英文语义一致
+        assertThat(en).contains("anonymous survey identifier");
+        assertThat(en).contains("single-user mode");
+        assertThat(en).contains("installation identity");
+        assertThat(en).contains("survey id");
+        assertThat(en).contains("multi-user mode");
+        assertThat(en).contains("anonymous browser identifier");
+        assertThat(en).contains("raw installation identity");
+
+        // JS 弹窗 fallback 与中文 i18n 语义一致
+        assertThat(js).contains("匿名调查标识");
+        assertThat(js).contains("原始安装身份");
+        assertThat(js).doesNotContain("匿名浏览器标识；");
+    }
+
+    @Test
+    @DisplayName("CHANGELOG 调查条目与实际身份模型一致")
+    void changelogMatchesIdentityModel() throws IOException {
+        Path repoRoot = repoRoot();
+        String changelog = Files.readString(repoRoot.resolve("CHANGELOG.md"), StandardCharsets.UTF_8);
+        assertThat(changelog).contains("匿名调查标识");
+        assertThat(changelog).contains("随机安装身份与当前调查 ID 单向派生");
+        assertThat(changelog).contains("匿名浏览器标识");
+        assertThat(changelog).contains("原始安装身份");
+        assertThat(changelog).doesNotContain("按安装身份去重");
+    }
+
+    @Test
+    @DisplayName("调查脚本不再使用 distinct_id 初始化配置，改用 bootstrap.distinctID")
+    void sdkIdentityUsesBootstrapDistinctId() throws IOException {
+        String js = read(SURVEY_JS);
+        assertThat(js).contains("bootstrap.distinctID");
+        assertThat(js).contains("isIdentifiedID: false");
+        assertThat(js).contains("get_distinct_id");
+        assertThat(js).doesNotContain("sdkConfig.distinct_id =");
+        assertThat(js).doesNotContain("posthog.identify(");
+        assertThat(js).doesNotContain("posthog.reset(");
+        assertThat(js).doesNotContain("opt_out_capturing(");
+    }
+
+    @Test
     @DisplayName("两个页面恰好加载一次调查 CSS / 公开配置 / 业务脚本，且配置先于业务脚本")
     void pagesLoadSurveyAssetsExactlyOnceInOrder() throws IOException {
         for (String htmlResource : List.of(BATCH_HTML, BATCH_ALT_HTML)) {

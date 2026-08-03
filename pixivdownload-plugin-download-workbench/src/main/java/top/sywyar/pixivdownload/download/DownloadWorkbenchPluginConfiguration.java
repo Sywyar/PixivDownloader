@@ -65,6 +65,7 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewSc
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateFiles;
+import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
@@ -316,13 +317,18 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
+    public LayoutFeedbackStateStore layoutFeedbackStateStore(
+            LayoutFeedbackStateFiles layoutFeedbackStateFiles) {
+        return new LayoutFeedbackStateStore(layoutFeedbackStateFiles);
+    }
+
+    @Bean
     public LayoutFeedbackStateController layoutFeedbackStateController(
-            LayoutFeedbackStateFiles layoutFeedbackStateFiles,
-            ObjectMapper objectMapper,
+            LayoutFeedbackStateStore layoutFeedbackStateStore,
             ApplicationModeProvider applicationModeProvider,
             InstallIdentityProvider installIdentityProvider) {
         return new LayoutFeedbackStateController(
-                layoutFeedbackStateFiles, objectMapper, applicationModeProvider, installIdentityProvider);
+                layoutFeedbackStateStore, applicationModeProvider, installIdentityProvider);
     }
 
     @Bean

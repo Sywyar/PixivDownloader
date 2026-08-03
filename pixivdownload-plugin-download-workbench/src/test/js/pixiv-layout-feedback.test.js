@@ -423,17 +423,29 @@ function createFakeAdapter(overrides) {
     const calls = {init: [], capture: [], onFeatureFlags: [], getSurveys: [], results: []};
     let flagsListener = null;
     let sdkConfig = null;
+    let sdkDistinctId = null;
     const adapter = {
         calls,
         surveys: overrides.surveys || [],
         lastSurveyCallback: null,
         sdkConfig() { return sdkConfig; },
+        // 真实 posthog-js 1.409.5 语义：当前 SDK distinct ID。
+        get_distinct_id() {
+            return overrides.distinctId !== undefined ? overrides.distinctId : sdkDistinctId;
+        },
         emitFlags() {
             if (flagsListener) flagsListener();
         },
         init(token, config) {
             calls.init.push({token, config});
             sdkConfig = config;
+            // 真实 1.409.5：bootstrap.distinctID（isIdentifiedID=false 时走匿名
+            // register 分支）设置 SDK distinct ID；sdkConfig.distinct_id 不参与初始化。
+            sdkDistinctId = null;
+            if (config && config.bootstrap
+                    && typeof config.bootstrap.distinctID === 'string') {
+                sdkDistinctId = config.bootstrap.distinctID;
+            }
         },
         capture(name, properties) {
             calls.capture.push({name, properties});
@@ -444,7 +456,7 @@ function createFakeAdapter(overrides) {
             if (overrides.capture === 'reject') return undefined;
             // 真实 posthog-js 1.409.5 语义：capture 构造 CaptureResult 事件对象，
             // timestamp 为 Date（b.timestamp = (options.timestamp) || new Date()），
-            // 并把当前 distinct_id（sdkConfig.distinct_id 或匿名 ID）写入 properties，
+            // 并把当前 SDK distinct_id 写入 properties，
             // before_send 返回 null/undefined 时事件被 SDK 丢弃（capture 返回 undefined）。
             // 测试可通过 overrides.timestamp 覆盖 timestamp（Date / ISO string /
             // null / undefined / 非法对象），hasOwnProperty 用于区分「未提供」与
@@ -457,8 +469,8 @@ function createFakeAdapter(overrides) {
                     : new Date(),
                 properties: Object.assign({}, properties || {})
             };
-            if (sdkConfig && typeof sdkConfig.distinct_id === 'string') {
-                event.properties.distinct_id = sdkConfig.distinct_id;
+            if (sdkDistinctId) {
+                event.properties.distinct_id = sdkDistinctId;
             }
             if (sdkConfig && typeof sdkConfig.before_send === 'function') {
                 const filtered = sdkConfig.before_send(event);
@@ -597,6 +609,10 @@ function createHarness(options) {
     const consoleWarn = [];
     const scripts = [];
     const serverPosts = [];
+    const serverAbortCalls = [];
+    const serverFetchGate = {pending: false, resolve: null, reject: null};
+    const serverStateHolder = {value: options.serverState};
+    let getStateFetchCount = 0;
 
     const defaultConfig = {
         enabled: true,
@@ -606,6 +622,61 @@ function createHarness(options) {
         uiHost: 'https://us.i.posthog.com'
     };
     const publicConfig = Object.assign({}, defaultConfig, options.publicConfig || {});
+
+    function serverSnapshotFromBody(body) {
+        // 默认 POST 响应：像真实服务端一样基于当前权威状态合并命令结果（revision 递增）。
+        const current = defaultServerGetResponse();
+        const snapshot = {
+            available: true,
+            stateAvailable: true,
+            distinctId: current.distinctId,
+            revision: (typeof body.expectedRevision === 'number' ? body.expectedRevision : 0) + 1,
+            state: current.state,
+            seen: Object.assign({}, current.seen)
+        };
+        if (body.command === 'submitted') {
+            snapshot.state = {
+                surveyId: body.surveyId,
+                status: 'submitted',
+                updatedAt: timers.now(),
+                snoozedUntil: 0
+            };
+        } else if (body.command === 'never') {
+            snapshot.state = {
+                surveyId: body.surveyId,
+                status: 'never',
+                updatedAt: timers.now(),
+                snoozedUntil: 0
+            };
+        } else if (body.command === 'snooze') {
+            snapshot.state = {
+                surveyId: body.surveyId,
+                status: 'snoozed',
+                updatedAt: timers.now(),
+                snoozedUntil: timers.now() + SNOOZE_MS
+            };
+        }
+        if (body.command === 'record_seen' && Array.isArray(body.layoutIds)) {
+            body.layoutIds.forEach(id => {
+                snapshot.seen[id] = {firstSeenAt: timers.now(), lastSeenAt: timers.now()};
+            });
+        }
+        return snapshot;
+    }
+
+    function defaultServerGetResponse() {
+        const base = {
+            available: true,
+            stateAvailable: true,
+            distinctId: options.serverScopedId !== undefined ? options.serverScopedId : SERVER_SCOPED_ID,
+            revision: 0,
+            state: null,
+            seen: {}
+        };
+        const data = Object.assign({}, base, serverStateHolder.value || {});
+        if (data.distinctId === undefined) data.distinctId = base.distinctId;
+        return data;
+    }
 
     const sandbox = {
         document,
@@ -627,18 +698,50 @@ function createHarness(options) {
                 return Promise.reject(new Error('network down'));
             }
             if (url.indexOf('/api/layout-feedback/state') >= 0) {
+                if (init && init.signal) {
+                    init.signal.addEventListener('abort', () => serverAbortCalls.push(url));
+                }
                 if (init && init.method === 'POST') {
                     serverPosts.push({url, body: JSON.parse(init.body || '{}')});
-                    return Promise.resolve({ok: true, json: () => Promise.resolve({})});
+                    if (options.serverPostResponse === 'fail') {
+                        return Promise.reject(new Error('server down'));
+                    }
+                    if (typeof options.serverPostResponse === 'function') {
+                        const custom = options.serverPostResponse({url, body: serverPosts[serverPosts.length - 1].body});
+                        if (custom === undefined) {
+                            // 未覆盖的命令走默认合并快照
+                            const snapshot = serverSnapshotFromBody(serverPosts[serverPosts.length - 1].body);
+                            return Promise.resolve({ok: true, json: () => Promise.resolve(snapshot)});
+                        }
+                        if (custom && typeof custom.then === 'function') return custom;
+                        const isError = !!(custom && custom.status && custom.status >= 400);
+                        return Promise.resolve({
+                            ok: isError ? false : (custom ? custom.ok !== false : true),
+                            status: custom && custom.status ? custom.status : 200,
+                            json: () => (custom && typeof custom.json === 'function'
+                                ? custom.json()
+                                : Promise.resolve(custom || {}))
+                        });
+                    }
+                    const snapshot = serverSnapshotFromBody(serverPosts[serverPosts.length - 1].body);
+                    return Promise.resolve({ok: true, json: () => Promise.resolve(snapshot)});
                 }
+                getStateFetchCount++;
                 if (options.serverFetch === 'fail') {
                     return Promise.reject(new Error('server down'));
                 }
                 if (options.serverFetch === '403') {
                     return Promise.resolve({ok: false, status: 403, json: () => Promise.resolve({})});
                 }
-                if (options.serverState !== undefined) {
-                    return Promise.resolve({ok: true, json: () => Promise.resolve(options.serverState)});
+                if (options.serverFetch === 'pending') {
+                    serverFetchGate.pending = true;
+                    return new Promise((resolve, reject) => {
+                        serverFetchGate.resolve = resolve;
+                        serverFetchGate.reject = reject;
+                    });
+                }
+                if (options.serverState !== undefined || serverStateHolder.value !== undefined) {
+                    return Promise.resolve({ok: true, json: () => Promise.resolve(defaultServerGetResponse())});
                 }
                 return Promise.resolve({ok: true, json: () => Promise.resolve({available: false})});
             }
@@ -664,7 +767,8 @@ function createHarness(options) {
         Array,
         JSON,
         Date,
-        CustomEvent: MiniCustomEvent
+        CustomEvent: MiniCustomEvent,
+        AbortController
     };
     sandbox.window = sandbox;
     sandbox.self = sandbox;
@@ -687,10 +791,19 @@ function createHarness(options) {
         timers,
         fetchCalls,
         serverPosts,
+        serverAbortCalls,
+        serverFetchGate,
+        serverStateHolder,
         toastCalls,
         consoleWarn,
         windowEvents,
         config: publicConfig,
+        stateFetchCount() {
+            return getStateFetchCount;
+        },
+        setServerState(value) {
+            serverStateHolder.value = value;
+        },
         dispatchStorage(key, newValue) {
             windowEvents.dispatchEvent({type: 'storage', key, newValue, storageArea: storage});
         },
@@ -1500,8 +1613,12 @@ function testCrossTabStorageSync() {
 function testSdkLoadFailure() {
     const h = initHarness({adapter: null, batchLayout: 'landscape'});
     const promise = h.api.open();
-    h.fireScriptError();
-    return promise.then(() => waitForFlush()).then(() => {
+    return waitForFlush().then(() => {
+        // 服务端上下文 resolve 后脚本才插入；脚本加载失败静默结束
+        eq('SDK 脚本已插入', h.scriptElements().length, 1);
+        h.fireScriptError();
+        return promise.then(() => waitForFlush());
+    }).then(() => {
         eq('SDK 加载失败静默结束', h.document.querySelectorAll('.plf-backdrop').length, 0);
         h.timers.advance(11000);
         return waitForFlush();
@@ -1514,9 +1631,11 @@ function testSdkLoadFailure() {
 function testSdkLoadSuccessThroughScript() {
     const h = initHarness({adapter: null, batchLayout: 'landscape'});
     const promise = h.api.open();
-    h.sandbox.posthog = h.adapter ? null : createFakeAdapter({surveys: [defaultSurvey()]});
-    h.fireScriptLoad();
-    return promise.then(() => waitForFlush()).then(() => {
+    return waitForFlush().then(() => {
+        h.sandbox.posthog = h.adapter ? null : createFakeAdapter({surveys: [defaultSurvey()]});
+        h.fireScriptLoad();
+        return promise.then(() => waitForFlush());
+    }).then(() => {
         eq('SDK 加载成功后走真实 posthog 全局', h.document.querySelectorAll('.plf-backdrop').length, 1);
     });
 }
@@ -1524,8 +1643,11 @@ function testSdkLoadSuccessThroughScript() {
 function testSdkLoadTimeout() {
     const h = initHarness({adapter: null, batchLayout: 'landscape'});
     const promise = h.api.open();
-    h.timers.advance(15000);
-    return promise.then(() => waitForFlush()).then(() => {
+    return waitForFlush().then(() => {
+        eq('SDK 脚本已插入', h.scriptElements().length, 1);
+        h.timers.advance(15000);
+        return promise.then(() => waitForFlush());
+    }).then(() => {
         eq('SDK 加载超时静默结束', h.document.querySelectorAll('.plf-backdrop').length, 0);
     });
 }
@@ -2278,7 +2400,13 @@ function testDestroyDuringAppVersionWait() {
     const h = initHarness({
         adapter,
         batchLayout: 'landscape',
-        fetchImpl: () => new Promise(resolve => { resolveAppInfo = resolve; })
+        fetchImpl: (url, init) => {
+            if (url.indexOf('/api/app/info') >= 0) {
+                return new Promise(resolve => { resolveAppInfo = resolve; });
+            }
+            // server state 快速 resolve（local 模式），只卡住 app version
+            return Promise.resolve({ok: true, json: () => Promise.resolve({available: false})});
+        }
     });
     const promise = h.api.open();
     return waitForFlush().then(() => {
@@ -2546,34 +2674,109 @@ function testSdkConfigHeatmapMigration() {
    solo 服务端模式（/api/layout-feedback/state）
 ============================================================ */
 
-const SERVER_ID = 'install-00000000-0000-4000-8000-000000000000';
+const SERVER_SCOPED_ID = 'plf_' + 'ab'.repeat(32);
+const SERVER_RAW_UUID = '11111111-2222-4333-8444-555555555555';
 
 function serverStateResponse(overrides) {
     return Object.assign({
         available: true,
-        distinctId: SERVER_ID,
+        stateAvailable: true,
+        distinctId: SERVER_SCOPED_ID,
+        revision: 0,
         state: null,
         seen: {}
     }, overrides || {});
 }
 
-function testServerModeUsesInstallIdentity() {
+function waitForServerContext(h) {
+    // 等待 init 时的服务端上下文装载与微任务链完成
+    return waitForFlush();
+}
+
+function testBootstrapIdentitySemantics() {
     const h = initHarness({
         batchLayout: 'landscape',
         serverState: serverStateResponse({seen: seenObject()})
     });
-    // 先让服务端状态装载完成（真实环境远早于 autoDelay 10 秒），再推进自动评估
-    return waitForFlush().then(() => {
+    return waitForServerContext(h).then(() => {
         h.timers.advance(11000);
         return waitForFlush();
     }).then(() => {
         eq('solo 服务端模式自动展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
         const cfg = h.adapter.sdkConfig();
-        eq('distinct_id 替换为安装身份', cfg.distinct_id, SERVER_ID);
+        ok('sdk config 使用 bootstrap', cfg && cfg.bootstrap);
+        eq('bootstrap.distinctID 为 scoped ID', cfg.bootstrap.distinctID, SERVER_SCOPED_ID);
+        eq('bootstrap.isIdentifiedID === false', cfg.bootstrap.isIdentifiedID, false);
+        eq('sdk config 不再包含 distinct_id 初始化字段', cfg.distinct_id, undefined);
+        ok('sdk.get_distinct_id() 等于 scoped ID', h.adapter.get_distinct_id() === SERVER_SCOPED_ID);
         const shown = h.adapter.calls.results.find(r => r && r.event === 'survey shown');
-        ok('shown 事件携带安装身份 distinct_id',
-            shown && shown.properties.distinct_id === SERVER_ID);
-        eq('服务端模式不写本地去重状态', h.storage.getItem(STATE_KEY) === null, true);
+        ok('shown 事件携带 scoped distinct_id',
+            shown && shown.properties.distinct_id === SERVER_SCOPED_ID);
+        const posts = h.serverPosts.filter(p => p.body.command === 'record_seen');
+        ok('布局体验以 record_seen 命令提交（不发送完整 seen）', posts.length >= 1);
+        posts.forEach(p => {
+            ok('record_seen 只含合法布局 ID', Array.isArray(p.body.layoutIds)
+                && p.body.layoutIds.every(id => LAYOUT_IDS.indexOf(id) >= 0));
+            ok('record_seen 不携带完整 state / seen', !p.body.state && !p.body.seen);
+            ok('record_seen 携带 expectedRevision 与 surveyId',
+                typeof p.body.expectedRevision === 'number' && p.body.surveyId === h.config.surveyId);
+        });
+        const localStateRaw = h.storage.getItem(STATE_KEY);
+        ok('server 无 state 时协调缓存不残留 STATE_KEY',
+            localStateRaw === null || JSON.parse(localStateRaw).surveyId !== h.config.surveyId);
+    });
+}
+
+function testBootstrapIdentitySemanticsLocalCache() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(600);
+        return waitForFlush();
+    }).then(() => {
+        const localSeen = JSON.parse(h.storage.getItem(SEEN_KEY));
+        ok('serverBacked 用权威快照维护 SEEN_KEY 协调缓存',
+            localSeen && LAYOUT_IDS.every(id => localSeen[id]
+                && typeof localSeen[id].lastSeenAt === 'number' && localSeen[id].lastSeenAt > 0));
+        const localState = h.storage.getItem(STATE_KEY);
+        ok('server 无 state 时协调缓存不残留旧 STATE_KEY',
+            localState === null || JSON.parse(localState).surveyId !== h.config.surveyId);
+    });
+}
+
+function testBootstrapIdentityMismatchFailsClosed() {
+    const h = initHarness({
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], distinctId: 'some-other-id'}),
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        eq('get_distinct_id 不一致 fail closed：不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('不一致不请求 Survey', h.adapter.calls.getSurveys.length, 0);
+        eq('不一致不发送事件', h.adapter.calls.capture.length, 0);
+        const warnings = JSON.stringify(h.consoleWarn);
+        ok('记录安全 warning', warnings.indexOf('does not match') >= 0);
+        ok('warning 不含 scoped ID / token / survey', warnings.indexOf(SERVER_SCOPED_ID) < 0
+            && warnings.indexOf('phc_test_project_token') < 0
+            && warnings.indexOf(h.config.surveyId) < 0);
+    });
+}
+
+function testBootstrapIdentityMismatchViaSurveyFlowNeverShown() {
+    // 手动 open 场景：身份不一致同样 fail closed。
+    const h = initHarness({
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], distinctId: 'stale-id'}),
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({})
+    });
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('身份不一致时不显示弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('身份不一致不发送 shown', captureEvents(h).length, 0);
     });
 }
 
@@ -2591,7 +2794,7 @@ function testServerModeSubmittedStateGatesAutoShow() {
         })
     });
     // 先让服务端状态装载完成再推进自动评估
-    return waitForFlush().then(() => {
+    return waitForServerContext(h).then(() => {
         h.timers.advance(11000);
         return waitForFlush();
     }).then(() => {
@@ -2606,7 +2809,7 @@ function testServerModeSubmitPersistsToServer() {
         batchLayout: 'landscape',
         serverState: serverStateResponse({seen: seenObject()})
     });
-    return waitForFlush().then(() => {
+    return waitForServerContext(h).then(() => {
         h.timers.advance(11000);
         return waitForFlush();
     }).then(() => {
@@ -2615,11 +2818,17 @@ function testServerModeSubmitPersistsToServer() {
         return waitForFlush();
     }).then(() => {
         eq('服务端模式提交成功', captureEvents(h).filter(e => e === 'survey sent').length, 1);
-        eq('不写本地 localStorage 状态', h.storage.getItem(STATE_KEY) === null, true);
-        const post = h.serverPosts.find(p => p.body.state && p.body.state.status === 'submitted');
-        ok('提交状态 POST 到服务端', !!post);
-        eq('POST 携带 surveyId', post.body.state.surveyId, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
-        ok('POST 携带已体验布局', !!post.body.seen && !!post.body.seen['pixiv-batch-landscape']);
+        const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+        eq('本地协调缓存写 submitted', localState.status, 'submitted');
+        eq('本地缓存绑定 surveyId', localState.surveyId, h.config.surveyId);
+        const post = h.serverPosts.find(p => p.body.command === 'submitted');
+        ok('PostHog 接受后发送 submitted 命令', !!post);
+        eq('submitted 命令携带 surveyId', post.body.surveyId, h.config.surveyId);
+        eq('submitted 命令不携带建议 / 布局回答 / 完整状态',
+            post.body.suggestion === undefined
+            && post.body.selectedChoice === undefined
+            && post.body.state === undefined && post.body.seen === undefined, true);
+        ok('submitted 命令携带 expectedRevision', typeof post.body.expectedRevision === 'number');
     });
 }
 
@@ -2629,31 +2838,37 @@ function testServerModeSnoozeAndNeverPersist() {
             batchLayout: 'landscape',
             serverState: serverStateResponse({seen: seenObject()})
         });
-        return waitForFlush().then(() => {
+        return waitForServerContext(h).then(() => {
             h.timers.advance(11000);
             return waitForFlush();
         }).then(() => {
             h.actionButton('snooze').click();
             return waitForFlush();
         }).then(() => {
-            const post = h.serverPosts.find(p => p.body.state && p.body.state.status === 'snoozed');
-            ok('稍后再说持久化到服务端', !!post);
-            ok('snooze 时间为 7 天后', post.body.state.snoozedUntil > 0);
+            const post = h.serverPosts.find(p => p.body.command === 'snooze');
+            ok('稍后再说以 snooze 命令持久化', !!post);
+            eq('snooze 不携带客户端 snoozedUntil / 时间戳', post.body.snoozedUntil === undefined
+                && post.body.updatedAt === undefined
+                && post.body.firstSeenAt === undefined
+                && post.body.lastSeenAt === undefined, true);
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('本地协调缓存写 snoozed', localState.status, 'snoozed');
         });
     }).then(() => {
         const h = initHarness({
             batchLayout: 'landscape',
             serverState: serverStateResponse({seen: seenObject()})
         });
-        return waitForFlush().then(() => {
+        return waitForServerContext(h).then(() => {
             h.timers.advance(11000);
             return waitForFlush();
         }).then(() => {
             h.actionButton('never').click();
             return waitForFlush();
         }).then(() => {
-            const post = h.serverPosts.find(p => p.body.state && p.body.state.status === 'never');
-            ok('不再询问持久化到服务端', !!post);
+            const post = h.serverPosts.find(p => p.body.command === 'never');
+            ok('不再询问以 never 命令持久化', !!post);
+            eq('never 不携带 layoutIds', post.body.layoutIds === undefined, true);
         });
     });
 }
@@ -2664,14 +2879,20 @@ function testServerModeSeenRecordsServerSide() {
         serverState: serverStateResponse({}),
         minDistinct: 2
     });
-    return waitForFlush().then(() => {
+    return waitForServerContext(h).then(() => {
         h.dispatchLayoutChanged('portrait', 'landscape');
         h.timers.advance(600);
         return waitForFlush();
     }).then(() => {
-        const post = h.serverPosts.find(p => p.body.seen && p.body.seen['pixiv-batch-portrait']);
-        ok('布局体验记录 POST 到服务端', !!post);
-        ok('包含 init 补录的当前布局', !!post.body.seen['pixiv-batch-landscape']);
+        const posts = h.serverPosts.filter(p => p.body.command === 'record_seen');
+        ok('布局体验以 record_seen 命令提交', posts.length >= 1);
+        const layoutIds = posts[posts.length - 1].body.layoutIds;
+        ok('record_seen 布局 ID 去重且合法', Array.isArray(layoutIds)
+            && layoutIds.indexOf('pixiv-batch-portrait') >= 0
+            && layoutIds.every((id, index) => layoutIds.indexOf(id) === index));
+        ok('record_seen 不携带完整 seen / state', posts.every(p => !p.body.seen && !p.body.state));
+        ok('serverBacked 仍写 SEEN_KEY 本地协调缓存',
+            h.storage.getItem(SEEN_KEY) !== null);
     });
 }
 
@@ -2685,7 +2906,9 @@ function testServerModeUnavailableFallsBackToLocal() {
         h.timers.advance(11000);
         return waitForFlush().then(() => {
             eq('403（multi 模式）回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
-            ok('回退模式 SDK 不设置 distinct_id', h.adapter.sdkConfig().distinct_id === undefined);
+            const cfg = h.adapter.sdkConfig();
+            eq('回退模式 sdk config 不包含 bootstrap', cfg.bootstrap === undefined, true);
+            eq('回退模式不包含 distinct_id 初始化字段', cfg.distinct_id, undefined);
         });
     }).then(() => {
         const h = initHarness({
@@ -2696,9 +2919,671 @@ function testServerModeUnavailableFallsBackToLocal() {
         h.timers.advance(11000);
         return waitForFlush().then(() => {
             eq('服务端不可达回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+            eq('服务端不可达不设置 bootstrap', h.adapter.sdkConfig().bootstrap === undefined, true);
+        });
+    }).then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverFetch: 'pending',
+            minDistinct: 1
+        });
+        h.timers.advance(11000);
+        return waitForFlush().then(() => {
+            eq('服务端超时回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+            eq('超时后 Promise 不悬挂（SDK 已初始化）', h.adapter.sdkConfig() !== null, true);
         });
     });
 }
+
+function testServerGetUrlCarriesEncodedSurveyId() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({})
+    });
+    return waitForServerContext(h).then(() => {
+        const url = h.fetchCalls.find(c => c.url.indexOf('/api/layout-feedback/state') >= 0
+            && !(c.init && c.init.method === 'POST'));
+        ok('GET 请求存在', !!url);
+        ok('GET 携带 surveyId 查询参数', url.url.indexOf('surveyId=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee') >= 0);
+        ok('GET 使用 same-origin credentials', url.init.credentials === 'same-origin');
+    });
+}
+
+function testServerBackedStateAndSeenFromAuthoritativeSnapshot() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({
+            state: {
+                surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                status: 'snoozed',
+                updatedAt: 100,
+                snoozedUntil: 2000000
+            },
+            seen: seenObject()
+        })
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        eq('权威快照 state 生效：有效 snooze 不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+        eq('权威快照同步到本地协调缓存', localState.status, 'snoozed');
+        const localSeen = JSON.parse(h.storage.getItem(SEEN_KEY));
+        ok('权威 seen 同步到本地协调缓存',
+            localSeen && localSeen['pixiv-batch-alt']
+                && typeof localSeen['pixiv-batch-alt'].lastSeenAt === 'number'
+                && localSeen['pixiv-batch-alt'].lastSeenAt > 0);
+    });
+}
+
+function testServerModeSubmitPreflightBlocksOnFreshServerState() {
+    // 弹窗打开后另一设备把服务端写成 submitted：提交前 preflight GET 必须发现并取消。
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        selectChoice(h, 'pixiv-batch-landscape');
+        h.setServerState(serverStateResponse({
+            state: {
+                surveyId: h.config.surveyId,
+                status: 'submitted',
+                updatedAt: 999,
+                snoozedUntil: 0
+            },
+            seen: seenObject()
+        }));
+        h.submitButton().click();
+        return waitForFlush();
+    }).then(() => {
+        eq('preflight 发现 submitted：不发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 0);
+        eq('preflight 拦截后关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('不额外发送 dismissed', captureEvents(h).indexOf('survey dismissed'), -1);
+        ok('显示已在其他页面处理提示', h.toastCalls.length === 1);
+        const posts = h.serverPosts.filter(p => p.body.command === 'submitted');
+        eq('不发送 submitted 命令', posts.length, 0);
+    });
+}
+
+function testServerModeSubmitPreflightNeverAndSnooze() {
+    return Promise.resolve().then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()})
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            selectChoice(h, 'pixiv-batch-portrait');
+            h.setServerState(serverStateResponse({
+                state: {surveyId: h.config.surveyId, status: 'never', updatedAt: 999, snoozedUntil: 0},
+                seen: seenObject()
+            }));
+            h.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            eq('preflight 发现 never：不发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 0);
+            eq('preflight never 拦截后关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        });
+    }).then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()})
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            selectChoice(h, 'pixiv-batch-alt');
+            h.setServerState(serverStateResponse({
+                state: {surveyId: h.config.surveyId, status: 'snoozed', updatedAt: 999, snoozedUntil: 2000000},
+                seen: seenObject()
+            }));
+            h.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            eq('preflight 发现有效 snooze：不发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 0);
+            eq('preflight snooze 拦截后关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        });
+    });
+}
+
+function testServerModePreflightAllowsCaptureThenSendsSubmitted() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        selectChoice(h, 'pixiv-batch-landscape');
+        h.submitButton().click();
+        return waitForFlush();
+    }).then(() => {
+        eq('preflight 允许后正常 capture', captureEvents(h).filter(e => e === 'survey sent').length, 1);
+        const posts = h.serverPosts.filter(p => p.body.command === 'submitted');
+        eq('capture 接受后发送 submitted 命令', posts.length, 1);
+        ok('submitted 命令携带服务器返回的最新 revision',
+            typeof posts[0].body.expectedRevision === 'number');
+    });
+}
+
+function testServerCommandConflictRetriesOnce() {
+    let postCount = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()}),
+        serverPostResponse: ({body}) => {
+            if (body.command !== 'submitted') return undefined;
+            postCount++;
+            if (postCount === 1) {
+                // 第一次冲突：服务端已推进到 revision 5（state=null，submitted 可升级）
+                return {
+                    status: 409,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 5,
+                        state: null,
+                        seen: seenObject()
+                    }))
+                };
+            }
+            return {
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 6,
+                    state: {
+                        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                        status: 'submitted',
+                        updatedAt: 1,
+                        snoozedUntil: 0
+                    },
+                    seen: seenObject()
+                }))
+            };
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        // 用户提交后发送 submitted：首次 409，更新快照后重试一次成功。
+        selectChoice(h, 'pixiv-batch-landscape');
+        h.submitButton().click();
+        return waitForFlush();
+    }).then(() => {
+        const submittedPosts = h.serverPosts.filter(p => p.body.command === 'submitted');
+        eq('409 后基于最新 revision 重试一次', submittedPosts.length, 2);
+        eq('第二次请求携带最新 revision', submittedPosts[1].body.expectedRevision, 5);
+        const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+        eq('冲突快照同步到本地协调缓存', localState.status, 'submitted');
+    });
+}
+
+function testServerCommandConflictDoesNotDowngradeSubmitted() {
+    let postCount = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()}),
+        serverPostResponse: ({body}) => {
+            if (body.command !== 'never') return undefined;
+            postCount++;
+            if (postCount === 1) {
+                return {
+                    status: 409,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 5,
+                        state: {
+                            surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                            status: 'submitted',
+                            updatedAt: 1,
+                            snoozedUntil: 0
+                        },
+                        seen: seenObject()
+                    }))
+                };
+            }
+            return {
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 6,
+                    state: {
+                        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                        status: 'never',
+                        updatedAt: 1,
+                        snoozedUntil: 0
+                    },
+                    seen: seenObject()
+                }))
+            };
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        // 用户点「不再询问」：服务端已是 submitted → 409 后不得重试降级。
+        h.actionButton('never').click();
+        return waitForFlush();
+    }).then(() => {
+        const neverPosts = h.serverPosts.filter(p => p.body.command === 'never');
+        eq('当前 submitted 时 never 只尝试一次（不降级、不重试）', neverPosts.length, 1);
+        const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+        eq('本地协调缓存不被降级为 never', localState.status, 'submitted');
+    });
+}
+
+function testServerCommandNetworkFailureSafeDegrade() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()}),
+        serverPostResponse: 'fail'
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        h.actionButton('snooze').click();
+        return waitForFlush();
+    }).then(() => {
+        eq('服务端命令失败仍关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+        eq('失败保留本地协调缓存回退', localState.status, 'snoozed');
+        ok('记录不含用户数据的 warning', h.consoleWarn.some(args => {
+            const text = JSON.stringify(args);
+            return text.indexOf('server state save failed') >= 0
+                && text.indexOf('phc_test_project_token') < 0
+                && text.indexOf(h.config.surveyId) < 0;
+        }));
+    });
+}
+
+function testServerCommandRecordSeenConflictRetries() {
+    let postCount = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()}),
+        serverPostResponse: () => {
+            postCount++;
+            if (postCount === 1) {
+                return {
+                    status: 409,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 7,
+                        state: null,
+                        seen: seenObject()
+                    }))
+                };
+            }
+            return {
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 8,
+                    state: null,
+                    seen: Object.assign(seenObject(), {
+                        'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}
+                    })
+                }))
+            };
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        h.timers.advance(600);
+        return waitForFlush();
+    }).then(() => {
+        const seenPosts = h.serverPosts.filter(p => p.body.command === 'record_seen');
+        ok('record_seen 409 后重试', seenPosts.length >= 2);
+        ok('重试携带最新 revision',
+            seenPosts.slice(1).some(p => p.body.expectedRevision === 7));
+    });
+}
+
+function testServerModeCrossTabCoordination() {
+    // 标签页 A（serverBacked）提交 → 标签页 B 收到 storage 事件即时关闭弹窗，
+    // 并触发一次有限服务端刷新；storage 消息不直接伪造 serverRevision。
+    return Promise.resolve().then(() => {
+        const hA = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()})
+        });
+        return waitForServerContext(hA).then(() => {
+            hA.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            selectChoice(hA, 'pixiv-batch-landscape');
+            hA.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            const localState = JSON.parse(hA.storage.getItem(STATE_KEY));
+            eq('标签页 A 本地协调缓存为 submitted', localState.status, 'submitted');
+            // 标签页 B：共享同一 localStorage（协调缓存）
+            const hB = initHarness({
+                batchLayout: 'landscape',
+                storage: {[STATE_KEY]: JSON.stringify(localState), [SEEN_KEY]: hA.storage.getItem(SEEN_KEY)},
+                serverState: serverStateResponse({seen: seenObject()})
+            });
+            return waitForServerContext(hB).then(() => hB.api.open()).then(() => waitForFlush())
+                .then(() => {
+                    eq('标签页 B 弹窗已打开', hB.document.querySelectorAll('.plf-backdrop').length, 1);
+                    hB.dispatchStorage(STATE_KEY, JSON.stringify(localState));
+                    return waitForFlush();
+                }).then(() => {
+                    eq('标签页 B 收到 storage 事件后关闭', hB.document.querySelectorAll('.plf-backdrop').length, 0);
+                    eq('标签页 B 不重复发送 dismissed', captureEvents(hB).indexOf('survey dismissed'), -1);
+                    eq('storage 事件触发一次有限服务端刷新', hB.stateFetchCount() >= 2, true);
+                });
+        });
+    }).then(() => {
+        // 永不伪造 serverRevision：storage 值再强也不直接改 revision
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()})
+        });
+        let before = 0;
+        return waitForServerContext(h).then(() => {
+            before = h.stateFetchCount();
+            h.dispatchStorage(STATE_KEY, JSON.stringify({
+                surveyId: h.config.surveyId, status: 'submitted', updatedAt: 1, snoozedUntil: 0
+            }));
+            return waitForFlush();
+        }).then(() => {
+            ok('storage 事件后发起有限刷新', h.stateFetchCount() > before);
+            eq('刷新次数有限（仅一次事件一次刷新）', h.stateFetchCount() - before, 1);
+        });
+    });
+}
+
+function testLocalStateReconciliation() {
+    // 服务端恢复返回空状态，本地曾提交 submitted → 有限回放 submitted 命令。
+    const submitted = JSON.stringify({
+        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        status: 'submitted', updatedAt: 100, snoozedUntil: 0
+    });
+    const h = initHarness({
+        batchLayout: 'landscape',
+        storage: {[STATE_KEY]: submitted, [SEEN_KEY]: JSON.stringify(seenObject())},
+        serverState: serverStateResponse({seen: {}})
+    });
+    return waitForServerContext(h).then(() => {
+        const posts = h.serverPosts.filter(p => p.body.command === 'submitted');
+        eq('本地 submitted + 服务端空状态 → 回放 submitted', posts.length, 1);
+        const seenPosts = h.serverPosts.filter(p => p.body.command === 'record_seen');
+        ok('本地 seen 合并为 record_seen 命令', seenPosts.length >= 1);
+        ok('回放不发送 PostHog 事件', h.adapter.calls.capture.length === 0);
+    });
+}
+
+function testLocalStateReconciliationNeverOverSnoozed() {
+    const localNever = JSON.stringify({
+        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        status: 'never', updatedAt: 100, snoozedUntil: 0
+    });
+    const h = initHarness({
+        batchLayout: 'landscape',
+        storage: {[STATE_KEY]: localNever},
+        serverState: serverStateResponse({
+            state: {
+                surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                status: 'snoozed', updatedAt: 1, snoozedUntil: 2000000
+            },
+            seen: {}
+        })
+    });
+    return waitForServerContext(h).then(() => {
+        const posts = h.serverPosts.filter(p => p.body.command === 'never');
+        eq('本地 never + 服务端 snoozed → 回放 never 升级', posts.length, 1);
+    });
+}
+
+function testLocalStateReconciliationNeverDowngrades() {
+    const localSnoozed = JSON.stringify({
+        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        status: 'snoozed', updatedAt: 100, snoozedUntil: 2000000
+    });
+    const h = initHarness({
+        batchLayout: 'landscape',
+        storage: {[STATE_KEY]: localSnoozed},
+        serverState: serverStateResponse({
+            state: {
+                surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                status: 'submitted', updatedAt: 1, snoozedUntil: 0
+            },
+            seen: {}
+        })
+    });
+    return waitForServerContext(h).then(() => {
+        const posts = h.serverPosts.filter(p => p.body.command === 'snooze'
+            || p.body.command === 'never' || p.body.command === 'submitted');
+        eq('服务端 submitted 时本地 snoozed 不回放（不降级）', posts.length, 0);
+    });
+}
+
+function testLocalStateReconciliationIgnoresInvalidOrOtherSurvey() {
+    return Promise.resolve().then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            storage: {[STATE_KEY]: JSON.stringify({
+                surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                status: 'weird', updatedAt: 100, snoozedUntil: 0
+            })},
+            serverState: serverStateResponse({})
+        });
+        return waitForServerContext(h).then(() => {
+            const posts = h.serverPosts.filter(p => p.body.command !== 'record_seen');
+            eq('非法本地状态不上传', posts.length, 0);
+        });
+    }).then(() => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            storage: {[STATE_KEY]: JSON.stringify({
+                surveyId: 'old-survey-id-123456',
+                status: 'submitted', updatedAt: 100, snoozedUntil: 0
+            })},
+            serverState: serverStateResponse({})
+        });
+        return waitForServerContext(h).then(() => {
+            const posts = h.serverPosts.filter(p => p.body.command !== 'record_seen');
+            eq('旧 Survey 本地状态不上传', posts.length, 0);
+        });
+    });
+}
+
+function testDestroyDuringServerLoad() {
+    const h = initHarness({serverFetch: 'pending', batchLayout: 'landscape'});
+    let resolved = false;
+    const promise = h.api.open().then(value => { resolved = true; return value; });
+    return waitForFlush().then(() => {
+        ok('server GET 已发出', h.stateFetchCount() >= 1);
+        h.api.destroy();
+        return waitForFlush();
+    }).then(() => {
+        ok('destroy 后 open Promise 安全完成', resolved);
+        eq('destroy abort 了在途 GET', h.serverAbortCalls.length >= 1, true);
+        // 迟到响应不得写任何状态
+        h.serverFetchGate.resolve({ok: true, json: () => Promise.resolve(
+            serverStateResponse({seen: seenObject()}))});
+        return waitForFlush();
+    }).then(() => {
+        eq('迟到 GET 响应不初始化 SDK', h.adapter.sdkConfig() === null, true);
+        eq('迟到 GET 响应不显示弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('迟到 GET 响应不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+    });
+}
+
+function testDestroyThenReinitReProbesServer() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({})
+    });
+    return waitForServerContext(h).then(() => {
+        const initialGets = h.stateFetchCount();
+        ok('init 探测服务端', initialGets >= 1);
+        h.api.destroy();
+        h.api.init(reinitOptions(h));
+        return waitForFlush();
+    }).then(() => {
+        ok('re-init 重新探测服务端（不复用旧快照）', h.stateFetchCount() > 1);
+        h.api.destroy();
+        h.timers.advance(30000);
+        return waitForFlush();
+    }).then(() => {
+        eq('destroy 后无定时器残留', h.timers.pending().length, 0);
+    });
+}
+
+function testDestroyDuringServerCommand() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()}),
+        serverPostResponse: 'pending'
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        h.actionButton('snooze').click();
+        return waitForFlush();
+    }).then(() => {
+        h.api.destroy();
+        // 迟到 POST 响应不得影响新 generation
+        return waitForFlush();
+    }).then(() => {
+        eq('destroy 后无弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后无 Toast', h.toastCalls.length, 0);
+        eq('destroy 后定时器已清理', h.timers.pending().length, 0);
+    });
+}
+
+function testServerSeenDebounceTimerClearedOnDestroy() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({})
+    });
+    return waitForServerContext(h).then(() => {
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        ok('seen 去抖定时器已调度', h.timers.pending().length > 0);
+        const postsBefore = h.serverPosts.filter(p => p.body.command === 'record_seen').length;
+        h.api.destroy();
+        eq('destroy 清除 seen 去抖定时器', h.timers.pending().length, 0);
+        h.timers.advance(5000);
+        return waitForFlush();
+    }).then(() => {
+        const posts = h.serverPosts.filter(p => p.body.command === 'record_seen');
+        eq('destroy 后不再发送 record_seen', posts.length, 1);
+    });
+}
+
+function testDisabledConfigDoesNotProbeServer() {
+    const h = initHarness({
+        publicConfig: {
+            enabled: false, projectToken: '', surveyId: '', apiHost: '', uiHost: ''
+        },
+        batchLayout: 'landscape'
+    });
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('enabled=false 不展示调查', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('enabled=false 不加载 SDK', h.scriptElements().length, 0);
+        eq('enabled=false 不请求 server state', h.fetchCalls.filter(c =>
+            c.url.indexOf('/api/layout-feedback/state') >= 0).length, 0);
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        eq('enabled=false 自动流程不动作', h.document.querySelectorAll('.plf-backdrop').length, 0);
+    });
+}
+
+function testWaitForIdentityBeforeSdkInit() {
+    // server GET 慢：open() 等待身份，SDK 初始化发生在 GET 完成后。
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverFetch: 'pending',
+        minDistinct: 1
+    });
+    const promise = h.api.open();
+    return waitForFlush().then(() => {
+        eq('server GET 完成前 SDK 未初始化', h.adapter.sdkConfig() === null, true);
+        eq('server GET 完成前不显示弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        h.serverFetchGate.resolve({ok: true, json: () => Promise.resolve(
+            serverStateResponse({seen: seenObject()}))});
+        return promise.then(() => waitForFlush());
+    }).then(() => {
+        eq('server GET 完成后 SDK 才初始化', h.adapter.sdkConfig() !== null, true);
+        eq('bootstrap 使用 scoped ID', h.adapter.sdkConfig().bootstrap.distinctID, SERVER_SCOPED_ID);
+        eq('身份确定后正常展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testOpenWaitsForServer403Fallback() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverFetch: '403',
+        minDistinct: 1
+    });
+    return h.api.open().then(() => waitForFlush()).then(() => {
+        eq('403 后浏览器匿名模式初始化', h.adapter.sdkConfig() !== null, true);
+        eq('403 后不设置 bootstrap', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('403 后本地模式可展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testServerModePrivacyNoRawUuid() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        const allJson = JSON.stringify({
+            fetchCalls: h.fetchCalls.map(c => c.url),
+            posts: h.serverPosts,
+            warns: h.consoleWarn
+        });
+        ok('前端任何地方不出现原始安装 UUID', allJson.indexOf(SERVER_RAW_UUID) < 0);
+        ok('前端不出现非 plf 前缀身份', allJson.indexOf('install-00000000') < 0);
+        const stateRaw = h.storage.getItem(STATE_KEY);
+        ok('本地协调缓存不含原始安装 UUID', !stateRaw || stateRaw.indexOf(SERVER_RAW_UUID) < 0);
+    });
+}
+
+function testServerModeReinitIdentityChangeFailsClosed() {
+    const h = initHarness({
+        batchLayout: 'landscape',
+        serverState: serverStateResponse({seen: seenObject()})
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(11000);
+        return waitForFlush();
+    }).then(() => {
+        eq('第一代正常展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        const surveysBefore = h.adapter.calls.getSurveys.length;
+        h.api.destroy();
+        // 身份变化（同一页面重新 init 后服务器下发另一个 scoped ID）
+        h.setServerState(serverStateResponse({
+            distinctId: 'plf_' + 'cd'.repeat(32),
+            seen: seenObject()
+        }));
+        h.api.init(reinitOptions(h));
+        return h.api.open().then(() => waitForFlush());
+    }).then(() => {
+        eq('身份变化不静默复用旧 singleton（fail closed 不展示）',
+            h.document.querySelectorAll('.plf-backdrop').length, 0);
+        const warnings = JSON.stringify(h.consoleWarn);
+        ok('记录安全 warning', warnings.indexOf('different public configuration') >= 0);
+        ok('warning 不含 scoped ID', warnings.indexOf('plf_') < 0);
+    });
+}
+
 
 /* ============================================================
    入口
@@ -2786,12 +3671,38 @@ async function run() {
     await step('testFakeAdapterDefaultTimestampIsDate', testFakeAdapterDefaultTimestampIsDate);
     await step('testFakeAdapterTimestampOverrides', testFakeAdapterTimestampOverrides);
     await step('testSdkConfigHeatmapMigration', testSdkConfigHeatmapMigration);
-    await step('testServerModeUsesInstallIdentity', testServerModeUsesInstallIdentity);
+    await step('testBootstrapIdentitySemantics', testBootstrapIdentitySemantics);
+    await step('testBootstrapIdentitySemanticsLocalCache', testBootstrapIdentitySemanticsLocalCache);
+    await step('testBootstrapIdentityMismatchFailsClosed', testBootstrapIdentityMismatchFailsClosed);
+    await step('testBootstrapIdentityMismatchViaSurveyFlowNeverShown', testBootstrapIdentityMismatchViaSurveyFlowNeverShown);
     await step('testServerModeSubmittedStateGatesAutoShow', testServerModeSubmittedStateGatesAutoShow);
     await step('testServerModeSubmitPersistsToServer', testServerModeSubmitPersistsToServer);
     await step('testServerModeSnoozeAndNeverPersist', testServerModeSnoozeAndNeverPersist);
     await step('testServerModeSeenRecordsServerSide', testServerModeSeenRecordsServerSide);
     await step('testServerModeUnavailableFallsBackToLocal', testServerModeUnavailableFallsBackToLocal);
+    await step('testServerGetUrlCarriesEncodedSurveyId', testServerGetUrlCarriesEncodedSurveyId);
+    await step('testServerBackedStateAndSeenFromAuthoritativeSnapshot', testServerBackedStateAndSeenFromAuthoritativeSnapshot);
+    await step('testServerModeSubmitPreflightBlocksOnFreshServerState', testServerModeSubmitPreflightBlocksOnFreshServerState);
+    await step('testServerModeSubmitPreflightNeverAndSnooze', testServerModeSubmitPreflightNeverAndSnooze);
+    await step('testServerModePreflightAllowsCaptureThenSendsSubmitted', testServerModePreflightAllowsCaptureThenSendsSubmitted);
+    await step('testServerCommandConflictRetriesOnce', testServerCommandConflictRetriesOnce);
+    await step('testServerCommandConflictDoesNotDowngradeSubmitted', testServerCommandConflictDoesNotDowngradeSubmitted);
+    await step('testServerCommandNetworkFailureSafeDegrade', testServerCommandNetworkFailureSafeDegrade);
+    await step('testServerCommandRecordSeenConflictRetries', testServerCommandRecordSeenConflictRetries);
+    await step('testServerModeCrossTabCoordination', testServerModeCrossTabCoordination);
+    await step('testLocalStateReconciliation', testLocalStateReconciliation);
+    await step('testLocalStateReconciliationNeverOverSnoozed', testLocalStateReconciliationNeverOverSnoozed);
+    await step('testLocalStateReconciliationNeverDowngrades', testLocalStateReconciliationNeverDowngrades);
+    await step('testLocalStateReconciliationIgnoresInvalidOrOtherSurvey', testLocalStateReconciliationIgnoresInvalidOrOtherSurvey);
+    await step('testDestroyDuringServerLoad', testDestroyDuringServerLoad);
+    await step('testDestroyThenReinitReProbesServer', testDestroyThenReinitReProbesServer);
+    await step('testDestroyDuringServerCommand', testDestroyDuringServerCommand);
+    await step('testServerSeenDebounceTimerClearedOnDestroy', testServerSeenDebounceTimerClearedOnDestroy);
+    await step('testDisabledConfigDoesNotProbeServer', testDisabledConfigDoesNotProbeServer);
+    await step('testWaitForIdentityBeforeSdkInit', testWaitForIdentityBeforeSdkInit);
+    await step('testOpenWaitsForServer403Fallback', testOpenWaitsForServer403Fallback);
+    await step('testServerModePrivacyNoRawUuid', testServerModePrivacyNoRawUuid);
+    await step('testServerModeReinitIdentityChangeFailsClosed', testServerModeReinitIdentityChangeFailsClosed);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 

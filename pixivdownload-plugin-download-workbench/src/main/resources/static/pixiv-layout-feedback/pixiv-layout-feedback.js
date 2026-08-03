@@ -14,17 +14,21 @@
  *
  * 隐私约束：
  *   - Project token / Survey ID / apiHost / uiHost 都是公开客户端配置，不是 Secret；
- *   - 不调用 posthog.identify()；solo 模式下使用服务端下发的中性安装身份
- *     （data/install_identity.txt 的 UUID）作为匿名 distinct ID，multi 模式继续使用
- *     SDK 生成的匿名 ID；
+ *   - 不调用 identify() / reset() 建立命名身份；solo 模式下使用服务端下发的调查
+ *     作用域匿名身份（plf_ 前缀，由随机安装身份与当前调查 ID 单向派生，经
+ *     bootstrap.distinctID + isIdentifiedID=false 初始化匿名 distinct ID，绝不发送
+ *     data/install_identity.txt 的原始安装 UUID），multi 模式继续使用 SDK 生成的
+ *     匿名浏览器 ID；
  *   - 不发送 Cookie / 账号 / 作品 / 路径 / 浏览器指纹；
  *   - autocapture / pageview / pageleave / replay / heatmap / error tracking / web vitals 全关；
  *   - before_send 只放行 survey shown / survey sent / survey dismissed 三个事件并做属性允许列表；
- *   - 本地弱去重（localStorage + 匿名 distinct ID）不是不可绕过的选举系统；
+ *   - 本地弱去重（localStorage + 匿名身份）不是不可绕过的选举系统；
  *     solo 模式下「稍后再说 / 不再询问 / 已提交」与已体验布局由服务端
- *     /api/layout-feedback/state 持久化到 state/，多个浏览器 / 设备共享同一去重结论；
- *   - 跨标签页弱去重：storage 事件与提交前 fresh 读取会关闭另一标签页已处理的弹窗，
- *     但无法消除两个标签页完全同时点击的竞态，不引入浏览器指纹或账号绑定。
+ *     /api/layout-feedback/state 以动作式命令 + revision / CAS 持久化到 state/，
+ *     多个浏览器 / 设备共享同一去重结论；
+ *   - 跨标签页弱去重：storage 事件与提交前 fresh 读取（serverBacked 下为强制 GET
+ *     最新服务端状态）会关闭另一标签页已处理的弹窗，但无法消除两个标签页完全
+ *     同时点击的竞态，不引入浏览器指纹或账号绑定。
  */
 (function (global) {
     'use strict';
@@ -40,6 +44,7 @@
     var SERVER_STATE_TIMEOUT_MS = 3 * 1000;
     var SERVER_SAVE_DEBOUNCE_MS = 400;
     var SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+    var SCOPED_ID_PATTERN = /^plf_[0-9a-f]{64}$/;
     var MIN_DISTINCT_LAYOUTS_SEEN = 2;
     var AUTO_DELAY_MS = 10 * 1000;
     var AUTO_RETRY_DELAY_MS = 5 * 1000;
@@ -269,11 +274,18 @@
     var appVersionPromise = null;
     var pendingTimers = [];
     var serverBacked = false;
+    var serverIdentityAvailable = false;
     var serverDistinctId = null;
     var serverState = null;
     var serverSeen = null;
-    var serverStatePromise = null;
+    var serverRevision = 0;
+    var serverLoadOperation = null;
+    var serverRefreshOperation = null;
+    var serverRefreshInFlight = null;
+    var serverCommandOperations = [];
+    var pendingSeenLayouts = {};
     var serverSaveTimerId = null;
+    var reconciled = false;
 
     /* ------------------------------------------------------------
        Runtime generation：异步生命周期代际。
@@ -363,31 +375,142 @@
         return value != null && typeof value === 'object' && !Array.isArray(value);
     }
 
+    function serverStateUrl() {
+        return SERVER_STATE_URL + '?surveyId=' + encodeURIComponent(config.surveyId);
+    }
+
     /**
-     * solo 模式服务端状态装载：GET /api/layout-feedback/state。
-     * - 成功且 available=true 时启用服务端模式（serverBacked=true），distinct_id 替换
-     *   SDK 匿名 ID，state / seen 作为服务端去重事实源；
-     * - 403（multi 模式）/ 网络失败 / 超时 / 无身份时保持 localStorage 模式，
-     *   调查仍按浏览器本地去重工作；
-     * - 只调用一次并缓存 Promise，全部路径都 resolve，不向调用方抛错。
+     * 严格校验并应用服务端权威快照（GET / POST / 409 响应通用）。
+     * - available / stateAvailable / scoped distinct ID 格式 / revision / state / seen
+     *   全部合法才写入；非法响应整体回退（返回 false），不使用部分字段；
+     * - state 只接受当前 surveyId 的状态（服务端已按请求 surveyId 过滤）；
+     * - seen 只接受三个稳定布局 ID 与数值时间戳；
+     * - 只写 server* / session* 变量，不直接写 localStorage（由调用方决定）。
      */
-    function loadServerState() {
-        if (serverStatePromise) return serverStatePromise;
-        serverStatePromise = new Promise(function (resolve) {
+    function applyServerSnapshot(data) {
+        if (!data || typeof data !== 'object') return false;
+        if (data.available !== true) return false;
+        if (typeof data.stateAvailable !== 'boolean') return false;
+        var distinctId = typeof data.distinctId === 'string' ? data.distinctId : '';
+        if (distinctId && !SCOPED_ID_PATTERN.test(distinctId)) return false;
+        var revision = typeof data.revision === 'number' && data.revision >= 0
+            ? data.revision
+            : 0;
+        var state = null;
+        if (data.state != null) {
+            if (!isPlainObject(data.state)) return false;
+            if (typeof data.state.surveyId !== 'string'
+                    || typeof data.state.status !== 'string') {
+                return false;
+            }
+            if (data.state.status !== 'submitted' && data.state.status !== 'never'
+                    && data.state.status !== 'snoozed') {
+                return false;
+            }
+            if (data.state.status === 'snoozed'
+                    && typeof data.state.snoozedUntil !== 'number') {
+                return false;
+            }
+            state = {
+                surveyId: data.state.surveyId,
+                status: data.state.status,
+                updatedAt: typeof data.state.updatedAt === 'number' ? data.state.updatedAt : 0,
+                snoozedUntil: typeof data.state.snoozedUntil === 'number'
+                    ? data.state.snoozedUntil
+                    : 0
+            };
+        }
+        var seen = {};
+        if (data.seen != null) {
+            if (!isPlainObject(data.seen)) return false;
+            var validSeen = true;
+            Object.keys(data.seen).forEach(function (key) {
+                if (!validSeen) return;
+                var entry = data.seen[key];
+                if (LAYOUT_IDS.indexOf(key) < 0 || !isPlainObject(entry)
+                        || typeof entry.firstSeenAt !== 'number'
+                        || typeof entry.lastSeenAt !== 'number'
+                        || entry.firstSeenAt < 0 || entry.lastSeenAt < 0) {
+                    validSeen = false;
+                    return;
+                }
+                seen[key] = {firstSeenAt: entry.firstSeenAt, lastSeenAt: entry.lastSeenAt};
+            });
+            if (!validSeen) return false;
+        }
+        serverIdentityAvailable = distinctId !== '';
+        serverDistinctId = distinctId || null;
+        serverBacked = data.stateAvailable && serverIdentityAvailable;
+        serverRevision = revision;
+        serverState = state;
+        serverSeen = seen;
+        sessionState = state;
+        sessionSeen = Object.assign({}, seen);
+        return true;
+    }
+
+    /**
+     * 可取消的 solo 模式服务端上下文装载 operation。
+     * - 同一 generation 只创建一个请求，重复调用返回同一 promise；
+     * - 成功且 available=true：启用服务端 scoped 身份；stateAvailable=true 时启用
+     *   serverBacked（服务端状态权威），随后先执行有限本地状态回放（reconciliation，
+     *   必须在覆盖本地缓存之前读取），再用权威快照更新本地协调缓存；
+     * - 403（multi 模式）/ 网络失败 / 超时 / 非法响应：整体回退 local 模式，
+     *   调查仍按浏览器本地去重工作；
+     * - 超时 abort 并 resolve，不永久 pending；destroy 时 cancel；
+     * - 只有 generation 仍活动且未 settled 才允许写 server* 变量。
+     */
+    function loadServerContext(generation) {
+        if (serverLoadOperation && serverLoadOperation.generation === generation) {
+            return serverLoadOperation.promise;
+        }
+        var operation = {
+            generation: generation,
+            promise: null,
+            abortController: null,
+            timeoutId: null,
+            settled: false,
+            cancel: null
+        };
+        serverLoadOperation = operation;
+        operation.promise = new Promise(function (resolve) {
             var settled = false;
-            var timer = setTimeoutSafe(function () { finish(); }, SERVER_STATE_TIMEOUT_MS);
             function finish() {
                 if (settled) return;
                 settled = true;
-                clearTimerSafe(timer);
+                operation.settled = true;
+                if (operation.timeoutId != null) {
+                    clearTimerSafe(operation.timeoutId);
+                    operation.timeoutId = null;
+                }
                 resolve();
+            }
+            operation.cancel = function () {
+                if (settled) return;
+                if (operation.abortController) {
+                    try { operation.abortController.abort(); } catch (_) { /* 安全 */ }
+                }
+                finish();
+            };
+            operation.timeoutId = setTimeoutSafe(function () {
+                operation.timeoutId = null;
+                if (settled) return;
+                if (operation.abortController) {
+                    try { operation.abortController.abort(); } catch (_) { /* 安全 */ }
+                }
+                finish();
+            }, SERVER_STATE_TIMEOUT_MS);
+            var init = {
+                credentials: 'same-origin',
+                headers: {'Accept': 'application/json'}
+            };
+            if (typeof global.AbortController === 'function') {
+                operation.abortController = new global.AbortController();
+                init.signal = operation.abortController.signal;
             }
             var request = null;
             try {
-                request = fetchImpl(SERVER_STATE_URL, {
-                    credentials: 'same-origin',
-                    headers: {'Accept': 'application/json'}
-                });
+                request = fetchImpl(serverStateUrl(), init);
             } catch (_) {
                 finish();
                 return;
@@ -400,56 +523,345 @@
                 if (!response || !response.ok) throw new Error('http');
                 return response.json();
             }).then(function (data) {
-                if (!data || data.available !== true) throw new Error('unavailable');
-                var distinctId = typeof data.distinctId === 'string' && data.distinctId
-                    ? data.distinctId
-                    : null;
-                if (!distinctId) throw new Error('no identity');
-                serverBacked = true;
-                serverDistinctId = distinctId;
-                serverState = isPlainObject(data.state) ? data.state : null;
-                serverSeen = isPlainObject(data.seen) ? data.seen : {};
-                sessionState = serverState;
-                sessionSeen = Object.assign({}, serverSeen);
+                if (!isRuntimeGenerationActive(generation) || settled) throw new Error('stale');
+                if (!applyServerSnapshot(data)) throw new Error('invalid');
+                if (serverBacked) {
+                    reconcileLocalState(generation);
+                    writeServerCacheToLocal();
+                }
             }).catch(function () {
-                // 服务端不可用：保留 localStorage 模式
+                // 服务端不可用 / 非法响应：保留 localStorage 模式
             }).then(finish);
         });
-        return serverStatePromise;
+        return operation.promise;
     }
 
     /**
-     * 立即把当前 state / seen 持久化到服务端（fire-and-forget，失败静默降级：
-     * 本页面会话内仍生效，下次加载恢复旧状态后可能再次出现调查）。
+     * 强制重新 GET 最新服务端状态（提交前 preflight / storage 提示后的有限刷新）。
+     * 同一时间最多一个在途请求；超时 abort；失败 resolve(false)，调用方安全降级。
+     * 成功后用权威快照更新本地协调缓存（不做重复 reconciliation）。
      */
-    function saveServerState() {
-        if (!serverBacked) return;
-        var request = null;
-        try {
-            request = fetchImpl(SERVER_STATE_URL, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-                body: JSON.stringify({state: serverState || null, seen: serverSeen || {}}),
-                credentials: 'same-origin'
+    function refreshServerContext(generation) {
+        if (!isRuntimeGenerationActive(generation)) return Promise.resolve(false);
+        if (serverRefreshInFlight) return serverRefreshInFlight;
+        serverRefreshInFlight = new Promise(function (resolve) {
+            var settled = false;
+            var operation = {
+                generation: generation,
+                aborted: false,
+                abortController: null,
+                cancel: null
+            };
+            serverRefreshOperation = operation;
+            function finish(result) {
+                if (settled) return;
+                settled = true;
+                clearTimerSafe(operation.timeoutId);
+                serverRefreshOperation = null;
+                resolve(result);
+            }
+            operation.cancel = function () {
+                if (settled) return;
+                operation.aborted = true;
+                if (operation.abortController) {
+                    try { operation.abortController.abort(); } catch (_) { /* 安全 */ }
+                }
+                finish(false);
+            };
+            operation.timeoutId = setTimeoutSafe(function () {
+                operation.timeoutId = null;
+                if (settled) return;
+                operation.cancel();
+            }, SERVER_STATE_TIMEOUT_MS);
+            var init = {
+                credentials: 'same-origin',
+                headers: {'Accept': 'application/json'}
+            };
+            if (typeof global.AbortController === 'function') {
+                operation.abortController = new global.AbortController();
+                init.signal = operation.abortController.signal;
+            }
+            var request = null;
+            try {
+                request = fetchImpl(serverStateUrl(), init);
+            } catch (_) {
+                finish(false);
+                return;
+            }
+            if (!request || typeof request.then !== 'function') {
+                finish(false);
+                return;
+            }
+            request.then(function (response) {
+                if (!response || !response.ok) throw new Error('http');
+                return response.json();
+            }).then(function (data) {
+                if (!isRuntimeGenerationActive(generation)) throw new Error('stale');
+                if (!applyServerSnapshot(data)) throw new Error('invalid');
+                if (serverBacked) writeServerCacheToLocal();
+                finish(true);
+            }).catch(function () {
+                finish(false);
             });
-        } catch (_) {
-            return;
+        });
+        var promise = serverRefreshInFlight;
+        promise.then(function () {
+            if (serverRefreshInFlight === promise) serverRefreshInFlight = null;
+        });
+        return promise;
+    }
+
+    /**
+     * 发送服务端状态命令（动作式协议 + revision / CAS）。
+     * - 构造 {expectedRevision, surveyId, command[, layoutIds]}，POST JSON；
+     * - 200 / 409 都解析完整快照并更新权威 serverRevision / serverState / serverSeen
+     *   （并同步本地协调缓存）；
+     * - 409 后按命令语义最多重试一次（record_seen 始终可重试；submitted / never /
+     *   snooze 仅在当前状态允许升级时重试，绝不把 submitted / never 降级）；
+     * - 网络错误 / 非法响应安全降级：resolve({ok:false})，不抛未处理 rejection，
+     *   不影响下载工作台；
+     * - 不发送用户建议、布局选择、Cookie、token 或原始安装身份。
+     */
+    function sendServerCommand(generation, command, options) {
+        options = options || {};
+        var layoutIds = options.layoutIds || null;
+        return new Promise(function (resolve) {
+            var settled = false;
+            var attemptCount = 0;
+            var operation = {
+                generation: generation,
+                aborted: false,
+                abortController: null
+            };
+            var operationKey = serverCommandOperations.length;
+            serverCommandOperations.push(operation);
+            function finish(result) {
+                if (settled) return;
+                settled = true;
+                serverCommandOperations[operationKey] = null;
+                resolve(result);
+            }
+            function attempt() {
+                if (!isRuntimeGenerationActive(generation) || operation.aborted) {
+                    finish({ok: false, conflict: false});
+                    return;
+                }
+                attemptCount++;
+                var body = {
+                    expectedRevision: serverRevision,
+                    surveyId: config.surveyId,
+                    command: command
+                };
+                if (layoutIds) body.layoutIds = layoutIds;
+                var init = {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                    body: JSON.stringify(body),
+                    credentials: 'same-origin'
+                };
+                if (typeof global.AbortController === 'function') {
+                    operation.abortController = new global.AbortController();
+                    init.signal = operation.abortController.signal;
+                }
+                var request = null;
+                try {
+                    request = fetchImpl(serverStateUrl(), init);
+                } catch (_) {
+                    finish({ok: false, conflict: false});
+                    return;
+                }
+                if (!request || typeof request.then !== 'function') {
+                    finish({ok: false, conflict: false});
+                    return;
+                }
+                request.then(function (response) {
+                    if (!response) throw new Error('http');
+                    if (!response.ok) {
+                        if (response.status === 409 && attemptCount < 2) {
+                            // 409 分支内部完成冲突快照应用与重试；返回值（undefined）
+                            // 由外层 then 的 data==null 守卫跳过，避免二次 apply 或提前 finish。
+                            return response.json().then(function (data) {
+                                if (!isRuntimeGenerationActive(generation)) {
+                                    throw new Error('stale');
+                                }
+                                if (!applyServerSnapshot(data)) throw new Error('invalid snapshot');
+                                // 冲突快照是权威状态：同步本地协调缓存。
+                                if (serverBacked) writeServerCacheToLocal();
+                                if (!shouldRetryAfterConflict(command, data)) {
+                                    finish({ok: false, conflict: true});
+                                    return;
+                                }
+                                attempt();
+                            });
+                        }
+                        throw new Error('http ' + response.status);
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    if (!isRuntimeGenerationActive(generation)) throw new Error('stale');
+                    if (data == null) return;
+                    if (!applyServerSnapshot(data)) throw new Error('invalid snapshot');
+                    if (serverBacked) writeServerCacheToLocal();
+                    finish({ok: true, conflict: false});
+                }).catch(function () {
+                    finish({ok: false, conflict: false});
+                });
+            }
+            attempt();
+        });
+    }
+
+    /** 409 后是否允许基于最新 revision 重试：绝不降级 submitted / never。 */
+    function shouldRetryAfterConflict(command, data) {
+        if (command === 'record_seen') return true;
+        var state = data && isPlainObject(data.state) ? data.state : null;
+        var status = state && state.surveyId === config.surveyId
+            && typeof state.status === 'string'
+            ? state.status
+            : null;
+        if (command === 'submitted') return status !== 'submitted';
+        if (command === 'never') return status !== 'submitted' && status !== 'never';
+        if (command === 'snooze') return status !== 'submitted' && status !== 'never';
+        return false;
+    }
+
+    /**
+     * 服务端恢复后的有限本地状态回放（每次 init 最多一次）：
+     * - localStorage STATE_KEY 中同一 Survey 的 submitted / never / 有效 snoozed
+     *   比服务端更强时用 server command 回放（不上传客户端时间；snooze 由服务端
+     *   重新计算 7 天）；
+     * - 本地 SEEN_KEY 只提取三个合法布局 ID，经 record_seen 合并；
+     * - generation-safe，不发送 PostHog 事件，失败保留本地回退。
+     */
+    function reconcileLocalState(generation) {
+        if (!isRuntimeGenerationActive(generation)) return;
+        if (reconciled) return;
+        reconciled = true;
+        var localState = readLocalStateRaw();
+        if (localState && isPlainObject(localState) && localState.surveyId === config.surveyId) {
+            var status = localState.status;
+            var now = timers.now();
+            var localStrong = (status === 'submitted' || status === 'never'
+                    || (status === 'snoozed'
+                        && now < (typeof localState.snoozedUntil === 'number'
+                            ? localState.snoozedUntil : 0)));
+            if (localStrong) {
+                var serverStatus = serverState && serverState.surveyId === config.surveyId
+                    ? serverState.status
+                    : null;
+                if (!serverStatus || statusPriority(status) > statusPriority(serverStatus)) {
+                    var command = status === 'snoozed' ? 'snooze' : status;
+                    sendServerCommand(generation, command).then(function (result) {
+                        if (!result.ok) {
+                            warn('layout survey: local state replay failed; keeping local fallback');
+                        }
+                    }).catch(function () { /* 安全降级 */ });
+                }
+            }
         }
-        if (request && typeof request.then === 'function') {
-            request.catch(function () {
-                // 持久化尽力而为
-            });
+        var localSeen = readLocalSeenRaw();
+        var layoutIds = [];
+        LAYOUT_IDS.forEach(function (id) {
+            var entry = localSeen && localSeen[id];
+            if (entry && typeof entry.lastSeenAt === 'number' && entry.lastSeenAt > 0) {
+                layoutIds.push(id);
+            }
+        });
+        if (layoutIds.length) {
+            sendServerCommand(generation, 'record_seen', {layoutIds: layoutIds})
+                .catch(function () { /* 安全降级 */ });
         }
     }
 
-    /** 布局体验记录的写入频率高于状态，合并去抖后一次性提交。 */
-    function scheduleServerSave() {
+    function statusPriority(status) {
+        if (status === 'submitted') return 3;
+        if (status === 'never') return 2;
+        if (status === 'snoozed') return 1;
+        return 0;
+    }
+
+    function readLocalStateRaw() {
+        if (!storage) return null;
+        var raw = null;
+        try {
+            raw = storage.getItem(STATE_KEY);
+        } catch (_) {
+            return null;
+        }
+        if (!raw) return null;
+        try {
+            var parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function readLocalSeenRaw() {
+        if (!storage) return {};
+        var raw = null;
+        try {
+            raw = storage.getItem(SEEN_KEY);
+        } catch (_) {
+            return {};
+        }
+        if (!raw) return {};
+        try {
+            var parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (_) {
+            return {};
+        }
+    }
+
+    /**
+     * 用服务端权威快照更新本地协调缓存（跨标签页即时提示 + 服务端恢复前的
+     * 临时保护；不代表服务器 revision）。
+     */
+    function writeServerCacheToLocal() {
+        if (!storage) return;
+        try {
+            if (serverState && serverState.surveyId === config.surveyId) {
+                storage.setItem(STATE_KEY, JSON.stringify(serverState));
+            } else {
+                storage.removeItem(STATE_KEY);
+            }
+            storage.setItem(SEEN_KEY, JSON.stringify(serverSeen || {}));
+        } catch (_) {
+            // 协调缓存尽力而为
+        }
+    }
+
+    /**
+     * 布局体验记录合并：serverBacked 下仍写 SEEN_KEY 本地协调缓存，并把待同步布局
+     * 加入 pendingSeenLayouts，去抖后以 record_seen 命令提交（不再发送完整 seen）。
+     */
+    function scheduleServerSeenFlush() {
         if (!serverBacked) return;
+        var seen = serverSeen || {};
+        LAYOUT_IDS.forEach(function (id) {
+            if (seen[id] && !pendingSeenLayouts[id]) pendingSeenLayouts[id] = true;
+        });
         if (serverSaveTimerId != null) clearTimerSafe(serverSaveTimerId);
         serverSaveTimerId = setTimeoutSafe(function () {
             serverSaveTimerId = null;
-            saveServerState();
+            flushServerSeen();
         }, SERVER_SAVE_DEBOUNCE_MS);
+    }
+
+    function flushServerSeen() {
+        if (!serverBacked) return;
+        var generation = currentRuntimeGeneration();
+        var layoutIds = Object.keys(pendingSeenLayouts).filter(function (id) {
+            return LAYOUT_IDS.indexOf(id) >= 0;
+        });
+        if (!layoutIds.length) return;
+        sendServerCommand(generation, 'record_seen', {layoutIds: layoutIds}).then(function (result) {
+            if (result && result.ok) {
+                layoutIds.forEach(function (id) { delete pendingSeenLayouts[id]; });
+            }
+            // 失败保留 pending：下一次 recordSeen 会重新调度去抖提交
+        }).catch(function () { /* 安全降级 */ });
     }
 
     /**
@@ -514,7 +926,24 @@
         sessionState = state;
         if (serverBacked) {
             serverState = state;
-            saveServerState();
+            // 本地协调缓存：同一浏览器另一标签页即时提示 + 服务端恢复前的临时保护；
+            // 不代表服务器 revision，权威状态以服务端快照为准。
+            if (storage) {
+                try {
+                    storage.setItem(STATE_KEY, JSON.stringify(state));
+                } catch (_) {
+                    // 存储不可用时仅保留内存态
+                }
+            }
+            // 动作式命令：submitted / never / snooze（snoozedUntil 由服务端重新计算）。
+            var command = status === 'submitted' ? 'submitted'
+                : status === 'never' ? 'never' : 'snooze';
+            var generation = currentRuntimeGeneration();
+            sendServerCommand(generation, command).then(function (result) {
+                if (!result.ok) {
+                    warn('layout survey: server state save failed; keeping local fallback');
+                }
+            }).catch(function () { /* 安全降级 */ });
             return;
         }
         if (storage) {
@@ -575,7 +1004,16 @@
         sessionSeen = seen;
         if (serverBacked) {
             serverSeen = seen;
-            scheduleServerSave();
+            // serverBacked 下仍写 SEEN_KEY 本地协调缓存（同浏览器跨标签体验阈值同步），
+            // 待同步布局经 pendingSeenLayouts 去抖后以 record_seen 命令提交。
+            if (storage) {
+                try {
+                    storage.setItem(SEEN_KEY, JSON.stringify(seen));
+                } catch (_) {
+                    // 存储不可用时仅保留会话记录
+                }
+            }
+            scheduleServerSeenFlush();
             return;
         }
         if (storage) {
@@ -706,10 +1144,16 @@
             mask_all_element_attributes: true,
             before_send: beforeSendFilter
         };
-        // solo 模式：用服务端下发的安装身份 UUID 替换 SDK 匿名 distinct ID
-        //（不调用 identify()，只作为匿名身份；multi 模式保持 SDK 默认匿名 ID）。
-        if (serverBacked && serverDistinctId) {
-            sdkConfig.distinct_id = serverDistinctId;
+        // solo 模式：用服务端下发的调查作用域身份初始化匿名 distinct ID。
+        // posthog-js 1.409.5 只通过 bootstrap.distinctID 初始化身份（isIdentifiedID=false
+        // 表示匿名安装作用域，不触发 identify 语义）；sdkConfig.distinct_id 不参与
+        // 初始化，一律不得使用。multi 模式 / 服务端不可用时不设置 bootstrap，
+        // 保持 SDK 生成的匿名浏览器 ID。
+        if (serverIdentityAvailable && serverDistinctId) {
+            sdkConfig.bootstrap = {
+                distinctID: serverDistinctId,
+                isIdentifiedID: false
+            };
         }
         return sdkConfig;
     }
@@ -847,13 +1291,18 @@
      *   不再次调用 sdk.init；
      * - 先前的 init 抛错时不记录成功签名，后续允许重新尝试；
      * - 重新 init 时配置签名发生变化 → fail closed：不静默切换 Project、
-     *   不把事件发送到不确定项目，只记录不含 token / Survey ID / 查询参数的
-     *   安全 warning，当前页面不显示调查。
+     *   不把事件发送到不确定项目，只记录不含 token / Survey ID / scoped ID /
+     *   查询参数的 safe warning，当前页面不显示调查。
+     * - 签名纳入 projectToken / apiHost / uiHost / posthog-js 版本 / identity 模式
+     *   （server-scoped 或 browser-anonymous）/ scoped distinct ID：同一页面中的
+     *   singleton 不会在身份变化时被静默复用。
      */
     function initPostHog(sdk) {
         if (!sdk || typeof sdk.init !== 'function') return true;
+        var identityMode = serverIdentityAvailable ? 'server-scoped' : 'browser-anonymous';
+        var identity = serverIdentityAvailable && serverDistinctId ? serverDistinctId : '';
         var signature = config.projectToken + '|' + config.apiHost + '|'
-            + config.uiHost + '|' + POSTHOG_JS_VERSION;
+            + config.uiHost + '|' + POSTHOG_JS_VERSION + '|' + identityMode + '|' + identity;
         if (sdkInitSignature === signature) return true;
         if (sdkInitSignature !== null) {
             warn('layout survey: posthog already initialized with a different public configuration by this module; survey disabled for this page');
@@ -866,6 +1315,31 @@
             throw _;
         }
         sdkInitSignature = signature;
+        return true;
+    }
+
+    /**
+     * SDK 初始化完成后验证匿名 distinct ID 与调查作用域身份一致（solo 模式）。
+     * - SDK 公开提供 get_distinct_id() 时必须验证；不一致 fail closed：不请求
+     *   Survey、不发送事件、不显示弹窗；
+     * - 记录不含实际 ID / token / Survey ID 的安全 warning；
+     * - 不得通过 identify() / reset() 修正不一致。
+     */
+    function verifySdkDistinctId(sdk) {
+        if (typeof sdk.get_distinct_id !== 'function') {
+            warn('layout survey: posthog sdk does not expose get_distinct_id; survey disabled for this page');
+            return false;
+        }
+        var actual = null;
+        try {
+            actual = sdk.get_distinct_id();
+        } catch (_) {
+            actual = null;
+        }
+        if (actual !== serverDistinctId) {
+            warn('layout survey: posthog distinct id does not match the server scoped identity; survey disabled for this page');
+            return false;
+        }
         return true;
     }
 
@@ -1132,7 +1606,7 @@
 
             var privacy = buildElement('p', 'plf-privacy');
             privacy.setAttribute('data-i18n', I18N_NS + ':privacy');
-            privacy.textContent = t('privacy', '提交后会向 PostHog 发送你的布局选择、可选建议、应用版本和匿名浏览器标识；不会发送 Pixiv Cookie、账号信息、作品信息、下载内容或本地路径。');
+            privacy.textContent = t('privacy', '提交后会向 PostHog 发送你的布局选择、可选建议、应用版本和匿名调查标识。单人模式的标识由随机安装身份与当前调查 ID 单向派生，仅用于该调查在同一安装的多个浏览器或访问设备之间去重；多人模式使用 PostHog 生成的匿名浏览器标识。不会发送 Pixiv Cookie、账号信息、作品信息、下载内容、本地路径或原始安装身份。');
 
             var error = buildElement('p', 'plf-error');
             error.setAttribute('role', 'alert');
@@ -1462,27 +1936,59 @@
         var snapshot = layoutSnapshot;
         var generation = currentRuntimeGeneration();
 
-        surveyEventProperties(generation, {}).then(function (base) {
-            if (!base) return;
-            var props = {
-                '$survey_id': surveyId,
-                app_version: base.app_version,
-                current_layout: snapshot,
-                survey_schema_version: SURVEY_SCHEMA_VERSION
-            };
-            props['$survey_response_' + choiceId] = selectedChoice;
-            if (suggestion && suggestionId) {
-                props['$survey_response_' + suggestionId] = suggestion;
-            }
-            return sendSurveyEvent(generation, 'survey sent', props);
-        }).then(function () {
-            // capture 已同步返回被接受的 CaptureResult，但若 generation 在结果
-            // 处理前已失效（destroy），旧回调不得再写状态 / 显示 Toast / 动 DOM。
+        // serverBacked：提交前强制 GET 最新服务端状态（跨设备 preflight）。
+        // 同一 Survey 已被 submitted / never / 未到期 snoozed → 取消本次 capture、
+        // 关闭弹窗、显示「已在其他页面处理」、不发送 dismissed。
+        // 服务端刷新失败按安全降级放行：不能因服务器暂时不可用而阻止用户提交反馈。
+        // 这是弱去重：两台设备完全同时通过 preflight 并 capture 仍可能产生重复事件，
+        // 不引入账号绑定、IP 或浏览器指纹。
+        var preflight = Promise.resolve(true);
+        if (serverBacked) {
+            preflight = refreshServerContext(generation).then(function (fresh) {
+                if (!isRuntimeGenerationActive(generation)) return false;
+                if (!fresh) return true;
+                var state = readState();
+                var now = timers.now();
+                if (state && (state.status === 'submitted' || state.status === 'never'
+                        || (state.status === 'snoozed'
+                            && now < (typeof state.snoozedUntil === 'number'
+                                ? state.snoozedUntil : 0)))) {
+                    submitting = false;
+                    closeDialog(true);
+                    showHandledElsewhereNote();
+                    return false;
+                }
+                return true;
+            });
+        }
+        preflight.then(function (allowed) {
             if (!isRuntimeGenerationActive(generation)) return;
-            submitting = false;
-            writeState('submitted');
-            closeDialog(true);
-            showSuccessToast();
+            if (!allowed) return;
+            return surveyEventProperties(generation, {}).then(function (base) {
+                if (!base) return;
+                var props = {
+                    '$survey_id': surveyId,
+                    app_version: base.app_version,
+                    current_layout: snapshot,
+                    survey_schema_version: SURVEY_SCHEMA_VERSION
+                };
+                props['$survey_response_' + choiceId] = selectedChoice;
+                if (suggestion && suggestionId) {
+                    props['$survey_response_' + suggestionId] = suggestion;
+                }
+                return sendSurveyEvent(generation, 'survey sent', props);
+            }).then(function () {
+                // capture 已同步返回被接受的 CaptureResult，但若 generation 在结果
+                // 处理前已失效（destroy），旧回调不得再写状态 / 显示 Toast / 动 DOM。
+                if (!isRuntimeGenerationActive(generation)) return;
+                submitting = false;
+                // PostHog 已接受：本地同步写 submitted（含服务端 submitted 命令；
+                // 服务端保存失败不撤销已接受的提交，保留本地回退，不显示
+                // “PostHog 提交失败”，只记录不含用户数据的 warning）。
+                writeState('submitted');
+                closeDialog(true);
+                showSuccessToast();
+            });
         }).catch(function () {
             if (!isRuntimeGenerationActive(generation)) return;
             submitting = false;
@@ -1589,18 +2095,36 @@
         });
     }
 
-    function showSurveyFlow() {
+    /**
+     * 调查展示流程。必须先等待服务端身份上下文（loadServerContext）确定，再加载 /
+     * 初始化 SDK：不允许先用浏览器 ID init、稍后再收到安装 scoped ID。
+     * - 身份确定后重新检查 generation / 状态门禁（自动流程；手动 open 经
+     *   skipStateGate 保留调试绕过语义）/ DNT / config；
+     * - solo scoped 身份存在时验证 get_distinct_id() 一致，不一致 fail closed；
+     * - 自动流程在服务端 state = submitted / never / 有效 snooze 时不加载 SDK、
+     *   不请求 Survey、不显示。
+     */
+    function showSurveyFlow(options) {
         if (!initialized || flowRunning || dialogOpen) return Promise.resolve(null);
+        options = options || {};
         var generation = currentRuntimeGeneration();
         flowRunning = true;
         function finishFlow(result) {
             if (isRuntimeGenerationActive(generation)) flowRunning = false;
             return result;
         }
-        return resolveSdk(generation).then(function (sdk) {
+        return loadServerContext(generation).then(function () {
+            if (!isRuntimeGenerationActive(generation)) return null;
+            if (!config || !config.enabled) return null;
+            if (!options.skipStateGate && !stateAllowsShow(timers.now())) return null;
+            return resolveSdk(generation);
+        }).then(function (sdk) {
             if (!isRuntimeGenerationActive(generation)) return null;
             if (!sdk || typeof sdk.init !== 'function') return null;
             if (!initPostHog(sdk)) return null;
+            if (serverIdentityAvailable && serverDistinctId) {
+                if (!verifySdkDistinctId(sdk)) return null;
+            }
             // DNT / opt-out：不请求 Survey、不显示、不发 shown、不写状态、不报错。
             if (isCapturingDisabled(sdk)) return null;
             return fetchMatchingSurvey(sdk, generation);
@@ -1664,11 +2188,52 @@
         showHandledElsewhereNote();
     }
 
+    /**
+     * serverBacked 模式下收到 STATE_KEY storage 事件（同一浏览器另一标签页的
+     * 本地协调缓存写入）：可以即时关闭弹窗，但绝不能只凭 storage 消息伪造
+     * serverRevision；随后触发一次有限的服务端刷新确认权威状态（不无限请求）。
+     */
+    function handleServerBackedStateEvent(event) {
+        var localState = null;
+        if (typeof event.newValue === 'string' && event.newValue) {
+            try {
+                var parsed = JSON.parse(event.newValue);
+                if (parsed && typeof parsed === 'object') localState = parsed;
+            } catch (_) {
+                localState = null;
+            }
+        } else {
+            localState = readLocalStateRaw();
+        }
+        var now = timers.now();
+        if (localState && localState.surveyId === config.surveyId
+                && (localState.status === 'submitted' || localState.status === 'never'
+                    || (localState.status === 'snoozed'
+                        && now < (typeof localState.snoozedUntil === 'number'
+                            ? localState.snoozedUntil : 0)))) {
+            if (dialogOpen) {
+                closeDialog(true);
+                showHandledElsewhereNote();
+            }
+        }
+        var generation = currentRuntimeGeneration();
+        if (isRuntimeGenerationActive(generation)) refreshServerContext(generation);
+    }
+
     function onStorageEvent(event) {
         if (!event) return;
         if (event.key === STATE_KEY) {
+            if (serverBacked) {
+                handleServerBackedStateEvent(event);
+                return;
+            }
             refreshStateFromStorage();
         } else if (event.key === SEEN_KEY) {
+            if (serverBacked) {
+                var generation = currentRuntimeGeneration();
+                if (isRuntimeGenerationActive(generation)) refreshServerContext(generation);
+                return;
+            }
             sessionSeen = {};
             if (!autoFlowStarted && seenCount() >= minDistinctLayouts) {
                 scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
@@ -1801,21 +2366,26 @@
         var now = timers.now();
         recordSeen(currentLayoutId(), now);
         loadAppVersion();
+        // enabled=false：不请求服务端状态、不加载 SDK（调查整体关闭）。
+        if (config.enabled) {
+            // solo 模式服务端上下文异步接管：localStorage 模式下的首屏写入不会回放，
+            // 服务端接管后把当前布局补录到服务端 seen，并执行有限本地状态回放
+            //（reconciliation，只一次；自动评估仍按原计划在 autoDelay 之后读取
+            // 服务端状态，去重与阈值语义不变）。
+            var initGeneration = runtimeGeneration;
+            loadServerContext(initGeneration).then(function () {
+                if (!isRuntimeGenerationActive(initGeneration)) return;
+                if (!serverBacked) return;
+                recordSeen(currentLayoutId(), timers.now());
+            });
+        }
         scheduleAutoEvaluation(autoDelay);
-        // solo 模式服务端状态异步接管：localStorage 模式下的首屏写入不会回放，
-        // 服务端接管后把当前布局补录到服务端 seen（自动评估仍按原计划在
-        // autoDelay 之后读取服务端状态，去重与阈值语义不变）。
-        var initGeneration = runtimeGeneration;
-        loadServerState().then(function () {
-            if (!isRuntimeGenerationActive(initGeneration)) return;
-            if (!serverBacked) return;
-            recordSeen(currentLayoutId(), timers.now());
-        });
     }
 
     /**
      * 手动打开展示流程（调试 / 自动化测试入口）。不做自动门禁
-     * （可见性 / 体验数量 / 本地状态），但受 enabled 配置约束。
+     * （可见性 / 体验数量 / 本地状态），但受 enabled 配置约束，且身份加载
+     * 不能绕过：showSurveyFlow 内部始终先等待服务端身份上下文。
      * 未 init（含 destroy 后尚未重新 init）时是安全的 no-op：
      * 返回 resolved null，不加载 SDK、不设置 flowRunning、不插 script、
      * 不注册 listener、不请求 Survey、不打开弹窗。
@@ -1824,7 +2394,7 @@
         if (!initialized || !config || !config.enabled) {
             return Promise.resolve(null);
         }
-        return showSurveyFlow();
+        return showSurveyFlow({skipStateGate: true});
     }
 
     function destroy() {
@@ -1844,6 +2414,37 @@
                 // 取消尽力而为
             }
             sdkLoadOperation = null;
+        }
+        if (serverLoadOperation && typeof serverLoadOperation.cancel === 'function') {
+            try {
+                serverLoadOperation.cancel();
+            } catch (_) {
+                // 取消尽力而为
+            }
+            serverLoadOperation = null;
+        }
+        if (serverRefreshOperation && typeof serverRefreshOperation.cancel === 'function') {
+            try {
+                serverRefreshOperation.cancel();
+            } catch (_) {
+                // 取消尽力而为
+            }
+            serverRefreshOperation = null;
+        }
+        // 取消全部可取消的 server command operation（迟到响应经 generation 守卫失效）。
+        serverCommandOperations.forEach(function (operation) {
+            if (operation && operation.abortController) {
+                try {
+                    operation.abortController.abort();
+                } catch (_) {
+                    // 取消尽力而为
+                }
+            }
+        });
+        serverCommandOperations = [];
+        if (serverSaveTimerId != null) {
+            clearTimerSafe(serverSaveTimerId);
+            serverSaveTimerId = null;
         }
         removeListeners();
         pendingTimers.forEach(function (id) {
@@ -1865,11 +2466,28 @@
         flowRunning = false;
         submitting = false;
         sessionState = null;
+        sessionSeen = {};
         appVersionPromise = null;
+        // 服务端状态全部清空：旧 generation 的 GET / POST / 409 重试 / storage
+        // 消息不得影响新 generation；destroy 后重新 init 必须重新探测 server context，
+        // 不复用旧 server 快照。
+        serverIdentityAvailable = false;
+        serverBacked = false;
+        serverDistinctId = null;
+        serverRevision = 0;
+        serverState = null;
+        serverSeen = null;
+        serverLoadOperation = null;
+        serverRefreshOperation = null;
+        serverRefreshInFlight = null;
+        serverCommandOperations = [];
+        pendingSeenLayouts = {};
+        serverSaveTimerId = null;
+        reconciled = false;
         // 注意：sdkInitSignature 故意保留 —— destroy 后重新 init 时用于同一
         // singleton 的幂等复用（签名一致）与 fail closed（签名变化）。
-        // destroy 不删除已加载完成的 vendor script、不调用 posthog.reset() /
-        // opt_out_capturing()、不改变匿名 distinct ID、不清除 PostHog 本地
+        // destroy 不删除已加载完成的 vendor script、不调用 reset() /
+        // opt-out 方法、不改变匿名 distinct ID、不清除 PostHog 本地
         // 持久化；已加载的 singleton 只随本模块不再被驱动发送调查事件。
     }
 

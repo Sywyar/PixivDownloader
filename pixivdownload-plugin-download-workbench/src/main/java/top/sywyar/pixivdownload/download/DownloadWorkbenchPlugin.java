@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
@@ -83,7 +84,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/pixiv-batch-alt.html"),
                 WebRouteContribution.visitor("/pixiv-batch-alt/**"),
                 WebRouteContribution.visitor("/pixiv-layout-feedback/**"),
-                WebRouteContribution.visitor("/api/layout-feedback/**"),
+                new WebRouteContribution("/api/layout-feedback/state", AccessPolicy.VISITOR,
+                        Set.of(HttpMethod.GET, HttpMethod.POST), false),
                 WebRouteContribution.visitor("/vendor/posthog-js/**"),
                 WebRouteContribution.admin("/api/schedule/**"),
                 WebRouteContribution.invitedGuest("/api/download/status/active"),

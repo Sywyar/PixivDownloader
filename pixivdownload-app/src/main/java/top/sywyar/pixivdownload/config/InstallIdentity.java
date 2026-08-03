@@ -16,9 +16,10 @@ import java.util.UUID;
 /**
  * 安装身份标识：{@code data/install_identity.txt} 中的随机 UUID v4，用于识别不同用户的安装。
  *
- * <p>只读语义：文件存在且内容为合法 UUID 时直接复用；文件不存在（首次运行）时生成一次并落盘。
- * 已存在的标识绝不覆盖、绝不重新生成；多进程并发首启时以 {@code CREATE_NEW} 竞争，败者读取胜者
- * 刚写入的值。进程内缓存，每个 JVM 只读取一次磁盘。
+ * <p>只读语义：文件存在且内容为真实 UUID v4（RFC 4122 variant，version==4 且 variant==2）
+ * 时直接复用；文件不存在（首次运行）时生成一次并落盘。已存在的标识绝不覆盖、绝不重新生成；
+ * 非法外形、非 v4 或非 RFC 4122 variant 一律视为损坏并抛错，不静默重生成。多进程并发首启时
+ * 以 {@code CREATE_NEW} 竞争，败者读取胜者刚写入的值。进程内缓存，每个 JVM 只读取一次磁盘。
  */
 @Slf4j
 @UtilityClass
@@ -76,7 +77,9 @@ public class InstallIdentity {
     private static String readIdentity(Path file) {
         try {
             String content = Files.readString(file, StandardCharsets.UTF_8).trim();
-            return UuidUtils.UUID_PATTERN.matcher(content).matches() ? content : null;
+            UUID uuid = UuidUtils.parseUuidV4(content);
+            // 规范化：UUID.toString() 输出小写；非 v4 / 非 RFC 4122 variant / 非法外形一律视为损坏。
+            return uuid != null ? uuid.toString() : null;
         } catch (IOException e) {
             throw new UncheckedIOException("failed to read install identity file: " + file, e);
         }
