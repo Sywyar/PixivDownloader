@@ -27,7 +27,6 @@ import java.awt.Desktop;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -48,8 +47,6 @@ import java.util.function.Function;
 public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String DEFAULT_ROOT_FOLDER = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
-    private static final String SOLO_MODE = "solo";
     private static final List<String> MAINTENANCE_WEEKDAYS = List.of(
             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday");
 
@@ -58,7 +55,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final ConfigFileEditor editor;
     private final PluginCredentialStore credentialStore = new PluginCredentialStore();
     private final Map<String, PropertiesConfigFileEditor> pluginConfigEditors = new HashMap<>();
-    private final String currentMode;
     /** Web 页 URL 构造器（scheme 按 SSL、主机名按域名推导），供「打开 Web 插件市场」入口复用。 */
     private final Function<String, String> webUrlProvider;
     private final Runnable onLocaleChanged;
@@ -72,7 +68,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final List<GuiConfigSectionSpec> sectionContributions;
     private final List<ConfigGroupSpec> groupSpecs;
     private final String serverGroup;
-    private final String multiModeGroup;
     private final String maintenanceGroup;
 
     /** 本地后端测试 / 热重载端点的统一 HTTP 客户端（供各 section 与热重载复用）。 */
@@ -135,14 +130,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 ? BackendLifecycleManager::restartAsync
                 : backendRestarter;
         this.editor = new ConfigFileEditor(configPath);
-        this.currentMode = resolveCurrentMode();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
         this.allFields = snapshot.fields();
         this.fieldsByKey = snapshot.fieldsByKey();
         this.sectionContributions = snapshot.sections();
         this.groupSpecs = snapshot.groupSpecs();
         this.serverGroup = message("gui.config.group.server");
-        this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
         this.testClient = new GuiConfigTestClient(serverPort);
         logContributionDiagnostics(snapshot.diagnostics());
@@ -285,8 +278,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                         Set.of(GuiConfigGroups.SERVER, GuiConfigGroups.PROXY,
                                 GuiConfigGroups.HTTPS, GuiConfigGroups.UPDATE), false, true),
                 new TopCategory("access-control", message("gui.config.category.access-control"),
-                        Set.of(GuiConfigGroups.MULTI_MODE, GuiConfigGroups.GUEST_INVITE,
-                                GuiConfigGroups.SECURITY), false, true),
+                        Set.of(GuiConfigGroups.GUEST_INVITE, GuiConfigGroups.SECURITY), false, true),
                 new TopCategory("automation-maintenance", message("gui.config.category.automation-maintenance"),
                         Set.of(GuiConfigGroups.SCHEDULE, GuiConfigGroups.MAINTENANCE), false, true),
                 new TopCategory("plugins", message("gui.config.group.plugins"),
@@ -509,7 +501,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private List<ConfigGroupSpec> visibleGroups(ConfigScope scope) {
         Set<String> claimedFieldKeys = claimedFieldKeys(scope);
         return groupSpecs.stream()
-                .filter(group -> !shouldHideGroup(group))
                 .filter(group -> groupHasContent(group, scope, claimedFieldKeys))
                 .toList();
     }
@@ -585,7 +576,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private Set<String> claimedFieldKeys(ConfigScope scope) {
         Set<String> claimed = new LinkedHashSet<>();
         scopedSections(scope).stream()
-                .filter(section -> !shouldHideGroup(section.groupId(), section.group()))
                 .flatMap(section -> section.fieldLayouts().stream())
                 .map(GuiConfigFieldLayoutSpec::fieldKey)
                 .filter(Objects::nonNull)
@@ -767,40 +757,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             setControlEnabled(panel, false);
         }
         return panel;
-    }
-
-    private boolean shouldHideGroup(ConfigGroupSpec group) {
-        return SOLO_MODE.equalsIgnoreCase(currentMode)
-                && (GuiConfigGroups.MULTI_MODE.equals(group.id()) || multiModeGroup.equals(group.label()));
-    }
-
-    private boolean shouldHideGroup(String groupId, String group) {
-        return SOLO_MODE.equalsIgnoreCase(currentMode)
-                && (GuiConfigGroups.MULTI_MODE.equals(normalizeGroupId(groupId)) || multiModeGroup.equals(group));
-    }
-
-    private String resolveCurrentMode() {
-        String rootFolder = DEFAULT_ROOT_FOLDER;
-        try {
-            String configuredRoot = editor.read("download.root-folder");
-            if (configuredRoot != null && !configuredRoot.isBlank()) {
-                rootFolder = configuredRoot.trim();
-            }
-        } catch (IOException e) {
-            log.debug(logMessage("gui.config.log.download-root.read-failed", e.getMessage()));
-        }
-
-        Path setupConfigPath = RuntimeFiles.resolveSetupConfigPath(rootFolder);
-        if (!Files.isRegularFile(setupConfigPath)) {
-            return null;
-        }
-
-        try {
-            return MAPPER.readTree(setupConfigPath.toFile()).path("mode").asText(null);
-        } catch (IOException e) {
-            log.warn(logMessage("gui.config.log.mode.read-failed", e.getMessage()));
-            return null;
-        }
     }
 
     private JPanel buildBottomPanel() {

@@ -39,7 +39,7 @@ import java.util.Set;
  * “首页 / 引导” 标签页：单步向导。每一步是一个独立 Panel，
  * 点击「下一步 / 完成」或后端信号自动推进时，用滑动动画切换到下一个 Panel。
  *
- * <p>七步：① 服务已就绪 → ② 在本页完成配置（管理员账号 + 模式，走 GUI 令牌通道）
+ * <p>七步：① 服务已就绪 → ② 在本页完成配置（管理员账号，走 GUI 令牌通道）
  * → ③ 代理与网络设置 → ④ 启动后端服务 → ⑤ 打开插件引导入口（网页操作指引完成后自动推进，并把 GUI 窗口带到前台）
  * → ⑥ 高级功能提示 → ⑦ 完成页。引导未全部完成前每次启动都停留在首页。</p>
  */
@@ -94,8 +94,6 @@ public class WelcomePanel extends JPanel {
     // 配置表单控件（跨重建复用）
     private final JTextField usernameField = new JTextField(18);
     private final JPasswordField passwordField = new JPasswordField(18);
-    private final JRadioButton soloRadio = new JRadioButton();
-    private final JRadioButton multiRadio = new JRadioButton();
     private final JLabel configFeedback = new JLabel();
     private volatile boolean submitting;
 
@@ -129,11 +127,6 @@ public class WelcomePanel extends JPanel {
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(24, 32, 24, 32));
         add(slider, BorderLayout.CENTER);
-
-        ButtonGroup g = new ButtonGroup();
-        g.add(soloRadio);
-        g.add(multiRadio);
-        soloRadio.setSelected(true);
 
         proxyEnabledCheck.addItemListener(e -> updateProxyEnabledState());
 
@@ -291,7 +284,6 @@ public class WelcomePanel extends JPanel {
         }
 
         s.bullet("gui.welcome.config.point.account");
-        s.bullet("gui.welcome.config.point.mode");
         s.gap(6);
 
         JPanel form = new JPanel(new GridBagLayout());
@@ -311,37 +303,10 @@ public class WelcomePanel extends JPanel {
         form.add(new JLabel(GuiMessages.get("gui.welcome.config.password")), g);
         g.gridx = 1;
         form.add(passwordField, g);
-        g.gridx = 0;
-        g.gridy = 2;
-        g.anchor = GridBagConstraints.NORTHWEST;
-        form.add(new JLabel(GuiMessages.get("gui.welcome.config.mode")), g);
-
-        JPanel modes = new JPanel();
-        modes.setOpaque(false);
-        modes.setLayout(new BoxLayout(modes, BoxLayout.Y_AXIS));
-        soloRadio.setText(GuiMessages.get("gui.welcome.config.mode.solo"));
-        soloRadio.setOpaque(false);
-        multiRadio.setText(GuiMessages.get("gui.welcome.config.mode.multi"));
-        multiRadio.setOpaque(false);
-        JLabel soloHint = secondary(GuiMessages.get("gui.welcome.config.mode.solo.hint"));
-        JLabel multiHint = secondary(GuiMessages.get("gui.welcome.config.mode.multi.hint"));
-        soloRadio.setAlignmentX(LEFT_ALIGNMENT);
-        soloHint.setAlignmentX(LEFT_ALIGNMENT);
-        multiRadio.setAlignmentX(LEFT_ALIGNMENT);
-        multiHint.setAlignmentX(LEFT_ALIGNMENT);
-        modes.add(soloRadio);
-        modes.add(soloHint);
-        modes.add(Box.createVerticalStrut(4));
-        modes.add(multiRadio);
-        modes.add(multiHint);
-        g.gridx = 1;
-        form.add(modes, g);
 
         boolean editable = serviceReady && !submitting;
         usernameField.setEnabled(editable);
         passwordField.setEnabled(editable);
-        soloRadio.setEnabled(editable);
-        multiRadio.setEnabled(editable);
 
         s.add(form);
         s.gap(8);
@@ -610,7 +575,7 @@ public class WelcomePanel extends JPanel {
         }
         String username = usernameField.getText().trim();
         String password = new String(passwordField.getPassword());
-        String mode = multiRadio.isSelected() ? "multi" : "solo";
+        String mode = "solo";
         if (username.isEmpty()) {
             showConfigError(GuiMessages.get("gui.welcome.config.invalid.username"));
             return;

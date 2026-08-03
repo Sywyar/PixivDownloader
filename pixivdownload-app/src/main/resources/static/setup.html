@@ -48,29 +48,6 @@
   </div>
 
   <div class="card">
-    <div class="card-title" data-i18n="mode.title">使用模式</div>
-    <div class="mode-option selected" id="opt-solo" onclick="selectMode('solo')">
-      <label>
-        <input type="radio" name="mode" value="solo" checked>
-        <span data-i18n="mode.solo">自用模式</span>
-      </label>
-      <div class="mode-desc" data-i18n="mode.solo.desc">
-        仅供个人使用。访问需要登录验证，可选择是否保持登录状态。
-        所有配置（Cookie、设置、队列）统一保存在服务器，多设备共享同一状态。
-      </div>
-    </div>
-    <div class="mode-option" id="opt-multi" onclick="selectMode('multi')">
-      <label>
-        <input type="radio" name="mode" value="multi">
-        <span data-i18n="mode.multi">多人使用模式</span>
-      </label>
-      <div class="mode-desc" data-i18n="mode.multi.desc">
-        多人共享服务。无需登录，每个用户的配置独立保存在各自浏览器的本地存储中，互不干扰。
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
     <div class="card-title" data-i18n="proxy.title">代理设置</div>
     <p class="proxy-hint" data-i18n="proxy.hint">
       后端的对外网络访问都会经此 HTTP 代理：访问 Pixiv（浏览、搜索，下载图片/动图/小说/封面，收藏）、在线更新（检查并下载新版本）、下载内置 FFmpeg（动图转换所需）、在线 TTS（听书的 Edge 神经语音）。若运行在 Docker 容器中，127.0.0.1 通常无法连到宿主机代理，请按需关闭或填入容器可达的代理地址。

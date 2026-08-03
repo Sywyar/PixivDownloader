@@ -33,7 +33,6 @@ public final class ConfigFieldRegistry {
             new CoreGroupDefinition(GuiConfigGroups.DOWNLOAD, "gui.config.group.download", 200, true),
             new CoreGroupDefinition(GuiConfigGroups.PLUGINS, "gui.config.group.plugins", 300, true),
             new CoreGroupDefinition(GuiConfigGroups.PROXY, "gui.config.group.proxy", 400, true),
-            new CoreGroupDefinition(GuiConfigGroups.MULTI_MODE, "gui.config.group.multi-mode", 500, true),
             new CoreGroupDefinition(GuiConfigGroups.GUEST_INVITE, "gui.config.group.guest-invite", 600, true),
             new CoreGroupDefinition(GuiConfigGroups.SECURITY, "gui.config.group.security", 700, true),
             new CoreGroupDefinition(GuiConfigGroups.MAINTENANCE, "gui.config.group.maintenance", 800, true),
@@ -43,14 +42,6 @@ public final class ConfigFieldRegistry {
             new CoreGroupDefinition(GuiConfigGroups.AI, "gui.config.group.ai", 1200, true),
             new CoreGroupDefinition(GuiConfigGroups.NOTIFICATION, "gui.config.group.notification", 1300, true)
     );
-
-    /**
-     * 多人模式分组名（按当前 locale）。
-     * ConfigPanel 在 solo 模式下据此隐藏整组。
-     */
-    public static String groupMultiMode() {
-        return message("gui.config.group.multi-mode");
-    }
 
     public static String groupMaintenance() {
         return message("gui.config.group.maintenance");
@@ -190,7 +181,6 @@ public final class ConfigFieldRegistry {
         String groupDownload = message("gui.config.group.download");
         String groupPlugins = message("gui.config.group.plugins");
         String groupProxy = message("gui.config.group.proxy");
-        String groupMultiMode = message("gui.config.group.multi-mode");
         String groupGuestInvite = message("gui.config.group.guest-invite");
         String groupSecurity = message("gui.config.group.security");
         String groupMaintenance = message("gui.config.group.maintenance");
@@ -323,116 +313,6 @@ public final class ConfigFieldRegistry {
                                 return (p >= 1 && p <= 65535) ? null : message("gui.config.validation.port-range");
                             } catch (NumberFormatException e) {
                                 return message("gui.config.validation.valid-port");
-                            }
-                        })
-                        .hotReloadable()
-                        .build(),
-
-                // ── 多人模式 ────────────────────────────────────────────────────────
-                ConfigFieldSpec.builder("multi-mode.quota.enabled", message("gui.config.field.multi-mode.quota.enabled.label"), BOOL, groupMultiMode)
-                        .defaultValue("true")
-                        .help(message("gui.config.field.multi-mode.quota.enabled.help"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.quota.max-artworks", message("gui.config.field.multi-mode.quota.max-artworks.label"), INT, groupMultiMode)
-                        .defaultValue("50")
-                        .help(message("gui.config.field.multi-mode.quota.max-artworks.help"))
-                        .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.quota.reset-period-hours", message("gui.config.field.multi-mode.quota.reset-period-hours.label"), INT, groupMultiMode)
-                        .defaultValue("24")
-                        .help(message("gui.config.field.multi-mode.quota.reset-period-hours.help"))
-                        .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.quota.archive-expire-minutes", message("gui.config.field.multi-mode.quota.archive-expire-minutes.label"), INT, groupMultiMode)
-                        .defaultValue("60")
-                        .help(message("gui.config.field.multi-mode.quota.archive-expire-minutes.help"))
-                        .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.quota.limit-image", message("gui.config.field.multi-mode.quota.limit-image.label"), INT, groupMultiMode)
-                        .defaultValue("0")
-                        .help(message("gui.config.field.multi-mode.quota.limit-image.help"))
-                        .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.quota.max-proxy-requests", message("gui.config.field.multi-mode.quota.max-proxy-requests.label"), INT, groupMultiMode)
-                        .defaultValue("200")
-                        .help(message("gui.config.field.multi-mode.quota.max-proxy-requests.help"))
-                        .validator(v -> {
-                            try {
-                                int n = Integer.parseInt(v);
-                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
-                            } catch (NumberFormatException e) {
-                                return message("gui.config.validation.valid-int");
-                            }
-                        })
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.quota.archive-max-concurrent", message("gui.config.field.multi-mode.quota.archive-max-concurrent.label"), INT, groupMultiMode)
-                        .defaultValue("10")
-                        .help(message("gui.config.field.multi-mode.quota.archive-max-concurrent.help"))
-                        .validator(v -> {
-                            try {
-                                int n = Integer.parseInt(v);
-                                return n >= 1 ? null : message("gui.config.validation.positive-int");
-                            } catch (NumberFormatException e) {
-                                return message("gui.config.validation.valid-int");
-                            }
-                        })
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.post-download-mode", message("gui.config.field.multi-mode.post-download-mode.label"), ENUM, groupMultiMode)
-                        .defaultValue("pack-and-delete")
-                        .enumValues("pack-and-delete", "never-delete", "timed-delete")
-                        .help(message("gui.config.field.multi-mode.post-download-mode.help"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.delete-after-hours", message("gui.config.field.multi-mode.delete-after-hours.label"), INT, groupMultiMode)
-                        .defaultValue("72")
-                        .help(message("gui.config.field.multi-mode.delete-after-hours.help"))
-                        .enabledWhen(snap -> snap.equals("multi-mode.post-download-mode", "timed-delete"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.request-limit-minute", message("gui.config.field.multi-mode.request-limit-minute.label"), INT, groupMultiMode)
-                        .defaultValue("300")
-                        .help(message("gui.config.field.multi-mode.request-limit-minute.help"))
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.static-resource-request-limit-minute", message("gui.config.field.multi-mode.static-resource-request-limit-minute.label"), INT, groupMultiMode)
-                        .defaultValue("1200")
-                        .help(message("gui.config.field.multi-mode.static-resource-request-limit-minute.help"))
-                        .validator(v -> {
-                            try {
-                                int n = Integer.parseInt(v);
-                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
-                            } catch (NumberFormatException e) {
-                                return message("gui.config.validation.valid-int");
-                            }
-                        })
-                        .hotReloadable()
-                        .build(),
-
-                ConfigFieldSpec.builder("multi-mode.limit-page", message("gui.config.field.multi-mode.limit-page.label"), INT, groupMultiMode)
-                        .defaultValue("3")
-                        .help(message("gui.config.field.multi-mode.limit-page.help"))
-                        .validator(v -> {
-                            try {
-                                int n = Integer.parseInt(v);
-                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
-                            } catch (NumberFormatException e) {
-                                return message("gui.config.validation.valid-int");
                             }
                         })
                         .hotReloadable()

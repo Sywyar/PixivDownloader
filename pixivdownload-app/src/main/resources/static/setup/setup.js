@@ -34,12 +34,6 @@ async function initPageI18n() {
   applyStaticPageTranslations();
 }
 
-function selectMode(mode) {
-  document.querySelector(`input[value="${mode}"]`).checked = true;
-  document.getElementById('opt-solo').classList.toggle('selected', mode === 'solo');
-  document.getElementById('opt-multi').classList.toggle('selected', mode === 'multi');
-}
-
 function syncProxyEnabled() {
   const enabled = document.getElementById('proxy-enabled').checked;
   document.getElementById('proxy-host').disabled = !enabled;
@@ -79,7 +73,7 @@ async function submitSetup() {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   const confirm  = document.getElementById('confirm-password').value;
-  const mode     = document.querySelector('input[name="mode"]:checked').value;
+  const mode     = 'solo';
   const proxyEnabled = document.getElementById('proxy-enabled').checked;
   const proxyHost = document.getElementById('proxy-host').value.trim();
   const proxyPortText = document.getElementById('proxy-port').value.trim();
@@ -129,7 +123,7 @@ async function submitSetup() {
       setStatusKey('status.complete', '配置完成！正在跳转...', null, 'success');
     }
     setTimeout(() => {
-      window.location.href = mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
+      window.location.href = '/login.html';
     }, 800);
   } catch (e) {
     setStatusKey('status.network-error', 'status.network-error', {message: e.message}, 'error');
@@ -147,7 +141,7 @@ async function redirectIfComplete() {
     const res = await fetch('/api/setup/status');
     const data = await res.json();
     if (data.setupComplete) {
-      window.location.href = data.mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
+      window.location.href = '/login.html';
     }
   } catch {}
 }
