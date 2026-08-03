@@ -75,3 +75,6 @@ build/
 /pixivdownload-plugin-novel-gallery/log/
 /pixivdownload-plugin-novel/log/
 /pixivdownload-plugin-douyin/log/
+# Local packaging-only layout survey configuration. The example file with empty
+# values is tracked; the real per-machine file must never be committed.
+/scripts/properties/posthog.properties

@@ -1,0 +1,11 @@
+# Local layout-survey packaging configuration.
+# These values are PUBLIC browser-side PostHog configuration, not
+# Personal API Keys or Service Account credentials.
+#
+# Copy this file to posthog.properties and fill all four values.
+# The active posthog.properties file is ignored so local or fork-specific
+# deployment configuration is not committed accidentally.
+pixiv.layout-survey.project-token=
+pixiv.layout-survey.survey-id=
+pixiv.layout-survey.api-host=
+pixiv.layout-survey.ui-host=

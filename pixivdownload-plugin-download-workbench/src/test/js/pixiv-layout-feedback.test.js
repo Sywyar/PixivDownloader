@@ -2341,6 +2341,79 @@ function testDestroyIdempotence() {
     doesNotThrow('无配置环境 destroy 安全', () => h2.api.destroy());
 }
 
+function testOpenAfterDestroyIsNoop() {
+    const h = initHarness({batchLayout: 'landscape'});
+    h.api.destroy();
+    const promise = h.api.open();
+    return waitForFlush().then(() => promise).then(value => {
+        eq('destroy 后 open 解析为 null', value, null);
+        eq('destroy 后 open 不插入 script', h.scriptElements().length, 0);
+        eq('destroy 后 open 不打开弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后 open 不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+        eq('destroy 后 open 无 Toast', h.toastCalls.length, 0);
+        eq('destroy 后 open 不注册 listener', listenerCountFor(h, 'pixiv:batch-layout-changed') === 0
+            && h.windowEvents.listenerCount('storage') === 0, true);
+        h.timers.advance(30000);
+        return waitForFlush();
+    }).then(() => {
+        eq('destroy 后 open 无定时器残留', h.timers.pending().length, 0);
+    });
+}
+
+function testOpenBeforeInitIsNoop() {
+    const h = createHarness({batchLayout: 'landscape'});
+    return waitForFlush().then(() => h.api.open()).then(value => {
+        eq('从未 init 时 open 解析为 null', value, null);
+        eq('从未 init 时 open 不插 script', h.scriptElements().length, 0);
+        eq('从未 init 时 open 不打开弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('从未 init 时 open 不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
+    });
+}
+
+function testOpenAfterDestroyDoesNotBlockReinit() {
+    const h = initHarness({batchLayout: 'landscape'});
+    h.api.destroy();
+    return h.api.open().then(() => {
+        h.api.init(reinitOptions(h));
+        return h.api.open().then(() => waitForFlush());
+    }).then(() => {
+        eq('destroy→open→init→open 正常展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('旧 open 未把 flowRunning 留为 true（不阻塞后续展示）',
+            h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('storage 监听唯一', h.windowEvents.listenerCount('storage'), 1);
+    });
+}
+
+function testIsDateObjectNoThrow() {
+    const isDateObject = initHarness({}).api._internals.isDateObject;
+    ok('正常 Date 返回 true', isDateObject(new Date('2026-01-01T00:00:00.000Z')) === true);
+    ok('非法 Date 返回 false', isDateObject(new Date('invalid')) === false);
+    ok('null 返回 false', isDateObject(null) === false);
+    ok('undefined 返回 false', isDateObject(undefined) === false);
+    ok('普通对象返回 false', isDateObject({}) === false);
+    ok('Symbol.toStringTag 伪装 Date 但无 getTime 返回 false',
+        isDateObject({[Symbol.toStringTag]: 'Date'}) === false);
+    ok('伪装对象 getTime 返回 NaN 返回 false',
+        isDateObject({[Symbol.toStringTag]: 'Date', getTime() { return NaN; }}) === false);
+    ok('伪装对象 getTime 抛错返回 false',
+        isDateObject({[Symbol.toStringTag]: 'Date', getTime() { throw new Error('boom'); }}) === false);
+    ok('Object.prototype.toString 抛错的 Proxy 返回 false',
+        isDateObject(new Proxy({}, {
+            get(target, prop) {
+                if (prop === Symbol.toStringTag) throw new Error('trap');
+                return target[prop];
+            }
+        })) === false);
+    ok('getTime 抛错的 Proxy 返回 false',
+        isDateObject(new Proxy({}, {
+            get(target, prop) {
+                if (prop === Symbol.toStringTag) return 'Date';
+                if (prop === 'getTime') return function () { throw new Error('trap'); };
+                return target[prop];
+            }
+        })) === false);
+}
+
 /* ============================================================
    before_send timestamp（Date / string / 未知类型）
 ============================================================ */
@@ -2516,6 +2589,10 @@ async function run() {
     await step('testDestroyDuringSubmit', testDestroyDuringSubmit);
     await step('testOldGenerationCannotAffectNewGeneration', testOldGenerationCannotAffectNewGeneration);
     await step('testDestroyIdempotence', testDestroyIdempotence);
+    await step('testOpenAfterDestroyIsNoop', testOpenAfterDestroyIsNoop);
+    await step('testOpenBeforeInitIsNoop', testOpenBeforeInitIsNoop);
+    await step('testOpenAfterDestroyDoesNotBlockReinit', testOpenAfterDestroyDoesNotBlockReinit);
+    await step('testIsDateObjectNoThrow', testIsDateObjectNoThrow);
     await step('testBeforeSendTimestampMatrix', testBeforeSendTimestampMatrix);
     await step('testBeforeSendDateTimestampWithSurveyFields', testBeforeSendDateTimestampWithSurveyFields);
     await step('testFakeAdapterDefaultTimestampIsDate', testFakeAdapterDefaultTimestampIsDate);

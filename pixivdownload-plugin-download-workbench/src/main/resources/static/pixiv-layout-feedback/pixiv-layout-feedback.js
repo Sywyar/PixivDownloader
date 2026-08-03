@@ -137,10 +137,18 @@
     /**
      * 判断值是否为合法 Date 对象（跨 realm 安全，不依赖 instanceof）。
      * 非法日期（getTime() 为 NaN）不算有效时间戳。
+     * 完全 no-throw：null / undefined / Symbol.toStringTag 伪装对象 / getTime
+     * 抛错或返回 NaN / 其它不可信对象一律返回 false，绝不让异常逃逸。
      */
     function isDateObject(value) {
-        return Object.prototype.toString.call(value) === '[object Date]'
-            && !Number.isNaN(value.getTime());
+        try {
+            return value != null
+                && Object.prototype.toString.call(value) === '[object Date]'
+                && typeof value.getTime === 'function'
+                && !Number.isNaN(value.getTime());
+        } catch (_) {
+            return false;
+        }
     }
 
     /**
@@ -1452,7 +1460,7 @@
     }
 
     function showSurveyFlow() {
-        if (flowRunning || dialogOpen) return Promise.resolve();
+        if (!initialized || flowRunning || dialogOpen) return Promise.resolve(null);
         var generation = currentRuntimeGeneration();
         flowRunning = true;
         function finishFlow(result) {
@@ -1669,9 +1677,14 @@
     /**
      * 手动打开展示流程（调试 / 自动化测试入口）。不做自动门禁
      * （可见性 / 体验数量 / 本地状态），但受 enabled 配置约束。
+     * 未 init（含 destroy 后尚未重新 init）时是安全的 no-op：
+     * 返回 resolved null，不加载 SDK、不设置 flowRunning、不插 script、
+     * 不注册 listener、不请求 Survey、不打开弹窗。
      */
     function open() {
-        if (!config || !config.enabled) return Promise.resolve(null);
+        if (!initialized || !config || !config.enabled) {
+            return Promise.resolve(null);
+        }
         return showSurveyFlow();
     }
 

@@ -50,6 +50,23 @@
     PostHog console host for the actual region (e.g. US or EU Cloud). Same URL
     rules as ApiHost.
 
+.PARAMETER PropertiesFile
+    Optional path to a local packaging-only properties file (for example
+    scripts/properties/posthog.properties). When present, the four values are
+    read from that file instead of the parameters / environment variables, and
+    the PIXIV_LAYOUT_SURVEY_* environment variables are ignored. The file must
+    contain exactly the four keys
+      pixiv.layout-survey.project-token
+      pixiv.layout-survey.survey-id
+      pixiv.layout-survey.api-host
+      pixiv.layout-survey.ui-host
+    with non-empty values; unknown, duplicate, misspelled, missing or
+    placeholder keys fail the build. Values are trimmed, the first '=' on each
+    line splits key and value (later '=' characters stay in the value), blank
+    lines and '#' / '!' comment lines are ignored, and multi-line continuation
+    is not supported. This mode is for LOCAL packaging only: it must never be
+    used by GitHub Actions, which continues to use the Repository Variables.
+
 .PARAMETER OutputPath
     Destination path of the generated public-config.js file.
 
@@ -71,12 +88,16 @@ param(
     [string]$SurveyId,
     [string]$ApiHost,
     [string]$UiHost,
+    [string]$PropertiesFile,
     [string]$OutputPath,
     [switch]$RequireConfig
 )
 
 $ErrorActionPreference = "Stop"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+# Set to $true while values come from a PropertiesFile: validation errors then
+# never echo configuration values, only field/key names.
+$PropertiesMode = $false
 
 function Assert-NoControlCharacters {
     param(
@@ -111,7 +132,9 @@ function Test-SurveyId {
     $uuidPattern = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
     $loosePattern = "^[A-Za-z0-9_-]{8,128}$"
     if ($Value -notmatch $uuidPattern -and $Value -notmatch $loosePattern) {
-        throw "SurveyId '$Value' does not match the PostHog survey id shape (UUID or a safe alphanumeric token); refusing to build the layout survey public configuration with it."
+        $valueContext = ""
+        if (-not $PropertiesMode) { $valueContext = " '$Value'" }
+        throw "SurveyId$valueContext does not match the PostHog survey id shape (UUID or a safe alphanumeric token); refusing to build the layout survey public configuration with it."
     }
 }
 
@@ -120,26 +143,30 @@ function Test-WebHost {
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value,
         [Parameter(Mandatory = $true)][string]$FieldName
     )
+    $valueContext = ""
+    if (-not $PropertiesMode) { $valueContext = " '$Value'" }
     if ($Value.Length -gt 1024) {
         throw "$FieldName is longer than 1024 characters."
     }
     Assert-NoControlCharacters $Value $FieldName
     $uri = $null
     if (-not [System.Uri]::TryCreate($Value, [System.UriKind]::Absolute, [ref]$uri)) {
-        throw "$FieldName '$Value' is not an absolute URL."
+        throw "$FieldName$valueContext is not an absolute URL."
     }
     if (-not [string]::IsNullOrEmpty($uri.UserInfo)) {
-        throw "$FieldName must not contain a username or password (userinfo), got '$Value'."
+        throw "$FieldName must not contain a username or password (userinfo)."
     }
     if (-not [string]::IsNullOrEmpty($uri.Fragment)) {
-        throw "$FieldName must not contain a URL fragment, got '$Value'."
+        throw "$FieldName must not contain a URL fragment."
     }
     $scheme = $uri.Scheme.ToLowerInvariant()
     if ($scheme -eq "http") {
         # Only loopback hosts (localhost / 127.0.0.1 / [::1] and equivalents) may
         # use plain http, and only for local development.
         if (-not $uri.IsLoopback) {
-            throw "$FieldName uses plain http for non-local host '$($uri.Host)'; only http://localhost, http://127.0.0.1 and http://[::1] are allowed for local development. Production builds must use https."
+            $hostContext = ""
+            if (-not $PropertiesMode) { $hostContext = " for non-local host '$($uri.Host)'" }
+            throw "$FieldName uses plain http$hostContext; only http://localhost, http://127.0.0.1 and http://[::1] are allowed for local development. Production builds must use https."
         }
     } elseif ($scheme -ne "https") {
         throw "$FieldName has unsupported scheme '$scheme'; only https (and local http://localhost / http://127.0.0.1 / http://[::1]) are allowed."
@@ -219,10 +246,76 @@ function Write-JsConfig {
 # ---- main flow ----
 
 # Prefer explicit parameters; fall back to the environment for each value.
-if ([string]::IsNullOrWhiteSpace($ProjectToken)) { $ProjectToken = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN") }
-if ([string]::IsNullOrWhiteSpace($SurveyId)) { $SurveyId = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_ID") }
-if ([string]::IsNullOrWhiteSpace($ApiHost)) { $ApiHost = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_API_HOST") }
-if ([string]::IsNullOrWhiteSpace($UiHost)) { $UiHost = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_UI_HOST") }
+if ([string]::IsNullOrWhiteSpace($PropertiesFile)) {
+    if ([string]::IsNullOrWhiteSpace($ProjectToken)) { $ProjectToken = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN") }
+    if ([string]::IsNullOrWhiteSpace($SurveyId)) { $SurveyId = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_ID") }
+    if ([string]::IsNullOrWhiteSpace($ApiHost)) { $ApiHost = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_API_HOST") }
+    if ([string]::IsNullOrWhiteSpace($UiHost)) { $UiHost = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_UI_HOST") }
+} else {
+    # PropertiesFile mode: explicit parameters must not be mixed in, and the
+    # residual PIXIV_LAYOUT_SURVEY_* environment variables are deliberately
+    # ignored so a stale environment can never leak values into the file mode.
+    if (-not [string]::IsNullOrWhiteSpace($ProjectToken) -or
+        -not [string]::IsNullOrWhiteSpace($SurveyId) -or
+        -not [string]::IsNullOrWhiteSpace($ApiHost) -or
+        -not [string]::IsNullOrWhiteSpace($UiHost)) {
+        throw "PropertiesFile cannot be combined with the explicit ProjectToken / SurveyId / ApiHost / UiHost parameters. Pass exactly one configuration source."
+    }
+    $allowedKeys = @(
+        "pixiv.layout-survey.project-token",
+        "pixiv.layout-survey.survey-id",
+        "pixiv.layout-survey.api-host",
+        "pixiv.layout-survey.ui-host"
+    )
+    $PropertiesMode = $true
+    $filePath = $PropertiesFile.Trim()
+    if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+        throw "PropertiesFile does not exist or is not a regular file: $filePath"
+    }
+    $lines = [System.IO.File]::ReadAllLines(
+        $filePath,
+        (New-Object System.Text.UTF8Encoding($false, $true)))
+    $values = @{}
+    for ($lineIndex = 0; $lineIndex -lt $lines.Length; $lineIndex++) {
+        $line = $lines[$lineIndex]
+        $trimmed = $line.Trim()
+        if ($trimmed.Length -eq 0) { continue }
+        if ($trimmed.StartsWith("#") -or $trimmed.StartsWith("!")) { continue }
+        if ($trimmed.EndsWith("\")) {
+            throw "posthog.properties line $($lineIndex + 1) uses unsupported multi-line continuation (trailing backslash); only single-line key=value entries are supported."
+        }
+        $separatorIndex = $trimmed.IndexOf("=")
+        if ($separatorIndex -lt 1) {
+            throw "posthog.properties line $($lineIndex + 1) is not a key=value entry."
+        }
+        $key = $trimmed.Substring(0, $separatorIndex).Trim()
+        $value = $trimmed.Substring($separatorIndex + 1).Trim()
+        if ($allowedKeys -notcontains $key) {
+            throw "posthog.properties contains unknown key '$key'; only pixiv.layout-survey.project-token / survey-id / api-host / ui-host are accepted."
+        }
+        if ($values.ContainsKey($key)) {
+            throw "posthog.properties contains duplicate key '$key'."
+        }
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            throw "posthog.properties key '$key' has an empty value; all four keys must be filled."
+        }
+        $values[$key] = $value
+    }
+    $missingKeys = @($allowedKeys | Where-Object { -not $values.ContainsKey($_) })
+    if ($missingKeys.Count -gt 0) {
+        throw "posthog.properties is missing required key(s): $($missingKeys -join ', ')."
+    }
+    foreach ($key in $allowedKeys) {
+        if ($values[$key] -in @("project-token", "survey-id", "api-host", "ui-host")) {
+            $placeholderNote = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("cG9zdGhvZy5wcm9wZXJ0aWVzIOS7jeWMheWQq+WNoOS9jeWAvO+8jOivt+Whq+WGmeWunumZheWFrOW8gOWuouaIt+err+mFjee9ruOAgg=="))
+            throw "posthog.properties key '$key' still contains a placeholder value. $placeholderNote"
+        }
+    }
+    $ProjectToken = $values["pixiv.layout-survey.project-token"]
+    $SurveyId = $values["pixiv.layout-survey.survey-id"]
+    $ApiHost = $values["pixiv.layout-survey.api-host"]
+    $UiHost = $values["pixiv.layout-survey.ui-host"]
+}
 if ([string]::IsNullOrWhiteSpace($OutputPath)) { $OutputPath = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_OUTPUT_PATH") }
 if (-not $RequireConfig) {
     $RequireValue = [Environment]::GetEnvironmentVariable("PIXIV_LAYOUT_SURVEY_REQUIRE_CONFIG")

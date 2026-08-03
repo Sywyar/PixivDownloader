@@ -1038,6 +1038,133 @@ class PluginReleaseScriptsTest {
                 .doesNotContain("-----BEGIN PRIVATE KEY-----");
     }
 
+    @Test
+    @DisplayName("本地安装包脚本显式启用布局调查：EnableLayoutSurvey 只允许 Local，默认 properties 路径正确")
+    void localInstallerLayoutSurveyExplicitEnableContract() throws Exception {
+        String installer = script("package-installer-with-plugins.ps1");
+        String local = script("package-local.ps1");
+        String generator = script("generate-layout-survey-public-config.ps1");
+
+        // 1/2. 参数与默认路径
+        assertThat(installer).contains(
+                "[switch]$EnableLayoutSurvey",
+                "[string]$LayoutSurveyPropertiesFile",
+                "Join-Path $PSScriptRoot \"properties/posthog.properties\"");
+        // 3/4. Enable 只允许 Local；Catalog + Enable 立即失败
+        assertThat(installer).contains(
+                "if ($EnableLayoutSurvey -and $PluginSource -ne \"Local\")",
+                "EnableLayoutSurvey requires -PluginSource Local");
+        // 5. 文件存在不会自动启用：禁用分支生成时不携带 PropertiesFile
+        assertThat(installer).contains("$generatorParams = @{ OutputPath = $layoutSurveyConfigFile }");
+        // 6. 显式传文件但未 Enable 立即失败
+        assertThat(installer).contains(
+                "if (-not $EnableLayoutSurvey -and $PSBoundParameters.ContainsKey(\"LayoutSurveyPropertiesFile\"))");
+        // 7/8. Local 未 Enable 生成 disabled；Local Enable 调用统一生成器
+        assertThat(installer).contains(
+                "$generatorParams.PropertiesFile = $LayoutSurveyPropertiesFile",
+                "Layout survey packaging: enabled",
+                "Layout survey packaging: disabled",
+                "$layoutSurveyConfigFile = Join-Path $layoutSurveyDir \"public-config.js\"");
+        // 9. 生成路径传给 package-local.ps1
+        assertThat(installer).contains("$packageArgs.LayoutSurveyPublicConfigFile = $layoutSurveyConfigFile");
+        // 10. package-local.ps1 定义内部参数
+        assertThat(local).contains("[string]$LayoutSurveyPublicConfigFile");
+        // 11/12. 只修改 download-workbench；JAR entry 路径准确
+        assertThat(local).contains(
+                "if ($plugin.Id -eq \"download-workbench\"",
+                "\"static/pixiv-layout-feedback/public-config.js\"");
+        // 13. 修改后执行字节校验
+        assertThat(local).contains(
+                "Assert-JarFileEntryEqualsFile",
+                "Update-JarFileEntry");
+        // 14. Patch 发生在 SHA 与签名之前
+        assertThat(local.indexOf("Update-JarFileEntry -JarPath $targetArtifact"))
+                .as("JAR entry 替换必须先于 SHA-256")
+                .isGreaterThan(local.indexOf("Copy-Item $sourceArtifact $targetArtifact -Force"));
+        assertThat(local.indexOf("$sha = Get-Sha256Hex $targetArtifact"))
+                .as("SHA-256 在 JAR entry 替换之后")
+                .isGreaterThan(local.indexOf("Update-JarFileEntry -JarPath $targetArtifact"));
+        assertThat(local.indexOf("Get-PluginArtifactSignatureForDistribution"))
+                .as("签名在 SHA-256 之后")
+                .isGreaterThan(local.indexOf("$sha = Get-Sha256Hex $targetArtifact"));
+        // 15. 修改后不复用旧签名（artifactMutated 时清空 source sidecar）
+        assertThat(local).contains(
+                "$artifactMutated = $true",
+                "if ($artifactMutated) {",
+                "$sourceSignaturePath = \"\"");
+        // 16. 其他插件不受影响：注入被 plugin.id 门控，且无配置时完全不动作
+        assertThat(local).contains(
+                "-not [string]::IsNullOrWhiteSpace($LayoutSurveyPublicConfigFile)");
+        // Catalog 模式不允许本地覆盖
+        assertThat(local).contains(
+                "cannot be combined with PrebuiltPluginsDir (catalog artifacts are never modified locally)");
+        // 生成器 PropertiesFile 解析契约
+        assertThat(generator).contains(
+                "[string]$PropertiesFile",
+                "pixiv.layout-survey.project-token",
+                "pixiv.layout-survey.survey-id",
+                "pixiv.layout-survey.api-host",
+                "pixiv.layout-survey.ui-host",
+                "PropertiesFile cannot be combined with the explicit ProjectToken",
+                "unknown key",
+                "duplicate key",
+                "missing required key",
+                "multi-line continuation",
+                "placeholder value");
+        assertThat(generator).doesNotContain("pixiv.feedback.layout-survey");
+        assertThat(generator).doesNotContain("Write-Host $ProjectToken");
+    }
+
+    @Test
+    @DisplayName("本地打包改造不改变固定版本、GitHub Variables 与官方配置来源")
+    void localSurveyPackagingKeepsFixedVersionsAndOfficialSources() throws Exception {
+        assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
+                .contains("plugin.version=1.0.0");
+        String js = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
+                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback.js"),
+                StandardCharsets.UTF_8);
+        assertThat(js).contains("POSTHOG_JS_VERSION = '1.409.5'");
+        for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
+            assertThat(workflow(name)).as(name)
+                    .doesNotContain("posthog.properties")
+                    .doesNotContain("EnableLayoutSurvey");
+        }
+        // 四个 Repository Variable 名称与 vars 来源未改变
+        String release = workflow("release.yml");
+        for (String variable : List.of(
+                "PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN",
+                "PIXIV_LAYOUT_SURVEY_ID",
+                "PIXIV_LAYOUT_SURVEY_API_HOST",
+                "PIXIV_LAYOUT_SURVEY_UI_HOST")) {
+            assertThat(release).contains("vars." + variable);
+            assertThat(release).doesNotContain("secrets." + variable);
+        }
+    }
+
+    @Test
+    @DisplayName("本地 posthog.properties 被精确忽略，example 文件四项为空且无旧键")
+    void localPropertiesGitignoreAndExampleContract() throws Exception {
+        String ignore = Files.readString(repoRoot().resolve(".gitignore"), StandardCharsets.UTF_8);
+        assertThat(ignore).contains("/scripts/properties/posthog.properties");
+        assertThat(ignore.lines()).as("不得忽略整个 scripts/properties/ 目录")
+                .doesNotContain("/scripts/properties/");
+
+        Path example = repoRoot().resolve("scripts/properties/posthog.properties.example");
+        assertThat(Files.isRegularFile(example)).isTrue();
+        Map<String, String> props = readProperties(example);
+        assertThat(props.keySet()).as("example 四个精确键且无旧前缀")
+                .containsExactly(
+                        "pixiv.layout-survey.project-token",
+                        "pixiv.layout-survey.survey-id",
+                        "pixiv.layout-survey.api-host",
+                        "pixiv.layout-survey.ui-host");
+        for (String value : props.values()) {
+            assertThat(value).as("example 值必须为空").isEmpty();
+        }
+        assertThat(Files.readString(example, StandardCharsets.UTF_8))
+                .doesNotContain("pixiv.feedback.layout-survey");
+    }
+
     private static String script(String name) throws IOException {
         return Files.readString(repoRoot().resolve("scripts").resolve(name), StandardCharsets.UTF_8);
     }    private static String innoScript() throws IOException {

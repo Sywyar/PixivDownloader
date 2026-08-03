@@ -15,7 +15,8 @@ param(
     [switch]$SkipInstaller,
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
-    [string]$SignatureToolJar
+    [string]$SignatureToolJar,
+    [string]$LayoutSurveyPublicConfigFile
 )
 
 $ErrorActionPreference = "Stop"
@@ -199,6 +200,62 @@ function Resolve-PrebuiltPluginsDir {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Assert-LayoutSurveyPublicConfigFile {
+    # Validate a previously generated public-config.js before it is baked into
+    # the staged download-workbench plugin copy. The file carries only PUBLIC
+    # client configuration; its values are never logged.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "LayoutSurveyPublicConfigFile does not exist or is not a regular file: $Path"
+    }
+    $item = Get-Item -LiteralPath $Path
+    if ($item.Length -le 0) {
+        throw "LayoutSurveyPublicConfigFile is empty: $Path"
+    }
+    $text = $null
+    try {
+        $text = [System.IO.File]::ReadAllText(
+            $Path,
+            (New-Object System.Text.UTF8Encoding($false, $true)))
+    } catch {
+        throw "LayoutSurveyPublicConfigFile is not valid UTF-8 text: $Path"
+    }
+    foreach ($requiredToken in @(
+        "window.PixivLayoutFeedbackPublicConfig",
+        "Object.freeze",
+        "enabled",
+        "projectToken",
+        "surveyId",
+        "apiHost",
+        "uiHost")) {
+        if ($text.IndexOf($requiredToken) -lt 0) {
+            throw "LayoutSurveyPublicConfigFile is missing required token '$requiredToken': $Path"
+        }
+    }
+    $enabledMatch = [regex]::Match($text, "enabled:\s*(true|false)")
+    if (-not $enabledMatch.Success) {
+        throw "LayoutSurveyPublicConfigFile does not declare an enabled flag: $Path"
+    }
+    $enabled = $enabledMatch.Groups[1].Value -eq "true"
+    foreach ($key in @("projectToken", "surveyId", "apiHost", "uiHost")) {
+        $pattern = '(?m)' + $key + ':\s*"((?:[^"\\]|\\.)*)"'
+        $valueMatch = [regex]::Match($text, $pattern)
+        if (-not $valueMatch.Success) {
+            throw "LayoutSurveyPublicConfigFile is missing '$key': $Path"
+        }
+        $isEmpty = $valueMatch.Groups[1].Value.Length -eq 0
+        if ($enabled -and $isEmpty) {
+            throw "LayoutSurveyPublicConfigFile declares enabled=true but '$key' is empty: $Path"
+        }
+        if (-not $enabled -and -not $isEmpty) {
+            throw "LayoutSurveyPublicConfigFile declares enabled=false but '$key' is not empty: $Path"
+        }
+    }
+    return $enabled
+}
+
 function Stage-OfficialPlugins {
     # Stage the requested official external plugin artifacts into <AppDir>\plugins.
     # Each artifact is shape-checked and copied under a STABLE, version-less name (<module>.<ext>): an in-place
@@ -214,7 +271,8 @@ function Stage-OfficialPlugins {
         [string]$OfficialKeyId,
         [string]$PrivateKeyFile,
         [string]$SignatureToolJar,
-        [switch]$AllowUnsignedLocalPlugins
+        [switch]$AllowUnsignedLocalPlugins,
+        [string]$LayoutSurveyPublicConfigFile
     )
     $pluginsDir = Join-Path $AppDir "plugins"
     Ensure-Directory $pluginsDir
@@ -222,6 +280,7 @@ function Stage-OfficialPlugins {
     $manifest = @()
     $sumLines = @()
     $requiredPluginIds = @(Get-OfficialRequiredPlugins | ForEach-Object { $_.Id })
+    $layoutSurveyJarEntry = "static/pixiv-layout-feedback/public-config.js"
     foreach ($plugin in $Plugins) {
         $extension = Get-OfficialPluginArtifactExtension $plugin
         if ($PrebuiltPluginsDir) {
@@ -240,6 +299,35 @@ function Stage-OfficialPlugins {
         $stableName = "$($plugin.Module).$extension"
         $targetArtifact = Join-Path $pluginsDir $stableName
         Copy-Item $sourceArtifact $targetArtifact -Force
+        # Local layout-survey configuration injection: only the staged copy of
+        # download-workbench is patched. The module target jar, the git working
+        # tree public-config.js, the user properties file, the catalog download
+        # cache and user-provided source artifacts are never modified. When the
+        # current entry already matches the target config byte-for-byte nothing
+        # is rewritten; either way the final entry is asserted byte-equal before
+        # any checksum / signature / provenance is computed.
+        $artifactMutated = $false
+        if ($plugin.Id -eq "download-workbench" -and
+                -not [string]::IsNullOrWhiteSpace($LayoutSurveyPublicConfigFile)) {
+            $currentEntryBytes = Read-JarFileEntryBytes $targetArtifact $layoutSurveyJarEntry
+            $targetBytes = [System.IO.File]::ReadAllBytes($LayoutSurveyPublicConfigFile)
+            $differs = $null -eq $currentEntryBytes -or $currentEntryBytes.Length -ne $targetBytes.Length
+            if (-not $differs) {
+                for ($byteIndex = 0; $byteIndex -lt $targetBytes.Length; $byteIndex++) {
+                    if ($currentEntryBytes[$byteIndex] -ne $targetBytes[$byteIndex]) {
+                        $differs = $true
+                        break
+                    }
+                }
+            }
+            if ($differs) {
+                Update-JarFileEntry -JarPath $targetArtifact `
+                    -EntryName $layoutSurveyJarEntry -SourceFile $LayoutSurveyPublicConfigFile
+                $artifactMutated = $true
+            }
+            Assert-JarFileEntryEqualsFile -JarPath $targetArtifact `
+                -EntryName $layoutSurveyJarEntry -SourceFile $LayoutSurveyPublicConfigFile
+        }
         $sha = Get-Sha256Hex $targetArtifact
         [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $stableName`n", $utf8NoBom)
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -256,6 +344,12 @@ function Stage-OfficialPlugins {
                 throw "SignatureToolJar is required unless -AllowUnsignedLocalPlugins is used."
             }
             $sourceSignaturePath = Find-PluginArtifactSignatureSidecar $sourceArtifact
+            if ($artifactMutated) {
+                # The staged bytes differ from the source artifact: the source
+                # signature can never cover them. Re-sign the final target
+                # artifact with the current key, or fail immediately.
+                $sourceSignaturePath = ""
+            }
             $signature = Get-PluginArtifactSignatureForDistribution `
                 -ToolJar $SignatureToolJar `
                 -ArtifactPath $targetArtifact `
@@ -636,6 +730,14 @@ if ($AllowUnsignedLocalPlugins) {
         throw "AllowUnsignedLocalPlugins is only for building a local test installer; SkipInstaller is not allowed."
     }
 }
+if (-not [string]::IsNullOrWhiteSpace($LayoutSurveyPublicConfigFile)) {
+    if (-not [string]::IsNullOrWhiteSpace($PrebuiltPluginsDir)) {
+        throw "LayoutSurveyPublicConfigFile is a local-source override and cannot be combined with PrebuiltPluginsDir (catalog artifacts are never modified locally)."
+    }
+    if ($SkipPlugins) {
+        throw "LayoutSurveyPublicConfigFile requires plugin staging; -SkipPlugins is not allowed with it."
+    }
+}
 
 Push-Location $ProjectRoot
 try {
@@ -725,13 +827,21 @@ try {
 
     # Stage all default-installed external plugins into the online app-image before packaging. They remain
     # separate PF4J artifacts; only Douyin is left for on-demand installation / the full-offline image.
+    $resolvedLayoutSurveyConfig = ""
+    if (-not [string]::IsNullOrWhiteSpace($LayoutSurveyPublicConfigFile)) {
+        Assert-LayoutSurveyPublicConfigFile $LayoutSurveyPublicConfigFile
+        $resolvedLayoutSurveyConfig = (Resolve-Path -LiteralPath $LayoutSurveyPublicConfigFile).Path
+        Write-Step "Staging local layout survey public config for download-workbench"
+        Write-Host "    Layout survey public config: $resolvedLayoutSurveyConfig (values not printed)"
+    }
     if (-not $SkipPlugins) {
         Write-Step "Staging official default-installed external plugins into app-image plugins/"
         $defaultInstalledPlugins = @(Get-OfficialDefaultInstalledPlugins)
         $defaultInstalledCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -Plugins $defaultInstalledPlugins `
             -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
             -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
-            -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
+            -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins `
+            -LayoutSurveyPublicConfigFile $resolvedLayoutSurveyConfig
         Write-Host ("    {0} official default-installed plugin(s) staged under plugins/." -f $defaultInstalledCount) -ForegroundColor Green
 
         if ($EnableInstallerPluginSelection) {
@@ -761,7 +871,8 @@ try {
             $fullOfflineCount = Stage-OfficialPlugins -AppDir $OfflineAppDir -Plugins $fullOfflinePlugins `
                 -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
                 -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
-                -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
+                -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins `
+                -LayoutSurveyPublicConfigFile $resolvedLayoutSurveyConfig
             Write-Host ("    {0} official plugin(s) staged under plugins/ (full-offline)." -f $fullOfflineCount) -ForegroundColor Green
         }
         $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
