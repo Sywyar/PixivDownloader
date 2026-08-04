@@ -613,3 +613,124 @@ function Assert-OfficialPluginArtifact {
     }
     throw "Unsupported official plugin artifact format '$format' for $($Plugin.Id)."
 }
+
+function Get-NormalizedDistributionPath {
+    # Resolve a path to an absolute path with trailing separators trimmed
+    # (filesystem roots stay untouched). All path comparisons must go through
+    # this so parent/child checks use full paths with explicit separators,
+    # never string prefixes like C:\foo\bar2 vs C:\foo\bar.
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "Path is empty; refusing to normalize."
+    }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $parent = [System.IO.Path]::GetDirectoryName($full)
+    if ([string]::IsNullOrEmpty($parent)) {
+        # Drive / filesystem root: keep the trailing separator form.
+        return $full
+    }
+    return $full.TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Test-PathSameOrDescendant {
+    # True when $Path equals $Parent or lives strictly inside $Parent.
+    # Comparison is full-path based with explicit separator boundaries and
+    # case-insensitive (Windows style), so C:\foo\bar2 is never a child of
+    # C:\foo\bar.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Parent
+    )
+    $normalizedPath = Get-NormalizedDistributionPath $Path
+    $normalizedParent = Get-NormalizedDistributionPath $Parent
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+    if ($normalizedPath.Equals($normalizedParent, $comparison)) {
+        return $true
+    }
+    $sep = [System.IO.Path]::DirectorySeparatorChar
+    $alt = [System.IO.Path]::AltDirectorySeparatorChar
+    if ($normalizedParent.EndsWith([string]$sep) -or $normalizedParent.EndsWith([string]$alt)) {
+        return $normalizedPath.StartsWith($normalizedParent, $comparison)
+    }
+    return $normalizedPath.StartsWith($normalizedParent + $sep, $comparison) -or
+        $normalizedPath.StartsWith($normalizedParent + $alt, $comparison)
+}
+
+function Assert-SafeDistributionOutputDirectory {
+    # Fail before any recursive delete of an output directory. Refuses:
+    #   - a drive / filesystem root;
+    #   - the repository root and any ancestor of it;
+    #   - inside the repository anything that is not <repo>/build/<subdir>
+    #     (so source directories like scripts/, src/, module dirs and the
+    #     build root itself are all rejected);
+    #   - any overlap (equality, containment in either direction) with a
+    #     protected input path, so a distribution script can never delete its
+    #     own inputs.
+    # External (repository-external) temp directories remain allowed.
+    # Returns the resolved normalized absolute path. Errors name the output
+    # dir, the conflicting protected path and the conflict type; they only
+    # ever print paths, never private key material.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [string[]]$ProtectedPaths
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "Output dir path is empty; refusing to delete."
+    }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $parent = [System.IO.Path]::GetDirectoryName($full)
+    if ([string]::IsNullOrEmpty($parent)) {
+        throw "Refusing to use a drive/filesystem root as the output dir: $full"
+    }
+    $outputDir = Get-NormalizedDistributionPath $Path
+    $repoRoot = Get-NormalizedDistributionPath $ProjectRoot
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+
+    if ($outputDir.Equals($repoRoot, $comparison)) {
+        throw "Refusing to use the repository root as the output dir: $outputDir"
+    }
+    if (Test-PathSameOrDescendant $repoRoot $outputDir) {
+        throw "Refusing to use an ancestor of the repository root as the output dir: $outputDir (repository root is $repoRoot)"
+    }
+    if (Test-PathSameOrDescendant $outputDir $repoRoot) {
+        $buildRoot = Get-NormalizedDistributionPath (Join-Path $ProjectRoot "build")
+        if ($outputDir.Equals($buildRoot, $comparison)) {
+            throw "Refusing to use the build root as the output dir: $outputDir"
+        }
+        if (-not (Test-PathSameOrDescendant $outputDir $buildRoot)) {
+            throw "Refusing to use a repository source directory as the output dir: $outputDir (only <repository>/build/<subdirectory> is allowed inside the repository)"
+        }
+    }
+
+    foreach ($protected in @($ProtectedPaths)) {
+        if ([string]::IsNullOrWhiteSpace($protected)) { continue }
+        $protectedFull = [System.IO.Path]::GetFullPath($protected)
+        $protectedPath = Get-NormalizedDistributionPath $protected
+        if ($protectedPath.Equals($repoRoot, $comparison)) {
+            # The repository root is governed by the repository rules above,
+            # not by the generic overlap loop, so regular
+            # <repo>/build/<subdir> outputs stay allowed.
+            continue
+        }
+        $protectedIsFile = Test-Path -LiteralPath $protectedFull -PathType Leaf
+        if ($outputDir.Equals($protectedPath, $comparison)) {
+            throw "Output dir overlaps a protected path: $outputDir equals $protectedPath"
+        }
+        if ($protectedIsFile) {
+            if (Test-PathSameOrDescendant $protectedPath $outputDir) {
+                throw "Output dir contains protected input file: $outputDir contains $protectedPath"
+            }
+        } else {
+            if (Test-PathSameOrDescendant $outputDir $protectedPath) {
+                throw "Output dir is inside protected input directory: $outputDir is inside $protectedPath"
+            }
+            if (Test-PathSameOrDescendant $protectedPath $outputDir) {
+                throw "Output dir contains protected input directory: $outputDir contains $protectedPath"
+            }
+        }
+    }
+    return $outputDir
+}

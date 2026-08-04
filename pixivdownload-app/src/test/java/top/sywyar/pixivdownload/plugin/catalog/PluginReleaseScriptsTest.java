@@ -20,6 +20,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @DisplayName("官方插件发布脚本签名协议守卫")
 class PluginReleaseScriptsTest {
@@ -1406,6 +1407,296 @@ class PluginReleaseScriptsTest {
         }
         assertThat(Files.readString(example, StandardCharsets.UTF_8))
                 .doesNotContain("pixiv.feedback.layout-survey");
+    }
+
+    @Test
+    @DisplayName("Nightly no-diff 门禁保留：has_changes 由真实 Git diff 判定并门控全部昂贵任务")
+    void nightlyNoDiffGateUsesRealGitDiff() throws Exception {
+        String nightly = workflow("nightly.yml");
+        String script = script("nightly-changelog-gate.sh");
+
+        // resolve-version 仍输出 has_changes，四个昂贵 job 仍由同一门控。
+        assertThat(nightly).contains(
+                "has_changes: ${{ steps.changelog.outputs.has_changes }}",
+                "publish-plugins:",
+                "build-jar:",
+                "build-windows-installer:",
+                "release-nightly:");
+        Matcher gated = Pattern.compile("needs\\.resolve-version\\.outputs\\.has_changes == 'true'")
+                .matcher(nightly);
+        int gatedCount = 0;
+        while (gated.find()) {
+            gatedCount++;
+        }
+        assertThat(gatedCount).as("has_changes 门控数量").isEqualTo(4);
+
+        // workflow 调用共享门禁脚本，脚本按 Git 真实 diff 三态判定。
+        assertThat(nightly).contains("./scripts/nightly-changelog-gate.sh CHANGELOG.md nightly");
+        assertThat(script).contains(
+                "git diff --quiet",
+                "case \"$diff_status\" in",
+                "0)",
+                "1)",
+                "*)",
+                "git diff failed with exit code",
+                "set -euo pipefail",
+                "/^## \\[Unreleased\\]/");
+        // 已有标签场景不再用 CHANGELOG_DIFF.md 非空与否决定 has_changes。
+        String checkStep = nightly.substring(nightly.indexOf("Check changelog diff"),
+                nightly.indexOf("Resolve next version"));
+        assertThat(checkStep).doesNotContain("CHANGELOG_DIFF.md", "[ -s CHANGELOG_DIFF.md ]");
+        // 首次无标签仍检查 [Unreleased] 区段。
+        assertThat(script).contains("[Unreleased]");
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("nightly-changelog-gate.sh"));
+    }
+
+    @Test
+    @DisplayName("Nightly 门禁脚本行为矩阵：无 diff 跳过，新增/修改/纯删除都触发，Git 错误失败")
+    void nightlyChangelogGateScriptBehaviorMatrix() throws Exception {
+        Path script = repoRoot().resolve("scripts").resolve("nightly-changelog-gate.sh");
+        assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
+        assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
+
+        Path repo = Files.createTempDirectory("nightly-gate-");
+        try {
+            initGitRepo(repo);
+            Path changelog = repo.resolve("CHANGELOG.md");
+            String baseline = "# Changelog\n\n## [Unreleased]\n\n### Features\n"
+                    + "- entry one\n- entry two\n- entry three\n";
+            Files.writeString(changelog, baseline, StandardCharsets.UTF_8);
+            commitAll(repo, "baseline");
+            runGit(repo, "tag", "nightly");
+
+            // 1. 无 diff：false
+            assertThat(runGate(repo, script, "nightly")).isEqualTo("false");
+
+            // 2. 新增一行：true
+            Files.writeString(changelog, baseline + "- entry four\n", StandardCharsets.UTF_8);
+            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+
+            // 3. 修改一行：true
+            Files.writeString(changelog, baseline.replace("- entry two\n", "- entry two (changed)\n"),
+                    StandardCharsets.UTF_8);
+            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+
+            // 4. 只删除一行：true（旧实现按新增行判定会误报 false）
+            Files.writeString(changelog, baseline.replace("- entry two\n", ""), StandardCharsets.UTF_8);
+            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+
+            // 5. git diff 真实错误（损坏的 index 使退出码为 128）：
+            //    步骤失败，绝不输出 has_changes 判定。GIT_INDEX_FILE 在 bash
+            //    （WSL）一侧设置，避免 Windows 环境变量透传差异。
+            Path garbageIndex = repo.resolve("garbage-index");
+            Files.write(garbageIndex, new byte[] { 1, 2, 3, 4, 5 });
+            String command = "cd " + toBashPath(repo) + " && GIT_INDEX_FILE=" + toBashPath(garbageIndex)
+                    + " " + toBashPath(script) + " CHANGELOG.md nightly";
+            ProcessBuilder pb = new ProcessBuilder("bash", "-c", command);
+            pb.directory(repo.toFile());
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int code = p.waitFor();
+            String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(code).as("git 错误必须使步骤失败: %s", err).isNotEqualTo(0);
+            assertThat(out.trim()).as("git 错误不得输出 has_changes 判定").isEmpty();
+        } finally {
+            deleteRecursively(repo);
+        }
+    }
+
+    @Test
+    @DisplayName("首次 Nightly（无 nightly 标签）由 [Unreleased] 非空内容判定，纯空白不算变更")
+    void nightlyGateFirstRunUsesUnreleasedSection() throws Exception {
+        Path script = repoRoot().resolve("scripts").resolve("nightly-changelog-gate.sh");
+        assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
+        assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
+
+        Path repo = Files.createTempDirectory("nightly-gate-first-");
+        try {
+            initGitRepo(repo);
+            Path changelog = repo.resolve("CHANGELOG.md");
+
+            // 空 [Unreleased]（只含空白行）→ false，不会永久跳过逻辑不影响首次构建判定
+            Files.writeString(changelog,
+                    "# Changelog\n\n## [Unreleased]\n\n\n## [v1.0.0] - 2026-01-01\n- released\n",
+                    StandardCharsets.UTF_8);
+            assertThat(runGate(repo, script, "nightly")).isEqualTo("false");
+
+            // 非空 → true（nightly 参数传了但标签不存在，走 rev-parse 回退）
+            Files.writeString(changelog,
+                    "# Changelog\n\n## [Unreleased]\n\n### Features\n- upcoming\n",
+                    StandardCharsets.UTF_8);
+            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+        } finally {
+            deleteRecursively(repo);
+        }
+    }
+
+    @Test
+    @DisplayName("Nightly 标签只在完整发布成功后推进：清理 < 发布 < 标签，且标签步骤不吞错")
+    void nightlyAdvancesTagOnlyAfterSuccessfulRelease() throws Exception {
+        String nightly = workflow("nightly.yml");
+        String releaseJob = workflowJob(nightly, "release-nightly");
+
+        int deleteIndex = releaseJob.indexOf("name: Delete old nightly assets");
+        int releaseIndex = releaseJob.indexOf("name: Create/Update Nightly Release");
+        int advanceIndex = releaseJob.indexOf("name: Advance nightly tag after successful release");
+
+        assertThat(deleteIndex).as("清理步骤必须存在").isGreaterThanOrEqualTo(0);
+        assertThat(releaseIndex).as("发布步骤必须在清理之后").isGreaterThan(deleteIndex);
+        assertThat(advanceIndex).as("标签步骤必须在发布之后").isGreaterThan(releaseIndex);
+
+        // Release action 之前不存在任何更新 nightly 标签的步骤，旧步骤名已删除。
+        assertThat(releaseJob.substring(0, releaseIndex)).doesNotContain("git tag -f nightly");
+        assertThat(releaseJob).doesNotContain("name: Update nightly tag");
+        // 标签指向当前提交 SHA，失败不被吞掉。
+        String advanceBlock = releaseJob.substring(advanceIndex);
+        assertThat(advanceBlock).contains(
+                "if: ${{ success() }}",
+                "git tag -f nightly \"$GITHUB_SHA\"",
+                "git push -f origin refs/tags/nightly")
+                .doesNotContain("|| true", "||true");
+        // 标签推进必须是 release-nightly job 的最后一步。
+        assertThat(releaseJob.substring(advanceIndex + 1)).doesNotContain("- name:");
+    }
+
+    @Test
+    @DisplayName("共享路径安全函数覆盖仓库根/祖先/源码目录/build 根与 protected paths 重叠")
+    void sharedDistributionPathSafetyContract() throws Exception {
+        String common = script("plugin-distribution-common.ps1");
+
+        assertThat(common).contains(
+                "function Get-NormalizedDistributionPath",
+                "function Test-PathSameOrDescendant",
+                "function Assert-SafeDistributionOutputDirectory",
+                "[System.IO.Path]::GetFullPath",
+                "[System.StringComparison]::OrdinalIgnoreCase",
+                "Refusing to use a drive/filesystem root as the output dir",
+                "Refusing to use the repository root as the output dir",
+                "Refusing to use an ancestor of the repository root as the output dir",
+                "Refusing to use the build root as the output dir",
+                "Refusing to use a repository source directory as the output dir",
+                "only <repository>/build/<subdirectory> is allowed",
+                "Output dir overlaps a protected path",
+                "Output dir contains protected input",
+                "Output dir is inside protected input");
+        // 父子判断必须带显式分隔符边界，不得用裸前缀 Contains。
+        assertThat(common).contains(
+                "StartsWith($normalizedParent + $sep",
+                "StartsWith($normalizedParent + $alt");
+        assertThat(common).doesNotContain(".Contains($normalizedParent");
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("plugin-distribution-common.ps1"));
+    }
+
+    @Test
+    @DisplayName("两个分发脚本先经共享安全断言再删除 OutputDir，且不再保留弱化版本地守卫")
+    void distributionScriptsAssertSafetyBeforeRemovingOutputDir() throws Exception {
+        for (String name : List.of("assemble-plugin-distribution.ps1", "package-java-distributions.ps1")) {
+            String s = script(name);
+            int lastAssert = s.lastIndexOf("Assert-SafeDistributionOutputDirectory");
+            assertThat(lastAssert).as(name + " 必须调用共享安全断言").isGreaterThanOrEqualTo(0);
+            assertThat(s).as(name).doesNotContain("Assert-SafeRemovableDir");
+            // 任何 OutputDir 递归删除都必须位于最后一次安全断言之后。
+            Matcher remove = Pattern.compile("Remove-Item[^\r\n]*OutputDir[^\r\n]*").matcher(s);
+            boolean foundDelete = false;
+            while (remove.find()) {
+                foundDelete = true;
+                assertThat(remove.start()).as(name + " 存在未受共享断言保护的 OutputDir 删除").isGreaterThan(lastAssert);
+            }
+            assertThat(foundDelete).as(name + " 必须存在 OutputDir 递归删除").isTrue();
+        }
+
+        String assemble = script("assemble-plugin-distribution.ps1");
+        String orchestrator = script("package-java-distributions.ps1");
+        // assemble：两阶段保护，stage 2 必须包含最终 SelectedAppJar，私有钥（存在时）一并保护。
+        assertThat(assemble).contains(
+                "$ProtectedInputPaths += $SelectedAppJar",
+                "$ProtectedInputPaths += $ResolvedPrebuiltPluginsDir",
+                "$ProtectedInputPaths += $SignatureToolJar",
+                "$privateKeyItem = Get-Item -LiteralPath $PrivateKeyFile",
+                "-ProtectedPaths $ProtectedInputPaths");
+        assertThat(assemble.lastIndexOf("$ProtectedInputPaths += $SelectedAppJar"))
+                .as("stage 2 必须位于 Push-Location 之后的最终 SelectedAppJar 确定处")
+                .isGreaterThan(assemble.indexOf("Push-Location $ProjectRoot"));
+        assertThat(assemble.indexOf("$SelectedAppJar = $appJarCandidate.FullName"))
+                .as("本地 fallback 必须在 stage 1 保护之后确定 SelectedAppJar")
+                .isGreaterThan(assemble.indexOf("Assert-SafeDistributionOutputDirectory"));
+        // package-java：protected paths 覆盖全部输入。
+        assertThat(orchestrator).contains(
+                "$ResolvedPrebuiltJar,",
+                "$ResolvedPrebuiltPluginsDir,",
+                "$ResolvedSignatureToolJar,",
+                "$AssemblerScript,",
+                "$PSScriptRoot,",
+                "$ProjectRoot");
+    }
+
+    private static void initGitRepo(Path repo) throws Exception {
+        runGit(repo, "init", "-q", "-b", "main");
+        runGit(repo, "config", "user.name", "gate-test");
+        runGit(repo, "config", "user.email", "gate@test");
+        runGit(repo, "config", "core.autocrlf", "false");
+    }
+
+    private static void commitAll(Path repo, String message) throws Exception {
+        runGit(repo, "add", "-A");
+        runGit(repo, "commit", "-q", "-m", message);
+    }
+
+    private static void runGit(Path repo, String... args) throws Exception {
+        String[] command = new String[args.length + 1];
+        command[0] = "git";
+        System.arraycopy(args, 0, command, 1, args.length);
+        Process p = new ProcessBuilder(command).directory(repo.toFile()).redirectErrorStream(true).start();
+        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int code = p.waitFor();
+        assertThat(code).as("git %s failed: %s", String.join(" ", args), output).isEqualTo(0);
+    }
+
+    private static String runGate(Path repo, Path script, String nightlyRef) throws Exception {
+        Process p = new ProcessBuilder("bash", toBashPath(script), "CHANGELOG.md", nightlyRef)
+                .directory(repo.toFile()).redirectErrorStream(true).start();
+        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int code = p.waitFor();
+        assertThat(code).as("gate script failed: %s", output).isEqualTo(0);
+        return output.trim();
+    }
+
+    private static String toBashPath(Path path) {
+        // On Windows, `bash` resolves to the WSL bash where Windows paths must
+        // be written as /mnt/<drive>/...; on Linux the path is used as-is.
+        String p = path.toString();
+        if (p.length() >= 2 && p.charAt(1) == ':') {
+            return "/mnt/" + Character.toLowerCase(p.charAt(0)) + "/" + p.substring(2).replace('\\', '/');
+        }
+        return p.replace('\\', '/');
+    }
+
+    private static boolean canRun(String... command) {
+        try {
+            Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
+            p.getInputStream().readAllBytes();
+            return p.waitFor() == 0;
+        } catch (IOException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private static void deleteRecursively(Path path) throws IOException {
+        if (!Files.exists(path)) {
+            return;
+        }
+        try (var walk = Files.walk(path)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    // Best-effort cleanup of the temp repo.
+                }
+            });
+        }
     }
 
     private static String script(String name) throws IOException {

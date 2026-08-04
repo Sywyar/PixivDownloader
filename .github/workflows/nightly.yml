@@ -30,24 +30,17 @@ jobs:
         id: changelog
         shell: bash
         run: |
+          set -euo pipefail
           git fetch --tags origin 2>/dev/null || true
 
-          if git rev-parse --verify nightly^{commit} >/dev/null 2>&1; then
-            git diff nightly -- CHANGELOG.md \
-              | awk '/^\+\+\+/ { next } /^\+/ { sub(/^\+/, ""); print }' > CHANGELOG_DIFF.md
-          else
-            awk '
-              /^## \[Unreleased\]/ { found=1; next }
-              /^## \[/ { if (found) exit }
-              found { print }
-            ' CHANGELOG.md > CHANGELOG_DIFF.md
-          fi
-
-          if [ -s CHANGELOG_DIFF.md ]; then
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          fi
+          # has_changes = any real Git diff in CHANGELOG.md against the last
+          # successful Nightly baseline. Additions, modifications and pure
+          # deletions all count; a Git error fails the step instead of being
+          # misread as "no changes". First Nightly (no baseline tag yet) uses
+          # the [Unreleased] section instead. The decision lives in
+          # scripts/nightly-changelog-gate.sh so the exact matrix is tested.
+          HAS_CHANGES=$(./scripts/nightly-changelog-gate.sh CHANGELOG.md nightly)
+          echo "has_changes=$HAS_CHANGES" >> "$GITHUB_OUTPUT"
 
       - name: Resolve next version
         id: vars
@@ -326,6 +319,10 @@ jobs:
         run: |
           git fetch --tags origin 2>/dev/null || true
 
+          # Display-only notes for the Release body: this step never decides
+          # whether the Nightly runs (that is resolve-version has_changes, a
+          # real Git diff that also counts deletions). A deletion-only diff
+          # may yield has_notes=false here while the Nightly still publishes.
           if git rev-parse --verify nightly^{commit} >/dev/null 2>&1; then
             # nightly tag exists: diff CHANGELOG.md between last nightly and HEAD
             git diff nightly -- CHANGELOG.md \
@@ -423,12 +420,6 @@ jobs:
             cat CHANGELOG_DIFF.md >> RELEASE_BODY.md
           fi
 
-      - name: Update nightly tag
-        shell: bash
-        run: |
-          git tag -f nightly
-          git push -f origin nightly
-
       - name: Delete old nightly assets
         shell: bash
         env:
@@ -458,3 +449,15 @@ jobs:
             artifacts/java-distributions/*-java.zip
             artifacts/java-distributions/*-full-offline.zip
             artifacts/update.json
+
+      - name: Advance nightly tag after successful release
+        # The nightly tag is the "last successful Nightly baseline" used by the
+        # next run's changelog gate. It must only move after the Release action
+        # published every attachment: if uploads fail, the tag stays on the old
+        # baseline and the next run still sees a CHANGELOG diff and retries.
+        # A push failure here fails the workflow on purpose - never swallow it.
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          git tag -f nightly "$GITHUB_SHA"
+          git push -f origin refs/tags/nightly

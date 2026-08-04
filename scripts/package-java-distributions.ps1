@@ -73,31 +73,6 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-function Assert-SafeRemovableDir {
-    # Guard before recursively deleting the output dir: refuse a drive/filesystem root, the
-    # repository root, and any ancestor of it, so a mistyped -OutputDir can never wipe an
-    # unrelated tree. Returns the resolved absolute path.
-    param([string]$Path, [string]$RepoRoot)
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw "Output dir path is empty; refusing to delete."
-    }
-    $full = [System.IO.Path]::GetFullPath($Path)
-    $parent = [System.IO.Path]::GetDirectoryName($full)
-    if ([string]::IsNullOrEmpty($parent)) {
-        throw "Refusing to use a drive/filesystem root as the output dir: $full"
-    }
-    $sep = [System.IO.Path]::DirectorySeparatorChar
-    $fullTrimmed = $full.TrimEnd($sep, '/')
-    $repoTrimmed = ([System.IO.Path]::GetFullPath($RepoRoot)).TrimEnd($sep, '/')
-    if ($fullTrimmed.Equals($repoTrimmed, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to use the repository root as the output dir: $full"
-    }
-    if ($repoTrimmed.StartsWith($fullTrimmed + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to use an ancestor of the repository root as the output dir: $full"
-    }
-    return $full
-}
-
 function Assert-Inputs {
     if ([string]::IsNullOrWhiteSpace($Version)) {
         throw "Version must not be empty."
@@ -312,10 +287,26 @@ function Assert-DistributionLayout {
 # --- validation and resolution ----------------------------------------------------------------
 
 Assert-Inputs
-$OutputDir = Assert-SafeRemovableDir $OutputDir $ProjectRoot
 $ResolvedPrebuiltJar = (Resolve-Path -LiteralPath $PrebuiltJar).Path
 $ResolvedPrebuiltPluginsDir = (Resolve-Path -LiteralPath $PrebuiltPluginsDir).Path
 $ResolvedSignatureToolJar = (Resolve-Path -LiteralPath $SignatureToolJar).Path
+
+# Shared safety assertion before any destructive operation: the output dir must
+# be a strict <repo>/build/<subdir> (or an external temp dir) and must not
+# overlap with any input (core jar, plugin inputs, signature tool, this
+# script's own file / directory, repository root). No Remove-Item may run
+# before this point.
+$OutputDir = Assert-SafeDistributionOutputDirectory `
+    -Path $OutputDir `
+    -ProjectRoot $ProjectRoot `
+    -ProtectedPaths @(
+        $ResolvedPrebuiltJar,
+        $ResolvedPrebuiltPluginsDir,
+        $ResolvedSignatureToolJar,
+        $AssemblerScript,
+        $PSScriptRoot,
+        $ProjectRoot
+    )
 
 $DefaultInstalledIds = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Id })
 $FullOfflineIds = @(Get-OfficialDistributionPlugins -IncludeOptional | ForEach-Object { $_.Id })

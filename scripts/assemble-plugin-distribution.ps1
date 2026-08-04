@@ -97,7 +97,6 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutputDir) {
     $OutputDir = Join-Path $ProjectRoot "build/dist"
 }
-$PluginsOutDir = Join-Path $OutputDir "plugins"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 if ($CoreShellOnly -and $DefaultDownloader) {
     throw "CoreShellOnly and DefaultDownloader cannot be combined."
@@ -135,31 +134,6 @@ function Get-MavenCommand {
         if ($cmd) { return $cmd.Source }
     }
     throw "Missing Maven command. Install Maven or use the Maven wrapper."
-}
-
-function Assert-SafeRemovableDir {
-    # Guard before recursively deleting the output dir: refuse a drive/filesystem root, the
-    # repository root, and any ancestor of it, so a mistyped -OutputDir can never wipe an
-    # unrelated tree. Returns the resolved absolute path.
-    param([string]$Path, [string]$RepoRoot)
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw "Output dir path is empty; refusing to delete."
-    }
-    $full = [System.IO.Path]::GetFullPath($Path)
-    $parent = [System.IO.Path]::GetDirectoryName($full)
-    if ([string]::IsNullOrEmpty($parent)) {
-        throw "Refusing to use a drive/filesystem root as the output dir: $full"
-    }
-    $sep = [System.IO.Path]::DirectorySeparatorChar
-    $fullTrimmed = $full.TrimEnd($sep, '/')
-    $repoTrimmed = ([System.IO.Path]::GetFullPath($RepoRoot)).TrimEnd($sep, '/')
-    if ($fullTrimmed.Equals($repoTrimmed, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to use the repository root as the output dir: $full"
-    }
-    if ($repoTrimmed.StartsWith($fullTrimmed + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to use an ancestor of the repository root as the output dir: $full"
-    }
-    return $full
 }
 
 function Assert-BootJarBoundary {
@@ -326,6 +300,34 @@ if ($PrebuiltJar) {
     }
 }
 
+# Stage 1 output-dir safety (shared assertion, before any build work): normalize
+# the output dir and reject repository source paths, the build root, the repo
+# root and its ancestors. Also protects every input known so far. The local
+# target fallback core jar is only known after the Maven build, so a second
+# full check runs right before the delete (see stage 2 below) with the final
+# SelectedAppJar included. No destructive operation is allowed before that.
+$ProtectedInputPaths = @($PSScriptRoot, $ProjectRoot)
+if ($PrebuiltJar) {
+    $ProtectedInputPaths += $SelectedAppJar
+}
+if (-not [string]::IsNullOrWhiteSpace($ResolvedPrebuiltPluginsDir)) {
+    $ProtectedInputPaths += $ResolvedPrebuiltPluginsDir
+}
+if (-not [string]::IsNullOrWhiteSpace($SignatureToolJar)) {
+    $ProtectedInputPaths += $SignatureToolJar
+}
+if (-not [string]::IsNullOrWhiteSpace($PrivateKeyFile)) {
+    $privateKeyItem = Get-Item -LiteralPath $PrivateKeyFile -ErrorAction SilentlyContinue
+    if ($privateKeyItem) {
+        $ProtectedInputPaths += $privateKeyItem.FullName
+    }
+}
+$OutputDir = Assert-SafeDistributionOutputDirectory `
+    -Path $OutputDir `
+    -ProjectRoot $ProjectRoot `
+    -ProtectedPaths $ProtectedInputPaths
+$PluginsOutDir = Join-Path $OutputDir "plugins"
+
 Push-Location $ProjectRoot
 try {
     if ($Build) {
@@ -352,8 +354,16 @@ try {
     Write-Host "    OK: boot jar contains core + built-in plugins, excludes external plugin classes/resources." -ForegroundColor Green
 
     Write-Step "Staging distribution to $OutputDir"
-    [void](Assert-SafeRemovableDir $OutputDir $ProjectRoot)
-    if (Test-Path $OutputDir) { Remove-Item -Recurse -Force -LiteralPath $OutputDir }
+    # Stage 2 full safety check right before the only destructive operation:
+    # every protected input, including the final SelectedAppJar (which may be
+    # the local target fallback discovered above), must be disjoint from the
+    # output tree. No destructive operation is allowed before this point.
+    $ProtectedInputPaths += $SelectedAppJar
+    [void](Assert-SafeDistributionOutputDirectory `
+        -Path $OutputDir `
+        -ProjectRoot $ProjectRoot `
+        -ProtectedPaths $ProtectedInputPaths)
+    if (Test-Path -LiteralPath $OutputDir) { Remove-Item -Recurse -Force -LiteralPath $OutputDir }
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     if (-not $CoreShellOnly) {
         New-Item -ItemType Directory -Force -Path $PluginsOutDir | Out-Null
