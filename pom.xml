@@ -79,6 +79,8 @@
         <jacoco.version>0.8.12</jacoco.version>
         <jna.version>5.17.0</jna.version>
         <pf4j.version>3.12.0</pf4j.version>
+        <!-- jacoco prepare-agent 会覆写该属性注入 agent；无 jacoco 的模块则解析为空串 -->
+        <argLine></argLine>
     </properties>
 
     <!--
@@ -95,6 +97,21 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!-- Windows 中文环境下，JDK 17 的 surefire 测试 fork 默认用平台编码（GBK/cp936）写 stdout/stderr，
+                而 surefire 按 UTF-8 解码，导致测试输出的中文在控制台与 surefire-reports 中乱码。
+                显式让 fork 使用 UTF-8（@{argLine} 延迟替换，保留 jacoco 等插件注入的 argLine）。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} -Dfile.encoding=UTF-8</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
     <profiles>
         <profile>
