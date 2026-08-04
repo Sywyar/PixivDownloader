@@ -206,6 +206,28 @@ html[data-theme="dark"] .plf-backdrop {
     color: var(--danger-text, var(--plf-danger));
 }
 
+.plf-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.plf-github {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px;
+    border-radius: 50%;
+    color: var(--muted, var(--plf-muted));
+    text-decoration: none;
+}
+
+.plf-github:hover {
+    background: var(--hover-bg, var(--plf-hover-bg));
+    color: var(--text, var(--plf-text));
+}
+
 .plf-actions {
     display: flex;
     flex-wrap: wrap;
@@ -244,7 +266,8 @@ html[data-theme="dark"] .plf-backdrop {
 }
 
 .plf-button:focus-visible,
-.plf-close:focus-visible {
+.plf-close:focus-visible,
+.plf-github:focus-visible {
     outline: 2px solid var(--brand, var(--plf-brand));
     outline-offset: 1px;
 }

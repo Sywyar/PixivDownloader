@@ -556,6 +556,9 @@ function createHarness(options) {
             }
             return element;
         },
+        createElementNS(namespace, tagName) {
+            return this.createElement(tagName);
+        },
         getElementById(id) {
             let found = null;
             (function walk(node) {

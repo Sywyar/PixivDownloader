@@ -99,33 +99,31 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("中英文隐私文案与真实身份模式一致：scoped 调查标识、multi 浏览器匿名、raw identity 不发送")
+    @DisplayName("中英文隐私文案与身份模型一致：仅收集填写内容与随机安装身份（去重），不发送其他信息")
     void privacyCopyMatchesIdentityModel() throws IOException {
         String zh = read(I18N_ZH);
         String en = read(I18N_EN);
         String js = read(SURVEY_JS);
 
-        // 中文明确「匿名调查标识」（不再笼统声称 solo 为匿名浏览器标识）
-        assertThat(zh).contains("匿名调查标识");
-        assertThat(zh).contains("单人模式");
+        // 中文简短声明：PostHog SDK + 只收集填写内容与随机安装身份的单向散列匿名标识
+        assertThat(zh).contains("PostHog SDK");
+        assertThat(zh).contains("只收集您填写的内容");
+        assertThat(zh).contains("单向散列");
+        assertThat(zh).contains("不可逆");
         assertThat(zh).contains("随机安装身份");
-        assertThat(zh).contains("当前调查 ID");
-        assertThat(zh).contains("多人模式");
-        assertThat(zh).contains("匿名浏览器标识");
-        assertThat(zh).contains("原始安装身份");
+        assertThat(zh).contains("避免重复弹窗");
+        assertThat(zh).contains("不会发送其他任何信息");
 
         // 英文语义一致
-        assertThat(en).contains("anonymous survey identifier");
-        assertThat(en).contains("single-user mode");
+        assertThat(en).contains("PostHog SDK");
+        assertThat(en).contains("what you fill in");
         assertThat(en).contains("installation identity");
-        assertThat(en).contains("survey id");
-        assertThat(en).contains("multi-user mode");
-        assertThat(en).contains("anonymous browser identifier");
-        assertThat(en).contains("raw installation identity");
+        assertThat(en).contains("duplicate pop-ups");
+        assertThat(en).contains("No other information is sent");
 
         // JS 弹窗 fallback 与中文 i18n 语义一致
-        assertThat(js).contains("匿名调查标识");
-        assertThat(js).contains("原始安装身份");
+        assertThat(js).contains("PostHog SDK");
+        assertThat(js).contains("随机安装身份");
         assertThat(js).doesNotContain("匿名浏览器标识；");
     }
 
