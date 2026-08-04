@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.response.LayoutFeedbackStateResponse;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -19,6 +20,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class LayoutFeedbackDecisionJsonTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    // 状态文档序列化使用与 Store 相同的 NON_NULL 配置（null 字段不输出）。
+    private static final ObjectMapper DOCUMENT_MAPPER = new ObjectMapper()
+            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
     private static final String SURVEY_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
     @Test
@@ -109,5 +113,74 @@ class LayoutFeedbackDecisionJsonTest {
         assertThat(json).doesNotContain("updatedAt");
         assertThat(json).doesNotContain("firstSeenAt");
         assertThat(json).doesNotContain("lastSeenAt");
+    }
+
+    /* ============================================================
+       状态文档 v1 / v2 字段互斥（JSON 线格式层）
+    ============================================================ */
+
+    private String stateJson(String surveyId, String status) {
+        return "{\"surveyId\":\"" + surveyId
+                + "\",\"status\":\"" + status + "\",\"updatedAt\":1,\"snoozedUntil\":0}";
+    }
+
+    @Test
+    @DisplayName("v2 文档序列化只输出 states，绝不输出 state 字段")
+    void v2DocumentJsonOmitsStateField() throws Exception {
+        LayoutFeedbackStateEntry entry = new LayoutFeedbackStateEntry(
+                SURVEY_ID, LayoutFeedbackDecision.SUBMITTED, 1L, 0L);
+        LayoutFeedbackStateDocument document = new LayoutFeedbackStateDocument(
+                2, 3L, null, Map.of(SURVEY_ID, entry), Map.of());
+
+        String json = DOCUMENT_MAPPER.writeValueAsString(document);
+
+        assertThat(json).contains("\"schemaVersion\":2");
+        assertThat(json).contains("\"states\"");
+        assertThat(json).doesNotContain("\"state\":");
+    }
+
+    @Test
+    @DisplayName("反序列化 v1 无 states 字段文档：state 迁移进 states 表，大写枚举继续兼容")
+    void v1DocumentWithoutStatesDeserializes() throws Exception {
+        String json = "{\"schemaVersion\":1,\"revision\":5,"
+                + "\"state\":" + stateJson(SURVEY_ID, "SUBMITTED") + ",\"seen\":{}}";
+
+        LayoutFeedbackStateDocument document = MAPPER.readValue(json, LayoutFeedbackStateDocument.class);
+
+        assertThat(document.schemaVersion()).isEqualTo(1);
+        assertThat(document.revision()).isEqualTo(5);
+        assertThat(document.states().get(SURVEY_ID).status())
+                .isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+    }
+
+    @Test
+    @DisplayName("反序列化 v1 state=null 且无 states 字段：迁移为空 states")
+    void v1NullStateDocumentWithoutStatesDeserializes() throws Exception {
+        String json = "{\"schemaVersion\":1,\"revision\":5,\"state\":null,\"seen\":{}}";
+
+        LayoutFeedbackStateDocument document = MAPPER.readValue(json, LayoutFeedbackStateDocument.class);
+
+        assertThat(document.revision()).isEqualTo(5);
+        assertThat(document.states()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("反序列化 v1 同时含 state 与 states 字段：歧义协议拒绝")
+    void v1AmbiguousDocumentRejected() {
+        String json = "{\"schemaVersion\":1,\"revision\":1,"
+                + "\"state\":" + stateJson(SURVEY_ID, "SUBMITTED") + ",\"states\":{},\"seen\":{}}";
+
+        assertThatThrownBy(() -> MAPPER.readValue(json, LayoutFeedbackStateDocument.class))
+                .hasRootCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("反序列化 v2 同时含 state 与 states 字段：歧义协议拒绝")
+    void v2AmbiguousDocumentRejected() {
+        String json = "{\"schemaVersion\":2,\"revision\":1,"
+                + "\"state\":" + stateJson(SURVEY_ID, "SUBMITTED") + ",\"states\":{},\"seen\":{}}";
+
+        assertThatThrownBy(() -> MAPPER.readValue(json, LayoutFeedbackStateDocument.class))
+                .hasRootCauseInstanceOf(IllegalArgumentException.class);
     }
 }

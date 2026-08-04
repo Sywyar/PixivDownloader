@@ -6621,6 +6621,516 @@ function testRevisionSafeIntegerBoundary() {
     });
 }
 
+/* ============================================================
+   初始自动延迟屏障（autoEarliestAt）
+============================================================ */
+
+function testAutoDelayBarrierLayoutChange() {
+    // A. 布局变化不能绕过 autoDelay：
+    // autoDelay=10000、已启用调查、初始只体验一个布局、服务端允许。
+    // 第 1000ms 切换第二布局：不得提前启动；autoTimerDueAt 保持 initNow+10000；
+    // 第 9999ms 仍未加载 SDK；第 10000ms 才允许启动一次；弹窗最多一个。
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: {},
+        minDistinct: 2,
+        autoDelayMs: 10000
+    });
+    h.timers.advance(1000);
+    return waitForFlush().then(() => {
+        eq('第 1000ms 没有 SDK init', h.adapter.calls.init.length, 0);
+        eq('第 1000ms 没有 Survey 请求', h.adapter.calls.getSurveys.length, 0);
+        eq('autoTimerDueAt 仍为 initNow+10000', h.api._internals.autoTimerDueAt(), 1000000 + 10000);
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        return waitForFlush();
+    }).then(() => {
+        eq('布局变化后 timer 仍为 initNow+10000', h.api._internals.autoTimerDueAt(), 1000000 + 10000);
+        h.timers.advance(8999);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 9999ms 仍未加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('第 9999ms 无弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        h.timers.advance(1);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 10000ms 才允许启动一次', h.adapter.calls.getSurveys.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testAutoDelayBarrierVisibilityChange() {
+    // B. visibilitychange 不能绕过 autoDelay：
+    // autoDelay=10000、页面初始 hidden、已体验两个布局、服务端允许。
+    // 第 2000ms 恢复 visible：不立即启动；autoTimerDueAt 不早于 initNow+10000；
+    // 第 9999ms 不加载；第 10000ms 启动一次。
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        minDistinct: 2,
+        autoDelayMs: 10000,
+        visibilityState: 'hidden'
+    });
+    h.timers.advance(2000);
+    return waitForFlush().then(() => {
+        h.document.visibilityState = 'visible';
+        h.document.dispatchEvent({type: 'visibilitychange'});
+        return waitForFlush();
+    }).then(() => {
+        eq('visible 后不立即启动', h.adapter.calls.getSurveys.length, 0);
+        ok('autoTimerDueAt 不早于 initNow+10000',
+            h.api._internals.autoTimerDueAt() >= 1000000 + 10000);
+        h.timers.advance(7999);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 9999ms 不加载', h.adapter.calls.getSurveys.length, 0);
+        h.timers.advance(1);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 10000ms 启动一次', h.adapter.calls.getSurveys.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testAutoDelayBarrierServerEarlyAllow() {
+    // C. 服务端提前允许不能绕过 autoDelay：
+    // 初始服务端 status=snoozed / canShow=false / retryAfterMs=1000（阻断截止早于
+    // autoEarliestAt，timer 必须对齐 autoEarliestAt）；第 1000ms storage 事件触发
+    // 有限刷新，服务端返回 canShow=true（revision 1），autoDelay=10000：
+    // 不能在第 1000ms 启动；第 9999ms 不启动；第 10000ms 启动一次。
+    let getCalls = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        minDistinct: 2,
+        autoDelayMs: 10000,
+        serverFetch: () => {
+            getCalls++;
+            const canShow = getCalls >= 2;
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: canShow ? 1 : 0,
+                    status: canShow ? null : 'snoozed',
+                    canShow,
+                    retryAfterMs: canShow ? 0 : 1000,
+                    seenLayouts: LAYOUT_IDS.slice()
+                }))
+            });
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        eq('初始服务端阻断（snoozed）', h.api._internals.serverCanShow(), false);
+        // 服务端阻断截止（now+1000）早于 autoEarliestAt：timer 必须对齐 autoEarliestAt。
+        eq('初始 timer 对齐 autoEarliestAt', h.api._internals.autoTimerDueAt(), 1000000 + 10000);
+        h.timers.advance(1000);
+        return waitForFlush();
+    }).then(() => {
+        // 第 1000ms：storage 事件触发有限刷新，服务端返回 canShow=true。
+        h.dispatchStorage(SEEN_KEY, JSON.stringify(seenObject()));
+        return waitForFlush();
+    }).then(() => {
+        eq('第 1000ms 服务端已允许', h.api._internals.serverCanShow(), true);
+        eq('第 1000ms 不得启动', h.adapter.calls.getSurveys.length, 0);
+        eq('timer 仍对齐 autoEarliestAt', h.api._internals.autoTimerDueAt(), 1000000 + 10000);
+        h.timers.advance(8999);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 9999ms 不启动', h.adapter.calls.getSurveys.length, 0);
+        h.timers.advance(1);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 10000ms 启动一次', h.adapter.calls.getSurveys.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testAutoDelayBarrierStorageEvent() {
+    // D. storage 事件不能绕过 autoDelay：
+    // 第 1000ms 收到 SEEN_KEY 状态协调事件（另一标签页刚体验第二布局）：
+    // 不早于 autoEarliestAt 启动；第 9999ms 不启动；第 10000ms 启动一次。
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: {},
+        minDistinct: 2,
+        autoDelayMs: 10000,
+        serverState: serverStateResponse({seenLayouts: []})
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(1000);
+        return waitForFlush();
+    }).then(() => {
+        // 第 1000ms 收到 SEEN_KEY 状态协调事件（另一标签页刚体验第二布局）。
+        h.dispatchStorage(SEEN_KEY, JSON.stringify(seenObject()));
+        return waitForFlush();
+    }).then(() => {
+        eq('storage 事件不得提前：timer 仍为 initNow+10000', h.api._internals.autoTimerDueAt(), 1000000 + 10000);
+        eq('第 1000ms 不启动', h.adapter.calls.getSurveys.length, 0);
+        h.timers.advance(8999);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 9999ms 不启动', h.adapter.calls.getSurveys.length, 0);
+        h.timers.advance(1);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 10000ms 启动一次', h.adapter.calls.getSurveys.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testAutoDelayBarrierZeroDelay() {
+    // E. autoDelay=0：满足条件后立即自动评估（测试 / 调试行为不变）。
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        minDistinct: 2,
+        autoDelayMs: 0
+    });
+    h.timers.advance(0);
+    return waitForFlush().then(() => {
+        eq('autoEarliestAt = init 时刻', h.api._internals.autoEarliestAt(), 1000000);
+        eq('autoDelay=0 满足条件后立即自动评估', h.adapter.calls.getSurveys.length, 1);
+    });
+}
+
+function testAutoDelayBarrierDestroyReinit() {
+    // F. destroy → re-init：generation 1 的 autoEarliestAt=init1+10000；第 2000ms
+    // destroy 后清零；generation 2 re-init 得到 init2+10000 的新屏障；旧 timer 和
+    // 旧事件不得使用 generation 1 的截止时间启动 generation 2。
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: {},
+        minDistinct: 2,
+        autoDelayMs: 10000
+    });
+    h.timers.advance(2000);
+    return waitForFlush().then(() => {
+        eq('generation 1 autoEarliestAt = init1+10000', h.api._internals.autoEarliestAt(), 1000000 + 10000);
+        h.api.destroy();
+        eq('destroy 后 autoEarliestAt 清零', h.api._internals.autoEarliestAt(), 0);
+        eq('destroy 后无活动 operation', h.api._internals.autoEvaluationOperationId(), null);
+        eq('destroy 后 in-flight 清除', h.api._internals.autoEvaluationInFlight(), false);
+        h.api.init(reinitOptions(h));
+        eq('generation 2 autoEarliestAt = init2+10000', h.api._internals.autoEarliestAt(), 1002000 + 10000);
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        h.timers.advance(0);
+        return waitForFlush();
+    }).then(() => {
+        eq('旧 timer 不得使用 generation 1 截止时间启动 generation 2', h.adapter.calls.getSurveys.length, 0);
+        eq('timer 对齐 init2+10000', h.api._internals.autoTimerDueAt(), 1002000 + 10000);
+        h.timers.advance(9999);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 9999ms（相对 init2）不启动', h.adapter.calls.getSurveys.length, 0);
+        h.timers.advance(1);
+        return waitForFlush();
+    }).then(() => {
+        eq('第 10000ms（相对 init2）启动一次', h.adapter.calls.getSurveys.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+/* ============================================================
+   自动评估 operation / generation 隔离
+============================================================ */
+
+function testOldGenerationAutoOperationIsolation() {
+    // generation 1 满足自动资格并开始评估（服务端 refresh 在途）；destroy →
+    // generation 2 init → generation 2 到达自动截止开始 op2；释放 generation 1 的
+    // 旧 refresh 响应：op1 不得清除 op2、不安排 timer、不设置 terminal、不加载 SDK、
+    // 不打开弹窗、不输出影响新流程的 warning；完成 op2 后只启动一次 SDK / Survey 流程。
+    let getCalls = 0;
+    let gate1Resolve = null;
+    let gate2Resolve = null;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        minDistinct: 2,
+        autoDelayMs: 0,
+        serverFetch: () => {
+            getCalls++;
+            if (getCalls === 1 || getCalls === 3) {
+                // init GET（gen1 / gen2 各一次）：snoozed 阻断视图。
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 0,
+                        status: 'snoozed',
+                        canShow: false,
+                        retryAfterMs: 1000,
+                        seenLayouts: LAYOUT_IDS.slice()
+                    }))
+                });
+            }
+            if (getCalls === 2) {
+                // generation 1 的自动评估权威刷新：保持 pending。
+                return new Promise(resolve => { gate1Resolve = resolve; });
+            }
+            // getCalls === 4：generation 2 的自动评估权威刷新：保持 pending。
+            return new Promise(resolve => { gate2Resolve = resolve; });
+        }
+    });
+    let op1Id = null;
+    let op2Id = null;
+    let gen1 = 0;
+    let timersBefore = 0;
+    let warningsBefore = 0;
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(1000);
+        return waitForFlush();
+    }).then(() => {
+        eq('generation 1 自动评估在途', h.api._internals.autoEvaluationInFlight(), true);
+        op1Id = h.api._internals.autoEvaluationOperationId();
+        ok('op1 已创建', op1Id !== null);
+        eq('op1 属于当前 generation 1', h.api._internals.autoEvaluationOperationGeneration(),
+            h.api._internals.currentGeneration());
+        gen1 = h.api._internals.currentGeneration();
+        h.api.destroy();
+        return waitForFlush();
+    }).then(() => {
+        eq('destroy 后无活动 operation', h.api._internals.autoEvaluationOperationId(), null);
+        eq('destroy 后 in-flight 清除', h.api._internals.autoEvaluationInFlight(), false);
+        h.api.init(Object.assign(reinitOptions(h), {autoDelayMs: 0}));
+        return waitForFlush();
+    }).then(() => {
+        eq('generation 2 已初始化（generation 递增）',
+            h.api._internals.currentGeneration() > gen1, true);
+        h.timers.advance(1000);
+        return waitForFlush();
+    }).then(() => {
+        eq('generation 2 自动评估在途', h.api._internals.autoEvaluationInFlight(), true);
+        op2Id = h.api._internals.autoEvaluationOperationId();
+        ok('op2 与 op1 不同 token', op2Id !== null && op2Id !== op1Id);
+        eq('op2 属于 generation 2', h.api._internals.autoEvaluationOperationGeneration(),
+            h.api._internals.currentGeneration());
+        warningsBefore = h.consoleWarn.length;
+        timersBefore = h.timers.pending().length;
+        // 释放 generation 1 的旧 refresh：canShow=true 迟到响应。
+        gate1Resolve({
+            ok: true,
+            json: () => Promise.resolve(serverStateResponse({
+                revision: 1,
+                status: null,
+                canShow: true,
+                retryAfterMs: 0,
+                seenLayouts: LAYOUT_IDS.slice()
+            }))
+        });
+        return waitForFlush();
+    }).then(() => {
+        eq('autoEvaluationOperation 仍为 op2', h.api._internals.autoEvaluationOperationId(), op2Id);
+        eq('autoEvaluationInFlight 仍为 true', h.api._internals.autoEvaluationInFlight(), true);
+        eq('op2 未被 finish（autoFlowStarted 仍 false）', h.api._internals.autoFlowStarted(), false);
+        eq('generation 1 不设置 autoFlowTerminal', h.api._internals.autoFlowTerminal(), false);
+        eq('generation 1 不安排新 timer', h.timers.pending().length, timersBefore);
+        eq('generation 1 不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('generation 1 不打开弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('generation 1 不输出新 warning', h.consoleWarn.length, warningsBefore);
+        // 完成 op2：generation 2 的权威刷新返回 canShow=true。
+        gate2Resolve({
+            ok: true,
+            json: () => Promise.resolve(serverStateResponse({
+                revision: 1,
+                status: null,
+                canShow: true,
+                retryAfterMs: 0,
+                seenLayouts: LAYOUT_IDS.slice()
+            }))
+        });
+        return waitForFlush();
+    }).then(() => {
+        eq('op2 完成后只启动一次 SDK / Survey 流程', h.adapter.calls.getSurveys.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('op2 完成后 autoFlowStarted=true', h.api._internals.autoFlowStarted(), true);
+        eq('op2 完成后 in-flight 清除', h.api._internals.autoEvaluationInFlight(), false);
+        eq('generation 2 没有启动第二条自动流程', h.adapter.calls.getSurveys.length, 1);
+        eq('只有 generation 1 的请求被取消（abort 恰好一次）', h.serverAbortCalls.length, 1);
+    });
+}
+
+function testOldGenerationLateResultsNoSideEffects() {
+    // generation 1 自动评估 refresh 在途时 destroy → re-init → generation 2 开始 op2；
+    // generation 1 的旧 refresh 迟到响应按三种 payload 释放（blocked 形 / invalid 形 /
+    // started 形），都不得影响 generation 2 的 operation：不安排 retryAt timer、
+    // 不设置 autoFlowTerminal、不设置 autoFlowStarted、不加载 SDK、不打开弹窗；
+    // 随后完成 op2 只启动一次流程。（cancelled 形已在
+    // testOldGenerationAutoOperationIsolation 的 destroy 阶段覆盖。）
+    const buildHarness = () => {
+        let getCalls = 0;
+        let gate1Resolve = null;
+        let gate2Resolve = null;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: 1000000,
+            storage: seenSeed(),
+            minDistinct: 2,
+            autoDelayMs: 0,
+            serverFetch: () => {
+                getCalls++;
+                if (getCalls === 1 || getCalls === 3) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 0,
+                            status: 'snoozed',
+                            canShow: false,
+                            retryAfterMs: 1000,
+                            seenLayouts: LAYOUT_IDS.slice()
+                        }))
+                    });
+                }
+                if (getCalls === 2) {
+                    return new Promise(resolve => { gate1Resolve = resolve; });
+                }
+                return new Promise(resolve => { gate2Resolve = resolve; });
+            }
+        });
+        return {h, gate1: () => gate1Resolve, gate2: () => gate2Resolve};
+    };
+    const runCase = (lateView) => {
+        const built = buildHarness();
+        const h = built.h;
+        let op1Id = null;
+        let warningsBefore = 0;
+        let timersBefore = 0;
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(1000);
+            return waitForFlush();
+        }).then(() => {
+            op1Id = h.api._internals.autoEvaluationOperationId();
+            ok('op1 已创建', op1Id !== null);
+            h.api.destroy();
+            return waitForFlush();
+        }).then(() => {
+            h.api.init(Object.assign(reinitOptions(h), {autoDelayMs: 0}));
+            return waitForFlush();
+        }).then(() => {
+            h.timers.advance(1000);
+            return waitForFlush();
+        }).then(() => {
+            ok('op2 已创建（与 op1 不同 token）',
+                h.api._internals.autoEvaluationOperationId() !== op1Id);
+            warningsBefore = h.consoleWarn.length;
+            timersBefore = h.timers.pending().length;
+            built.gate1()(lateView);
+            return waitForFlush();
+        }).then(() => {
+            ok('autoEvaluationOperation 仍为 op2',
+                h.api._internals.autoEvaluationOperationId() !== op1Id);
+            eq('autoEvaluationInFlight 仍为 true', h.api._internals.autoEvaluationInFlight(), true);
+            eq('不设置 autoFlowStarted', h.api._internals.autoFlowStarted(), false);
+            eq('不设置 autoFlowTerminal', h.api._internals.autoFlowTerminal(), false);
+            eq('不安排 retryAt timer', h.timers.pending().length, timersBefore);
+            eq('不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+            eq('不打开弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+            eq('不输出新 warning', h.consoleWarn.length, warningsBefore);
+            built.gate2()({
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 1,
+                    status: null,
+                    canShow: true,
+                    retryAfterMs: 0,
+                    seenLayouts: LAYOUT_IDS.slice()
+                }))
+            });
+            return waitForFlush();
+        }).then(() => {
+            eq('op2 完成后只启动一次流程', h.adapter.calls.getSurveys.length, 1);
+            eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        });
+    };
+    const lateViews = [
+        // A. blocked 形：迟到 blocked 不得为 generation 2 安排 retryAt timer。
+        {
+            ok: true,
+            json: () => Promise.resolve(serverStateResponse({
+                revision: 1, status: 'snoozed', canShow: false, retryAfterMs: 7000,
+                seenLayouts: LAYOUT_IDS.slice()
+            }))
+        },
+        // B. invalid 形：迟到 invalid 不得设置 generation 2 的 autoFlowTerminal。
+        {ok: true, json: () => Promise.resolve({available: false})},
+        // D. started 形：迟到 opened/started 不得设置 generation 2 的 autoFlowStarted。
+        {
+            ok: true,
+            json: () => Promise.resolve(serverStateResponse({
+                revision: 1, status: null, canShow: true, retryAfterMs: 0,
+                seenLayouts: LAYOUT_IDS.slice()
+            }))
+        }
+    ];
+    return lateViews.reduce((chain, view) => chain.then(() => runCase(view)),
+        Promise.resolve());
+}
+
+/* ============================================================
+   retryAfterMs 安全整数边界
+============================================================ */
+
+function testRetryAfterMsSafeIntegerBoundary() {
+    // retryAfterMs 边界：0 / 1 / Number.MAX_SAFE_INTEGER 合法（合法最大值进入
+    // safeClientTimeAdd 后仍为安全整数，且超过 setTimeout 上限时按分段定时，不视为
+    // 协议错误）；MAX_SAFE_INTEGER+1 / 1.5 / -1 / Infinity / NaN / '1000' →
+    // VIEW_INVALID；非法响应不得修改 serverRevision / serverLocalBlockUntil、
+    // 不安排新自动 timer、不启动 SDK。
+    const MAX_SAFE = Number.MAX_SAFE_INTEGER;
+    const viewFor = (retryAfterMs) => retryAfterMs === 0
+        ? {status: null, canShow: true, retryAfterMs: 0, seenLayouts: LAYOUT_IDS.slice()}
+        : {status: 'snoozed', canShow: false, retryAfterMs, seenLayouts: LAYOUT_IDS.slice()};
+    const withRetryAfter = (retryAfterMs, manualOpen) => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: 1000000,
+            storage: seenSeed(),
+            minDistinct: 2,
+            serverState: serverStateResponse(Object.assign({revision: 3}, viewFor(retryAfterMs)))
+        });
+        return (manualOpen ? h.api.open().then(() => waitForFlush()) : waitForServerContext(h))
+            .then(() => h);
+    };
+    return withRetryAfter(0, true).then(h => {
+        eq('retryAfterMs=0 合法（status=null + canShow=true）', h.adapter.sdkConfig() !== null, true);
+        ok('合法视图应用 bootstrap 身份',
+            !!(h.adapter.sdkConfig().bootstrap && h.adapter.sdkConfig().bootstrap.distinctID));
+        eq('retryAfterMs=0 不产生阻断截止', h.api._internals.serverLocalBlockUntil(), 0);
+    }).then(() => withRetryAfter(1, true)).then(h => {
+        eq('retryAfterMs=1 合法', h.adapter.sdkConfig() !== null, true);
+        eq('serverRevision 已应用', h.api._internals.currentServerRevision(), 3);
+        eq('serverLocalBlockUntil = now + 1', h.api._internals.serverLocalBlockUntil(), 1000000 + 1);
+    }).then(() => withRetryAfter(MAX_SAFE, true)).then(h => {
+        eq('retryAfterMs=Number.MAX_SAFE_INTEGER 合法', h.adapter.sdkConfig() !== null, true);
+        const until = h.api._internals.serverLocalBlockUntil();
+        ok('合法最大值进入 safeClientTimeAdd 后仍为安全整数',
+            Number.isSafeInteger(until) && until >= 0 && until <= MAX_SAFE);
+        const due = h.api._internals.autoTimerDueAt();
+        ok('合法最大值按分段定时（不视为协议错误）', due - 1000000 === 2147483647);
+    }).then(() => withRetryAfter(MAX_SAFE + 1, false)).then(h => {
+        eq('retryAfterMs=MAX_SAFE_INTEGER+1 → VIEW_INVALID', h.adapter.sdkConfig(), null);
+        eq('非法响应不修改 serverRevision', h.api._internals.currentServerRevision(), 0);
+        eq('非法响应不修改 serverLocalBlockUntil', h.api._internals.serverLocalBlockUntil(), 0);
+        eq('非法响应不安排新自动 timer（仅初始屏障 timer）',
+            h.api._internals.autoTimerDueAt(), 1000000 + 10000);
+        eq('非法响应不启动 SDK', h.adapter.calls.init.length, 0);
+    }).then(() => withRetryAfter(1.5, false)).then(h => {
+        eq('retryAfterMs=1.5 → VIEW_INVALID', h.adapter.sdkConfig(), null);
+    }).then(() => withRetryAfter(-1, false)).then(h => {
+        eq('retryAfterMs=-1 → VIEW_INVALID', h.adapter.sdkConfig(), null);
+    }).then(() => withRetryAfter(Infinity, false)).then(h => {
+        eq('retryAfterMs=Infinity → VIEW_INVALID', h.adapter.sdkConfig(), null);
+    }).then(() => withRetryAfter(NaN, false)).then(h => {
+        eq('retryAfterMs=NaN → VIEW_INVALID', h.adapter.sdkConfig(), null);
+    }).then(() => withRetryAfter('1000', false)).then(h => {
+        eq("retryAfterMs='1000' → VIEW_INVALID", h.adapter.sdkConfig(), null);
+    });
+}
+
 async function run() {
     const step = async (name, fn) => {
         currentTest = name;
@@ -6787,6 +7297,15 @@ async function run() {
     await step('testAutoFlowUnavailableFailOpen', testAutoFlowUnavailableFailOpen);
     await step('testAutoTimerSemantics', testAutoTimerSemantics);
     await step('testRevisionSafeIntegerBoundary', testRevisionSafeIntegerBoundary);
+    await step('testAutoDelayBarrierLayoutChange', testAutoDelayBarrierLayoutChange);
+    await step('testAutoDelayBarrierVisibilityChange', testAutoDelayBarrierVisibilityChange);
+    await step('testAutoDelayBarrierServerEarlyAllow', testAutoDelayBarrierServerEarlyAllow);
+    await step('testAutoDelayBarrierStorageEvent', testAutoDelayBarrierStorageEvent);
+    await step('testAutoDelayBarrierZeroDelay', testAutoDelayBarrierZeroDelay);
+    await step('testAutoDelayBarrierDestroyReinit', testAutoDelayBarrierDestroyReinit);
+    await step('testOldGenerationAutoOperationIsolation', testOldGenerationAutoOperationIsolation);
+    await step('testOldGenerationLateResultsNoSideEffects', testOldGenerationLateResultsNoSideEffects);
+    await step('testRetryAfterMsSafeIntegerBoundary', testRetryAfterMsSafeIntegerBoundary);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 

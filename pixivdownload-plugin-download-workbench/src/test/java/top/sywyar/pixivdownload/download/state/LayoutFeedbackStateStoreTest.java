@@ -227,6 +227,126 @@ class LayoutFeedbackStateStoreTest {
     }
 
     @Test
+    @DisplayName("v1 state=null 且无 states 字段：正常迁移为空 states，seen / revision 保留")
+    void v1NullStateWithoutStatesMigratesToEmptyStates() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":1,\"revision\":3,\"state\":null,\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("v1 state=null 文件不得被隔离").isEmpty();
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.revision()).as("v1 revision 保留").isEqualTo(3);
+        assertThat(snapshot.states()).as("迁移为空 states").isEmpty();
+        assertThat(snapshot.seen()).as("v1 seen 保留").isEmpty();
+    }
+
+    @Test
+    @DisplayName("v1 同时含 state 和 states 字段：歧义协议拒绝并隔离，Store 空快照继续可用")
+    void v1WithStateAndStatesQuarantined() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":1,\"revision\":1,"
+                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"SUBMITTED\",\"updatedAt\":1,\"snoozedUntil\":0},"
+                        + "\"states\":{},\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("歧义 v1 文件必须按损坏隔离").hasSize(1);
+        assertThat(Files.exists(stateFile())).as("歧义文件必须被移走").isFalse();
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.states()).as("Store 使用空快照").isEmpty();
+        assertThat(snapshot.revision()).isZero();
+        // 隔离后 Store 继续可用（目录可写时）。
+        store.apply(recordSeen("pixiv-batch-landscape"), NOW);
+        assertThat(store.snapshot().seen()).containsKey("pixiv-batch-landscape");
+    }
+
+    @Test
+    @DisplayName("v1 state=null 但含 states 字段（含空 states）：歧义协议拒绝并隔离")
+    void v1NullStateWithStatesQuarantined() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":1,\"revision\":1,\"state\":null,\"states\":{},\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("v1 含 states 字段（即使为空）必须按损坏隔离").hasSize(1);
+        assertThat(Files.exists(stateFile())).as("歧义文件必须被移走").isFalse();
+        assertThat(store.snapshot().states()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("v2 同时含非空 state 和 states 字段：歧义协议拒绝并隔离，Store 空快照")
+    void v2WithStateAndStatesQuarantined() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":2,\"revision\":1,"
+                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"SUBMITTED\",\"updatedAt\":1,\"snoozedUntil\":0},"
+                        + "\"states\":{" + stateJson(SURVEY_ID, 1) + "},\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("v2 含非空 state 字段必须按损坏隔离").hasSize(1);
+        assertThat(Files.exists(stateFile())).as("歧义文件必须被移走").isFalse();
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.states()).as("Store 使用空快照").isEmpty();
+        assertThat(snapshot.revision()).isZero();
+    }
+
+    @Test
+    @DisplayName("v2 非空 state、空 states 字段：仍拒绝并隔离")
+    void v2NonEmptyStateWithEmptyStatesQuarantined() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":2,\"revision\":1,"
+                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"SUBMITTED\",\"updatedAt\":1,\"snoozedUntil\":0},"
+                        + "\"states\":{},\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("v2 state 非空、states 为空仍必须拒绝").hasSize(1);
+        assertThat(Files.exists(stateFile())).as("歧义文件必须被移走").isFalse();
+        assertThat(store.snapshot().states()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("直接构造 LayoutFeedbackStateDocument：v1 + states 非 null 抛异常，v2 + state 非 null 抛异常")
+    void documentMutualExclusionRejected() {
+        LayoutFeedbackStateEntry entry = new LayoutFeedbackStateEntry(
+                SURVEY_ID, LayoutFeedbackDecision.SUBMITTED, 1L, 0L);
+        // v1 + states 非 null（含空 map）→ 拒绝。
+        assertThatThrownBy(() -> new LayoutFeedbackStateDocument(1, 0L, null, Map.of(), Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LayoutFeedbackStateDocument(1, 0L, entry, Map.of(), Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        // v2 + state 非 null → 拒绝。
+        assertThatThrownBy(() -> new LayoutFeedbackStateDocument(2, 0L, entry, Map.of(), Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        // v1 正常形态：state 可空，states 必须 null。
+        assertThat(new LayoutFeedbackStateDocument(1, 0L, null, null, Map.of()).states()).isEmpty();
+        assertThat(new LayoutFeedbackStateDocument(1, 0L, entry, null, Map.of()).states())
+                .containsEntry(SURVEY_ID, entry);
+        // v2 正常形态：state 必须 null。
+        assertThat(new LayoutFeedbackStateDocument(2, 0L, null, Map.of(SURVEY_ID, entry), Map.of())
+                .states()).containsEntry(SURVEY_ID, entry);
+    }
+
+    @Test
     @DisplayName("文件不存在 → 空状态、revision=0、store 可用")
     void missingFileYieldsEmptyUsableStore() {
         LayoutFeedbackStateStore store = store();
