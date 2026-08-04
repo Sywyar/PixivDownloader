@@ -493,6 +493,129 @@ class LayoutFeedbackStateStoreTest {
         assertThat(second.snapshot().revision()).isEqualTo(2);
     }
 
+    /* ============================================================
+       服务端墙钟回拨防御
+    ============================================================ */
+
+    @Test
+    @DisplayName("重复 snooze，第二次 now 比第一次早 1 小时：snoozedUntil 不缩短、updatedAt 不倒退、不抛异常")
+    void repeatedSnoozeWithRollbackDoesNotShorten() throws IOException {
+        LayoutFeedbackStateStore store = store();
+        LayoutFeedbackStateStore.ApplyResult first = store.apply(snooze(0), NOW);
+
+        LayoutFeedbackStateStore.ApplyResult second = store.apply(snooze(1), NOW - 60 * 60 * 1000);
+
+        assertThat(second.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
+        assertThat(second.snapshot().state().snoozedUntil())
+                .as("墙钟回拨不得缩短已有 snooze")
+                .isEqualTo(NOW + LayoutFeedbackStateStore.SNOOZE_MILLIS);
+        assertThat(second.snapshot().state().updatedAt())
+                .as("updatedAt 不得倒退")
+                .isEqualTo(NOW);
+        assertThat(second.snapshot().revision()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("重复 snooze，回拨后 proposedUntil 仍小于旧值：no-op、revision 不变、文件字节不变")
+    void repeatedSnoozeRollbackIsNoOpAndDoesNotRewrite() throws IOException {
+        LayoutFeedbackStateStore store = store();
+        store.apply(snooze(0), NOW);
+        String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
+        long revisionBefore = store.snapshot().revision();
+
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(snooze(1), NOW - 60 * 60 * 1000);
+
+        assertThat(result.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
+        assertThat(store.snapshot().revision()).as("no-op 保持 revision").isEqualTo(revisionBefore);
+        String after = Files.readString(stateFile(), StandardCharsets.UTF_8);
+        assertThat(after).as("no-op 不重写状态文件").isEqualTo(before);
+        assertThat(corruptFiles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("never → submitted，now 小于 old.updatedAt：submitted 生效且 updatedAt 不倒退")
+    void upgradeKeepsUpdatedAtMonotonicUnderRollback() throws IOException {
+        LayoutFeedbackStateStore store = store();
+        store.apply(never(0), NOW);
+
+        LayoutFeedbackStateStore.ApplyResult result =
+                store.apply(submitted(1), NOW - 60 * 60 * 1000);
+
+        assertThat(result.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(result.snapshot().state().updatedAt())
+                .as("升级后 updatedAt 保持旧值或更大")
+                .isEqualTo(NOW);
+        assertThat(result.snapshot().revision()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("record_seen：旧 first=100 / last=200，新 now=50：first/last 保持、no-op、revision 不变")
+    void recordSeenDoesNotMoveBackwards() throws IOException {
+        LayoutFeedbackStateStore store = store();
+        store.apply(recordSeen(0, "pixiv-batch-landscape"), 100);
+        store.apply(recordSeen(1, "pixiv-batch-landscape"), 200);
+        String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(recordSeen(2, "pixiv-batch-landscape"), 50);
+
+        LayoutFeedbackSeenEntry entry = result.snapshot().seen().get("pixiv-batch-landscape");
+        assertThat(entry.firstSeenAt()).isEqualTo(100);
+        assertThat(entry.lastSeenAt()).as("墙钟回拨后 lastSeenAt 不得倒退").isEqualTo(200);
+        assertThat(result.snapshot().revision()).isEqualTo(2);
+        assertThat(Files.readString(stateFile(), StandardCharsets.UTF_8))
+                .as("no-op 不重写状态文件")
+                .isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("record_seen：旧 last=200，新 now=300：lastSeenAt 前进且 revision +1")
+    void recordSeenAdvancesLastSeenAt() throws IOException {
+        LayoutFeedbackStateStore store = store();
+        store.apply(recordSeen(0, "pixiv-batch-landscape"), 100);
+        store.apply(recordSeen(1, "pixiv-batch-landscape"), 200);
+
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(recordSeen(2, "pixiv-batch-landscape"), 300);
+
+        LayoutFeedbackSeenEntry entry = result.snapshot().seen().get("pixiv-batch-landscape");
+        assertThat(entry.firstSeenAt()).isEqualTo(100);
+        assertThat(entry.lastSeenAt()).isEqualTo(300);
+        assertThat(result.snapshot().revision()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("now 为负数：新 entry / 新状态使用 0，不生成非法时间")
+    void negativeNowClampedToZero() throws IOException {
+        LayoutFeedbackStateStore store = store();
+
+        LayoutFeedbackStateStore.ApplyResult seen = store.apply(recordSeen(0, "pixiv-batch-landscape"), -500);
+
+        LayoutFeedbackSeenEntry entry = seen.snapshot().seen().get("pixiv-batch-landscape");
+        assertThat(entry.firstSeenAt()).isZero();
+        assertThat(entry.lastSeenAt()).isZero();
+        assertThat(entry.lastSeenAt()).as("lastSeenAt 不得小于 firstSeenAt")
+                .isGreaterThanOrEqualTo(entry.firstSeenAt());
+
+        LayoutFeedbackStateStore.ApplyResult state = store.apply(snooze(1), -500);
+        assertThat(state.snapshot().state().updatedAt()).isZero();
+        assertThat(state.snapshot().state().snoozedUntil())
+                .isEqualTo(LayoutFeedbackStateStore.SNOOZE_MILLIS);
+    }
+
+    @Test
+    @DisplayName("saturatingAdd 语义：near Long.MAX_VALUE 不溢出为负数")
+    void saturatingAddNearMaxValueDoesNotOverflow() throws IOException {
+        long nearMax = Long.MAX_VALUE - 1000;
+        LayoutFeedbackStateStore store = store();
+
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(snooze(0), nearMax);
+
+        assertThat(result.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
+        assertThat(result.snapshot().state().updatedAt()).isEqualTo(nearMax);
+        assertThat(result.snapshot().state().snoozedUntil())
+                .as("接近 Long.MAX_VALUE 时饱和为 Long.MAX_VALUE，不得溢出为负数")
+                .isEqualTo(Long.MAX_VALUE);
+    }
+
     @Test
     @DisplayName("新 Survey ID 不受旧 Survey submitted/never 阻挡，seen 保留")
     void newSurveyIdNotBlockedByOldSurveyState() throws IOException {

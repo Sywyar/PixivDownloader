@@ -193,6 +193,27 @@ public final class LayoutFeedbackStateStore {
     }
 
     /* ------------------------------------------------------------
+       时间安全函数（服务端墙钟可能回拨 / 时钟源可能返回负值）
+    ------------------------------------------------------------ */
+
+    /** 负时间防御：墙钟回拨前 / 时钟源异常时返回 0。 */
+    private static long nonNegativeNow(long now) {
+        return Math.max(0L, now);
+    }
+
+    /**
+     * 饱和加法：溢出时返回 {@link Long#MAX_VALUE}，结果不允许为负数。
+     * 防止 snooze 时间加法在接近上限时溢出为负。
+     */
+    private static long saturatingAdd(long base, long delta) {
+        if (base > 0 && delta > 0 && delta > Long.MAX_VALUE - base) {
+            return Long.MAX_VALUE;
+        }
+        long result = base + delta;
+        return result < 0 ? 0L : result;
+    }
+
+    /* ------------------------------------------------------------
        状态转移（单调）
     ------------------------------------------------------------ */
 
@@ -215,10 +236,21 @@ public final class LayoutFeedbackStateStore {
     /**
      * 单调决策转移：submitted &gt; never &gt; snoozed &gt; null。
      * 返回与旧快照相同对象表示 no-op（revision 不变）。
+     *
+     * <p>服务端墙钟回拨防御：
+     * - 同一 Survey 已有 SNOOZED 时，safeNow = max(nonNegativeNow(now), old.updatedAt)，
+     *   proposedUntil = saturatingAdd(nonNegativeNow(now), SNOOZE_MILLIS)，
+     *   nextUntil = max(old.snoozedUntil(), proposedUntil)，重复 snooze 绝不缩短已有
+     *   snooze；nextUntil / nextUpdatedAt 都与旧值相同则 no-op（revision 不变、不落盘）；
+     * - 状态升级（snoozed → never / submitted，never → submitted）的新 updatedAt =
+     *   max(old.updatedAt(), nonNegativeNow(now))，不得倒退；
+     * - 新 Survey ID 使用 nonNegativeNow(now)；
+     * - submitted / never 重复操作仍是幂等 no-op。
      */
     private static LayoutFeedbackStateSnapshot applyDecision(
             LayoutFeedbackStateSnapshot snapshot, String surveyId,
             LayoutFeedbackDecision incoming, long now) {
+        long safeNow = nonNegativeNow(now);
         LayoutFeedbackStateEntry oldState = snapshot.state();
         if (oldState != null && !oldState.surveyId().equals(surveyId)) {
             // 新 Survey ID：新状态命令直接替换旧 Survey state，seen 保留。
@@ -233,38 +265,57 @@ public final class LayoutFeedbackStateStore {
             }
             if (incomingRank == currentRank) {
                 if (incoming == LayoutFeedbackDecision.SNOOZED) {
-                    // 重复 snooze：使用新的服务端时间（now 单调递增，结果不会更早）。
+                    // 重复 snooze：以 max(now, old.updatedAt) 为安全基准，proposedUntil
+                    // 使用饱和加法；nextUntil 取 max(旧值, proposedUntil)，绝不缩短；
+                    // 两者都无变化时 no-op（revision 不变、不落盘）。
+                    long safeBase = Math.max(safeNow, oldState.updatedAt());
+                    long proposedUntil = saturatingAdd(safeNow, SNOOZE_MILLIS);
+                    long nextUntil = Math.max(oldState.snoozedUntil(), proposedUntil);
+                    long nextUpdatedAt = Math.max(oldState.updatedAt(), safeNow);
+                    if (nextUntil == oldState.snoozedUntil() && nextUpdatedAt == oldState.updatedAt()) {
+                        return snapshot;
+                    }
                     return replaceState(snapshot, new LayoutFeedbackStateEntry(
-                            surveyId, incoming, now, now + SNOOZE_MILLIS));
+                            surveyId, incoming, nextUpdatedAt, nextUntil));
                 }
                 // 重复 submitted / never：幂等 no-op。
                 return snapshot;
             }
+            // 状态升级：updatedAt 不得倒退。
+            safeNow = Math.max(safeNow, oldState.updatedAt());
         }
         long snoozedUntil = incoming == LayoutFeedbackDecision.SNOOZED
-                ? now + SNOOZE_MILLIS
+                ? saturatingAdd(safeNow, SNOOZE_MILLIS)
                 : 0L;
         return replaceState(snapshot, new LayoutFeedbackStateEntry(
-                surveyId, incoming, now, snoozedUntil));
+                surveyId, incoming, safeNow, snoozedUntil));
     }
 
     /**
-     * record_seen：永不修改 state；firstSeenAt 旧值存在时保持旧值，lastSeenAt 为当前
-     * 服务端时间。返回与旧快照相同对象表示无变化。
+     * record_seen：永不修改 state；firstSeenAt 旧值存在时保持旧值，lastSeenAt =
+     * max(旧值, nonNegativeNow(now))——服务端墙钟回拨时 lastSeenAt 绝不倒退；
+     * 无变化时 no-op（revision 不变、不落盘）。返回与旧快照相同对象表示无变化。
      */
     private static LayoutFeedbackStateSnapshot mergeSeen(
             LayoutFeedbackStateSnapshot snapshot, List<String> layoutIds, long now) {
         boolean changed = false;
+        long safeNow = nonNegativeNow(now);
         Map<String, LayoutFeedbackSeenEntry> seen = new LinkedHashMap<>(snapshot.seen());
         for (String layoutId : layoutIds) {
             LayoutFeedbackSeenEntry old = seen.get(layoutId);
-            LayoutFeedbackSeenEntry merged = old == null
-                    ? new LayoutFeedbackSeenEntry(now, now)
-                    : new LayoutFeedbackSeenEntry(old.firstSeenAt(), now);
-            if (!merged.equals(old)) {
-                seen.put(layoutId, merged);
-                changed = true;
+            LayoutFeedbackSeenEntry merged;
+            if (old == null) {
+                // 新 entry：firstSeenAt = lastSeenAt = safeNow，绝不构造 lastSeenAt < firstSeenAt。
+                merged = new LayoutFeedbackSeenEntry(safeNow, safeNow);
+            } else {
+                long nextLastSeenAt = Math.max(old.lastSeenAt(), safeNow);
+                if (nextLastSeenAt == old.lastSeenAt()) {
+                    continue;
+                }
+                merged = new LayoutFeedbackSeenEntry(old.firstSeenAt(), nextLastSeenAt);
             }
+            seen.put(layoutId, merged);
+            changed = true;
         }
         if (!changed) {
             return snapshot;

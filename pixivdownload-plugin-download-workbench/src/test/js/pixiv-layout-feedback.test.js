@@ -348,15 +348,27 @@ class MiniCustomEvent {
     stopPropagation() {}
 }
 
-function createFakeTimers() {
-    let now = 1000000;
+function createFakeTimers(initialWall) {
+    // 客户端墙钟（Date.now() 风格）与客户端单调钟（performance.now() 风格）独立：
+    // 测试可用 setWallNow 模拟用户改系统时间导致墙钟突然前跳 / 后跳，单调钟不受影响
+    //（advance 同时推进两个时钟；RTT / 请求中点估算只使用单调钟）。
+    let wall = initialWall === undefined ? 1000000 : initialWall;
+    let mono = 100;
     let nextId = 1;
     const queue = [];
     return {
-        now: () => now,
+        now: () => wall,
+        wallNow: () => wall,
+        monotonicNow: () => mono,
+        setWallNow(value) {
+            wall = value;
+        },
+        setMonotonicNow(value) {
+            mono = value;
+        },
         setTimeout(fn, ms) {
             const id = nextId++;
-            queue.push({id, at: now + Math.max(0, Number(ms) || 0), fn});
+            queue.push({id, at: wall + Math.max(0, Number(ms) || 0), fn});
             return id;
         },
         clearTimeout(id) {
@@ -364,20 +376,23 @@ function createFakeTimers() {
             if (index >= 0) queue.splice(index, 1);
         },
         advance(ms) {
-            const target = now + ms;
+            const target = wall + ms;
             let guard = 0;
-            // 按到期顺序逐个触发，触发前把 now 推进到该定时器的到期时刻，
-            // 使回调内新注册的定时器按真实语义（当前时间 + 延迟）计算到期点。
+            // 按到期顺序逐个触发，触发前把墙钟推进到该定时器的到期时刻（单调钟同步
+            // 推进同样时长），使回调内新注册的定时器按真实语义（当前时间 + 延迟）
+            // 计算到期点。
             while (true) {
                 const next = queue.filter(t => t.at <= target).sort((a, b) => a.at - b.at)[0];
                 if (!next) break;
                 const index = queue.indexOf(next);
                 queue.splice(index, 1);
-                now = next.at;
+                mono += next.at - wall;
+                wall = next.at;
                 next.fn();
                 if (++guard > 1000) throw new Error('fake timer runaway');
             }
-            now = target;
+            mono += target - wall;
+            wall = target;
         },
         pending() {
             return queue.slice();
@@ -603,7 +618,7 @@ function createHarness(options) {
     storage.throwOnRemove = !!options.throwOnRemove;
 
     const windowEvents = new MiniEventTarget();
-    const timers = createFakeTimers();
+    const timers = createFakeTimers(options.initialWall);
     const fetchCalls = [];
     const toastCalls = [];
     const consoleWarn = [];
@@ -3879,7 +3894,8 @@ function testServerSubmittedWinsOverLocalSnoozed() {
         eq('本地 snoozed 不回放降级命令', downgrades.length, 0);
         const localState = JSON.parse(h.storage.getItem(STATE_KEY));
         eq('localStorage 覆盖为服务端 submitted', localState.status, 'submitted');
-        eq('localStorage 使用服务端时间戳', localState.updatedAt, 500);
+        eq('localStorage 使用客户端时钟域时间戳（不复制服务端 updatedAt）',
+            localState.updatedAt, 1000000);
         eq('effectiveState 为 submitted', h.api._internals.effectiveState().status, 'submitted');
     });
 }
@@ -4401,8 +4417,10 @@ function testSnoozeStrength() {
             eq('localStorage 覆盖为服务端 7 天', JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, serverUntil);
         });
     }).then(() => {
-        // 409 返回服务端已保存的更短 snooze：命令按状态确认（不得比较跨时钟
-        // 绝对 snoozedUntil），采用服务端权威时间，不重试。
+        // 409 返回服务端已保存的更短 snooze：命令未确认（snooze-too-short），
+        // pending / localStorage fallback 保留，基于 409 返回的新 revision 重试一次；
+        // 第二次 200 由服务端生成新的 7 天 snooze 后确认，localStorage 采用服务端
+        // 权威剩余时间的客户端时钟域转换。
         // 不设置 batchLayout：避免 init 的 record_seen 去抖 flush 以空 state 覆盖
         // 已确认的 snooze（真实服务端 record_seen 不触碰 state）。
         const localUntil = 1000000 + 7 * DAY;
@@ -4414,11 +4432,21 @@ function testSnoozeStrength() {
             serverPostResponse: ({body}) => {
                 if (body.command !== 'snooze') return undefined;
                 count++;
+                if (count === 1) {
+                    return {
+                        status: 409,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 1,
+                            state: surveyState('snoozed', serverUntil, 1),
+                            seen: {}
+                        }))
+                    };
+                }
                 return {
-                    status: 409,
+                    ok: true,
                     json: () => Promise.resolve(serverStateResponse({
-                        revision: 1,
-                        state: surveyState('snoozed', serverUntil, 1),
+                        revision: 2,
+                        state: surveyState('snoozed', localUntil, 1),
                         seen: {}
                     }))
                 };
@@ -4428,11 +4456,11 @@ function testSnoozeStrength() {
             h.timers.advance(4000);
             return waitForFlush();
         }).then(() => {
-            eq('409 只尝试一次（服务端已 snoozed 即确认，不重试）', count, 1);
-            eq('localStorage 采用服务端权威时间（更短 snooze 由服务端权威覆盖）',
-                JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, serverUntil);
-            eq('effectiveState 为服务端权威时间',
-                h.api._internals.effectiveState().snoozedUntil, serverUntil);
+            eq('409 较短 snooze 重试一次（共两次）', count, 2);
+            eq('effectiveState 为服务端权威时间（第二次 200 的 7 天）',
+                h.api._internals.effectiveState().snoozedUntil, localUntil);
+            eq('localStorage 采用服务端权威剩余时间（客户端时钟域 7 天）',
+                JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, localUntil);
             h.timers.advance(11000);
             return waitForFlush();
         }).then(() => {
@@ -4595,7 +4623,8 @@ function testGetReconciliationTimeoutSeparation() {
         return promise.then(() => waitForFlush());
     }).then(() => {
         eq('3.5 秒 POST 成功后才结束', settled, true);
-        eq('确认后 localStorage 为服务端快照', JSON.parse(h.storage.getItem(STATE_KEY)).updatedAt, 200);
+        eq('确认后 localStorage 为服务端 submitted（同业务状态保留本地 updatedAt，不复制服务端时间戳）',
+            JSON.parse(h.storage.getItem(STATE_KEY)).updatedAt, 100);
         // 手动 open 的弹窗在 reconciliation 完成后正常打开（skipStateGate 不受
         // 服务端 submitted 门禁影响；自动流程门禁由其它测试覆盖）。
         eq('手动 open 流程正常完成', h.document.querySelectorAll('.plf-backdrop').length, 1);
@@ -5811,7 +5840,8 @@ function testClockSkewSnoozeConfirmation() {
     };
     return Promise.resolve().then(() => {
         // A. 客户端快 10 分钟：snooze 命令确认成功、pending 清理、
-        //    localStorage 使用服务端 snoozedUntil、不重复 reconciliation、无保存失败。
+        //    localStorage 使用客户端时钟域（clientNow + 服务端剩余时长，绝不等同
+        //    raw server snoozedUntil）、不重复 reconciliation、无保存失败。
         const serverTime = 1000000 - 10 * MIN;
         const h = serverSnoozeHarness(serverTime);
         return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
@@ -5822,7 +5852,10 @@ function testClockSkewSnoozeConfirmation() {
             eq('snooze 命令发送一次', posts.length, 1);
             eq('offset 为 -10 分钟（客户端快）', h.api._internals.serverClockOffsetMs(), -10 * MIN);
             const localState = JSON.parse(h.storage.getItem(STATE_KEY));
-            eq('localStorage 使用服务端 snoozedUntil', localState.snoozedUntil, serverTime + SNOOZE_MS);
+            eq('localStorage 使用客户端时钟域（clientNow + 服务端剩余时长）',
+                localState.snoozedUntil, 1000000 + SNOOZE_MS);
+            ok('localStorage 不等同 raw server snoozedUntil',
+                localState.snoozedUntil !== serverTime + SNOOZE_MS);
             ok('无保存失败 warning', !h.consoleWarn.some(args =>
                 JSON.stringify(args).indexOf('server state save failed') >= 0));
             ok('pending 已清理（effectiveState 为服务端权威）',
@@ -5834,7 +5867,8 @@ function testClockSkewSnoozeConfirmation() {
                 h.serverPosts.filter(p => p.body.command === 'snooze').length, 1);
         });
     }).then(() => {
-        // B. 客户端慢 10 分钟：同样确认成功并使用服务端权威时间。
+        // B. 客户端慢 10 分钟：同样确认成功；localStorage 仍为客户端时钟域，
+        //    不额外延长（服务端剩余时长与 A 相同）。
         const serverTime = 1000000 + 10 * MIN;
         const h = serverSnoozeHarness(serverTime);
         return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
@@ -5844,7 +5878,10 @@ function testClockSkewSnoozeConfirmation() {
             eq('snooze 命令发送一次', h.serverPosts.filter(p => p.body.command === 'snooze').length, 1);
             eq('offset 为 +10 分钟（客户端慢）', h.api._internals.serverClockOffsetMs(), 10 * MIN);
             const localState = JSON.parse(h.storage.getItem(STATE_KEY));
-            eq('localStorage 使用服务端 snoozedUntil', localState.snoozedUntil, serverTime + SNOOZE_MS);
+            eq('localStorage 使用客户端时钟域（不额外延长）',
+                localState.snoozedUntil, 1000000 + SNOOZE_MS);
+            ok('localStorage 不等同 raw server snoozedUntil',
+                localState.snoozedUntil !== serverTime + SNOOZE_MS);
             ok('无保存失败 warning', !h.consoleWarn.some(args =>
                 JSON.stringify(args).indexOf('server state save failed') >= 0));
             eq('snooze 命令不重复', h.serverPosts.filter(p => p.body.command === 'snooze').length, 1);
@@ -6022,6 +6059,374 @@ function testSeenCrossClockSemantics() {
 }
 
 /* ============================================================
+   409 snooze 确认语义 / localStorage 时钟域 / 墙钟跳变
+   ============================================================ */
+
+function test409SnoozeAcknowledgementMatrix() {
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    return Promise.resolve().then(() => {
+        // A. 409 较短 snooze：本地请求约 7 天，服务器 409 snooze 只剩 1 小时。
+        //    第一次不 acknowledged；pending 保留；localStorage 保留本地较长 fallback；
+        //    使用 409 返回的新 revision 重试一次；第二次 200 后 acknowledged；
+        //    pending 清理；localStorage 采用服务端权威剩余时间；总共两次 snooze POST。
+        let count = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()}),
+            serverPostResponse: ({body}) => {
+                if (body.command !== 'snooze') return undefined;
+                count++;
+                if (count === 1) {
+                    return {
+                        status: 409,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 1,
+                            state: surveyState('snoozed', 1000000 + HOUR, 1000000),
+                            seen: seenObject()
+                        }))
+                    };
+                }
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 2,
+                        state: surveyState('snoozed', 1000000 + 7 * DAY, 1000000),
+                        seen: seenObject()
+                    }))
+                };
+            }
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            const posts = h.serverPosts.filter(p => p.body.command === 'snooze');
+            eq('409 较短 snooze 重试一次（共两次 POST）', posts.length, 2);
+            eq('第二次请求携带 409 返回的新 revision', posts[1].body.expectedRevision, 1);
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('最终 localStorage 采用服务端权威剩余时间（客户端时钟域 7 天）',
+                localState.snoozedUntil, 1000000 + 7 * DAY);
+            ok('localStorage 不残留原始服务端 1 小时 snooze', localState.snoozedUntil !== 1000000 + HOUR);
+            ok('pending 已清理（effectiveState 为服务端权威 7 天）',
+                h.api._internals.effectiveState().snoozedUntil === 1000000 + 7 * DAY);
+        });
+    }).then(() => {
+        // B. 409 足够长 snooze：服务器剩余时长在容差内不短于请求剩余时长 →
+        //    acknowledged、不重试、一次 POST、pending 清理，使用服务器权威状态。
+        let count = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()}),
+            serverPostResponse: ({body}) => {
+                if (body.command !== 'snooze') return undefined;
+                count++;
+                return {
+                    status: 409,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 1,
+                        state: surveyState('snoozed', 1000000 + 7 * DAY - 2000, 1000000),
+                        seen: seenObject()
+                    }))
+                };
+            }
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            eq('409 足够长 snooze 不重试（一次 POST）', count, 1);
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('确认后采用服务端权威剩余时间（客户端时钟域）',
+                localState.snoozedUntil, 1000000 + 7 * DAY - 2000);
+            ok('pending 已清理（effectiveState 为服务端权威）',
+                h.api._internals.effectiveState().snoozedUntil === 1000000 + 7 * DAY - 2000);
+        });
+    }).then(() => {
+        // C. 409 submitted / never：更强终态胜出，acknowledged、不重试。
+        return ['submitted', 'never'].reduce((chain, status) => chain.then(() => {
+            let count = 0;
+            const h = initHarness({
+                batchLayout: 'landscape',
+                serverState: serverStateResponse({seen: seenObject()}),
+                serverPostResponse: ({body}) => {
+                    if (body.command !== 'snooze') return undefined;
+                    count++;
+                    return {
+                        status: 409,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 1,
+                            state: surveyState(status, 0, 1000000),
+                            seen: seenObject()
+                        }))
+                    };
+                }
+            });
+            return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+                h.actionButton('snooze').click();
+                return waitForFlush();
+            }).then(() => {
+                eq('409 ' + status + ' 更强终态：一次 POST 不重试', count, 1);
+                eq('effectiveState 为 ' + status, h.api._internals.effectiveState().status, status);
+            });
+        }), Promise.resolve());
+    }).then(() => {
+        // D. 409 空状态：重试一次，第二次 200 后确认。
+        let count = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()}),
+            serverPostResponse: ({body}) => {
+                if (body.command !== 'snooze') return undefined;
+                count++;
+                if (count === 1) {
+                    return {
+                        status: 409,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 1, state: null, seen: seenObject()
+                        }))
+                    };
+                }
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 2,
+                        state: surveyState('snoozed', 1000000 + 7 * DAY, 1000000),
+                        seen: seenObject()
+                    }))
+                };
+            }
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            eq('409 空状态重试一次（共两次 POST）', count, 2);
+            eq('localStorage 采用服务端权威 7 天',
+                JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, 1000000 + 7 * DAY);
+        });
+    }).then(() => {
+        // E. 第二次 retry 网络失败：pending 保留、localStorage 保留、不无限重试。
+        let count = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()}),
+            serverPostResponse: ({body}) => {
+                if (body.command !== 'snooze') return undefined;
+                count++;
+                if (count === 1) {
+                    return {
+                        status: 409,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 1,
+                            state: surveyState('snoozed', 1000000 + HOUR, 1000000),
+                            seen: seenObject()
+                        }))
+                    };
+                }
+                return Promise.reject(new Error('network down'));
+            }
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            eq('第二次 retry 网络失败：总共两次 POST 不无限重试', count, 2);
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('localStorage 保留本地较长 fallback（客户端时钟域 7 天）',
+                localState.snoozedUntil, 1000000 + 7 * DAY);
+            eq('pending 保留（effectiveState 仍为本地 7 天）',
+                h.api._internals.effectiveState().snoozedUntil, 1000000 + 7 * DAY);
+        });
+    });
+}
+
+function testLocalStorageClockDomain() {
+    // T0：足够大的墙钟基准，保证「客户端快 30 分钟」时 serverTime 仍为非负合法值。
+    const T0 = 1000000000;
+    const MIN = 60 * 1000;
+    return Promise.resolve().then(() => {
+        // A. 客户端快 30 分钟，服务器 snooze 还剩 20 分钟：
+        //    当前页面同步后 localStorage.snoozedUntil = clientNow + 20 分钟，
+        //    不等于 raw server snoozedUntil；destroy + re-init 且服务器 GET 不可用后，
+        //    本地 fallback 仍剩约 20 分钟，调查不提前展示、不额外延长。
+        let getCalls = 0;
+        const serverFetch = () => {
+            getCalls++;
+            if (getCalls === 1) {
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        serverTime: T0 - 30 * MIN,
+                        revision: 0,
+                        state: surveyState('snoozed', T0 - 30 * MIN + 20 * MIN, T0 - 30 * MIN),
+                        seen: seenObject()
+                    }))
+                };
+            }
+            return Promise.reject(new Error('server unavailable'));
+        };
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: T0,
+            serverFetch
+        });
+        return waitForServerContext(h).then(() => {
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('localStorage 使用客户端时钟域（clientNow + 20 分钟）',
+                localState.snoozedUntil, T0 + 20 * MIN);
+            ok('localStorage 不等于 raw server snoozedUntil',
+                localState.snoozedUntil !== T0 - 30 * MIN + 20 * MIN);
+            eq('serverState 仍保留服务端时钟域',
+                h.api._internals.effectiveState().snoozedUntil, T0 - 30 * MIN + 20 * MIN);
+            // destroy + 刷新：下一次 server GET 不可用 → localStorage fallback。
+            h.api.destroy();
+            h.api.init(reinitOptions(h, null));
+            return waitForFlush();
+        }).then(() => {
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            eq('服务器不可用时不提前展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('fallback 仍剩约 20 分钟（不额外延长）', localState.snoozedUntil, T0 + 20 * MIN);
+            const record = h.api._internals.effectiveStateRecord();
+            eq('重载后 fallback 为客户端时钟域状态', record.state.snoozedUntil, T0 + 20 * MIN);
+        });
+    }).then(() => {
+        // B. 客户端慢 30 分钟：同样 localStorage 使用客户端时钟域，不额外延长。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: T0,
+            serverState: serverStateResponse({
+                serverTime: T0 + 30 * MIN,
+                revision: 0,
+                state: surveyState('snoozed', T0 + 30 * MIN + 20 * MIN, T0 + 30 * MIN),
+                seen: seenObject()
+            })
+        });
+        return waitForServerContext(h).then(() => {
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('客户端慢 30 分钟：localStorage 仍为 clientNow + 20 分钟（不额外延长）',
+                localState.snoozedUntil, T0 + 20 * MIN);
+            ok('localStorage 不等于 raw server snoozedUntil（慢钟数值更大）',
+                localState.snoozedUntil !== T0 + 30 * MIN + 20 * MIN);
+        });
+    }).then(() => {
+        // C. server snooze 已过期：同步本地缓存时不写有效 snooze，允许清理状态。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: T0,
+            serverState: serverStateResponse({
+                serverTime: T0 - 30 * MIN,
+                revision: 0,
+                state: surveyState('snoozed', T0 - 30 * MIN - 5 * MIN, T0 - 30 * MIN),
+                seen: seenObject()
+            })
+        });
+        return waitForServerContext(h).then(() => {
+            eq('过期 server snooze 不写有效本地缓存（允许清理）',
+                h.storage.getItem(STATE_KEY), null);
+        });
+    }).then(() => {
+        // D. submitted / never 不受时钟转换影响；重载且服务器不可用后仍阻断。
+        return ['submitted', 'never'].reduce((chain, status) => chain.then(() => {
+            let getCalls = 0;
+            const serverFetch = () => {
+                getCalls++;
+                if (getCalls === 1) {
+                    return {
+                        ok: true,
+                        json: () => Promise.resolve(serverStateResponse({
+                            serverTime: T0 - 30 * MIN,
+                            revision: 0,
+                            state: surveyState(status, 0, T0 - 30 * MIN),
+                            seen: seenObject()
+                        }))
+                    };
+                }
+                return Promise.reject(new Error('server unavailable'));
+            };
+            const h = initHarness({
+                batchLayout: 'landscape',
+                initialWall: T0,
+                serverFetch
+            });
+            return waitForServerContext(h).then(() => {
+                const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+                eq(status + ' 本地缓存状态保持', localState.status, status);
+                h.api.destroy();
+                h.api.init(reinitOptions(h, null));
+                return waitForFlush();
+            }).then(() => {
+                h.timers.advance(11000);
+                return waitForFlush();
+            }).then(() => {
+                eq(status + ' 重载且服务器不可用时仍阻断',
+                    h.document.querySelectorAll('.plf-backdrop').length, 0);
+            });
+        }), Promise.resolve());
+    });
+}
+
+function testWallClockJumpDuringRequest() {
+    // 请求发出时 wall=1000000 / mono=100；请求途中墙钟前跳 1 小时、单调钟正常前进到
+    // 200；响应到达：RTT 必须用单调钟 100ms（不得使用 3600000ms），offset 不被污染。
+    let release = null;
+    const h = initHarness({
+        serverFetch: () => new Promise(resolve => {
+            release = () => resolve({
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 1,
+                    serverTime: 1010000,
+                    state: null,
+                    seen: seenObject()
+                }))
+            });
+        })
+    });
+    return waitForFlush().then(() => {
+        eq('请求发出时 wall=1000000', h.timers.now(), 1000000);
+        eq('请求发出时 mono=100', h.timers.monotonicNow(), 100);
+        h.timers.setWallNow(1000000 + 3600 * 1000);
+        h.timers.setMonotonicNow(200);
+        release();
+        return waitForFlush();
+    }).then(() => {
+        // midpoint = wallStartedAt + elapsed/2 = 1000000 + 50 = 1000050。
+        eq('RTT 使用单调钟 100ms（不使用 3600000ms）',
+            h.api._internals.serverClockSampleRttMs(), 100);
+        eq('offset 未被墙钟前跳污染', h.api._internals.serverClockOffsetMs(), 1010000 - 1000050);
+    }).then(() => {
+        // 墙钟向后跳 1 小时：同样只受单调钟影响（wallStartedAt 仍为请求发出时读数）。
+        let release2 = null;
+        const h2 = initHarness({
+            serverFetch: () => new Promise(resolve => {
+                release2 = () => resolve({
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 1,
+                        serverTime: 990000,
+                        state: null,
+                        seen: seenObject()
+                    }))
+                });
+            })
+        });
+        return waitForFlush().then(() => {
+            h2.timers.setWallNow(1000000 - 3600 * 1000);
+            h2.timers.setMonotonicNow(200);
+            release2();
+            return waitForFlush();
+        }).then(() => {
+            eq('墙钟后跳时 RTT 仍为 100ms', h2.api._internals.serverClockSampleRttMs(), 100);
+            eq('offset 未被墙钟后跳污染', h2.api._internals.serverClockOffsetMs(), 990000 - 1000050);
+        });
+    });
+}
+
+/* ============================================================
    入口
 =========================================================== */
 
@@ -6183,6 +6588,9 @@ async function run() {
     await step('testClockSkewSnoozeConfirmation', testClockSkewSnoozeConfirmation);
     await step('testServerSnoozeValidityByServerClock', testServerSnoozeValidityByServerClock);
     await step('testSeenCrossClockSemantics', testSeenCrossClockSemantics);
+    await step('test409SnoozeAcknowledgementMatrix', test409SnoozeAcknowledgementMatrix);
+    await step('testLocalStorageClockDomain', testLocalStorageClockDomain);
+    await step('testWallClockJumpDuringRequest', testWallClockJumpDuringRequest);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 

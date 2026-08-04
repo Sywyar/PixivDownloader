@@ -92,7 +92,9 @@ public class LayoutFeedbackStateController {
         if (!LayoutFeedbackIdentityDeriver.isValidSurveyId(surveyId)) {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
-        return jsonResponse(HttpStatus.OK, buildResponse(store.snapshot(), surveyId, clock.millis()));
+        // 同一个请求只读取一次服务端时钟；时钟源返回负值（墙钟回拨 / 异常）按 0 处理。
+        long serverNow = Math.max(0L, clock.millis());
+        return jsonResponse(HttpStatus.OK, buildResponse(store.snapshot(), surveyId, serverNow));
     }
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -142,8 +144,9 @@ public class LayoutFeedbackStateController {
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
         }
         // 9. Store apply（CAS：APPLIED → 200，CONFLICT → 409，均带当前完整快照）。
-        //    同一个请求只读取一次服务端时钟：Store apply 与响应 serverTime 使用同一个 now。
-        long serverNow = clock.millis();
+        //    同一个请求只读取一次服务端时钟：Store apply 与响应 serverTime 使用同一个
+        //    serverNow；时钟源返回负值（墙钟回拨 / 异常）按 0 处理，Store 不接收负时间。
+        long serverNow = Math.max(0L, clock.millis());
         LayoutFeedbackStateStore.ApplyResult result;
         try {
             result = store.apply(commandRequest, serverNow);
@@ -206,11 +209,14 @@ public class LayoutFeedbackStateController {
      * 缺失 {@code =} 的参数会被静默丢弃而不抛错（例如 {@code application/json; invalid parameter}）。
      * 这里只把引号外的分号视为参数分隔符，引号内的分号属于参数值，反斜杠转义的引号不结束
      * quoted string；每个非空参数段必须包含一个引号外的 {@code =} 且 {@code =} 左侧 key
-     * trim 后非空。媒体类型段（首个分号之前）不属于参数；空参数段（尾分号 / 连续分号）
-     * 按现有约定接受；引号未闭合返回 false。禁止使用正则 / {@code split(";")} 简单切分。
+     * trim 后非空。每个参数段在扫描过程中记录「第一个引号外的等号位置」，段结束时直接用它
+     * 校验 key——绝不在段结束后重新扫描（重扫可能选中引号内的等号，例如
+     * {@code profile="a=b;c=d"}）。媒体类型段（首个分号之前）不属于参数；空参数段（尾分号 /
+     * 连续分号）按现有约定接受；引号未闭合返回 false。禁止使用正则 / {@code split(";")} 简单切分。
      */
     private static boolean areParametersWellFormed(String contentType) {
         int segmentStart = 0;
+        int firstOuterEquals = -1;
         boolean firstSegment = true;
         boolean inQuotes = false;
         boolean escaped = false;
@@ -233,45 +239,42 @@ public class LayoutFeedbackStateController {
                 continue;
             }
             if (c == ';') {
-                if (!firstSegment && !isWellFormedSegment(contentType, segmentStart, i, hasEquals)) {
+                if (!firstSegment && !isWellFormedSegment(
+                        contentType, segmentStart, i, hasEquals, firstOuterEquals)) {
                     return false;
                 }
                 firstSegment = false;
                 segmentStart = i + 1;
                 hasEquals = false;
+                firstOuterEquals = -1;
                 continue;
             }
             if (c == '=' && !hasEquals) {
                 hasEquals = true;
+                firstOuterEquals = i;
             }
         }
         if (inQuotes) {
             return false;
         }
-        return firstSegment || isWellFormedSegment(contentType, segmentStart, length, hasEquals);
+        return firstSegment || isWellFormedSegment(
+                contentType, segmentStart, length, hasEquals, firstOuterEquals);
     }
 
-    /** 单个参数段是否形如 {@code key=value}（key trim 后非空）；空段按现有约定接受。 */
+    /**
+     * 单个参数段是否形如 {@code key=value}（key trim 后非空，以扫描中记录的
+     * 第一个引号外等号为准）；空段按现有约定接受。
+     */
     private static boolean isWellFormedSegment(String contentType, int segmentStart, int segmentEnd,
-                                               boolean hasEquals) {
+                                               boolean hasEquals, int firstOuterEquals) {
         if (contentType.substring(segmentStart, segmentEnd).trim().isEmpty()) {
             // 尾分号 / 连续分号产生的空参数段：与既有约定一致，接受。
             return true;
         }
-        if (!hasEquals) {
+        if (!hasEquals || firstOuterEquals < segmentStart || firstOuterEquals >= segmentEnd) {
             return false;
         }
-        int equals = -1;
-        for (int i = segmentStart; i < segmentEnd; i++) {
-            if (contentType.charAt(i) == '=') {
-                equals = i;
-                break;
-            }
-        }
-        if (equals < 0) {
-            return false;
-        }
-        String key = contentType.substring(segmentStart, equals).trim();
+        String key = contentType.substring(segmentStart, firstOuterEquals).trim();
         return !key.isEmpty();
     }
 

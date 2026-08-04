@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentCaptor.forClass;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -971,17 +972,53 @@ class LayoutFeedbackStateControllerTest {
         assertThat(persisted).contains("\"schemaVersion\":1");
     }
 
+    @Test
+    @DisplayName("Clock 返回负值：GET / POST 200 / POST 409 的 serverTime 均为 0，Store 不接收负时间")
+    void negativeClockClampedToZero() throws Exception {
+        Clock clock = Clock.fixed(Instant.ofEpochMilli(-5000), ZoneOffset.UTC);
+        LayoutFeedbackStateStore store = spy(store());
+        LayoutFeedbackStateController controller = controller(SOLO, store, null, clock);
+        MockMvc mockMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(controller)
+                .build();
+
+        mockMvc.perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").value(0));
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").value(0));
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("never", 0)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.serverTime").value(0));
+
+        org.mockito.ArgumentCaptor<Long> nowCaptor = forClass(Long.class);
+        verify(store, atLeast(2)).apply(any(), nowCaptor.capture());
+        assertThat(nowCaptor.getAllValues())
+                .as("Store 不得接收负时间")
+                .allMatch(value -> value >= 0);
+        String persisted = Files.readString(
+                tempDir.resolve("state/download-workbench/layout-feedback-state.json"),
+                StandardCharsets.UTF_8);
+        assertThat(persisted).as("状态文件不得包含 serverTime").doesNotContain("serverTime");
+    }
+
     /* ============================================================
        Content-Type 引号参数（quoted semicolon scanner）
     ============================================================ */
 
     @Test
-    @DisplayName("接受引号内分号与转义引号参数：profile=\"a;b\" / note=\"a\\\\\\\";b\" 等")
+    @DisplayName("接受引号内分号 / 引号内等号 / 转义引号与多参数：profile=\"a;b\" / profile=\"a=b;c=d\" / note=\"a\\\\\";b\" 等")
     void acceptsQuotedSemicolonContentTypes() throws Exception {
         List<String> accepted = List.of(
                 "application/json; profile=\"a;b\"",
                 "application/json; profile=\"a;b\"; charset=UTF-8",
-                "application/problem+json; profile=\"https://example.invalid/a;b\"",
+                "application/json; profile=\"a=b;c=d\"; charset=UTF-8",
+                "application/problem+json; profile=\"https://example.invalid/a;b?x=y\"",
                 "application/json; note=\"a\\\";b\"");
         for (int i = 0; i < accepted.size(); i++) {
             Path dir = tempDir.resolve("quoted-accept-" + i);
@@ -1007,7 +1044,8 @@ class LayoutFeedbackStateControllerTest {
                 "application/json; invalid parameter",
                 "application/json; profile=\"a;b\"; broken",
                 "application/json; profile=\"a;b\"; =x",
-                "application/json; =value");
+                "application/json; =value",
+                "application/json; profile=\"unterminated");
         for (String contentType : rejected) {
             final int[] reads = {0};
             MockHttpServletRequest request = new MockHttpServletRequest("POST", ENDPOINT) {
