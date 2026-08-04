@@ -166,15 +166,15 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("Java 枚举小写 wire value 与前端状态校验字面量两端一致（无各自硬编码假协议）")
+    @DisplayName("Java 枚举小写 wire value 与前端视图校验字面量两端一致（无各自硬编码假协议）")
     void javaWireValuesMatchFrontendLiterals() throws IOException {
         String js = read(SURVEY_JS);
-        // 前端 applyServerSnapshot 只接受小写状态字面量；每个 Java wire value 必须真实出现。
+        // 前端 applyServerView 只接受小写状态字面量；每个 Java wire value 必须真实出现。
         for (top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision decision :
                 top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision.values()) {
             String wire = decision.wireName();
             assertThat(js).as("前端必须接受 Java 小写 wire value: " + wire)
-                    .contains("data.state.status !== '" + wire + "'")
+                    .contains("data.status !== '" + wire + "'")
                     .contains("state.status === '" + wire + "'");
         }
         // 前端不得为兼容服务端而硬编码大写枚举名（大写只允许出现在 Java 旧值兼容入口）。

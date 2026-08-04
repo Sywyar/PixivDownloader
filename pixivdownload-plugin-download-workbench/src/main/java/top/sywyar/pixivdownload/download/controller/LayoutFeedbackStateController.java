@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.download.LayoutFeedbackIdentityDeriver;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 import top.sywyar.pixivdownload.download.response.LayoutFeedbackStateResponse;
+import top.sywyar.pixivdownload.download.state.LayoutFeedbackDecisionView;
+import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateEntry;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateSnapshot;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -28,26 +30,30 @@ import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
  * 布局偏好调查的服务端状态端点：{@code GET /api/layout-feedback/state?surveyId=...} 返回
- * 调查作用域匿名身份与去重状态，{@code POST /api/layout-feedback/state} 接收动作式命令并
- * 经 revision / CAS 持久化到 {@code state/download-workbench/layout-feedback-state.json}。
+ * 调查作用域匿名身份与权威展示视图（status / canShow / retryAfterMs / seenLayouts），
+ * {@code POST /api/layout-feedback/state} 接收动作式命令并持久化到
+ * {@code state/download-workbench/layout-feedback-state.json}（无 CAS：合法命令一律 200）。
  * 仅 solo 模式启用，multi 模式一律 403（不调用 InstallIdentityProvider、不读取 body、
  * 不触发 Store 加载、不读写状态文件）。
  *
  * <p>POST 处理顺序固定为：模式检查 → query surveyId 校验（缺失由 Controller 自行返回
  * 400）→ Content-Type 校验（null / 非 JSON / 非法字符串一律 415，读取 body 之前）→
- * Content-Length 前置限制 → 有界读取 body → 严格 JSON 解析 → DTO 校验 → query / body
- * surveyId 一致性 → Store degraded 检查 → Store apply → 200 / 409。请求体在完整读取前受
+ * Content-Length 前置限制 → 有界读取 body → 严格 JSON 解析（未知字段包括旧协议的
+ * expectedRevision 一律 400）→ DTO 校验 → query / body surveyId 一致性 → Store degraded
+ * 检查 → Store apply → 统一 200 权威视图（no-op 同样 200）。请求体在完整读取前受
  * {@link #MAX_COMMAND_BODY_BYTES} 限制（chunked 流最多读 MAX+1），绝不使用
  * {@code readAllBytes()} 读取无界请求体。
  *
  * <p>全部响应（含缺 surveyId 的 400 与错误 Content-Type 的 415，这些错误不再由 Spring
  * 在进入 Controller 前生成）携带 {@code Cache-Control: no-store, private}：scoped
- * distinct ID / revision / submitted·never·snoozed / seen 一律不得被代理或浏览器缓存。
- * 原始安装 UUID 只用于派生 scoped ID，绝不进入响应。
+ * distinct ID / revision / status·canShow·retryAfterMs·seenLayouts 一律不得被代理或浏览器
+ * 缓存。原始安装 UUID 只用于派生 scoped ID，绝不进入响应。
  */
 @RestController
 @RequestMapping("/api/layout-feedback/state")
@@ -93,6 +99,7 @@ public class LayoutFeedbackStateController {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
         // 同一个请求只读取一次服务端时钟；时钟源返回负值（墙钟回拨 / 异常）按 0 处理。
+        // 服务端独立判断 snooze 是否到期，浏览器不参与解释任何服务端绝对时间点。
         long serverNow = Math.max(0L, clock.millis());
         return jsonResponse(HttpStatus.OK, buildResponse(store.snapshot(), surveyId, serverNow));
     }
@@ -143,8 +150,8 @@ public class LayoutFeedbackStateController {
         if (store.degraded()) {
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
         }
-        // 9. Store apply（CAS：APPLIED → 200，CONFLICT → 409，均带当前完整快照）。
-        //    同一个请求只读取一次服务端时钟：Store apply 与响应 serverTime 使用同一个
+        // 9. Store apply（无 CAS：合法命令一律 200，no-op 也返回 200 权威视图）。
+        //    同一个请求只读取一次服务端时钟：Store apply 与响应视图使用同一个
         //    serverNow；时钟源返回负值（墙钟回拨 / 异常）按 0 处理，Store 不接收负时间。
         long serverNow = Math.max(0L, clock.millis());
         LayoutFeedbackStateStore.ApplyResult result;
@@ -157,11 +164,7 @@ public class LayoutFeedbackStateController {
             // 原子写入失败：保留旧内存状态，本次请求失败。
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
         }
-        LayoutFeedbackStateResponse response = buildResponse(result.snapshot(), surveyId, serverNow);
-        if (result.status() == LayoutFeedbackStateStore.ApplyStatus.CONFLICT) {
-            return jsonResponse(HttpStatus.CONFLICT, response);
-        }
-        return jsonResponse(HttpStatus.OK, response);
+        return jsonResponse(HttpStatus.OK, buildResponse(result.snapshot(), surveyId, serverNow));
     }
 
     /**
@@ -323,20 +326,29 @@ public class LayoutFeedbackStateController {
     }
 
     private LayoutFeedbackStateResponse buildResponse(LayoutFeedbackStateSnapshot snapshot,
-                                                      String surveyId, long serverTime) {
+                                                      String surveyId, long serverNow) {
         String scopedIdentity = LayoutFeedbackIdentityDeriver.deriveScopedIdentity(
                 surveyId, installIdentityProvider.get());
-        var state = snapshot.state() != null && surveyId.equals(snapshot.state().surveyId())
-                ? snapshot.state()
-                : null;
+        LayoutFeedbackStateEntry state = snapshot.state(surveyId);
+        boolean degraded = store.degraded();
+        LayoutFeedbackDecisionView view = degraded
+                ? new LayoutFeedbackDecisionView(null, false, 0L)
+                : LayoutFeedbackDecisionView.evaluate(state, serverNow);
+        List<String> seenLayouts = new ArrayList<>(LayoutFeedbackStateStore.LAYOUT_ID_ORDER.size());
+        for (String layoutId : LayoutFeedbackStateStore.LAYOUT_ID_ORDER) {
+            if (snapshot.seen().containsKey(layoutId)) {
+                seenLayouts.add(layoutId);
+            }
+        }
         return new LayoutFeedbackStateResponse(
                 true,
-                !store.degraded(),
+                !degraded,
                 scopedIdentity,
-                serverTime,
                 snapshot.revision(),
-                state,
-                snapshot.seen());
+                view.status(),
+                view.canShow(),
+                view.retryAfterMs(),
+                seenLayouts);
     }
 
     /** 带 JSON body 的统一响应：一律 no-store。 */

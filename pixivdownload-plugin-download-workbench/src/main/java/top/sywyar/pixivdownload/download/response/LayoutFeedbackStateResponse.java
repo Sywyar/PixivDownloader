@@ -1,28 +1,37 @@
 package top.sywyar.pixivdownload.download.response;
 
-import top.sywyar.pixivdownload.download.state.LayoutFeedbackSeenEntry;
-import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateEntry;
+import top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision;
 
-import java.util.Map;
+import java.util.List;
 
 /**
- * 布局偏好调查服务端状态响应。solo 模式返回 {@code available=true}、调查作用域匿名
- * 身份 {@code distinctId}（{@code plf_} 前缀，绝不返回原始安装 UUID）与服务端去重状态；
- * multi 模式由控制器直接拒绝（403），前端回退 localStorage 实现。
+ * 布局偏好调查服务端状态响应（服务端权威展示视图）。solo 模式返回
+ * {@code available=true}、调查作用域匿名身份 {@code distinctId}（{@code plf_} 前缀，
+ * 绝不返回原始安装 UUID）与服务端权威去重视图；multi 模式由控制器直接拒绝（403），
+ * 前端回退 localStorage 实现。
  *
- * <p>GET 响应中的 {@code state} 只在服务端记录的 surveyId 与请求一致时返回，否则为 null；
- * {@code seen} 与 {@code revision} 始终返回。409 冲突响应携带当前完整快照。
+ * <p>浏览器只消费本视图的四个语义字段：
+ * <ul>
+ *   <li>{@code status}：服务端当前状态（null / submitted / never / snoozed）；</li>
+ *   <li>{@code canShow}：服务端是否允许展示（只看 submitted / never / snooze 是否到期，
+ *       不看页面可见性 / 其它弹窗 / DNT / Survey active）；</li>
+ *   <li>{@code retryAfterMs}：status=snoozed 且 canShow=false 时的剩余毫秒
+ *       （snoozedUntil - serverNow，钳制到 JavaScript 安全整数），其它情况为 0；</li>
+ *   <li>{@code seenLayouts}：服务端已确认体验过的稳定布局 ID（固定顺序、无重复）。</li>
+ * </ul>
  *
- * <p>{@code serverTime} 是服务端当前时间（Unix epoch 毫秒），供客户端估算服务端时钟，
- * 只用于跨时钟域比较；不写入状态文件、不参与 revision、不包含隐私信息。
+ * <p>响应不携带 serverTime / snoozedUntil / updatedAt / firstSeenAt / lastSeenAt /
+ * 原始 install UUID / 状态文件内部 states map：服务端绝对时间点一律不进入浏览器，
+ * 浏览器只把 retryAfterMs 转换为自己的本地临时截止时间。
  */
 public record LayoutFeedbackStateResponse(
         boolean available,
         boolean stateAvailable,
         String distinctId,
-        long serverTime,
         long revision,
-        LayoutFeedbackStateEntry state,
-        Map<String, LayoutFeedbackSeenEntry> seen
+        LayoutFeedbackDecision status,
+        boolean canShow,
+        long retryAfterMs,
+        List<String> seenLayouts
 ) {
 }

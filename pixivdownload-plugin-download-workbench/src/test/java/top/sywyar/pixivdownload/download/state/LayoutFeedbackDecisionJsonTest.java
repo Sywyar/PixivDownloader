@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.response.LayoutFeedbackStateResponse;
 
-import java.util.Map;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,10 +70,11 @@ class LayoutFeedbackDecisionJsonTest {
                 true,
                 true,
                 "plf_" + "ab".repeat(32),
-                1_786_000_000_000L,
                 3,
-                new LayoutFeedbackStateEntry(SURVEY_ID, LayoutFeedbackDecision.SUBMITTED, 1, 0),
-                Map.of("pixiv-batch-landscape", new LayoutFeedbackSeenEntry(1, 2)));
+                LayoutFeedbackDecision.SUBMITTED,
+                false,
+                0L,
+                List.of("pixiv-batch-landscape"));
 
         String json = MAPPER.writeValueAsString(response);
 
@@ -84,19 +85,29 @@ class LayoutFeedbackDecisionJsonTest {
     }
 
     @Test
-    @DisplayName("LayoutFeedbackStateResponse JSON 携带数值 serverTime，不因状态序列化而丢失")
-    void responseJsonCarriesServerTime() throws Exception {
+    @DisplayName("LayoutFeedbackStateResponse 携带 canShow / retryAfterMs / seenLayouts，不携带服务端绝对时间")
+    void responseJsonCarriesAuthoritativeViewOnly() throws Exception {
         LayoutFeedbackStateResponse response = new LayoutFeedbackStateResponse(
                 true,
                 true,
                 "plf_" + "ab".repeat(32),
-                1_786_000_000_000L,
-                0,
-                null,
-                Map.of());
+                2,
+                LayoutFeedbackDecision.SNOOZED,
+                false,
+                1_200_000L,
+                List.of("pixiv-batch-landscape", "pixiv-batch-portrait", "pixiv-batch-alt"));
 
         String json = MAPPER.writeValueAsString(response);
 
-        assertThat(json).contains("\"serverTime\":1786000000000");
+        assertThat(json).contains("\"canShow\":false");
+        assertThat(json).contains("\"retryAfterMs\":1200000");
+        assertThat(json).contains("\"seenLayouts\"");
+        assertThat(json).contains("pixiv-batch-landscape");
+        // 服务端绝对时间点一律不进入浏览器响应。
+        assertThat(json).doesNotContain("serverTime");
+        assertThat(json).doesNotContain("snoozedUntil");
+        assertThat(json).doesNotContain("updatedAt");
+        assertThat(json).doesNotContain("firstSeenAt");
+        assertThat(json).doesNotContain("lastSeenAt");
     }
 }

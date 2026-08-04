@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 布局偏好调查服务端状态的专用存储：不可变快照 + revision / CAS + 单调状态转移 +
+ * 布局偏好调查服务端状态的专用存储：不可变快照（按 Survey ID 隔离）+ 单调状态转移 +
  * seen 合并 + 严格校验 + 原子写入 + 损坏恢复 + 健康状态。
  *
  * <p>设计要点：
@@ -29,10 +29,14 @@ import java.util.Set;
  *       {@link #degraded()} / {@link #apply} 才加载（并发首次调用只加载一次）。文件不存在 /
  *       损坏 / 超大 / 不可读都不会令 Bean 构造失败；损坏文件被 best-effort 重命名为
  *       {@code *.corrupt-<timestamp>} 并隔离，I/O 不可用时 store 标记为 degraded；</li>
- *   <li><b>revision / CAS</b>：{@link #apply} 在锁内比较 expectedRevision，不一致不写文件、
- *       返回 {@link ApplyStatus#CONFLICT} 与当前快照；</li>
- *   <li><b>单调状态转移</b>：submitted &gt; never &gt; snoozed &gt; null，旧标签页的命令
- *       永远无法把 submitted / never 降级，record_seen 永不修改 state；</li>
+ *   <li><b>无客户端 CAS</b>：{@link #apply} 在锁内基于最新快照直接执行单调动作，
+ *       不比较客户端提交的 revision；实际变化时 revision + 1，幂等 no-op 时 revision
+ *       不变、不落盘；结果通过 {@link ApplyResult#changed()} 表达，不返回冲突；</li>
+ *   <li><b>按 Survey ID 隔离</b>：每个 Survey 独立遵守
+ *       submitted &gt; never &gt; snoozed &gt; null，旧 Survey 标签页的命令永远无法把
+ *       新 Survey 的 submitted / never 降级，record_seen 永不修改任何 state；</li>
+ *   <li><b>单调状态转移</b>：submitted &gt; never &gt; snoozed &gt; null，重复 snooze
+ *       绝不缩短已有 snooze；</li>
  *   <li><b>原子写入</b>：临时文件 + {@code FileChannel.force(true)} + ATOMIC_MOVE
  *       （不支持时回退 REPLACE_EXISTING），move 成功后才更新内存快照；</li>
  *   <li><b>同一 JVM 内串行</b>：全部读写经 {@code synchronized} 锁。</li>
@@ -43,14 +47,21 @@ import java.util.Set;
 @Slf4j
 public final class LayoutFeedbackStateStore {
 
-    /** 持久化 schema 版本，固定为 1。 */
-    public static final int SCHEMA_VERSION = 1;
+    /** 持久化 schema 版本，固定为 2（v1 单个 state 兼容读取并迁移到 states map）。 */
+    public static final int SCHEMA_VERSION = 2;
+
+    /** states map 的数量上限；新增第 33 个状态时按 updatedAt 淘汰最旧状态。 */
+    public static final int MAX_SURVEY_STATES = 32;
 
     /** 状态文件大小上限（超出按损坏处理，不读取无限大内容）。 */
     public static final long MAX_STATE_FILE_BYTES = 64L * 1024;
 
-    /** 三个稳定布局 ID。 */
+    /** 三个稳定布局 ID（成员资格校验用）。 */
     public static final Set<String> LAYOUT_IDS = Set.of(
+            "pixiv-batch-landscape", "pixiv-batch-portrait", "pixiv-batch-alt");
+
+    /** seenLayouts 对外固定顺序（响应协议要求）。 */
+    public static final List<String> LAYOUT_ID_ORDER = List.of(
             "pixiv-batch-landscape", "pixiv-batch-portrait", "pixiv-batch-alt");
 
     /** 稍后再说：7 天，由服务端按自己的当前时间计算。 */
@@ -91,7 +102,7 @@ public final class LayoutFeedbackStateStore {
         }
     }
 
-    /** 当前不可变快照（同一快照内 state 与 seen 一致）。 */
+    /** 当前不可变快照（同一快照内 states 与 seen 一致）。 */
     public LayoutFeedbackStateSnapshot snapshot() {
         ensureLoaded();
         synchronized (lock) {
@@ -105,7 +116,10 @@ public final class LayoutFeedbackStateStore {
         return degraded;
     }
 
-    /** 在锁内应用命令：CAS 一致则转移状态并原子持久化，否则返回 CONFLICT 与当前快照。 */
+    /**
+     * 在锁内应用命令：基于最新快照执行单调动作并原子持久化；实际变化时 revision + 1，
+     * no-op 时 revision 不变、不落盘。不执行任何客户端 CAS，不返回冲突。
+     */
     public ApplyResult apply(LayoutFeedbackCommandRequest request, long now) throws IOException {
         ensureLoaded();
         synchronized (lock) {
@@ -113,22 +127,19 @@ public final class LayoutFeedbackStateStore {
                 throw new IllegalStateException("layout feedback state store is degraded");
             }
             LayoutFeedbackStateSnapshot snapshot = current;
-            if (request.expectedRevision() != snapshot.revision()) {
-                return new ApplyResult(ApplyStatus.CONFLICT, snapshot);
-            }
             LayoutFeedbackStateSnapshot next = transition(snapshot, request, now);
             if (next.equals(snapshot)) {
                 // no-op 命令：保持 revision，不落盘（行为固定，见测试）。
-                return new ApplyResult(ApplyStatus.APPLIED, snapshot);
+                return new ApplyResult(false, snapshot);
             }
             LayoutFeedbackStateDocument document = new LayoutFeedbackStateDocument(
-                    SCHEMA_VERSION, next.revision(), next.state(), next.seen());
+                    SCHEMA_VERSION, next.revision(), null, next.states(), next.seen());
             byte[] bytes = STRICT_MAPPER.writeValueAsBytes(document);
             if (bytes.length > MAX_STATE_FILE_BYTES) {
                 throw new IOException("layout feedback state document exceeds size limit");
             }
             persistAtomic(bytes, next);
-            return new ApplyResult(ApplyStatus.APPLIED, next);
+            return new ApplyResult(true, next);
         }
     }
 
@@ -189,7 +200,7 @@ public final class LayoutFeedbackStateStore {
     }
 
     private static LayoutFeedbackStateSnapshot emptySnapshot() {
-        return new LayoutFeedbackStateSnapshot(0L, null, Map.of());
+        return new LayoutFeedbackStateSnapshot(0L, Map.of(), Map.of());
     }
 
     /* ------------------------------------------------------------
@@ -234,7 +245,7 @@ public final class LayoutFeedbackStateStore {
     }
 
     /**
-     * 单调决策转移：submitted &gt; never &gt; snoozed &gt; null。
+     * 单调决策转移：submitted &gt; never &gt; snoozed &gt; null，每个 Survey 独立。
      * 返回与旧快照相同对象表示 no-op（revision 不变）。
      *
      * <p>服务端墙钟回拨防御：
@@ -245,17 +256,16 @@ public final class LayoutFeedbackStateStore {
      * - 状态升级（snoozed → never / submitted，never → submitted）的新 updatedAt =
      *   max(old.updatedAt(), nonNegativeNow(now))，不得倒退；
      * - 新 Survey ID 使用 nonNegativeNow(now)；
-     * - submitted / never 重复操作仍是幂等 no-op。
+     * - submitted / never 重复操作仍是幂等 no-op；
+     * - 新增状态时若超过 {@link #MAX_SURVEY_STATES}，按 updatedAt 淘汰最旧状态
+     *   （updatedAt 相同时按 Survey ID 确定顺序），不淘汰本次正在写入的 Survey。
      */
     private static LayoutFeedbackStateSnapshot applyDecision(
             LayoutFeedbackStateSnapshot snapshot, String surveyId,
             LayoutFeedbackDecision incoming, long now) {
         long safeNow = nonNegativeNow(now);
-        LayoutFeedbackStateEntry oldState = snapshot.state();
-        if (oldState != null && !oldState.surveyId().equals(surveyId)) {
-            // 新 Survey ID：新状态命令直接替换旧 Survey state，seen 保留。
-            oldState = null;
-        }
+        LayoutFeedbackStateEntry oldState = snapshot.state(surveyId);
+        Map<String, LayoutFeedbackStateEntry> states = snapshot.states();
         if (oldState != null) {
             int currentRank = rank(oldState.status());
             int incomingRank = rank(incoming);
@@ -268,15 +278,17 @@ public final class LayoutFeedbackStateStore {
                     // 重复 snooze：以 max(now, old.updatedAt) 为安全基准，proposedUntil
                     // 使用饱和加法；nextUntil 取 max(旧值, proposedUntil)，绝不缩短；
                     // 两者都无变化时 no-op（revision 不变、不落盘）。
-                    long safeBase = Math.max(safeNow, oldState.updatedAt());
                     long proposedUntil = saturatingAdd(safeNow, SNOOZE_MILLIS);
                     long nextUntil = Math.max(oldState.snoozedUntil(), proposedUntil);
                     long nextUpdatedAt = Math.max(oldState.updatedAt(), safeNow);
                     if (nextUntil == oldState.snoozedUntil() && nextUpdatedAt == oldState.updatedAt()) {
                         return snapshot;
                     }
-                    return replaceState(snapshot, new LayoutFeedbackStateEntry(
-                            surveyId, incoming, nextUpdatedAt, nextUntil));
+                    Map<String, LayoutFeedbackStateEntry> refreshed = new LinkedHashMap<>(states);
+                    refreshed.put(surveyId,
+                            new LayoutFeedbackStateEntry(surveyId, incoming, nextUpdatedAt, nextUntil));
+                    return new LayoutFeedbackStateSnapshot(
+                            snapshot.revision() + 1, refreshed, snapshot.seen());
                 }
                 // 重复 submitted / never：幂等 no-op。
                 return snapshot;
@@ -287,12 +299,50 @@ public final class LayoutFeedbackStateStore {
         long snoozedUntil = incoming == LayoutFeedbackDecision.SNOOZED
                 ? saturatingAdd(safeNow, SNOOZE_MILLIS)
                 : 0L;
-        return replaceState(snapshot, new LayoutFeedbackStateEntry(
-                surveyId, incoming, safeNow, snoozedUntil));
+        Map<String, LayoutFeedbackStateEntry> nextStates = new LinkedHashMap<>(states);
+        nextStates.put(surveyId, new LayoutFeedbackStateEntry(surveyId, incoming, safeNow, snoozedUntil));
+        nextStates = evictIfNeeded(nextStates, surveyId);
+        return new LayoutFeedbackStateSnapshot(snapshot.revision() + 1, nextStates, snapshot.seen());
     }
 
     /**
-     * record_seen：永不修改 state；firstSeenAt 旧值存在时保持旧值，lastSeenAt =
+     * 淘汰最旧状态：超过 {@link #MAX_SURVEY_STATES} 时移除 updatedAt 最小者
+     * （updatedAt 相同时按 Survey ID 字典序），绝不淘汰本次正在写入的 Survey。
+     */
+    private static Map<String, LayoutFeedbackStateEntry> evictIfNeeded(
+            Map<String, LayoutFeedbackStateEntry> states, String keepingSurveyId) {
+        if (states.size() <= MAX_SURVEY_STATES) {
+            return states;
+        }
+        Map<String, LayoutFeedbackStateEntry> evicted = new LinkedHashMap<>(states);
+        while (evicted.size() > MAX_SURVEY_STATES) {
+            String victim = null;
+            for (String surveyId : evicted.keySet()) {
+                if (surveyId.equals(keepingSurveyId)) {
+                    continue;
+                }
+                if (victim == null) {
+                    victim = surveyId;
+                    continue;
+                }
+                LayoutFeedbackStateEntry victimEntry = evicted.get(victim);
+                LayoutFeedbackStateEntry candidate = evicted.get(surveyId);
+                int compared = Long.compare(victimEntry.updatedAt(), candidate.updatedAt());
+                if (compared > 0 || (compared == 0 && surveyId.compareTo(victim) < 0)) {
+                    victim = surveyId;
+                }
+            }
+            if (victim == null) {
+                // 理论上不可能：MAX_SURVEY_STATES >= 1 且正在写入的 Survey 已在 map 中。
+                break;
+            }
+            evicted.remove(victim);
+        }
+        return evicted;
+    }
+
+    /**
+     * record_seen：永不修改任何 Survey state；firstSeenAt 旧值存在时保持旧值，lastSeenAt =
      * max(旧值, nonNegativeNow(now))——服务端墙钟回拨时 lastSeenAt 绝不倒退；
      * 无变化时 no-op（revision 不变、不落盘）。返回与旧快照相同对象表示无变化。
      */
@@ -320,13 +370,7 @@ public final class LayoutFeedbackStateStore {
         if (!changed) {
             return snapshot;
         }
-        return new LayoutFeedbackStateSnapshot(snapshot.revision() + 1, snapshot.state(), seen);
-    }
-
-    private static LayoutFeedbackStateSnapshot replaceState(
-            LayoutFeedbackStateSnapshot snapshot, LayoutFeedbackStateEntry state) {
-        return new LayoutFeedbackStateSnapshot(
-                snapshot.revision() + 1, state, snapshot.seen());
+        return new LayoutFeedbackStateSnapshot(snapshot.revision() + 1, snapshot.states(), seen);
     }
 
     private static int rank(LayoutFeedbackDecision decision) {
@@ -384,13 +428,10 @@ public final class LayoutFeedbackStateStore {
        结果类型
     ------------------------------------------------------------ */
 
-    public enum ApplyStatus {
-        /** 命令已应用（或幂等 no-op），响应带新快照。 */
-        APPLIED,
-        /** expectedRevision 与当前 revision 不一致，未写文件，响应带当前快照。 */
-        CONFLICT
-    }
-
-    public record ApplyResult(ApplyStatus status, LayoutFeedbackStateSnapshot snapshot) {
+    /**
+     * 命令应用结果：{@code changed=true} 表示实际发生了状态变化（revision + 1 且已落盘）；
+     * {@code changed=false} 表示幂等 no-op（revision 不变、不落盘）。不返回冲突。
+     */
+    public record ApplyResult(boolean changed, LayoutFeedbackStateSnapshot snapshot) {
     }
 }

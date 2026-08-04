@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,25 +37,24 @@ class LayoutFeedbackStateStoreTest {
         return new LayoutFeedbackStateStore(stateFile());
     }
 
-    private LayoutFeedbackCommandRequest command(long expectedRevision, String surveyId,
-                                                 String command, List<String> layoutIds) {
-        return new LayoutFeedbackCommandRequest(expectedRevision, surveyId, command, layoutIds);
+    private LayoutFeedbackCommandRequest command(String surveyId, String command, List<String> layoutIds) {
+        return new LayoutFeedbackCommandRequest(surveyId, command, layoutIds);
     }
 
-    private LayoutFeedbackCommandRequest recordSeen(long expectedRevision, String... layoutIds) {
-        return command(expectedRevision, SURVEY_ID, "record_seen", List.of(layoutIds));
+    private LayoutFeedbackCommandRequest recordSeen(String... layoutIds) {
+        return command(SURVEY_ID, "record_seen", List.of(layoutIds));
     }
 
-    private LayoutFeedbackCommandRequest submitted(long expectedRevision) {
-        return command(expectedRevision, SURVEY_ID, "submitted", null);
+    private LayoutFeedbackCommandRequest submitted() {
+        return command(SURVEY_ID, "submitted", null);
     }
 
-    private LayoutFeedbackCommandRequest never(long expectedRevision) {
-        return command(expectedRevision, SURVEY_ID, "never", null);
+    private LayoutFeedbackCommandRequest never() {
+        return command(SURVEY_ID, "never", null);
     }
 
-    private LayoutFeedbackCommandRequest snooze(long expectedRevision) {
-        return command(expectedRevision, SURVEY_ID, "snooze", null);
+    private LayoutFeedbackCommandRequest snooze() {
+        return command(SURVEY_ID, "snooze", null);
     }
 
     /* ============================================================
@@ -140,43 +138,71 @@ class LayoutFeedbackStateStoreTest {
     }
 
     @Test
-    @DisplayName("小写线格式状态文件 round-trip，落盘内容为小写 status")
-    void lowercaseWireFileRoundTrips() throws IOException {
-        LayoutFeedbackStateStore first = store();
-        first.apply(submitted(0), NOW);
-
-        String persisted = Files.readString(stateFile(), StandardCharsets.UTF_8);
-
-        assertThat(persisted).contains("\"status\":\"submitted\"");
-        assertThat(persisted).doesNotContain("SUBMITTED");
-        LayoutFeedbackStateStore second = new LayoutFeedbackStateStore(stateFile());
-        assertThat(second.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-    }
-
-    @Test
-    @DisplayName("f4d587b6 风格旧大写状态文件可正常加载，不隔离")
-    void legacyUpperCaseFileLoadsCompatibly() throws IOException {
+    @DisplayName("v2 空文档：空 states / seen、revision=0、store 可用")
+    void emptyV2DocumentLoads() throws IOException {
         Files.createDirectories(stateFile().getParent());
         Files.writeString(stateFile(),
-                "{\"schemaVersion\":1,\"revision\":1,"
-                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
-                        + "\",\"status\":\"SUBMITTED\",\"updatedAt\":1,\"snoozedUntil\":0},"
-                        + "\"seen\":{}}",
+                "{\"schemaVersion\":2,\"revision\":0,\"states\":{},\"seen\":{}}",
                 StandardCharsets.UTF_8);
 
         LayoutFeedbackStateStore store = store();
 
         assertThat(store.degraded()).isFalse();
-        assertThat(corruptFiles()).as("旧大写文件不得被隔离").isEmpty();
-        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-        assertThat(snapshot.revision()).isEqualTo(1);
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(snapshot.state().surveyId()).isEqualTo(SURVEY_ID);
+        assertThat(store.snapshot().revision()).isZero();
+        assertThat(store.snapshot().states()).isEmpty();
+        assertThat(store.snapshot().seen()).isEmpty();
     }
 
     @Test
-    @DisplayName("旧大写文件在下一次实际状态变化后重新写为小写线格式")
-    void legacyUpperCaseFileMigratesToLowercaseOnNextWrite() throws IOException {
+    @DisplayName("v2 多 Survey 状态 round-trip 加载，落盘内容为小写 status")
+    void v2FileRoundTrips() throws IOException {
+        LayoutFeedbackStateStore first = store();
+        first.apply(submitted(), NOW);
+        first.apply(command(OTHER_SURVEY_ID, "snooze", null), NOW);
+
+        String persisted = Files.readString(stateFile(), StandardCharsets.UTF_8);
+        assertThat(persisted).contains("\"schemaVersion\":2");
+        assertThat(persisted).contains("\"status\":\"submitted\"");
+        assertThat(persisted).contains("\"status\":\"snoozed\"");
+        assertThat(persisted).doesNotContain("SUBMITTED");
+
+        LayoutFeedbackStateStore second = new LayoutFeedbackStateStore(stateFile());
+        LayoutFeedbackStateSnapshot snapshot = second.snapshot();
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.state(OTHER_SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SNOOZED);
+    }
+
+    @Test
+    @DisplayName("v1 状态文件迁移：state 放入 states[state.surveyId]，seen / revision 保留")
+    void v1StateMigratesToStatesMap() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":1,\"revision\":5,"
+                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"SUBMITTED\",\"updatedAt\":1,\"snoozedUntil\":0},"
+                        + "\"seen\":{\"pixiv-batch-landscape\":{\"firstSeenAt\":1,\"lastSeenAt\":2}}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("v1 文件不得被隔离").isEmpty();
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.revision()).as("v1 revision 保留").isEqualTo(5);
+        assertThat(snapshot.state(SURVEY_ID).status())
+                .as("旧大写枚举继续兼容")
+                .isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.seen().get("pixiv-batch-landscape").firstSeenAt())
+                .as("v1 seen 保留")
+                .isEqualTo(1);
+        assertThat(snapshot.seen().get("pixiv-batch-landscape").lastSeenAt())
+                .as("v1 seen 保留")
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("v1 状态文件下一次实际写入保存为 schemaVersion=2 的 states map")
+    void v1MigratesToV2OnNextWrite() throws IOException {
         Files.createDirectories(stateFile().getParent());
         Files.writeString(stateFile(),
                 "{\"schemaVersion\":1,\"revision\":1,"
@@ -185,33 +211,18 @@ class LayoutFeedbackStateStoreTest {
                         + "\"seen\":{}}",
                 StandardCharsets.UTF_8);
         LayoutFeedbackStateStore store = store();
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
+        assertThat(store.snapshot().state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.NEVER);
 
-        store.apply(recordSeen(1, "pixiv-batch-landscape"), NOW);
+        store.apply(recordSeen("pixiv-batch-landscape"), NOW);
 
         String persisted = Files.readString(stateFile(), StandardCharsets.UTF_8);
+        assertThat(persisted).contains("\"schemaVersion\":2");
+        assertThat(persisted).contains("\"states\"");
         assertThat(persisted).contains("\"status\":\"never\"");
+        assertThat(persisted).doesNotContain("\"state\":");
         assertThat(persisted).doesNotContain("NEVER");
         LayoutFeedbackStateStore reloaded = new LayoutFeedbackStateStore(stateFile());
-        assertThat(reloaded.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
-    }
-
-    @Test
-    @DisplayName("旧大写 snoozed 文件兼容读取且 snoozedUntil 保留")
-    void legacyUpperCaseSnoozedFileLoads() throws IOException {
-        Files.createDirectories(stateFile().getParent());
-        Files.writeString(stateFile(),
-                "{\"schemaVersion\":1,\"revision\":2,"
-                        + "\"state\":{\"surveyId\":\"" + SURVEY_ID
-                        + "\",\"status\":\"SNOOZED\",\"updatedAt\":1,\"snoozedUntil\":12345},"
-                        + "\"seen\":{}}",
-                StandardCharsets.UTF_8);
-
-        LayoutFeedbackStateSnapshot snapshot = store().snapshot();
-
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SNOOZED);
-        assertThat(snapshot.state().snoozedUntil()).isEqualTo(12345);
-        assertThat(corruptFiles()).isEmpty();
+        assertThat(reloaded.snapshot().state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.NEVER);
     }
 
     @Test
@@ -221,22 +232,9 @@ class LayoutFeedbackStateStoreTest {
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.revision()).isZero();
-        assertThat(snapshot.state()).isNull();
+        assertThat(snapshot.states()).isEmpty();
         assertThat(snapshot.seen()).isEmpty();
         assertThat(store.degraded()).isFalse();
-    }
-
-    @Test
-    @DisplayName("合法文件 round-trip 加载")
-    void validFileRoundTrips() throws IOException {
-        LayoutFeedbackStateStore first = store();
-        first.apply(submitted(0), NOW);
-        LayoutFeedbackStateStore second = new LayoutFeedbackStateStore(stateFile());
-
-        LayoutFeedbackStateSnapshot snapshot = second.snapshot();
-        assertThat(snapshot.revision()).isEqualTo(1);
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(snapshot.state().surveyId()).isEqualTo(SURVEY_ID);
     }
 
     @Test
@@ -251,16 +249,17 @@ class LayoutFeedbackStateStoreTest {
         assertThat(store.snapshot().revision()).isZero();
         assertThat(Files.exists(stateFile())).as("损坏文件必须被移走").isFalse();
         assertThat(corruptFiles()).hasSize(1);
-        store.apply(submitted(0), NOW);
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        store.apply(submitted(), NOW);
+        assertThat(store.snapshot().state(SURVEY_ID).status())
+                .isEqualTo(LayoutFeedbackDecision.SUBMITTED);
     }
 
     @Test
-    @DisplayName("schemaVersion 错误 → 按损坏处理")
+    @DisplayName("未知 schemaVersion → 按损坏处理")
     void wrongSchemaVersionQuarantined() throws IOException {
         Files.createDirectories(stateFile().getParent());
         Files.writeString(stateFile(),
-                "{\"schemaVersion\":2,\"revision\":0,\"state\":null,\"seen\":{}}",
+                "{\"schemaVersion\":9,\"revision\":0,\"states\":{},\"seen\":{}}",
                 StandardCharsets.UTF_8);
 
         LayoutFeedbackStateStore store = store();
@@ -275,7 +274,7 @@ class LayoutFeedbackStateStoreTest {
     void unknownLayoutInSeenQuarantined() throws IOException {
         Files.createDirectories(stateFile().getParent());
         Files.writeString(stateFile(),
-                "{\"schemaVersion\":1,\"revision\":3,\"state\":null,"
+                "{\"schemaVersion\":2,\"revision\":3,\"states\":{},"
                         + "\"seen\":{\"pixiv-batch-unknown\":{\"firstSeenAt\":1,\"lastSeenAt\":1}}}",
                 StandardCharsets.UTF_8);
 
@@ -310,185 +309,146 @@ class LayoutFeedbackStateStoreTest {
 
         assertThat(store.degraded()).isTrue();
         assertThat(store.snapshot().revision()).isZero();
-        assertThat(store.snapshot().state()).isNull();
+        assertThat(store.snapshot().states()).isEmpty();
+    }
+
+    /* ============================================================
+       无 CAS 命令 / revision
+    ============================================================ */
+
+    @Test
+    @DisplayName("命令成功并递增 revision；重复 submitted 幂等 no-op 保持 revision")
+    void appliesWithoutCasAndIncrementsRevisionOnlyOnChange() throws IOException {
+        LayoutFeedbackStateStore store = store();
+
+        LayoutFeedbackStateStore.ApplyResult first = store.apply(submitted(), NOW);
+        assertThat(first.changed()).isTrue();
+        assertThat(first.snapshot().revision()).isEqualTo(1);
+        assertThat(store.snapshot().revision()).isEqualTo(1);
+
+        LayoutFeedbackStateStore.ApplyResult noop = store.apply(submitted(), NOW + 5000);
+        assertThat(noop.changed()).as("重复 submitted 幂等 no-op").isFalse();
+        assertThat(noop.snapshot().revision()).as("no-op 保持 revision").isEqualTo(1);
+        assertThat(store.snapshot().revision()).isEqualTo(1);
+
+        LayoutFeedbackStateStore.ApplyResult seen = store.apply(recordSeen("pixiv-batch-landscape"), NOW);
+        assertThat(seen.changed()).isTrue();
+        assertThat(seen.snapshot().revision()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("state 与 seen 来自同一不可变快照")
-    void stateAndSeenFromSameSnapshot() throws IOException {
+    @DisplayName("no-op 不落盘：文件字节不变")
+    void noOpDoesNotRewriteFile() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(recordSeen(0, "pixiv-batch-landscape"), NOW);
+        store.apply(submitted(), NOW);
+        String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
+
+        store.apply(submitted(), NOW + 5000);
+
+        assertThat(Files.readString(stateFile(), StandardCharsets.UTF_8))
+                .as("no-op 不重写状态文件")
+                .isEqualTo(before);
+    }
+
+    /* ============================================================
+       按 Survey ID 隔离
+    ============================================================ */
+
+    @Test
+    @DisplayName("两个 Survey 状态独立：Survey A submitted 不影响 Survey B")
+    void surveyStatesAreIndependent() throws IOException {
+        LayoutFeedbackStateStore store = store();
+
+        store.apply(submitted(), NOW);
+        store.apply(command(OTHER_SURVEY_ID, "never", null), NOW + 1000);
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-        assertThat(snapshot.seen()).containsKey("pixiv-batch-landscape");
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.state(OTHER_SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.NEVER);
+        assertThat(snapshot.states()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("旧 Survey A 命令不能覆盖新 Survey B 状态")
+    void oldSurveyCommandDoesNotOverwriteNewSurvey() throws IOException {
+        LayoutFeedbackStateStore store = store();
+
+        store.apply(command(OTHER_SURVEY_ID, "submitted", null), NOW);
+        store.apply(snooze(), NOW);
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.state(OTHER_SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SNOOZED);
+    }
+
+    @Test
+    @DisplayName("record_seen 不修改任何 Survey decision，seen 全局共享")
+    void recordSeenNeverTouchesAnyState() throws IOException {
+        LayoutFeedbackStateStore store = store();
+
+        store.apply(recordSeen("pixiv-batch-landscape"), NOW);
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.states()).isEmpty();
+        assertThat(snapshot.seen().keySet()).containsExactly("pixiv-batch-landscape");
+    }
+
+    /* ============================================================
+       状态单调性
+    ============================================================ */
+
+    @Test
+    @DisplayName("submitted 不被 never / snooze 降级")
+    void submittedNotDowngraded() throws IOException {
+        LayoutFeedbackStateStore store = store();
+        store.apply(submitted(), NOW);
+
+        store.apply(never(), NOW + 1000);
+        store.apply(snooze(), NOW + 1000);
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
         assertThat(snapshot.revision()).isEqualTo(1);
-        assertThat(store.snapshot()).isSameAs(snapshot);
-    }
-
-    /* ============================================================
-       D. CAS
-    ============================================================ */
-
-    @Test
-    @DisplayName("正确 revision 命令成功并递增 revision")
-    void correctRevisionApplies() throws IOException {
-        LayoutFeedbackStateStore store = store();
-
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(submitted(0), NOW);
-
-        assertThat(result.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
-        assertThat(result.snapshot().revision()).isEqualTo(1);
-        assertThat(store.snapshot().revision()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("stale revision 返回 409 且不写文件")
-    void staleRevisionConflicts() throws IOException {
+    @DisplayName("never 可被 submitted 升级；never 不被 snooze 降级")
+    void neverUpgradedBySubmittedNotDowngradedBySnooze() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
+        store.apply(never(), NOW);
 
-        LayoutFeedbackStateStore.ApplyResult conflict = store.apply(never(0), NOW);
+        store.apply(snooze(), NOW + 1000);
+        assertThat(store.snapshot().state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.NEVER);
 
-        assertThat(conflict.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.CONFLICT);
-        assertThat(conflict.snapshot().revision()).isEqualTo(1);
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        String persisted = Files.readString(stateFile(), StandardCharsets.UTF_8);
-        assertThat(persisted).contains("\"revision\":1");
+        store.apply(submitted(), NOW + 1000);
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.revision()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("stale record_seen 不擦除 submitted")
-    void staleRecordSeenCannotEraseSubmitted() throws IOException {
+    @DisplayName("snooze 可被 never / submitted 升级")
+    void snoozeUpgradedByNeverAndSubmitted() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
+        store.apply(snooze(), NOW);
 
-        LayoutFeedbackStateStore.ApplyResult conflict = store.apply(recordSeen(0, "pixiv-batch-portrait"), NOW);
+        store.apply(never(), NOW + 1000);
+        assertThat(store.snapshot().state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.NEVER);
 
-        assertThat(conflict.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.CONFLICT);
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(store.snapshot().seen()).doesNotContainKey("pixiv-batch-portrait");
-    }
-
-    @Test
-    @DisplayName("stale record_seen 不擦除 never")
-    void staleRecordSeenCannotEraseNever() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(never(0), NOW);
-
-        LayoutFeedbackStateStore.ApplyResult conflict = store.apply(recordSeen(0, "pixiv-batch-landscape"), NOW);
-
-        assertThat(conflict.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.CONFLICT);
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
-    }
-
-    @Test
-    @DisplayName("stale record_seen 不擦除其它布局 seen")
-    void staleRecordSeenKeepsOtherSeen() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(recordSeen(0, "pixiv-batch-landscape"), NOW);
-
-        LayoutFeedbackStateStore.ApplyResult conflict =
-                store.apply(recordSeen(0, "pixiv-batch-portrait", "pixiv-batch-alt"), NOW);
-
-        assertThat(conflict.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.CONFLICT);
-        assertThat(store.snapshot().seen().keySet())
-                .containsExactly("pixiv-batch-landscape");
-    }
-
-    @Test
-    @DisplayName("每次实际改变后 revision 正确递增，no-op 保持 revision")
-    void revisionIncrementsOnChangeOnly() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        assertThat(store.apply(submitted(0), NOW).snapshot().revision()).isEqualTo(1);
-        assertThat(store.apply(submitted(1), NOW).snapshot().revision())
-                .as("重复 submitted 幂等 no-op，revision 不变")
-                .isEqualTo(1);
-        assertThat(store.apply(recordSeen(1, "pixiv-batch-landscape"), NOW)
-                .snapshot().revision()).isEqualTo(2);
-    }
-
-    /* ============================================================
-       E. 状态单调性
-    ============================================================ */
-
-    @Test
-    @DisplayName("submitted 不被 never 降级")
-    void submittedNotDowngradedByNever() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
-
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(never(1), NOW);
-
-        assertThat(result.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(store.snapshot().revision()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("submitted 不被 snooze 降级")
-    void submittedNotDowngradedBySnooze() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
-
-        store.apply(snooze(1), NOW);
-
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-    }
-
-    @Test
-    @DisplayName("never 可被 submitted 升级")
-    void neverUpgradedBySubmitted() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(never(0), NOW);
-
-        store.apply(submitted(1), NOW);
-
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(store.snapshot().revision()).isEqualTo(2);
-    }
-
-    @Test
-    @DisplayName("never 不被 snooze 降级")
-    void neverNotDowngradedBySnooze() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(never(0), NOW);
-
-        store.apply(snooze(1), NOW);
-
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
-    }
-
-    @Test
-    @DisplayName("snooze 可被 never 升级")
-    void snoozeUpgradedByNever() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(snooze(0), NOW);
-
-        store.apply(never(1), NOW);
-
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
-    }
-
-    @Test
-    @DisplayName("snooze 可被 submitted 升级")
-    void snoozeUpgradedBySubmitted() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(snooze(0), NOW);
-
-        store.apply(submitted(1), NOW);
-
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        store.apply(submitted(), NOW + 1000);
+        assertThat(store.snapshot().state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
     }
 
     @Test
     @DisplayName("重复 snooze 使用新的服务端时间，snoozedUntil 单调不倒退")
     void repeatedSnoozeRefreshesServerTime() throws IOException {
         LayoutFeedbackStateStore store = store();
-        LayoutFeedbackStateStore.ApplyResult first = store.apply(snooze(0), NOW);
-        LayoutFeedbackStateStore.ApplyResult second = store.apply(snooze(1), NOW + 1000);
+        LayoutFeedbackStateStore.ApplyResult first = store.apply(snooze(), NOW);
+        LayoutFeedbackStateStore.ApplyResult second = store.apply(snooze(), NOW + 1000);
 
-        assertThat(first.snapshot().state().snoozedUntil()).isEqualTo(NOW + LayoutFeedbackStateStore.SNOOZE_MILLIS);
-        assertThat(second.snapshot().state().snoozedUntil())
+        assertThat(first.snapshot().state(SURVEY_ID).snoozedUntil())
+                .isEqualTo(NOW + LayoutFeedbackStateStore.SNOOZE_MILLIS);
+        assertThat(second.snapshot().state(SURVEY_ID).snoozedUntil())
                 .isEqualTo(NOW + 1000 + LayoutFeedbackStateStore.SNOOZE_MILLIS);
         assertThat(second.snapshot().revision()).isEqualTo(2);
     }
@@ -498,34 +458,38 @@ class LayoutFeedbackStateStoreTest {
     ============================================================ */
 
     @Test
-    @DisplayName("重复 snooze，第二次 now 比第一次早 1 小时：snoozedUntil 不缩短、updatedAt 不倒退、不抛异常")
+    @DisplayName("重复 snooze，第二次 now 比第一次早 1 小时：snoozedUntil 不缩短、updatedAt 不倒退、no-op 不落盘")
     void repeatedSnoozeWithRollbackDoesNotShorten() throws IOException {
         LayoutFeedbackStateStore store = store();
-        LayoutFeedbackStateStore.ApplyResult first = store.apply(snooze(0), NOW);
+        LayoutFeedbackStateStore.ApplyResult first = store.apply(snooze(), NOW);
+        String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
 
-        LayoutFeedbackStateStore.ApplyResult second = store.apply(snooze(1), NOW - 60 * 60 * 1000);
+        LayoutFeedbackStateStore.ApplyResult second = store.apply(snooze(), NOW - 60 * 60 * 1000);
 
-        assertThat(second.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
-        assertThat(second.snapshot().state().snoozedUntil())
+        assertThat(second.changed()).as("墙钟回拨后重复 snooze 是 no-op").isFalse();
+        assertThat(second.snapshot().state(SURVEY_ID).snoozedUntil())
                 .as("墙钟回拨不得缩短已有 snooze")
                 .isEqualTo(NOW + LayoutFeedbackStateStore.SNOOZE_MILLIS);
-        assertThat(second.snapshot().state().updatedAt())
+        assertThat(second.snapshot().state(SURVEY_ID).updatedAt())
                 .as("updatedAt 不得倒退")
                 .isEqualTo(NOW);
         assertThat(second.snapshot().revision()).isEqualTo(1);
+        assertThat(Files.readString(stateFile(), StandardCharsets.UTF_8))
+                .as("no-op 不重写状态文件")
+                .isEqualTo(before);
     }
 
     @Test
     @DisplayName("重复 snooze，回拨后 proposedUntil 仍小于旧值：no-op、revision 不变、文件字节不变")
     void repeatedSnoozeRollbackIsNoOpAndDoesNotRewrite() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(snooze(0), NOW);
+        store.apply(snooze(), NOW);
         String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
         long revisionBefore = store.snapshot().revision();
 
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(snooze(1), NOW - 60 * 60 * 1000);
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(snooze(), NOW - 60 * 60 * 1000);
 
-        assertThat(result.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
+        assertThat(result.changed()).as("墙钟回拨后重复 snooze 是 no-op").isFalse();
         assertThat(store.snapshot().revision()).as("no-op 保持 revision").isEqualTo(revisionBefore);
         String after = Files.readString(stateFile(), StandardCharsets.UTF_8);
         assertThat(after).as("no-op 不重写状态文件").isEqualTo(before);
@@ -536,13 +500,13 @@ class LayoutFeedbackStateStoreTest {
     @DisplayName("never → submitted，now 小于 old.updatedAt：submitted 生效且 updatedAt 不倒退")
     void upgradeKeepsUpdatedAtMonotonicUnderRollback() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(never(0), NOW);
+        store.apply(never(), NOW);
 
         LayoutFeedbackStateStore.ApplyResult result =
-                store.apply(submitted(1), NOW - 60 * 60 * 1000);
+                store.apply(submitted(), NOW - 60 * 60 * 1000);
 
-        assertThat(result.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(result.snapshot().state().updatedAt())
+        assertThat(result.snapshot().state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(result.snapshot().state(SURVEY_ID).updatedAt())
                 .as("升级后 updatedAt 保持旧值或更大")
                 .isEqualTo(NOW);
         assertThat(result.snapshot().revision()).isEqualTo(2);
@@ -552,11 +516,11 @@ class LayoutFeedbackStateStoreTest {
     @DisplayName("record_seen：旧 first=100 / last=200，新 now=50：first/last 保持、no-op、revision 不变")
     void recordSeenDoesNotMoveBackwards() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(recordSeen(0, "pixiv-batch-landscape"), 100);
-        store.apply(recordSeen(1, "pixiv-batch-landscape"), 200);
+        store.apply(recordSeen("pixiv-batch-landscape"), 100);
+        store.apply(recordSeen("pixiv-batch-landscape"), 200);
         String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
 
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(recordSeen(2, "pixiv-batch-landscape"), 50);
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(recordSeen("pixiv-batch-landscape"), 50);
 
         LayoutFeedbackSeenEntry entry = result.snapshot().seen().get("pixiv-batch-landscape");
         assertThat(entry.firstSeenAt()).isEqualTo(100);
@@ -571,10 +535,10 @@ class LayoutFeedbackStateStoreTest {
     @DisplayName("record_seen：旧 last=200，新 now=300：lastSeenAt 前进且 revision +1")
     void recordSeenAdvancesLastSeenAt() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(recordSeen(0, "pixiv-batch-landscape"), 100);
-        store.apply(recordSeen(1, "pixiv-batch-landscape"), 200);
+        store.apply(recordSeen("pixiv-batch-landscape"), 100);
+        store.apply(recordSeen("pixiv-batch-landscape"), 200);
 
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(recordSeen(2, "pixiv-batch-landscape"), 300);
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(recordSeen("pixiv-batch-landscape"), 300);
 
         LayoutFeedbackSeenEntry entry = result.snapshot().seen().get("pixiv-batch-landscape");
         assertThat(entry.firstSeenAt()).isEqualTo(100);
@@ -587,7 +551,7 @@ class LayoutFeedbackStateStoreTest {
     void negativeNowClampedToZero() throws IOException {
         LayoutFeedbackStateStore store = store();
 
-        LayoutFeedbackStateStore.ApplyResult seen = store.apply(recordSeen(0, "pixiv-batch-landscape"), -500);
+        LayoutFeedbackStateStore.ApplyResult seen = store.apply(recordSeen("pixiv-batch-landscape"), -500);
 
         LayoutFeedbackSeenEntry entry = seen.snapshot().seen().get("pixiv-batch-landscape");
         assertThat(entry.firstSeenAt()).isZero();
@@ -595,9 +559,9 @@ class LayoutFeedbackStateStoreTest {
         assertThat(entry.lastSeenAt()).as("lastSeenAt 不得小于 firstSeenAt")
                 .isGreaterThanOrEqualTo(entry.firstSeenAt());
 
-        LayoutFeedbackStateStore.ApplyResult state = store.apply(snooze(1), -500);
-        assertThat(state.snapshot().state().updatedAt()).isZero();
-        assertThat(state.snapshot().state().snoozedUntil())
+        LayoutFeedbackStateStore.ApplyResult state = store.apply(snooze(), -500);
+        assertThat(state.snapshot().state(SURVEY_ID).updatedAt()).isZero();
+        assertThat(state.snapshot().state(SURVEY_ID).snoozedUntil())
                 .isEqualTo(LayoutFeedbackStateStore.SNOOZE_MILLIS);
     }
 
@@ -607,181 +571,140 @@ class LayoutFeedbackStateStoreTest {
         long nearMax = Long.MAX_VALUE - 1000;
         LayoutFeedbackStateStore store = store();
 
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(snooze(0), nearMax);
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(snooze(), nearMax);
 
-        assertThat(result.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
-        assertThat(result.snapshot().state().updatedAt()).isEqualTo(nearMax);
-        assertThat(result.snapshot().state().snoozedUntil())
+        assertThat(result.changed()).isTrue();
+        assertThat(result.snapshot().state(SURVEY_ID).updatedAt()).isEqualTo(nearMax);
+        assertThat(result.snapshot().state(SURVEY_ID).snoozedUntil())
                 .as("接近 Long.MAX_VALUE 时饱和为 Long.MAX_VALUE，不得溢出为负数")
                 .isEqualTo(Long.MAX_VALUE);
     }
 
-    @Test
-    @DisplayName("新 Survey ID 不受旧 Survey submitted/never 阻挡，seen 保留")
-    void newSurveyIdNotBlockedByOldSurveyState() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(recordSeen(0, "pixiv-batch-landscape"), NOW);
-        store.apply(submitted(1), NOW);
-
-        // 旧 Survey 已 submitted，新 Survey 的 never 不被阻挡。
-        store.apply(command(2, OTHER_SURVEY_ID, "never", null), NOW);
-        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-        assertThat(snapshot.state().surveyId()).isEqualTo(OTHER_SURVEY_ID);
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
-        assertThat(snapshot.seen().keySet()).containsExactly("pixiv-batch-landscape");
-
-        // 新 Survey 的 never 不被 snooze 降级（no-op，revision 不变）。
-        store.apply(command(3, OTHER_SURVEY_ID, "snooze", null), NOW);
-        assertThat(store.snapshot().state().status()).isEqualTo(LayoutFeedbackDecision.NEVER);
-
-        // 新 Survey 的 submitted 可升级。
-        store.apply(command(3, OTHER_SURVEY_ID, "submitted", null), NOW);
-        snapshot = store.snapshot();
-        assertThat(snapshot.state().surveyId()).isEqualTo(OTHER_SURVEY_ID);
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(snapshot.seen().keySet()).containsExactly("pixiv-batch-landscape");
-    }
-
-    @Test
-    @DisplayName("GET 语义：旧 Survey 的 state 被新命令替换；seen 与 Survey ID 无关")
-    void stateIsPerSurveySeenIsGlobal() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
-
-        // 新 Survey 的 record_seen 不触碰旧 Survey state。
-        store.apply(command(1, OTHER_SURVEY_ID, "record_seen", List.of("pixiv-batch-alt")), NOW);
-
-        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-        assertThat(snapshot.state().surveyId()).isEqualTo(SURVEY_ID);
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(snapshot.seen()).containsKey("pixiv-batch-alt");
-    }
-
     /* ============================================================
-       F. seen
+       states 上限与淘汰
     ============================================================ */
 
     @Test
-    @DisplayName("record_seen 首次写入 firstSeenAt=lastSeenAt=now，二次写入保持 firstSeenAt")
-    void seenTimestampsMerge() throws IOException {
+    @DisplayName("states 数量上限 32：第 33 个按 updatedAt 淘汰最旧状态")
+    void evictsOldestStateAtCapacity() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(recordSeen(0, "pixiv-batch-landscape"), NOW);
-
-        LayoutFeedbackStateStore.ApplyResult second = store.apply(recordSeen(1, "pixiv-batch-landscape"), NOW + 5000);
-
-        LayoutFeedbackSeenEntry entry = second.snapshot().seen().get("pixiv-batch-landscape");
-        assertThat(entry.firstSeenAt()).isEqualTo(NOW);
-        assertThat(entry.lastSeenAt()).isEqualTo(NOW + 5000);
-    }
-
-    @Test
-    @DisplayName("record_seen 永不修改 state")
-    void recordSeenNeverTouchesState() throws IOException {
-        LayoutFeedbackStateStore store = store();
-
-        store.apply(recordSeen(0, "pixiv-batch-landscape"), NOW);
+        String[] surveyIds = new String[LayoutFeedbackStateStore.MAX_SURVEY_STATES + 2];
+        for (int i = 0; i < surveyIds.length; i++) {
+            surveyIds[i] = String.format("aaaaaaaa-bbbb-cccc-dddd-%012d", i);
+        }
+        for (int i = 0; i < surveyIds.length; i++) {
+            store.apply(command(surveyIds[i], "submitted", null), NOW + i * 1000L);
+        }
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-        assertThat(snapshot.state()).isNull();
-        assertThat(snapshot.seen().keySet()).containsExactly("pixiv-batch-landscape");
+        assertThat(snapshot.states()).hasSize(LayoutFeedbackStateStore.MAX_SURVEY_STATES);
+        // 最旧的两个（updatedAt 最小）被淘汰；较新的保留。
+        assertThat(snapshot.state(surveyIds[0])).isNull();
+        assertThat(snapshot.state(surveyIds[1])).isNull();
+        assertThat(snapshot.state(surveyIds[2])).isNotNull();
+        assertThat(snapshot.state(surveyIds[surveyIds.length - 1])).isNotNull();
     }
 
     @Test
-    @DisplayName("最多三个布局，全部记录后新增记录不再增加条目")
-    void seenLimitedToThreeLayouts() throws IOException {
+    @DisplayName("淘汰顺序确定：第 33 个状态触发淘汰，updatedAt 相同时按 Survey ID 字典序")
+    void evictionOrderDeterministicOnTie() throws IOException {
         LayoutFeedbackStateStore store = store();
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(
-                recordSeen(0, "pixiv-batch-landscape", "pixiv-batch-portrait", "pixiv-batch-alt"), NOW);
-
-        assertThat(result.status()).isEqualTo(LayoutFeedbackStateStore.ApplyStatus.APPLIED);
-        assertThat(result.snapshot().seen()).hasSize(3);
-    }
-
-    @Test
-    @DisplayName("record_seen 提交后 submitted 状态保持不被擦除")
-    void recordSeenAfterSubmittedKeepsSubmitted() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
-
-        store.apply(recordSeen(1, "pixiv-batch-landscape"), NOW);
+        // 32 个状态，全部同一 updatedAt；再加第 33 个（同 updatedAt）触发淘汰。
+        String[] surveyIds = new String[LayoutFeedbackStateStore.MAX_SURVEY_STATES + 1];
+        for (int i = 0; i < surveyIds.length; i++) {
+            surveyIds[i] = String.format("aaaaaaaa-bbbb-cccc-dddd-%012d", i);
+            store.apply(command(surveyIds[i], "submitted", null), NOW);
+        }
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
-        assertThat(snapshot.seen()).containsKey("pixiv-batch-landscape");
-        assertThat(snapshot.revision()).isEqualTo(2);
+        assertThat(snapshot.states()).hasSize(LayoutFeedbackStateStore.MAX_SURVEY_STATES);
+        // updatedAt 相同时按 Survey ID 字典序淘汰最小者：'...-000000000000' 字典序最小。
+        assertThat(snapshot.state(surveyIds[0])).as("updatedAt 相同时按 Survey ID 淘汰最小者").isNull();
+        assertThat(snapshot.state(surveyIds[surveyIds.length - 1])).isNotNull();
+    }
+
+    @Test
+    @DisplayName("淘汰不淘汰本次正在写入的 Survey")
+    void evictionKeepsCurrentSurvey() throws IOException {
+        LayoutFeedbackStateStore store = store();
+        String[] surveyIds = new String[LayoutFeedbackStateStore.MAX_SURVEY_STATES];
+        for (int i = 0; i < surveyIds.length; i++) {
+            surveyIds[i] = String.format("aaaaaaaa-bbbb-cccc-dddd-%012d", i);
+            store.apply(command(surveyIds[i], "submitted", null), NOW + i * 1000L);
+        }
+        // 新 Survey 写入触发淘汰：本次写入的 Survey 必须保留。
+        String newest = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
+        store.apply(command(newest, "submitted", null), NOW + 1_000_000L);
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.states()).hasSize(LayoutFeedbackStateStore.MAX_SURVEY_STATES);
+        assertThat(snapshot.state(newest)).isNotNull();
     }
 
     /* ============================================================
-       G. 输入校验（命令构造）
+       输入校验（命令构造）
     ============================================================ */
 
     @Test
     @DisplayName("unknown command → 拒绝")
     void unknownCommandRejected() {
-        assertThatThrownBy(() -> command(0, SURVEY_ID, "explode", null))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("negative revision → 拒绝")
-    void negativeRevisionRejected() {
-        assertThatThrownBy(() -> command(-1, SURVEY_ID, "never", null))
+        assertThatThrownBy(() -> command(SURVEY_ID, "explode", null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("缺 surveyId / 非法 surveyId → 拒绝")
     void invalidSurveyIdRejected() {
-        assertThatThrownBy(() -> new LayoutFeedbackCommandRequest(0, null, "never", null))
+        assertThatThrownBy(() -> new LayoutFeedbackCommandRequest(null, "never", null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new LayoutFeedbackCommandRequest(0, "bad id", "never", null))
+        assertThatThrownBy(() -> new LayoutFeedbackCommandRequest("bad id", "never", null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("record_seen 无 layoutIds → 拒绝")
     void recordSeenWithoutLayoutIdsRejected() {
-        assertThatThrownBy(() -> command(0, SURVEY_ID, "record_seen", null))
+        assertThatThrownBy(() -> command(SURVEY_ID, "record_seen", null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> command(0, SURVEY_ID, "record_seen", List.of()))
+        assertThatThrownBy(() -> command(SURVEY_ID, "record_seen", List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("record_seen 未知布局 / 重复布局 → 拒绝")
     void recordSeenInvalidLayoutsRejected() {
-        assertThatThrownBy(() -> recordSeen(0, "pixiv-batch-nope"))
+        assertThatThrownBy(() -> recordSeen("pixiv-batch-nope"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> recordSeen(0, "pixiv-batch-landscape", "pixiv-batch-landscape"))
+        assertThatThrownBy(() -> recordSeen("pixiv-batch-landscape", "pixiv-batch-landscape"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> recordSeen(0, "a", "b", "c", "d"))
+        assertThatThrownBy(() -> recordSeen("a", "b", "c", "d"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("state 命令携带 layoutIds → 拒绝")
     void stateCommandWithLayoutIdsRejected() {
-        assertThatThrownBy(() -> command(0, SURVEY_ID, "submitted", List.of("pixiv-batch-landscape")))
+        assertThatThrownBy(() -> command(SURVEY_ID, "submitted", List.of("pixiv-batch-landscape")))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> command(0, SURVEY_ID, "snooze", List.of("pixiv-batch-landscape")))
+        assertThatThrownBy(() -> command(SURVEY_ID, "snooze", List.of("pixiv-batch-landscape")))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> command(0, SURVEY_ID, "never", List.of("pixiv-batch-landscape")))
+        assertThatThrownBy(() -> command(SURVEY_ID, "never", List.of("pixiv-batch-landscape")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     /* ============================================================
-       I. 原子写
+       原子写
     ============================================================ */
 
     @Test
     @DisplayName("成功写入后正式文件可严格解析且与内存快照一致")
     void persistedFileMatchesSnapshot() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
-        store.apply(recordSeen(1, "pixiv-batch-landscape"), NOW);
+        store.apply(submitted(), NOW);
+        store.apply(recordSeen("pixiv-batch-landscape"), NOW);
 
         String persisted = Files.readString(stateFile(), StandardCharsets.UTF_8);
-        assertThat(persisted).contains("\"schemaVersion\":1").contains("\"revision\":2");
+        assertThat(persisted).contains("\"schemaVersion\":2").contains("\"revision\":2");
         LayoutFeedbackStateSnapshot reloaded = new LayoutFeedbackStateStore(stateFile()).snapshot();
         assertThat(reloaded).isEqualTo(store.snapshot());
     }
@@ -790,7 +713,7 @@ class LayoutFeedbackStateStoreTest {
     @DisplayName("写入失败时旧快照保留且临时文件被清理")
     void failedWriteKeepsOldSnapshotAndCleansTemp() throws IOException {
         LayoutFeedbackStateStore store = store();
-        store.apply(submitted(0), NOW);
+        store.apply(submitted(), NOW);
         // 让状态目录变成普通文件：createDirectories 必然抛 IOException（跨平台确定）。
         // 注意用 record_seen（必然产生变化并触发持久化；never 对 submitted 是 no-op 不写盘）。
         Path parent = stateFile().getParent();
@@ -798,11 +721,11 @@ class LayoutFeedbackStateStoreTest {
         Files.delete(parent);
         Files.writeString(parent, "not a directory", StandardCharsets.UTF_8);
 
-        assertThatThrownBy(() -> store.apply(recordSeen(1, "pixiv-batch-landscape"), NOW))
+        assertThatThrownBy(() -> store.apply(recordSeen("pixiv-batch-landscape"), NOW))
                 .isInstanceOf(IOException.class);
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-        assertThat(snapshot.state().status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
         assertThat(snapshot.revision()).isEqualTo(1);
         try (var stream = Files.list(tempDir.resolve("state"))) {
             assertThat(stream.map(path -> path.getFileName().toString())
@@ -821,12 +744,12 @@ class LayoutFeedbackStateStoreTest {
         LayoutFeedbackStateStore store = store();
         assertThat(store.degraded()).isTrue();
 
-        assertThatThrownBy(() -> store.apply(submitted(0), NOW))
+        assertThatThrownBy(() -> store.apply(submitted(), NOW))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    @DisplayName("并发写在同一 JVM 内串行，CAS 重试收敛")
+    @DisplayName("并发写在同一 JVM 内串行：全部命令最终生效且无丢失")
     void concurrentWritesSerialize() throws Exception {
         LayoutFeedbackStateStore store = store();
         int threads = 6;
@@ -840,19 +763,7 @@ class LayoutFeedbackStateStoreTest {
             executor.submit(() -> {
                 try {
                     start.await();
-                    long revision = 0;
-                    boolean applied = false;
-                    while (!applied) {
-                        LayoutFeedbackStateStore.ApplyResult result =
-                                store.apply(recordSeen(revision, layout), NOW);
-                        if (result.status() == LayoutFeedbackStateStore.ApplyStatus.CONFLICT) {
-                            conflicts.incrementAndGet();
-                            revision = result.snapshot().revision();
-                        } else {
-                            applied = true;
-                            revision = result.snapshot().revision();
-                        }
-                    }
+                    store.apply(recordSeen(layout), NOW);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 } finally {
@@ -867,7 +778,180 @@ class LayoutFeedbackStateStoreTest {
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.seen().keySet()).containsExactlyInAnyOrder(layouts);
         assertThat(snapshot.revision()).isEqualTo(3);
-        assertThat(conflicts.get()).isGreaterThan(0);
+        assertThat(conflicts.get()).isZero();
+    }
+
+    @Test
+    @DisplayName("并发 snooze 串行后 snoozedUntil 不缩短（至少最后一次处理的 7 天）")
+    void concurrentSnoozesNeverShorten() throws Exception {
+        LayoutFeedbackStateStore store = store();
+        int threads = 6;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        for (int i = 0; i < threads; i++) {
+            executor.submit(() -> {
+                try {
+                    start.await();
+                    store.apply(snooze(), NOW);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdownNow();
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SNOOZED);
+        assertThat(snapshot.state(SURVEY_ID).snoozedUntil())
+                .as("并发 snooze 不缩短，至少 NOW + 7 天")
+                .isGreaterThanOrEqualTo(NOW + LayoutFeedbackStateStore.SNOOZE_MILLIS);
+    }
+
+    @Test
+    @DisplayName("snooze 与 submitted 并发：submitted 最终胜出")
+    void concurrentSnoozeAndSubmittedSubmittedWins() throws Exception {
+        LayoutFeedbackStateStore store = store();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(snooze(), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(submitted(), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdownNow();
+
+        assertThat(store.snapshot().state(SURVEY_ID).status())
+                .isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+    }
+
+    @Test
+    @DisplayName("never 与 submitted 并发：submitted 最终胜出")
+    void concurrentNeverAndSubmittedSubmittedWins() throws Exception {
+        LayoutFeedbackStateStore store = store();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(never(), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(submitted(), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdownNow();
+
+        assertThat(store.snapshot().state(SURVEY_ID).status())
+                .isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+    }
+
+    @Test
+    @DisplayName("record_seen 与 submitted 并发：submitted 保留，seen 正常合并")
+    void concurrentRecordSeenAndSubmitted() throws Exception {
+        LayoutFeedbackStateStore store = store();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(recordSeen("pixiv-batch-landscape"), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(submitted(), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdownNow();
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.seen()).containsKey("pixiv-batch-landscape");
+    }
+
+    @Test
+    @DisplayName("旧 Survey A 与新 Survey B 命令并发：各自 states 条目独立，不互相覆盖")
+    void concurrentDifferentSurveyCommandsIndependent() throws Exception {
+        LayoutFeedbackStateStore store = store();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(submitted(), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        executor.submit(() -> {
+            try {
+                start.await();
+                store.apply(command(OTHER_SURVEY_ID, "never", null), NOW);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                done.countDown();
+            }
+        });
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdownNow();
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
+        assertThat(snapshot.state(OTHER_SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.NEVER);
     }
 
     private java.util.List<Path> corruptFiles() throws IOException {
