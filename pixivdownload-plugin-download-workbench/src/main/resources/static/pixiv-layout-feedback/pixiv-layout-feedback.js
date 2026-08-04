@@ -3466,6 +3466,41 @@
         });
     }
 
+    /**
+     * 预加载（点击「开始下载」后异步预热，不弹窗、不发事件、不写状态）：
+     * 提前并行启动服务端状态装载与 SDK 脚本加载，并在本地状态当前允许展示时
+     * 完成 SDK 初始化（flags 请求随之提前），使首次下载完成事件到达时展示流程
+     * 只剩 Survey 获取与弹窗，消除弹窗出现前的空白等待。
+     * - 与展示流程共享按 generation 缓存的 operation：showSurveyFlow 直接复用，
+     *   不会重复加载脚本或重复 GET；
+     * - 展示门禁语义不变：事件到达时仍由 showSurveyFlow 按最新状态重新评估，
+     *   预加载自身不跳过任何门禁、不展示；
+     * - 本地状态已阻断（submitted / never / 未到期 snoozed）时不初始化 SDK，
+     *   已决定用户仍不产生任何对 PostHog 的请求（脚本与服务端状态均为本地资源）；
+     * - 任何异常静默吞掉（不影响下载功能），Promise 必然 resolve。
+     */
+    function preload() {
+        if (!initialized || !config || !config.enabled) return Promise.resolve();
+        var generation = currentRuntimeGeneration();
+        var contextReady = loadServerContext(generation);
+        var sdkReady = resolveSdk(generation);
+        return Promise.all([contextReady, sdkReady]).then(function (results) {
+            if (!isRuntimeGenerationActive(generation)) return;
+            var sdk = results[1];
+            if (!sdk || typeof sdk.init !== 'function') return;
+            if (!stateAllowsShow(timers.now())) return;
+            try {
+                if (!initPostHog(sdk)) return;
+                if (serverIdentityAvailable && serverDistinctId
+                        && !verifySdkDistinctId(sdk)) return;
+            } catch (_) {
+                // 预加载初始化失败：正式展示流程仍可重新尝试
+            }
+        }).catch(function () {
+            // 预加载任何失败都不影响下载与正式展示流程
+        });
+    }
+
     function destroy() {
         if (dialogOpen) closeDialog(false);
         if (typeof pendingSurveyCancel === 'function') {
@@ -3579,6 +3614,7 @@
     global.PixivLayoutFeedback = Object.freeze({
         init: init,
         open: open,
+        preload: preload,
         destroy: destroy,
         currentLayoutId: currentLayoutId,
         refreshLanguage: refreshLanguage,

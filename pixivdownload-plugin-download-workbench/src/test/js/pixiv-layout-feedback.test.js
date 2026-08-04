@@ -1728,6 +1728,66 @@ function testSurveyFetchTimeout() {
     });
 }
 
+/* ============================================================
+   预加载（点击「开始下载」后预热 SDK，弹窗无空白等待）
+============================================================ */
+
+function testPreloadWarmsSdkBeforeFirstDownload() {
+    const h = initHarness({page: 'alt'});
+    const preloadPromise = h.api.preload();
+    return Promise.all([preloadPromise, waitForFlush()]).then(() => {
+        eq('预加载已完成 SDK 初始化', h.adapter.calls.init.length, 1);
+        eq('预加载不弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        h.dispatchFirstDownload();
+        return waitForFlush();
+    }).then(() => {
+        eq('首次下载完成事件到达后直接展示弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('展示流程复用预加载的 SDK 不重复初始化', h.adapter.calls.init.length, 1);
+    });
+}
+
+function testPreloadLoadsSdkScriptEarly() {
+    const h = initHarness({page: 'alt', adapter: null});
+    const preloadPromise = h.api.preload();
+    return waitForFlush().then(() => {
+        eq('预加载即插入 SDK 脚本', h.scriptElements().length, 1);
+        h.sandbox.posthog = createFakeAdapter({surveys: [defaultSurvey()]});
+        h.fireScriptLoad();
+        return Promise.all([preloadPromise, waitForFlush()]);
+    }).then(() => {
+        eq('预加载完成不弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        h.dispatchFirstDownload();
+        return waitForFlush();
+    }).then(() => {
+        eq('脚本已就绪时事件到达即展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testPreloadSkipsSdkInitWhenStateBlocks() {
+    const state = JSON.stringify({
+        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        status: 'submitted', updatedAt: 100, snoozedUntil: 0
+    });
+    const h = initHarness({page: 'alt', storage: Object.assign(seenSeed(), {[STATE_KEY]: state})});
+    const preloadPromise = h.api.preload();
+    return Promise.all([preloadPromise, waitForFlush()]).then(() => {
+        eq('状态阻断时预加载不初始化 SDK', h.adapter.calls.init.length, 0);
+        h.dispatchFirstDownload();
+        return waitForFlush();
+    }).then(() => {
+        eq('状态阻断时事件到达不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+    });
+}
+
+function testPreloadBeforeInitIsNoop() {
+    const h = initHarness({page: 'alt'});
+    h.api.destroy();
+    return h.api.preload().then(() => waitForFlush()).then(() => {
+        eq('destroy 后 preload 是安全 no-op', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('destroy 后 preload 不加载脚本', h.scriptElements().length, 0);
+    });
+}
+
 function testDisabledConfigDoesNothing() {
     const h = initHarness({publicConfig: {
         enabled: false, projectToken: '', surveyId: '', apiHost: '', uiHost: ''
@@ -6516,6 +6576,10 @@ async function run() {
     await step('testSdkLoadTimeout', testSdkLoadTimeout);
     await step('testFlagsTimeout', testFlagsTimeout);
     await step('testSurveyFetchTimeout', testSurveyFetchTimeout);
+    await step('testPreloadWarmsSdkBeforeFirstDownload', testPreloadWarmsSdkBeforeFirstDownload);
+    await step('testPreloadLoadsSdkScriptEarly', testPreloadLoadsSdkScriptEarly);
+    await step('testPreloadSkipsSdkInitWhenStateBlocks', testPreloadSkipsSdkInitWhenStateBlocks);
+    await step('testPreloadBeforeInitIsNoop', testPreloadBeforeInitIsNoop);
     await step('testDisabledConfigDoesNothing', testDisabledConfigDoesNothing);
     await step('testPartialConfigTreatedAsDisabled', testPartialConfigTreatedAsDisabled);
     await step('testFirstDownloadTriggerConditions', testFirstDownloadTriggerConditions);

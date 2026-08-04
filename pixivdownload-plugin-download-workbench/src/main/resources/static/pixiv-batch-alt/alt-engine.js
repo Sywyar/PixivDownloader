@@ -1065,6 +1065,15 @@ function stopAndClear() {
    按钮处理
    ============================================================ */
 async function handleStart() {
+    // 布局偏好调查预加载：点击开始下载即异步预热 SDK 与服务端状态，
+    // 首个作品完成时弹窗不再等待（失败不影响下载）。
+    if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.preload === 'function') {
+        try {
+            window.PixivLayoutFeedback.preload();
+        } catch (_) {
+            // 预加载失败不影响下载
+        }
+    }
     start();
 }
 
