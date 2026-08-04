@@ -14,6 +14,7 @@ jobs:
     outputs:
       version: ${{ steps.vars.outputs.version }}
       date: ${{ steps.vars.outputs.date }}
+      has_changes: ${{ steps.changelog.outputs.has_changes }}
 
     steps:
       - name: Fix Git UTF-8 filenames
@@ -24,6 +25,29 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Check changelog diff
+        id: changelog
+        shell: bash
+        run: |
+          git fetch --tags origin 2>/dev/null || true
+
+          if git rev-parse --verify nightly^{commit} >/dev/null 2>&1; then
+            git diff nightly -- CHANGELOG.md \
+              | awk '/^\+\+\+/ { next } /^\+/ { sub(/^\+/, ""); print }' > CHANGELOG_DIFF.md
+          else
+            awk '
+              /^## \[Unreleased\]/ { found=1; next }
+              /^## \[/ { if (found) exit }
+              found { print }
+            ' CHANGELOG.md > CHANGELOG_DIFF.md
+          fi
+
+          if [ -s CHANGELOG_DIFF.md ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Resolve next version
         id: vars
@@ -42,6 +66,8 @@ jobs:
           echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
   publish-plugins:
+    needs: [resolve-version]
+    if: needs.resolve-version.outputs.has_changes == 'true'
     uses: ./.github/workflows/publish-plugins.yml
     secrets:
       PLUGINS_REPO_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
@@ -50,6 +76,7 @@ jobs:
 
   build-jar:
     needs: [resolve-version, publish-plugins]
+    if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,28 +137,35 @@ jobs:
 
       - name: Stage executable JAR
         run: |
-          BOOT_JAR=$(ls pixivdownload-app/target/PixivDownload-*-boot.jar | head -n 1 || true)
-          if [ -z "$BOOT_JAR" ]; then
-            BOOT_JAR=$(ls pixivdownload-app/target/PixivDownload-*.jar | head -n 1 || true)
+          BOOT_JARS=()
+          while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*-boot.jar 2>/dev/null || true)
+          if [ "${#BOOT_JARS[@]}" -eq 0 ]; then
+            while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*.jar 2>/dev/null | grep -vE '(-sources\.jar|-javadoc\.jar|-original\.jar)$' || true)
           fi
-          if [ -z "$BOOT_JAR" ]; then
-            echo "No app jar found" >&2
+          if [ "${#BOOT_JARS[@]}" -ne 1 ]; then
+            echo "Expected exactly one executable app jar, found ${#BOOT_JARS[@]}:" >&2
+            printf '%s\n' "${BOOT_JARS[@]}" >&2
             exit 1
           fi
+          BOOT_JAR=${BOOT_JARS[0]}
           mkdir -p build/release-jars
           OUTPUT_JAR="build/release-jars/PixivDownload-${{ needs.resolve-version.outputs.version }}.jar"
           cp "$BOOT_JAR" "$OUTPUT_JAR"
+          test -s "$OUTPUT_JAR"
           jar tf "$OUTPUT_JAR" | grep -q '^BOOT-INF/' || {
             echo "Selected jar is not a Spring Boot executable jar: $OUTPUT_JAR" >&2
             exit 1
           }
+          STAGED_COUNT=$(ls build/release-jars/*.jar 2>/dev/null | wc -l)
+          test "$STAGED_COUNT" -eq 1
           ls -l build/release-jars/
 
-      - name: Upload JAR artifact
+      - name: Upload internal app-shell JAR
         uses: actions/upload-artifact@v4
         with:
-          name: jar
+          name: app-shell-jar
           path: build/release-jars/*.jar
+          if-no-files-found: error
 
       - name: Stage official plugin inputs from signed catalog
         shell: pwsh
@@ -148,12 +182,14 @@ jobs:
             -SignatureToolJar $signatureTool.FullName `
             -IncludeOptional
 
-      - name: Assemble full-offline distribution
+      - name: Assemble Java distributions
         shell: pwsh
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
-          $distRoot = "build/plugin-distributions"
-          New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+          $jars = @(Get-ChildItem build/release-jars/PixivDownload-*.jar -File)
+          if ($jars.Count -ne 1) {
+            throw "Expected exactly one staged app-shell JAR under build/release-jars, found $($jars.Count)"
+          }
           $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
             Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
             Sort-Object LastWriteTime -Descending)
@@ -161,29 +197,32 @@ jobs:
             throw "Could not find pixivdownload-plugin-signature tool jar."
           }
           $signatureTool = $signatureTools[0]
-          ./scripts/assemble-plugin-distribution.ps1 `
+          ./scripts/package-java-distributions.ps1 `
             -Version $version `
-            -OutputDir "$distRoot/full-offline" `
+            -PrebuiltJar $jars[0].FullName `
             -PrebuiltPluginsDir build/plugin-inputs `
-            -SignatureToolJar $signatureTool.FullName
-          $source = Join-Path $distRoot "full-offline"
-          $zip = Join-Path $distRoot "PixivDownload-$version-full-offline.zip"
-          Compress-Archive -Path (Join-Path $source "*") -DestinationPath $zip -Force
+            -SignatureToolJar $signatureTool.FullName `
+            -OutputDir build/plugin-distributions
 
       - name: Upload plugin inputs artifact
         uses: actions/upload-artifact@v4
         with:
           name: plugin-inputs
           path: build/plugin-inputs/*
+          if-no-files-found: error
 
-      - name: Upload plugin distributions artifact
+      - name: Upload java distributions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: plugin-distributions
-          path: build/plugin-distributions/PixivDownload-*-full-offline.zip
+          name: java-distributions
+          path: |
+            build/plugin-distributions/PixivDownload-*-java.zip
+            build/plugin-distributions/PixivDownload-*-full-offline.zip
+          if-no-files-found: error
 
   build-windows-installer:
     needs: [resolve-version, build-jar]
+    if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -208,11 +247,11 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      - name: Download JAR artifact
+      - name: Download internal app-shell JAR
         uses: actions/download-artifact@v4
         with:
-          name: jar
-          path: artifacts/jar
+          name: app-shell-jar
+          path: artifacts/app-shell-jar
 
       - name: Download plugin inputs artifact
         uses: actions/download-artifact@v4
@@ -228,9 +267,9 @@ jobs:
         shell: pwsh
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
-          $jars = @(Get-ChildItem artifacts/jar/PixivDownload-*.jar -File)
+          $jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)
           if ($jars.Count -ne 1) {
-            throw "Expected exactly one executable JAR artifact under artifacts/jar, found $($jars.Count)"
+            throw "Expected exactly one executable JAR artifact under artifacts/app-shell-jar, found $($jars.Count)"
           }
           $jar = $jars[0]
           $pluginsDir = (Resolve-Path artifacts/plugin-inputs).Path
@@ -257,6 +296,7 @@ jobs:
 
   release-nightly:
     needs: [resolve-version, build-jar, build-windows-installer]
+    if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -274,11 +314,11 @@ jobs:
           name: windows-installer
           path: artifacts/
 
-      - name: Download plugin distribution artifacts
+      - name: Download java distribution artifacts
         uses: actions/download-artifact@v4
         with:
-          name: plugin-distributions
-          path: artifacts/plugin-distributions
+          name: java-distributions
+          path: artifacts/java-distributions
 
       - name: Diff changelog since last nightly
         id: changelog
@@ -366,12 +406,14 @@ jobs:
           ### Windows 安装包
           下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装包的“附加功能”页可选安装 FFmpeg；除 Douyin 外的面向用户的官方插件已在构建期预置，安装器中的插件选择页当前暂时跳过，Douyin 可在启动后从 Web 插件市场按需安装。
 
+          ### Java 标准包（跨平台）
+          下载 `PixivDownload-*-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。需要自行安装 Java 17。
+          Windows 上执行 `run.bat`；Linux / macOS 在解压目录内执行 `sh run.sh`。
+          该包包含核心壳与除 Douyin 外的全部面向用户的签名官方插件，与 Windows 安装包默认插件集合一致；Douyin 可在启动后从 Web 插件市场按需安装。包内不包含 JRE，也不包含 FFmpeg。
+
           ### 离线全量包（跨平台）
-          下载 `PixivDownload-*-full-offline.zip`，解压后在目录内运行：
-          ```
-          java -Dfile.encoding=UTF-8 -jar PixivDownload-*.jar
-          ```
-          该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`。Nightly Release 不再提供独立 JAR、core-shell-only 包或 default-downloader 包作为普通下载附件。
+          下载 `PixivDownload-*-full-offline.zip` 并完整解压，Windows 上执行 `run.bat`，Linux / macOS 执行 `sh run.sh`。
+          该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`。需要自行安装 Java 17；包内不包含 JRE，也不包含 FFmpeg。
           EOF
 
           if [ "${{ steps.changelog.outputs.has_notes }}" = "true" ]; then
@@ -413,5 +455,6 @@ jobs:
           prerelease: true
           files: |
             artifacts/*-setup.exe
-            artifacts/plugin-distributions/*-full-offline.zip
+            artifacts/java-distributions/*-java.zip
+            artifacts/java-distributions/*-full-offline.zip
             artifacts/update.json

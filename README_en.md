@@ -66,19 +66,31 @@
 
 Download the latest version from [Releases](../../releases):
 
-| Type                                | Description                                                         |
-|-------------------------------------|---------------------------------------------------------------------|
-| `PixivDownload-vX.X.X.jar`          | Universal JAR, requires Java 17+                                    |
-| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install |
+| Type                                | Description                                                                                          |
+|-------------------------------------|------------------------------------------------------------------------------------------------------|
+| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install; preinstalls all official plugins except Douyin |
+| `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same default plugin set as the Windows installer, no Douyin |
+| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; includes all user-facing official plugins including Douyin |
+
+> The core-shell `PixivDownload-*.jar` is only an internal build input and is not provided as a regular user
+> attachment; running it standalone is missing the required `download-workbench` external plugin and enters
+> recovery/repair mode.
+
+The Java standard package and the full-offline package must be **fully extracted** before use — do not take out only
+the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
+loaded from the working directory's `plugins/` folder at startup.
 
 ### Run
 
 ```bash
-# Start from JAR
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
-
-# Start from Windows EXE
+# Windows installer
 PixivDownload.exe
+
+# Java standard / full-offline package (Windows)
+run.bat
+
+# Java standard / full-offline package (Linux/macOS, requires Java 17)
+sh run.sh
 
 # Optional arguments
 --no-gui    # Disable the GUI and run in CLI-only mode (server/Docker)

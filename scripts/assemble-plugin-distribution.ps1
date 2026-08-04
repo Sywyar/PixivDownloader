@@ -20,14 +20,18 @@
             <plugin>-<version>.jar.sha256        # per-package sha256 checksum file
             provenance/
               <plugin>-<version>.jar.pixiv-plugin-provenance
+          run.bat                                # Windows launcher (CRLF, no BOM)
+          run.sh                                 # POSIX sh launcher (LF, no BOM)
           SHA256SUMS                             # aggregate checksum file (sha256sum -c compatible)
           plugins-manifest.json                  # per external plugin: id / version / requires / file / sha256
 
     The boot jar alone is the core-shell package and must enter recovery/repair mode because the required
     download-workbench plugin is missing. The default downloader is the boot jar plus every user-facing official plugin
-    except Douyin under plugins/. The full-offline bundle additionally carries Douyin:
-    run `java -jar PixivDownload-<Version>.jar` from that directory and the runtime loads external plugins
-    from the working-directory plugins/ folder.
+    except Douyin under plugins/. The full-offline bundle additionally carries Douyin. The launcher scripts
+    reference the exact PixivDownload-<Version>.jar staged for this distribution, set
+    -Dpixivdownload.plugins-dir to the distribution's plugins/ folder, and forward all user arguments
+    (run.bat passes %* and returns the Java exit code; run.sh uses exec with "$@"). CoreShellOnly layouts
+    stay a pure core-shell package and do not get launcher scripts.
 
     The script self-checks official plugins for their declared form (thin jar or jar with private lib/*.jar)
     and the boot jar for the distribution boundary (no external plugin classes / static / i18n; PF4J only
@@ -51,6 +55,14 @@
     Directory containing official plugin artifacts downloaded from the signed plugin catalog. When an artifact has
     an adjacent .sig sidecar, the signature is verified and reused instead of generating a new local signature.
 
+.PARAMETER PrebuiltJar
+    Exact path to a prebuilt executable app boot jar to stage as the distribution core shell. Mutually exclusive
+    with -Build. The path is resolved and validated before the script changes the current directory: the file must
+    exist, be a non-empty *.jar, be readable as a zip, and contain the Spring Boot executable layout (BOOT-INF/);
+    the staged jar then still passes the boot jar distribution boundary self-check. When -PrebuiltJar is set the
+    script never calls Get-AppBootJar. When omitted the local development behavior is preserved: -Build may run
+    Maven first and the app boot jar is located under pixivdownload-app/target.
+
 .PARAMETER Build
     Run Maven `package` (skip tests and userscript generation) before staging; otherwise the reactor jars
     must already be built.
@@ -64,6 +76,7 @@ param(
     [string]$Version = "0.0.1-local",
     [string]$OutputDir,
     [string]$PrebuiltPluginsDir,
+    [string]$PrebuiltJar,
     [switch]$Build,
     [switch]$CoreShellOnly,
     [switch]$DefaultDownloader,
@@ -283,6 +296,36 @@ function Find-PrebuiltPluginArtifact {
     return $candidate.FullName
 }
 
+# Resolve and strictly validate the exact prebuilt core jar BEFORE Push-Location changes the current
+# directory, so a caller-provided relative path resolves in the caller's directory, not under
+# $ProjectRoot. With -PrebuiltJar set the script never calls Get-AppBootJar; the final selected jar
+# path is $SelectedAppJar, used for boundary verification, Copy-Item and logging alike.
+$SelectedAppJar = ""
+if ($PrebuiltJar) {
+    if ($Build) {
+        throw "Build and PrebuiltJar cannot be combined."
+    }
+    if (-not (Test-Path -LiteralPath $PrebuiltJar -PathType Leaf)) {
+        throw "PrebuiltJar not found or not a file: $PrebuiltJar"
+    }
+    $prebuiltItem = Get-Item -LiteralPath $PrebuiltJar
+    if (-not $prebuiltItem.Extension.Equals(".jar", [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "PrebuiltJar must be a .jar file: $PrebuiltJar"
+    }
+    if ($prebuiltItem.Length -le 0) {
+        throw "PrebuiltJar is empty: $PrebuiltJar"
+    }
+    $SelectedAppJar = $prebuiltItem.FullName
+    try {
+        $prebuiltEntries = @(Get-ZipEntryNames $SelectedAppJar)
+    } catch {
+        throw "PrebuiltJar cannot be read as a zip/jar: $PrebuiltJar ($($_.Exception.Message))"
+    }
+    if (-not ($prebuiltEntries | Where-Object { $_.StartsWith("BOOT-INF/") })) {
+        throw "PrebuiltJar is not a Spring Boot executable jar (missing BOOT-INF/): $PrebuiltJar"
+    }
+}
+
 Push-Location $ProjectRoot
 try {
     if ($Build) {
@@ -293,13 +336,19 @@ try {
     }
 
     Write-Step "Locating built artifacts"
-    $bootJar = Get-AppBootJar
-    if (-not $bootJar) {
-        throw "Could not find boot jar under pixivdownload-app/target/ (run with -Build or 'mvn package' first)."
+    if (-not $SelectedAppJar) {
+        $appJarCandidate = Get-AppBootJar
+        if (-not $appJarCandidate) {
+            throw "Could not find boot jar under pixivdownload-app/target/ (run with -Build, pass -PrebuiltJar, or 'mvn package' first)."
+        }
+        $SelectedAppJar = $appJarCandidate.FullName
+        Write-Host "    Local target fallback: $SelectedAppJar" -ForegroundColor DarkGray
+    } else {
+        Write-Host "    Exact prebuilt jar: $SelectedAppJar"
     }
 
     Write-Step "Verifying boot jar distribution boundary"
-    Assert-BootJarBoundary $bootJar.FullName
+    Assert-BootJarBoundary $SelectedAppJar
     Write-Host "    OK: boot jar contains core + built-in plugins, excludes external plugin classes/resources." -ForegroundColor Green
 
     Write-Step "Staging distribution to $OutputDir"
@@ -311,7 +360,7 @@ try {
     }
 
     $coreJarName = "PixivDownload-$Version.jar"
-    Copy-Item $bootJar.FullName (Join-Path $OutputDir $coreJarName) -Force
+    Copy-Item $SelectedAppJar (Join-Path $OutputDir $coreJarName) -Force
 
     $manifest = @()
     $sumLines = @()
@@ -374,6 +423,39 @@ try {
         [System.IO.File]::WriteAllText((Join-Path $OutputDir "plugins-manifest.json"), $manifestJson + "`n", $Utf8NoBom)
     }
 
+    if (-not $CoreShellOnly) {
+        Write-Step "Writing launch scripts"
+        $runBat = @'
+@echo off
+setlocal
+set "APP_HOME=%~dp0"
+cd /d "%APP_HOME%" || exit /b 1
+java -Dfile.encoding=UTF-8 "-Dpixivdownload.plugins-dir=%APP_HOME%plugins" -jar "%APP_HOME%PixivDownload-VERSION.jar" %*
+exit /b %ERRORLEVEL%
+'@
+        $runBat = $runBat.Replace("PixivDownload-VERSION.jar", $coreJarName)
+        $runBat = ($runBat -replace "`r?`n", "`r`n")
+        [System.IO.File]::WriteAllText((Join-Path $OutputDir "run.bat"), $runBat, $Utf8NoBom)
+
+        $runSh = @'
+#!/usr/bin/env sh
+set -eu
+
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$APP_HOME"
+
+exec java \
+  -Dfile.encoding=UTF-8 \
+  "-Dpixivdownload.plugins-dir=$APP_HOME/plugins" \
+  -jar "$APP_HOME/PixivDownload-VERSION.jar" \
+  "$@"
+'@
+        $runSh = $runSh.Replace("PixivDownload-VERSION.jar", $coreJarName)
+        $runSh = ($runSh -replace "`r?`n", "`n")
+        [System.IO.File]::WriteAllText((Join-Path $OutputDir "run.sh"), $runSh, $Utf8NoBom)
+        Write-Host "    OK: run.bat (CRLF) and run.sh (LF) reference the exact $coreJarName." -ForegroundColor Green
+    }
+
     Write-Step "Done"
     Assert-NoPrivateKeyMaterial $OutputDir
     Write-Host "Distribution : $OutputDir"
@@ -392,6 +474,7 @@ try {
     }
     if (-not $CoreShellOnly) {
         Write-Host "Checksums    : SHA256SUMS + per-plugin .sha256 + .sig + provenance sidecar + plugins-manifest.json"
+        Write-Host "Launch       : run.bat (Windows) / sh run.sh (Linux/macOS) from the distribution directory"
     }
     Write-Host ""
     Write-Host "Run: cd `"$OutputDir`" && java -jar $coreJarName"

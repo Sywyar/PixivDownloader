@@ -99,29 +99,36 @@ jobs:
 
       - name: Stage executable JAR
         run: |
-          BOOT_JAR=$(ls pixivdownload-app/target/PixivDownload-*-boot.jar | head -n 1 || true)
-          if [ -z "$BOOT_JAR" ]; then
-            BOOT_JAR=$(ls pixivdownload-app/target/PixivDownload-*.jar | head -n 1 || true)
+          BOOT_JARS=()
+          while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*-boot.jar 2>/dev/null || true)
+          if [ "${#BOOT_JARS[@]}" -eq 0 ]; then
+            while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*.jar 2>/dev/null | grep -vE '(-sources\.jar|-javadoc\.jar|-original\.jar)$' || true)
           fi
-          if [ -z "$BOOT_JAR" ]; then
-            echo "No app jar found" >&2
+          if [ "${#BOOT_JARS[@]}" -ne 1 ]; then
+            echo "Expected exactly one executable app jar, found ${#BOOT_JARS[@]}:" >&2
+            printf '%s\n' "${BOOT_JARS[@]}" >&2
             exit 1
           fi
+          BOOT_JAR=${BOOT_JARS[0]}
           VERSION=${GITHUB_REF_NAME:-snapshot}
           mkdir -p build/release-jars
           OUTPUT_JAR="build/release-jars/PixivDownload-${VERSION}.jar"
           cp "$BOOT_JAR" "$OUTPUT_JAR"
+          test -s "$OUTPUT_JAR"
           jar tf "$OUTPUT_JAR" | grep -q '^BOOT-INF/' || {
             echo "Selected jar is not a Spring Boot executable jar: $OUTPUT_JAR" >&2
             exit 1
           }
+          STAGED_COUNT=$(ls build/release-jars/*.jar 2>/dev/null | wc -l)
+          test "$STAGED_COUNT" -eq 1
           ls -l build/release-jars/
 
-      - name: Upload JAR artifact
+      - name: Upload internal app-shell JAR
         uses: actions/upload-artifact@v4
         with:
-          name: jar
+          name: app-shell-jar
           path: build/release-jars/*.jar
+          if-no-files-found: error
 
       - name: Stage official plugin inputs from signed catalog
         shell: pwsh
@@ -138,12 +145,14 @@ jobs:
             -SignatureToolJar $signatureTool.FullName `
             -IncludeOptional
 
-      - name: Assemble full-offline distribution
+      - name: Assemble Java distributions
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME
-          $distRoot = "build/plugin-distributions"
-          New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+          $jars = @(Get-ChildItem build/release-jars/PixivDownload-*.jar -File)
+          if ($jars.Count -ne 1) {
+            throw "Expected exactly one staged app-shell JAR under build/release-jars, found $($jars.Count)"
+          }
           $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
             Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
             Sort-Object LastWriteTime -Descending)
@@ -151,26 +160,28 @@ jobs:
             throw "Could not find pixivdownload-plugin-signature tool jar."
           }
           $signatureTool = $signatureTools[0]
-          ./scripts/assemble-plugin-distribution.ps1 `
+          ./scripts/package-java-distributions.ps1 `
             -Version $version `
-            -OutputDir "$distRoot/full-offline" `
+            -PrebuiltJar $jars[0].FullName `
             -PrebuiltPluginsDir build/plugin-inputs `
-            -SignatureToolJar $signatureTool.FullName
-          $source = Join-Path $distRoot "full-offline"
-          $zip = Join-Path $distRoot "PixivDownload-$version-full-offline.zip"
-          Compress-Archive -Path (Join-Path $source "*") -DestinationPath $zip -Force
+            -SignatureToolJar $signatureTool.FullName `
+            -OutputDir build/plugin-distributions
 
       - name: Upload plugin inputs artifact
         uses: actions/upload-artifact@v4
         with:
           name: plugin-inputs
           path: build/plugin-inputs/*
+          if-no-files-found: error
 
-      - name: Upload plugin distributions artifact
+      - name: Upload java distributions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: plugin-distributions
-          path: build/plugin-distributions/PixivDownload-*-full-offline.zip
+          name: java-distributions
+          path: |
+            build/plugin-distributions/PixivDownload-*-java.zip
+            build/plugin-distributions/PixivDownload-*-full-offline.zip
+          if-no-files-found: error
 
   build-windows-installer:
     needs: build-jar
@@ -208,11 +219,11 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download JAR artifact
+      - name: Download internal app-shell JAR
         uses: actions/download-artifact@v4
         with:
-          name: jar
-          path: artifacts/jar
+          name: app-shell-jar
+          path: artifacts/app-shell-jar
 
       - name: Download plugin inputs artifact
         uses: actions/download-artifact@v4
@@ -228,9 +239,9 @@ jobs:
         shell: pwsh
         run: |
           $version = '${{ steps.vars.outputs.version }}'
-          $jars = @(Get-ChildItem artifacts/jar/PixivDownload-*.jar -File)
+          $jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)
           if ($jars.Count -ne 1) {
-            throw "Expected exactly one executable JAR artifact under artifacts/jar, found $($jars.Count)"
+            throw "Expected exactly one executable JAR artifact under artifacts/app-shell-jar, found $($jars.Count)"
           }
           $jar = $jars[0]
           $pluginsDir = (Resolve-Path artifacts/plugin-inputs).Path
@@ -274,11 +285,11 @@ jobs:
           name: windows-installer
           path: artifacts/
 
-      - name: Download plugin distribution artifacts
+      - name: Download java distribution artifacts
         uses: actions/download-artifact@v4
         with:
-          name: plugin-distributions
-          path: artifacts/plugin-distributions
+          name: java-distributions
+          path: artifacts/java-distributions
 
       - name: Build release notes
         shell: bash
@@ -309,7 +320,7 @@ jobs:
           cat > RELEASE_BODY.md <<'EOF'
           > [!NOTE]
           > 自 v1.8.0 版本更新中，我大量优化了网页的布局和功能统一性，希望可以让使用变得更方便和直观，如果有任何优化建议和问题欢迎提出issue
-          > 发布附件仅提供 Windows 安装包和离线全量包，避免用户在多个 JAR / 插件分发包之间选择。
+          > 发布附件提供 Windows 安装包、与安装包默认插件集合一致的跨平台 Java 标准包，以及额外包含 Douyin 的离线全量包；核心壳 JAR 仅作为内部构建输入，不再单独提供。
 
           EOF
           cat CHANGELOG_EXCERPT.md >> RELEASE_BODY.md
@@ -324,14 +335,14 @@ jobs:
           FFmpeg 不再内置到安装包中；勾选该选项后，安装器会在主程序安装完成后联网下载 FFmpeg，并显示独立下载/解压进度。未勾选或下载失败时，普通图片下载不受影响，后续也可以在 GUI 的“状态”页点击“下载 FFmpeg”重试。
           安装器中的插件选择页当前暂时跳过；Douyin 插件可在启动后从 Web 插件市场按需安装。
 
+          ### Java 标准包（跨平台）
+          下载 `PixivDownload-${{ github.ref_name }}-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。需要自行安装 Java 17。
+          Windows 上执行 `run.bat`；Linux / macOS 在解压目录内执行 `sh run.sh`。
+          该包包含核心壳与除 Douyin 外的全部面向用户的签名官方插件，与 Windows 安装包默认插件集合一致；Douyin 可在启动后从 Web 插件市场按需安装。包内不包含 JRE，也不包含 FFmpeg。
+
           ### 离线全量包（跨平台）
-          下载 `PixivDownload-${{ github.ref_name }}-full-offline.zip`，解压后在目录内运行：
-
-          ```
-          java -Dfile.encoding=UTF-8 -jar PixivDownload-${{ github.ref_name }}.jar
-          ```
-
-          该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，适合离线部署或非 Windows 环境。Release 不再提供独立 JAR、core-shell-only 包或 default-downloader 包作为普通下载附件。
+          下载 `PixivDownload-${{ github.ref_name }}-full-offline.zip` 并完整解压，Windows 上执行 `run.bat`，Linux / macOS 执行 `sh run.sh`。
+          该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，适合离线部署或非 Windows 环境。需要自行安装 Java 17；包内不包含 JRE，也不包含 FFmpeg。
 
           ### 网页端一站式下载
 
@@ -394,7 +405,8 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-beta') }}
           files: |
             artifacts/*-setup.exe
-            artifacts/plugin-distributions/*-full-offline.zip
+            artifacts/java-distributions/*-java.zip
+            artifacts/java-distributions/*-full-offline.zip
             artifacts/update.json
           body_path: RELEASE_BODY.md
 

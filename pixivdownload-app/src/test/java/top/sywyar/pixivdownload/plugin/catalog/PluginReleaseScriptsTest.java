@@ -593,6 +593,7 @@ class PluginReleaseScriptsTest {
     @DisplayName("本地 unsigned 安装器开关不得进入正式分发或发布 workflow")
     void unsignedLocalInstallerModeIsExcludedFromDistributionAndReleaseWorkflows() throws Exception {
         assertThat(script("assemble-plugin-distribution.ps1")).doesNotContain("AllowUnsignedLocalPlugins");
+        assertThat(script("package-java-distributions.ps1")).doesNotContain("AllowUnsignedLocalPlugins");
         assertThat(script("stage-official-plugin-inputs-from-catalog.ps1"))
                 .doesNotContain("AllowUnsignedLocalPlugins");
         for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
@@ -829,8 +830,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("release/nightly 工作流只上传已验证的可执行 boot jar，避免普通 jar 混入安装器")
-    void releaseWorkflowsUploadOnlyStagedExecutableBootJar() throws Exception {
+    @DisplayName("release/nightly 只上传恰好一个内部 app-shell JAR，安装器消费同一 artifact")
+    void releaseWorkflowsUploadOnlyStagedAppShellJar() throws Exception {
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
 
@@ -838,18 +839,34 @@ class PluginReleaseScriptsTest {
                     "Stage executable JAR",
                     "build/release-jars",
                     "jar tf \"$OUTPUT_JAR\" | grep -q '^BOOT-INF/'",
+                    "test -s \"$OUTPUT_JAR\"",
+                    "STAGED_COUNT",
                     "path: build/release-jars/*.jar",
-                    "$jars = @(Get-ChildItem artifacts/jar/PixivDownload-*.jar -File)",
+                    "name: app-shell-jar",
+                    "if-no-files-found: error",
+                    "Upload internal app-shell JAR",
+                    "Download internal app-shell JAR",
+                    "path: artifacts/app-shell-jar",
+                    "$jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)",
                     "$jars.Count -ne 1",
                     "$jar = $jars[0]");
-            assertThat(workflow).as(name).doesNotContain("path: pixivdownload-app/target/PixivDownload-*.jar");
-            assertThat(workflow).as(name).doesNotContain("PixivDownload-*-boot.jar -File | Select-Object -First 1");
+            // 候选必须唯一：优先 boot jar，回退普通可执行 jar 时排除 sources/javadoc/original，
+            // 不得静默取第一个。
+            assertThat(workflow).as(name).contains(
+                    "Expected exactly one executable app jar",
+                    "PixivDownload-*-boot.jar 2>/dev/null",
+                    "-original\\.jar");
+            assertThat(workflow).as(name).doesNotContain(
+                    "name: jar",
+                    "artifacts/jar",
+                    "path: artifacts/jar",
+                    "path: pixivdownload-app/target/PixivDownload-*.jar");
         }
     }
 
     @Test
-    @DisplayName("release/nightly 工作流只发布签名 full-offline 分发布局而不是裸插件 jar")
-    void releaseWorkflowsPublishSignedPluginDistributions() throws Exception {
+    @DisplayName("release/nightly 经共享脚本发布 java-standard 与 full-offline 签名分发布局")
+    void releaseWorkflowsPublishJavaDistributions() throws Exception {
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
 
@@ -858,37 +875,262 @@ class PluginReleaseScriptsTest {
                     "uses: ./.github/workflows/publish-plugins.yml",
                     "Stage official plugin inputs from signed catalog",
                     "stage-official-plugin-inputs-from-catalog.ps1",
-                    "Assemble full-offline distribution",
-                    "full-offline",
+                    "-IncludeOptional",
+                    "Assemble Java distributions",
+                    "package-java-distributions.ps1",
+                    "-PrebuiltJar $jars[0].FullName",
                     "-PrebuiltPluginsDir build/plugin-inputs",
                     "-SignatureToolJar $signatureTool.FullName",
-                    "name: plugin-distributions",
-                    "path: build/plugin-distributions/PixivDownload-*-full-offline.zip",
-                    "path: artifacts/plugin-distributions",
-                    "artifacts/plugin-distributions/*-full-offline.zip",
+                    "name: java-distributions",
+                    "build/plugin-distributions/PixivDownload-*-java.zip",
+                    "build/plugin-distributions/PixivDownload-*-full-offline.zip",
+                    "if-no-files-found: error",
+                    "path: artifacts/java-distributions",
                     "name: plugin-inputs",
                     "path: build/plugin-inputs/*",
                     "path: artifacts/plugin-inputs",
-                    "full-offline.zip",
-                    "plugins-manifest.json",
                     "Generate update manifest",
                     "artifacts/update.json",
                     "\"win-x64-installer\"");
+            // 最终 Release files 只含安装包 + 两个 ZIP + update.json，绝不含裸 JAR / app-shell JAR。
+            String filesBlock = workflow.substring(workflow.lastIndexOf("files: |"));
+            assertThat(filesBlock).as(name + " release files").contains(
+                    "artifacts/*-setup.exe",
+                    "artifacts/java-distributions/*-java.zip",
+                    "artifacts/java-distributions/*-full-offline.zip",
+                    "artifacts/update.json")
+                    .doesNotContain(".jar");
             assertThat(workflow).as(name).doesNotContain(
                     "Prepare plugin signing private key",
                     "PLUGIN_SIGNING_PRIVATE_KEY_FILE",
-                    "pixivdownload-plugin-duplicate/target/pixivdownload-plugin-duplicate-*.jar",
                     "-CoreShellOnly",
                     "-DefaultDownloader",
                     "default-downloader.zip",
                     "core-shell-only.zip",
-                    "artifacts/plugin-distributions/*.zip",
-                    "artifacts/plugins/*.jar",
+                    "name: jar",
+                    "artifacts/jar",
                     "name: plugins",
                     "path: build/release-plugins/*.jar",
-                    "build/release-plugins",
-                    "Release 附件中的 `pixivdownload-plugin-download-workbench-*.jar`",
-                    "同一 Nightly 附件中的 `pixivdownload-plugin-download-workbench-*.jar`");
+                    "artifacts/plugins/*.jar");
+        }
+    }
+
+    @Test
+    @DisplayName("分发组装脚本支持精确 PrebuiltJar 输入：互斥、严格验证、精确路径、本地 fallback 保留")
+    void distributionAssemblerSupportsExactPrebuiltJarInput() throws Exception {
+        String distribution = script("assemble-plugin-distribution.ps1");
+
+        assertThat(distribution).contains(
+                "[string]$PrebuiltJar",
+                "Build and PrebuiltJar cannot be combined.",
+                "Test-Path -LiteralPath $PrebuiltJar -PathType Leaf",
+                "$prebuiltItem.Extension.Equals(\".jar\", [System.StringComparison]::OrdinalIgnoreCase)",
+                "PrebuiltJar is empty",
+                "PrebuiltJar cannot be read as a zip/jar",
+                "missing BOOT-INF/",
+                "$SelectedAppJar = $prebuiltItem.FullName",
+                "if (-not $SelectedAppJar) {",
+                "Get-AppBootJar",
+                "Assert-BootJarBoundary $SelectedAppJar",
+                "Copy-Item $SelectedAppJar (Join-Path $OutputDir $coreJarName) -Force");
+        // 路径解析必须发生在 Push-Location 切目录之前。
+        assertThat(distribution.indexOf("$SelectedAppJar = $prebuiltItem.FullName"))
+                .as("PrebuiltJar 解析必须先于 Push-Location")
+                .isLessThan(distribution.indexOf("Push-Location $ProjectRoot"));
+        // 指定 PrebuiltJar 后不再走 Get-AppBootJar：fallback 分支整体位于 Push-Location 之后。
+        assertThat(distribution.indexOf("if (-not $SelectedAppJar) {"))
+                .as("PrebuiltJar 指定后不再调用 Get-AppBootJar")
+                .isGreaterThan(distribution.indexOf("Push-Location $ProjectRoot"));
+    }
+
+    @Test
+    @DisplayName("非 CoreShellOnly 分发生成引用精确 JAR 的 run.bat / run.sh 启动脚本")
+    void distributionAssemblerGeneratesLaunchScripts() throws Exception {
+        String distribution = script("assemble-plugin-distribution.ps1");
+
+        assertThat(distribution).contains(
+                "Writing launch scripts",
+                "$coreJarName = \"PixivDownload-$Version.jar\"",
+                "$runBat = $runBat.Replace(\"PixivDownload-VERSION.jar\", $coreJarName)",
+                "$runSh = $runSh.Replace(\"PixivDownload-VERSION.jar\", $coreJarName)",
+                "[System.IO.File]::WriteAllText((Join-Path $OutputDir \"run.bat\")",
+                "[System.IO.File]::WriteAllText((Join-Path $OutputDir \"run.sh\")",
+                "$runBat = ($runBat -replace \"`r?`n\", \"`r`n\")",
+                "$runSh = ($runSh -replace \"`r?`n\", \"`n\")",
+                "$Utf8NoBom");
+        // run.bat 契约：%~dp0 / 切目录 / plugins-dir / 精确 JAR 名 / %* 透传 / ERRORLEVEL。
+        Matcher runBat = Pattern.compile("@echo off(?<body>.*?)exit /b %ERRORLEVEL%", Pattern.DOTALL)
+                .matcher(distribution);
+        assertThat(runBat.find()).isTrue();
+        assertThat(runBat.group("body")).contains(
+                "setlocal",
+                "set \"APP_HOME=%~dp0\"",
+                "cd /d \"%APP_HOME%\" || exit /b 1",
+                "\"-Dpixivdownload.plugins-dir=%APP_HOME%plugins\"",
+                "\"%APP_HOME%PixivDownload-VERSION.jar\" %*")
+                .doesNotContain("*.jar", "Get-ChildItem", "head");
+        // run.sh 契约：#!/usr/bin/env sh / 自解析目录 / plugins-dir / 精确 JAR 名 / "$@" / exec。
+        Matcher runSh = Pattern.compile("#!/usr/bin/env sh(?<body>.*?\"\\$@\")", Pattern.DOTALL)
+                .matcher(distribution);
+        assertThat(runSh.find()).isTrue();
+        assertThat(runSh.group("body")).contains(
+                "set -eu",
+                "APP_HOME=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)",
+                "cd \"$APP_HOME\"",
+                "\"-Dpixivdownload.plugins-dir=$APP_HOME/plugins\"",
+                "\"$APP_HOME/PixivDownload-VERSION.jar\" \\",
+                "\"$@\"")
+                .doesNotContain("*.jar", "Get-ChildItem", "head");
+    }
+
+    @Test
+    @DisplayName("共享 Java 分发编排脚本两次调用组装器并做真实布局验收")
+    void javaDistributionOrchestratorContract() throws Exception {
+        String orchestrator = script("package-java-distributions.ps1");
+
+        assertThat(orchestrator).contains(
+                "[Parameter(Mandatory = $true)][string]$Version",
+                "[Parameter(Mandatory = $true)][string]$PrebuiltJar",
+                "[Parameter(Mandatory = $true)][string]$PrebuiltPluginsDir",
+                "[Parameter(Mandatory = $true)][string]$SignatureToolJar",
+                "[string]$OutputDir",
+                "assemble-plugin-distribution.ps1",
+                "-PrebuiltJar $ResolvedPrebuiltJar",
+                "-PrebuiltPluginsDir $ResolvedPrebuiltPluginsDir",
+                "-SignatureToolJar $ResolvedSignatureToolJar",
+                "-DefaultDownloader",
+                "Get-OfficialDefaultInstalledPlugins",
+                "Get-OfficialDistributionPlugins -IncludeOptional",
+                "PixivDownload-$Version-java.zip",
+                "PixivDownload-$Version-full-offline.zip",
+                "Assert-DistributionLayout",
+                "run.bat",
+                "run.sh",
+                "plugins-manifest.json",
+                "SHA256SUMS",
+                "LOCAL-UNSIGNED-BUILD.txt",
+                "$prov[\"status\"] -ne \"VERIFIED\"",
+                "$prov[\"source\"] -ne \"MARKET_CATALOG\"",
+                "Compress-Archive",
+                "$InputJarSha256 = Get-Sha256Hex $ResolvedPrebuiltJar",
+                "-InputJarSha256 $InputJarSha256");
+        // 不接收私钥 / 本地 unsigned 输入。
+        assertThat(orchestrator).doesNotContain(
+                "AllowUnsignedLocalPlugins",
+                "PrivateKeyFile",
+                "OfficialKeyId",
+                "-----BEGIN PRIVATE KEY-----",
+                "-----END PRIVATE KEY-----");
+        // java-standard（DefaultDownloader）先于 full-offline；两次调用使用同一组输入；
+        // 布局验收必须先于压缩，避免半成品被打包。
+        assertThat(orchestrator.indexOf("-DefaultDownloader"))
+                .as("java-standard 调用必须先于 full-offline")
+                .isLessThan(orchestrator.indexOf("Assembling full-offline"));
+        assertThat(orchestrator.indexOf("& $AssemblerScript", orchestrator.indexOf("Assembling java-standard")))
+                .as("组装器必须被调用两次").isGreaterThan(0);
+        assertThat(orchestrator.indexOf("& $AssemblerScript", orchestrator.indexOf("Assembling full-offline")))
+                .as("组装器必须被调用两次").isGreaterThan(0);
+        assertThat(orchestrator.indexOf("Compress-Archive"))
+                .as("布局验收必须先于压缩")
+                .isGreaterThan(orchestrator.indexOf("-InputJarSha256 $InputJarSha256"));
+    }
+
+    @Test
+    @DisplayName("Java 分发编排脚本保持 ASCII 无 BOM（Windows PowerShell 5.1 兼容）")
+    void javaDistributionOrchestratorIsAsciiWithoutBom() throws Exception {
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-java-distributions.ps1"));
+    }
+
+    @Test
+    @DisplayName("Windows 打包与 Java 标准包共享同一默认插件集合来源，无第二份发行插件列表")
+    void setupAndJavaStandardShareDefaultInstalledSet() throws Exception {
+        String windows = script("package-local.ps1");
+        String orchestrator = script("package-java-distributions.ps1");
+        String distribution = script("assemble-plugin-distribution.ps1");
+
+        assertThat(windows).contains("$defaultInstalledPlugins = @(Get-OfficialDefaultInstalledPlugins)");
+        assertThat(orchestrator).contains(
+                "$DefaultInstalledIds = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Id })");
+        assertThat(distribution).contains(
+                "Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader)");
+        // 打包脚本不得自带第二份硬编码插件清单（common 才是唯一事实源）。
+        for (String name : List.of(
+                "package-java-distributions.ps1",
+                "assemble-plugin-distribution.ps1",
+                "package-local.ps1")) {
+            assertThat(script(name)).as(name).doesNotContain(
+                    "Id = \"download-workbench\"",
+                    "Id = \"gui-theme\"",
+                    "Id = \"douyin\"",
+                    "Id = \"stats\"");
+        }
+    }
+
+    @Test
+    @DisplayName("Java 标准包与 full-offline 的 Douyin 语义由共享集合与开关派生")
+    void javaDistributionsDouyinSemantics() throws Exception {
+        String common = script("plugin-distribution-common.ps1");
+        String orchestrator = script("package-java-distributions.ps1");
+        String distribution = script("assemble-plugin-distribution.ps1");
+
+        Matcher defaultInstalled = Pattern.compile(
+                "function Get-OfficialDefaultInstalledPlugins(?<body>.*?)function Get-OfficialOptionalPlugins",
+                Pattern.DOTALL).matcher(common);
+        assertThat(defaultInstalled.find()).isTrue();
+        assertThat(defaultInstalled.group("body")).doesNotContain("Id = \"douyin\"");
+        assertThat(common).contains("Id = \"douyin\"");
+        assertThat(orchestrator).contains(
+                "-DefaultDownloader",
+                "Get-OfficialDistributionPlugins -IncludeOptional",
+                "ExpectDouyin $false",
+                "ExpectDouyin $true",
+                "douyin artifact must not be staged",
+                "must include the douyin plugin");
+        assertThat(distribution).contains(
+                "[switch]$DefaultDownloader",
+                "Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader)");
+    }
+
+    @Test
+    @DisplayName("Release 与 Nightly 使用说明描述 Java 标准包 / 离线全量包新发行矩阵")
+    void releaseNotesDescribeJavaDistributionMatrix() throws Exception {
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+            assertThat(workflow).as(name).contains(
+                    "### Java 标准包（跨平台）",
+                    "Java 17",
+                    "完整解压",
+                    "run.bat",
+                    "sh run.sh",
+                    "除 Douyin 外的全部面向用户的签名官方插件",
+                    "包内不包含 JRE，也不包含 FFmpeg",
+                    "### 离线全量包（跨平台）",
+                    "含 Douyin");
+            assertThat(workflow).as(name).doesNotContain(
+                    "仅提供 Windows 安装包和离线全量包",
+                    "不再提供独立 JAR、core-shell-only 包或 default-downloader 包",
+                    "java -Dfile.encoding=UTF-8 -jar PixivDownload-");
+        }
+    }
+
+    @Test
+    @DisplayName("update 清单只包含 win-x64-installer 资产，不扩展 Java / 离线资产类型")
+    void updateManifestStaysInstallerOnly() throws Exception {
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+            assertThat(workflow).as(name).contains("Generate update manifest");
+            Matcher assets = Pattern.compile("assets: \\{(?<body>.*?)\\}' > artifacts/update\\.json",
+                    Pattern.DOTALL).matcher(workflow);
+            assertThat(assets.find()).as(name + " update manifest assets block").isTrue();
+            String block = assets.group("body");
+            assertThat(block).as(name).doesNotContain(
+                    "java-standard", "java-zip", "java.zip", "full-offline");
+            List<String> keys = new ArrayList<>();
+            Matcher keyMatcher = Pattern.compile("\"([a-z0-9-]+)\":").matcher(block);
+            while (keyMatcher.find()) {
+                keys.add(keyMatcher.group(1));
+            }
+            assertThat(keys).as(name + " update asset keys").containsExactly("win-x64-installer");
         }
     }
 
@@ -923,6 +1165,7 @@ class PluginReleaseScriptsTest {
                 "generate-market-manifest.ps1",
                 "stage-official-plugin-inputs-from-catalog.ps1",
                 "assemble-plugin-distribution.ps1",
+                "package-java-distributions.ps1",
                 "package-installer-with-plugins.ps1",
                 "package-local.ps1")) {
             String script = script(name);

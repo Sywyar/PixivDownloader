@@ -63,17 +63,27 @@
 
 | 类型                                  | 说明                                 |
 |-------------------------------------|------------------------------------|
-| `PixivDownload-vX.X.X.jar`          | 通用 JAR，需 Java 17+                  |
-| `PixivDownload-*-win-x64-setup.exe` | Windows 安装包，支持修复/更改/卸载，可选安装 FFmpeg |
+| `PixivDownload-*-win-x64-setup.exe` | Windows 安装包，支持修复/更改/卸载，可选安装 FFmpeg；预置除 Douyin 外的官方插件 |
+| `PixivDownload-*-java.zip`          | Java 标准包（跨平台），需 Java 17；与 Windows 安装包默认插件集合一致，不含 Douyin |
+| `PixivDownload-*-full-offline.zip`  | 离线全量包（跨平台），需 Java 17；包含含 Douyin 在内的全部面向用户的官方插件 |
+
+> 核心壳 `PixivDownload-*.jar` 仅作为内部构建输入，不作为普通用户附件提供；单独运行它缺少必需的
+> `download-workbench` 外置插件，会进入恢复/修复模式。
+
+Java 标准包和离线全量包必须**完整解压**后使用，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录
+缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
 
 ### 启动
 
 ```bash
-# JAR 启动
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
-
-# Windows EXE 启动
+# Windows 安装包
 PixivDownload.exe
+
+# Java 标准包 / 离线全量包（Windows）
+run.bat
+
+# Java 标准包 / 离线全量包（Linux/macOS，需 Java 17）
+sh run.sh
 
 # 可选参数
 --no-gui    # 禁用 GUI，纯命令行运行（适合服务器/Docker）
