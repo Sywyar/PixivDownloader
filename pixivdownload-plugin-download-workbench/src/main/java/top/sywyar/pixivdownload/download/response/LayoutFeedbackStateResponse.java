@@ -12,11 +12,15 @@ import java.util.Map;
  *
  * <p>GET 响应中的 {@code state} 只在服务端记录的 surveyId 与请求一致时返回，否则为 null；
  * {@code seen} 与 {@code revision} 始终返回。409 冲突响应携带当前完整快照。
+ *
+ * <p>{@code serverTime} 是服务端当前时间（Unix epoch 毫秒），供客户端估算服务端时钟，
+ * 只用于跨时钟域比较；不写入状态文件、不参与 revision、不包含隐私信息。
  */
 public record LayoutFeedbackStateResponse(
         boolean available,
         boolean stateAvailable,
         String distinctId,
+        long serverTime,
         long revision,
         LayoutFeedbackStateEntry state,
         Map<String, LayoutFeedbackSeenEntry> seen

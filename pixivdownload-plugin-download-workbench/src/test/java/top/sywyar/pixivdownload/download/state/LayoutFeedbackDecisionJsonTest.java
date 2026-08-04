@@ -70,6 +70,7 @@ class LayoutFeedbackDecisionJsonTest {
                 true,
                 true,
                 "plf_" + "ab".repeat(32),
+                1_786_000_000_000L,
                 3,
                 new LayoutFeedbackStateEntry(SURVEY_ID, LayoutFeedbackDecision.SUBMITTED, 1, 0),
                 Map.of("pixiv-batch-landscape", new LayoutFeedbackSeenEntry(1, 2)));
@@ -80,5 +81,22 @@ class LayoutFeedbackDecisionJsonTest {
         assertThat(json).doesNotContain("SUBMITTED");
         assertThat(json).doesNotContain("NEVER");
         assertThat(json).doesNotContain("SNOOZED");
+    }
+
+    @Test
+    @DisplayName("LayoutFeedbackStateResponse JSON 携带数值 serverTime，不因状态序列化而丢失")
+    void responseJsonCarriesServerTime() throws Exception {
+        LayoutFeedbackStateResponse response = new LayoutFeedbackStateResponse(
+                true,
+                true,
+                "plf_" + "ab".repeat(32),
+                1_786_000_000_000L,
+                0,
+                null,
+                Map.of());
+
+        String json = MAPPER.writeValueAsString(response);
+
+        assertThat(json).contains("\"serverTime\":1786000000000");
     }
 }

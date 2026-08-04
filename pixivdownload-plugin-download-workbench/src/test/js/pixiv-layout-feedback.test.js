@@ -629,11 +629,14 @@ function createHarness(options) {
 
     function serverSnapshotFromBody(body) {
         // 默认 POST 响应：像真实服务端一样基于当前权威状态合并命令结果（revision 递增）。
+        // serverTime 用模拟服务端当前时间（默认与客户端假时钟一致，无偏差；
+        // 偏差场景由测试通过自定义 serverPostResponse 显式覆盖）。
         const current = defaultServerGetResponse();
         const snapshot = {
             available: true,
             stateAvailable: true,
             distinctId: current.distinctId,
+            serverTime: timers.now(),
             revision: (typeof body.expectedRevision === 'number' ? body.expectedRevision : 0) + 1,
             state: simulatedState,
             seen: Object.assign({}, current.seen)
@@ -657,7 +660,8 @@ function createHarness(options) {
             }
             snapshot.state = simulatedState;
         } else if (body.command === 'snooze') {
-            if (!simulatedState || decisionRank('snoozed') > decisionRank(simulatedState.status)) {
+            // 与真实服务端一致：snooze 使用新的服务端时间（同等级也刷新，不倒退）。
+            if (!simulatedState || decisionRank('snoozed') >= decisionRank(simulatedState.status)) {
                 simulatedState = {
                     surveyId: body.surveyId,
                     status: 'snoozed',
@@ -687,6 +691,7 @@ function createHarness(options) {
             available: true,
             stateAvailable: true,
             distinctId: options.serverScopedId !== undefined ? options.serverScopedId : SERVER_SCOPED_ID,
+            serverTime: timers.now(),
             revision: 0,
             state: null,
             seen: {}
@@ -2710,12 +2715,15 @@ function testSdkConfigHeatmapMigration() {
 
 const SERVER_SCOPED_ID = 'plf_' + 'ab'.repeat(32);
 const SERVER_RAW_UUID = '11111111-2222-4333-8444-555555555555';
+// serverStateResponse 基准 serverTime：与假时钟初始时间一致（默认零偏差）。
+const SERVER_BASE_TIME = 1000000;
 
 function serverStateResponse(overrides) {
     return Object.assign({
         available: true,
         stateAvailable: true,
         distinctId: SERVER_SCOPED_ID,
+        serverTime: SERVER_BASE_TIME,
         revision: 0,
         state: null,
         seen: {}
@@ -2728,9 +2736,12 @@ function waitForServerContext(h) {
 }
 
 function testBootstrapIdentitySemantics() {
+    // 服务端 seen 为空：本页首次体验当前布局需要以 record_seen 命令提交；
+    // minDistinct=1 保证自动展示门禁仍触发（服务端无历史体验）。
     const h = initHarness({
         batchLayout: 'landscape',
-        serverState: serverStateResponse({seen: seenObject()})
+        serverState: serverStateResponse({seen: {}}),
+        minDistinct: 1
     });
     return waitForServerContext(h).then(() => {
         h.timers.advance(11000);
@@ -3242,9 +3253,15 @@ function testServerCommandNetworkFailureSafeDegrade() {
 
 function testServerCommandRecordSeenConflictRetries() {
     let postCount = 0;
+    // 服务端 seen 缺 portrait：切换布局后 portrait 需要 record_seen 提交，
+    // 从而覆盖 409 重试路径（按布局 ID 存在性，服务端已有布局不重复提交）。
+    const serverSeenWithoutPortrait = {
+        'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1},
+        'pixiv-batch-alt': {firstSeenAt: 2, lastSeenAt: 2}
+    };
     const h = initHarness({
         batchLayout: 'landscape',
-        serverState: serverStateResponse({seen: seenObject()}),
+        serverState: serverStateResponse({seen: serverSeenWithoutPortrait}),
         serverPostResponse: () => {
             postCount++;
             if (postCount === 1) {
@@ -3253,7 +3270,7 @@ function testServerCommandRecordSeenConflictRetries() {
                     json: () => Promise.resolve(serverStateResponse({
                         revision: 7,
                         state: null,
-                        seen: seenObject()
+                        seen: serverSeenWithoutPortrait
                     }))
                 };
             }
@@ -3262,8 +3279,8 @@ function testServerCommandRecordSeenConflictRetries() {
                 json: () => Promise.resolve(serverStateResponse({
                     revision: 8,
                     state: null,
-                    seen: Object.assign(seenObject(), {
-                        'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}
+                    seen: Object.assign(serverSeenWithoutPortrait, {
+                        'pixiv-batch-portrait': {firstSeenAt: 1, lastSeenAt: 1}
                     })
                 }))
             };
@@ -4358,9 +4375,11 @@ function testSnoozeStrength() {
         return waitForServerContext(h).then(() => {
             const posts = h.serverPosts.filter(p => p.body.command === 'snooze');
             eq('本地更强：回放 snooze 命令', posts.length, 1);
-            eq('pendingLocalState 未提前清除（effectiveState 为本地 7 天）',
+            // 服务端已按自己的时钟保存 snooze（7 天）：命令确认后采用服务端权威时间，
+            // 与服务端时钟一致时数值与本地 7 天相同。
+            eq('命令确认后采用服务端权威时间（与服务端时钟一致的 7 天）',
                 h.api._internals.effectiveState().snoozedUntil, localUntil);
-            eq('localStorage 保留本地 7 天', JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, localUntil);
+            eq('localStorage 采用服务端权威时间', JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, localUntil);
         });
     }).then(() => {
         // server snooze 7 天，local snooze 1 天：server 更强，不回放，pending 可清理。
@@ -4382,36 +4401,38 @@ function testSnoozeStrength() {
             eq('localStorage 覆盖为服务端 7 天', JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, serverUntil);
         });
     }).then(() => {
-        // 409 后重试失败：较晚的本地 snooze 仍保留。
+        // 409 返回服务端已保存的更短 snooze：命令按状态确认（不得比较跨时钟
+        // 绝对 snoozedUntil），采用服务端权威时间，不重试。
+        // 不设置 batchLayout：避免 init 的 record_seen 去抖 flush 以空 state 覆盖
+        // 已确认的 snooze（真实服务端 record_seen 不触碰 state）。
         const localUntil = 1000000 + 7 * DAY;
         const serverUntil = 1000000 + DAY;
         let count = 0;
         const h = initHarness({
-            batchLayout: 'landscape',
             storage: {[STATE_KEY]: snoozeStorageValue(localUntil)},
             serverState: serverStateResponse({seen: {}}),
             serverPostResponse: ({body}) => {
                 if (body.command !== 'snooze') return undefined;
                 count++;
-                if (count === 1) {
-                    return {
-                        status: 409,
-                        json: () => Promise.resolve(serverStateResponse({
-                            revision: 1,
-                            state: surveyState('snoozed', serverUntil, 1),
-                            seen: {}
-                        }))
-                    };
-                }
-                return new Promise(() => {});
+                return {
+                    status: 409,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 1,
+                        state: surveyState('snoozed', serverUntil, 1),
+                        seen: {}
+                    }))
+                };
             }
         });
         return waitForServerContext(h).then(() => {
             h.timers.advance(4000);
             return waitForFlush();
         }).then(() => {
-            eq('409 后重试失败：本地 snooze 保留', JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, localUntil);
-            eq('effectiveState 仍为本地 7 天', h.api._internals.effectiveState().snoozedUntil, localUntil);
+            eq('409 只尝试一次（服务端已 snoozed 即确认，不重试）', count, 1);
+            eq('localStorage 采用服务端权威时间（更短 snooze 由服务端权威覆盖）',
+                JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil, serverUntil);
+            eq('effectiveState 为服务端权威时间',
+                h.api._internals.effectiveState().snoozedUntil, serverUntil);
             h.timers.advance(11000);
             return waitForFlush();
         }).then(() => {
@@ -4423,9 +4444,16 @@ function testSnoozeStrength() {
 function testConcurrentCommandOperations() {
     // H. 三个并发 operation：A(snooze) → C(never) → B(record_seen) 完成顺序。
     // 完成 A 不删除 B/C；完成 C 不删除 B；B 最终正常完成；Set 最终为空。
+    // 服务端 seen 缺 portrait：切换布局后 portrait 触发 record_seen 去抖 flush。
     const gates = [];
+    const gateSeen = {
+        'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1},
+        'pixiv-batch-portrait': {firstSeenAt: 1, lastSeenAt: 1}
+    };
     const h = initHarness({
-        serverState: serverStateResponse({seen: seenObject()}),
+        serverState: serverStateResponse({
+            seen: {'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}}
+        }),
         serverPostResponse: ({body}) => {
             return new Promise(resolve => gates.push(() => resolve({
                 ok: true,
@@ -4436,9 +4464,7 @@ function testConcurrentCommandOperations() {
                         : body.command === 'never'
                             ? surveyState('never')
                             : null,
-                    seen: body.command === 'record_seen'
-                        ? {'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}}
-                        : {'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}}
+                    seen: gateSeen
                 }))
             })));
         }
@@ -4476,11 +4502,14 @@ function testConcurrentCommandOperations() {
 function testDestroyCancelsInFlightCommands() {
     // H2. A 完成、B/C 在途、destroy：B/C 被 abort、Promise 结束、timeout 清除、
     // 无残留 operation、迟到响应无副作用。
+    // 服务端 seen 缺 portrait：切换布局后 portrait 触发 record_seen 去抖 flush。
     const gates = [];
     let storedBefore = null;
     let seenBefore = null;
     const h = initHarness({
-        serverState: serverStateResponse({seen: seenObject()}),
+        serverState: serverStateResponse({
+            seen: {'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}}
+        }),
         serverPostResponse: () => new Promise(resolve => gates.push(() => resolve({
             ok: true,
             json: () => Promise.resolve(serverStateResponse({revision: 5, state: null, seen: seenObject()}))
@@ -5400,6 +5429,599 @@ function testWriteStateMonotonic() {
 }
 
 /* ============================================================
+   同强度幂等 / 跨设备时钟 / 命令确认 / Content-Type 语义（新增）
+=========================================================== */
+
+function testDecisionEntriesEqual() {
+    const internals = initHarness({}).api._internals;
+    const a = {surveyId: 's', status: 'never', updatedAt: 5, snoozedUntil: 0};
+    eq('线格式对象完全相同', internals.decisionEntriesEqual(a, Object.assign({}, a)), true);
+    eq('updatedAt 不同不算完全相同', internals.decisionEntriesEqual(
+        a, Object.assign({}, a, {updatedAt: 6})), false);
+    eq('null 与 null 相同', internals.decisionEntriesEqual(null, null), true);
+    eq('null 与状态不同', internals.decisionEntriesEqual(null, a), false);
+}
+
+function testWriteStateIdempotentAcrossTime() {
+    const DAY = 24 * 60 * 60 * 1000;
+    const stateSets = (h) => h.storage.setCalls.filter(c => c[0] === STATE_KEY).length;
+    const postsOf = (h, command) => h.serverPosts.filter(p => p.body.command === command).length;
+    return Promise.resolve().then(() => {
+        // A. repeated submitted：时间前进后重复写不刷新 updatedAt / 不重复写 / 不重复命令
+        const h = initHarness({
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => {
+            const first = h.api._internals.writeState('submitted');
+            const updatedAt = first.effectiveState.updatedAt;
+            eq('首次 submitted 被接受', first.transitionAccepted, true);
+            eq('首次写一次 setItem', stateSets(h), 1);
+            eq('首次 submitted 命令一次', postsOf(h, 'submitted'), 1);
+            h.timers.advance(5000);
+            return waitForFlush();
+        }).then(() => {
+            const second = h.api._internals.writeState('submitted');
+            eq('重复 submitted 不被接受', second.transitionAccepted, false);
+            eq('updatedAt 保持原值', second.effectiveState.updatedAt, 1000000);
+            eq('不重复 setItem', stateSets(h), 1);
+            eq('不重复 submitted 命令', postsOf(h, 'submitted'), 1);
+            ok('previousState 为已有最强状态', second.previousState !== null
+                && second.previousState.status === 'submitted');
+        });
+    }).then(() => {
+        // B. repeated never：同样验证
+        const h = initHarness({
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => {
+            const first = h.api._internals.writeState('never');
+            eq('首次 never 被接受', first.transitionAccepted, true);
+            h.timers.advance(5000);
+            return waitForFlush();
+        }).then(() => {
+            const second = h.api._internals.writeState('never');
+            eq('重复 never 不被接受', second.transitionAccepted, false);
+            eq('updatedAt 保持原值', second.effectiveState.updatedAt, 1000000);
+            eq('不重复 setItem', stateSets(h), 1);
+            eq('不重复 never 命令', postsOf(h, 'never'), 1);
+        });
+    }).then(() => {
+        // C. repeated same snooze：相同 snoozedUntil，now 前进
+        const h = initHarness({
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => {
+            const first = h.api._internals.writeState('snoozed', 2000000);
+            eq('首次 snooze 被接受', first.transitionAccepted, true);
+            h.timers.advance(5000);
+            return waitForFlush();
+        }).then(() => {
+            const second = h.api._internals.writeState('snoozed', 2000000);
+            eq('相同 snoozedUntil 不被接受', second.transitionAccepted, false);
+            eq('updatedAt 保持原值', second.effectiveState.updatedAt, 1000000);
+            eq('snoozedUntil 保持', second.effectiveState.snoozedUntil, 2000000);
+            eq('不重复 setItem', stateSets(h), 1);
+            eq('不重复 snooze 命令', postsOf(h, 'snooze'), 1);
+        });
+    }).then(() => {
+        // D. longer snooze：接受、updatedAt 更新、发送命令
+        const h = initHarness({
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => {
+            h.api._internals.writeState('snoozed', 1000000 + DAY);
+            h.timers.advance(1000);
+            return waitForFlush();
+        }).then(() => {
+            const longer = h.api._internals.writeState('snoozed', 1000000 + 7 * DAY);
+            eq('更长 snooze 被接受', longer.transitionAccepted, true);
+            eq('updatedAt 更新', longer.effectiveState.updatedAt, 1001000);
+            eq('发送一次 snooze 命令', postsOf(h, 'snooze'), 2);
+        });
+    }).then(() => {
+        // E. shorter snooze：拒绝、保留原对象
+        const h = initHarness({
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => {
+            h.api._internals.writeState('snoozed', 1000000 + 7 * DAY);
+            h.timers.advance(1000);
+            return waitForFlush();
+        }).then(() => {
+            const shorter = h.api._internals.writeState('snoozed', 1000000 + DAY);
+            eq('更短 snooze 被拒绝', shorter.transitionAccepted, false);
+            eq('保留原对象', shorter.effectiveState.snoozedUntil, 1000000 + 7 * DAY);
+            eq('snooze 命令仍只有一次', postsOf(h, 'snooze'), 1);
+        });
+    });
+}
+
+function testDismissedIdempotentAcrossTime() {
+    return Promise.resolve().then(() => {
+        // 首次 never：transitionAccepted=true + 一条 dismissed；时间推进后再次
+        // 通过测试入口打开并触发 never：不重复 dismissed / updatedAt 不变 /
+        // localStorage 不重复写 / 不重复 never 命令。
+        let firstUpdatedAt = 0;
+        let setsAfterFirst = 0;
+        let neverPostsAfterFirst = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('never').click();
+            return waitForFlush();
+        }).then(() => {
+            const state = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('首次 never 写状态', state.status, 'never');
+            firstUpdatedAt = state.updatedAt;
+            eq('首次 dismissed 发送一次', captureEvents(h).filter(e => e === 'survey dismissed').length, 1);
+            setsAfterFirst = h.storage.setCalls.filter(c => c[0] === STATE_KEY).length;
+            neverPostsAfterFirst = h.serverPosts.filter(p => p.body.command === 'never').length;
+            eq('首次 never 命令一次', neverPostsAfterFirst, 1);
+            h.timers.advance(5000);
+            return waitForFlush();
+        }).then(() => h.api.open().then(() => waitForFlush())).then(() => {
+            h.actionButton('never').click();
+            return waitForFlush();
+        }).then(() => {
+            eq('重复 never 不重复 dismissed', captureEvents(h).filter(e => e === 'survey dismissed').length, 1);
+            const state = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('updatedAt 不变化', state.updatedAt, firstUpdatedAt);
+            eq('localStorage 不重复写', h.storage.setCalls.filter(c => c[0] === STATE_KEY).length, setsAfterFirst);
+            eq('不重复 never 命令', h.serverPosts.filter(p => p.body.command === 'never').length, neverPostsAfterFirst);
+        });
+    }).then(() => {
+        // 已 submitted 后 never：dismissed 为 0
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({
+                state: surveyState('submitted', 0, 1),
+                seen: seenObject()
+            })
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('never').click();
+            return waitForFlush();
+        }).then(() => {
+            eq('已 submitted 后 never 不发送 dismissed', captureEvents(h).filter(e => e === 'survey dismissed').length, 0);
+        });
+    });
+}
+
+function testServerTimeValidation() {
+    return Promise.resolve().then(() => {
+        // 1. 缺失 serverTime：快照非法 → refresh invalid；offset 不更新；preflight fail-closed
+        const h = initHarness({
+            serverFetch: refreshSecond(() => ({
+                ok: true,
+                json: () => Promise.resolve({
+                    available: true, stateAvailable: true,
+                    distinctId: SERVER_SCOPED_ID, revision: 0, state: null, seen: {}
+                })
+            }))
+        });
+        return waitForServerContext(h).then(() => {
+            eq('初始快照已应用（含 serverTime）', h.api._internals.isServerSnapshotInitialized(), true);
+            eq('初始采样后 offset 为 0', h.api._internals.serverClockOffsetMs(), 0);
+            return directRefresh(h).then(result => {
+                eq('缺失 serverTime → invalid', result.status, 'invalid');
+                eq('invalid 不更新 offset', h.api._internals.serverClockOffsetMs(), 0);
+            });
+        });
+    }).then(() => {
+        // 2. 非有限整数 / 负数 serverTime：同样 invalid 且 offset 不变
+        const bad = [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '123', 1000.25];
+        return bad.reduce((chain, value) => chain.then(() => {
+            const h = initHarness({
+                serverFetch: refreshWith(
+                    {seen: seenObject()},
+                    () => ({
+                        ok: true,
+                        json: () => Promise.resolve({
+                            available: true, stateAvailable: true,
+                            distinctId: SERVER_SCOPED_ID, revision: 1, state: null, seen: {},
+                            serverTime: value
+                        })
+                    }))
+            });
+            return waitForServerContext(h).then(() => {
+                const before = h.api._internals.serverClockOffsetMs();
+                return directRefresh(h).then(result => {
+                    eq('非法 serverTime=' + String(value) + ' → invalid', result.status, 'invalid');
+                    eq('非法 serverTime 不更新 offset', h.api._internals.serverClockOffsetMs(), before);
+                });
+            });
+        }), Promise.resolve());
+    }).then(() => {
+        // 3. preflight 遇非法 serverTime：fail-closed，不发送 survey sent
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverFetch: refreshSecond(() => ({
+                ok: true,
+                json: () => Promise.resolve({
+                    available: true, stateAvailable: true,
+                    distinctId: SERVER_SCOPED_ID, revision: 1, state: null, seen: {},
+                    serverTime: 'nope'
+                })
+            }))
+        });
+        return waitForServerContext(h).then(() => openAndPrepareSubmit(h)).then(() => {
+            h.submitButton().click();
+            return waitForFlush();
+        }).then(() => {
+            assertFailClosedInvariants(h, '非法 serverTime');
+        });
+    });
+}
+
+function testServerTimeSameRevisionDifferentValues() {
+    // 同 revision / state / seen 相同、serverTime 不同：仍为 SNAPSHOT_SAME，
+    // 不判定同 revision 内容冲突；serverTime 不参与内容一致性比较。
+    const h = initHarness({
+        serverFetch: refreshWith(
+            {revision: 2, state: surveyState('submitted', 0, 1), seen: seenObject()},
+            () => ({
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 2,
+                    serverTime: 987654321,
+                    state: surveyState('submitted', 0, 1),
+                    seen: seenObject()
+                }))
+            }))
+    });
+    let warnsBefore = 0;
+    return waitForServerContext(h).then(() => {
+        warnsBefore = h.consoleWarn.length;
+        return directRefresh(h).then(result => {
+            eq('同 revision 不同 serverTime → fresh/same', result.status, 'fresh');
+            eq('snapshotResult=same', result.snapshotResult, 'same');
+            eq('revision 不变', h.api._internals.currentServerRevision(), 2);
+            eq('状态不变', h.api._internals.effectiveState().status, 'submitted');
+            eq('不判定内容冲突（无新 warning）', h.consoleWarn.length, warnsBefore);
+        });
+    });
+}
+
+function testServerClockSamplingGuards() {
+    return Promise.resolve().then(() => {
+        // 1. 命令超时后迟到响应：不更新 offset
+        let gateResolve = null;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()}),
+            serverPostResponse: () => new Promise(resolve => { gateResolve = resolve; })
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            const offsetBefore = h.api._internals.serverClockOffsetMs();
+            h.timers.advance(4000);
+            return waitForFlush();
+        }).then(() => {
+            gateResolve({ok: true, json: () => Promise.resolve(serverStateResponse({
+                revision: 9, serverTime: 999999999, state: null, seen: seenObject()
+            }))});
+            return waitForFlush();
+        }).then(() => {
+            eq('超时后迟到响应不更新 offset', h.api._internals.serverClockOffsetMs(), 0);
+        });
+    }).then(() => {
+        // 2. destroy 后迟到响应：不更新 offset（destroy 同时重置估计）
+        let gateResolve = null;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: seenObject()}),
+            serverPostResponse: () => new Promise(resolve => { gateResolve = resolve; })
+        });
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            h.api.destroy();
+            return waitForFlush();
+        }).then(() => {
+            eq('destroy 重置时钟估计', h.api._internals.serverClockKnown(), false);
+            gateResolve({ok: true, json: () => Promise.resolve(serverStateResponse({
+                revision: 9, serverTime: 999999999, state: null, seen: seenObject()
+            }))});
+            return waitForFlush();
+        }).then(() => {
+            eq('destroy 后迟到响应不更新 offset', h.api._internals.serverClockOffsetMs(), 0);
+        });
+    }).then(() => {
+        // 3. record_seen 409 后第二次 attempt 成功：两次 APPLIED 均采样，最终 offset
+        //    由最后一次成功响应决定；409 冲突快照（未满足）也合法采样。
+        let attempts = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: ({body}) => {
+                if (body.command !== 'record_seen') return undefined;
+                attempts++;
+                if (attempts === 1) {
+                    return {
+                        status: 409,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 2, serverTime: 900000, state: null,
+                            seen: {}
+                        }))
+                    };
+                }
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 3, serverTime: 1100000, state: null,
+                        seen: {'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}}
+                    }))
+                };
+            }
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(600);
+            return waitForFlush();
+        }).then(() => {
+            eq('第二次 attempt 成功后可更新', h.api._internals.serverClockOffsetMs(), 100000);
+            eq('offset 来自最后一次成功响应', h.api._internals.serverClockSampleRttMs() !== null, true);
+            eq('确认后 pending 清理（有效 seen 含 landscape）',
+                h.api._internals.effectiveSeen()['pixiv-batch-landscape'] !== undefined, true);
+        });
+    });
+}
+
+function testClockSkewSnoozeConfirmation() {
+    const MIN = 60 * 1000;
+    const serverSnoozeHarness = (serverTimeAtInit) => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({
+                serverTime: serverTimeAtInit,
+                revision: 0,
+                state: null,
+                seen: seenObject()
+            }),
+            serverPostResponse: ({body}) => {
+                if (body.command !== 'snooze') return undefined;
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 1,
+                        serverTime: serverTimeAtInit,
+                        state: surveyState('snoozed', serverTimeAtInit + SNOOZE_MS, serverTimeAtInit),
+                        seen: seenObject()
+                    }))
+                };
+            }
+        });
+        return h;
+    };
+    return Promise.resolve().then(() => {
+        // A. 客户端快 10 分钟：snooze 命令确认成功、pending 清理、
+        //    localStorage 使用服务端 snoozedUntil、不重复 reconciliation、无保存失败。
+        const serverTime = 1000000 - 10 * MIN;
+        const h = serverSnoozeHarness(serverTime);
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            const posts = h.serverPosts.filter(p => p.body.command === 'snooze');
+            eq('snooze 命令发送一次', posts.length, 1);
+            eq('offset 为 -10 分钟（客户端快）', h.api._internals.serverClockOffsetMs(), -10 * MIN);
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('localStorage 使用服务端 snoozedUntil', localState.snoozedUntil, serverTime + SNOOZE_MS);
+            ok('无保存失败 warning', !h.consoleWarn.some(args =>
+                JSON.stringify(args).indexOf('server state save failed') >= 0));
+            ok('pending 已清理（effectiveState 为服务端权威）',
+                h.api._internals.effectiveState().snoozedUntil === serverTime + SNOOZE_MS);
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            eq('不重复 reconciliation（snooze 命令仍一次）',
+                h.serverPosts.filter(p => p.body.command === 'snooze').length, 1);
+        });
+    }).then(() => {
+        // B. 客户端慢 10 分钟：同样确认成功并使用服务端权威时间。
+        const serverTime = 1000000 + 10 * MIN;
+        const h = serverSnoozeHarness(serverTime);
+        return waitForServerContext(h).then(() => h.api.open()).then(() => waitForFlush()).then(() => {
+            h.actionButton('snooze').click();
+            return waitForFlush();
+        }).then(() => {
+            eq('snooze 命令发送一次', h.serverPosts.filter(p => p.body.command === 'snooze').length, 1);
+            eq('offset 为 +10 分钟（客户端慢）', h.api._internals.serverClockOffsetMs(), 10 * MIN);
+            const localState = JSON.parse(h.storage.getItem(STATE_KEY));
+            eq('localStorage 使用服务端 snoozedUntil', localState.snoozedUntil, serverTime + SNOOZE_MS);
+            ok('无保存失败 warning', !h.consoleWarn.some(args =>
+                JSON.stringify(args).indexOf('server state save failed') >= 0));
+            eq('snooze 命令不重复', h.serverPosts.filter(p => p.body.command === 'snooze').length, 1);
+        });
+    });
+}
+
+function testServerSnoozeValidityByServerClock() {
+    const MIN = 60 * 1000;
+    // 初始服务端 submitted：阻断 init 后的自动流程；随后用带 serverTime 的 snooze
+    // 快照替换，验证过期判断完全由服务端时钟估计决定。
+    const initialBlocked = () => serverStateResponse({
+        state: surveyState('submitted', 0, 1),
+        seen: seenObject()
+    });
+    return Promise.resolve().then(() => {
+        // C. 客户端时钟快 30 分钟，server snooze 尚余 20 分钟：
+        //    按 serverClockOffset 判断仍有效，不提前展示调查。
+        const h = initHarness({
+            serverState: initialBlocked()
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(2000000);
+            return waitForFlush();
+        }).then(() => {
+            const clientNow = h.timers.now();
+            const serverNow = clientNow - 30 * MIN;
+            const snoozedUntil = serverNow + 20 * MIN;
+            h.setServerState(serverStateResponse({
+                revision: 1,
+                serverTime: serverNow,
+                state: surveyState('snoozed', snoozedUntil, serverNow),
+                seen: seenObject()
+            }));
+            return directRefresh(h).then(() => waitForFlush());
+        }).then(() => {
+            eq('offset 为 -30 分钟', h.api._internals.serverClockOffsetMs(), -30 * MIN);
+            eq('按服务端时钟判断 snooze 仍有效', h.api._internals.effectiveState().status, 'snoozed');
+            // 重新调度一次自动评估：仍不提前展示。
+            h.dispatchLayoutChanged('portrait', 'landscape');
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            eq('不提前展示调查', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        });
+    }).then(() => {
+        // D. 客户端时钟慢 30 分钟，服务端 snooze 已过期：按服务端时钟判断已过期，
+        //    不因客户端慢钟延长，调查可重新满足展示条件。
+        const h = initHarness({
+            serverState: initialBlocked()
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(2000000);
+            return waitForFlush();
+        }).then(() => {
+            const clientNow = h.timers.now();
+            const serverNow = clientNow + 30 * MIN;
+            // 服务端时钟域已过期（until < serverNow），客户端慢钟下数值仍大于 clientNow。
+            const snoozedUntil = serverNow - 5 * MIN;
+            h.setServerState(serverStateResponse({
+                revision: 1,
+                serverTime: serverNow,
+                state: surveyState('snoozed', snoozedUntil, serverNow),
+                seen: seenObject()
+            }));
+            return directRefresh(h).then(() => waitForFlush());
+        }).then(() => {
+            eq('offset 为 +30 分钟', h.api._internals.serverClockOffsetMs(), 30 * MIN);
+            eq('按服务端时钟判断 snooze 已过期（effective 无状态）',
+                h.api._internals.effectiveState(), null);
+            // 重新调度自动评估：服务端 snooze 已过期，调查重新满足展示条件。
+            h.dispatchLayoutChanged('portrait', 'landscape');
+            h.timers.advance(11000);
+            return waitForFlush();
+        }).then(() => {
+            eq('调查可重新满足展示条件', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        });
+    });
+}
+
+function testSeenCrossClockSemantics() {
+    return Promise.resolve().then(() => {
+        // A. record_seen 200 成功，服务端 lastSeenAt 数值小于客户端：命令 acknowledged、
+        //    pending 清理、不重复 record_seen。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: ({body}) => {
+                if (body.command !== 'record_seen') return undefined;
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 1,
+                        state: null,
+                        seen: {'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}}
+                    }))
+                };
+            }
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(600);
+            return waitForFlush();
+        }).then(() => {
+            const posts = h.serverPosts.filter(p => p.body.command === 'record_seen');
+            eq('record_seen 提交一次', posts.length, 1);
+            ok('服务端时间戳更小也视为已记录',
+                h.api._internals.effectiveSeen()['pixiv-batch-landscape'] !== undefined);
+            h.timers.advance(600);
+            return waitForFlush();
+        }).then(() => {
+            eq('不重复 record_seen（按布局 ID 存在性）',
+                h.serverPosts.filter(p => p.body.command === 'record_seen').length, 1);
+        });
+    }).then(() => {
+        // B. 普通 GET 已包含目标布局（时间戳小于本地）：pending 对应布局可清理，
+        //    seenCount 不下降。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(600);
+            return waitForFlush();
+        }).then(() => {
+            eq('flush 失败：pending 保留', h.api._internals.distinctSeenCount(h.api._internals.effectiveSeen()), 1);
+            h.setServerState(serverStateResponse({
+                revision: 1,
+                state: null,
+                seen: {'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1}}
+            }));
+            h.dispatchStorage(SEEN_KEY, JSON.stringify({}));
+            return waitForFlush();
+        }).then(() => {
+            const effective = h.api._internals.effectiveSeen();
+            eq('普通 GET 按布局 ID 清理 pending', h.api._internals.distinctSeenCount(effective), 1);
+            eq('seenCount 不下降', h.api._internals.distinctSeenCount(effective), 1);
+        });
+    }).then(() => {
+        // C. 服务端不含布局：pending 保留。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({seen: {}}),
+            serverPostResponse: 'fail'
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(600);
+            return waitForFlush();
+        }).then(() => {
+            h.setServerState(serverStateResponse({revision: 1, state: null, seen: {}}));
+            h.dispatchStorage(SEEN_KEY, JSON.stringify({}));
+            return waitForFlush();
+        }).then(() => {
+            eq('服务端不含布局：pending 保留',
+                h.api._internals.distinctSeenCount(h.api._internals.effectiveSeen()), 1);
+        });
+    }).then(() => {
+        // D. 客户端时钟偏差不影响布局数量。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({
+                serverTime: 1000000 - 10 * 60 * 1000,
+                state: null,
+                seen: {
+                    'pixiv-batch-landscape': {firstSeenAt: 1, lastSeenAt: 1},
+                    'pixiv-batch-portrait': {firstSeenAt: 2, lastSeenAt: 2}
+                }
+            })
+        });
+        return waitForServerContext(h).then(() => {
+            eq('时钟偏差下 seenCount 只按布局 ID 计数',
+                h.api._internals.distinctSeenCount(h.api._internals.effectiveSeen()), 2);
+        });
+    });
+}
+
+/* ============================================================
    入口
 =========================================================== */
 
@@ -5552,6 +6174,15 @@ async function run() {
     await step('testReconcileSeenInFlightDestroyReinit', testReconcileSeenInFlightDestroyReinit);
     await step('testReconcileFinalSyncGuard', testReconcileFinalSyncGuard);
     await step('testWriteStateMonotonic', testWriteStateMonotonic);
+    await step('testDecisionEntriesEqual', testDecisionEntriesEqual);
+    await step('testWriteStateIdempotentAcrossTime', testWriteStateIdempotentAcrossTime);
+    await step('testDismissedIdempotentAcrossTime', testDismissedIdempotentAcrossTime);
+    await step('testServerTimeValidation', testServerTimeValidation);
+    await step('testServerTimeSameRevisionDifferentValues', testServerTimeSameRevisionDifferentValues);
+    await step('testServerClockSamplingGuards', testServerClockSamplingGuards);
+    await step('testClockSkewSnoozeConfirmation', testClockSkewSnoozeConfirmation);
+    await step('testServerSnoozeValidityByServerClock', testServerSnoozeValidityByServerClock);
+    await step('testSeenCrossClockSemantics', testSeenCrossClockSemantics);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 

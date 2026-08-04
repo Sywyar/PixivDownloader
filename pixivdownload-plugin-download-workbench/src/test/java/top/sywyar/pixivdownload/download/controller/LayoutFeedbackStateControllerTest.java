@@ -23,12 +23,16 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -73,6 +77,17 @@ class LayoutFeedbackStateControllerTest {
         return new LayoutFeedbackStateController(
                 store, applicationModeProvider,
                 identityProvider == null ? () -> INSTALL_ID : identityProvider);
+    }
+
+    private LayoutFeedbackStateController controller(String mode, LayoutFeedbackStateStore store,
+                                                     InstallIdentityProvider identityProvider,
+                                                     Clock clock) {
+        ApplicationModeProvider applicationModeProvider = mock(ApplicationModeProvider.class);
+        when(applicationModeProvider.getMode()).thenReturn(mode);
+        return new LayoutFeedbackStateController(
+                store, applicationModeProvider,
+                identityProvider == null ? () -> INSTALL_ID : identityProvider,
+                clock);
     }
 
     private MockMvc mockMvc(String mode, LayoutFeedbackStateStore store,
@@ -868,6 +883,162 @@ class LayoutFeedbackStateControllerTest {
                         .contentType(MediaType.TEXT_PLAIN)
                         .content("{}"))
                 .andExpect(status().isUnsupportedMediaType());
+    }
+
+    /* ============================================================
+       serverTime 协议
+    ============================================================ */
+
+    private static final long FIXED_SERVER_TIME = 1_786_000_000_000L;
+
+    @Test
+    @DisplayName("GET 200 / POST 200 / POST 409 均携带数值 serverTime")
+    void successResponsesCarryServerTime() throws Exception {
+        MockMvc mockMvc = mockMvc(SOLO);
+        mockMvc.perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").isNumber());
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").isNumber());
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("never", 0)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.serverTime").isNumber());
+    }
+
+    @Test
+    @DisplayName("固定 Clock：GET / POST 200 / POST 409 的 serverTime 精确等于固定值")
+    void fixedClockServerTimeExactOnAllResponses() throws Exception {
+        Clock clock = Clock.fixed(Instant.ofEpochMilli(FIXED_SERVER_TIME), ZoneOffset.UTC);
+        LayoutFeedbackStateController controller = controller(SOLO, store(), null, clock);
+        MockMvc mockMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(controller)
+                .build();
+
+        mockMvc.perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").value(FIXED_SERVER_TIME));
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").value(FIXED_SERVER_TIME));
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("never", 0)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.serverTime").value(FIXED_SERVER_TIME));
+    }
+
+    @Test
+    @DisplayName("同一 POST 中 Store apply 使用的 now 与响应 serverTime 相同")
+    void postApplyNowEqualsResponseServerTime() throws Exception {
+        Clock clock = Clock.fixed(Instant.ofEpochMilli(FIXED_SERVER_TIME), ZoneOffset.UTC);
+        LayoutFeedbackStateStore store = spy(store());
+        LayoutFeedbackStateController controller = controller(SOLO, store, null, clock);
+        MockMvc mockMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(controller)
+                .build();
+
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").value(FIXED_SERVER_TIME));
+
+        org.mockito.ArgumentCaptor<Long> nowCaptor = forClass(Long.class);
+        verify(store).apply(any(), nowCaptor.capture());
+        assertThat(nowCaptor.getValue()).isEqualTo(FIXED_SERVER_TIME);
+    }
+
+    @Test
+    @DisplayName("serverTime 不写入状态文件，状态文件 schema 不含 serverTime")
+    void serverTimeNotPersistedToStateFile() throws Exception {
+        MockMvc mockMvc = mockMvc(SOLO);
+        mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverTime").isNumber());
+
+        Path file = tempDir.resolve("state/download-workbench/layout-feedback-state.json");
+        String persisted = Files.readString(file, StandardCharsets.UTF_8);
+        assertThat(persisted).as("状态文件不得包含 serverTime").doesNotContain("serverTime");
+        assertThat(persisted).contains("\"schemaVersion\":1");
+    }
+
+    /* ============================================================
+       Content-Type 引号参数（quoted semicolon scanner）
+    ============================================================ */
+
+    @Test
+    @DisplayName("接受引号内分号与转义引号参数：profile=\"a;b\" / note=\"a\\\\\\\";b\" 等")
+    void acceptsQuotedSemicolonContentTypes() throws Exception {
+        List<String> accepted = List.of(
+                "application/json; profile=\"a;b\"",
+                "application/json; profile=\"a;b\"; charset=UTF-8",
+                "application/problem+json; profile=\"https://example.invalid/a;b\"",
+                "application/json; note=\"a\\\";b\"");
+        for (int i = 0; i < accepted.size(); i++) {
+            Path dir = tempDir.resolve("quoted-accept-" + i);
+            LayoutFeedbackStateStore store = new LayoutFeedbackStateStore(
+                    new LayoutFeedbackStateFiles(mockRuntimePath(dir)));
+            mockMvc(SOLO, store, null).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                            .header(HttpHeaders.CONTENT_TYPE, accepted.get(i))
+                            .content(commandBody("submitted", 0)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.state.status").value("submitted"))
+                    .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+        }
+    }
+
+    @Test
+    @DisplayName("拒绝引号外缺失等号的参数段 → 415 且 no-store，不读 body、不调用 Store / InstallIdentityProvider、不创建文件")
+    void rejectsBrokenParameterSegmentsWithoutSideEffects() throws IOException {
+        LayoutFeedbackStateStore store = spy(store());
+        InstallIdentityProvider identityProvider = mock(InstallIdentityProvider.class);
+        when(identityProvider.get()).thenReturn(INSTALL_ID);
+        LayoutFeedbackStateController controller = controller(SOLO, store, identityProvider);
+        List<String> rejected = List.of(
+                "application/json; invalid parameter",
+                "application/json; profile=\"a;b\"; broken",
+                "application/json; profile=\"a;b\"; =x",
+                "application/json; =value");
+        for (String contentType : rejected) {
+            final int[] reads = {0};
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", ENDPOINT) {
+                @Override
+                public ServletInputStream getInputStream() {
+                    reads[0]++;
+                    return new CountingStream(new ByteArrayInputStream(commandBody("submitted", 0)), reads);
+                }
+            };
+            request.addHeader(HttpHeaders.CONTENT_TYPE, contentType);
+            request.setParameter("surveyId", SURVEY_ID);
+            request.setContent(commandBody("submitted", 0));
+
+            org.springframework.http.ResponseEntity<?> response =
+                    controller.saveState(request, SURVEY_ID);
+
+            assertThat(response.getStatusCode().value())
+                    .as("Content-Type=" + contentType + " 应返回 415")
+                    .isEqualTo(415);
+            assertThat(response.getHeaders().getCacheControl())
+                    .as("Content-Type=" + contentType + " 响应必须 no-store, private")
+                    .contains("no-store").contains("private");
+            assertThat(reads[0]).as("Content-Type=" + contentType + " 不得读取请求体").isZero();
+        }
+        verify(store, never()).apply(any(), anyLong());
+        verify(store, never()).snapshot();
+        verify(store, never()).degraded();
+        verify(identityProvider, never()).get();
+        assertThat(Files.exists(tempDir.resolve("state/download-workbench/layout-feedback-state.json")))
+                .as("415 路径不得创建状态文件")
+                .isFalse();
     }
 
     private static org.hamcrest.Matcher<String> containsNoStorePrivate() {

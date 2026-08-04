@@ -27,6 +27,7 @@ import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.Clock;
 import java.util.Locale;
 
 /**
@@ -63,13 +64,23 @@ public class LayoutFeedbackStateController {
     private final LayoutFeedbackStateStore store;
     private final ApplicationModeProvider applicationModeProvider;
     private final InstallIdentityProvider installIdentityProvider;
+    private final Clock clock;
 
     public LayoutFeedbackStateController(LayoutFeedbackStateStore store,
                                          ApplicationModeProvider applicationModeProvider,
                                          InstallIdentityProvider installIdentityProvider) {
+        this(store, applicationModeProvider, installIdentityProvider, Clock.systemUTC());
+    }
+
+    /** 测试可注入固定 {@link Clock}；生产构造使用 {@link Clock#systemUTC()}。 */
+    LayoutFeedbackStateController(LayoutFeedbackStateStore store,
+                                  ApplicationModeProvider applicationModeProvider,
+                                  InstallIdentityProvider installIdentityProvider,
+                                  Clock clock) {
         this.store = store;
         this.applicationModeProvider = applicationModeProvider;
         this.installIdentityProvider = installIdentityProvider;
+        this.clock = clock;
     }
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -81,7 +92,7 @@ public class LayoutFeedbackStateController {
         if (!LayoutFeedbackIdentityDeriver.isValidSurveyId(surveyId)) {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
-        return jsonResponse(HttpStatus.OK, buildResponse(store.snapshot(), surveyId));
+        return jsonResponse(HttpStatus.OK, buildResponse(store.snapshot(), surveyId, clock.millis()));
     }
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -131,9 +142,11 @@ public class LayoutFeedbackStateController {
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
         }
         // 9. Store apply（CAS：APPLIED → 200，CONFLICT → 409，均带当前完整快照）。
+        //    同一个请求只读取一次服务端时钟：Store apply 与响应 serverTime 使用同一个 now。
+        long serverNow = clock.millis();
         LayoutFeedbackStateStore.ApplyResult result;
         try {
-            result = store.apply(commandRequest, System.currentTimeMillis());
+            result = store.apply(commandRequest, serverNow);
         } catch (IllegalStateException e) {
             // degraded 竞态：写入被拒绝。
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
@@ -141,7 +154,7 @@ public class LayoutFeedbackStateController {
             // 原子写入失败：保留旧内存状态，本次请求失败。
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
         }
-        LayoutFeedbackStateResponse response = buildResponse(result.snapshot(), surveyId);
+        LayoutFeedbackStateResponse response = buildResponse(result.snapshot(), surveyId, serverNow);
         if (result.status() == LayoutFeedbackStateStore.ApplyStatus.CONFLICT) {
             return jsonResponse(HttpStatus.CONFLICT, response);
         }
@@ -189,28 +202,77 @@ public class LayoutFeedbackStateController {
     }
 
     /**
-     * 参数段补充校验：Spring 的 MimeType 解析器对分号参数段是宽松的——缺失 {@code =}
-     * 的参数会被静默丢弃而不抛错（例如 {@code application/json; invalid parameter}）。
-     * 这里对分号后的每个参数要求形如 {@code key=value} 且 key 非空；空参数（尾分号 /
-     * 连续分号）按 Spring 语义接受。
+     * 参数段补充校验（字符级状态机）：Spring 的 MimeType 解析器对分号参数段是宽松的——
+     * 缺失 {@code =} 的参数会被静默丢弃而不抛错（例如 {@code application/json; invalid parameter}）。
+     * 这里只把引号外的分号视为参数分隔符，引号内的分号属于参数值，反斜杠转义的引号不结束
+     * quoted string；每个非空参数段必须包含一个引号外的 {@code =} 且 {@code =} 左侧 key
+     * trim 后非空。媒体类型段（首个分号之前）不属于参数；空参数段（尾分号 / 连续分号）
+     * 按现有约定接受；引号未闭合返回 false。禁止使用正则 / {@code split(";")} 简单切分。
      */
     private static boolean areParametersWellFormed(String contentType) {
-        int semicolon = contentType.indexOf(';');
-        if (semicolon < 0) {
-            return true;
-        }
-        String[] parameters = contentType.substring(semicolon + 1).split(";");
-        for (String raw : parameters) {
-            String parameter = raw.trim();
-            if (parameter.isEmpty()) {
+        int segmentStart = 0;
+        boolean firstSegment = true;
+        boolean inQuotes = false;
+        boolean escaped = false;
+        boolean hasEquals = false;
+        int length = contentType.length();
+        for (int i = 0; i < length; i++) {
+            char c = contentType.charAt(i);
+            if (inQuotes) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == '"') {
+                    inQuotes = false;
+                }
                 continue;
             }
-            int eqIndex = parameter.indexOf('=');
-            if (eqIndex <= 0) {
-                return false;
+            if (c == '"') {
+                inQuotes = true;
+                continue;
+            }
+            if (c == ';') {
+                if (!firstSegment && !isWellFormedSegment(contentType, segmentStart, i, hasEquals)) {
+                    return false;
+                }
+                firstSegment = false;
+                segmentStart = i + 1;
+                hasEquals = false;
+                continue;
+            }
+            if (c == '=' && !hasEquals) {
+                hasEquals = true;
             }
         }
-        return true;
+        if (inQuotes) {
+            return false;
+        }
+        return firstSegment || isWellFormedSegment(contentType, segmentStart, length, hasEquals);
+    }
+
+    /** 单个参数段是否形如 {@code key=value}（key trim 后非空）；空段按现有约定接受。 */
+    private static boolean isWellFormedSegment(String contentType, int segmentStart, int segmentEnd,
+                                               boolean hasEquals) {
+        if (contentType.substring(segmentStart, segmentEnd).trim().isEmpty()) {
+            // 尾分号 / 连续分号产生的空参数段：与既有约定一致，接受。
+            return true;
+        }
+        if (!hasEquals) {
+            return false;
+        }
+        int equals = -1;
+        for (int i = segmentStart; i < segmentEnd; i++) {
+            if (contentType.charAt(i) == '=') {
+                equals = i;
+                break;
+            }
+        }
+        if (equals < 0) {
+            return false;
+        }
+        String key = contentType.substring(segmentStart, equals).trim();
+        return !key.isEmpty();
     }
 
     private boolean isSolo() {
@@ -258,7 +320,7 @@ public class LayoutFeedbackStateController {
     }
 
     private LayoutFeedbackStateResponse buildResponse(LayoutFeedbackStateSnapshot snapshot,
-                                                      String surveyId) {
+                                                      String surveyId, long serverTime) {
         String scopedIdentity = LayoutFeedbackIdentityDeriver.deriveScopedIdentity(
                 surveyId, installIdentityProvider.get());
         var state = snapshot.state() != null && surveyId.equals(snapshot.state().surveyId())
@@ -268,6 +330,7 @@ public class LayoutFeedbackStateController {
                 true,
                 !store.degraded(),
                 scopedIdentity,
+                serverTime,
                 snapshot.revision(),
                 state,
                 snapshot.seen());
