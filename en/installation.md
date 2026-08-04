@@ -4,14 +4,14 @@
 
 | Dependency | Minimum Version | Notes |
 |------------|----------------|-------|
-| **Java** | 17+ | Required for JAR; Windows installer bundles JRE |
+| **Java** | 17+ | Required for the Java standard / full-offline package; Windows installer bundles JRE |
 | **OS** | Windows / macOS / Linux | Cross-platform |
 | **Tampermonkey** | Latest | Required for userscripts |
 | **ffmpeg** | Any | Required for Ugoira-to-WebP conversion (optional) |
 
 ---
 
-## Method 1: JAR (Cross-platform)
+## Method 1: Java Standard / Full-Offline Package (Cross-platform)
 
 ### 1. Install Java 17+
 
@@ -26,18 +26,27 @@ java -version
 # Should output something like: openjdk version "17.0.x" ...
 ```
 
-### 2. Download JAR
+### 2. Download and Extract
 
-Download `PixivDownload-vX.X.X.jar` from [Releases](https://github.com/Sywyar/PixivDownloader/releases).
+Download from [Releases](https://github.com/Sywyar/PixivDownloader/releases):
+
+- `PixivDownload-*-java.zip` — Java standard package, same default plugin set as the Windows installer (no Douyin)
+- `PixivDownload-*-full-offline.zip` — full-offline package, additionally includes Douyin
+
+You must **fully extract** the archive — do not take out only the JAR: both the launcher scripts and the `plugins/` directory are required, because official external plugins are loaded from the working directory's `plugins/` folder at startup.
+
+?> The standalone `PixivDownload-*.jar` is the core-shell JAR without the required download workbench plugin. It is only an internal build input and is not provided as a regular user attachment; running it directly enters recovery/repair mode.
 
 ### 3. Launch
+
+Run `run.bat` on Windows; run `sh run.sh` inside the extracted directory on Linux/macOS. You can also start manually:
 
 ```bash
 java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
 ```
 
 > [!IMPORTANT]
-> Always add `-Dfile.encoding=UTF-8` to avoid garbled text on Chinese Windows.
+> Always add `-Dfile.encoding=UTF-8` to avoid garbled text on Chinese Windows (`run.bat` / `run.sh` already include it).
 
 ### 4. Background Running (Server/Docker)
 
@@ -72,6 +81,8 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 ### 1. Download and Run Installer
 
 Download `PixivDownload-x.x.x-win-x64-setup.exe` from [Releases](https://github.com/Sywyar/PixivDownloader/releases).
+
+?> The default Windows installer preinstalls all official plugins except Douyin, so the download page works after startup. The full-offline package additionally carries Douyin for environments where installing plugins online is inconvenient; Douyin can also be installed on demand from the web plugin marketplace.
 
 ### 2. Installation Process
 
@@ -128,7 +139,7 @@ docker compose logs -f app   # view logs
 docker compose down          # stop
 ```
 
-Then open `http://<host-ip>:6999/` in a browser. Login, monitor, and gallery pages are all reachable remotely via session auth; the setup wizard and desktop GUI are not available inside the container (see below for editing config).
+Then open `http://<host-ip>:6999/` in a browser. Login, monitor, and pages contributed by installed plugins are reachable remotely via session auth; the setup wizard and desktop GUI are not available inside the container (see below for editing config).
 
 ### 4. Proxy Configuration (important)
 
@@ -270,6 +281,9 @@ Working Directory/
 │   ├── tts/                     # TTS version cache
 │   ├── backfill/                # Data backfill tool state
 │   └── narration-voice/         # Multi-character narration reference audio
+├── plugins/                     # External plugin artifacts
+│   ├── provenance/              # Provenance sidecars for installed plugins
+│   └── runtime/                 # Runtime materialization cache for JAR-with-lib / ZIP packages
 ├── pixiv-download/              # Downloaded files (default root)
 │   ├── artwork-{id}/            # Artwork directories
 │   ├── novel-{id}/              # Novel directories
@@ -287,6 +301,21 @@ After startup, visit in your browser:
 - `http://localhost:6999/` — Redirects to download page
 - `http://localhost:6999/setup.html` — First-time setup wizard (redirects if completed)
 - `http://localhost:6999/intro.html` — Product introduction page
-- `http://localhost:6999/pixiv-batch.html` — Batch download page
+- `http://localhost:6999/pixiv-batch.html` — Batch download page (requires `download-workbench`; bundled by the Java standard package, the full-offline package, and the default Windows installer)
 - `http://localhost:6999/monitor.html` — Download monitor
-- `http://localhost:6999/pixiv-gallery.html` — Artwork gallery
+- `http://localhost:6999/pixiv-gallery.html` — Artwork gallery (requires the optional `gallery` plugin)
+
+---
+
+## Official plugins and packages
+
+`download-workbench` is the required external plugin. It owns the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. If it is missing, corrupted, incompatible, or fails offline verification, the app enters the recovery path and only exposes login, plugin management, and repair/install entry points.
+
+The default installed official plugin set is `download-workbench`, `stats`, `duplicate`, `gallery`, `novel`, `notification`, `push`, `mail`, `tts`, `ai`, and `gui-theme`; `douyin` is the only on-demand plugin. Missing or disabling optional plugins only removes their pages, APIs, navigation, static resources, i18n, GUI config fields, or capability contributions; it does not trigger recovery.
+
+- Windows installer: bundles the JRE and preinstalls all official plugins except `douyin`; `douyin` can be installed on demand from the web plugin marketplace.
+- Java standard package (`*-java.zip`): same default plugin set as the Windows installer, without `douyin`; no JRE, no FFmpeg.
+- Full-offline package (`*-full-offline.zip`): the Java standard set plus `douyin`; no JRE, no FFmpeg.
+- Missing `duplicate` does not affect image Hash writes or historical Hash data.
+- Missing `gallery` does not affect the download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, or local resource index.
+- Missing `novel` does not affect novel downloading, body storage, translation state, series compilation, scheduled novel runner, TTS / AI degradation behavior, or reading historical novel data.

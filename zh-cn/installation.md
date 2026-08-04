@@ -4,14 +4,14 @@
 
 | 依赖 | 最低版本 | 说明 |
 |------|----------|------|
-| **Java** | 17+ | JAR 包运行必需；Windows 安装包已内置 JRE |
+| **Java** | 17+ | Java 标准包 / 离线全量包运行必需；Windows 安装包已内置 JRE |
 | **操作系统** | Windows / macOS / Linux | 跨平台支持 |
 | **Tampermonkey** | 最新版 | 如需使用油猴脚本 |
 | **ffmpeg** | 任意 | Ugoira 动图转 WebP 所需（可选） |
 
 ---
 
-## 方式一：JAR 包（跨平台）
+## 方式一：Java 标准包 / 离线全量包（跨平台）
 
 ### 1. 安装 Java 17+
 
@@ -26,18 +26,27 @@ java -version
 # 应输出类似：openjdk version "17.0.x" ...
 ```
 
-### 2. 下载 JAR
+### 2. 下载并解压
 
-从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载 `PixivDownload-vX.X.X.jar`。
+从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载：
+
+- `PixivDownload-*-java.zip` — Java 标准包，与 Windows 安装包默认插件集合一致（不含 Douyin）
+- `PixivDownload-*-full-offline.zip` — 离线全量包，额外包含 Douyin
+
+下载后必须**完整解压**，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
+
+?> 单独的 `PixivDownload-*.jar` 是核心壳 JAR，不携带必需的下载工作台插件，只作为内部构建输入、不作为普通用户附件；直接运行它会进入恢复 / 修复模式。
 
 ### 3. 启动
+
+Windows 上执行 `run.bat`；Linux / macOS 在解压目录内执行 `sh run.sh`。也可以手动启动：
 
 ```bash
 java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
 ```
 
 > [!IMPORTANT]
-> 务必添加 `-Dfile.encoding=UTF-8` 参数，否则在中文 Windows 下可能出现乱码。
+> 务必添加 `-Dfile.encoding=UTF-8` 参数，否则在中文 Windows 下可能出现乱码（`run.bat` / `run.sh` 已内置该参数）。
 
 ### 4. 后台运行（服务器/Docker）
 
@@ -71,6 +80,8 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 ### 1. 下载并运行安装器
 
 从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载 `PixivDownload-x.x.x-win-x64-setup.exe`。
+
+?> Windows 默认安装包预置除 Douyin 外的全部官方插件，启动后即可使用下载页。离线全量包会额外携带 Douyin，适合不方便联网安装插件的环境；Douyin 也可从 Web 插件市场按需安装。
 
 ### 2. 安装过程
 
@@ -127,7 +138,7 @@ docker compose logs -f app   # 查看日志
 docker compose down          # 停止
 ```
 
-启动后浏览器访问 `http://<宿主IP>:6999/`。登录、监控、画廊等页面均通过会话鉴权远程可用；setup 向导与桌面 GUI 在容器内不可用（如需改配置见下）。
+启动后浏览器访问 `http://<宿主IP>:6999/`。登录、监控和已安装插件贡献的页面均通过会话鉴权远程可用；setup 向导与桌面 GUI 在容器内不可用（如需改配置见下）。
 
 ### 4. 代理配置（关键）
 
@@ -269,6 +280,9 @@ FFmpeg 用于 Ugoira 动图转换为 WebP，普通图片下载不需要。
 │   ├── tts/                     # TTS 版本号本地缓存
 │   ├── backfill/                # 数据回填工具本地状态
 │   └── narration-voice/         # 多角色朗读参考音音频
+├── plugins/                     # 外置插件原始包
+│   ├── provenance/              # 已安装插件的 provenance sidecar
+│   └── runtime/                 # JAR-with-lib / ZIP 物化后的运行时缓存
 ├── pixiv-download/              # 下载文件存储（默认根目录）
 │   ├── artwork-{id}/            # 作品目录
 │   ├── novel-{id}/              # 小说目录
@@ -286,6 +300,21 @@ FFmpeg 用于 Ugoira 动图转换为 WebP，普通图片下载不需要。
 - `http://localhost:6999/` — 自动跳转到下载页
 - `http://localhost:6999/setup.html` — 首次配置向导（如已完成则重定向）
 - `http://localhost:6999/intro.html` — 产品介绍页
-- `http://localhost:6999/pixiv-batch.html` — 批量下载页
+- `http://localhost:6999/pixiv-batch.html` — 批量下载页（需要 `download-workbench`，Java 标准包、离线全量包和 Windows 默认安装包均已携带）
 - `http://localhost:6999/monitor.html` — 下载监控页
-- `http://localhost:6999/pixiv-gallery.html` — 作品画廊
+- `http://localhost:6999/pixiv-gallery.html` — 作品画廊（需要可选 `gallery` 插件）
+
+---
+
+## 官方插件与安装包
+
+`download-workbench` 是 required 外置插件，负责下载页、下载 API、队列、userscript 入口、Pixiv 插画代理和计划任务宿主。缺失、损坏、不兼容或离线复验失败时，程序进入恢复路径，只开放登录、插件管理和安装修复入口。
+
+官方插件默认安装集合包括 `download-workbench`、`stats`、`duplicate`、`gallery`、`novel`、`notification`、`push`、`mail`、`tts`、`ai` 和 `gui-theme`；`douyin` 是唯一的按需安装插件。缺失或禁用可选插件只会让对应页面、API、导航、静态资源、i18n、GUI 配置字段或能力贡献缺席，不会让程序进入恢复路径。
+
+- Windows 安装包：内置 JRE，预置除 `douyin` 外的全部官方插件；`douyin` 可从 Web 插件市场按需安装。
+- Java 标准包（`*-java.zip`）：与 Windows 安装包默认插件集合一致，不含 `douyin`；不含 JRE、不含 FFmpeg。
+- 离线全量包（`*-full-offline.zip`）：在 Java 标准包集合基础上额外携带 `douyin`；不含 JRE、不含 FFmpeg。
+- `duplicate` 缺失不影响图片 Hash 写入和历史 Hash 数据。
+- `gallery` 缺失不影响下载页、下载 API、userscript、Pixiv 插画代理、计划任务宿主、作品元数据、下载事实、Hash 与本地资源索引。
+- `novel` 缺失不影响小说下载核心、正文保存、翻译状态、系列合订、计划任务小说执行器、TTS / AI 能力降级与历史数据读取。

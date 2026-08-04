@@ -27,6 +27,8 @@ PixivDownloader is a **local batch download tool for Pixiv artwork**, built on S
 | 👥 **Multi Mode** | Multi-user shared server with quota and rate limiting |
 | 🔗 **Guest Invite** | Share galleries via invite codes with content rating / tag / author allowlist control |
 
+?> The Windows installer and the Java standard package preinstall all official plugins except Douyin (including the required `download-workbench`); the full-offline package additionally carries Douyin. Artwork gallery, novel gallery, stats, suspected duplicates, TTS, AI, notifications, push, mail, and GUI themes are provided by official plugins.
+
 ---
 
 ## New to PixivDownloader?
