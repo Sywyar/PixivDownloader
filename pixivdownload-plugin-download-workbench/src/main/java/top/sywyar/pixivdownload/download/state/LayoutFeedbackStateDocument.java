@@ -9,7 +9,9 @@ import java.util.Map;
  * 持久化到 {@code state/download-workbench/layout-feedback-state.json} 的文档形态。
  *
  * <p>{@code schemaVersion=2} 按 Survey ID 保存多个独立状态（{@code states} 的 key 必须
- * 等于 entry.surveyId）；{@code seen} 为下载工作台全局布局体验记录。任何字段非法都视为
+ * 等于 entry.surveyId，且不得超过 {@link LayoutFeedbackStateStore#MAX_SURVEY_STATES}
+ * 项）；{@code seen} 为下载工作台全局布局体验记录。revision 必须落在
+ * {@code 0..MAX_SAFE_REVISION}（JavaScript 安全整数）。任何字段非法都视为
  * 损坏（按损坏文件处理）。{@code state} 字段只用于兼容读取 v1 文档（单个状态），写入
  * 一律输出 v2 形态。
  *
@@ -28,7 +30,7 @@ public record LayoutFeedbackStateDocument(
         if (schemaVersion != 2 && schemaVersion != 1) {
             throw new IllegalArgumentException("unsupported schema version");
         }
-        if (revision < 0) {
+        if (revision < 0 || revision > LayoutFeedbackStateStore.MAX_SAFE_REVISION) {
             throw new IllegalArgumentException("invalid revision");
         }
         if (seen == null) {
@@ -45,6 +47,9 @@ public record LayoutFeedbackStateDocument(
         if (schemaVersion == 2) {
             if (states == null) {
                 throw new IllegalArgumentException("states is required for schema version 2");
+            }
+            if (states.size() > LayoutFeedbackStateStore.MAX_SURVEY_STATES) {
+                throw new IllegalArgumentException("states exceeds MAX_SURVEY_STATES");
             }
             for (Map.Entry<String, LayoutFeedbackStateEntry> entry : states.entrySet()) {
                 LayoutFeedbackStateEntry value = entry.getValue();

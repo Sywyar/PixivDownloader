@@ -5813,8 +5813,12 @@ function testServerSnoozeExpiredClearsLocalSnooze() {
 function testRepeatedServerSnoozeNoMeaninglessWrites() {
     // 同一服务端 snooze 重复 GET：本地截止时间差在容差内，不产生无意义 localStorage
     // 写入（setStorageIfChanged 去重 + serverViewToLocalState 容差）。
+    // 断言必须是精确相等（===），不能用 >= 冒充「没有额外写入」。
     let getCalls = 0;
-    let setsAfterInit = 0;
+    let stateKeyBefore = null;
+    let setsBeforeRefresh = 0;
+    let removesBeforeRefresh = 0;
+    let postsBefore = 0;
     const h = initHarness({
         batchLayout: 'landscape',
         initialWall: 1000000,
@@ -5826,13 +5830,16 @@ function testRepeatedServerSnoozeNoMeaninglessWrites() {
                     status: 'snoozed',
                     canShow: false,
                     retryAfterMs: 20 * 60 * 1000,
-                    seenLayouts: []
+                    seenLayouts: LAYOUT_IDS.slice()
                 }))
             };
         }
     });
     return waitForServerContext(h).then(() => {
-        setsAfterInit = h.storage.setCalls.filter(c => c[0] === STATE_KEY).length;
+        stateKeyBefore = h.storage.getItem(STATE_KEY);
+        setsBeforeRefresh = h.storage.setCalls.filter(c => c[0] === STATE_KEY).length;
+        removesBeforeRefresh = h.storage.removeCalls.filter(c => c === STATE_KEY).length;
+        postsBefore = h.serverPosts.length;
         h.timers.advance(2000);
         return waitForFlush();
     }).then(() => {
@@ -5841,9 +5848,56 @@ function testRepeatedServerSnoozeNoMeaninglessWrites() {
         return waitForFlush();
     }).then(() => {
         const setsAfterRefresh = h.storage.setCalls.filter(c => c[0] === STATE_KEY).length;
-        ok('重复服务端 snooze 不产生无意义写入', setsAfterRefresh >= setsAfterInit);
-        eq('本地截止时间不变', JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil,
-            1000000 + 20 * 60 * 1000);
+        eq('重复服务端 snooze 零额外 STATE_KEY 写入', setsAfterRefresh, setsBeforeRefresh);
+        eq('STATE_KEY 序列化内容完全不变', h.storage.getItem(STATE_KEY), stateKeyBefore);
+        const state = JSON.parse(h.storage.getItem(STATE_KEY));
+        eq('updatedAt 不变', state.updatedAt, 1000000);
+        eq('snoozedUntil 在容差内保留旧值', state.snoozedUntil, 1000000 + 20 * 60 * 1000);
+        eq('无额外 STATE_KEY remove', h.storage.removeCalls.filter(c => c === STATE_KEY).length,
+            removesBeforeRefresh);
+        eq('无额外服务端命令', h.serverPosts.length, postsBefore);
+    });
+}
+
+function testServerSnoozeDeadlineChangeWritesOnce() {
+    // 正向对照：新的 retryAfterMs 使本地截止时间变化超过容差时，恰好增加一次
+    // STATE_KEY 写入（截止时间更新），不产生第二次多余写入。
+    let getCalls = 0;
+    let setsAfterFirstWrite = 0;
+    let setsBefore = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        serverFetch: () => {
+            getCalls++;
+            return {
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 0,
+                    status: 'snoozed',
+                    canShow: false,
+                    retryAfterMs: getCalls === 1 ? 20 * 60 * 1000 : 20 * 60 * 1000 + 10 * 1000,
+                    seenLayouts: LAYOUT_IDS.slice()
+                }))
+            };
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        setsBefore = h.storage.setCalls.filter(c => c[0] === STATE_KEY).length;
+        h.dispatchStorage(SEEN_KEY, JSON.stringify(seenObject()));
+        return waitForFlush();
+    }).then(() => {
+        const setsAfter = h.storage.setCalls.filter(c => c[0] === STATE_KEY).length;
+        eq('截止时间变化超过容差：恰好一次额外 STATE_KEY 写入', setsAfter, setsBefore + 1);
+        setsAfterFirstWrite = setsAfter;
+        eq('截止时间更新为新值', JSON.parse(h.storage.getItem(STATE_KEY)).snoozedUntil,
+            1000000 + 20 * 60 * 1000 + 10 * 1000);
+        // 立即再次刷新（同一新值）：不再写入。
+        h.dispatchStorage(SEEN_KEY, JSON.stringify(seenObject()));
+        return waitForFlush();
+    }).then(() => {
+        eq('相同新值不再产生第二次多余写入',
+            h.storage.setCalls.filter(c => c[0] === STATE_KEY).length, setsAfterFirstWrite);
     });
 }
 
@@ -5973,6 +6027,597 @@ function testNoCasCommandProtocol() {
                 h.api._internals.distinctSeenCount(effective) >= 1);
             ok('本地 SEEN_KEY 保留布局', h.storage.getItem(SEEN_KEY) !== null);
         });
+    });
+}
+
+/* ============================================================
+   自动展示重新调度 / 状态机分离 / 定时器语义 / revision 安全边界
+============================================================ */
+
+function testAutoRescheduleAfterSnoozeExtension() {
+    // A. snooze 延长后重新调度：
+    // 初始 autoDelay=0、已体验两个布局、页面可见、无阻塞弹窗，
+    // 服务端 status=snoozed / canShow=false / retryAfterMs=1000。
+    // 旧截止到达后权威刷新返回延长后的 retryAfterMs=7000：
+    // 不加载 SDK、不请求 Survey、autoFlowStarted 保持 false、重新安排 ~7000ms 定时器。
+    let getCalls = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        autoDelayMs: 0,
+        serverFetch: () => {
+            getCalls++;
+            const retryAfterMs = getCalls === 1 ? 1000 : 7000;
+            return {
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 0,
+                    status: 'snoozed',
+                    canShow: false,
+                    retryAfterMs,
+                    seenLayouts: LAYOUT_IDS.slice()
+                }))
+            };
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        // init GET 完成：定时器对齐到旧截止时间（now + 1000）。
+        eq('init 后对齐旧截止时间', h.api._internals.autoTimerDueAt(), 1000000 + 1000);
+        // 旧截止前：不加载 SDK。
+        h.timers.advance(500);
+        return waitForFlush();
+    }).then(() => {
+        eq('旧截止前不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('旧截止前未启动自动流程', h.api._internals.autoFlowStarted(), false);
+        // 旧截止到达：权威 GET 返回延长后的 7000ms。
+        h.timers.advance(500);
+        return waitForFlush();
+    }).then(() => {
+        eq('延长刷新后不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('延长刷新后不初始化 SDK', h.adapter.calls.init.length, 0);
+        eq('autoFlowStarted 保持 false', h.api._internals.autoFlowStarted(), false);
+        eq('autoEvaluationInFlight 恢复 false', h.api._internals.autoEvaluationInFlight(), false);
+        eq('autoFlowTerminal 保持 false', h.api._internals.autoFlowTerminal(), false);
+        // 重新安排约 7000ms 的定时器（刷新发生在 now=1001000，截止 = 1001000+7000）。
+        eq('重新安排新截止时间', h.api._internals.autoTimerDueAt(), 1001000 + 7000);
+        const timersAtDeadline = h.timers.pending().filter(t => t.at === 1001000 + 7000);
+        eq('没有重复定时器（同一截止只有一个）', timersAtDeadline.length, 1);
+        // 新截止前不加载 SDK。
+        h.timers.advance(6000);
+        return waitForFlush();
+    }).then(() => {
+        eq('新截止前不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('新截止前 autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+    });
+}
+
+function testAutoShowOnceAfterServerDeadline() {
+    // B. 新截止到期后只启动一次：
+    // 新截止前不加载 SDK；权威刷新在途时（服务端确认前）autoFlowStarted=false；
+    // 服务端确认 canShow=true 后才进入 SDK（此时 autoFlowStarted=true）；
+    // SDK / Survey 网络流程只启动一次；弹窗最多一个；
+    // 后续 visibility / layout / storage 事件不启动第二次。
+    let getCalls = 0;
+    let gateResolve = null;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        autoDelayMs: 0,
+        serverFetch: () => {
+            getCalls++;
+            if (getCalls <= 2) {
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 0,
+                        status: 'snoozed',
+                        canShow: false,
+                        retryAfterMs: getCalls === 1 ? 1000 : 7000,
+                        seenLayouts: LAYOUT_IDS.slice()
+                    }))
+                };
+            }
+            // 新截止到达后的权威刷新：在途等待测试确认（模拟服务端延迟响应）。
+            return new Promise(resolve => { gateResolve = resolve; });
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(1000); // 旧截止 → 刷新延长到 7000
+        return waitForFlush();
+    }).then(() => {
+        eq('延长后未开始自动流程', h.api._internals.autoFlowStarted(), false);
+        h.timers.advance(6999); // 新截止前 1ms
+        return waitForFlush();
+    }).then(() => {
+        eq('新截止前不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('新截止前 autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+        h.timers.advance(1); // 新截止到达：权威刷新在途
+        return waitForFlush();
+    }).then(() => {
+        eq('服务端确认前 autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+        eq('刷新在途 autoEvaluationInFlight=true', h.api._internals.autoEvaluationInFlight(), true);
+        // 服务端确认 canShow=true。
+        gateResolve({
+            ok: true,
+            json: () => Promise.resolve(serverStateResponse({
+                revision: 1,
+                status: 'snoozed',
+                canShow: true,
+                retryAfterMs: 0,
+                seenLayouts: LAYOUT_IDS.slice()
+            }))
+        });
+        return waitForFlush();
+    }).then(() => {
+        eq('服务端确认后进入 SDK', h.adapter.calls.getSurveys.length, 1);
+        eq('SDK 流程只启动一次', h.adapter.calls.init.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('进入 SDK 时 autoFlowStarted=true', h.api._internals.autoFlowStarted(), true);
+        eq('SDK 阶段 autoEvaluationInFlight=false', h.api._internals.autoEvaluationInFlight(), false);
+        // 后续 visibility / layout / storage 事件不启动第二次。
+        h.document.visibilityState = 'hidden';
+        h.document.dispatchEvent({type: 'visibilitychange'});
+        h.document.visibilityState = 'visible';
+        h.document.dispatchEvent({type: 'visibilitychange'});
+        h.dispatchLayoutChanged('portrait', 'landscape');
+        h.dispatchLayoutChanged('alt', 'portrait');
+        h.dispatchStorage(SEEN_KEY, JSON.stringify(seenObject()));
+        return waitForFlush();
+    }).then(() => {
+        eq('后续事件不启动第二次 Survey 流程', h.adapter.calls.getSurveys.length, 1);
+    });
+}
+
+function testAutoTimerReplacementOnRepeatedExtension() {
+    // C. 服务端多次延长（1s → 10s → 20s）：
+    // 自动定时器目标时间被正确向后替换；旧 timer 被清理；
+    // 同时只有一个 timer；到 20 秒截止前不加载 SDK。
+    let getCalls = 0;
+    const retries = [1000, 10 * 1000, 20 * 1000];
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        autoDelayMs: 0,
+        serverFetch: () => {
+            getCalls++;
+            const retryAfterMs = retries[Math.min(getCalls - 1, retries.length - 1)];
+            return {
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 0,
+                    status: 'snoozed',
+                    canShow: false,
+                    retryAfterMs,
+                    seenLayouts: LAYOUT_IDS.slice()
+                }))
+            };
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        eq('初始截止 1s', h.api._internals.autoTimerDueAt(), 1000000 + 1000);
+        h.timers.advance(1000);
+        return waitForFlush();
+    }).then(() => {
+        eq('延长到 10s（旧 timer 被替换）', h.api._internals.autoTimerDueAt(), 1001000 + 10 * 1000);
+        eq('同时只有一个 timer', h.timers.pending().length, 1);
+        h.timers.advance(5000);
+        return waitForFlush();
+    }).then(() => {
+        eq('10s 截止前不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        h.timers.advance(5000);
+        return waitForFlush();
+    }).then(() => {
+        eq('延长到 20s（旧 timer 被替换）', h.api._internals.autoTimerDueAt(), 1011000 + 20 * 1000);
+        eq('同时只有一个 timer', h.timers.pending().length, 1);
+        // 到 20 秒截止前不加载 SDK。
+        h.timers.advance(19000);
+        return waitForFlush();
+    }).then(() => {
+        eq('20s 截止前不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+    });
+}
+
+function testAutoTimerBroughtForwardWhenServerAllows() {
+    // D. 服务端提前允许：已有较晚定时器（1 小时）。storage 事件触发 refresh 返回
+    // canShow=true：旧较晚定时器被替换 / 清理；自动评估被提前；Survey 流程仍只启动一次。
+    let getCalls = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        autoDelayMs: 0,
+        serverFetch: () => {
+            getCalls++;
+            if (getCalls === 1) {
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 0,
+                        status: 'snoozed',
+                        canShow: false,
+                        retryAfterMs: 60 * 60 * 1000,
+                        seenLayouts: LAYOUT_IDS.slice()
+                    }))
+                };
+            }
+            return {
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 1,
+                    status: 'snoozed',
+                    canShow: true,
+                    retryAfterMs: 0,
+                    seenLayouts: LAYOUT_IDS.slice()
+                }))
+            };
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        eq('初始较晚定时器 1 小时', h.api._internals.autoTimerDueAt(), 1000000 + 60 * 60 * 1000);
+        // storage 事件触发刷新：服务端返回 canShow=true。
+        h.dispatchStorage(SEEN_KEY, JSON.stringify(seenObject()));
+        return waitForFlush();
+    }).then(() => {
+        ok('旧较晚定时器被替换（不再保留 1 小时定时器）',
+            h.timers.pending().every(t => t.at < 1000000 + 60 * 60 * 1000));
+        h.timers.advance(0);
+        return waitForFlush();
+    }).then(() => {
+        eq('评估被提前：Survey 流程启动一次', h.adapter.calls.getSurveys.length, 1);
+        eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        // 后续 storage 事件不启动第二次。
+        h.dispatchStorage(SEEN_KEY, JSON.stringify(seenObject()));
+        return waitForFlush();
+    }).then(() => {
+        eq('提前后不启动第二次', h.adapter.calls.getSurveys.length, 1);
+    });
+}
+
+function testDestroyDuringAutoEvaluation() {
+    // E. 自动评估中 destroy：服务端 refresh 在途（autoEvaluationInFlight=true）时
+    // destroy → 全部自动状态重置；迟到响应不重新调度、不加载 SDK、不打开弹窗、
+    // 无残留 timer。
+    let getCalls = 0;
+    let gateResolve = null;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        autoDelayMs: 0,
+        serverFetch: () => {
+            getCalls++;
+            if (getCalls === 1) {
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 0,
+                        status: 'snoozed',
+                        canShow: false,
+                        retryAfterMs: 1000,
+                        seenLayouts: LAYOUT_IDS.slice()
+                    }))
+                };
+            }
+            return new Promise(resolve => { gateResolve = resolve; });
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(1000); // 旧截止 → 权威刷新在途
+        return waitForFlush();
+    }).then(() => {
+        eq('刷新在途：autoEvaluationInFlight=true', h.api._internals.autoEvaluationInFlight(), true);
+        eq('服务端确认前 autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+        h.api.destroy();
+        return waitForFlush();
+    }).then(() => {
+        eq('destroy 后 autoEvaluationInFlight=false', h.api._internals.autoEvaluationInFlight(), false);
+        eq('destroy 后 autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+        eq('destroy 后 autoFlowTerminal=false', h.api._internals.autoFlowTerminal(), false);
+        eq('destroy 后 autoTimerDueAt=0', h.api._internals.autoTimerDueAt(), 0);
+        eq('destroy 后无残留定时器', h.timers.pending().length, 0);
+        // 迟到响应到达：不重新调度、不加载 SDK、不打开弹窗。
+        gateResolve({
+            ok: true,
+            json: () => Promise.resolve(serverStateResponse({
+                revision: 1,
+                status: 'snoozed',
+                canShow: false,
+                retryAfterMs: 7000,
+                seenLayouts: LAYOUT_IDS.slice()
+            }))
+        });
+        return waitForFlush();
+    }).then(() => {
+        eq('迟到响应不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('迟到响应不打开弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('迟到响应不重新调度', h.timers.pending().length, 0);
+    });
+}
+
+function testAutoFlowProtocolInvalidTerminal() {
+    // F. 协议 INVALID：自动权威刷新返回非法视图 → 不加载 SDK；
+    // autoFlowStarted=false；autoFlowTerminal=true；不无限重试；手动 open 不被破坏。
+    let getCalls = 0;
+    const h = initHarness({
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        autoDelayMs: 0,
+        serverFetch: () => {
+            getCalls++;
+            if (getCalls === 1) {
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 0,
+                        status: 'snoozed',
+                        canShow: false,
+                        retryAfterMs: 1000,
+                        seenLayouts: LAYOUT_IDS.slice()
+                    }))
+                };
+            }
+            // 非法视图（available=false）。
+            return {ok: true, json: () => Promise.resolve({available: false})};
+        }
+    });
+    return waitForServerContext(h).then(() => {
+        h.timers.advance(1000);
+        return waitForFlush();
+    }).then(() => {
+        eq('INVALID 不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        eq('INVALID 不设置 autoFlowStarted', h.api._internals.autoFlowStarted(), false);
+        eq('INVALID 设置 autoFlowTerminal', h.api._internals.autoFlowTerminal(), true);
+        eq('INVALID 不安排新定时器', h.timers.pending().length, 0);
+        // 不无限重试：推进时间不再触发任何自动流程。
+        h.timers.advance(60000);
+        return waitForFlush();
+    }).then(() => {
+        eq('terminal 后不无限重试', h.adapter.calls.getSurveys.length, 0);
+        // 手动 open 不受 autoFlowTerminal 限制。
+        return h.api.open().then(() => waitForFlush());
+    }).then(() => {
+        eq('手动 open 仍可用', h.document.querySelectorAll('.plf-backdrop').length, 1);
+    });
+}
+
+function testAutoFlowUnavailableFailOpen() {
+    // G. unavailable fail-open：服务端暂时不可用 + 本地无阻断状态 → 允许进入 SDK，
+    // 进入 SDK 前才设置 autoFlowStarted，只启动一次；本地存在阻断状态 → 不进入 SDK、
+    // 不消耗 autoFlowStarted。
+    return Promise.resolve().then(() => {
+        let getCalls = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: 1000000,
+            storage: seenSeed(),
+            autoDelayMs: 0,
+            serverFetch: () => {
+                getCalls++;
+                if (getCalls === 1) {
+                    return {
+                        ok: true,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 0,
+                            status: 'snoozed',
+                            canShow: false,
+                            retryAfterMs: 1000,
+                            seenLayouts: LAYOUT_IDS.slice()
+                        }))
+                    };
+                }
+                return Promise.reject(new Error('network down'));
+            }
+        });
+        return waitForServerContext(h).then(() => {
+            h.timers.advance(1000);
+            return waitForFlush();
+        }).then(() => {
+            eq('unavailable 本地无阻断：允许进入 SDK', h.adapter.calls.getSurveys.length, 1);
+            eq('进入 SDK 前已设置 autoFlowStarted', h.api._internals.autoFlowStarted(), true);
+            eq('只启动一次', h.adapter.calls.init.length, 1);
+        });
+    }).then(() => {
+        // 本地存在阻断状态（另一标签页写入 submitted fallback）：不进入 SDK。
+        let getCalls = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: 1000000,
+            storage: seenSeed(),
+            autoDelayMs: 0,
+            serverFetch: () => {
+                getCalls++;
+                if (getCalls === 1) {
+                    return {
+                        ok: true,
+                        json: () => Promise.resolve(serverStateResponse({
+                            revision: 0,
+                            status: 'snoozed',
+                            canShow: false,
+                            retryAfterMs: 1000,
+                            seenLayouts: LAYOUT_IDS.slice()
+                        }))
+                    };
+                }
+                return Promise.reject(new Error('network down'));
+            }
+        });
+        return waitForServerContext(h).then(() => {
+            // 另一标签页刚写入 submitted：storage 事件合并进 pendingLocalState。
+            h.dispatchStorage(STATE_KEY, JSON.stringify(surveyState('submitted')));
+            return waitForFlush();
+        }).then(() => {
+            h.timers.advance(1000);
+            return waitForFlush();
+        }).then(() => {
+            eq('本地阻断：不进入 SDK', h.adapter.calls.getSurveys.length, 0);
+            eq('本地阻断不消耗 autoFlowStarted', h.api._internals.autoFlowStarted(), false);
+            eq('本地阻断不设置 autoFlowTerminal', h.api._internals.autoFlowTerminal(), false);
+        });
+    });
+}
+
+function testAutoTimerSemantics() {
+    // 定时器语义：同一目标时间不重复设置；更早目标可替换旧 timer；
+    // 服务端延长时 timer 向后移动；执行后 dueAt 清零；destroy 清除全部；
+    // 超大 retryAfterMs 不造成负 delay 或 setTimeout 溢出；分段后最终仍会重新评估。
+    const blockingBase = {
+        batchLayout: 'landscape',
+        initialWall: 1000000,
+        storage: seenSeed(),
+        autoDelayMs: 0,
+        serverFetch: () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(serverStateResponse({
+                revision: 0,
+                status: 'snoozed',
+                canShow: false,
+                retryAfterMs: 60 * 60 * 1000,
+                seenLayouts: LAYOUT_IDS.slice()
+            }))
+        })
+    };
+    return Promise.resolve().then(() => {
+        // 1. 同一目标时间不重复设置；2. 更早目标（资格事件）可替换较晚定时器。
+        const h = initHarness(blockingBase);
+        return waitForServerContext(h).then(() => {
+            eq('init 对齐服务端截止（1 小时）', h.api._internals.autoTimerDueAt(), 1000000 + 60 * 60 * 1000);
+            h.dispatchLayoutChanged('portrait', 'landscape');
+            h.dispatchLayoutChanged('landscape', 'portrait');
+            return waitForFlush();
+        }).then(() => {
+            const timersAtDue = h.timers.pending().filter(t => t.at === h.api._internals.autoTimerDueAt());
+            eq('同一目标时间不重复设置', timersAtDue.length, 1);
+            // 布局变化是「更早的检查」：替换较晚的服务端截止定时器。
+            eq('更早资格事件替换较晚定时器', h.api._internals.autoTimerDueAt(), 1000000);
+            h.timers.advance(0);
+            return waitForFlush();
+        }).then(() => {
+            // 立即评估发现服务端仍阻断：重新对齐服务端截止。
+            eq('阻断后重新对齐服务端截止', h.api._internals.autoTimerDueAt(), 1000000 + 60 * 60 * 1000);
+            eq('阻断评估不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+        });
+    }).then(() => {
+        // 3. 服务端延长时定时器可向后移动（旧 timer 被清理，同时只有一个 timer）。
+        let getCalls = 0;
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: 1000000,
+            storage: seenSeed(),
+            autoDelayMs: 0,
+            serverFetch: () => {
+                getCalls++;
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(serverStateResponse({
+                        revision: 0,
+                        status: 'snoozed',
+                        canShow: false,
+                        retryAfterMs: getCalls === 1 ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
+                        seenLayouts: LAYOUT_IDS.slice()
+                    }))
+                });
+            }
+        });
+        return waitForServerContext(h).then(() => {
+            eq('初始截止 1 小时', h.api._internals.autoTimerDueAt(), 1000000 + 60 * 60 * 1000);
+            h.timers.advance(60 * 60 * 1000);
+            return waitForFlush();
+        }).then(() => {
+            eq('延长后截止后移（24 小时）', h.api._internals.autoTimerDueAt(),
+                1000000 + 60 * 60 * 1000 + 24 * 60 * 60 * 1000);
+            eq('同时只有一个 timer', h.timers.pending().length, 1);
+        });
+    }).then(() => {
+        // 4. timer 执行后 dueAt 清零；6. 本地阻断时不安排新定时器。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: 1000000,
+            storage: {[STATE_KEY]: JSON.stringify(surveyState('snoozed', 1000000 + 5000))},
+            autoDelayMs: 0,
+            minDistinct: 1
+        });
+        return waitForFlush().then(() => {
+            eq('本地模式定时器已安排', h.api._internals.autoTimerDueAt(), 1000000);
+            h.timers.advance(0);
+            return waitForFlush();
+        }).then(() => {
+            eq('执行后 autoTimerId 清空', h.api._internals.autoTimerId(), null);
+            eq('执行后 autoTimerDueAt 清零', h.api._internals.autoTimerDueAt(), 0);
+        });
+    }).then(() => {
+        // 5. destroy 清除全部。
+        const h = initHarness(blockingBase);
+        return waitForServerContext(h).then(() => {
+            h.api.destroy();
+            eq('destroy 后 autoTimerId 清空', h.api._internals.autoTimerId(), null);
+            eq('destroy 后 autoTimerDueAt 清零', h.api._internals.autoTimerDueAt(), 0);
+            eq('destroy 后 autoEvaluationInFlight=false', h.api._internals.autoEvaluationInFlight(), false);
+            eq('destroy 后 autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+            eq('destroy 后 autoFlowTerminal=false', h.api._internals.autoFlowTerminal(), false);
+            eq('destroy 后无残留定时器', h.timers.pending().length, 0);
+        });
+    }).then(() => {
+        // 6-7. 超大 retryAfterMs：不造成负 delay 或 setTimeout 溢出；分段调度后
+        // 到期时重新评估并再次分段安排（最终仍会重新评估）。
+        const h = initHarness({
+            batchLayout: 'landscape',
+            initialWall: 1000000,
+            storage: seenSeed(),
+            autoDelayMs: 0,
+            serverFetch: () => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(serverStateResponse({
+                    revision: 0,
+                    status: 'snoozed',
+                    canShow: false,
+                    retryAfterMs: 1e15,
+                    seenLayouts: LAYOUT_IDS.slice()
+                }))
+            })
+        });
+        return waitForServerContext(h).then(() => {
+            const dueAt = h.api._internals.autoTimerDueAt();
+            eq('超大 delay 分段到浏览器安全上限', dueAt - 1000000, 2147483647);
+            ok('不产生负 delay', dueAt > 1000000);
+            h.timers.advance(2147483647);
+            return waitForFlush();
+        }).then(() => {
+            eq('分段到期后重新评估并再次安排', h.api._internals.autoTimerDueAt() > 1000000, true);
+            eq('分段期间不加载 SDK', h.adapter.calls.getSurveys.length, 0);
+            eq('autoFlowStarted=false', h.api._internals.autoFlowStarted(), false);
+        });
+    });
+}
+
+function testRevisionSafeIntegerBoundary() {
+    // revision 边界：Number.MAX_SAFE_INTEGER 合法；
+    // MAX_SAFE_INTEGER+1 / 非整数 / Infinity / NaN / string → VIEW_INVALID。
+    const MAX_SAFE = Number.MAX_SAFE_INTEGER;
+    const withRevision = (revision) => {
+        const h = initHarness({
+            batchLayout: 'landscape',
+            serverState: serverStateResponse({revision})
+        });
+        return h.api.open().then(() => waitForFlush()).then(() => h);
+    };
+    return withRevision(MAX_SAFE).then(h => {
+        ok('revision=Number.MAX_SAFE_INTEGER 合法',
+            !!(h.adapter.sdkConfig() && h.adapter.sdkConfig().bootstrap));
+    }).then(() => withRevision(MAX_SAFE + 1)).then(h => {
+        eq('revision=MAX_SAFE_INTEGER+1 → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+    }).then(() => withRevision(1.5)).then(h => {
+        eq('revision=非整数 → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+    }).then(() => withRevision(Infinity)).then(h => {
+        eq('revision=Infinity → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+    }).then(() => withRevision(NaN)).then(h => {
+        eq('revision=NaN → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+    }).then(() => withRevision('5')).then(h => {
+        eq('revision=string → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
     });
 }
 
@@ -6130,8 +6775,18 @@ async function run() {
     await step('testServerTerminalReloadStillBlocks', testServerTerminalReloadStillBlocks);
     await step('testServerSnoozeExpiredClearsLocalSnooze', testServerSnoozeExpiredClearsLocalSnooze);
     await step('testRepeatedServerSnoozeNoMeaninglessWrites', testRepeatedServerSnoozeNoMeaninglessWrites);
+    await step('testServerSnoozeDeadlineChangeWritesOnce', testServerSnoozeDeadlineChangeWritesOnce);
     await step('testSeenLayoutsToLocalSeen', testSeenLayoutsToLocalSeen);
     await step('testNoCasCommandProtocol', testNoCasCommandProtocol);
+    await step('testAutoRescheduleAfterSnoozeExtension', testAutoRescheduleAfterSnoozeExtension);
+    await step('testAutoShowOnceAfterServerDeadline', testAutoShowOnceAfterServerDeadline);
+    await step('testAutoTimerReplacementOnRepeatedExtension', testAutoTimerReplacementOnRepeatedExtension);
+    await step('testAutoTimerBroughtForwardWhenServerAllows', testAutoTimerBroughtForwardWhenServerAllows);
+    await step('testDestroyDuringAutoEvaluation', testDestroyDuringAutoEvaluation);
+    await step('testAutoFlowProtocolInvalidTerminal', testAutoFlowProtocolInvalidTerminal);
+    await step('testAutoFlowUnavailableFailOpen', testAutoFlowUnavailableFailOpen);
+    await step('testAutoTimerSemantics', testAutoTimerSemantics);
+    await step('testRevisionSafeIntegerBoundary', testRevisionSafeIntegerBoundary);
     console.log(`\npixiv-layout-feedback.test.js: ${passed} assertions passed ✓`);
 }
 

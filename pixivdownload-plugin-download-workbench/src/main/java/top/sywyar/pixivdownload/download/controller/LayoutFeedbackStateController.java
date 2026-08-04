@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.download.LayoutFeedbackIdentityDeriver;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 import top.sywyar.pixivdownload.download.response.LayoutFeedbackStateResponse;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackDecisionView;
+import top.sywyar.pixivdownload.download.state.LayoutFeedbackRevisionExhaustedException;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateEntry;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateSnapshot;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
@@ -157,6 +158,10 @@ public class LayoutFeedbackStateController {
         LayoutFeedbackStateStore.ApplyResult result;
         try {
             result = store.apply(commandRequest, serverNow);
+        } catch (LayoutFeedbackRevisionExhaustedException e) {
+            // revision 达到 JavaScript 安全整数上限后仍需真实修改：无法安全递增
+            // revision（绝不回绕），本次写入失败，内存快照与文件均不变。
+            return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
         } catch (IllegalStateException e) {
             // degraded 竞态：写入被拒绝。
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);

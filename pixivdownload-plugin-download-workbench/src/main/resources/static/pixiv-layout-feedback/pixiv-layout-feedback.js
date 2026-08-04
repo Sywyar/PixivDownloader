@@ -84,6 +84,9 @@
     var AUTO_OVERLAY_RETRY_DELAY_MS = 5 * 1000;
     var AUTO_OVERLAY_RETRY_WINDOW_MS = 30 * 1000;
     var AUTO_RESCHEDULE_DELAY_MS = 0;
+    // 浏览器 setTimeout 可安全接受的最大延迟（2^31-1 ms，约 24.8 天）；更大的自动
+    // 评估截止时间分段调度，到期后重新评估会按当时的最新权威状态再次安排。
+    var MAX_TIMEOUT_MS = 2147483647;
     var SUGGESTION_MAX_CODE_POINTS = 1000;
     var SURVEY_SCHEMA_VERSION = '1';
     var SDK_LOAD_TIMEOUT_MS = 10 * 1000;
@@ -285,6 +288,14 @@
     var sdkInitSignature = null;
     var autoTimerId = null;
     var autoFlowStarted = false;
+    // 自动资格检查 / 服务端刷新正在进行中（尚未进入 SDK 阶段）。
+    var autoEvaluationInFlight = false;
+    // 本页面不再自动重试：已启动自动 Survey 网络流程 / 协议或身份 INVALID 等
+    // 明确的不可恢复自动流程错误。snooze 未到期 / 延长 / 页面不可见 / 未达阈值 /
+    // 临时弹窗不得设置它。
+    var autoFlowTerminal = false;
+    // 当前自动定时器计划执行的客户端时间点（timers.now() 域）；0 表示无定时器。
+    var autoTimerDueAt = 0;
     var autoRetryCount = 0;
     var autoRetryStartedAt = 0;
     var flowRunning = false;
@@ -478,6 +489,15 @@
         return typeof value === 'number' && isFinite(value) && Math.floor(value) === value;
     }
 
+    /**
+     * JavaScript 安全整数校验（{@code Number.MAX_SAFE_INTEGER} 范围内的有限整数）。
+     * 服务端 revision 必须能被 JS 精确表示：仅 isFiniteInteger 不足以拒绝
+     * 9007199254740992 这类超出安全范围的整数。
+     */
+    function isSafeInteger(value) {
+        return isFiniteInteger(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER;
+    }
+
     /** 两个布局 ID 数组内容完全相同（有序）。 */
     function seenLayoutsEqual(a, b) {
         if (!Array.isArray(a) || !Array.isArray(b)) return false;
@@ -526,7 +546,7 @@
         if (distinctId && !SCOPED_ID_PATTERN.test(distinctId)) return VIEW_INVALID;
         // 服务端声明可用（available=true）却不下发 scoped 身份：整份视图非法，不得部分使用。
         if (!distinctId) return VIEW_INVALID;
-        if (!isFiniteInteger(data.revision) || data.revision < 0) return VIEW_INVALID;
+        if (!isSafeInteger(data.revision) || data.revision < 0) return VIEW_INVALID;
         var status = null;
         if (data.status != null) {
             if (typeof data.status !== 'string'
@@ -740,6 +760,7 @@
                         .then(function (result) {
                             if (!isOperationActive(operation, generation)) return null;
                             syncServerViewToLocalCache();
+                            syncAutoScheduleToServerBlock();
                             return result;
                         });
                 }
@@ -860,6 +881,7 @@
                     if (serverBacked) {
                         prunePendingAfterView();
                         syncServerViewToLocalCache();
+                        syncAutoScheduleToServerBlock();
                     }
                     finish({status: REFRESH_FRESH, viewResult: result});
                 } else if (result === VIEW_SAME || result === VIEW_STALE) {
@@ -1061,9 +1083,11 @@
                         layoutIds: layoutIds
                     });
                     syncServerViewToLocalCache();
+                    syncAutoScheduleToServerBlock();
                 } else {
                     // 服务端视图未满足命令（例如 record_seen 缺布局）：保留 pending。
                     syncServerViewToLocalCache();
+                    syncAutoScheduleToServerBlock();
                 }
                 finish({
                     ok: satisfied,
@@ -3071,62 +3095,118 @@
      *   不请求 Survey、不显示；
      * - serverBacked 且 serverStatus=snoozed、canShow=false 时，本地截止时间
      *   （serverLocalBlockUntil / localStorage 本地 snooze）到期后允许重新 GET 服务端
-     *   权威状态：snooze 是否到期由服务端判断，浏览器只负责在本地截止时间过后重新询问。
+     *   权威状态：snooze 是否到期由服务端判断，浏览器只负责在本地截止时间过后重新询问；
+     * - 内部返回明确结构化结果 {status: 'opened' | 'started' | 'blocked' | 'invalid'
+     *   | 'cancelled' | 'no-survey', survey, retryAt}：blocked 携带服务端本地截止时间
+     *   （retryAt），invalid 表示协议 / 身份失败，cancelled 表示 generation 失效 /
+     *   destroy / 流程互斥；
+     * - autoFlowStarted 只在本函数内、所有门禁通过且即将真正调用 resolveSdk 时
+     *   （options.auto 路径）由 false 变为 true；一旦设置，本页面不得再发起第二次
+     *   自动 Survey 网络流程（即使 SDK 加载失败 / 没有 matching Survey / Feature
+     *   Flags 超时 / Survey 请求失败）。手动 open 不受该标记限制。
      */
     function showSurveyFlow(options) {
-        if (!initialized || flowRunning || dialogOpen) return Promise.resolve(null);
         options = options || {};
+        if (!initialized || flowRunning || dialogOpen) {
+            return Promise.resolve(flowResult('cancelled'));
+        }
         var generation = currentRuntimeGeneration();
         flowRunning = true;
+        function flowResult(status, survey, retryAt) {
+            return {
+                status: status,
+                survey: survey || null,
+                retryAt: typeof retryAt === 'number' && isFinite(retryAt) ? retryAt : 0
+            };
+        }
+        function sdkStep(sdk) {
+            return {kind: 'sdk', sdk: sdk};
+        }
         function finishFlow(result) {
             if (isRuntimeGenerationActive(generation)) flowRunning = false;
             return result;
         }
         function proceedToSdk() {
-            if (!isRuntimeGenerationActive(generation)) return null;
-            return resolveSdk(generation);
+            if (!isRuntimeGenerationActive(generation)) return sdkStep(null);
+            // autoFlowStarted 只能在这里由 false 变为 true：所有本地与服务端门禁均已
+            // 通过，即将真正开始 SDK / Survey 网络流程（resolveSdk 首次加载 SDK）。
+            if (options.auto && !autoFlowStarted) {
+                autoFlowStarted = true;
+                autoEvaluationInFlight = false;
+            }
+            return resolveSdk(generation).then(function (sdk) {
+                return sdkStep(sdk);
+            });
         }
         return loadServerContext(generation).then(function () {
-            if (!isRuntimeGenerationActive(generation)) return null;
-            if (!config || !config.enabled) return null;
+            if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
+            if (!config || !config.enabled) return flowResult('cancelled');
             if (options.skipStateGate) return proceedToSdk();
-            if (!stateAllowsShow(timers.now())) return null;
+            if (!stateAllowsShow(timers.now())) {
+                // 服务端 snooze 未到期（canShow=false）：不加载 SDK、不请求 Survey，
+                // 只在自己的本地截止时间（serverLocalBlockUntil）对齐安排自动检查。
+                if (serverBacked && serverStatus === 'snoozed' && !serverCanShow
+                        && serverLocalBlockUntil > timers.now()) {
+                    return flowResult('blocked', null, serverLocalBlockUntil);
+                }
+                return flowResult('blocked');
+            }
             // 本地截止时间已到但服务端视图仍是旧 snoozed / canShow=false：
             // 强制重新 GET 权威状态（服务端独立判断到期），再按新视图判断门禁。
             if (serverBacked && serverStatus === 'snoozed' && !serverCanShow) {
                 return refreshServerContext(generation).then(function (result) {
-                    if (!isRuntimeGenerationActive(generation)) return null;
-                    if (result.status === REFRESH_INVALID) return null;
-                    if (!stateAllowsShow(timers.now())) return null;
+                    if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
+                    if (result.status === REFRESH_INVALID) return flowResult('invalid');
+                    if (result.status === REFRESH_CANCELLED) return flowResult('cancelled');
+                    if (result.status === REFRESH_UNAVAILABLE) {
+                        // 服务端暂时不可用：本地无阻断状态时按现有 availability 策略
+                        // 继续（明确 fail-open，不解释任何服务端绝对时间点）。
+                        if (!stateAllowsShow(timers.now())) return flowResult('blocked');
+                        return proceedToSdk();
+                    }
+                    if (!stateAllowsShow(timers.now())) {
+                        // 服务端延长 / 缩短 snooze：按最新 serverLocalBlockUntil 阻断。
+                        if (serverBacked && serverStatus === 'snoozed' && !serverCanShow
+                                && serverLocalBlockUntil > timers.now()) {
+                            return flowResult('blocked', null, serverLocalBlockUntil);
+                        }
+                        return flowResult('blocked');
+                    }
                     return proceedToSdk();
                 });
             }
             return proceedToSdk();
-        }).then(function (sdk) {
-            if (!isRuntimeGenerationActive(generation)) return null;
-            if (!sdk || typeof sdk.init !== 'function') return null;
-            if (!initPostHog(sdk)) return null;
+        }).then(function (step) {
+            if (!step || step.kind !== 'sdk') {
+                // 结构化结果（blocked / invalid / cancelled）直接透传。
+                return step || flowResult('cancelled');
+            }
+            if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
+            var sdk = step.sdk;
+            if (!sdk || typeof sdk.init !== 'function') return flowResult('started');
+            if (!initPostHog(sdk)) return flowResult('started');
             if (serverIdentityAvailable && serverDistinctId) {
-                if (!verifySdkDistinctId(sdk)) return null;
+                if (!verifySdkDistinctId(sdk)) return flowResult('started');
             }
             // DNT / opt-out：不请求 Survey、不显示、不发 shown、不写状态、不报错。
-            if (isCapturingDisabled(sdk)) return null;
-            return fetchMatchingSurvey(sdk, generation);
-        }).then(function (survey) {
-            if (!isRuntimeGenerationActive(generation)) return null;
-            if (!survey) return null;
-            var choiceQuestion = resolveChoiceQuestion(survey);
-            if (!choiceQuestion) {
-                warn('layout survey: layout choice question schema invalid; survey hidden');
-                return null;
-            }
-            var suggestionQuestion = resolveSuggestionQuestion(survey);
-            if (!openDialog(survey, choiceQuestion, suggestionQuestion)) return null;
-            sendShown();
-            return survey;
+            if (isCapturingDisabled(sdk)) return flowResult('started');
+            return fetchMatchingSurvey(sdk, generation).then(function (survey) {
+                if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
+                if (!survey) return flowResult('no-survey');
+                var choiceQuestion = resolveChoiceQuestion(survey);
+                if (!choiceQuestion) {
+                    warn('layout survey: layout choice question schema invalid; survey hidden');
+                    return flowResult('no-survey');
+                }
+                var suggestionQuestion = resolveSuggestionQuestion(survey);
+                if (!openDialog(survey, choiceQuestion, suggestionQuestion)) {
+                    return flowResult('no-survey');
+                }
+                sendShown();
+                return flowResult('opened', survey);
+            });
         }).then(finishFlow, function () {
-            finishFlow(null);
-            return null;
+            return finishFlow(flowResult('cancelled'));
         });
     }
 
@@ -3361,26 +3441,75 @@
     /**
      * 自动资格检查状态机：
      * - 初始化后至少延迟 autoDelay（默认 10 秒）再评估；
-     * - 定时器真正执行时清除「已调度」标记，允许未来事件重新调度；
+     * - 定时器真正执行时清除「已调度」标记（autoTimerId=null / autoTimerDueAt=0），
+     *   允许未来事件重新调度；
      * - 页面不可见 / 未达体验阈值时不加载 SDK、不消耗本页面唯一自动流程机会；
      * - 阻塞弹窗存在时按有限次数与有限总时间重试，不无限轮询；
-     * - 只有真正准备调用 showSurveyFlow() 时才设置 autoFlowStarted=true，
-     *   同一页面此后不再发起第二次自动 Survey 网络流程。
+     * - 服务端 snooze 阻断时只把定时器对齐 serverLocalBlockUntil，不加载 SDK、
+     *   不请求 Survey、不设置 autoFlowStarted；
+     * - 全部本地门禁通过后设置 autoEvaluationInFlight=true 并执行自动准备流程
+     *   （runAutoSurveyFlow）：autoFlowStarted 只在真正进入 SDK / Survey 网络流程时
+     *   由 showSurveyFlow 设置，同一页面此后不再发起第二次自动 Survey 网络流程。
      */
-    function scheduleAutoEvaluation(delay) {
-        if (autoTimerId != null) return;
-        if (autoFlowStarted) return;
+
+    /** 清除当前自动定时器（幂等）。 */
+    function clearAutoTimer() {
+        if (autoTimerId != null) clearTimerSafe(autoTimerId);
+        autoTimerId = null;
+        autoTimerDueAt = 0;
+    }
+
+    /**
+     * 统一自动评估调度：把自动定时器安排到客户端时间点 {@code deadline}。
+     * - authoritative=true（服务端权威阻断期限）：替换现有定时器，使定时器准确对齐
+     *   最新的 serverLocalBlockUntil——服务端延长 snooze 时向后移动，缩短 / 提前时
+     *   向前移动；保证任何时刻最多只有一个自动定时器；
+     * - authoritative=false（普通资格事件：布局变化 / 页面重新可见 / storage 事件）：
+     *   优先安排更早的检查，已挂起更早检查时不重复设置；
+     * - delay 必须有限、非负，且不超过浏览器 setTimeout 可安全接受的值
+     *   （MAX_TIMEOUT_MS）；超大 delay 分段调度，到期后重新评估会按当时的最新权威
+     *   状态再次安排；
+     * - 定时器执行时清除 autoTimerId / autoTimerDueAt，再评估资格。
+     */
+    function scheduleAutoEvaluationAt(deadline, authoritative) {
+        if (autoFlowStarted || autoFlowTerminal) return;
+        if (!authoritative && autoEvaluationInFlight) return;
+        if (typeof deadline !== 'number' || !isFinite(deadline) || deadline < 0) return;
+        if (!authoritative && autoTimerId != null && autoTimerDueAt > 0
+                && autoTimerDueAt <= deadline) {
+            return;
+        }
+        var now = timers.now();
+        var delay = deadline - now;
+        if (!isFinite(delay) || delay < 0) delay = 0;
+        if (delay > MAX_TIMEOUT_MS) {
+            deadline = now + MAX_TIMEOUT_MS;
+            delay = MAX_TIMEOUT_MS;
+        }
+        clearAutoTimer();
         var generation = currentRuntimeGeneration();
+        var dueAt = deadline;
         var id = setTimeoutSafe(function () {
-            autoTimerId = null;
+            if (autoTimerId === id) autoTimerId = null;
+            if (autoTimerDueAt === dueAt) autoTimerDueAt = 0;
+            clearTimerSafe(id);
             if (!isRuntimeGenerationActive(generation)) return;
             evaluateAutoEligibility();
         }, delay);
         autoTimerId = id;
+        autoTimerDueAt = id != null ? dueAt : 0;
+    }
+
+    /** 相对延迟调度（事件触发，默认不替换更早的检查）。 */
+    function scheduleAutoEvaluation(delay) {
+        if (typeof delay !== 'number' || !isFinite(delay) || delay < 0) delay = 0;
+        scheduleAutoEvaluationAt(timers.now() + delay, false);
     }
 
     function evaluateAutoEligibility() {
         if (autoFlowStarted) return;
+        if (autoFlowTerminal) return;
+        if (autoEvaluationInFlight) return;
         if (!config || !config.enabled) return;
         var now = timers.now();
         if (!stateAllowsShow(now)) {
@@ -3389,7 +3518,7 @@
             // 到期时重新 GET 服务端权威状态，由服务端独立判断是否允许展示。
             if (serverBacked && serverStatus === 'snoozed' && !serverCanShow
                     && serverLocalBlockUntil > now) {
-                scheduleAutoEvaluation(serverLocalBlockUntil - now);
+                scheduleAutoEvaluationAt(serverLocalBlockUntil, true);
             }
             return;
         }
@@ -3404,8 +3533,129 @@
             return;
         }
         if (seenCount() < minDistinctLayouts) return;
-        autoFlowStarted = true;
-        showSurveyFlow();
+        // 全部本地条件满足：标记评估在途，执行自动准备流程（必要时先做权威刷新）。
+        autoEvaluationInFlight = true;
+        runAutoSurveyFlow();
+    }
+
+    /**
+     * 自动流程结果处理：按 showSurveyFlow 的结构化结果维护自动状态机。
+     * - blocked：恢复 in-flight，按服务端本地截止时间（retryAt）重新调度，绝不设置
+     *   autoFlowStarted、不加载 SDK；没有截止时间时等 visibility / storage / layout
+     *   事件重新调度；
+     * - invalid：协议 / 身份失败，fail-closed，本页面不再自动重试（autoFlowTerminal），
+     *   不循环请求；手动 open 不受影响；
+     * - cancelled：不修改新 generation、不安排旧 generation 定时器；
+     * - opened / started / no-survey：SDK / Survey 网络流程已开始（或已安全结束），
+     *   autoFlowStarted 已在 showSurveyFlow 设置，本页面不再发起第二次自动流程。
+     */
+    function handleAutoResult(result) {
+        if (!result || typeof result !== 'object' || !result.status) {
+            autoEvaluationInFlight = false;
+            return;
+        }
+        if (result.status === 'opened' || result.status === 'started'
+                || result.status === 'no-survey') {
+            autoEvaluationInFlight = false;
+            return;
+        }
+        if (result.status === 'invalid') {
+            autoEvaluationInFlight = false;
+            autoFlowStarted = false;
+            autoFlowTerminal = true;
+            return;
+        }
+        if (result.status === 'blocked') {
+            autoEvaluationInFlight = false;
+            // 服务端延长 snooze 等：按最新服务端截止时间重新安排（旧定时器被替换）。
+            if (typeof result.retryAt === 'number' && result.retryAt > timers.now()) {
+                scheduleAutoEvaluationAt(result.retryAt, true);
+            }
+            return;
+        }
+        autoEvaluationInFlight = false;
+    }
+
+    /**
+     * 自动准备流程：本地全部门禁已在 evaluateAutoEligibility 通过。若服务端视图仍是
+     * 旧 snoozed / canShow=false（本地截止时间已到但视图未刷新），先做一次权威 GET；
+     * 服务端延长 snooze 时 commitServerView 更新 serverLocalBlockUntil，showSurveyFlow
+     * 会按新截止时间返回 blocked（不加载 SDK、不设置 autoFlowStarted），随后
+     * handleAutoResult 重新安排新截止时间的检查。只有服务端确认允许（或服务端暂时
+     * 不可用且本地无阻断状态）时才进入 showSurveyFlow，autoFlowStarted 在真正开始
+     * SDK / Survey 网络流程前才由 showSurveyFlow 设置。
+     */
+    function runAutoSurveyFlow() {
+        var generation = currentRuntimeGeneration();
+        function proceed() {
+            if (!isRuntimeGenerationActive(generation)) {
+                autoEvaluationInFlight = false;
+                return;
+            }
+            return showSurveyFlow({auto: true}).then(function (result) {
+                if (!isRuntimeGenerationActive(generation)) {
+                    autoEvaluationInFlight = false;
+                    return;
+                }
+                handleAutoResult(result);
+            });
+        }
+        if (serverBacked && serverStatus === 'snoozed' && !serverCanShow) {
+            refreshServerContext(generation).then(function (result) {
+                if (!isRuntimeGenerationActive(generation)) {
+                    autoEvaluationInFlight = false;
+                    return;
+                }
+                if (result.status === REFRESH_INVALID) {
+                    autoEvaluationInFlight = false;
+                    autoFlowStarted = false;
+                    autoFlowTerminal = true;
+                    return;
+                }
+                if (result.status === REFRESH_CANCELLED) {
+                    autoEvaluationInFlight = false;
+                    return;
+                }
+                if (result.status === REFRESH_UNAVAILABLE) {
+                    // 服务端暂时不可用：本地没有阻断状态时允许按现有 availability
+                    // 策略继续自动流程（进入 SDK 前才设置 autoFlowStarted）。
+                    if (!stateAllowsShow(timers.now())) {
+                        autoEvaluationInFlight = false;
+                        return;
+                    }
+                    proceed();
+                    return;
+                }
+                proceed();
+            });
+            return;
+        }
+        proceed();
+    }
+
+    /**
+     * 服务端权威视图应用后主动维护自动计划（不在 applyServerView 纯视图校验函数中
+     * 操作 timer；由 commitServerView / syncServerViewToLocalCache 之后的调用方执行）：
+     * - server snoozed / canShow=false：确保存在与最新 serverLocalBlockUntil 对齐的
+     *   定时器（服务端延长 snooze 时把旧定时器向后移动，缩短时向前移动），页面到新
+     *   期限前不再反复请求；
+     * - server snoozed / canShow=true（服务端已到期 / 提前解除）：允许把较晚的检查
+     *   提前。
+     * 只在 initialized / config.enabled / 尚未 autoFlowStarted / autoFlowTerminal /
+     * autoEvaluationInFlight 时执行。
+     */
+    function syncAutoScheduleToServerBlock() {
+        if (!initialized || !config || !config.enabled) return;
+        if (autoFlowStarted || autoFlowTerminal || autoEvaluationInFlight) return;
+        if (!serverBacked || serverStatus !== 'snoozed') return;
+        if (!serverCanShow) {
+            if (serverLocalBlockUntil > timers.now()) {
+                scheduleAutoEvaluationAt(serverLocalBlockUntil, true);
+            }
+            return;
+        }
+        // 服务端允许展示（snooze 到期 / 提前解除）：把较晚的定时器提前。
+        scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
     }
 
     /* ============================================================
@@ -3463,15 +3713,19 @@
      * 手动打开展示流程（调试 / 自动化测试入口）。不做自动门禁
      * （可见性 / 体验数量 / 本地状态），但受 enabled 配置约束，且身份加载
      * 不能绕过：showSurveyFlow 内部始终先等待服务端身份上下文。
+     * 不受 autoFlowStarted / autoFlowTerminal 限制。
      * 未 init（含 destroy 后尚未重新 init）时是安全的 no-op：
      * 返回 resolved null，不加载 SDK、不设置 flowRunning、不插 script、
      * 不注册 listener、不请求 Survey、不打开弹窗。
+     * 返回 Survey 或 null，不暴露内部状态机对象。
      */
     function open() {
         if (!initialized || !config || !config.enabled) {
             return Promise.resolve(null);
         }
-        return showSurveyFlow({skipStateGate: true});
+        return showSurveyFlow({skipStateGate: true}).then(function (result) {
+            return result && result.survey ? result.survey : null;
+        });
     }
 
     function destroy() {
@@ -3537,7 +3791,10 @@
         // continuation 全部被 isRuntimeGenerationActive 拦截。
         runtimeGeneration += 1;
         autoTimerId = null;
+        autoTimerDueAt = 0;
+        autoEvaluationInFlight = false;
         autoFlowStarted = false;
+        autoFlowTerminal = false;
         autoRetryCount = 0;
         autoRetryStartedAt = 0;
         flowRunning = false;
@@ -3663,7 +3920,14 @@
             serverSeenLayouts: function () { return serverSeenLayouts.slice(); },
             serverStateAvailable: function () { return serverStateAvailable; },
             serverLocalBlockUntil: function () { return serverLocalBlockUntil; },
-            serverBacked: function () { return serverBacked; }
+            serverBacked: function () { return serverBacked; },
+            // 自动展示状态机只读观测（供自动化测试断言；不暴露可篡改状态的接口）。
+            autoTimerId: function () { return autoTimerId; },
+            autoTimerDueAt: function () { return autoTimerDueAt; },
+            autoEvaluationInFlight: function () { return autoEvaluationInFlight; },
+            autoFlowStarted: function () { return autoFlowStarted; },
+            autoFlowTerminal: function () { return autoFlowTerminal; },
+            pendingTimerCount: function () { return pendingTimers.length; }
         })
     });
 })(window);

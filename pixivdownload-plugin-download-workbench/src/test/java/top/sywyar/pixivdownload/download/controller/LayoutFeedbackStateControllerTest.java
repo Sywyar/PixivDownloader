@@ -874,6 +874,104 @@ class LayoutFeedbackStateControllerTest {
     ============================================================ */
 
     @Test
+    @DisplayName("正常响应 revision 是 JavaScript 安全整数")
+    void responseRevisionIsSafeInteger() throws Exception {
+        mockMvc(SOLO).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1));
+        mockMvc(SOLO).perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1));
+    }
+
+    private Path stateFilePath() {
+        return tempDir.resolve("state/download-workbench/layout-feedback-state.json");
+    }
+
+    private void writeV2Document(Path file, long revision, String statesJson) throws IOException {
+        Files.createDirectories(file.getParent());
+        Files.writeString(file,
+                "{\"schemaVersion\":2,\"revision\":" + revision + ",\"states\":" + statesJson
+                        + ",\"seen\":{}}",
+                StandardCharsets.UTF_8);
+    }
+
+    @Test
+    @DisplayName("revision 耗尽且命令是 no-op：200 且 revision 不变")
+    void revisionExhaustedNoOpReturns200() throws Exception {
+        Path file = stateFilePath();
+        writeV2Document(file, LayoutFeedbackStateStore.MAX_SAFE_REVISION,
+                "{\"" + SURVEY_ID + "\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"submitted\",\"updatedAt\":1,\"snoozedUntil\":0}}");
+        LayoutFeedbackStateStore store = new LayoutFeedbackStateStore(
+                new LayoutFeedbackStateFiles(stateDir()));
+
+        MvcResult result = mockMvc(SOLO, store, null).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("submitted")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("submitted"))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()))
+                .andReturn();
+        assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .as("耗尽时 no-op 响应必须原样返回 MAX_SAFE_REVISION")
+                .contains("\"revision\":" + LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+    }
+
+    @Test
+    @DisplayName("revision 耗尽且命令需要真实修改：503 且 no-store, private，文件与内存不变")
+    void revisionExhaustedRealChangeReturns503() throws Exception {
+        Path file = stateFilePath();
+        writeV2Document(file, LayoutFeedbackStateStore.MAX_SAFE_REVISION, "{}");
+        LayoutFeedbackStateStore store = new LayoutFeedbackStateStore(
+                new LayoutFeedbackStateFiles(stateDir()));
+        String before = Files.readString(file, StandardCharsets.UTF_8);
+
+        mockMvc(SOLO, store, null).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commandBody("record_seen", SURVEY_ID,
+                                List.of("pixiv-batch-landscape"))))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+
+        assertThat(store.snapshot().revision())
+                .as("内存快照 revision 不变")
+                .isEqualTo(LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+        assertThat(store.snapshot().seen()).as("内存快照 seen 不变").isEmpty();
+        assertThat(Files.readString(file, StandardCharsets.UTF_8))
+                .as("状态文件不变")
+                .isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("状态文件 revision 超过上限：按损坏文件隔离，GET 返回安全空状态视图")
+    void overLimitRevisionFileQuarantinedAndServesSafeEmptyView() throws Exception {
+        Path file = stateFilePath();
+        writeV2Document(file, LayoutFeedbackStateStore.MAX_SAFE_REVISION + 1L,
+                "{\"" + SURVEY_ID + "\":{\"surveyId\":\"" + SURVEY_ID
+                        + "\",\"status\":\"submitted\",\"updatedAt\":1,\"snoozedUntil\":0}}");
+        LayoutFeedbackStateStore store = new LayoutFeedbackStateStore(
+                new LayoutFeedbackStateFiles(stateDir()));
+
+        mockMvc(SOLO, store, null).perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.stateAvailable").value(true))
+                .andExpect(jsonPath("$.revision").value(0))
+                .andExpect(jsonPath("$.canShow").value(true))
+                .andExpect(jsonPath("$.retryAfterMs").value(0));
+
+        assertThat(Files.exists(file)).as("超限 revision 文件必须被隔离").isFalse();
+        try (var stream = Files.list(file.getParent())) {
+            assertThat(stream.filter(p -> p.getFileName().toString().contains(".corrupt-")))
+                    .as("超限 revision 文件按损坏隔离")
+                    .hasSize(1);
+        }
+    }
+
+    @Test
     @DisplayName("合法动作不再返回 409（重复 submitted 是幂等 no-op，200 且 revision 不变）")
     void legalCommandsNeverReturn409() throws Exception {
         MockMvc mockMvc = mockMvc(SOLO);

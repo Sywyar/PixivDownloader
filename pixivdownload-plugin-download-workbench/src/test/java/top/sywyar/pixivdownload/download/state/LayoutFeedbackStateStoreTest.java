@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -639,6 +640,174 @@ class LayoutFeedbackStateStoreTest {
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.states()).hasSize(LayoutFeedbackStateStore.MAX_SURVEY_STATES);
         assertThat(snapshot.state(newest)).isNotNull();
+    }
+
+    /* ============================================================
+       states 数量上限贯穿加载（schemaVersion=2 文件）
+    ============================================================ */
+
+    private String stateJson(String surveyId, long updatedAt) {
+        return "{\"surveyId\":\"" + surveyId
+                + "\",\"status\":\"submitted\",\"updatedAt\":" + updatedAt + ",\"snoozedUntil\":0}";
+    }
+
+    private void writeV2Document(long revision, int stateCount) throws IOException {
+        StringBuilder json = new StringBuilder("{\"schemaVersion\":2,\"revision\":" + revision + ",\"states\":{");
+        for (int i = 0; i < stateCount; i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            String surveyId = String.format("aaaaaaaa-bbbb-cccc-dddd-%012d", i);
+            json.append("\"").append(surveyId).append("\":").append(stateJson(surveyId, i + 1L));
+        }
+        json.append("},\"seen\":{}}");
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(), json.toString(), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    @DisplayName("schemaVersion=2 恰好 32 个 states：正常加载，不隔离")
+    void v2FileWithExactlyMaxStatesLoads() throws IOException {
+        writeV2Document(7L, LayoutFeedbackStateStore.MAX_SURVEY_STATES);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("恰好 32 项不得被隔离").isEmpty();
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.states()).hasSize(LayoutFeedbackStateStore.MAX_SURVEY_STATES);
+        assertThat(snapshot.revision()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("schemaVersion=2 超过 32 个 states：按损坏文件隔离，Store 使用空快照并继续可用")
+    void v2FileOverLimitQuarantinedAndStoreUsable() throws IOException {
+        writeV2Document(7L, LayoutFeedbackStateStore.MAX_SURVEY_STATES + 1);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("超限 v2 文件必须按损坏隔离").hasSize(1);
+        assertThat(Files.exists(stateFile())).as("超限文件必须被移走").isFalse();
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.states()).as("Store 使用空快照").isEmpty();
+        assertThat(snapshot.revision()).isZero();
+        // 超限文件不得因后续 record_seen 绕过限制：Store 继续可用，正常淘汰仍生效。
+        store.apply(recordSeen("pixiv-batch-landscape"), NOW);
+        assertThat(store.snapshot().seen()).containsKey("pixiv-batch-landscape");
+    }
+
+    @Test
+    @DisplayName("LayoutFeedbackStateSnapshot 直接构造 33 个 states 拒绝")
+    void snapshotRejectsOverLimitStates() {
+        Map<String, LayoutFeedbackStateEntry> states = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < LayoutFeedbackStateStore.MAX_SURVEY_STATES + 1; i++) {
+            String surveyId = String.format("aaaaaaaa-bbbb-cccc-dddd-%012d", i);
+            states.put(surveyId, new LayoutFeedbackStateEntry(
+                    surveyId, LayoutFeedbackDecision.SUBMITTED, i + 1L, 0L));
+        }
+
+        assertThatThrownBy(() -> new LayoutFeedbackStateSnapshot(0L, states, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("LayoutFeedbackStateDocument 构造 33 个 states 拒绝（schemaVersion=2）")
+    void documentRejectsOverLimitStates() {
+        Map<String, LayoutFeedbackStateEntry> states = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < LayoutFeedbackStateStore.MAX_SURVEY_STATES + 1; i++) {
+            String surveyId = String.format("aaaaaaaa-bbbb-cccc-dddd-%012d", i);
+            states.put(surveyId, new LayoutFeedbackStateEntry(
+                    surveyId, LayoutFeedbackDecision.SUBMITTED, i + 1L, 0L));
+        }
+
+        assertThatThrownBy(() -> new LayoutFeedbackStateDocument(2, 0L, null, states, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /* ============================================================
+       revision 安全边界（Number.MAX_SAFE_INTEGER）
+    ============================================================ */
+
+    @Test
+    @DisplayName("revision=MAX_SAFE_REVISION-1：一次真实修改成功，revision 变为 MAX_SAFE_REVISION")
+    void revisionAdvancesToMaxFromOneBelow() throws IOException {
+        writeV2Document(LayoutFeedbackStateStore.MAX_SAFE_REVISION - 1L, 0);
+        LayoutFeedbackStateStore store = store();
+
+        LayoutFeedbackStateStore.ApplyResult result = store.apply(submitted(), NOW);
+
+        assertThat(result.changed()).isTrue();
+        assertThat(result.snapshot().revision()).isEqualTo(LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+        assertThat(store.snapshot().revision()).isEqualTo(LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+    }
+
+    @Test
+    @DisplayName("revision==MAX_SAFE_REVISION：重复 submitted 等幂等 no-op 成功，revision 保持、不落盘")
+    void revisionExhaustedNoOpStillSucceeds() throws IOException {
+        writeV2Document(LayoutFeedbackStateStore.MAX_SAFE_REVISION - 1L, 0);
+        LayoutFeedbackStateStore store = store();
+        // 先构造真实 submitted 状态（真实修改使 revision 到达上限）。
+        LayoutFeedbackStateStore.ApplyResult first = store.apply(submitted(), NOW);
+        assertThat(first.changed()).as("测试前置：首次写入推进到上限").isTrue();
+        assertThat(first.snapshot().revision()).isEqualTo(LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+        String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore.ApplyResult noop = store.apply(submitted(), NOW + 5000);
+
+        assertThat(noop.changed()).as("幂等 no-op 不受 revision 耗尽影响").isFalse();
+        assertThat(noop.snapshot().revision()).isEqualTo(LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+        assertThat(store.snapshot().revision()).isEqualTo(LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+        assertThat(Files.readString(stateFile(), StandardCharsets.UTF_8))
+                .as("no-op 不重写状态文件")
+                .isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("revision==MAX_SAFE_REVISION：record_seen 新布局等真实修改失败，revision 不变、文件不变、不产生负数")
+    void revisionExhaustedRealChangeFailsWithoutSideEffects() throws IOException {
+        writeV2Document(LayoutFeedbackStateStore.MAX_SAFE_REVISION, 0);
+        LayoutFeedbackStateStore store = store();
+        String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> store.apply(recordSeen("pixiv-batch-landscape"), NOW))
+                .isInstanceOf(LayoutFeedbackRevisionExhaustedException.class);
+
+        LayoutFeedbackStateSnapshot snapshot = store.snapshot();
+        assertThat(snapshot.revision()).as("内存快照 revision 不变").isEqualTo(LayoutFeedbackStateStore.MAX_SAFE_REVISION);
+        assertThat(snapshot.seen()).as("内存快照 seen 不变").isEmpty();
+        assertThat(snapshot.states()).as("内存快照 states 不变").isEmpty();
+        assertThat(Files.readString(stateFile(), StandardCharsets.UTF_8))
+                .as("状态文件不变")
+                .isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("revision 超过 MAX_SAFE_REVISION 的文件：按损坏文件隔离，空快照")
+    void revisionOverMaxFileQuarantined() throws IOException {
+        writeV2Document(LayoutFeedbackStateStore.MAX_SAFE_REVISION + 1L, 1);
+
+        LayoutFeedbackStateStore store = store();
+
+        assertThat(store.degraded()).isFalse();
+        assertThat(corruptFiles()).as("超限 revision 文件必须按损坏隔离").hasSize(1);
+        assertThat(store.snapshot().revision()).isZero();
+        assertThat(store.snapshot().states()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("revision 为负的文件：按损坏文件隔离")
+    void negativeRevisionFileQuarantined() throws IOException {
+        Files.createDirectories(stateFile().getParent());
+        Files.writeString(stateFile(),
+                "{\"schemaVersion\":2,\"revision\":-1,\"states\":{},\"seen\":{}}",
+                StandardCharsets.UTF_8);
+
+        LayoutFeedbackStateStore store = store();
+
+        // 先触发懒加载（ensureLoaded），隔离在首次访问时执行。
+        assertThat(store.snapshot().revision()).isZero();
+        assertThat(corruptFiles()).as("负 revision 文件必须按损坏隔离").hasSize(1);
     }
 
     /* ============================================================

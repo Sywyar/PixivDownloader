@@ -53,6 +53,9 @@ public final class LayoutFeedbackStateStore {
     /** states map 的数量上限；新增第 33 个状态时按 updatedAt 淘汰最旧状态。 */
     public static final int MAX_SURVEY_STATES = 32;
 
+    /** revision 上限：JavaScript 安全整数上限（Number.MAX_SAFE_INTEGER = 2^53 - 1）。 */
+    public static final long MAX_SAFE_REVISION = 9_007_199_254_740_991L;
+
     /** 状态文件大小上限（超出按损坏处理，不读取无限大内容）。 */
     public static final long MAX_STATE_FILE_BYTES = 64L * 1024;
 
@@ -117,8 +120,11 @@ public final class LayoutFeedbackStateStore {
     }
 
     /**
-     * 在锁内应用命令：基于最新快照执行单调动作并原子持久化；实际变化时 revision + 1，
-     * no-op 时 revision 不变、不落盘。不执行任何客户端 CAS，不返回冲突。
+     * 在锁内应用命令：基于最新快照执行单调动作并原子持久化；实际变化时 revision 经
+     * {@link #nextRevision} 安全递增，no-op 时 revision 不变、不落盘。不执行任何客户端
+     * CAS，不返回冲突。revision 已达到 {@link #MAX_SAFE_REVISION} 时，需要真实修改的
+     * 命令抛 {@link LayoutFeedbackRevisionExhaustedException}（内存快照与文件均不变，
+     * 由控制器映射为 503）；幂等 no-op 命令仍正常返回当前快照。
      */
     public ApplyResult apply(LayoutFeedbackCommandRequest request, long now) throws IOException {
         ensureLoaded();
@@ -224,6 +230,18 @@ public final class LayoutFeedbackStateStore {
         return result < 0 ? 0L : result;
     }
 
+    /**
+     * 安全 revision 递增：revision 达到 {@link #MAX_SAFE_REVISION} 后抛
+     * {@link LayoutFeedbackRevisionExhaustedException}，绝不溢出为负数或 0。
+     * 幂等 no-op 命令不经过本函数，仍可返回当前快照。
+     */
+    private static long nextRevision(long revision) {
+        if (revision >= MAX_SAFE_REVISION) {
+            throw new LayoutFeedbackRevisionExhaustedException(revision);
+        }
+        return revision + 1;
+    }
+
     /* ------------------------------------------------------------
        状态转移（单调）
     ------------------------------------------------------------ */
@@ -288,7 +306,7 @@ public final class LayoutFeedbackStateStore {
                     refreshed.put(surveyId,
                             new LayoutFeedbackStateEntry(surveyId, incoming, nextUpdatedAt, nextUntil));
                     return new LayoutFeedbackStateSnapshot(
-                            snapshot.revision() + 1, refreshed, snapshot.seen());
+                            nextRevision(snapshot.revision()), refreshed, snapshot.seen());
                 }
                 // 重复 submitted / never：幂等 no-op。
                 return snapshot;
@@ -302,7 +320,7 @@ public final class LayoutFeedbackStateStore {
         Map<String, LayoutFeedbackStateEntry> nextStates = new LinkedHashMap<>(states);
         nextStates.put(surveyId, new LayoutFeedbackStateEntry(surveyId, incoming, safeNow, snoozedUntil));
         nextStates = evictIfNeeded(nextStates, surveyId);
-        return new LayoutFeedbackStateSnapshot(snapshot.revision() + 1, nextStates, snapshot.seen());
+        return new LayoutFeedbackStateSnapshot(nextRevision(snapshot.revision()), nextStates, snapshot.seen());
     }
 
     /**
@@ -370,7 +388,7 @@ public final class LayoutFeedbackStateStore {
         if (!changed) {
             return snapshot;
         }
-        return new LayoutFeedbackStateSnapshot(snapshot.revision() + 1, snapshot.states(), seen);
+        return new LayoutFeedbackStateSnapshot(nextRevision(snapshot.revision()), snapshot.states(), seen);
     }
 
     private static int rank(LayoutFeedbackDecision decision) {

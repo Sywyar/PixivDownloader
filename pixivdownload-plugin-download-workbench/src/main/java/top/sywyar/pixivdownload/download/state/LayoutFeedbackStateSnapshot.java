@@ -8,7 +8,9 @@ import java.util.Map;
  * 服务端状态快照：revision + 按 Survey ID 隔离的状态表 + 独立于 Survey ID 的已体验
  * 布局清单。快照不可变，Map 一律防御复制（{@code Map.copyOf}），不得被原地修改。
  *
- * <p>states 的 key 必须与 entry.surveyId 严格一致；每个 Survey 独立保存状态，
+ * <p>states 的 key 必须与 entry.surveyId 严格一致，且不得超过
+ * {@link LayoutFeedbackStateStore#MAX_SURVEY_STATES} 项；revision 必须落在
+ * {@code 0..MAX_SAFE_REVISION}（JavaScript 安全整数上限）。每个 Survey 独立保存状态，
  * 旧 Survey 标签页发送的动作不能覆盖新 Survey 状态。
  */
 public record LayoutFeedbackStateSnapshot(
@@ -18,11 +20,14 @@ public record LayoutFeedbackStateSnapshot(
 ) {
 
     public LayoutFeedbackStateSnapshot {
-        if (revision < 0) {
+        if (revision < 0 || revision > LayoutFeedbackStateStore.MAX_SAFE_REVISION) {
             throw new IllegalArgumentException("invalid revision");
         }
         if (states == null) {
             throw new IllegalArgumentException("states is required");
+        }
+        if (states.size() > LayoutFeedbackStateStore.MAX_SURVEY_STATES) {
+            throw new IllegalArgumentException("states exceeds MAX_SURVEY_STATES");
         }
         for (Map.Entry<String, LayoutFeedbackStateEntry> entry : states.entrySet()) {
             LayoutFeedbackStateEntry state = entry.getValue();
