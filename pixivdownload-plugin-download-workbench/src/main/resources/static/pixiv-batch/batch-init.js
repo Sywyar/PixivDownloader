@@ -237,14 +237,6 @@
         loadAppInfo();
         await init();
         setupOnboardingOrTour();
-        // 布局偏好调查（PostHog API Survey）：不阻塞核心初始化；内部自行延迟与门禁
-        if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.init === 'function') {
-            try {
-                window.PixivLayoutFeedback.init({page: 'batch', i18n: pageI18n});
-            } catch (e) {
-                console.warn('[batch] 布局偏好调查初始化失败：', e);
-            }
-        }
     });
 
     async function refreshScheduleSourceManifest() {

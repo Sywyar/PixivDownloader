@@ -10,7 +10,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     let pageI18nNamespaceRefresh = null;
     let pageI18nNamespaceRefreshDirty = false;
     let pageI18nGeneration = 0;
-    const BATCH_I18N_NAMESPACES = ['batch', 'common', 'ai', 'tour', 'layout-feedback'];
+    const BATCH_I18N_NAMESPACES = ['batch', 'common', 'ai', 'tour'];
     function interpolate(template, vars) {
         if (!vars) {
             return String(template);
@@ -203,14 +203,6 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         await refreshBatchCollections();
         if (_userscriptsLoaded) loadUserscripts();
         refreshGuideFab();
-        // 布局偏好调查：已打开的弹窗用新语言刷新文案（不丢失选择与建议）
-        if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.refreshLanguage === 'function') {
-            try {
-                window.PixivLayoutFeedback.refreshLanguage(pageI18n);
-            } catch (e) {
-                console.warn('[batch] 布局偏好调查语言刷新失败：', e);
-            }
-        }
     }
 
     async function refreshPageI18nNamespaces() {

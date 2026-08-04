@@ -1,8 +1,11 @@
 /*
  * 下载工作台布局偏好调查（PostHog API Survey 自定义单屏弹窗）。
  *
- * 共享实现：pixiv-batch.html（横屏 / 竖屏布局）与 pixiv-batch-alt.html（新版工作台）
- * 共用同一份业务逻辑，页面只负责在核心初始化完成后调用 init() 并提供 i18n client。
+ * 触发时机：仅新版工作台（pixiv-batch-alt.html）在本页面会话中第一个下载项
+ * 完成时弹出一次；经典下载页（pixiv-batch.html）不参与调查，不再加载本模块。
+ * alt 下载引擎在首个作品完成时派发 pixiv:first-download-completed 事件，本模块
+ * 在事件到达时评估状态门禁（submitted / never / 未到期 snoozed 不展示）并启动
+ * 展示流程；不再使用延迟定时器 / 布局体验数量阈值 / 页面可见性等自动展示门禁。
  *
  * 顶层加载无副作用；只有调用 init() 后才读取公开配置、加载 SDK 与操作 DOM。
  * 调查初始化不阻塞页面核心初始化；调查的任何异常都不得中断下载功能。
@@ -77,16 +80,6 @@
     // reconciliation 中「服务端已提供至少相同阻断效果」的剩余时长容差。
     var RECONCILE_REMAINING_TOLERANCE_MS = 5 * 1000;
     var SCOPED_ID_PATTERN = /^plf_[0-9a-f]{64}$/;
-    var MIN_DISTINCT_LAYOUTS_SEEN = 2;
-    var AUTO_DELAY_MS = 10 * 1000;
-    var AUTO_RETRY_DELAY_MS = 5 * 1000;
-    var AUTO_OVERLAY_RETRY_LIMIT = 3;
-    var AUTO_OVERLAY_RETRY_DELAY_MS = 5 * 1000;
-    var AUTO_OVERLAY_RETRY_WINDOW_MS = 30 * 1000;
-    var AUTO_RESCHEDULE_DELAY_MS = 0;
-    // 浏览器 setTimeout 可安全接受的最大延迟（2^31-1 ms，约 24.8 天）；更大的自动
-    // 评估截止时间分段调度，到期后重新评估会按当时的最新权威状态再次安排。
-    var MAX_TIMEOUT_MS = 2147483647;
     var SUGGESTION_MAX_CODE_POINTS = 1000;
     var SURVEY_SCHEMA_VERSION = '1';
     var SDK_LOAD_TIMEOUT_MS = 10 * 1000;
@@ -279,41 +272,14 @@
     var storage = null;
     var timers = null;
     var fetchImpl = null;
-    var minDistinctLayouts = MIN_DISTINCT_LAYOUTS_SEEN;
-    var autoDelay = AUTO_DELAY_MS;
     var i18nClient = null;
     var injectedAdapter = null;
     var runtimeGeneration = 0;
     var sdkLoadOperation = null;
     var sdkInitSignature = null;
-    var autoTimerId = null;
-    var autoFlowStarted = false;
-    // 自动资格检查 / 服务端刷新正在进行中（尚未进入 SDK 阶段）。
-    // 与 autoEvaluationOperation 成对维护：一律经 beginAutoEvaluation /
-    // finishAutoEvaluation / cancelAutoEvaluation 修改，任何旧 generation
-    // continuation 不得直接写它。
-    var autoEvaluationInFlight = false;
-    // 当前页面第一次自动资格评估 / 自动 Survey 流程允许开始的最早客户端时间点
-    //（init 时刻 + 规范化后的 autoDelay；0 表示未初始化 / 已 destroy）。
-    // 所有自动调度（初始化 / 布局变化 / visibilitychange / storage 事件 /
-    // 服务端 canShow=true / 服务端解除 snooze / 普通资格重试 / 阻塞弹窗重试）
-    // 都不得把评估提前到它之前；手动 open() 不受限制。
-    // 不写 localStorage、不上传 PostHog、不进服务端协议。
-    var autoEarliestAt = 0;
-    // 自动评估 operation 序列号与当前活动 operation（generation + token 绑定）。
-    // 每次真正开始自动评估时创建一个 {id, generation, settled, cancelled}，
-    // 旧 generation 的迟到 continuation 只能结束自身 operation，不得清除新
-    // generation 的自动状态。
-    var autoEvaluationSequence = 0;
-    var autoEvaluationOperation = null;
-    // 本页面不再自动重试：已启动自动 Survey 网络流程 / 协议或身份 INVALID 等
-    // 明确的不可恢复自动流程错误。snooze 未到期 / 延长 / 页面不可见 / 未达阈值 /
-    // 临时弹窗不得设置它。
-    var autoFlowTerminal = false;
-    // 当前自动定时器计划执行的客户端时间点（timers.now() 域）；0 表示无定时器。
-    var autoTimerDueAt = 0;
-    var autoRetryCount = 0;
-    var autoRetryStartedAt = 0;
+    // 首次下载完成触发的一次性标记：事件到达且全部门禁通过后置位，本页面会话
+    // 不再发起第二次调查流程（destroy 时重置）。
+    var firstDownloadTriggered = false;
     var flowRunning = false;
     var pendingSurveyCancel = null;
     var dialogOpen = false;
@@ -399,58 +365,6 @@
             && !operation.settled
             && !operation.aborted
             && (attemptId === undefined || operation.attemptSequence === attemptId);
-    }
-
-    /**
-     * 自动评估 operation 生命周期（generation + token 绑定，不依赖全局 boolean 区分
-     * 具体异步流程）：
-     * - beginAutoEvaluation：只有 generation 仍活动且当前没有活动 operation 时才创建
-     *   {id, generation, settled, cancelled} 并设置 autoEvaluationOperation /
-     *   autoEvaluationInFlight；已有活动 operation 时不创建第二个，返回 null；
-     * - isAutoEvaluationActive：operation 必须是当前活动 operation、未结束、且属于
-     *   当前 runtime generation——绝不只检查 autoEvaluationInFlight；
-     * - finishAutoEvaluation：只有 operation 仍是当前活动 operation 时才结束它并清除
-     *   自动状态；旧 operation 调用是无副作用 no-op，不得清除新 generation 的
-     *   autoEvaluationInFlight / autoEvaluationOperation；
-     * - cancelAutoEvaluation：幂等，结束并清除当前 operation（destroy 时调用）。
-     */
-    function beginAutoEvaluation(generation) {
-        if (!isRuntimeGenerationActive(generation)) return null;
-        if (autoEvaluationOperation) return null;
-        var operation = {
-            id: ++autoEvaluationSequence,
-            generation: generation,
-            settled: false,
-            cancelled: false
-        };
-        autoEvaluationOperation = operation;
-        autoEvaluationInFlight = true;
-        return operation;
-    }
-
-    function isAutoEvaluationActive(operation) {
-        return initialized
-            && !!operation
-            && operation === autoEvaluationOperation
-            && operation.settled !== true
-            && operation.cancelled !== true
-            && operation.generation === runtimeGeneration;
-    }
-
-    function finishAutoEvaluation(operation) {
-        if (!operation || operation !== autoEvaluationOperation) return;
-        operation.settled = true;
-        autoEvaluationOperation = null;
-        autoEvaluationInFlight = false;
-    }
-
-    function cancelAutoEvaluation() {
-        if (autoEvaluationOperation) {
-            autoEvaluationOperation.cancelled = true;
-            autoEvaluationOperation.settled = true;
-        }
-        autoEvaluationOperation = null;
-        autoEvaluationInFlight = false;
     }
 
     function safeLocalStorage() {
@@ -720,9 +634,9 @@
 
     /**
      * 可取消的 solo 模式服务端上下文装载 operation（两阶段）。
-     * - 阶段一（fetch）：服务端 GET，由 SERVER_STATE_TIMEOUT_MS 控制；GET 完成、
+     * - fetch 阶段：服务端 GET，由 SERVER_STATE_TIMEOUT_MS 控制；GET 完成、
      *   JSON 解析成功并应用视图后立即清除 GET timeout，该 timeout 不得继续影响后续流程；
-     * - 阶段二（reconcile）：有限本地状态回放（reconciliation），由每个
+     * - reconcile 阶段：有限本地状态回放（reconciliation），由每个
      *   sendServerCommand 自己的 SERVER_COMMAND_TIMEOUT_MS 控制；整体 promise 必须
      *   等待 reconciliation 达成或确定失败，不得因 GET timeout 提前 resolve；
      * - 同一 generation 只创建一个请求（完成后标记 done，避免旧 operation 被误复用）；
@@ -771,7 +685,7 @@
                 }
                 finish();
             };
-            // 阶段一 timeout：只覆盖 GET；进入 reconciliation 前必须清除。
+            // GET 阶段 timeout：只覆盖 GET；进入 reconciliation 前必须清除。
             operation.timeoutId = setTimeoutSafe(function () {
                 operation.timeoutId = null;
                 if (settled) return;
@@ -831,7 +745,6 @@
                         .then(function (result) {
                             if (!isOperationActive(operation, generation)) return null;
                             syncServerViewToLocalCache();
-                            syncAutoScheduleToServerBlock();
                             return result;
                         });
                 }
@@ -952,7 +865,6 @@
                     if (serverBacked) {
                         prunePendingAfterView();
                         syncServerViewToLocalCache();
-                        syncAutoScheduleToServerBlock();
                     }
                     finish({status: REFRESH_FRESH, viewResult: result});
                 } else if (result === VIEW_SAME || result === VIEW_STALE) {
@@ -1154,11 +1066,9 @@
                         layoutIds: layoutIds
                     });
                     syncServerViewToLocalCache();
-                    syncAutoScheduleToServerBlock();
                 } else {
                     // 服务端视图未满足命令（例如 record_seen 缺布局）：保留 pending。
                     syncServerViewToLocalCache();
-                    syncAutoScheduleToServerBlock();
                 }
                 finish({
                     ok: satisfied,
@@ -2057,10 +1967,6 @@
         return distinctSeenCount(seen);
     }
 
-    function seenCount() {
-        return distinctSeenCount(readSeenRaw());
-    }
-
     function currentLayoutId() {
         if (pageType === 'alt') return 'pixiv-batch-alt';
         var token = null;
@@ -2485,15 +2391,6 @@
     /* ============================================================
        弹窗交互
     ============================================================ */
-
-    function isPageVisible() {
-        try {
-            var visibility = global.document && global.document.visibilityState;
-            return !visibility || visibility === 'visible';
-        } catch (_) {
-            return true;
-        }
-    }
 
     function isElementVisible(element) {
         if (!element) return false;
@@ -3162,20 +3059,15 @@
      * - 身份确定后重新检查 generation / 状态门禁（自动流程；手动 open 经
      *   skipStateGate 保留调试绕过语义）/ DNT / config；
      * - solo scoped 身份存在时验证 get_distinct_id() 一致，不一致 fail closed；
-     * - 自动流程在服务端 status = submitted / never / 有效 snooze 时不加载 SDK、
-     *   不请求 Survey、不显示；
+     * - 自动流程（首次下载完成触发）在服务端 status = submitted / never / 有效
+     *   snooze 时不加载 SDK、不请求 Survey、不显示；
      * - serverBacked 且 serverStatus=snoozed、canShow=false 时，本地截止时间
      *   （serverLocalBlockUntil / localStorage 本地 snooze）到期后允许重新 GET 服务端
      *   权威状态：snooze 是否到期由服务端判断，浏览器只负责在本地截止时间过后重新询问；
      * - 内部返回明确结构化结果 {status: 'opened' | 'started' | 'blocked' | 'invalid'
      *   | 'cancelled' | 'no-survey', survey, retryAt}：blocked 携带服务端本地截止时间
      *   （retryAt），invalid 表示协议 / 身份失败，cancelled 表示 generation 失效 /
-     *   destroy / 流程互斥；
-     * - autoFlowStarted 只在本函数内、所有门禁通过且即将真正调用 resolveSdk 时
-     *   （options.auto 路径经 markAutoFlowStarted(operation) 校验当前自动 operation）
-     *   由 false 变为 true；一旦设置，本页面不得再发起第二次自动 Survey 网络流程
-     *   （即使 SDK 加载失败 / 没有 matching Survey / Feature Flags 超时 / Survey
-     *   请求失败）。手动 open 不受该标记限制。
+     *   destroy / 流程互斥。
      */
     function showSurveyFlow(options) {
         options = options || {};
@@ -3200,36 +3092,9 @@
         }
         function proceedToSdk() {
             if (!isRuntimeGenerationActive(generation)) return sdkStep(null);
-            // autoFlowStarted 只能在这里由 false 变为 true：所有本地与服务端门禁均已
-            // 通过，即将真正开始 SDK / Survey 网络流程（resolveSdk 首次加载 SDK）。
-            // 自动路径必须携带并验证当前自动 operation：只有当前 generation 的当前
-            // operation 能启动 SDK；markAutoFlowStarted 失败（旧 operation / 已被
-            // 取代 / 已结束）时直接返回 cancelled，不调用 resolveSdk。
-            if (options.auto) {
-                if (!markAutoFlowStarted(options.autoOperation)) {
-                    return flowResult('cancelled');
-                }
-            }
             return resolveSdk(generation).then(function (sdk) {
                 return sdkStep(sdk);
             });
-        }
-        /**
-         * 自动路径进入 SDK 阶段：验证 operation 仍为当前活动操作后才设置
-         * autoFlowStarted，并正式结束自动评估 operation（settled + 清除
-         * autoEvaluationOperation / autoEvaluationInFlight）。返回 false 表示
-         * operation 已失效（旧 generation / 已被取代 / 已结束），调用方必须返回
-         * cancelled——旧 operation 不能启动新 generation 的 SDK。
-         */
-        function markAutoFlowStarted(operation) {
-            if (!isAutoEvaluationActive(operation)) {
-                return false;
-            }
-            autoFlowStarted = true;
-            operation.settled = true;
-            autoEvaluationOperation = null;
-            autoEvaluationInFlight = false;
-            return true;
         }
         return loadServerContext(generation).then(function () {
             if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
@@ -3322,11 +3187,8 @@
         if (!detail || typeof detail.layout !== 'string') return;
         var layoutId = mapLayoutToken(detail.layout);
         if (!layoutId) return;
+        // 仅记录布局体验（服务端 seen 统计）；不再参与展示门禁。
         recordSeen(layoutId, timers.now());
-        // 达到体验阈值且尚未开始自动流程时，重新调度一次自动检查。
-        if (!autoFlowStarted && seenCount() >= minDistinctLayouts) {
-            scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
-        }
     }
 
     function refreshStateFromStorage() {
@@ -3454,9 +3316,6 @@
             });
         }
         syncServerViewToLocalCache();
-        if (!autoFlowStarted && seenCount() >= minDistinctLayouts) {
-            scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
-        }
         var generation = currentRuntimeGeneration();
         if (isRuntimeGenerationActive(generation)) refreshServerContext(generation);
     }
@@ -3475,16 +3334,7 @@
                 return;
             }
             sessionSeen = {};
-            if (!autoFlowStarted && seenCount() >= minDistinctLayouts) {
-                scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
-            }
         }
-    }
-
-    function onVisibilityChange() {
-        // 页面重新可见时重新调度自动检查（初次检查时 hidden 不消耗机会）。
-        if (!isPageVisible()) return;
-        scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
     }
 
     function registerListeners() {
@@ -3502,9 +3352,9 @@
                 // 布局事件不可用时静默降级
             }
             try {
-                global.document.addEventListener('visibilitychange', onVisibilityChange);
+                global.document.addEventListener('pixiv:first-download-completed', onFirstDownloadCompleted);
             } catch (_) {
-                // 可见性事件不可用时静默降级
+                // 首次下载完成事件不可用时静默降级（调查不弹出）
             }
         }
     }
@@ -3524,7 +3374,7 @@
                 // 清理尽力而为
             }
             try {
-                global.document.removeEventListener('visibilitychange', onVisibilityChange);
+                global.document.removeEventListener('pixiv:first-download-completed', onFirstDownloadCompleted);
             } catch (_) {
                 // 清理尽力而为
             }
@@ -3532,259 +3382,24 @@
     }
 
     /**
-     * 自动资格检查状态机：
-     * - 初始化后至少延迟 autoDelay（默认 10 秒）再评估；
-     * - 定时器真正执行时清除「已调度」标记（autoTimerId=null / autoTimerDueAt=0），
-     *   允许未来事件重新调度；
-     * - 页面不可见 / 未达体验阈值时不加载 SDK、不消耗本页面唯一自动流程机会；
-     * - 阻塞弹窗存在时按有限次数与有限总时间重试，不无限轮询；
-     * - 服务端 snooze 阻断时只把定时器对齐 serverLocalBlockUntil，不加载 SDK、
-     *   不请求 Survey、不设置 autoFlowStarted；
-     * - 全部本地门禁通过后设置 autoEvaluationInFlight=true 并执行自动准备流程
-     *   （runAutoSurveyFlow）：autoFlowStarted 只在真正进入 SDK / Survey 网络流程时
-     *   由 showSurveyFlow 设置，同一页面此后不再发起第二次自动 Survey 网络流程。
+     * 首次下载完成触发（仅新版工作台）。
+     * - alt 下载引擎在本页面会话第一个下载项完成时派发
+     *   pixiv:first-download-completed，本模块据此评估并展示调查；
+     * - 每页面会话只触发一次（firstDownloadTriggered，destroy 时重置）；
+     * - 门禁：enabled 配置、仅 alt 页面、状态允许（submitted / never / 未到期
+     *   snoozed 不展示）、无阻塞弹窗；阻塞弹窗存在时不消耗触发机会，后续事件
+     *   可再次评估；
+     * - 状态门禁、服务端 snooze 到期重新 GET 与 SDK / Survey 流程全部在
+     *   showSurveyFlow 内部完成；任何异常不得中断下载功能。
      */
-
-    /** 清除当前自动定时器（幂等）。 */
-    function clearAutoTimer() {
-        if (autoTimerId != null) clearTimerSafe(autoTimerId);
-        autoTimerId = null;
-        autoTimerDueAt = 0;
-    }
-
-    /**
-     * 统一自动评估调度：把自动定时器安排到客户端时间点 {@code deadline}。
-     * - 不可绕过的初始自动延迟屏障：deadline 一律钳制到至少 autoEarliestAt——
-     *   普通资格事件（布局变化 / 页面重新可见 / storage 事件）、服务端 canShow=true、
-     *   服务端提前解除 snooze、普通资格重试、阻塞弹窗重试都不能把自动调查提前到
-     *   autoEarliestAt 之前；服务端权威 snooze 可以把时间推迟到 autoEarliestAt 之后；
-     *   当 timers.now() 已超过 autoEarliestAt 时事件可立即调度，不需要额外等待；
-     * - authoritative=true（服务端权威阻断期限）：替换现有定时器，使定时器准确对齐
-     *   最新的 serverLocalBlockUntil——服务端延长 snooze 时向后移动，缩短 / 提前时
-     *   向前移动；保证任何时刻最多只有一个自动定时器；
-     * - authoritative=false（普通资格事件：布局变化 / 页面重新可见 / storage 事件）：
-     *   优先安排更早的检查，已挂起更早检查时不重复设置；
-     * - delay 必须有限、非负，且不超过浏览器 setTimeout 可安全接受的值
-     *   （MAX_TIMEOUT_MS）；超大 delay 分段调度，到期后重新评估会按当时的最新权威
-     *   状态再次安排；
-     * - 定时器执行时清除 autoTimerId / autoTimerDueAt，再评估资格。
-     */
-    function scheduleAutoEvaluationAt(deadline, authoritative) {
-        if (autoFlowStarted || autoFlowTerminal) return;
-        if (!authoritative && autoEvaluationInFlight) return;
-        if (typeof deadline !== 'number' || !isFinite(deadline) || deadline < 0) return;
-        deadline = Math.max(deadline, autoEarliestAt);
-        if (!authoritative && autoTimerId != null && autoTimerDueAt > 0
-                && autoTimerDueAt <= deadline) {
-            return;
-        }
-        var now = timers.now();
-        var delay = deadline - now;
-        if (!isFinite(delay) || delay < 0) delay = 0;
-        if (delay > MAX_TIMEOUT_MS) {
-            deadline = now + MAX_TIMEOUT_MS;
-            delay = MAX_TIMEOUT_MS;
-        }
-        clearAutoTimer();
-        var generation = currentRuntimeGeneration();
-        var dueAt = deadline;
-        var id = setTimeoutSafe(function () {
-            if (autoTimerId === id) autoTimerId = null;
-            if (autoTimerDueAt === dueAt) autoTimerDueAt = 0;
-            clearTimerSafe(id);
-            if (!isRuntimeGenerationActive(generation)) return;
-            evaluateAutoEligibility();
-        }, delay);
-        autoTimerId = id;
-        autoTimerDueAt = id != null ? dueAt : 0;
-    }
-
-    /** 相对延迟调度（事件触发，默认不替换更早的检查）。 */
-    function scheduleAutoEvaluation(delay) {
-        if (typeof delay !== 'number' || !isFinite(delay) || delay < 0) delay = 0;
-        scheduleAutoEvaluationAt(timers.now() + delay, false);
-    }
-
-    function evaluateAutoEligibility() {
-        if (autoFlowStarted) return;
-        if (autoFlowTerminal) return;
-        if (autoEvaluationInFlight) return;
+    function onFirstDownloadCompleted() {
+        if (!initialized || pageType !== 'alt') return;
+        if (firstDownloadTriggered) return;
         if (!config || !config.enabled) return;
-        var now = timers.now();
-        // 初始自动延迟屏障：未到达 autoEarliestAt 时把定时器对齐到最早允许时刻，
-        // 绝不提前开始评估、不加载 SDK、不创建 operation。
-        if (now < autoEarliestAt) {
-            scheduleAutoEvaluationAt(autoEarliestAt, false);
-            return;
-        }
-        if (!stateAllowsShow(now)) {
-            // 服务端 snooze 未到期（canShow=false）：浏览器不解释服务端绝对时间，
-            // 只在自己的本地截止时间（serverLocalBlockUntil）到达后重新评估——
-            // 到期时重新 GET 服务端权威状态，由服务端独立判断是否允许展示。
-            if (serverBacked && serverStatus === 'snoozed' && !serverCanShow
-                    && serverLocalBlockUntil > now) {
-                scheduleAutoEvaluationAt(serverLocalBlockUntil, true);
-            }
-            return;
-        }
-        if (!isPageVisible()) return;
-        if (hasBlockingOverlay()) {
-            // 有限重试：次数与总时间双上限，不无限轮询；调度仍受 autoEarliestAt 约束。
-            if (autoRetryCount >= AUTO_OVERLAY_RETRY_LIMIT) return;
-            if (autoRetryStartedAt === 0) autoRetryStartedAt = timers.now();
-            if (timers.now() - autoRetryStartedAt > AUTO_OVERLAY_RETRY_WINDOW_MS) return;
-            autoRetryCount++;
-            scheduleAutoEvaluation(AUTO_OVERLAY_RETRY_DELAY_MS);
-            return;
-        }
-        if (seenCount() < minDistinctLayouts) return;
-        // 全部本地条件满足：创建带 token 的自动评估 operation 并执行自动准备流程。
-        // 一旦 operation 开始，普通资格事件不得启动第二条（autoEvaluationInFlight /
-        // autoEvaluationOperation 双守卫）。
-        var operation = beginAutoEvaluation(currentRuntimeGeneration());
-        if (!operation) return;
-        runAutoSurveyFlow(operation);
-    }
-
-    /**
-     * 自动流程结果处理（绑定自动评估 operation）：按 showSurveyFlow 的结构化结果维护
-     * 自动状态机。入口与每个分支先验证 operation 仍活动——任何检查失败立即 return，
-     * 不写 autoEvaluationInFlight / autoFlowStarted / autoFlowTerminal、不安排 timer、
-     * 不显示 UI、不输出影响新 generation 的 warning。
-     * - blocked：先通过 finishAutoEvaluation 结束当前评估，再按服务端本地截止时间
-     *   （retryAt）重新调度（调度仍受 autoEarliestAt 约束），绝不设置 autoFlowStarted、
-     *   不加载 SDK；没有截止时间时等 visibility / storage / layout 事件重新调度；
-     * - invalid：协议 / 身份失败，fail-closed，仅当前 operation 可设置
-     *   autoFlowTerminal，本页面不再自动重试（不循环请求）；手动 open 不受影响；
-     * - cancelled：只结束当前 operation，不安排新定时器；
-     * - opened / started / no-survey：operation 已在 markAutoFlowStarted 中结束，
-     *   finish 是无副作用 no-op，不得修改新 operation；
-     * - 未知结果：只结束当前 operation，不修改新 generation。
-     */
-    function handleAutoResult(operation, result) {
-        if (!result || typeof result !== 'object' || !result.status) {
-            finishAutoEvaluation(operation);
-            return;
-        }
-        if (result.status === 'opened' || result.status === 'started'
-                || result.status === 'no-survey') {
-            // operation 已在 markAutoFlowStarted 结束；finish 是无副作用 no-op。
-            finishAutoEvaluation(operation);
-            return;
-        }
-        if (result.status === 'invalid') {
-            if (!isAutoEvaluationActive(operation)) return;
-            autoFlowTerminal = true;
-            finishAutoEvaluation(operation);
-            return;
-        }
-        if (result.status === 'blocked') {
-            if (!isAutoEvaluationActive(operation)) return;
-            finishAutoEvaluation(operation);
-            // 服务端延长 snooze 等：按最新服务端截止时间重新安排（旧定时器被替换）。
-            if (typeof result.retryAt === 'number' && result.retryAt > timers.now()) {
-                scheduleAutoEvaluationAt(result.retryAt, true);
-            }
-            return;
-        }
-        // cancelled / 未知结果：只结束当前 operation，不修改新 generation。
-        finishAutoEvaluation(operation);
-    }
-
-    /**
-     * 自动准备流程（绑定 operation）：本地全部门禁已在 evaluateAutoEligibility 通过。
-     * 若服务端视图仍是旧 snoozed / canShow=false（本地截止时间已到但视图未刷新），先做
-     * 一次权威 GET；服务端延长 snooze 时 commitServerView 更新 serverLocalBlockUntil，
-     * showSurveyFlow 会按新截止时间返回 blocked（不加载 SDK、不设置 autoFlowStarted），
-     * 随后 handleAutoResult 重新安排新截止时间的检查。只有服务端确认允许（或服务端暂时
-     * 不可用且本地无阻断状态）时才进入 showSurveyFlow，autoFlowStarted 在真正开始
-     * SDK / Survey 网络流程前才由 showSurveyFlow 经 markAutoFlowStarted 设置。
-     *
-     * <p>generation 一律来自 operation.generation；所有异步 continuation 先验证
-     * isAutoEvaluationActive(operation)，任何检查失败立即 return——旧 generation 的
-     * 迟到回调不得执行 finishAutoEvaluation(新 operation)、不得清除新 generation 的
-     * autoEvaluationInFlight / autoFlowStarted / autoFlowTerminal、不得安排 timer。
-     */
-    function runAutoSurveyFlow(operation) {
-        var generation = operation.generation;
-        function proceed() {
-            if (!isAutoEvaluationActive(operation)) {
-                return;
-            }
-            return showSurveyFlow({auto: true, autoOperation: operation}).then(function (result) {
-                if (!isAutoEvaluationActive(operation)) {
-                    return;
-                }
-                handleAutoResult(operation, result);
-            }, function () {
-                // showSurveyFlow 的 rejection 分支：只结束当前 operation。
-                if (!isAutoEvaluationActive(operation)) {
-                    return;
-                }
-                finishAutoEvaluation(operation);
-            });
-        }
-        if (serverBacked && serverStatus === 'snoozed' && !serverCanShow) {
-            refreshServerContext(generation).then(function (result) {
-                if (!isAutoEvaluationActive(operation)) {
-                    return;
-                }
-                if (result.status === REFRESH_INVALID) {
-                    // 协议 / 身份失败：fail-closed，仅当前 operation 设置 terminal。
-                    autoFlowTerminal = true;
-                    finishAutoEvaluation(operation);
-                    return;
-                }
-                if (result.status === REFRESH_CANCELLED) {
-                    finishAutoEvaluation(operation);
-                    return;
-                }
-                if (result.status === REFRESH_UNAVAILABLE) {
-                    // 服务端暂时不可用：本地没有阻断状态时允许按现有 availability
-                    // 策略继续自动流程（进入 SDK 前才设置 autoFlowStarted）。
-                    if (!stateAllowsShow(timers.now())) {
-                        finishAutoEvaluation(operation);
-                        return;
-                    }
-                    proceed();
-                    return;
-                }
-                proceed();
-            }, function () {
-                // refresh 的 rejection 分支：只结束当前 operation。
-                if (!isAutoEvaluationActive(operation)) {
-                    return;
-                }
-                finishAutoEvaluation(operation);
-            });
-            return;
-        }
-        proceed();
-    }
-
-    /**
-     * 服务端权威视图应用后主动维护自动计划（不在 applyServerView 纯视图校验函数中
-     * 操作 timer；由 commitServerView / syncServerViewToLocalCache 之后的调用方执行）：
-     * - server snoozed / canShow=false：确保存在与最新 serverLocalBlockUntil 对齐的
-     *   定时器（服务端延长 snooze 时把旧定时器向后移动，缩短时向前移动），页面到新
-     *   期限前不再反复请求；
-     * - server snoozed / canShow=true（服务端已到期 / 提前解除）：允许把较晚的检查
-     *   提前。
-     * 只在 initialized / config.enabled / 尚未 autoFlowStarted / autoFlowTerminal /
-     * autoEvaluationInFlight 时执行。
-     */
-    function syncAutoScheduleToServerBlock() {
-        if (!initialized || !config || !config.enabled) return;
-        if (autoFlowStarted || autoFlowTerminal || autoEvaluationInFlight) return;
-        if (!serverBacked || serverStatus !== 'snoozed') return;
-        if (!serverCanShow) {
-            if (serverLocalBlockUntil > timers.now()) {
-                scheduleAutoEvaluationAt(serverLocalBlockUntil, true);
-            }
-            return;
-        }
-        // 服务端允许展示（snooze 到期 / 提前解除）：把较晚的定时器提前。
-        scheduleAutoEvaluation(AUTO_RESCHEDULE_DELAY_MS);
+        if (!stateAllowsShow(timers.now())) return;
+        if (hasBlockingOverlay()) return;
+        firstDownloadTriggered = true;
+        showSurveyFlow();
     }
 
     /* ============================================================
@@ -3804,19 +3419,6 @@
         fetchImpl = options.fetchImpl || defaultFetch();
         injectedAdapter = options.adapter || null;
         i18nClient = options.i18n || null;
-        minDistinctLayouts = typeof options.minDistinctLayoutsSeen === 'number'
-            ? options.minDistinctLayoutsSeen
-            : MIN_DISTINCT_LAYOUTS_SEEN;
-        // autoDelay 规范化：必须是有限非负 number，非法值回退默认 AUTO_DELAY_MS。
-        autoDelay = typeof options.autoDelayMs === 'number'
-            && isFinite(options.autoDelayMs)
-            && options.autoDelayMs >= 0
-            ? options.autoDelayMs
-            : AUTO_DELAY_MS;
-        // 初始自动延迟屏障：本页面第一次自动评估不得早于 init 时刻 + autoDelay。
-        // 普通资格事件（布局变化 / visibilitychange / storage）与服务端提前允许
-        //（canShow=true / 提前解除 snooze）都不得把评估提前到它之前。
-        autoEarliestAt = safeClientTimeAdd(timers.now(), autoDelay);
         config = readPublicConfig();
         if (!config) {
             warn('layout survey: public config missing; survey disabled');
@@ -3833,8 +3435,7 @@
         if (config.enabled) {
             // solo 模式服务端上下文异步接管：localStorage 模式下的首屏写入不会回放，
             // 服务端接管后把当前布局补录到服务端 seen，并执行有限本地状态回放
-            //（reconciliation，只一次；自动评估仍按原计划在 autoDelay 之后读取
-            // 服务端状态，去重与阈值语义不变）。
+            //（reconciliation，只一次；触发时读取服务端状态，去重语义不变）。
             var initGeneration = runtimeGeneration;
             loadServerContext(initGeneration).then(function () {
                 if (!isRuntimeGenerationActive(initGeneration)) return;
@@ -3842,15 +3443,15 @@
                 recordSeen(currentLayoutId(), timers.now());
             });
         }
-        // 初始自动定时器直接安排在 autoEarliestAt（不再使用未经统一处理的相对时间）。
-        scheduleAutoEvaluationAt(autoEarliestAt, false);
+        // 展示时机完全由 pixiv:first-download-completed 事件驱动（仅 alt 页面），
+        // init 不安排任何定时器。
     }
 
     /**
-     * 手动打开展示流程（调试 / 自动化测试入口）。不做自动门禁
-     * （可见性 / 体验数量 / 本地状态），但受 enabled 配置约束，且身份加载
+     * 手动打开展示流程（调试 / 自动化测试入口）。不做展示门禁
+     * （本地状态 / 阻塞弹窗），但受 enabled 配置约束，且身份加载
      * 不能绕过：showSurveyFlow 内部始终先等待服务端身份上下文。
-     * 不受 autoFlowStarted / autoFlowTerminal 限制。
+     * 不受首次下载完成触发的一次性标记限制。
      * 未 init（含 destroy 后尚未重新 init）时是安全的 no-op：
      * 返回 resolved null，不加载 SDK、不设置 flowRunning、不插 script、
      * 不注册 listener、不请求 Survey、不打开弹窗。
@@ -3927,17 +3528,7 @@
         // 使当前 generation 失效：后续（destroy 后重新 init 之前的）异步
         // continuation 全部被 isRuntimeGenerationActive 拦截。
         runtimeGeneration += 1;
-        autoTimerId = null;
-        autoTimerDueAt = 0;
-        // 结束当前自动评估 operation（幂等）并清除自动延迟屏障：
-        // 旧 generation 的 timer / callback 不得修改新 generation 的 autoEarliestAt；
-        // destroy → re-init 后 init 会重新计算 autoEarliestAt。
-        cancelAutoEvaluation();
-        autoEarliestAt = 0;
-        autoFlowStarted = false;
-        autoFlowTerminal = false;
-        autoRetryCount = 0;
-        autoRetryStartedAt = 0;
+        firstDownloadTriggered = false;
         flowRunning = false;
         submitting = false;
         sessionState = null;
@@ -4000,12 +3591,6 @@
             SERVER_COMMAND_TIMEOUT_MS: SERVER_COMMAND_TIMEOUT_MS,
             SERVER_SAVE_DEBOUNCE_MS: SERVER_SAVE_DEBOUNCE_MS,
             SNOOZE_MS: SNOOZE_MS,
-            MIN_DISTINCT_LAYOUTS_SEEN: MIN_DISTINCT_LAYOUTS_SEEN,
-            AUTO_DELAY_MS: AUTO_DELAY_MS,
-            AUTO_RETRY_DELAY_MS: AUTO_RETRY_DELAY_MS,
-            AUTO_OVERLAY_RETRY_LIMIT: AUTO_OVERLAY_RETRY_LIMIT,
-            AUTO_OVERLAY_RETRY_DELAY_MS: AUTO_OVERLAY_RETRY_DELAY_MS,
-            AUTO_OVERLAY_RETRY_WINDOW_MS: AUTO_OVERLAY_RETRY_WINDOW_MS,
             SUGGESTION_MAX_CODE_POINTS: SUGGESTION_MAX_CODE_POINTS,
             SURVEY_SCHEMA_VERSION: SURVEY_SCHEMA_VERSION,
             SDK_LOAD_TIMEOUT_MS: SDK_LOAD_TIMEOUT_MS,
@@ -4062,19 +3647,8 @@
             serverStateAvailable: function () { return serverStateAvailable; },
             serverLocalBlockUntil: function () { return serverLocalBlockUntil; },
             serverBacked: function () { return serverBacked; },
-            // 自动展示状态机只读观测（供自动化测试断言；不暴露可篡改状态的接口）。
-            autoTimerId: function () { return autoTimerId; },
-            autoTimerDueAt: function () { return autoTimerDueAt; },
-            autoEvaluationInFlight: function () { return autoEvaluationInFlight; },
-            autoEarliestAt: function () { return autoEarliestAt; },
-            autoEvaluationOperationId: function () {
-                return autoEvaluationOperation ? autoEvaluationOperation.id : null;
-            },
-            autoEvaluationOperationGeneration: function () {
-                return autoEvaluationOperation ? autoEvaluationOperation.generation : null;
-            },
-            autoFlowStarted: function () { return autoFlowStarted; },
-            autoFlowTerminal: function () { return autoFlowTerminal; },
+            // 首次下载完成触发的一次性标记（只读观测）。
+            firstDownloadTriggered: function () { return firstDownloadTriggered; },
             pendingTimerCount: function () { return pendingTimers.length; }
         })
     });

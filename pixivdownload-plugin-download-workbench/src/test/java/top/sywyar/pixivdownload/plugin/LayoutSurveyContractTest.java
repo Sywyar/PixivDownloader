@@ -42,8 +42,6 @@ class LayoutSurveyContractTest {
     private static final String LICENSES_DIR = "META-INF/licenses/posthog-js/";
     private static final Pattern SCRIPT_SRC = Pattern.compile(
             "<script\\s+[^>]*src=\"([^\"]+)\"[^>]*>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern LINK_TAG = Pattern.compile(
-            "<link\\s+[^>]*href=\"([^\"]+)\"[^>]*>", Pattern.CASE_INSENSITIVE);
 
     private static String read(String resource) throws IOException {
         try (InputStream in = LayoutSurveyContractTest.class.getClassLoader().getResourceAsStream(resource)) {
@@ -61,15 +59,6 @@ class LayoutSurveyContractTest {
             sources.add(matcher.group(1));
         }
         return sources;
-    }
-
-    private static List<String> linkHrefs(String html) {
-        List<String> hrefs = new ArrayList<>();
-        Matcher matcher = LINK_TAG.matcher(html);
-        while (matcher.find()) {
-            hrefs.add(matcher.group(1));
-        }
-        return hrefs;
     }
 
     private static int countOccurrences(String source, String token) {
@@ -196,27 +185,32 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("两个页面恰好加载一次调查 CSS / 公开配置 / 业务脚本，且配置先于业务脚本")
+    @DisplayName("新版工作台恰好加载一次调查 CSS / 公开配置 / 业务脚本，且配置先于业务脚本；经典下载页不再加载调查资源")
     void pagesLoadSurveyAssetsExactlyOnceInOrder() throws IOException {
-        for (String htmlResource : List.of(BATCH_HTML, BATCH_ALT_HTML)) {
-            String html = read(htmlResource);
-            String css = "/pixiv-layout-feedback/pixiv-layout-feedback.css";
-            String config = "/pixiv-layout-feedback/public-config.js";
-            String script = "/pixiv-layout-feedback/pixiv-layout-feedback.js";
+        // 调查只在 pixiv-batch-alt.html 以「首次下载完成」触发；经典下载页不参与。
+        String alt = read(BATCH_ALT_HTML);
+        String css = "/pixiv-layout-feedback/pixiv-layout-feedback.css";
+        String config = "/pixiv-layout-feedback/public-config.js";
+        String script = "/pixiv-layout-feedback/pixiv-layout-feedback.js";
 
-            assertThat(countOccurrences(html, css)).as(htmlResource + " 调查 CSS 恰好一次").isEqualTo(1);
-            assertThat(countOccurrences(html, config)).as(htmlResource + " 公开配置恰好一次").isEqualTo(1);
-            assertThat(countOccurrences(html, script)).as(htmlResource + " 调查业务脚本恰好一次").isEqualTo(1);
+        assertThat(countOccurrences(alt, css)).as(BATCH_ALT_HTML + " 调查 CSS 恰好一次").isEqualTo(1);
+        assertThat(countOccurrences(alt, config)).as(BATCH_ALT_HTML + " 公开配置恰好一次").isEqualTo(1);
+        assertThat(countOccurrences(alt, script)).as(BATCH_ALT_HTML + " 调查业务脚本恰好一次").isEqualTo(1);
 
-            List<String> scripts = scriptSources(html);
-            assertThat(scripts.indexOf(config))
-                    .as(htmlResource + " 公开配置必须加载")
-                    .isGreaterThanOrEqualTo(0);
-            assertThat(scripts.indexOf(script))
-                    .as(htmlResource + " 调查业务脚本必须加载")
-                    .isGreaterThan(scripts.indexOf(config))
-                    .describedAs("公开配置必须在调查业务脚本之前加载");
-        }
+        List<String> scripts = scriptSources(alt);
+        assertThat(scripts.indexOf(config))
+                .as(BATCH_ALT_HTML + " 公开配置必须加载")
+                .isGreaterThanOrEqualTo(0);
+        assertThat(scripts.indexOf(script))
+                .as(BATCH_ALT_HTML + " 调查业务脚本必须加载")
+                .isGreaterThan(scripts.indexOf(config))
+                .describedAs("公开配置必须在调查业务脚本之前加载");
+
+        String batch = read(BATCH_HTML);
+        assertThat(batch).as(BATCH_HTML + " 不再加载调查资源")
+                .doesNotContain(css)
+                .doesNotContain(config)
+                .doesNotContain(script);
     }
 
     @Test
@@ -412,14 +406,14 @@ class LayoutSurveyContractTest {
                 .contains("data-batch-layout-style=\"portrait\"")
                 .contains("href=\"/pixiv-batch/pixiv-batch-layout-workbench.css\"")
                 .contains("href=\"/pixiv-batch/pixiv-batch-layout-classic.css\"");
-        assertThat(linkHrefs(html)).contains("/pixiv-layout-feedback/pixiv-layout-feedback.css");
     }
 
     @Test
-    @DisplayName("下载页语言命名空间包含 layout-feedback，插件声明同名 i18n contribution")
+    @DisplayName("新版工作台语言命名空间包含 layout-feedback，插件声明同名 i18n contribution；经典下载页不再声明")
     void pagesAndPluginDeclareLayoutFeedbackNamespace() throws IOException {
         assertThat(read("static/pixiv-batch/batch-core.js"))
-                .contains("'layout-feedback'");
+                .as("经典下载页不再声明调查命名空间")
+                .doesNotContain("'layout-feedback'");
         assertThat(read("static/pixiv-batch-alt/alt-init.js"))
                 .contains("'layout-feedback'");
         assertThat(read("static/pixiv-batch-alt/alt-extensions.js"))

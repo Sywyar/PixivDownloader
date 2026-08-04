@@ -13,6 +13,18 @@ let quotaExceededHandled = false;
 let archiveCountdownTimer = null;
 let archivePollTimer = null;
 let quotaResetTimer = null;
+// 本页面会话是否已派发「首次下载完成」事件（布局偏好调查在该时刻弹出一次）。
+let firstDownloadCompletedNotified = false;
+
+function notifyFirstDownloadCompleted() {
+    if (firstDownloadCompletedNotified) return;
+    firstDownloadCompletedNotified = true;
+    try {
+        document.dispatchEvent(new CustomEvent('pixiv:first-download-completed'));
+    } catch (_) {
+        // 调查事件派发失败不中断下载
+    }
+}
 
 /* ============================================================
    Pixiv 作品请求
@@ -919,6 +931,7 @@ async function processIllustItem(item) {
                 item.status = 'completed';
                 item.lastMessage = bt('queue.message.completed-images', '已完成，共 {count} 张', {count: dCount});
                 setDockStatus(bt('status.completed-title', '完成：{title}', {title: item.title}), 'success');
+                notifyFirstDownloadCompleted();
                 // 刷新配额显示（每完成一个作品计 1）
                 if (dockState.quota.enabled) {
                     dockState.quota.artworksUsed = Math.min(dockState.quota.maxArtworks, dockState.quota.artworksUsed + 1);
@@ -955,6 +968,7 @@ async function processIllustItem(item) {
                     } else {
                         item.status = 'completed';
                         item.lastMessage = bt('queue.message.completed-confirmed', '已完成（确认），共 {count} 张', {count: dCount});
+                        notifyFirstDownloadCompleted();
                     }
                 } else {
                     item.status = 'failed';
