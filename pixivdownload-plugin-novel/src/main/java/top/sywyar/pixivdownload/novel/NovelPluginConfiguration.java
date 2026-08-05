@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
@@ -95,9 +96,9 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public MessageResolver novelPluginMessages(MessageResolver messages) {
+    public MessageResolver novelPluginMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
         return ResourceBundleMessageResolver.of(
-                messages, NovelPlugin.class.getClassLoader(), "i18n.novel.messages");
+                messages, NovelPlugin.class.getClassLoader(), localeBundlePolicy, "i18n.novel.messages");
     }
 
     @Bean

@@ -67,6 +67,7 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserReque
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateFiles;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
@@ -89,10 +90,11 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean("downloadWorkbenchMessages")
-    public MessageResolver downloadWorkbenchMessages(MessageResolver messages) {
+    public MessageResolver downloadWorkbenchMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
         return ResourceBundleMessageResolver.of(
                 messages,
                 DownloadWorkbenchPlugin.class.getClassLoader(),
+                localeBundlePolicy,
                 "i18n.workbench.messages");
     }
 

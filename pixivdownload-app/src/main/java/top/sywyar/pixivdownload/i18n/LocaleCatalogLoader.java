@@ -8,17 +8,22 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * 从 classpath {@code i18n/locales.json} 加载 {@link LocaleCatalog}。
+ * 从 classpath {@code i18n/locales.json} 构建 {@link LocaleCatalog}。
  * <p>
- * 启动期校验（与 {@code scripts/i18n} 检查器的目录校验保持一致）：
+ * 校验规则与 {@code scripts/i18n/lib/catalog.mjs} 共享同一组 fixture（Java / Node 必须同时拒绝同一非法清单）：
  * <ul>
- *   <li>{@code schemaVersion} 必须可识别（当前为 1）；</li>
- *   <li>tag 合法且规范化、tag 不重复、alias 不冲突、{@code resourceSuffix} 不冲突；</li>
- *   <li>恰好存在一个 source，且 {@code sourceLocale} 指向它；</li>
- *   <li>default 与 fallback 均存在；fallback 必须是 source 或 supported；default 必须是可见语言；</li>
- *   <li>{@code nativeName} 非空、{@code direction} 只能是 {@code ltr} / {@code rtl}、未知状态立即失败。</li>
+ *   <li>{@code schemaVersion} 必须可识别（当前 1）；</li>
+ *   <li>tag 合法且为规范形式（BCP 47 规范化与 Node Intl.getCanonicalLocales 一致：
+ *       script 首字母大写、region 全大写；{@code _} / {@code -} 混用或大小写不规范都拒绝）；</li>
+ *   <li>alias 规范化后不得重复；alias 不得与任意其他正式 tag 冲突；alias 与自己的 tag 重复拒绝；
+ *       tag 不得与之前声明的 alias 冲突；声明顺序不影响冲突检查结果；</li>
+ *   <li>{@code resourceSuffix} 先 trim 再检查唯一性；source locale 必须为空后缀；
+ *       其他语言不得使用空后缀；后缀不得含路径分隔符、{@code ..} 或非法文件字符；</li>
+ *   <li>direction 仅 {@code ltr} / {@code rtl}；exactly one source；default 必须可见；
+ *       fallback 必须 source 或 supported；source / default / fallback 指针必须是规范 tag。</li>
  * </ul>
  */
 public final class LocaleCatalogLoader {
@@ -26,6 +31,8 @@ public final class LocaleCatalogLoader {
     public static final String CATALOG_RESOURCE = "i18n/locales.json";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final java.util.regex.Pattern ILLEGAL_SUFFIX =
+            java.util.regex.Pattern.compile("[/\\\\:*?\"<>|\\u0000-\\u001f]|\\.\\.");
 
     private final ClassLoader classLoader;
 
@@ -45,7 +52,7 @@ public final class LocaleCatalogLoader {
         }
     }
 
-    /** 解析并校验目录 JSON；任何非法项都抛出 {@link IllegalArgumentException} / {@link IllegalStateException}。 */
+    /** 解析并严格校验目录 JSON；任何非法项都抛出 {@link IllegalArgumentException} / {@link IllegalStateException}。 */
     public LocaleCatalog parse(String json) {
         JsonNode root;
         try {
@@ -90,29 +97,77 @@ public final class LocaleCatalogLoader {
             throw new IllegalArgumentException("locale entry must be a JSON object");
         }
         String tag = requiredString(item, "tag");
+        String canonical = canonicalTag(tag);
+        if (canonical == null) {
+            throw new IllegalArgumentException("invalid locale tag: " + tag);
+        }
+        if (!canonical.equals(tag.trim())) {
+            throw new IllegalArgumentException("locale tag is not canonical (expected \"" + canonical
+                    + "\", got \"" + tag + "\")");
+        }
         String nativeName = requiredString(item, "nativeName");
-        String resourceSuffix = requiredStringAllowEmpty(item, "resourceSuffix");
         LocaleStatus status = LocaleStatus.fromJson(optionalString(item, "status"));
         String direction = optionalString(item, "direction");
+        if (direction == null || !(direction.equals("ltr") || direction.equals("rtl"))) {
+            throw new IllegalArgumentException("locale " + canonical + " has invalid direction: " + direction);
+        }
+        String suffix = optionalString(item, "resourceSuffix");
+        if (suffix == null) {
+            throw new IllegalArgumentException("locale " + canonical + " requires string field: resourceSuffix");
+        }
+        suffix = suffix.trim();
+        if (ILLEGAL_SUFFIX.matcher(suffix).find()) {
+            throw new IllegalArgumentException("locale " + canonical + " has illegal resourceSuffix \""
+                    + suffix + "\" (path separators, \"..\" and invalid file characters are not allowed)");
+        }
+        if (status == LocaleStatus.SOURCE && !suffix.isEmpty()) {
+            throw new IllegalArgumentException("source locale " + canonical + " must use an empty resourceSuffix");
+        }
+        if (status != LocaleStatus.SOURCE && suffix.isEmpty()) {
+            throw new IllegalArgumentException("locale " + canonical + " must use a non-empty resourceSuffix");
+        }
+
         List<String> aliases = new ArrayList<>();
         JsonNode aliasesNode = item.get("aliases");
         if (aliasesNode != null && !aliasesNode.isNull()) {
             if (!aliasesNode.isArray()) {
-                throw new IllegalArgumentException("locale " + tag + ": aliases must be an array");
+                throw new IllegalArgumentException("locale " + canonical + ": aliases must be an array");
             }
             for (JsonNode alias : aliasesNode) {
                 if (alias == null || !alias.isTextual() || alias.asText().isBlank()) {
-                    throw new IllegalArgumentException("locale " + tag + ": alias must be a non-empty string");
+                    throw new IllegalArgumentException("locale " + canonical + ": alias must be a non-empty string");
                 }
                 aliases.add(alias.asText().trim());
             }
         }
-        return new LocaleDescriptor(tag, nativeName, resourceSuffix, status, direction, aliases);
+        return new LocaleDescriptor(canonical, nativeName, suffix, status, direction, aliases);
+    }
+
+    /**
+     * BCP 47 规范化（与 Node Intl.getCanonicalLocales 同 fixture 一致）：
+     * 容忍 {@code _} / {@code -} 混用与大小写差异；非法 tag 返回 null。
+     */
+    static String canonicalTag(String tag) {
+        if (tag == null || tag.isBlank()) {
+            return null;
+        }
+        String normalized = tag.trim().replace('_', '-');
+        Locale locale = Locale.forLanguageTag(normalized);
+        if (locale == null || locale.getLanguage().isBlank()) {
+            return null;
+        }
+        String canonical = locale.toLanguageTag();
+        return canonical.isBlank() || canonical.equals("und") ? null : canonical;
     }
 
     private static LocaleDescriptor findByTag(List<LocaleDescriptor> descriptors, String tag, String field) {
+        // 与 Node 一致：指针必须是规范 tag（精确匹配，不隐式规范化）
+        String canonical = canonicalTag(tag);
+        if (canonical == null || !canonical.equals(tag.trim())) {
+            throw new IllegalArgumentException(field + " is not canonical: " + tag);
+        }
         for (LocaleDescriptor descriptor : descriptors) {
-            if (descriptor.tag().equals(tag)) {
+            if (descriptor.tag().equals(canonical)) {
                 return descriptor;
             }
         }
@@ -131,15 +186,6 @@ public final class LocaleCatalogLoader {
         JsonNode value = node.get(field);
         if (value == null || !value.isTextual() || value.asText().isBlank()) {
             throw new IllegalArgumentException("locale catalog requires non-empty string field: " + field);
-        }
-        return value.asText().trim();
-    }
-
-    /** 字段必须存在且为字符串，但允许空值（如源语言的空 resourceSuffix）。 */
-    private static String requiredStringAllowEmpty(JsonNode node, String field) {
-        JsonNode value = node.get(field);
-        if (value == null || !value.isTextual()) {
-            throw new IllegalArgumentException("locale catalog requires string field: " + field);
         }
         return value.asText().trim();
     }

@@ -67,6 +67,7 @@ import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
+import top.sywyar.pixivdownload.i18n.LegacyLocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
@@ -133,7 +134,7 @@ class CoreApiOwnershipGuardTest {
                             "FfmpegCommandResolver", "ResolvedFfmpegCommand"),
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
                     types("top.sywyar.pixivdownload.i18n",
-                            "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver"),
+                            "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver", "LocaleBundlePolicy", "LegacyLocaleBundlePolicy"),
                     types("top.sywyar.pixivdownload.setup",
                             "ApplicationModeProvider", "InstallIdentityProvider", "UserDisplayNameProvider"),
                     types("top.sywyar.pixivdownload.web", "LocalRequestTrust"))),
@@ -286,7 +287,9 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.push.PushResult#DETAIL_INVALID_CONTENT_TYPE:java.lang.String",
                     "push.result.detail.invalid-content-type"),
             Map.entry("top.sywyar.pixivdownload.push.PushResult#DETAIL_INVALID_URL:java.lang.String",
-                    "push.result.detail.invalid-url")
+                    "push.result.detail.invalid-url"),
+            Map.entry("top.sywyar.pixivdownload.i18n.LegacyLocaleBundlePolicy#INSTANCE:top.sywyar.pixivdownload.i18n.LocaleBundlePolicy",
+                    LegacyLocaleBundlePolicy.INSTANCE)
     );
 
     private static final Map<String, List<String>> APPROVED_ENUM_CONSTANTS_BY_TYPE = Map.ofEntries(

@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.ai.controller.AiStatusController;
 import top.sywyar.pixivdownload.ai.controller.AiTestController;
 import top.sywyar.pixivdownload.ai.http.AiHttpClientConfiguration;
 import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
@@ -36,8 +37,8 @@ public class AiPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(AiPlugin.ID)
-    public MessageResolver aiPluginMessages(MessageResolver messages) {
-        return ResourceBundleMessageResolver.of(messages, AiPlugin.class.getClassLoader(),
+    public MessageResolver aiPluginMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
+        return ResourceBundleMessageResolver.of(messages, AiPlugin.class.getClassLoader(), localeBundlePolicy,
                 "i18n.ai.messages", "i18n.web.ai");
     }
 

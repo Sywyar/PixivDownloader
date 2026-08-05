@@ -15,8 +15,30 @@ public final class WorkbenchTestMessages {
         MessageResolver delegate = ResourceBundleMessageResolver.of(
                 null,
                 WorkbenchTestMessages.class.getClassLoader(),
+                new FixedLegacyPolicy(),
                 "i18n.workbench.messages");
         return new RequestLocaleMessageResolver(delegate);
+    }
+
+    /** 测试夹具：等价于旧 root=zh-CN + _en=en-US 约定的最小策略。 */
+    private static final class FixedLegacyPolicy implements top.sywyar.pixivdownload.i18n.LocaleBundlePolicy {
+
+        @Override
+        public Locale normalize(Locale requested) {
+            return requested == null ? Locale.getDefault() : requested;
+        }
+
+        @Override
+        public java.util.List<String> resourceSuffixChain(Locale requested) {
+            if (requested != null && "zh".equalsIgnoreCase(requested.getLanguage())) {
+                return java.util.List.of("");
+            }
+            if (requested != null && !requested.getLanguage().isBlank()
+                    && !"en".equalsIgnoreCase(requested.getLanguage())) {
+                return java.util.List.of(requested.getLanguage(), "en", "");
+            }
+            return java.util.List.of("en", "");
+        }
     }
 
     private record RequestLocaleMessageResolver(MessageResolver delegate) implements MessageResolver {

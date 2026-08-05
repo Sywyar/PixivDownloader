@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "已审核翻译基线：acceptedSourceHash 变化即该 key 进入 stale，需重新审核翻译后执行 i18n:accept。",
+  "note": "已审核翻译基线：accept 同时记录 acceptedSourceHash 与 acceptedTranslationHash，二者都匹配当前内容才算 accepted。",
   "entries": [
     {
       "locale": "en-US",
@@ -13104,7 +13104,7 @@
       "baseName": "web/common",
       "key": "punctuation.colon",
       "acceptedSourceHash": "f114611cd61000bf57db19a6dab8057d9f8e236839a22c21b32c8458de91961a",
-      "acceptedTranslationHash": "e7ac0786668e0ff0f02b62bd04f45ff636fd82db63b1104601c975dc005f3a67"
+      "acceptedTranslationHash": "45822f54a0d0e030f75698c9252f1345982e743c9466806048f542467b3ca4f9"
     },
     {
       "locale": "en-US",
@@ -13112,7 +13112,7 @@
       "baseName": "web/common",
       "key": "punctuation.comma",
       "acceptedSourceHash": "ad9464da161a8d5ae3709ec94baad99de11664bfadb5d02d94caf72fa3bea203",
-      "acceptedTranslationHash": "d03502c43d74a30b936740a9517dc4ea2b2ad7168caa0a774cefe793ce0b33e7"
+      "acceptedTranslationHash": "0a07f659461970d8d8dcefe4fff96a1745599810dc7d47391e95c803b7b2072c"
     },
     {
       "locale": "en-US",
@@ -13120,7 +13120,7 @@
       "baseName": "web/common",
       "key": "punctuation.enum",
       "acceptedSourceHash": "c4a40ea8fe35627476f7f8cb9e1fc7f8898f428c6d1ff18b0bc5479d5db39c5f",
-      "acceptedTranslationHash": "d03502c43d74a30b936740a9517dc4ea2b2ad7168caa0a774cefe793ce0b33e7"
+      "acceptedTranslationHash": "0a07f659461970d8d8dcefe4fff96a1745599810dc7d47391e95c803b7b2072c"
     },
     {
       "locale": "en-US",
@@ -13128,7 +13128,7 @@
       "baseName": "web/common",
       "key": "punctuation.semicolon",
       "acceptedSourceHash": "b0d3c9cfa0e1ef6799ec266c5467a1dc04e54e2f22b853c2f35d1dec1bbd2e71",
-      "acceptedTranslationHash": "41b805ea7ac014e23556e98bb374702a08344268f92489a02f0880849394a1e4"
+      "acceptedTranslationHash": "0a2d3f8f9b727cf73e6c7e44f2feefc41855195b3010a3c4f6b05c33aeb484a9"
     },
     {
       "locale": "en-US",
@@ -27488,7 +27488,7 @@
       "baseName": "web/batch",
       "key": "schedule.meta.last",
       "acceptedSourceHash": "0c3763995e3e6bf7e82e4c7f408c0a378081a91175bf224c3352a67e560f822b",
-      "acceptedTranslationHash": "f636f90bbb7941adaaeaea33cb05f4647b1d1347b6eb24f9a4899fc4fc7af602"
+      "acceptedTranslationHash": "bd4e2b0f101b359bb361a41e1c8a8c9a3d5cdba1d948dde1addedd198ea44e77"
     },
     {
       "locale": "en-US",
@@ -27496,7 +27496,7 @@
       "baseName": "web/batch",
       "key": "schedule.meta.next",
       "acceptedSourceHash": "e70157013ff8c0f19382e256ffec9ba55b1ede71ea223a4f5c000e9c0d72cec6",
-      "acceptedTranslationHash": "3b1a9b54ca297a4ce165439f7b8a60bef2da1bee972aee11382a5d2f58d80c60"
+      "acceptedTranslationHash": "6d9c58ce26f72cff1d9bdde76c8826e000055fd2ac113a207d22eb8708cb1f5f"
     },
     {
       "locale": "en-US",
@@ -27520,7 +27520,7 @@
       "baseName": "web/batch",
       "key": "schedule.meta.trigger",
       "acceptedSourceHash": "0ea8aca65cd3af617edc30f8313e4db4c35bcb2be0554da6812bfca580faed0f",
-      "acceptedTranslationHash": "ad478f8e5337193f4646d7aa936c02676db164027977476df0540121e98cd1d5"
+      "acceptedTranslationHash": "d3e51dd49413dddfdc9f4f1c39f17023556a7b3d70d850b4ca921c1f44148709"
     },
     {
       "locale": "en-US",
@@ -29616,7 +29616,7 @@
       "baseName": "web/batch",
       "key": "status.search-filters-applied",
       "acceptedSourceHash": "92770b44e14b23bba4b21279a1e962e493a98b76aa1acf45b28446b961787e29",
-      "acceptedTranslationHash": "6a8ae7bb72552158d8938924460c473abc5aed73e6c388e4285e1c3f0455ee24"
+      "acceptedTranslationHash": "1535e63bd4a58a6679ea08acd1bec946c3c201166f12ae745f51e6dcc35c53db"
     },
     {
       "locale": "en-US",
@@ -38951,24 +38951,24 @@
       "module": "pixivdownload-plugin-gallery",
       "baseName": "web/gallery",
       "key": "summary.mode.must",
-      "acceptedSourceHash": "c3b61700ecfada57ea5339fc77857501d98f911f456cb7ec4866a24f70b130f1",
-      "acceptedTranslationHash": "95817e1eac34079b91d89ad4ca225932d79d4f8ea57ce244ca3792166199a80f"
+      "acceptedSourceHash": "0448382b11fec9212d4cb99b7be4bc844bb3fb773e60a742e7369665bcd76ef3",
+      "acceptedTranslationHash": "fc359e22ec202f39766079d79d85c2e5554f2371e890058ac8b93f77b19820c9"
     },
     {
       "locale": "en-US",
       "module": "pixivdownload-plugin-gallery",
       "baseName": "web/gallery",
       "key": "summary.mode.not",
-      "acceptedSourceHash": "f24afe7879502d0e52f40b24828ac3caa484db49e9ecf480e7c04547e995ae8d",
-      "acceptedTranslationHash": "50862cec94f03348a01d478ebfff179c4b93b45c95861498631c07fb2d981c68"
+      "acceptedSourceHash": "bc832fe045b7f0c57faf7a61d2aaa41afbce76132d1857350c67fd95d5bd240d",
+      "acceptedTranslationHash": "089682dcc3bae43d372e058c0927375241bfe11ab0d8511fbf1fa84058763515"
     },
     {
       "locale": "en-US",
       "module": "pixivdownload-plugin-gallery",
       "baseName": "web/gallery",
       "key": "summary.mode.or",
-      "acceptedSourceHash": "08d8cdbb2b40b0f86c13c7746ac930ece6436fdcd6eec65236c755d7d65f51d5",
-      "acceptedTranslationHash": "b5969c3eba8a6e9dd2530d877b20ff01e22927346aaf6810673b1658ecf2cd83"
+      "acceptedSourceHash": "3a1975637210d073e95012d1c6587c33d469e9f3d4c5e28bec3ed9ed99fd4587",
+      "acceptedTranslationHash": "9de9a7c81896209c0cb44d598ecab95ac45dad20e11dc10f9bcb733050292267"
     },
     {
       "locale": "en-US",

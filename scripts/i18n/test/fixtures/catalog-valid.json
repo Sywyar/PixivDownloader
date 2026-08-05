@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sourceLocale": "zh-CN",
+  "defaultLocale": "zh-CN",
+  "fallbackLocale": "en-US",
+  "languageCookieName": "pixiv_lang",
+  "languageParameterName": "lang",
+  "locales": [
+    {"tag": "zh-CN", "nativeName": "简体中文", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": ["zh", "zh-Hans", "zh-SG"]},
+    {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": ["en"]},
+    {"tag": "ja-JP", "nativeName": "日本語", "resourceSuffix": "ja", "status": "candidate", "direction": "ltr", "aliases": ["ja"]},
+    {"tag": "zh-HK", "nativeName": "繁體中文（香港）", "resourceSuffix": "zh-HK", "status": "candidate", "direction": "ltr", "aliases": ["zh-Hant-HK"]},
+    {"tag": "es-ES", "nativeName": "Español", "resourceSuffix": "es", "status": "disabled", "direction": "ltr", "aliases": ["es"]}
+  ]
+}

@@ -22,25 +22,62 @@
         return String(lang).trim().replace(/_/g, '-');
     }
 
-    // 把首选语言解析为 meta 中的正式 tag：精确 tag → alias → 唯一语言级匹配 → default。
+    // BCP 47 规范化：Intl.getCanonicalLocales（标准实现），不可用时退化为 _ / - 归一化。
+    // zh-hant → zh-Hant、sr-latn → sr-Latn、en-us → en-US、ZH_hans → zh-Hans。
+    function canonicalizeTag(tag) {
+        var normalized = normalizeLang(tag);
+        if (!normalized) {
+            return null;
+        }
+        if (typeof Intl !== 'undefined' && Intl.getCanonicalLocales) {
+            try {
+                var canonical = Intl.getCanonicalLocales(normalized);
+                if (canonical && canonical.length === 1) {
+                    return canonical[0];
+                }
+            } catch (e) {
+                // fall through to the normalized form
+            }
+        }
+        return normalized;
+    }
+
+    // 把首选语言解析为 meta 中的正式 tag：精确 tag（规范化后）→ alias（规范化后）→
+    // 唯一语言级匹配 → default。大小写不敏感、容忍 _ / - 混用。
     function resolveSupportedLang(preferred, meta) {
         if (!meta || !meta.supportedLocales || !meta.supportedLocales.length) {
             return (meta && meta.defaultLang) || preferred || null;
         }
-        var tags = meta.supportedLocales.map(function (item) { return item.tag; });
-        if (tags.indexOf(preferred) >= 0) {
-            return preferred;
+        var preferredCanonical = canonicalizeTag(preferred);
+        if (!preferredCanonical) {
+            return meta.defaultLang || preferred || null;
         }
+        var canonicalToTag = {};
+        var tags = meta.supportedLocales.map(function (item) {
+            var canonical = canonicalizeTag(item.tag);
+            if (canonical) {
+                canonicalToTag[canonical] = item.tag;
+            }
+            return item.tag;
+        });
+        // 1. 精确 tag 匹配优先
+        if (canonicalToTag[preferredCanonical]) {
+            return canonicalToTag[preferredCanonical];
+        }
+        // 2. alias 次之（规范化后比较）
         for (var i = 0; i < meta.supportedLocales.length; i += 1) {
             var item = meta.supportedLocales[i];
             var aliases = item.aliases || [];
-            if (aliases.indexOf(preferred) >= 0) {
-                return item.tag;
+            for (var j = 0; j < aliases.length; j += 1) {
+                if (canonicalizeTag(aliases[j]) === preferredCanonical) {
+                    return item.tag;
+                }
             }
         }
-        var preferredLang = String(preferred || '').split('-')[0];
+        // 3. language-only 只有唯一结果时才匹配（多个同语言地区版本时不随意选择）
+        var preferredLang = preferredCanonical.split('-')[0].toLowerCase();
         var languageMatches = tags.filter(function (tag) {
-            return tag.split('-')[0] === preferredLang;
+            return String(tag).split('-')[0].toLowerCase() === preferredLang;
         });
         if (languageMatches.length === 1) {
             return languageMatches[0];

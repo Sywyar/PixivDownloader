@@ -7,6 +7,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
@@ -40,9 +41,9 @@ public class DuplicatePluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("duplicate")
-    public MessageResolver duplicatePluginMessages(MessageResolver messages) {
+    public MessageResolver duplicatePluginMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
         return ResourceBundleMessageResolver.of(
-                messages, DuplicatePlugin.class.getClassLoader(), "i18n.web.duplicates");
+                messages, DuplicatePlugin.class.getClassLoader(), localeBundlePolicy, "i18n.web.duplicates");
     }
 
     @Bean

@@ -126,13 +126,26 @@ The repository's i18n infrastructure is a catalog-driven continuous localization
 ```bash
 npm run setup:hooks        # install local Git hooks (local config only)
 npm run doctor:hooks       # verify hooks configuration
-npm run i18n:check         # full i18n check (coverage / stale / placeholders / hardcoded-locale guard)
-npm run i18n:accept        # accept reviewed translations and update the catalog-lock.json baseline
-npm run i18n:generate-static  # generate frontend static meta and bundles
+npm run i18n:check         # full i18n check (coverage / stale / placeholders / hardcoded guard / static sync)
+npm run i18n:generate-static  # generate frontend static meta and bundles (commit the generated files)
 npm run test:i18n          # i18n tooling tests
 ```
 
-New Chinese copy must ship with its English translation in the same commit and run `i18n:accept`; local hooks and the GitHub Actions `i18n-check` job form a double gate. See [docs/i18n-workflow.md](docs/i18n-workflow.md) for the full workflow.
+New Chinese copy must ship with its English translation in the same commit, then accept the reviewed baseline per locale:
+
+```bash
+npm run i18n:accept -- --locale en-US
+npm run i18n:accept -- --locale en-US --module pixivdownload-app
+```
+
+Commit generated static resources after regeneration:
+
+```bash
+npm run i18n:generate-static
+git add pixivdownload-app/src/main/resources/static/i18n-static
+```
+
+Local hooks and the GitHub Actions `i18n-check` job form a double gate (hooks verify the Git index / pushed commit snapshots). See [docs/i18n-workflow.md](docs/i18n-workflow.md) for the full workflow.
 
 ---
 ## Disclaimer

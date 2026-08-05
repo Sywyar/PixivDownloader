@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationPushTestController;
@@ -51,8 +52,8 @@ public class PushPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(PushPlugin.ID)
-    public MessageResolver pushPluginMessages(MessageResolver messages) {
-        return ResourceBundleMessageResolver.of(messages, PushPlugin.class.getClassLoader(),
+    public MessageResolver pushPluginMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
+        return ResourceBundleMessageResolver.of(messages, PushPlugin.class.getClassLoader(), localeBundlePolicy,
                 "i18n.push.messages", "i18n.web.push");
     }
 

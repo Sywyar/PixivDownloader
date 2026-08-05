@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.mail.controller.MailTestController;
@@ -33,8 +34,8 @@ public class MailPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(MailPlugin.ID)
-    public MessageResolver mailPluginMessages(MessageResolver messages) {
-        return ResourceBundleMessageResolver.of(messages, MailPlugin.class.getClassLoader(),
+    public MessageResolver mailPluginMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
+        return ResourceBundleMessageResolver.of(messages, MailPlugin.class.getClassLoader(), localeBundlePolicy,
                 "i18n.mail.messages", "i18n.web.mail");
     }
 

@@ -82,7 +82,7 @@ test('tag 重复 / alias 冲突 / resourceSuffix 冲突立即失败', () => {
     assert.throws(() => catalogLib.validate(withLocales(`
         {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": ["zh"]},
         {"tag": "en-US", "nativeName": "English", "resourceSuffix": "", "status": "supported", "direction": "ltr", "aliases": []}`)),
-        /conflicting resourceSuffix/);
+        /(conflicting resourceSuffix|non-empty resourceSuffix)/);
     assert.throws(() => catalogLib.validate(withLocales(`
         {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": ["zh"]},
         {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": ["zh"]}`)),
@@ -94,7 +94,7 @@ test('恰好一个 source；fallback 必须 source/supported；default 必须可
         {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
         {"tag": "zh-HK", "nativeName": "y", "resourceSuffix": "zh-HK", "status": "source", "direction": "ltr", "aliases": []},
         {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}`)),
-        /exactly one source/);
+        /(exactly one source|source locale .* empty resourceSuffix|conflicting resourceSuffix)/);
     assert.throws(() => catalogLib.validate(withLocales(`
         {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
         {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "candidate", "direction": "ltr", "aliases": []}`)),
@@ -135,4 +135,19 @@ test('真实仓库 locales.json 可加载', () => {
     assert.equal(catalog.sourceLocale, 'zh-CN');
     assert.equal(catalog.fallbackLocale, 'en-US');
     assert.equal(catalog.locales.length, 2);
+});
+
+test('共享 fixture：Java 与 Node 必须同时拒绝同一批非法 catalog（15 例）', () => {
+    const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+    const shared = JSON.parse(fs.readFileSync(path.join(fixturesDir, 'catalog-invalid-shared.json'), 'utf8'));
+    assert.ok(shared.cases.length >= 15);
+    for (const c of shared.cases) {
+        assert.throws(() => catalogLib.validate(JSON.stringify(c.json)),
+            new RegExp(c.expected), 'Node 必须拒绝: ' + c.id);
+    }
+    // 合法 fixture 必须通过
+    const valid = fs.readFileSync(path.join(fixturesDir, 'catalog-valid.json'), 'utf8');
+    const catalog = catalogLib.validate(valid);
+    assert.equal(catalog.locales.length, 5);
+    assert.equal(catalog.byAlias.get('zh-Hant-HK').tag, 'zh-HK');
 });

@@ -156,6 +156,40 @@ async function main() {
     const clientD3 = await sandboxD3.PixivI18n.create({ namespaces: ['common'], lang: 'en-US' });
     ok('d: 精确 tag 保留', clientD3.lang === 'en-US');
 
+    // ===== d2) alias 与 BCP 47 归一化匹配 =====
+    const META_ALIASES = {
+        currentLang: 'en-US', sourceLang: 'zh-CN', defaultLang: 'en-US', fallbackLang: 'en-US',
+        languageCookieName: 'pixiv_lang', languageParamName: 'lang',
+        supportedLocales: [
+            { tag: 'en-US', aliases: ['en'], displayName: 'English', direction: 'ltr' },
+            { tag: 'zh-CN', aliases: ['zh', 'zh-Hans'], displayName: '简体中文', direction: 'ltr' },
+            { tag: 'zh-TW', aliases: ['zh-Hant'], displayName: '繁體中文', direction: 'ltr' }
+        ],
+        supportedNamespaces: ['common']
+    };
+    async function langOf(lang, meta) {
+        const sandbox = createSandbox(makeFetch({ backendMeta: meta }));
+        const client = await sandbox.PixivI18n.create({ namespaces: ['common'], lang: lang });
+        return client.lang;
+    }
+    ok('d2: zh-Hans alias 命中 zh-CN', await langOf('zh-Hans', META_ALIASES) === 'zh-CN');
+    ok('d2: ZH_hans 归一化 / 大小写不敏感', await langOf('ZH_hans', META_ALIASES) === 'zh-CN');
+    ok('d2: en alias 命中 en-US', await langOf('en', META_ALIASES) === 'en-US');
+    ok('d2: zh-hant alias 命中 zh-TW（script 标题大小写）', await langOf('zh-hant', META_ALIASES) === 'zh-TW');
+    ok('d2: ZH_CN 下划线 / 大小写归一化后精确 tag 命中 zh-CN', await langOf('ZH_CN', META_ALIASES) === 'zh-CN');
+    ok('d2: 同语言多个版本时 zh 按明确 alias 命中 zh-CN', await langOf('zh', META_ALIASES) === 'zh-CN');
+    const META_TW_NO_ALIAS = {
+        currentLang: 'en-US', sourceLang: 'zh-CN', defaultLang: 'en-US', fallbackLang: 'en-US',
+        languageCookieName: 'pixiv_lang', languageParameterName: 'lang',
+        supportedLocales: [
+            { tag: 'en-US', aliases: ['en'], displayName: 'English', direction: 'ltr' },
+            { tag: 'zh-CN', aliases: [], displayName: '简体中文', direction: 'ltr' },
+            { tag: 'zh-TW', aliases: [], displayName: '繁體中文', direction: 'ltr' }
+        ],
+        supportedNamespaces: ['common']
+    };
+    ok('d2: 无 alias 且同语言多个版本时 zh 落到 default', await langOf('zh', META_TW_NO_ALIAS) === 'en-US');
+
     // ===== e) 静态 bundle 回退（后端 messages 不可用） =====
     const { client: staticBundleClient } = await createClient(['common'], {
         backendMessages: false,

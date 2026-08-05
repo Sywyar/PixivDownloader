@@ -9,6 +9,7 @@
     "i18n:report": "node scripts/i18n/check.mjs --report-only",
     "i18n:prompt": "node scripts/i18n/check.mjs --strict --write-agent-prompts",
     "i18n:accept": "node scripts/i18n/accept.mjs",
+    "i18n:lock:prune": "node scripts/i18n/accept.mjs --prune",
     "i18n:generate-static": "node scripts/i18n/generate-static.mjs",
     "setup:hooks": "node scripts/i18n/install-hooks.mjs",
     "doctor:hooks": "node scripts/i18n/doctor-hooks.mjs"

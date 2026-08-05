@@ -8,6 +8,11 @@
   "supportedLocales": [
     {
       "tag": "zh-CN",
+      "aliases": [
+        "zh",
+        "zh-Hans",
+        "zh-SG"
+      ],
       "label": "简体中文",
       "nativeName": "简体中文",
       "direction": "ltr",
@@ -15,6 +20,9 @@
     },
     {
       "tag": "en-US",
+      "aliases": [
+        "en"
+      ],
       "label": "English",
       "nativeName": "English",
       "direction": "ltr",

@@ -49,7 +49,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Reject reverse-engineered Douyin signature code
-        run: bash scripts/hooks/pre-push-guard.sh
+        run: bash scripts/hooks/pre-push-guard.sh --ref ${{ github.sha }}
 
   javascript-tests:
     runs-on: ubuntu-latest
@@ -74,7 +74,7 @@ jobs:
 
   i18n-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout tested commit
@@ -87,12 +87,29 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Run i18n checks
+      - name: Set up JDK 17 (properties oracle differential tests)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Run i18n tests (incl. JVM properties oracle differential)
         id: i18n
         continue-on-error: true
-        run: npm run test:i18n && npm run i18n:check
+        run: npm run test:i18n
 
-      - name: Generate static i18n resources
+      - name: Run i18n check on the tested commit (ref snapshot)
+        id: i18n-ref
+        continue-on-error: true
+        run: node scripts/i18n/check.mjs --snapshot ref --ref ${{ github.sha }}
+
+      - name: Run i18n worktree check
+        id: i18n-check
+        continue-on-error: true
+        run: npm run i18n:check
+
+      - name: Generate static i18n resources (defense-in-depth diff)
         id: i18n-static
         continue-on-error: true
         run: npm run i18n:generate-static
@@ -112,5 +129,5 @@ jobs:
           if-no-files-found: ignore
 
       - name: Propagate i18n result
-        if: steps.i18n.outcome == 'failure' || steps.i18n-static.outcome == 'failure'
+        if: steps.i18n.outcome == 'failure' || steps.i18n-ref.outcome == 'failure' || steps.i18n-check.outcome == 'failure' || steps.i18n-static.outcome == 'failure'
         run: exit 1

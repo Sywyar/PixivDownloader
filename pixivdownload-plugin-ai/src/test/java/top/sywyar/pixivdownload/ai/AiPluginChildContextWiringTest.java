@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.ai.controller.AiStatusController;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
@@ -75,6 +76,22 @@ class AiPluginChildContextWiringTest {
         @Bean
         MessageResolver messages() {
             return new TestMessages();
+        }
+
+        @Bean
+        LocaleBundlePolicy localeBundlePolicy() {
+            // 模拟宿主提供的策略（真实宿主为 CatalogLocaleBundlePolicy）
+            return new LocaleBundlePolicy() {
+                @Override
+                public Locale normalize(Locale requested) {
+                    return requested == null ? Locale.getDefault() : requested;
+                }
+
+                @Override
+                public List<String> resourceSuffixChain(Locale requested) {
+                    return List.of("en", "");
+                }
+            };
         }
 
         @Bean

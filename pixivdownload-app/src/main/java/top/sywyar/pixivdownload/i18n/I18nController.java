@@ -24,6 +24,7 @@ public class I18nController {
         List<LocaleOptionResponse> locales = catalog.visibleLocales().stream()
                 .map(item -> new LocaleOptionResponse(
                         item.tag(),
+                        item.aliases(),
                         item.nativeName(),
                         item.nativeName(),
                         item.direction(),

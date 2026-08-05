@@ -1,7 +1,14 @@
 'use strict';
 /**
  * 发现仓库内第一方 i18n bundle（自动扫描，不维护写死的模块数组）。
- * 扫描各模块 src/main/resources/i18n 目录下的 *.properties，模块归属按路径第一段计算。
+ *
+ * 下划线判定（不能因为文件名最后包含 `_xxx` 就认定它是未知语言文件）：
+ * 1. 已知 resourceSuffix 精确匹配 → 语言文件；
+ * 2. 未知 `_xxx` 后缀：只有同一目录中存在同 baseName 的源 bundle（`B.properties`）
+ *    或其它已知语言 sibling（`B_<knownSuffix>.properties`）时，才认定为未知语言文件；
+ * 3. 单独 `download_status.properties`（无 sibling 证据）→ 视为 source bundle；
+ * 4. 同一目录中的判定必须确定性（先收集证据再归属，结果与目录枚举顺序无关）；
+ * 5. 目标路径生成与 discovery 使用同一命名逻辑（targetPathFor）。
  */
 
 import fs from 'fs';
@@ -11,8 +18,6 @@ const EXCLUDED_DIRS = new Set([
     '.git', 'node_modules', 'target', 'build', 'plugins', 'dist', '.idea', '.vscode',
     'eclipse', '.run', '.gradle', 'temp', 'tmp',
 ]);
-
-const I18N_DIR = path.join('src', 'main', 'resources', 'i18n');
 
 function walk(dir, out) {
     let entries;
@@ -34,84 +39,187 @@ function walk(dir, out) {
     }
 }
 
-/**
- * 把相对仓库根的 properties 路径归属到 (module, baseName, suffix)。
- * @returns {{module, baseName, suffix, relPath} | null}
- */
-function attribute(repoRoot, file, catalog) {
+function knownDescriptor(catalog, suffix) {
+    if (!suffix) {
+        return null;
+    }
+    return catalog.locales.find((d) => d.resourceSuffix === suffix) || null;
+}
+
+/** 单个文件：相对仓库根路径与 i18n 目录内定位。 */
+function locate(repoRoot, file) {
     const rel = path.relative(repoRoot, file).split(path.sep).join('/');
     const marker = '/src/main/resources/i18n/';
     const markerIndex = rel.indexOf(marker);
     if (markerIndex < 0) {
         return null;
     }
-    const module = rel.slice(0, markerIndex);
-    const relInI18n = rel.slice(markerIndex + marker.length);
-    const fileName = path.basename(relInI18n);
-    const dir = path.dirname(relInI18n);
+    return {
+        module: rel.slice(0, markerIndex),
+        relInI18n: rel.slice(markerIndex + marker.length),
+        relPath: rel,
+    };
+}
 
-    // 后缀检测：文件名（去 .properties）最后一个 _ 之后的部分若匹配已知非空 resourceSuffix 则为该语言文件；
-    // 否则视为「未知语言后缀文件」（如 *_ja.properties 而 ja-JP 不在 catalog）。
-    const leaf = fileName.slice(0, -'.properties'.length);
-    let baseNameLeaf = leaf;
-    let suffix = '';
-    let unknownSuffix = false;
-    const underscoreIndex = leaf.lastIndexOf('_');
-    if (underscoreIndex >= 0) {
-        const candidate = leaf.slice(underscoreIndex + 1);
-        const descriptor = catalog.locales.find((d) => d.resourceSuffix !== '' && d.resourceSuffix === candidate);
-        if (descriptor) {
-            suffix = candidate;
-            baseNameLeaf = leaf.slice(0, underscoreIndex);
-        } else {
-            unknownSuffix = true;
-            suffix = candidate;
+/**
+ * 目录级归属。
+ * @returns {Array<{module, baseName, suffix, relPath, unknownSuffix, filePath}>}
+ */
+function attributeDir(repoRoot, dirFiles, catalog) {
+    const located = [];
+    for (const file of dirFiles) {
+        const loc = locate(repoRoot, file);
+        if (loc) {
+            located.push({ ...loc, filePath: file });
         }
     }
-    const baseName = dir === '.' ? baseNameLeaf : dir + '/' + baseNameLeaf;
-    return { module, baseName, suffix, relPath: rel, unknownSuffix };
+
+    // 第一遍：收集证据（每个 baseLeaf 是否存在源文件或已知语言 sibling）
+    const evidence = new Map(); // baseLeaf -> {source, knownLang}
+    for (const entry of located) {
+        const fileName = path.basename(entry.relInI18n);
+        const leaf = fileName.slice(0, -'.properties'.length);
+        if (!leaf.includes('_')) {
+            const ev = evidence.get(leaf) || { source: false, knownLang: false };
+            ev.source = true;
+            evidence.set(leaf, ev);
+            continue;
+        }
+        const baseLeaf = leaf.slice(0, leaf.lastIndexOf('_'));
+        const candidate = leaf.slice(leaf.lastIndexOf('_') + 1);
+        if (knownDescriptor(catalog, candidate)) {
+            const ev = evidence.get(baseLeaf) || { source: false, knownLang: false };
+            ev.knownLang = true;
+            evidence.set(baseLeaf, ev);
+        }
+    }
+
+    // 第二遍：归属（确定性）
+    const results = [];
+    for (const entry of located) {
+        const fileName = path.basename(entry.relInI18n);
+        const dir = path.dirname(entry.relInI18n);
+        const leaf = fileName.slice(0, -'.properties'.length);
+
+        if (!leaf.includes('_')) {
+            results.push({
+                module: entry.module,
+                baseName: dir === '.' ? leaf : dir + '/' + leaf,
+                suffix: '',
+                relPath: entry.relPath,
+                unknownSuffix: false,
+                filePath: entry.filePath,
+            });
+            continue;
+        }
+
+        const baseLeaf = leaf.slice(0, leaf.lastIndexOf('_'));
+        const candidate = leaf.slice(leaf.lastIndexOf('_') + 1);
+        const descriptor = knownDescriptor(catalog, candidate);
+        const baseName = dir === '.' ? baseLeaf : dir + '/' + baseLeaf;
+        if (descriptor) {
+            results.push({
+                module: entry.module,
+                baseName,
+                suffix: candidate,
+                relPath: entry.relPath,
+                unknownSuffix: false,
+                filePath: entry.filePath,
+            });
+            continue;
+        }
+
+        const ev = evidence.get(baseLeaf) || null;
+        if (ev && (ev.source || ev.knownLang)) {
+            results.push({
+                module: entry.module,
+                baseName,
+                suffix: candidate,
+                relPath: entry.relPath,
+                unknownSuffix: true,
+                filePath: entry.filePath,
+            });
+        } else {
+            results.push({
+                module: entry.module,
+                baseName: dir === '.' ? leaf : dir + '/' + leaf,
+                suffix: '',
+                relPath: entry.relPath,
+                unknownSuffix: false,
+                filePath: entry.filePath,
+            });
+        }
+    }
+    return results;
 }
 
 /**
  * 发现全部第一方 bundle。
- * @returns {{bundles: Map<string, object>, rawFiles: Array, unknownSuffixFiles: Array}}
- *   bundles key = `${module}__${baseName}`；rawFiles = [{relPath, module, baseName, suffix, localeTag}]
+ * @returns {{bundles: Map<string, object>, rawFiles: Array, unknownSuffixFiles: Array, conflicts: Array}}
  */
 function discover(repoRoot, catalog) {
     const files = [];
     walk(repoRoot, files);
 
+    // 按目录分组（排序保证确定性）
+    const byDir = new Map();
+    for (const file of files) {
+        const rel = path.relative(repoRoot, file);
+        const dir = path.dirname(rel);
+        if (!byDir.has(dir)) {
+            byDir.set(dir, []);
+        }
+        byDir.get(dir).push(file);
+    }
+
+    const attributed = [];
+    for (const dirFiles of byDir.values()) {
+        dirFiles.sort((a, b) => a.localeCompare(b));
+        for (const attrs of attributeDir(repoRoot, dirFiles, catalog)) {
+            attributed.push(attrs);
+        }
+    }
+
     const rawFiles = [];
     const unknownSuffixFiles = [];
-    for (const file of files) {
-        const attrs = attribute(repoRoot, file, catalog);
-        if (!attrs) {
+    for (const attrs of attributed) {
+        if (attrs.unknownSuffix) {
+            unknownSuffixFiles.push({
+                module: attrs.module,
+                baseName: attrs.baseName,
+                suffix: attrs.suffix,
+                relPath: attrs.relPath,
+                localeTag: null,
+                filePath: attrs.filePath,
+            });
             continue;
         }
         let localeTag = null;
-        if (attrs.unknownSuffix) {
-            unknownSuffixFiles.push({ ...attrs, localeTag: null, filePath: file });
-            continue;
-        }
         if (attrs.suffix === '') {
             localeTag = catalog.locales.find((d) => d.resourceSuffix === '')?.tag || null;
         } else {
-            const descriptor = catalog.locales.find((d) => d.resourceSuffix === attrs.suffix);
+            const descriptor = knownDescriptor(catalog, attrs.suffix);
             localeTag = descriptor ? descriptor.tag : null;
             if (!descriptor) {
-                unknownSuffixFiles.push({ ...attrs, localeTag: null, filePath: file });
+                unknownSuffixFiles.push({
+                    module: attrs.module,
+                    baseName: attrs.baseName,
+                    suffix: attrs.suffix,
+                    relPath: attrs.relPath,
+                    localeTag: null,
+                    filePath: attrs.filePath,
+                });
                 continue;
             }
         }
-        const entry = {
+        rawFiles.push({
             relPath: attrs.relPath,
             module: attrs.module,
             baseName: attrs.baseName,
             suffix: attrs.suffix,
             localeTag,
-            filePath: file,
-        };
-        rawFiles.push(entry);
+            filePath: attrs.filePath,
+        });
     }
 
     // 同一 bundle 内同一 locale 出现多个物理文件 → 冲突
@@ -150,6 +258,19 @@ function discover(repoRoot, catalog) {
     return { bundles, rawFiles, unknownSuffixFiles, conflicts };
 }
 
+/** 目标语言文件在仓库中的精确相对路径（翻译 Agent 可直接创建 / 修改）。 */
+function targetPathFor(module, baseName, suffix) {
+    const dir = baseName.includes('/')
+        ? baseName.slice(0, baseName.lastIndexOf('/'))
+        : '';
+    const leaf = baseName.includes('/')
+        ? baseName.slice(baseName.lastIndexOf('/') + 1)
+        : baseName;
+    const fileName = leaf + (suffix ? '_' + suffix : '') + '.properties';
+    return module + '/src/main/resources/i18n/'
+        + (dir ? dir + '/' : '') + fileName;
+}
+
 function namespaceOf(baseName) {
     return baseName.startsWith('web/') ? baseName.slice('web/'.length) : baseName;
 }
@@ -159,6 +280,6 @@ function bundleKey(module, baseName) {
     return module + '__' + namespaceOf(baseName);
 }
 
-export {  discover, bundleKey, namespaceOf  };
+export { discover, bundleKey, namespaceOf, targetPathFor };
 
-export default { discover, bundleKey, namespaceOf };
+export default { discover, bundleKey, namespaceOf, targetPathFor };

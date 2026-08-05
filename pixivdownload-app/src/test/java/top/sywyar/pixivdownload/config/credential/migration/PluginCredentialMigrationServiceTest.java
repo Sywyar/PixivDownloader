@@ -23,6 +23,9 @@ import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySource
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.PropertiesConfigFileEditor;
+import top.sywyar.pixivdownload.i18n.CatalogLocaleBundlePolicy;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
+import top.sywyar.pixivdownload.i18n.LocaleCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
@@ -1227,6 +1230,9 @@ class PluginCredentialMigrationServiceTest {
         parent.registerBean(
                 MessageResolver.class,
                 () -> mock(MessageResolver.class));
+        parent.registerBean(
+                LocaleBundlePolicy.class,
+                () -> new CatalogLocaleBundlePolicy(LocaleCatalog.defaultCatalog()));
         parent.registerBean(
                 OutboundHttpClientFactory.class,
                 () -> profile -> mock(OutboundHttpClient.class));

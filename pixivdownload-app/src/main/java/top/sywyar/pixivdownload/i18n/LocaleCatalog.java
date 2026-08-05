@@ -55,9 +55,9 @@ public final class LocaleCatalog {
         this.visibleLocales = locales.stream().filter(LocaleDescriptor::visible).toList();
 
         Map<String, LocaleDescriptor> tags = new HashMap<>();
-        Map<String, LocaleDescriptor> aliases = new HashMap<>();
         Set<String> suffixes = new java.util.HashSet<>();
         long sourceCount = 0;
+        // 第一遍：tag 与 suffix（tag 集合先完整建立，alias 冲突检查与声明顺序无关）
         for (LocaleDescriptor descriptor : locales) {
             if (tags.putIfAbsent(descriptor.tag(), descriptor) != null) {
                 throw new IllegalArgumentException("duplicate locale tag: " + descriptor.tag());
@@ -69,9 +69,26 @@ public final class LocaleCatalog {
             if (descriptor.isSource()) {
                 sourceCount++;
             }
+        }
+        // 第二遍：alias 规范化与冲突检查（对完整 tag 集合，声明顺序无关）
+        Map<String, LocaleDescriptor> aliases = new HashMap<>();
+        for (LocaleDescriptor descriptor : locales) {
             for (String alias : descriptor.aliases()) {
-                String key = alias.toLowerCase(Locale.ROOT);
-                LocaleDescriptor existing = aliases.putIfAbsent(key, descriptor);
+                String canonical = LocaleCatalogLoader.canonicalTag(alias);
+                if (canonical == null) {
+                    throw new IllegalArgumentException("locale " + descriptor.tag()
+                            + ": alias is not a valid BCP 47 tag: \"" + alias + "\"");
+                }
+                if (canonical.equals(descriptor.tag())) {
+                    throw new IllegalArgumentException("locale " + descriptor.tag()
+                            + ": alias duplicates its own tag: \"" + alias + "\"");
+                }
+                LocaleDescriptor tagConflict = tags.get(canonical);
+                if (tagConflict != null) {
+                    throw new IllegalArgumentException("alias \"" + alias + "\" of locale " + descriptor.tag()
+                            + " conflicts with the tag of locale " + tagConflict.tag());
+                }
+                LocaleDescriptor existing = aliases.putIfAbsent(canonical, descriptor);
                 if (existing != null) {
                     throw new IllegalArgumentException("alias conflict for '" + alias
                             + "' between " + existing.tag() + " and " + descriptor.tag());
@@ -174,11 +191,12 @@ public final class LocaleCatalog {
             return Optional.empty();
         }
         String normalized = candidate.trim().replace('_', '-');
-        LocaleDescriptor byTagMatch = byTag.get(canonicalTag(normalized));
+        String canonical = canonicalTag(normalized);
+        LocaleDescriptor byTagMatch = canonical == null ? null : byTag.get(canonical);
         if (byTagMatch != null) {
             return Optional.of(byTagMatch);
         }
-        LocaleDescriptor aliasMatch = byAlias.get(normalized.toLowerCase(Locale.ROOT));
+        LocaleDescriptor aliasMatch = canonical == null ? null : byAlias.get(canonical);
         if (aliasMatch != null) {
             return Optional.of(aliasMatch);
         }
@@ -253,10 +271,6 @@ public final class LocaleCatalog {
     }
 
     private static String canonicalTag(String tag) {
-        Locale locale = Locale.forLanguageTag(tag);
-        if (locale == null || locale.getLanguage().isBlank()) {
-            return null;
-        }
-        return locale.toLanguageTag();
+        return LocaleCatalogLoader.canonicalTag(tag);
     }
 }

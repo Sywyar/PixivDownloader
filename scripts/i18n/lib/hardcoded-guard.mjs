@@ -25,8 +25,10 @@ const EXPLICIT_ALLOWED_FILES = {
         '读取外部作品元数据 JSON 的 translations 映射（"en" 为数据字段），不是应用语言配置。',
     'pixivdownload-app/src/main/java/top/sywyar/pixivdownload/plugin/catalog/model/PluginCatalogMarketMeta.java':
         '插件市场 catalog 的 wire 格式用 BCP47 键描述本地化名称（Javadoc 示例），不是应用语言清单。',
-    'pixivdownload-core-api/src/main/java/top/sywyar/pixivdownload/i18n/ResourceBundleMessageResolver.java':
-        'core-api 无法依赖应用 catalog：插件 bundle 按仓库约定 root=zh-CN、_en=en-US 回退，常量是文档化约定。',
+    'pixivdownload-core-api/src/main/java/top/sywyar/pixivdownload/i18n/LegacyLocaleBundlePolicy.java':
+        'core-api 面向旧第三方插件的二进制兼容策略：明确命名并集中封装的 legacy 例外，'
+        + '只保证旧版 root=zh-CN + _en=en-US 约定，禁止新代码使用；'
+        + '新策略走 LocaleBundlePolicy / CatalogLocaleBundlePolicy，常量不进入其它文件。',
     'pixivdownload-plugin-download-workbench/src/main/java/top/sywyar/pixivdownload/download/controller/PixivProxyController.java':
         '向 Pixiv 外部 API 传递 lang=zh 查询参数并读取其 translations JSON 数据字段，属于外部协议，不是应用语言配置。',
     'pixivdownload-plugin-download-workbench/src/main/java/top/sywyar/pixivdownload/download/PixivFetchService.java':

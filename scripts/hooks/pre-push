@@ -1,20 +1,137 @@
 #!/usr/bin/env bash
-# Local pre-push guard. Orchestrates the shared gates in order:
-#   1. existing signature guard (pre-push-guard.sh)
-#   2. full i18n check
-#   3. (future shared gates are appended here)
-# Activate with:  git config core.hooksPath scripts/hooks
+# Local pre-push hook: i18n gate + signature guard against the ACTUAL commits
+# being pushed (not the worktree).
+#
+# Git feeds pre-push ref lines on stdin:
+#   <local-ref> <local-sha> <remote-ref> <remote-sha>
+#
+# Behavior:
+#   - Reads ALL stdin lines (multiple refs are possible).
+#   - Deletion refs (local sha all zeros) are skipped.
+#   - For each pushed ref the new commit range is computed:
+#       * normal update:  git rev-list --reverse <remote-sha>..<local-sha>
+#       * new branch (remote sha all zeros):
+#         git rev-list --reverse <local-sha> --not --remotes=<remote>
+#   - Commit SHAs are deduplicated across refs.
+#   - EVERY new commit runs the ref-snapshot i18n check; a failure blocks the
+#     push and reports the failing SHA. The check reads only the commit tree —
+#     unstaged/uncommitted worktree fixes never affect the verdict.
+#   - The signature guard also runs against every pushed commit tree, not the
+#     worktree.
+#   - The checker code itself comes from committed HEAD (git archive), so
+#     uncommitted checker edits cannot change the verdict.
+#   - Never invokes --no-verify; never pushes anything.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-bash "$root/scripts/hooks/pre-push-guard.sh"
-
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    echo "pre-push: node/npm are required for the i18n gate but were not found in PATH." >&2
+if ! command -v node >/dev/null 2>&1; then
+    echo "pre-push: node is required for the i18n gate but was not found in PATH." >&2
     echo "pre-push: install Node.js (see docs/i18n-workflow.md) and re-run the push." >&2
     exit 1
 fi
 
-npm run i18n:check
+zero="0000000000000000000000000000000000000000"
+checker_dir=""
+work_root="$root"
+
+cleanup() {
+    if [ -n "$checker_dir" ] && [ -d "$checker_dir" ]; then
+        rm -rf "$checker_dir" || true
+    fi
+}
+trap cleanup EXIT
+
+# ---- 收集待推送 commit（去重） ----
+commits=""
+read_stdin() {
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] && continue
+        local local_ref local_sha remote_ref remote_sha
+        set -- $line
+        local_ref="$1"; local_sha="$2"; remote_ref="$3"; remote_sha="$4"
+        if [ -z "$local_sha" ] || [ -z "$remote_ref" ]; then
+            echo "pre-push: malformed ref line: $line" >&2
+            exit 1
+        fi
+        if [ "$local_sha" = "$zero" ]; then
+            echo "pre-push: skipping deletion of $remote_ref"
+            continue
+        fi
+        local range
+        if [ "$remote_sha" = "$zero" ]; then
+            # 新分支：推送该 remote 尚不可达的全部 commit
+            local remote_name="${remote_ref%%/*}"
+            local remotes_arg="--remotes=$remote_name"
+            if ! git rev-parse --verify --quiet "$remote_name/HEAD" >/dev/null 2>&1 \
+                && ! git for-each-ref --format='%(refname:short)' "refs/remotes/$remote_name" | grep -q .; then
+                # remote 没有任何 tracking ref 时退化为排除所有 remotes
+                remotes_arg="--remotes=*"
+            fi
+            range="$(git rev-list --reverse "$local_sha" --not "$remotes_arg" 2>/dev/null || git rev-list --reverse "$local_sha")"
+            if [ -z "$range" ]; then
+                # 保守兜底：无法确定范围时至少检查 tip
+                range="$local_sha"
+            fi
+            echo "pre-push: new branch $remote_ref (${range//$'\n'/ })"
+        else
+            range="$(git rev-list --reverse "$remote_sha".."$local_sha")"
+            if [ -z "$range" ]; then
+                echo "pre-push: no new commits for $remote_ref (fast-forward already applied?)"
+                continue
+            fi
+        fi
+        for sha in $range; do
+            case "$commits" in
+                *"$sha"*) ;;
+                *) commits="$commits
+$sha" ;;
+            esac
+        done
+    done
+}
+read_stdin
+
+if [ -z "$commits" ]; then
+    echo "pre-push: no commits to verify"
+    exit 0
+fi
+
+count="$(printf '%s\n' "$commits" | grep -c . || true)"
+echo "pre-push: verifying $count pushed commit(s) against the i18n gate and signature guard..."
+
+# ---- 检查器版本来源：使用已提交 HEAD 的 scripts/i18n（git archive 物化），
+#      避免当前未提交的检查器修改影响待推送 commit 的判定。 ----
+checker_dir="$(mktemp -d)"
+if ! git archive HEAD -- scripts/i18n | tar -x -C "$checker_dir" 2>/dev/null; then
+    echo "pre-push: cannot extract the committed checker from HEAD (git archive failed)." >&2
+    echo "pre-push: commit your scripts/i18n changes first." >&2
+    exit 1
+fi
+if [ ! -f "$checker_dir/scripts/i18n/check.mjs" ]; then
+    echo "pre-push: HEAD does not contain the snapshot-aware checker (scripts/i18n/check.mjs)." >&2
+    echo "pre-push: commit the i18n gate changes first." >&2
+    exit 1
+fi
+
+index=0
+for sha in $commits; do
+    index=$((index + 1))
+    echo "pre-push: [$index/$count] checking commit $sha..."
+    if ! node "$checker_dir/scripts/i18n/check.mjs" --repo-root "$work_root" --report-root "$work_root" \
+        --snapshot ref --ref "$sha" >/dev/null 2>&1; then
+        echo "pre-push: FAILED — commit $sha does not pass the i18n gate." >&2
+        echo "pre-push: fix the issues in commit $sha (or add a fixup commit) and re-run the push." >&2
+        echo "pre-push: run the check locally: node scripts/i18n/check.mjs --snapshot ref --ref $sha" >&2
+        exit 1
+    fi
+    if ! bash "$root/scripts/hooks/pre-push-guard.sh" --ref "$sha" >/dev/null 2>&1; then
+        echo "pre-push: FAILED — commit $sha does not pass the signature guard." >&2
+        bash "$root/scripts/hooks/pre-push-guard.sh" --ref "$sha" >&2 || true
+        exit 1
+    fi
+done
+
+echo "pre-push: all $count pushed commit(s) pass the i18n gate and the signature guard."

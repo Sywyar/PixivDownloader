@@ -4,6 +4,7 @@
  * 安装本地 Git hooks：git config --local core.hooksPath scripts/hooks。
  * 只修改当前仓库的 local 配置，绝不触碰 global 配置；重复执行幂等。
  * Windows / Git Bash / Unix 路径兼容（一律写入正斜杠相对路径）。
+ * 安装后自动运行 doctor 验证；不复制 hook 到 .git/hooks、不覆盖用户全局模板。
  * 仓库根目录由 git rev-parse --show-toplevel 解析，任意子目录执行均可。
  */
 
@@ -52,7 +53,15 @@ function main() {
 
     console.log('install-hooks: core.hooksPath = ' + actual + ' (local only)');
     console.log('install-hooks: pre-commit / pre-push / pre-push-guard.sh are active.');
-    console.log('install-hooks: run "npm run doctor:hooks" to verify at any time.');
+    console.log('install-hooks: running doctor to verify the installation...');
+
+    try {
+        execFileSync('node', [path.join(hooksAbs, '..', 'i18n', 'doctor-hooks.mjs')],
+            { cwd: repoRoot, encoding: 'utf8', stdio: ['inherit', 'inherit', 'inherit'] });
+    } catch (e) {
+        console.error('install-hooks: doctor reported problems after installation; fix them and re-run.');
+        process.exit(1);
+    }
 }
 
 main();

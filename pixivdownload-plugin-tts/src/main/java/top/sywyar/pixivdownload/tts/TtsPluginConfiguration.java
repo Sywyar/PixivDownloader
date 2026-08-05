@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
@@ -53,8 +54,8 @@ public class TtsPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
-    public MessageResolver ttsPluginMessages(MessageResolver messages) {
-        return ResourceBundleMessageResolver.of(messages, TtsPlugin.class.getClassLoader(),
+    public MessageResolver ttsPluginMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
+        return ResourceBundleMessageResolver.of(messages, TtsPlugin.class.getClassLoader(), localeBundlePolicy,
                 "i18n.tts.messages", "i18n.web.tts");
     }
 

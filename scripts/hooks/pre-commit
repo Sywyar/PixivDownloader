@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-# Local pre-commit hook: i18n gate.
-# Only runs when staged files touch the i18n surface (catalog / lock / properties /
-# i18n Java or JS / generators / static bundles); otherwise exits fast.
-# Never modifies files and never runs accept.
+# Local pre-commit hook: i18n gate against the Git INDEX snapshot.
+#
+# Contract (never bypassable by fixing the worktree without staging):
+#   1. If nothing is staged, exit fast (0).
+#   2. Staged scannable production code always runs the hardcoded-language guard
+#      in index snapshot mode (lightweight).
+#   3. If staged files touch the i18n surface (catalog / lock / properties /
+#      i18n Java or JS / generators / static bundles), run the FULL index
+#      snapshot check (coverage / stale / static sync / hardcoded guard).
+#   4. The check reads ONLY the Git index snapshot; unstaged fixes never count.
+#   5. Never generates or modifies staged files; never runs accept;
+#      propagates non-zero exit codes.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -10,19 +18,24 @@ cd "$root"
 
 staged="$(git diff --cached --name-only 2>/dev/null || true)"
 if [ -z "$staged" ]; then
+    echo "pre-commit: nothing staged, skipping i18n check"
     exit 0
 fi
 
-if ! printf '%s\n' "$staged" | grep -Eq '(^|/)(i18n/|locales\.json$|.*\.properties$|.*[Ii]18n.*\.(java|js|mjs)$|pixiv-i18n\.js$|pixiv-lang-switcher\.js$|scripts/i18n/|scripts/hooks/|i18n-static/)'; then
-    echo "pre-commit: no i18n files staged, skipping i18n check"
-    exit 0
-fi
-
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    echo "pre-commit: node/npm are required for the i18n gate but were not found in PATH." >&2
+if ! command -v node >/dev/null 2>&1; then
+    echo "pre-commit: node is required for the i18n gate but was not found in PATH." >&2
     echo "pre-commit: install Node.js (see docs/i18n-workflow.md) and re-run the commit." >&2
     exit 1
 fi
 
-echo "pre-commit: i18n files staged, running full i18n check..."
-npm run i18n:check
+# ---- 1. 轻量硬编码守卫：总是检查（index 快照，不读工作树） ----
+echo "pre-commit: checking staged code for hardcoded languages (index snapshot)..."
+node scripts/i18n/check.mjs --snapshot index --hardcoded-only
+
+# ---- 2. i18n 表面文件：完整 index 检查 ----
+if printf '%s\n' "$staged" | grep -Eq '(^|/)(i18n/|locales\.json$|.*\.properties$|.*[Ii]18n.*\.(java|js|mjs)$|pixiv-i18n\.js$|pixiv-lang-switcher\.js$|scripts/i18n/|scripts/hooks/|i18n-static/)'; then
+    echo "pre-commit: i18n files staged, running full index snapshot check..."
+    node scripts/i18n/check.mjs --snapshot index
+fi
+
+echo "pre-commit: index snapshot i18n gate passed."

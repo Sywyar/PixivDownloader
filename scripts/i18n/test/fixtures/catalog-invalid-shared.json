@@ -1,0 +1,192 @@
+{
+  "name": "catalog-invalid-shared",
+  "description": "Java 与 Node 必须同时拒绝的非法 catalog 清单（共享 fixture）",
+  "cases": [
+    {
+      "id": "zh-hant-lowercase-script-tag",
+      "expected": "not canonical",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-hant", "nativeName": "x", "resourceSuffix": "zh-Hant", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "sr-latn-script-title-case",
+      "expected": "not canonical",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "sr-latn", "nativeName": "y", "resourceSuffix": "sr-Latn", "status": "candidate", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "zh_Hans-underscore-tag",
+      "expected": "not canonical",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "zh_Hans", "nativeName": "y", "resourceSuffix": "zh-Hans", "status": "candidate", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "alias-collides-with-tag",
+      "expected": "conflicts with the tag|conflicts with the tag of locale",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": ["en-US"]},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "tag-collides-with-earlier-alias",
+      "expected": "conflicts with the tag|conflicts with the tag of locale",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": ["zh-TW"]},
+          {"tag": "zh-TW", "nativeName": "z", "resourceSuffix": "zh-TW", "status": "candidate", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "alias-duplicates-own-tag",
+      "expected": "duplicates its own tag",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": ["zh-CN"]},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "suffix-conflict-after-trim",
+      "expected": "conflicting resourceSuffix",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en ", "status": "supported", "direction": "ltr", "aliases": []},
+          {"tag": "ja-JP", "nativeName": "y", "resourceSuffix": "en", "status": "candidate", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "illegal-suffix-slash",
+      "expected": "illegal resourceSuffix",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "e/n", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "illegal-suffix-dotdot",
+      "expected": "illegal resourceSuffix",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "..", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "non-source-empty-suffix",
+      "expected": "non-empty resourceSuffix",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "multiple-sources",
+      "expected": "exactly one source|empty resourceSuffix|conflicting resourceSuffix",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "zh-HK", "nativeName": "y", "resourceSuffix": "zh-HK", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "invisible-default",
+      "expected": "visible locale|defaultLocale",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "ja-JP", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []},
+          {"tag": "ja-JP", "nativeName": "y", "resourceSuffix": "ja", "status": "candidate", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "candidate-fallback",
+      "expected": "fallbackLocale must be source or supported",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "en-US", "fallbackLocale": "ja-JP",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []},
+          {"tag": "ja-JP", "nativeName": "y", "resourceSuffix": "ja", "status": "candidate", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "non-canonical-source-pointer",
+      "expected": "sourceLocale is not canonical|does not match any locale tag",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-cn", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    },
+    {
+      "id": "alias-not-valid-bcp47",
+      "expected": "not a valid BCP 47 tag",
+      "json": {
+        "schemaVersion": 1, "sourceLocale": "zh-CN", "defaultLocale": "zh-CN", "fallbackLocale": "en-US",
+        "languageCookieName": "pixiv_lang", "languageParameterName": "lang",
+        "locales": [
+          {"tag": "zh-CN", "nativeName": "x", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": ["_zh"]},
+          {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}
+        ]
+      }
+    }
+  ]
+}

@@ -7,6 +7,10 @@
 # must be supplied out-of-tree (for example from a private plugin build) and
 # never committed to this repository.
 #
+# Usage:
+#   bash scripts/hooks/pre-push-guard.sh            # scan the worktree
+#   bash scripts/hooks/pre-push-guard.sh --ref <sha> # scan the given commit tree
+#
 # Shared by the local pre-push hook (scripts/hooks/pre-push) and the CI
 # quality-gate workflow (.github/workflows/quality-gate.yml). Activate the
 # local hook with:  git config core.hooksPath scripts/hooks
@@ -20,8 +24,23 @@ cd "$root"
 marker_re='DouyinXBogusSigner|DouyinABogusSigner|DouyinSm3|generateChromeFingerprint|Dkdpgh4ZKs|Dkdpgh2Zms|ckdp1h4ZKs'
 
 guard_rel="scripts/hooks/pre-push-guard.sh"
+# 守卫自身的回归测试必须引用标记字面量（验证守卫能检出），与守卫本体一样豁免。
+guard_test_rel="scripts/i18n/test/hooks.test.mjs"
 
-matches="$(git grep -nE "$marker_re" -- . ":(exclude)$guard_rel" 2>/dev/null || true)"
+ref=""
+if [ "${1:-}" = "--ref" ]; then
+    ref="${2:-}"
+    if [ -z "$ref" ]; then
+        echo "pre-push-guard: --ref requires a commit" >&2
+        exit 2
+    fi
+fi
+
+if [ -n "$ref" ]; then
+    matches="$(git grep -nE "$marker_re" "$ref" -- . ":(exclude)$guard_rel" ":(exclude)$guard_test_rel" 2>/dev/null || true)"
+else
+    matches="$(git grep -nE "$marker_re" -- . ":(exclude)$guard_rel" ":(exclude)$guard_test_rel" 2>/dev/null || true)"
+fi
 
 if [ -n "$matches" ]; then
   echo "ERROR: detected reverse-engineered Douyin signature code in this repository." >&2
@@ -33,4 +52,8 @@ if [ -n "$matches" ]; then
   exit 1
 fi
 
-echo "signature-guard: no reverse-engineered Douyin signature code detected."
+if [ -n "$ref" ]; then
+    echo "signature-guard: commit $ref has no reverse-engineered Douyin signature code."
+else
+    echo "signature-guard: no reverse-engineered Douyin signature code detected."
+fi

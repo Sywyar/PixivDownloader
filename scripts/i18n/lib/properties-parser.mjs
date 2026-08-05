@@ -1,39 +1,35 @@
 'use strict';
 /**
- * Java properties 文件解析器（与 java.util.Properties 语义对齐，但严格得多）：
- * - `=` / `:` / 空白分隔；
- * - 注释（# / !）与空行；
- * - 行续接（物理行末反斜杠，含 \uXXXX 跨续接行）；
- * - 转义字符与 \uXXXX（非法 Unicode escape 报错）；
- * - escaped separator（\= \: \ 空格）在 key 中不结束 key；
- * - value 内可含 `=`；
- * - 重复 key 检测（不静默覆盖，报告全部定义位置）；
- * - UTF-8 与 BOM（文件级 BOM 剥离）；
- * - 逻辑行与物理行号定位。
+ * Java properties 解析器（与 java.util.Properties.load(Reader) 逐位对齐）。
+ *
+ * 实现参考 JDK 17 java.util.Properties 的 LineReader / load0 / loadConvert 算法：
+ * - `=` / `:` / 未转义空白均可分隔；分隔符之后的未转义空白被跳过；
+ * - `key=   ` 与 `key:\t` 最终 value 为空串；value 的尾随空白原样保留（与 JVM 一致）；
+ * - 行续接：行尾奇数个反斜杠触发续接，反斜杠与换行消失（每处续接只去掉一个反斜杠），
+ *   下一物理行开头的空格 / tab / form-feed 被跳过；偶数反斜杠不续接；
+ * - 行尾悬空反斜杠（奇数个且无续接内容）被 JVM 直接丢弃；
+ * - 未知转义按 Java 语义：反斜杠丢弃、字符保留（\t \r \n \f 转义为控制字符）；
+ * - `\uXXXX` 必须恰好四位十六进制，否则报错（与 JVM "Malformed \uxxxx encoding." 一致）；
+ * - 文件级 BOM 不剥离：BOM 会成为第一个 key 的前缀（JVM load(Reader) 真实语义，
+ *   与运行时 normalizeKey 的补偿行为解耦）；
+ * - CRLF / LF 等价；注释（# / !）只在逻辑行开头；重复 key 不静默覆盖，报告全部位置。
+ *
+ * 返回的 value 不 trim、不剥离任何空白，保持与 JVM 逐字符一致。
  */
 
-function stripBom(text) {
-    return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
-}
-
-function isContinuation(line) {
-    let backslashes = 0;
-    for (let i = line.length - 1; i >= 0 && line[i] === '\\'; i -= 1) {
-        backslashes += 1;
-    }
-    return backslashes % 2 === 1;
+function isWhiteSpace(c) {
+    return c === ' ' || c === '\t' || c === '\f';
 }
 
 /**
- * 解析转义并处理 \uXXXX（允许 4 位十六进制跨续接行延续）。
- * 返回 { value, errors }；errors 为 [{ line, message }]。
+ * loadConvert：处理 `\` 转义与 \uXXXX。
+ * 输入必须是已完成续接处理后的逻辑行切片（JVM 保证行尾没有未转义的孤立反斜杠）。
+ * @returns {{value: string, errors: Array<{line, message}>}}
  */
-function unescape(raw, physicalLines) {
+function convert(raw, line) {
     const out = [];
     const errors = [];
     let i = 0;
-    const lineAt = (idx) => physicalLines[Math.min(idx, physicalLines.length - 1)];
-
     while (i < raw.length) {
         const ch = raw[i];
         if (ch !== '\\') {
@@ -41,47 +37,46 @@ function unescape(raw, physicalLines) {
             i += 1;
             continue;
         }
+        // 行尾孤立反斜杠不会到达这里（LineReader 已处理），但防御性兜底
         if (i + 1 >= raw.length) {
-            errors.push({ line: lineAt(i), message: 'dangling backslash at end of logical line' });
+            out.push('\\');
             break;
         }
         const next = raw[i + 1];
-        if (next === '\n') {
-            // 续接：反斜杠 + 换行被整体丢弃（Java continuation 语义）
-            i += 2;
-            continue;
-        }
-        if (next === 'u') {
-            let j = i + 2;
-            let hex = '';
-            while (hex.length < 4 && j < raw.length) {
-                const c = raw[j];
-                if (/[0-9a-fA-F]/.test(c)) {
-                    hex += c;
-                    j += 1;
-                } else {
-                    break;
-                }
-            }
-            if (hex.length < 4) {
-                errors.push({ line: lineAt(i), message: 'invalid \\u escape: expected 4 hex digits' });
-                out.push('\\u' + hex);
-                i = j;
-                continue;
-            }
-            out.push(String.fromCharCode(parseInt(hex, 16)));
-            i = j;
-            continue;
-        }
-        const escapes = { t: '\t', n: '\n', f: '\f', r: '\r', '\\': '\\', '=': '=', ':': ':', ' ': ' ', '#': '#', '!': '!' };
-        if (Object.prototype.hasOwnProperty.call(escapes, next)) {
-            out.push(escapes[next]);
-            i += 2;
-            continue;
-        }
-        // 未知转义：按 Java 行为保留反斜杠与字符本身
-        out.push(next);
         i += 2;
+        if (next === 'u') {
+            if (i + 4 > raw.length) {
+                errors.push({ line, message: 'Malformed \\uxxxx encoding.' });
+                return { value: out.join('') + '\\u' + raw.slice(i), errors };
+            }
+            let value = 0;
+            for (let k = 0; k < 4; k += 1) {
+                const hex = raw[i + k];
+                const digit = hex >= '0' && hex <= '9' ? hex.charCodeAt(0) - 48
+                    : hex >= 'a' && hex <= 'f' ? hex.charCodeAt(0) - 87
+                        : hex >= 'A' && hex <= 'F' ? hex.charCodeAt(0) - 55
+                            : -1;
+                if (digit < 0) {
+                    errors.push({ line, message: 'Malformed \\uxxxx encoding.' });
+                    return { value: out.join(''), errors };
+                }
+                value = (value << 4) + digit;
+            }
+            out.push(String.fromCharCode(value));
+            i += 4;
+            continue;
+        }
+        if (next === 't') {
+            out.push('\t');
+        } else if (next === 'r') {
+            out.push('\r');
+        } else if (next === 'n') {
+            out.push('\n');
+        } else if (next === 'f') {
+            out.push('\f');
+        } else {
+            out.push(next);
+        }
     }
     return { value: out.join(''), errors };
 }
@@ -93,141 +88,145 @@ function unescape(raw, physicalLines) {
  *            errors: Array<{line, message}> }}
  */
 function parse(text) {
-    const source = stripBom(String(text));
-    const rawLines = source.split('\n').map((line) => line.endsWith('\r') ? line.slice(0, -1) : line);
-    const logicalLines = [];
-    const lineNumbers = [];
-
-    let current = null;
-    let currentNumbers = [];
-    for (let i = 0; i < rawLines.length; i += 1) {
-        if (current === null) {
-            current = rawLines[i];
-            currentNumbers = [i + 1];
-        } else {
-            current += '\n' + rawLines[i];
-            currentNumbers.push(i + 1);
-        }
-        if (isContinuation(current)) {
-            continue;
-        }
-        logicalLines.push(current);
-        lineNumbers.push(currentNumbers);
-        current = null;
-    }
-    if (current !== null) {
-        logicalLines.push(current);
-        lineNumbers.push(currentNumbers);
-    }
-
+    const src = String(text);
     const entries = [];
     const seen = new Map();
     const errors = [];
 
-    for (let idx = 0; idx < logicalLines.length; idx += 1) {
-        const logical = logicalLines[idx];
-        const physicalLines = lineNumbers[idx];
-        const keyLine = physicalLines[0];
+    let i = 0;
+    let lineNumber = 1;
+    let len = 0;
+    let buf = [];
+    let startLine = 1;
+    const physicalLines = [];
+    let skipWhiteSpace = true;
+    let appendedLineBegin = false;
+    let precedingBackslash = false;
 
-        if (logical.trim() === '' || /^[ \t\f]*[#!]/.test(logical)) {
-            continue;
+    function consume() {
+        const c = src[i];
+        i += 1;
+        if (c === '\n') {
+            lineNumber += 1;
         }
+        return c;
+    }
 
-        let i = 0;
-        // 跳过 key 前导空白
-        while (i < logical.length && (logical[i] === ' ' || logical[i] === '\t' || logical[i] === '\f')) {
-            i += 1;
-        }
-        const keyStart = i;
-        let keyEnd = -1;
-        let separator = null;
-        while (i < logical.length) {
-            const ch = logical[i];
-            if (ch === '\\') {
-                i += 2;
-                continue;
-            }
-            if (ch === '=' || ch === ':') {
-                keyEnd = i;
-                separator = ch;
+    function finishLine(raw) {
+        // ---- load0 的 key/value 分割（与 JDK 逐行一致）----
+        let keyLen = 0;
+        let valueStart = raw.length;
+        let hasSep = false;
+        let keyBackslash = false;
+        while (keyLen < raw.length) {
+            const c = raw[keyLen];
+            if ((c === '=' || c === ':') && !keyBackslash) {
+                valueStart = keyLen + 1;
+                hasSep = true;
                 break;
             }
-            if (ch === ' ' || ch === '\t' || ch === '\f') {
-                // Java：key 在首个未转义空白处终止；后面即使跟着 = 或 : 也是值的一部分
-                keyEnd = i;
-                separator = ' ';
+            if (isWhiteSpace(c) && !keyBackslash) {
+                valueStart = keyLen + 1;
                 break;
             }
-            i += 1;
+            keyBackslash = c === '\\' ? !keyBackslash : false;
+            keyLen += 1;
         }
-        if (keyEnd < 0) {
-            // Java 语义：无分隔符的行 = 整行为 key、值为空
-            const rawKey = logical.slice(keyStart);
-            const keyDecoded = unescape(rawKey, physicalLines);
-            for (const err of keyDecoded.errors) {
-                errors.push({ line: err.line, message: 'key: ' + err.message });
-            }
-            if (keyDecoded.value === '') {
-                errors.push({ line: keyLine, message: 'empty key' });
-                continue;
-            }
-            entries.push({
-                key: keyDecoded.value,
-                value: '',
-                keyLine,
-                physicalLines,
-            });
-            if (!seen.has(keyDecoded.value)) {
-                seen.set(keyDecoded.value, []);
-            }
-            seen.get(keyDecoded.value).push(keyLine);
-            continue;
-        }
-
-        const rawKey = logical.slice(keyStart, keyEnd);
-        let valueStart;
-        if (separator === ' ') {
-            // Java 规范：只有空白作为分隔符时，值开头的 = / : 才被跳过
-            valueStart = keyEnd;
-            while (valueStart < logical.length
-                && (logical[valueStart] === ' ' || logical[valueStart] === '\t' || logical[valueStart] === '\f')) {
-                valueStart += 1;
-            }
-            if (valueStart < logical.length && (logical[valueStart] === '=' || logical[valueStart] === ':')) {
-                valueStart += 1;
-                while (valueStart < logical.length
-                    && (logical[valueStart] === ' ' || logical[valueStart] === '\t' || logical[valueStart] === '\f')) {
-                    valueStart += 1;
+        while (valueStart < raw.length) {
+            const c = raw[valueStart];
+            if (!isWhiteSpace(c)) {
+                if (!hasSep && (c === '=' || c === ':')) {
+                    hasSep = true;
+                } else {
+                    break;
                 }
             }
-        } else {
-            valueStart = keyEnd + 1;
+            valueStart += 1;
         }
 
-        const keyDecoded = unescape(rawKey, physicalLines);
-        const valueDecoded = unescape(logical.slice(valueStart), physicalLines);
-        for (const err of keyDecoded.errors) {
-            errors.push({ line: err.line, message: 'key: ' + err.message });
-        }
-        for (const err of valueDecoded.errors) {
-            errors.push({ line: err.line, message: 'value: ' + err.message });
-        }
+        const keyDecoded = convert(raw.slice(0, keyLen), startLine);
+        const valueDecoded = convert(raw.slice(valueStart), startLine);
+        errors.push(...keyDecoded.errors);
+        errors.push(...valueDecoded.errors);
 
         const key = keyDecoded.value;
-        if (key === '') {
-            errors.push({ line: keyLine, message: 'empty key' });
-            continue;
-        }
         entries.push({
             key,
             value: valueDecoded.value,
-            keyLine,
-            physicalLines,
+            keyLine: startLine,
+            physicalLines: [...physicalLines],
         });
         if (!seen.has(key)) {
             seen.set(key, []);
         }
-        seen.get(key).push(keyLine);
+        seen.get(key).push(startLine);
+    }
+
+    while (true) {
+        if (i >= src.length) {
+            if (len === 0) {
+                break;
+            }
+            const end = precedingBackslash ? len - 1 : len;
+            physicalLines.push(startLine, lineNumber);
+            finishLine(buf.slice(0, end).join(''));
+            break;
+        }        const c = consume();
+        if (skipWhiteSpace) {
+            if (isWhiteSpace(c)) {
+                continue;
+            }
+            if (!appendedLineBegin && (c === '\r' || c === '\n')) {
+                continue;
+            }
+            skipWhiteSpace = false;
+            appendedLineBegin = false;
+        }
+        if (len === 0 && (c === '#' || c === '!')) {
+            while (i < src.length) {
+                const cc = consume();
+                if (cc === '\r' || cc === '\n') {
+                    break;
+                }
+            }
+            skipWhiteSpace = true;
+            continue;
+        }
+        if (c !== '\n' && c !== '\r') {
+            if (len === 0) {
+                startLine = lineNumber;
+                physicalLines.length = 0;
+            }
+            buf[len] = c;
+            len += 1;
+            if (c === '\\') {
+                precedingBackslash = !precedingBackslash;
+            } else {
+                precedingBackslash = false;
+            }
+        } else {
+            if (len === 0) {
+                skipWhiteSpace = true;
+                continue;
+            }
+            if (precedingBackslash) {
+                len -= 1;
+                skipWhiteSpace = true;
+                appendedLineBegin = true;
+                precedingBackslash = false;
+                if (c === '\r' && i < src.length && src[i] === '\n') {
+                    consume();
+                }
+                continue;
+            }
+            physicalLines.push(startLine, lineNumber - (c === '\n' ? 1 : 0));
+            finishLine(buf.slice(0, len).join(''));
+            len = 0;
+            buf = [];
+            precedingBackslash = false;
+            skipWhiteSpace = true;
+            appendedLineBegin = false;
+        }
     }
 
     const duplicateKeys = [];
@@ -240,11 +239,15 @@ function parse(text) {
     return { entries, duplicateKeys, errors };
 }
 
-/** 解析后的规范值：统一换行、去掉首尾空白（用于哈希，不受注释 / 排序变化影响）。 */
+/**
+ * 解析后的规范值：只做必要的换行规范化（CRLF → LF）。
+ * 保留前导 / 尾随空格、转义空格与换行 —— 空白差异不是「相同翻译」，
+ * 因此 hash 与比较一律不调用 trim。
+ */
 function canonicalValue(value) {
-    return String(value).replace(/\r\n/g, '\n').trim();
+    return String(value).replace(/\r\n/g, '\n');
 }
 
-export {  parse, canonicalValue  };
+export { parse, canonicalValue };
 
 export default { parse, canonicalValue };

@@ -8,13 +8,29 @@
  *   node scripts/i18n/accept.mjs --locale en-US --module <module>
  *   node scripts/i18n/accept.mjs --locale en-US --namespace <namespace>
  *   node scripts/i18n/accept.mjs --locale en-US --key <key>
- *   node scripts/i18n/accept.mjs --locale en-US --allow-unchanged   # 危险：允许确认未修改的 stale 翻译
- *   node scripts/i18n/accept.mjs --bootstrap                        # 一次性初始基线（要求 100% 合法）
+ *   node scripts/i18n/accept.mjs --locale en-US --allow-unchanged   # 危险：确认源变而翻译未变的条目
+ *   node scripts/i18n/accept.mjs --bootstrap                        # 一次性初始基线（要求 supported 100%）
+ *   node scripts/i18n/accept.mjs --bootstrap --force                # 迁移参数：允许 lock 非空时重建基线
+ *   node scripts/i18n/accept.mjs --prune                            # 清理 orphan lock entry
+ *
+ * 审核状态机（每 (locale, module, baseName, key)）：
+ *   accepted                currentSource == acceptedSource && currentTranslation == acceptedTranslation
+ *   translation-unaccepted  currentSource == acceptedSource && currentTranslation != acceptedTranslation
+ *   source-stale            currentSource != acceptedSource
+ *   new-unaccepted          无 lock entry
+ * 状态转换：
+ *   - translation-unaccepted：人工审核后 accept → 只更新 acceptedTranslationHash；
+ *   - source-stale 且翻译未变：默认拒绝（source changed, translation unchanged since last accepted baseline），
+ *     仅 --allow-unchanged 显式确认（CI=true 时拒绝）；
+ *   - source-stale 且翻译也变：结构与占位符合法时允许，同时更新两个 hash；
+ *   - new-unaccepted：翻译非空且合法时建立初始记录；
+ *   - bootstrap 仅用于首次完整基线：只作用于 supported、要求 100%、lock 非空时默认拒绝，
+ *     除非显式 --force（迁移参数）；CI=true 时拒绝 bootstrap。
  *
  * 安全要求：
  * - 先执行结构校验（catalog / properties / 重复 key / 空源值 / 占位符）；
- * - stale 后翻译内容与上次 accepted 完全没变时默认拒绝；
- * - 检查器绝不自动修改翻译内容（accept 只写锁文件）。
+ * - 检查器绝不自动修改翻译内容（accept 只写锁文件）；
+ * - CI=true 时拒绝 --allow-unchanged 与 bootstrap。
  */
 
 import fs from 'fs';
@@ -30,7 +46,11 @@ import staleLock from './lib/stale-lock.mjs';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function parseArgs(argv) {
-    const args = { locale: null, module: null, namespace: null, key: null, allowUnchanged: false, bootstrap: false };
+    const args = {
+        locale: null, module: null, namespace: null, key: null,
+        allowUnchanged: false, bootstrap: false, force: false, prune: false,
+        repoRoot: null,
+    };
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i];
         if (arg === '--locale') {
@@ -41,13 +61,44 @@ function parseArgs(argv) {
             args.namespace = argv[++i];
         } else if (arg === '--key') {
             args.key = argv[++i];
+        } else if (arg === '--repo-root') {
+            args.repoRoot = argv[++i];
         } else if (arg === '--allow-unchanged') {
             args.allowUnchanged = true;
         } else if (arg === '--bootstrap') {
             args.bootstrap = true;
+        } else if (arg === '--force') {
+            args.force = true;
+        } else if (arg === '--prune') {
+            args.prune = true;
         }
     }
     return args;
+}
+
+function isCI() {
+    return process.env.CI === 'true' || process.env.CI === '1';
+}
+
+/** 结构校验：重复 key / 解析错误 / 未知后缀，accept 必须先通过。 */
+function structuralProblems(discovery, parsed) {
+    const problems = [];
+    for (const entry of discovery.rawFiles) {
+        const result = parsed.get(entry.relPath);
+        if (!result) {
+            continue;
+        }
+        for (const error of result.errors) {
+            problems.push(entry.relPath + ': line ' + error.line + ': ' + error.message);
+        }
+        for (const dup of result.duplicateKeys) {
+            problems.push(entry.relPath + ': duplicate key "' + dup.key + '" at lines ' + dup.lines.join(', '));
+        }
+    }
+    for (const entry of discovery.unknownSuffixFiles) {
+        problems.push(entry.relPath + ': unknown locale suffix "' + entry.suffix + '"');
+    }
+    return problems;
 }
 
 /**
@@ -57,9 +108,16 @@ export function runAccept(repoRoot, args) {
     const catalog = catalogLib.load(repoRoot);
     const messages = [];
 
+    if (isCI() && (args.allowUnchanged || args.bootstrap)) {
+        throw new Error('CI=true: refusing --allow-unchanged / --bootstrap (dangerous acceptance modes are '
+            + 'for manual review only)');
+    }
+
     let targetLocales;
     if (args.bootstrap) {
         targetLocales = catalog.locales.filter((d) => d.status === 'supported');
+    } else if (args.prune) {
+        targetLocales = [];
     } else {
         if (!args.locale) {
             throw new Error('i18n:accept requires --locale <tag> (or --bootstrap)');
@@ -75,33 +133,50 @@ export function runAccept(repoRoot, args) {
     }
 
     if (args.allowUnchanged) {
-        messages.push('WARNING: --allow-unchanged enabled — stale translations whose content is unchanged '
-            + 'from the last accepted baseline will be re-accepted; make sure this is intentional.');
+        messages.push('WARNING: --allow-unchanged enabled — entries whose source changed but whose '
+            + 'translation is unchanged since the last accepted baseline will be re-accepted; '
+            + 'make sure this is intentional.');
     }
 
     // ---- 结构校验（accept 必须先通过）----
     const discovery = discover.discover(repoRoot, catalog);
-    const problems = [];
     const parsed = new Map();
     for (const entry of discovery.rawFiles) {
-        const result = parser.parse(fs.readFileSync(entry.filePath, 'utf8'));
-        parsed.set(entry.relPath, result);
-        for (const error of result.errors) {
-            problems.push(entry.relPath + ': line ' + error.line + ': ' + error.message);
-        }
-        for (const dup of result.duplicateKeys) {
-            problems.push(entry.relPath + ': duplicate key "' + dup.key + '" at lines ' + dup.lines.join(', '));
-        }
+        parsed.set(entry.relPath, parser.parse(fs.readFileSync(entry.filePath, 'utf8')));
     }
-    for (const entry of discovery.unknownSuffixFiles) {
-        problems.push(entry.relPath + ': unknown locale suffix "' + entry.suffix + '"');
-    }
+    const problems = structuralProblems(discovery, parsed);
     if (problems.length > 0) {
         return { ok: false, updated: 0, refused: problems, messages };
     }
 
-    // ---- bootstrap 前置条件：supported 语言 100% 合法 ----
+    const lock = staleLock.load(repoRoot);
+
+    // ---- prune：只删除已确认不再存在的 bundle / key / locale 条目 ----
+    if (args.prune) {
+        const sourceMaps = buildSourceMaps(discovery, parsed, catalog);
+        const { errors } = staleLock.validateAgainstCatalog(lock, catalog, discovery.bundles, sourceMaps);
+        if (errors.length > 0 && errors.some((e) => !/unknown locale/.test(e))) {
+            return { ok: false, updated: 0, refused: errors, messages };
+        }
+        const removed = staleLock.prune(repoRoot, lock, catalog, discovery.bundles, sourceMaps);
+        return {
+            ok: true,
+            updated: 0,
+            refused: [],
+            messages: ['pruned ' + removed + ' orphan lock entr' + (removed === 1 ? 'y' : 'ies') + '.'],
+        };
+    }
+
+    // ---- bootstrap 前置条件 ----
     if (args.bootstrap) {
+        if (lock.entries.length > 0 && !args.force) {
+            return {
+                ok: false, updated: 0,
+                refused: ['lock is not empty (' + lock.entries.length + ' entries); bootstrap is only for the '
+                    + 'initial baseline. Pass --force only as an explicit migration step.'],
+                messages,
+            };
+        }
         const bootstrapProblems = [];
         for (const bundle of [...discovery.bundles.values()]) {
             const zhFile = bundle.files[catalog.sourceLocale];
@@ -150,8 +225,7 @@ export function runAccept(repoRoot, args) {
         }
     }
 
-    // ---- 收集待接受条目 ----
-    const lock = staleLock.load(repoRoot);
+    // ---- 收集待接受条目（状态机）----
     const lockIndex = staleLock.index(lock);
     const updated = [];
     const refused = [];
@@ -172,7 +246,8 @@ export function runAccept(repoRoot, args) {
             const file = bundle.files[descriptor.tag];
             const result = file ? parsed.get(file.relPath) : null;
             if (!result) {
-                refused.push(bundle.bundleId + ': missing ' + descriptor.tag + ' file; missing translations cannot be accepted');
+                refused.push(bundle.bundleId + ': missing ' + descriptor.tag + ' file; '
+                    + 'missing translations cannot be accepted');
                 continue;
             }
             const zhMap = new Map(zhResult.entries.map((e) => [e.key, e.value]));
@@ -190,9 +265,13 @@ export function runAccept(repoRoot, args) {
                 };
                 const existing = lockIndex.get(staleLock.entryKey(base));
                 const sourceHash = staleLock.hashValue(zhValue);
-                if (existing && existing.acceptedSourceHash === sourceHash) {
-                    continue; // 未 stale，无需更新
+
+                if (existing
+                    && existing.acceptedSourceHash === sourceHash
+                    && existing.acceptedTranslationHash === staleLock.hashValue(localeMap.get(key))) {
+                    continue; // 已 accepted，无需更新
                 }
+
                 const translation = localeMap.get(key);
                 if (translation == null || translation === '') {
                     refused.push(bundle.bundleId + ' ' + key + ': missing/empty translation, cannot accept');
@@ -204,13 +283,17 @@ export function runAccept(repoRoot, args) {
                     continue;
                 }
                 const translationHash = staleLock.hashValue(translation);
-                if (existing && existing.acceptedTranslationHash === translationHash
-                    && !args.allowUnchanged && !args.bootstrap) {
+
+                if (existing && existing.acceptedSourceHash !== sourceHash
+                    && existing.acceptedTranslationHash === translationHash
+                    && !args.allowUnchanged) {
+                    // source-stale + 翻译未变：默认拒绝
                     refused.push(bundle.bundleId + ' ' + key
-                        + ': translation unchanged since last acceptance (source changed); refusing — '
+                        + ': source changed but translation unchanged since last accepted baseline; '
                         + 'review the translation first, or pass --allow-unchanged to confirm');
                     continue;
                 }
+
                 updated.push({
                     ...base,
                     acceptedSourceHash: sourceHash,
@@ -247,11 +330,29 @@ export function runAccept(repoRoot, args) {
     };
 }
 
+/** bundleId → 源 key → 源 value 的映射（用于 lock orphan 校验）。 */
+function buildSourceMaps(discovery, parsed, catalog) {
+    const maps = new Map();
+    for (const bundle of discovery.bundles.values()) {
+        const zhFile = bundle.files[catalog.sourceLocale];
+        if (!zhFile) {
+            continue;
+        }
+        const result = parsed.get(zhFile.relPath);
+        if (!result) {
+            continue;
+        }
+        maps.set(bundle.bundleId, new Map(result.entries.map((e) => [e.key, e.value])));
+    }
+    return maps;
+}
+
 function main() {
     const args = parseArgs(process.argv.slice(2));
+    const repoRoot = args.repoRoot ? path.resolve(args.repoRoot) : REPO_ROOT;
     let result;
     try {
-        result = runAccept(REPO_ROOT, args);
+        result = runAccept(repoRoot, args);
     } catch (e) {
         console.error('i18n:accept ERROR: ' + e.message);
         process.exit(2);

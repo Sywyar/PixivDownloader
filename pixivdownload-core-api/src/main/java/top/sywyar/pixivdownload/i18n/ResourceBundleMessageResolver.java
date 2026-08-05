@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -18,35 +17,43 @@ import java.util.concurrent.ConcurrentHashMap;
  * It resolves plugin-owned bundles with the plugin classloader first, then falls
  * back to the host resolver for shared keys.
  * <p>
- * 资源解析契约（仓库 bundle 约定：root 文件 = 开发源语言 zh-CN，{@code _en} = 全局回退语言 en-US）：
- * 对任意目标语言按 {@code [<lang>_<COUNTRY>, <lang>, en, root]} 顺序逐文件精确查找，
- * 不做 JDK 属性包的隐式默认语言回退，也不触发 JVM 系统默认语言；因此
- * 目标语言缺失时先回退英文、英文缺失才回退中文。物理文件按解析器实例缓存，
- * 解析器实例与插件 ClassLoader 同生命周期，不残留任何全局 ClassLoader 引用。
+ * 资源解析契约：resolver 只按 {@link LocaleBundlePolicy#resourceSuffixChain(Locale)}
+ * 返回的 suffix 顺序精确加载文件（suffix 为空 = root 文件），不做 JDK 属性包的隐式
+ * 默认语言回退，也不触发 JVM 系统默认语言。第一方代码必须显式传入 host catalog 构造的
+ * 策略；旧构造器仅为第三方插件二进制兼容，走 {@link LegacyLocaleBundlePolicy}
+ * （只保证旧版 root=zh-CN + {@code _en}=en-US 约定）。
+ * 物理文件按解析器实例缓存，解析器实例与插件 ClassLoader 同生命周期，不残留全局引用。
  */
 public final class ResourceBundleMessageResolver implements MessageResolver {
-
-    /** 全局回退语言（仓库约定：en-US 使用 {@code _en} 后缀文件）。 */
-    private static final String FALLBACK_LANGUAGE = "en";
-
-    /** root 文件的语言（仓库约定：无后缀文件 = 开发源语言 zh-CN）。root 语言不插入英文回退。 */
-    private static final String ROOT_LANGUAGE = "zh";
 
     private final MessageResolver fallback;
     private final ClassLoader classLoader;
     private final List<String> baseNames;
+    private final LocaleBundlePolicy policy;
     private final ConcurrentHashMap<String, Map<String, String>> bundleCache = new ConcurrentHashMap<>();
 
     public ResourceBundleMessageResolver(MessageResolver fallback, ClassLoader classLoader, List<String> baseNames) {
+        this(fallback, classLoader, baseNames, LegacyLocaleBundlePolicy.INSTANCE);
+    }
+
+    public ResourceBundleMessageResolver(MessageResolver fallback, ClassLoader classLoader, List<String> baseNames,
+                                         LocaleBundlePolicy policy) {
         this.fallback = fallback;
         this.classLoader = classLoader == null ? ResourceBundleMessageResolver.class.getClassLoader() : classLoader;
         this.baseNames = baseNames == null ? List.of() : List.copyOf(baseNames);
+        this.policy = policy == null ? LegacyLocaleBundlePolicy.INSTANCE : policy;
     }
 
     public static ResourceBundleMessageResolver of(MessageResolver fallback, ClassLoader classLoader,
                                                    String... baseNames) {
         return new ResourceBundleMessageResolver(fallback, classLoader,
-                baseNames == null ? List.of() : List.of(baseNames));
+                baseNames == null ? List.of() : List.of(baseNames), LegacyLocaleBundlePolicy.INSTANCE);
+    }
+
+    public static ResourceBundleMessageResolver of(MessageResolver fallback, ClassLoader classLoader,
+                                                   LocaleBundlePolicy policy, String... baseNames) {
+        return new ResourceBundleMessageResolver(fallback, classLoader,
+                baseNames == null ? List.of() : List.of(baseNames), policy);
     }
 
     @Override
@@ -56,9 +63,10 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
 
     @Override
     public Locale normalizeLocale(Locale locale) {
-        return fallback == null
-                ? MessageResolver.super.normalizeLocale(locale)
-                : fallback.normalizeLocale(locale);
+        if (fallback != null) {
+            return fallback.normalizeLocale(locale);
+        }
+        return policy.normalize(locale == null ? Locale.getDefault() : locale);
     }
 
     @Override
@@ -78,12 +86,13 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
 
     @Override
     public String getOrDefault(Locale locale, String code, String defaultMessage, Object... args) {
-        Locale effectiveLocale = normalizeLocale(locale);
+        Locale effectiveLocale = policy.normalize(locale == null ? Locale.getDefault() : locale);
         for (String baseName : baseNames) {
             if (baseName == null || baseName.isBlank()) {
                 continue;
             }
-            for (String resourceName : candidateResources(baseName, effectiveLocale)) {
+            for (String suffix : policy.resourceSuffixChain(effectiveLocale)) {
+                String resourceName = resourceName(baseName, suffix);
                 String value = bundleCache.computeIfAbsent(resourceName, this::load).get(code);
                 if (value != null) {
                     return format(value, effectiveLocale, args);
@@ -101,31 +110,12 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
         return getOrDefault(normalizeLocale(Locale.getDefault()), code, code, args);
     }
 
-    /**
-     * 候选物理文件：目标语言的完整 / 语言级文件 → {@code _en}（回退语言）→ root（源语言）。
-     * 例如 en-US → {@code <base>_en.properties}；ja-JP → {@code <base>_ja_JP} / {@code <base>_ja} /
-     * {@code <base>_en} / {@code <base>}。
-     */
-    private static List<String> candidateResources(String baseName, Locale locale) {
+    /** 物理文件：suffix 为空 → {@code baseName.properties}，否则 {@code baseName_<suffix>.properties}。 */
+    private static String resourceName(String baseName, String suffix) {
         String basePath = baseName.replace('.', '/');
-        List<String> names = new ArrayList<>(3);
-        if (locale != null) {
-            String language = locale.getLanguage();
-            if (language != null && !language.isBlank()) {
-                String country = locale.getCountry();
-                if (country != null && !country.isBlank()) {
-                    names.add(basePath + "_" + language + "_" + country + ".properties");
-                }
-                names.add(basePath + "_" + language + ".properties");
-                // 目标语言既不是 root 语言也不是回退语言时，插入英文回退；root 语言绝不提前命中英文
-                if (!ROOT_LANGUAGE.equalsIgnoreCase(language)
-                        && !FALLBACK_LANGUAGE.equalsIgnoreCase(language)) {
-                    names.add(basePath + "_" + FALLBACK_LANGUAGE + ".properties");
-                }
-            }
-        }
-        names.add(basePath + ".properties");
-        return names;
+        return suffix == null || suffix.isEmpty()
+                ? basePath + ".properties"
+                : basePath + "_" + suffix + ".properties";
     }
 
     private Map<String, String> load(String resourceName) {

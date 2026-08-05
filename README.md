@@ -112,13 +112,26 @@ sh run.sh
 ```bash
 npm run setup:hooks        # 安装本地 Git hooks（只改 local 配置）
 npm run doctor:hooks       # 校验 hooks 配置
-npm run i18n:check         # 完整 i18n 检查（覆盖率 / stale / 占位符 / 硬编码守卫）
-npm run i18n:accept        # 接受已审核翻译，更新 catalog-lock.json 基线
-npm run i18n:generate-static  # 生成前端静态 meta 与 bundle
+npm run i18n:check         # 完整 i18n 检查（覆盖率 / stale / 占位符 / 硬编码守卫 / 静态资源同步）
+npm run i18n:generate-static  # 生成前端静态 meta 与 bundle（改动后需 git add 提交产物）
 npm run test:i18n          # i18n 工具测试
 ```
 
-新增中文文案必须同提交更新英文并运行 `i18n:accept`；本地 hooks 与 GitHub Actions 的 `i18n-check` 是双重门禁。完整工作流见 [docs/i18n-workflow.md](docs/i18n-workflow.md)。
+新增中文文案必须同提交更新英文，然后按语言接受已审核翻译基线：
+
+```bash
+npm run i18n:accept -- --locale en-US
+npm run i18n:accept -- --locale en-US --module pixivdownload-app
+```
+
+静态生成资源变更后提交生成产物：
+
+```bash
+npm run i18n:generate-static
+git add pixivdownload-app/src/main/resources/static/i18n-static
+```
+
+本地 hooks 与 GitHub Actions 的 `i18n-check` 是双重门禁（hooks 检查 Git index / 待推送 commit 快照）。完整工作流见 [docs/i18n-workflow.md](docs/i18n-workflow.md)。
 
 ---
 

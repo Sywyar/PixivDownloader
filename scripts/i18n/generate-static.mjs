@@ -10,7 +10,12 @@
  * 只生成核心 app 模块的 web namespaces：app boot jar 不得携带外置插件 i18n（CLAUDE.md 架构约束），
  * 外置插件页面与后端 i18n API 同生命周期，静态回退没有消费场景，因此插件 bundle 不静态化；
  * 插件缺席时前端 fetch 静态 bundle 自然 404，回退到 key 本身。
+ * meta.json 的每个可见语言输出 tag / aliases / nativeName / direction / status，
+ * 与后端 /api/i18n/meta 的 LocaleOptionResponse 字段完全一致。
  * 确定性排序；生成文件需提交，CI 会以 git diff --exit-code 验证同步。
+ *
+ * 检查器（check.mjs --snapshot index|ref）用 --output 把预期产物生成到临时目录，
+ * 与快照中的静态目录比较，绝不修改被检查的快照。
  */
 
 import fs from 'fs';
@@ -25,6 +30,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 
 /** 静态化只覆盖核心 app 模块（classpath:/static 的唯一拥有者）。 */
 const CORE_MODULE = 'pixivdownload-app';
+
+const STATIC_OUTPUT_DIR = path.join(
+    'pixivdownload-app', 'src', 'main', 'resources', 'static', 'i18n-static');
 
 function effectiveMessages(catalog, bundle, localeTag, parsed) {
     // 回退链合并：源语言 → fallback → 目标语言，后写入者覆盖
@@ -48,9 +56,12 @@ function effectiveMessages(catalog, bundle, localeTag, parsed) {
 
 /**
  * 生成静态 i18n 资源。
- * @returns {{outputDir: string, files: Array<string>}}
+ * @param {string} repoRoot 被检查的仓库根（工作树或物化快照）
+ * @param {string|null} outputDirOverride 覆盖输出目录（快照同步检查用临时目录）；
+ *        传 null 时写入仓库标准静态目录
+ * @returns {{outputDir: string, files: Array<string>}} files 为相对 outputDir 的文件名（排序）
  */
-export function runGenerate(repoRoot) {
+export function runGenerate(repoRoot, outputDirOverride) {
     const catalog = catalogLib.load(repoRoot);
     const discovery = discover.discover(repoRoot, catalog);
     const parsed = new Map();
@@ -58,8 +69,9 @@ export function runGenerate(repoRoot) {
         parsed.set(entry.relPath, parser.parse(fs.readFileSync(entry.filePath, 'utf8')));
     }
 
-    const outputDir = path.join(repoRoot,
-        'pixivdownload-app', 'src', 'main', 'resources', 'static', 'i18n-static');
+    const outputDir = outputDirOverride
+        ? path.resolve(outputDirOverride)
+        : path.join(repoRoot, STATIC_OUTPUT_DIR);
     fs.rmSync(outputDir, { recursive: true, force: true });
     fs.mkdirSync(outputDir, { recursive: true });
 
@@ -70,7 +82,8 @@ export function runGenerate(repoRoot) {
         .sort((a, b) => a.bundleId.localeCompare(b.bundleId));
     const namespaces = coreBundles.map((b) => b.namespace).sort();
 
-    // meta.json：与后端 /api/i18n/meta 同形状（default 场景的 currentLang）
+    // meta.json：与后端 /api/i18n/meta 同形状（default 场景的 currentLang），
+    // 每个可见语言包含 tag / aliases / nativeName / direction / status。
     const meta = {
         currentLang: catalog.defaultLocale,
         sourceLang: catalog.sourceLocale,
@@ -80,6 +93,7 @@ export function runGenerate(repoRoot) {
         languageParamName: catalog.languageParameterName,
         supportedLocales: visible.map((d) => ({
             tag: d.tag,
+            aliases: d.aliases,
             label: d.nativeName,
             nativeName: d.nativeName,
             direction: d.direction,
@@ -113,7 +127,13 @@ export function runGenerate(repoRoot) {
 }
 
 function main() {
-    const result = runGenerate(REPO_ROOT);
+    let outputOverride = null;
+    for (let i = 0; i < process.argv.length - 1; i += 1) {
+        if (process.argv[i] === '--output') {
+            outputOverride = process.argv[i + 1];
+        }
+    }
+    const result = runGenerate(REPO_ROOT, outputOverride);
     console.log('i18n:generate-static: wrote ' + result.files.length + ' file(s) to '
         + path.relative(REPO_ROOT, result.outputDir).split(path.sep).join('/'));
 }
