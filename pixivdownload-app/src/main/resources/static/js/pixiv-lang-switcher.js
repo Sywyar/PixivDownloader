@@ -4,10 +4,10 @@
     var DEFAULT_INLINE_WRAPPER = 'display:inline-flex;align-items:center;gap:6px;font-size:12px;color:inherit;';
     var DEFAULT_INLINE_SELECT = 'padding:2px 6px;border:1px solid rgba(0,0,0,.2);border-radius:4px;background:#fff;color:#333;cursor:pointer;';
 
-    function cookieString(lang) {
+    function cookieString(lang, cookieName) {
         var maxAge = 365 * 24 * 3600;
         var secure = global.location && global.location.protocol === 'https:' ? '; Secure' : '';
-        return 'pixiv_lang=' + encodeURIComponent(lang) +
+        return cookieName + '=' + encodeURIComponent(lang) +
             '; path=/; max-age=' + maxAge + '; SameSite=Lax' + secure;
     }
 
@@ -61,7 +61,10 @@
             }
             applyingLanguageChange = true;
             try {
-                document.cookie = cookieString(normalizedLang);
+                // cookie 名来自 meta（catalog 的 languageCookieName），不在前端写死
+                if (client.cookieName) {
+                    document.cookie = cookieString(normalizedLang, client.cookieName);
+                }
             } catch (e) {
                 // Ignore cookie failures.
             }

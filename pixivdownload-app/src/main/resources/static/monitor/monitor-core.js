@@ -17,7 +17,8 @@
     }
 
     function localeTag() {
-        return pageI18n && pageI18n.lang === 'en-US' ? 'en-US' : 'zh-CN';
+        // pageI18n.lang 已由 meta 归一化为正式 tag；无 meta 时返回空串（不写死任何语言）
+        return pageI18n ? pageI18n.lang : '';
     }
 
     function applyStaticPageTranslations() {
@@ -158,7 +159,7 @@
         return [...merged.entries()]
             .map(([id, name]) => ({ id, name: String(name || id) }))
             .sort((a, b) => {
-                const byName = a.name.localeCompare(b.name, 'zh-CN');
+                const byName = a.name.localeCompare(b.name, localeTag());
                 return byName !== 0 ? byName : a.id - b.id;
             });
     }

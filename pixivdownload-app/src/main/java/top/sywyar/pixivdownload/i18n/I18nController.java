@@ -16,22 +16,28 @@ public class I18nController {
 
     private final WebI18nBundleRegistry bundleRegistry;
     private final WebI18nService webI18nService;
+    private final LocaleCatalog catalog;
 
     @GetMapping("/meta")
     public I18nMetadataResponse metadata(Locale locale) {
-        Locale currentLocale = AppLocale.normalize(locale);
-        List<LocaleOptionResponse> locales = AppLocale.SUPPORTED_LOCALES.stream()
+        LocaleDescriptor currentLocale = catalog.resolve(locale);
+        List<LocaleOptionResponse> locales = catalog.visibleLocales().stream()
                 .map(item -> new LocaleOptionResponse(
-                        item.toLanguageTag(),
-                        AppLocale.displayName(item, currentLocale)
+                        item.tag(),
+                        item.nativeName(),
+                        item.nativeName(),
+                        item.direction(),
+                        item.status().name()
                 ))
                 .toList();
 
         return new I18nMetadataResponse(
-                currentLocale.toLanguageTag(),
-                AppLocale.DEFAULT_LOCALE.toLanguageTag(),
-                AppLocale.LANGUAGE_COOKIE_NAME,
-                AppLocale.LANGUAGE_PARAM_NAME,
+                currentLocale.tag(),
+                catalog.sourceLocale().tag(),
+                catalog.defaultLocale().tag(),
+                catalog.fallbackLocale().tag(),
+                catalog.languageCookieName(),
+                catalog.languageParameterName(),
                 locales,
                 bundleRegistry.supportedNamespaces()
         );

@@ -94,7 +94,8 @@ class InterfacePreferencesPanelTest {
                 configPath, localeChanges::incrementAndGet, () -> false, ignored -> { });
         JComboBox<?> language = preferenceControl(panel, "app.language", JComboBox.class);
 
-        SwingUtilities.invokeAndWait(() -> language.setSelectedIndex(2));
+        // 语言菜单由 catalog 驱动：0=跟随系统、1=zh-CN（source）、2=en-US
+        SwingUtilities.invokeAndWait(() -> language.setSelectedIndex(1));
         SwingUtilities.invokeAndWait(() -> { });
 
         assertThat(Files.readString(configPath, StandardCharsets.UTF_8))

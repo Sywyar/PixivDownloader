@@ -680,8 +680,16 @@ class PluginReleaseScriptsTest {
                 "uses: actions/setup-node@v4",
                 "node-version: '24'",
                 "run: npm run test:js",
-                "run: npm run test:web-standards");
-        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(4);
+                "run: npm run test:web-standards",
+                // i18n 持续本地化门禁 job
+                "i18n-check:",
+                "run: npm run test:i18n && npm run i18n:check",
+                "run: npm run i18n:generate-static",
+                "git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static",
+                "uses: actions/upload-artifact@v4",
+                "name: i18n-report",
+                "if-no-files-found: ignore");
+        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(5);
         assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
         assertThat(workflow.indexOf("run: npm run test:web-standards"))
                 .isGreaterThan(workflow.indexOf("run: npm run test:js"));

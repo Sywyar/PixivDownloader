@@ -28,7 +28,19 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     }
 
     function uiLang() {
-        return pageI18n ? pageI18n.lang : 'zh-CN';
+        // pageI18n.lang 已由 meta 归一化为正式 tag；无 meta 时不写死语言
+        return pageI18n ? pageI18n.lang : '';
+    }
+
+    // 语言化标点：值来自 common bundle 的 punctuation.* key，不写死语言判断。
+    // 中文（源语言）标点为 fallback，与页面既有文案的 zh 值一致。
+    function punct(key) {
+        const fallbacks = { colon: '：', comma: '，', enum: '、', semicolon: '；' };
+        const fallback = Object.prototype.hasOwnProperty.call(fallbacks, key) ? fallbacks[key] : '';
+        if (pageI18n && typeof pageI18n.tns === 'function') {
+            return pageI18n.tns('common', 'punctuation.' + key, fallback);
+        }
+        return fallback;
     }
 
     // 「新下载小说自动翻译」目标语言的默认值：跟随当前页面语言（中文页默认「简体中文」、英文页默认「english」）。
@@ -85,7 +97,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     }
 
     function summarySeparator() {
-        return uiLang() === 'en-US' ? ', ' : '，';
+        return punct('enum');
     }
 
     function summaryJoin(parts) {

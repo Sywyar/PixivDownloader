@@ -71,3 +71,46 @@ jobs:
 
       - name: Run web standards guard
         run: npm run test:web-standards
+
+  i18n-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run i18n checks
+        id: i18n
+        continue-on-error: true
+        run: npm run test:i18n && npm run i18n:check
+
+      - name: Generate static i18n resources
+        id: i18n-static
+        continue-on-error: true
+        run: npm run i18n:generate-static
+
+      - name: Verify generated resources are in sync
+        if: steps.i18n-static.outcome == 'success'
+        run: git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static
+
+      - name: Upload i18n report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-report
+          path: |
+            build/reports/i18n/
+            pixivdownload-app/src/main/resources/static/i18n-static/
+          if-no-files-found: ignore
+
+      - name: Propagate i18n result
+        if: steps.i18n.outcome == 'failure' || steps.i18n-static.outcome == 'failure'
+        run: exit 1

@@ -210,9 +210,9 @@
         else if (status === 'exists') text = labels.exists;
 
         if ((status === 'failed' || status === 'skipped') && reason) {
-            text = text + (uiLang() === 'en-US' ? ': ' : '：') + reason;
+            text = text + punct('colon') + reason;
         } else if (!['success', 'failed', 'skipped', 'exists'].includes(status) && reason) {
-            text = text + (uiLang() === 'en-US' ? ': ' : '：') + reason;
+            text = text + punct('colon') + reason;
         }
         const tone = status === 'success' || status === 'exists'
             ? 'success'
@@ -253,12 +253,12 @@
     function appendPostDownloadOutcome(base, data) {
         const parts = postDownloadOutcomeParts(data);
         if (!parts.length) return base;
-        const sep = uiLang() === 'en-US' ? '; ' : '；';
+        const sep = punct('semicolon');
         return base + sep + parts.map(p => p.text).join(sep);
     }
 
     function buildPostDownloadMessageParts(base, baseTone, data) {
-        const sep = uiLang() === 'en-US' ? '; ' : '；';
+        const sep = punct('semicolon');
         const parts = [{text: base, tone: baseTone}].concat(postDownloadOutcomeParts(data));
         return parts.map((part, idx) => ({
             text: part.text + (idx < parts.length - 1 ? sep : ''),

@@ -102,7 +102,8 @@ class WebI18nBundleRegistryTest {
         WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("common");
         assertThat(bundle).isNotNull();
         assertThat(bundle.messagesByLocale()).containsOnlyKeys(
-                AppLocale.SUPPORTED_LOCALES.stream().map(Locale::toLanguageTag).toArray(String[]::new));
+                LocaleCatalog.defaultCatalog().visibleLocales().stream()
+                        .map(LocaleDescriptor::tag).toArray(String[]::new));
         assertThat(bundle.load(Locale.US)).isNotEmpty();
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).isNotEmpty();
         assertThat(Arrays.stream(WebI18nBundleRegistry.RegisteredBundle.class.getRecordComponents())
@@ -393,7 +394,7 @@ class WebI18nBundleRegistryTest {
         WebI18nBundleRegistry.RegisteredBundle bundle = i18n.resolve("ext-i18n");
         assertThat(bundle).isNotNull();
         assertThat(bundle.load(Locale.US))
-                .containsEntry("fixture.loader", "bridge:i18n/web/ext-i18n_en_US.properties");
+                .containsEntry("fixture.loader", "bridge:i18n/web/ext-i18n_en.properties");
         assertThat(bundle.messagesByLocale()).containsOnlyKeys("en-US", "zh-CN");
     }
 
@@ -438,6 +439,109 @@ class WebI18nBundleRegistryTest {
                 .isInstanceOf(IllegalStateException.class);
         assertThat(registry.resolve("valid")).isNull();
         assertThat(registry.bundles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("loadExact 只加载目标语言自己的物理文件，不隐式合并 root / 其它语言")
+    void loadExactDoesNotMergeRootBundle() {
+        ClassLoader loader = resourceClassLoader(Map.of(
+                "i18n/web/exact.properties", "value=Root\nroot.only=kept\n",
+                "i18n/web/exact_en.properties", "value=English\n"));
+        WebI18nBundleRegistry registry = emptyRegistry();
+        registry.register("exact", loader, List.of(new I18nContribution("exact", "i18n.web.exact")));
+
+        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("exact");
+        // en-US exact：只有 _en 文件内容，root 的 root.only 不得出现
+        assertThat(bundle.loadExact(Locale.US))
+                .containsEntry("value", "English")
+                .doesNotContainKey("root.only");
+        // zh-CN exact：只有 root 文件内容
+        assertThat(bundle.loadExact(Locale.SIMPLIFIED_CHINESE))
+                .containsEntry("value", "Root")
+                .containsEntry("root.only", "kept")
+                .doesNotContainKey("valueOfEnglishOnly");
+    }
+
+    @Test
+    @DisplayName("effective 按源语言 → fallback → 目标语言合并，目标语言覆盖回退值")
+    void loadEffectiveMergesSourceThenFallbackThenTarget() {
+        LocaleCatalog candidateCatalog = candidateCatalogWithJapanese();
+        ClassLoader loader = resourceClassLoader(Map.of(
+                "i18n/web/chain.properties", "value=中文\nzh.only=仅中文\n",
+                "i18n/web/chain_en.properties", "value=English\nen.only=Only English\n",
+                "i18n/web/chain_ja.properties", "value=日本語\n"));
+        WebI18nBundleRegistry registry = new WebI18nBundleRegistry(
+                new PluginRegistry(List.of()), List::of, candidateCatalog);
+        registry.register("chain", loader, List.of(new I18nContribution("chain", "i18n.web.chain")));
+
+        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("chain");
+        // ja-JP：中文 → 英文 → 日文，日文覆盖 value；en.only 显示英文；zh.only 显示中文
+        assertThat(bundle.loadEffective(Locale.JAPANESE))
+                .containsEntry("value", "日本語")
+                .containsEntry("en.only", "Only English")
+                .containsEntry("zh.only", "仅中文");
+        // en-US：中文 → 英文，英文覆盖 value
+        assertThat(bundle.loadEffective(Locale.US))
+                .containsEntry("value", "English")
+                .containsEntry("zh.only", "仅中文");
+        // zh-CN：中文最后写入，覆盖英文回退
+        assertThat(bundle.loadEffective(Locale.SIMPLIFIED_CHINESE))
+                .containsEntry("value", "中文");
+    }
+
+    @Test
+    @DisplayName("目标语言缺失时优先回退英文；英文也缺失才显示中文")
+    void effectivePrefersEnglishOverChineseForMissingTarget() {
+        LocaleCatalog candidateCatalog = candidateCatalogWithJapanese();
+        ClassLoader loader = resourceClassLoader(Map.of(
+                "i18n/web/partial.properties", "zh.only=仅中文\nshared=中文\n",
+                "i18n/web/partial_en.properties", "shared=English\nen.only=Only English\n"));
+        WebI18nBundleRegistry registry = new WebI18nBundleRegistry(
+                new PluginRegistry(List.of()), List::of, candidateCatalog);
+        registry.register("partial", loader, List.of(new I18nContribution("partial", "i18n.web.partial")));
+
+        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("partial");
+        // ja-JP 无物理文件：shared 命中英文（不是中文），en.only 显示英文，仅中文存在的键回退中文
+        assertThat(bundle.loadEffective(Locale.JAPANESE))
+                .containsEntry("shared", "English")
+                .containsEntry("en.only", "Only English")
+                .containsEntry("zh.only", "仅中文");
+    }
+
+    @Test
+    @DisplayName("外部插件只提供源语言时仍能注册，其它语言按实际文件回退中文")
+    void sourceOnlyExternalPluginRegistersAndFallsBack() {
+        ClassLoader loader = resourceClassLoader(Map.of(
+                "i18n/web/sourceonly.properties", "plugin.name=仅中文\n"));
+        WebI18nBundleRegistry registry = emptyRegistry();
+        registry.register("sourceonly", loader, List.of(new I18nContribution("sourceonly", "i18n.web.sourceonly")));
+
+        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("sourceonly");
+        // 注册成功：en-US 物理文件缺席不阻断
+        assertThat(bundle.messagesByLocale().keySet()).containsExactly("zh-CN");
+        // 运行期展示按实际存在的语言文件回退 → 英文界面显示中文
+        assertThat(bundle.loadEffective(Locale.US)).containsEntry("plugin.name", "仅中文");
+        // exact 读英文物理文件仍按缺失处理
+        assertThatThrownBy(() -> bundle.loadExact(Locale.US))
+                .isInstanceOf(MissingResourceException.class);
+    }
+
+    private static LocaleCatalog candidateCatalogWithJapanese() {
+        return new LocaleCatalogLoader(null).parse("""
+                {
+                  "schemaVersion": 1,
+                  "sourceLocale": "zh-CN",
+                  "defaultLocale": "zh-CN",
+                  "fallbackLocale": "en-US",
+                  "languageCookieName": "pixiv_lang",
+                  "languageParameterName": "lang",
+                  "locales": [
+                    {"tag": "zh-CN", "nativeName": "简体中文", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": ["zh"]},
+                    {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": ["en"]},
+                    {"tag": "ja-JP", "nativeName": "日本語", "resourceSuffix": "ja", "status": "candidate", "direction": "ltr", "aliases": ["ja"]}
+                  ]
+                }
+                """);
     }
 
     private static ClassLoader syntheticBundleClassLoader(String marker) {

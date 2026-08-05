@@ -5,7 +5,8 @@ import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
-import top.sywyar.pixivdownload.i18n.AppLocale;
+import top.sywyar.pixivdownload.i18n.LocaleCatalog;
+import top.sywyar.pixivdownload.i18n.LocaleDescriptor;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
@@ -14,6 +15,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
@@ -110,11 +113,12 @@ final class InterfacePreferencesPanel extends JPanel {
     }
 
     private void configureLanguageSelector() {
-        LocaleOption[] options = {
-                new LocaleOption(null, message("gui.interface.language.option.follow-system")),
-                new LocaleOption(Locale.US, message("gui.interface.language.option.en")),
-                new LocaleOption(Locale.SIMPLIFIED_CHINESE, message("gui.interface.language.option.zh-cn"))
-        };
+        LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
+        List<LocaleOption> options = new ArrayList<>();
+        options.add(new LocaleOption(null, message("gui.interface.language.option.follow-system")));
+        for (LocaleDescriptor descriptor : catalog.visibleLocales()) {
+            options.add(new LocaleOption(descriptor.toLocale(), descriptor.nativeName()));
+        }
         for (LocaleOption option : options) {
             languageCombo.addItem(option);
         }
@@ -154,25 +158,26 @@ final class InterfacePreferencesPanel extends JPanel {
         content.add(Box.createVerticalStrut(2));
     }
 
-    private void selectInitialLanguageOption(LocaleOption[] options) {
+    private void selectInitialLanguageOption(List<LocaleOption> options) {
         String persisted = readPersistedLanguageTag();
         if (persisted == null || persisted.isBlank()) {
-            selectLanguageOption(options[0]);
+            selectLanguageOption(options.get(0));
             return;
         }
-        Locale parsed = AppLocale.parse(persisted);
-        if (parsed == null) {
-            selectLanguageOption(options[0]);
+        LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
+        LocaleDescriptor matched = catalog.match(persisted).orElse(null);
+        if (matched == null) {
+            selectLanguageOption(options.get(0));
             return;
         }
-        Locale normalized = AppLocale.normalize(parsed);
+        Locale normalized = matched.toLocale();
         for (LocaleOption option : options) {
             if (option.locale() != null && option.locale().equals(normalized)) {
                 selectLanguageOption(option);
                 return;
             }
         }
-        selectLanguageOption(options[0]);
+        selectLanguageOption(options.get(0));
     }
 
     private void selectLanguageOption(LocaleOption option) {

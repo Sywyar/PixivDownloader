@@ -124,7 +124,7 @@ function renderSupportedImportDataSources(preserveSelection = false) {
     const sources = batchModeControlSources('single-import');
     if (preserveSelection && !sources.length && root.childNodes && root.childNodes.length) return sources;
     root.replaceChildren();
-    const separator = typeof uiLang === 'function' && uiLang() === 'en-US' ? ', ' : '、';
+    const separator = punct('enum');
     sources.forEach((source, index) => {
         if (index > 0) root.appendChild(document.createTextNode(separator));
         const label = document.createElement('span');

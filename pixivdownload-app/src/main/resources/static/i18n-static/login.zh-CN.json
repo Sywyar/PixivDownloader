@@ -1,0 +1,28 @@
+{
+  "namespace": "login",
+  "lang": "zh-CN",
+  "defaultLang": "zh-CN",
+  "messages": {
+    "admin.title": "管理员登录",
+    "button.login": "登录",
+    "error.invite-expired": "邀请码无效或已失效",
+    "error.invite-invalid": "邀请码无效",
+    "error.login-failed": "登录失败",
+    "error.network": "网络错误：{message}",
+    "field.password": "密码",
+    "field.password.placeholder": "密码",
+    "field.username": "用户名",
+    "field.username.placeholder": "用户名",
+    "header.title": "Pixiv 批量下载器",
+    "invite.back": "返回管理员登录",
+    "invite.code": "邀请码",
+    "invite.placeholder": "邀请码",
+    "invite.submit": "进入",
+    "invite.title": "使用邀请码",
+    "invite.use-code": "使用邀请码",
+    "page.title": "Pixiv 批量下载器 — 登录",
+    "remember": "保持登录状态（30 天）",
+    "validation.credentials-required": "请输入用户名和密码",
+    "validation.invite-required": "请输入邀请码"
+  }
+}

@@ -4,8 +4,8 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.LocaleCatalog;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,7 +34,7 @@ public class AppConfigGenerator {
 
     @PostConstruct
     public void generateOrUpdateConfig() {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = LocaleCatalog.defaultCatalog().resolve(Locale.getDefault()).toLocale();
         String defaultConfig = buildDefaultConfig(locale);
         File configFile = RuntimeFiles.resolveConfigYamlPath().toFile();
         if (!configFile.exists()) {

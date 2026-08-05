@@ -1,12 +1,10 @@
 package top.sywyar.pixivdownload.i18n;
 
 import jakarta.validation.MessageInterpolator;
-import lombok.RequiredArgsConstructor;
 import org.hibernate.validator.messageinterpolation.ResourceBundleMessageInterpolator;
 import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import org.springframework.validation.beanvalidation.MessageSourceResourceBundleLocator;
 import org.springframework.web.servlet.LocaleResolver;
@@ -14,13 +12,14 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.i18n.LocaleChangeInterceptor;
 
-import java.nio.charset.StandardCharsets;
-
 @Configuration
-@RequiredArgsConstructor
 public class I18nConfig implements WebMvcConfigurer {
 
     private final AppLocaleResolver appLocaleResolver;
+
+    public I18nConfig(AppLocaleResolver appLocaleResolver) {
+        this.appLocaleResolver = appLocaleResolver;
+    }
 
     @Bean
     public LocaleResolver localeResolver() {
@@ -28,24 +27,21 @@ public class I18nConfig implements WebMvcConfigurer {
     }
 
     @Bean
-    public MessageSource messageSource() {
-        ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
-        messageSource.setBasenames(
-                "classpath:i18n/messages",
-                "classpath:i18n/ValidationMessages"
+    public MessageSource messageSource(LocaleCatalog localeCatalog) {
+        return new CatalogMessageSource(
+                localeCatalog,
+                "i18n/messages",
+                "i18n/ValidationMessages"
         );
-        messageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
-        messageSource.setFallbackToSystemLocale(false);
-        messageSource.setUseCodeAsDefaultMessage(true);
-        return messageSource;
     }
 
     @Bean
-    public LocalValidatorFactoryBean validator(MessageSource messageSource) {
+    public LocalValidatorFactoryBean validator(MessageSource messageSource, LocaleCatalog localeCatalog) {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.setValidationMessageSource(messageSource);
         MessageInterpolator interpolator = new LocaleContextMessageInterpolator(
-                new ResourceBundleMessageInterpolator(new MessageSourceResourceBundleLocator(messageSource))
+                new ResourceBundleMessageInterpolator(new MessageSourceResourceBundleLocator(messageSource)),
+                localeCatalog
         );
         validator.setMessageInterpolator(interpolator);
         return validator;
@@ -54,7 +50,7 @@ public class I18nConfig implements WebMvcConfigurer {
     @Bean
     public LocaleChangeInterceptor localeChangeInterceptor() {
         LocaleChangeInterceptor interceptor = new LocaleChangeInterceptor();
-        interceptor.setParamName(AppLocale.LANGUAGE_PARAM_NAME);
+        interceptor.setParamName(LocaleCatalog.defaultCatalog().languageParameterName());
         return interceptor;
     }
 

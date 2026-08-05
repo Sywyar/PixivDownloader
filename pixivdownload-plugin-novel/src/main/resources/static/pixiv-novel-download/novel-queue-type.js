@@ -933,7 +933,7 @@ function formatNovelUploadDate(timestamp) {
     if (!Number.isFinite(value) || value <= 0) return '';
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return '';
-    const text = d.toLocaleDateString(uiLang() === 'en-US' ? 'en-US' : 'zh-CN', {
+    const text = d.toLocaleDateString(uiLang(), {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit'

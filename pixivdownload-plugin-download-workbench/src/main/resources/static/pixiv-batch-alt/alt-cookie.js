@@ -118,7 +118,7 @@ function validateAndParseCookie(raw, fmt) {
             error: bt(
                 'cookie.error.invalid-pairs',
                 '包含无效键值对：{pairs}',
-                {pairs: invalid.slice(0, 3).map(s => `"${s}"`).join(uiLang() === 'en-US' ? ', ' : '、')}
+                {pairs: invalid.slice(0, 3).map(s => `"${s}"`).join(punct('enum'))}
             )
         };
     }

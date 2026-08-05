@@ -40,9 +40,19 @@ import java.util.zip.ZipFile;
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁
  * （{@code /api/i18n/**} 在每次请求上读取）。
  * <p>
- * 活动插件注册时只在当前栈帧内使用声明方 ClassLoader，一次性物化
- * {@link AppLocale#SUPPORTED_LOCALES} 的 UTF-8 properties；发布后的 {@link RegisteredBundle} 只保存纯 JDK
- * 不可变 map，不再持有或调用插件 ClassLoader。ClassLoader 由
+ * <strong>exact 与 effective 严格分离：</strong>
+ * <ul>
+ *   <li>{@link RegisteredBundle#loadExact} 只加载某个语言自己的物理资源文件
+ *       （{@code baseName + resourceSuffix + .properties}），绝不隐式合并 root 或其它语言；
+ *       覆盖率检查基于 exact，不允许调用 effective。</li>
+ *   <li>{@link RegisteredBundle#loadEffective} 仅用于运行期展示，按 catalog 回退链
+ *       源语言 → fallback → 目标语言 顺序合并（后写入的目标语言覆盖前面的回退值），
+ *       实现「目标语言 → en-US → zh-CN」的展示契约。</li>
+ * </ul>
+ * <p>
+ * 活动插件注册时只在当前栈帧内使用声明方 ClassLoader，一次性物化 catalog 可见语言的 exact
+ * UTF-8 properties；发布后的 {@link RegisteredBundle} 只保存纯 JDK 不可变 map 与
+ * {@link LocaleCatalog} 快照，不再持有或调用插件 ClassLoader。ClassLoader 由
  * {@link PluginRegistry.RegisteredPlugin#classLoader()} 权威提供，不能从插件实例的类自行推导。
  * <p>
  * 安装态但未进入活动快照的外置插件只暴露展示身份所需的只读 i18n fallback：按 descriptor 声明的
@@ -53,21 +63,22 @@ import java.util.zip.ZipFile;
  * namespace 全局唯一：跨插件用不同 baseName 指向同一 namespace 会让
  * {@code /api/i18n/messages/{namespace}} 解析不确定，故 namespace 冲突
  * （跨插件与同一批次内）一律在注册期拒绝，使应用启动失败而不是带病运行。
+ * <p>
+ * 外部第三方插件缺失某个正式语言不会阻断启动：effective 按插件实际存在的语言文件回退
+ * （只提供源语言时其它语言显示中文）；第一方核心与官方插件的完整性由仓库 CI 检查。
  */
 @Component
 public class WebI18nBundleRegistry implements NamespaceMessageResolver {
 
     private static final Logger log = LoggerFactory.getLogger(WebI18nBundleRegistry.class);
-    private static final java.util.ResourceBundle.Control NO_FALLBACK_CONTROL =
-            java.util.ResourceBundle.Control.getNoFallbackControl(
-                    java.util.ResourceBundle.Control.FORMAT_PROPERTIES);
 
-    /** 一条已注册 namespace 的纯宿主快照；活动来源保存物化 map，安装态 fallback 只保存 artifact 路径。 */
+    /** 一条已注册 namespace 的纯宿主快照；活动来源保存物化 exact map，安装态 fallback 只保存 artifact 路径。 */
     public record RegisteredBundle(
             String pluginId,
             I18nContribution contribution,
             Map<String, Map<String, String>> messagesByLocale,
-            Path installedArtifact) {
+            Path installedArtifact,
+            LocaleCatalog catalog) {
 
         public RegisteredBundle {
             Map<String, Map<String, String>> immutable = new LinkedHashMap<>();
@@ -75,41 +86,100 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
                 immutable.put(entry.getKey(), immutableMessages(entry.getValue()));
             }
             messagesByLocale = Collections.unmodifiableMap(immutable);
+            catalog = catalog == null ? LocaleCatalog.defaultCatalog() : catalog;
         }
 
-        public Map<String, String> load(Locale locale) {
-            Locale effectiveLocale = AppLocale.normalize(locale);
+        /**
+         * exact bundle：只加载目标语言自己的物理资源文件，不合并 root / 其它语言。
+         * 物理文件不存在时抛 {@link MissingResourceException}（运行时展示请用 {@link #loadEffective}）。
+         */
+        public Map<String, String> loadExact(Locale locale) {
+            LocaleDescriptor target = catalog.resolve(locale);
             if (installedArtifact != null) {
-                return loadInstalledBundle(installedArtifact, contribution.baseName(), effectiveLocale);
+                return loadInstalledExact(installedArtifact, contribution.baseName(), target);
             }
-            Map<String, String> messages = messagesByLocale.get(effectiveLocale.toLanguageTag());
+            Map<String, String> messages = messagesByLocale.get(target.tag());
             if (messages == null) {
                 throw new MissingResourceException(
-                        "Missing active plugin i18n bundle " + contribution.baseName()
-                                + " for locale " + effectiveLocale.toLanguageTag(),
+                        "Missing exact i18n bundle " + contribution.baseName()
+                                + " for locale " + target.tag(),
                         contribution.baseName(), "");
             }
             return messages;
+        }
+
+        /**
+         * effective bundle：仅用于运行期展示。按 catalog 回退链「源语言 → fallback → 目标语言」
+         * 合并 exact 文件，后写入者覆盖前值，实现 目标语言 → en-US → zh-CN。
+         * 整个回退链都没有任何物理文件时才抛 {@link MissingResourceException}。
+         */
+        public Map<String, String> loadEffective(Locale locale) {
+            LocaleDescriptor target = catalog.resolve(locale);
+            Map<String, String> merged = new LinkedHashMap<>();
+            boolean loaded = false;
+            List<LocaleDescriptor> chain = catalog.fallbackChain(target);
+            for (int i = chain.size() - 1; i >= 0; i--) {
+                Map<String, String> exact = safeExact(chain.get(i));
+                if (!exact.isEmpty()) {
+                    loaded = true;
+                }
+                merged.putAll(exact);
+            }
+            if (!loaded) {
+                throw new MissingResourceException(
+                        "Missing i18n bundle " + contribution.baseName()
+                                + " for locale " + target.tag(),
+                        contribution.baseName(), "");
+            }
+            return sortedMessages(merged);
+        }
+
+        /** 运行期展示语义 = effective。 */
+        public Map<String, String> load(Locale locale) {
+            return loadEffective(locale);
+        }
+
+        private Map<String, String> safeExact(LocaleDescriptor descriptor) {
+            try {
+                return loadExact(descriptor.toLocale());
+            } catch (MissingResourceException ignored) {
+                return Map.of();
+            }
         }
     }
 
     private final Object lock = new Object();
     private final Supplier<List<InstalledPlugin>> installedPlugins;
+    private final LocaleCatalog catalog;
 
     private volatile List<RegisteredBundle> activeSnapshot = List.of();
     private volatile List<RegisteredBundle> installedSnapshot = List.of();
 
     @Autowired
-    public WebI18nBundleRegistry(PluginRegistry pluginRegistry, ObjectProvider<ExternalPluginInstaller> installer) {
-        this(pluginRegistry, installedPluginSupplier(installer));
+    public WebI18nBundleRegistry(PluginRegistry pluginRegistry,
+                                 ObjectProvider<ExternalPluginInstaller> installer,
+                                 LocaleCatalog catalog) {
+        this(pluginRegistry, installedPluginSupplier(installer), catalog);
     }
 
     public WebI18nBundleRegistry(PluginRegistry pluginRegistry) {
-        this(pluginRegistry, List::of);
+        this(pluginRegistry, List::of, LocaleCatalog.defaultCatalog());
     }
 
-    WebI18nBundleRegistry(PluginRegistry pluginRegistry, Supplier<List<InstalledPlugin>> installedPlugins) {
+    public WebI18nBundleRegistry(PluginRegistry pluginRegistry,
+                                 ObjectProvider<ExternalPluginInstaller> installer) {
+        this(pluginRegistry, installedPluginSupplier(installer), LocaleCatalog.defaultCatalog());
+    }
+
+    public WebI18nBundleRegistry(PluginRegistry pluginRegistry, Supplier<List<InstalledPlugin>> installedPlugins) {
+        this(pluginRegistry, installedPlugins, LocaleCatalog.defaultCatalog());
+    }
+
+    WebI18nBundleRegistry(PluginRegistry pluginRegistry,
+                          Supplier<List<InstalledPlugin>> installedPlugins,
+                          LocaleCatalog catalog) {
         this.installedPlugins = installedPlugins != null ? installedPlugins : List::of;
+        this.catalog = catalog == null ? LocaleCatalog.defaultCatalog() : catalog;
         for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
             PixivFeaturePlugin plugin = registered.plugin();
             List<I18nContribution> contributions = plugin.i18n();
@@ -231,6 +301,11 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
                 .toList();
     }
 
+    /** catalog 可见语言列表（source + supported），与运行期语言菜单一致。 */
+    public List<LocaleDescriptor> supportedLocales() {
+        return catalog.visibleLocales();
+    }
+
     private static void validate(I18nContribution contribution, String pluginId) {
         if (contribution == null) {
             throw new IllegalStateException("null i18n contribution (plugin: " + pluginId + ")");
@@ -266,7 +341,7 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
         }
     }
 
-    private static List<RegisteredBundle> installedBundles(List<InstalledPlugin> installedPlugins) {
+    private List<RegisteredBundle> installedBundles(List<InstalledPlugin> installedPlugins) {
         List<RegisteredBundle> bundles = new ArrayList<>();
         Set<String> namespaces = new HashSet<>();
         for (InstalledPlugin installed : installedPlugins == null ? List.<InstalledPlugin>of() : installedPlugins) {
@@ -280,84 +355,58 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
                     installed.id(),
                     contribution,
                     Map.of(),
-                    artifact));
+                    artifact,
+                    catalog));
         }
         return List.copyOf(bundles);
     }
 
-    private static RegisteredBundle materializeActiveBundle(
+    private RegisteredBundle materializeActiveBundle(
             String pluginId, I18nContribution contribution, ClassLoader classLoader) {
         Map<String, Map<String, String>> messagesByLocale = new LinkedHashMap<>();
-        for (Locale locale : AppLocale.SUPPORTED_LOCALES) {
+        for (LocaleDescriptor descriptor : catalog.allLocales()) {
             try {
                 messagesByLocale.put(
-                        locale.toLanguageTag(),
-                        loadResourceBundle(contribution, classLoader, locale));
+                        descriptor.tag(),
+                        loadExactResource(contribution, classLoader, descriptor));
             } catch (MissingResourceException ignored) {
-                // 保留既有语义：namespace 可以注册，真正读取缺失 locale 时再抛 MissingResourceException。
+                // 保留既有语义：缺少某个语言物理文件时 exact 缺席，effective 沿回退链补齐；
+                // 真正读取缺失 locale 时再抛 MissingResourceException。
             }
         }
-        return new RegisteredBundle(pluginId, contribution, messagesByLocale, null);
+        return new RegisteredBundle(pluginId, contribution, messagesByLocale, null, catalog);
     }
 
-    private static Map<String, String> loadResourceBundle(
-            I18nContribution contribution, ClassLoader classLoader, Locale locale) {
-        List<Locale> candidates = new ArrayList<>(
-                NO_FALLBACK_CONTROL.getCandidateLocales(contribution.baseName(), locale));
-        Collections.reverse(candidates);
-        Map<String, String> merged = new LinkedHashMap<>();
-        boolean loaded = false;
-        for (Locale candidate : candidates) {
-            String bundleName = NO_FALLBACK_CONTROL.toBundleName(contribution.baseName(), candidate);
-            String resourceName = NO_FALLBACK_CONTROL.toResourceName(bundleName, "properties");
-            Map<String, String> values = readClassLoaderProperties(classLoader, resourceName);
-            if (values != null) {
-                merged.putAll(values);
-                loaded = true;
-            }
-        }
-        if (!loaded) {
+    private static Map<String, String> loadExactResource(
+            I18nContribution contribution, ClassLoader classLoader, LocaleDescriptor descriptor) {
+        String resourceName = resourceName(contribution.baseName(), descriptor.resourceSuffix());
+        Map<String, String> values = readClassLoaderProperties(classLoader, resourceName);
+        if (values == null) {
             throw new MissingResourceException(
-                    "Missing active plugin i18n bundle " + contribution.baseName(),
+                    "Missing exact plugin i18n bundle " + contribution.baseName() + " (" + resourceName + ")",
                     contribution.baseName(), "");
         }
-        return sortedMessages(merged);
+        return sortedMessages(values);
     }
 
-    private static Map<String, String> loadInstalledBundle(Path artifact, String baseName, Locale locale) {
-        Map<String, String> merged = new LinkedHashMap<>();
-        boolean loaded = false;
-        for (String resource : resourceNames(baseName, locale)) {
-            Map<String, String> values = readArtifactProperties(artifact, resource);
-            if (values != null) {
-                merged.putAll(values);
-                loaded = true;
-            }
-        }
-        if (!loaded) {
-            throw new MissingResourceException("Missing installed plugin i18n bundle " + baseName,
+    private static Map<String, String> loadInstalledExact(Path artifact, String baseName, LocaleDescriptor descriptor) {
+        String resourceName = resourceName(baseName, descriptor.resourceSuffix());
+        Map<String, String> values = readArtifactProperties(artifact, resourceName);
+        if (values == null) {
+            throw new MissingResourceException("Missing installed plugin i18n bundle " + resourceName,
                     baseName, "");
         }
         Map<String, String> sorted = new LinkedHashMap<>();
-        for (String key : new TreeSet<>(merged.keySet())) {
-            sorted.put(key, merged.get(key));
+        for (String key : new TreeSet<>(values.keySet())) {
+            sorted.put(key, values.get(key));
         }
         return immutableMessages(sorted);
     }
 
-    private static List<String> resourceNames(String baseName, Locale locale) {
+    private static String resourceName(String baseName, String resourceSuffix) {
         String basePath = baseName.replace('.', '/');
-        List<String> names = new ArrayList<>();
-        names.add(basePath + ".properties");
-        String language = locale == null ? "" : locale.getLanguage();
-        if (language != null && !language.isBlank()) {
-            names.add(basePath + "_" + language + ".properties");
-            String country = locale.getCountry();
-            if (country != null && !country.isBlank()) {
-                names.add(basePath + "_" + language + "_" + country + ".properties");
-            }
-        }
-        return names;
+        String suffix = resourceSuffix == null ? "" : resourceSuffix;
+        return suffix.isEmpty() ? basePath + ".properties" : basePath + "_" + suffix + ".properties";
     }
 
     private static Map<String, String> readArtifactProperties(Path artifact, String resourceName) {

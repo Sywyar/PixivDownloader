@@ -31,7 +31,18 @@ function bt(key, fallback, vars) {
 }
 
 function uiLang() {
-    return pageI18n ? pageI18n.lang : 'zh-CN';
+    // pageI18n.lang 已由 meta 归一化为正式 tag；无 meta 时不写死语言
+    return pageI18n ? pageI18n.lang : '';
+}
+
+// 语言化标点：值来自 common bundle 的 punctuation.* key，不写死语言判断。
+function punct(key) {
+    const fallbacks = { colon: '：', comma: '，', enum: '、', semicolon: '；' };
+    const fallback = Object.prototype.hasOwnProperty.call(fallbacks, key) ? fallbacks[key] : '';
+    if (pageI18n && typeof pageI18n.tns === 'function') {
+        return pageI18n.tns('common', 'punctuation.' + key, fallback);
+    }
+    return fallback;
 }
 
 const BASE = '';  // 使用相对路径，自动适配访问地址
@@ -127,7 +138,7 @@ async function checkBackend() {
 }
 
 function summaryJoin(parts) {
-    const sep = uiLang() === 'en-US' ? ' · ' : ' · ';
+    const sep = ' · ';
     return parts.filter(p => p !== null && p !== undefined && p !== '').join(sep);
 }
 

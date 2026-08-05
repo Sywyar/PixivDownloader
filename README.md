@@ -105,6 +105,23 @@ sh run.sh
 
 ---
 
+## 开发
+
+仓库的 i18n（多语言）基础设施是清单驱动的持续本地化工作流：`i18n/locales.json` 是唯一语言事实来源，中文是开发源语言、英文是全局回退语言。常用命令：
+
+```bash
+npm run setup:hooks        # 安装本地 Git hooks（只改 local 配置）
+npm run doctor:hooks       # 校验 hooks 配置
+npm run i18n:check         # 完整 i18n 检查（覆盖率 / stale / 占位符 / 硬编码守卫）
+npm run i18n:accept        # 接受已审核翻译，更新 catalog-lock.json 基线
+npm run i18n:generate-static  # 生成前端静态 meta 与 bundle
+npm run test:i18n          # i18n 工具测试
+```
+
+新增中文文案必须同提交更新英文并运行 `i18n:accept`；本地 hooks 与 GitHub Actions 的 `i18n-check` 是双重门禁。完整工作流见 [docs/i18n-workflow.md](docs/i18n-workflow.md)。
+
+---
+
 ## 免责声明
 
 - 本项目仅供个人学习和研究使用，请勿用于任何商业用途。

@@ -10,7 +10,9 @@ import java.util.List;
 public class I18nMetadataResponse {
 
     private final String currentLang;
+    private final String sourceLang;
     private final String defaultLang;
+    private final String fallbackLang;
     private final String languageCookieName;
     private final String languageParamName;
     private final List<LocaleOptionResponse> supportedLocales;

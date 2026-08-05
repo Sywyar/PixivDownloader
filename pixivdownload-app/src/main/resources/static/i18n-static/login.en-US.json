@@ -1,0 +1,28 @@
+{
+  "namespace": "login",
+  "lang": "en-US",
+  "defaultLang": "zh-CN",
+  "messages": {
+    "admin.title": "Admin Login",
+    "button.login": "Log In",
+    "error.invite-expired": "Invalid or expired invite code",
+    "error.invite-invalid": "Invalid invite code",
+    "error.login-failed": "Login failed",
+    "error.network": "Network error: {message}",
+    "field.password": "Password",
+    "field.password.placeholder": "Password",
+    "field.username": "Username",
+    "field.username.placeholder": "Username",
+    "header.title": "Pixiv Batch Downloader",
+    "invite.back": "Back to admin login",
+    "invite.code": "Invite code",
+    "invite.placeholder": "Invite code",
+    "invite.submit": "Enter",
+    "invite.title": "Use an invite code",
+    "invite.use-code": "Use an invite code",
+    "page.title": "Pixiv Batch Downloader - Login",
+    "remember": "Keep me signed in (30 days)",
+    "validation.credentials-required": "Please enter a username and password",
+    "validation.invite-required": "Please enter an invite code"
+  }
+}

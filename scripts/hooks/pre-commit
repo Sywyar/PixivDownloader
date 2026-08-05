@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Local pre-commit hook: i18n gate.
+# Only runs when staged files touch the i18n surface (catalog / lock / properties /
+# i18n Java or JS / generators / static bundles); otherwise exits fast.
+# Never modifies files and never runs accept.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+staged="$(git diff --cached --name-only 2>/dev/null || true)"
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+if ! printf '%s\n' "$staged" | grep -Eq '(^|/)(i18n/|locales\.json$|.*\.properties$|.*[Ii]18n.*\.(java|js|mjs)$|pixiv-i18n\.js$|pixiv-lang-switcher\.js$|scripts/i18n/|scripts/hooks/|i18n-static/)'; then
+    echo "pre-commit: no i18n files staged, skipping i18n check"
+    exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    echo "pre-commit: node/npm are required for the i18n gate but were not found in PATH." >&2
+    echo "pre-commit: install Node.js (see docs/i18n-workflow.md) and re-run the commit." >&2
+    exit 1
+fi
+
+echo "pre-commit: i18n files staged, running full i18n check..."
+npm run i18n:check

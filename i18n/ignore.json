@@ -1,0 +1,10 @@
+{
+  "comment": "仅允许抑制 warning（如「翻译与源相同」「HTML 标签集合差异」等合理告警），不允许抑制 error（missing / empty / stale / 占位符不一致等）。新增条目必须写明原因。",
+  "warnings": [
+    {
+      "bundle": "pixivdownload-app__gui",
+      "key": "gui.launcher.diagnostic.port.placeholder",
+      "reason": "端口输入框占位提示的尖括号 token 按语言习惯书写（<端口> vs <port>），不是 HTML 标签，允许标签集合差异。"
+    }
+  ]
+}

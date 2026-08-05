@@ -122,7 +122,9 @@ function douyinDetailFormatTime(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
     const language = pixivDouyinDetailState.pageI18n && pixivDouyinDetailState.pageI18n.lang
-        || document.documentElement.lang || navigator.language || 'en';
+        || document.documentElement.lang || navigator.language
+        || (pixivDouyinDetailState.pageI18n && pixivDouyinDetailState.pageI18n.defaultLang)
+        || 'und';
     try {
         return new Intl.DateTimeFormat(language, {
             year: 'numeric', month: '2-digit', day: '2-digit',

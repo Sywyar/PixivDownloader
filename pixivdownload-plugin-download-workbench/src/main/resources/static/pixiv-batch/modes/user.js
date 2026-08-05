@@ -709,7 +709,7 @@
             } else {
                 parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
             }
-            setStatus(bt('status.search-filters-applied', '已应用筛选：') + (uiLang() === 'en-US' ? ' ' : '') + summaryJoin(parts), 'success');
+            setStatus(bt('status.search-filters-applied', '已应用筛选：') + summaryJoin(parts), 'success');
         }
         return result.stats;
     }

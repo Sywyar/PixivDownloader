@@ -150,6 +150,8 @@ function createHarness() {
         document,
         pageI18n: {apply() {}},
         uiLang() { return 'zh-CN'; },
+        // punct 由 batch-core 提供（common bundle 标点），测试以中文源值作为桩
+        punct(key) { return { colon: '：', comma: '，', enum: '、', semicolon: '；' }[key] || ''; },
         console: {warn() {}, log() {}, error() {}}
     };
     vm.createContext(sandbox);

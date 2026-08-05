@@ -3,11 +3,8 @@ package top.sywyar.pixivdownload.i18n;
 import jakarta.validation.MessageInterpolator;
 import org.hibernate.validator.messageinterpolation.ResourceBundleMessageInterpolator;
 import org.springframework.context.MessageSource;
-import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import org.springframework.validation.beanvalidation.MessageSourceResourceBundleLocator;
-
-import java.nio.charset.StandardCharsets;
 
 public final class TestI18nBeans {
 
@@ -15,32 +12,41 @@ public final class TestI18nBeans {
     }
 
     public static MessageSource messageSource() {
-        ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
-        messageSource.setBasenames(
-                "classpath:i18n/messages",
-                "classpath:i18n/ValidationMessages",
-                "classpath:i18n/mail/messages",
-                "classpath:i18n/push/messages"
+        return messageSource(LocaleCatalog.defaultCatalog());
+    }
+
+    public static MessageSource messageSource(LocaleCatalog catalog) {
+        return new CatalogMessageSource(
+                catalog,
+                "i18n/messages",
+                "i18n/ValidationMessages",
+                "i18n/mail/messages",
+                "i18n/push/messages"
         );
-        messageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
-        messageSource.setFallbackToSystemLocale(false);
-        messageSource.setUseCodeAsDefaultMessage(true);
-        return messageSource;
     }
 
     public static AppMessages appMessages() {
-        return new AppMessages(messageSource());
+        return appMessages(messageSource());
     }
 
     public static AppMessages appMessages(MessageSource messageSource) {
-        return new AppMessages(messageSource);
+        return appMessages(messageSource, LocaleCatalog.defaultCatalog());
+    }
+
+    public static AppMessages appMessages(MessageSource messageSource, LocaleCatalog catalog) {
+        return new AppMessages(messageSource, catalog);
     }
 
     public static LocalValidatorFactoryBean validator(MessageSource messageSource) {
+        return validator(messageSource, LocaleCatalog.defaultCatalog());
+    }
+
+    public static LocalValidatorFactoryBean validator(MessageSource messageSource, LocaleCatalog catalog) {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.setValidationMessageSource(messageSource);
         MessageInterpolator interpolator = new LocaleContextMessageInterpolator(
-                new ResourceBundleMessageInterpolator(new MessageSourceResourceBundleLocator(messageSource))
+                new ResourceBundleMessageInterpolator(new MessageSourceResourceBundleLocator(messageSource)),
+                catalog
         );
         validator.setMessageInterpolator(interpolator);
         validator.afterPropertiesSet();

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "sourceLocale": "zh-CN",
+  "defaultLocale": "zh-CN",
+  "fallbackLocale": "en-US",
+  "languageCookieName": "pixiv_lang",
+  "languageParameterName": "lang",
+  "locales": [
+    {
+      "tag": "zh-CN",
+      "nativeName": "简体中文",
+      "resourceSuffix": "",
+      "status": "source",
+      "direction": "ltr",
+      "aliases": [
+        "zh",
+        "zh-Hans",
+        "zh-SG"
+      ]
+    },
+    {
+      "tag": "en-US",
+      "nativeName": "English",
+      "resourceSuffix": "en",
+      "status": "supported",
+      "direction": "ltr",
+      "aliases": [
+        "en"
+      ]
+    }
+  ]
+}

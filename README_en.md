@@ -119,8 +119,22 @@ proxy](https://sywyar.github.io/PixivDownloader/#/en/configuration).
 > **See the [online documentation](https://sywyar.github.io/PixivDownloader/#/en/) for detailed installation, usage,
 configuration, and development guides.**
 
----
+## Development
 
+The repository's i18n infrastructure is a catalog-driven continuous localization workflow: `i18n/locales.json` is the single source of truth for languages; Chinese (zh-CN) is the development source language and English (en-US) is the global fallback language. Common commands:
+
+```bash
+npm run setup:hooks        # install local Git hooks (local config only)
+npm run doctor:hooks       # verify hooks configuration
+npm run i18n:check         # full i18n check (coverage / stale / placeholders / hardcoded-locale guard)
+npm run i18n:accept        # accept reviewed translations and update the catalog-lock.json baseline
+npm run i18n:generate-static  # generate frontend static meta and bundles
+npm run test:i18n          # i18n tooling tests
+```
+
+New Chinese copy must ship with its English translation in the same commit and run `i18n:accept`; local hooks and the GitHub Actions `i18n-check` job form a double gate. See [docs/i18n-workflow.md](docs/i18n-workflow.md) for the full workflow.
+
+---
 ## Disclaimer
 
 - This project is for personal learning and research only; do not use it for any commercial purposes.

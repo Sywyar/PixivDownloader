@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.i18n;
 
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.MessageSource;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -9,19 +9,29 @@ import org.springframework.stereotype.Component;
 import java.util.Locale;
 
 @Component
-@RequiredArgsConstructor
 public class AppMessages implements MessageResolver {
 
     private final MessageSource messageSource;
+    private final LocaleCatalog catalog;
+
+    public AppMessages(MessageSource messageSource) {
+        this(messageSource, LocaleCatalog.defaultCatalog());
+    }
+
+    @Autowired
+    public AppMessages(MessageSource messageSource, LocaleCatalog catalog) {
+        this.messageSource = messageSource;
+        this.catalog = catalog == null ? LocaleCatalog.defaultCatalog() : catalog;
+    }
 
     @Override
     public Locale currentLocale() {
-        return AppLocale.normalize(LocaleContextHolder.getLocale());
+        return catalog.resolve(LocaleContextHolder.getLocale()).toLocale();
     }
 
     @Override
     public Locale normalizeLocale(Locale locale) {
-        return locale == null ? currentLocale() : AppLocale.normalize(locale);
+        return locale == null ? currentLocale() : catalog.resolve(locale).toLocale();
     }
 
     public String get(String code, Object... args) {
@@ -37,7 +47,7 @@ public class AppMessages implements MessageResolver {
     }
 
     public String get(Locale locale, MessageSourceResolvable resolvable) {
-        return messageSource.getMessage(resolvable, AppLocale.normalize(locale));
+        return messageSource.getMessage(resolvable, catalog.resolve(locale).toLocale());
     }
 
     public String getOrDefault(String code, String defaultMessage, Object... args) {

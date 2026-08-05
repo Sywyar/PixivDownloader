@@ -35,7 +35,8 @@
 
     PMK.currentLang = function () {
         var client = PMK.state.i18n.client;
-        return client && client.lang ? String(client.lang) : 'zh-CN';
+        // 语言一律来自 meta：优先当前语言，缺省用 meta 的 defaultLang，不写死语言
+        return client ? (client.lang || client.defaultLang || '') : '';
     };
 
     PMK.escapeHtml = function (str) {

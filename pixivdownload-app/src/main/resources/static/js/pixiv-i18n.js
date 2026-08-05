@@ -3,8 +3,8 @@
 
     var STORAGE_KEY = 'pixiv.lang';
     var DEFAULT_NAMESPACE = 'common';
-    // Static fallback bundles, used when the backend i18n API is unreachable
-    // (e.g. the GitHub Pages demo site has no Spring backend). Relative path so
+    // Static fallback metadata + bundles, used when the backend i18n API is unreachable
+    // (e.g. a static hosting deployment without a Spring backend). Relative path so
     // it resolves correctly under a project-site /<repo>/ prefix.
     var STATIC_BUNDLE_BASE = 'i18n-static/';
     var LANGUAGE_CHANNEL_NAME = 'pixiv.language';
@@ -15,25 +15,37 @@
     var storageListenerInitialized = false;
     var languageChangeListeners = [];
 
-    function buildFallbackMeta(preferredLang) {
-        var lang = normalizeLang(preferredLang);
-        return {
-            currentLang: lang,
-            defaultLang: 'en-US',
-            cookieName: 'pixiv_lang',
-            parameterName: 'lang',
-            supportedLocales: [
-                { tag: 'en-US', displayName: 'English' },
-                { tag: 'zh-CN', displayName: '简体中文' }
-            ]
-        };
-    }
-
     function normalizeLang(lang) {
         if (!lang) {
-            return 'en-US';
+            return null;
         }
-        return String(lang).trim().replace('_', '-');
+        return String(lang).trim().replace(/_/g, '-');
+    }
+
+    // 把首选语言解析为 meta 中的正式 tag：精确 tag → alias → 唯一语言级匹配 → default。
+    function resolveSupportedLang(preferred, meta) {
+        if (!meta || !meta.supportedLocales || !meta.supportedLocales.length) {
+            return (meta && meta.defaultLang) || preferred || null;
+        }
+        var tags = meta.supportedLocales.map(function (item) { return item.tag; });
+        if (tags.indexOf(preferred) >= 0) {
+            return preferred;
+        }
+        for (var i = 0; i < meta.supportedLocales.length; i += 1) {
+            var item = meta.supportedLocales[i];
+            var aliases = item.aliases || [];
+            if (aliases.indexOf(preferred) >= 0) {
+                return item.tag;
+            }
+        }
+        var preferredLang = String(preferred || '').split('-')[0];
+        var languageMatches = tags.filter(function (tag) {
+            return tag.split('-')[0] === preferredLang;
+        });
+        if (languageMatches.length === 1) {
+            return languageMatches[0];
+        }
+        return meta.defaultLang || preferred || null;
     }
 
     function readStoredLang() {
@@ -108,6 +120,9 @@
 
     function notifyLanguageChange(lang) {
         var normalizedLang = normalizeLang(lang);
+        if (!normalizedLang) {
+            return;
+        }
         var payload = {
             type: LANGUAGE_CHANGE_TYPE,
             lang: normalizedLang,
@@ -160,6 +175,19 @@
         }
     }
 
+    // 语言元数据来源：优先后端 /api/i18n/meta，后端不可用时读构建生成的 i18n-static/meta.json。
+    // 不允许在 JavaScript 中写死默认语言或语言数组。
+    async function fetchMeta(preferredLang) {
+        var backendMeta = await fetchJsonOrDefault(
+            '/api/i18n/meta?lang=' + encodeURIComponent(preferredLang || ''),
+            null
+        );
+        if (backendMeta && backendMeta.supportedLocales && backendMeta.supportedLocales.length) {
+            return backendMeta;
+        }
+        return await fetchJsonOrDefault(STATIC_BUNDLE_BASE + 'meta.json', null);
+    }
+
     async function fetchMessagesBundle(namespace, lang) {
         try {
             return await fetchJson(
@@ -192,7 +220,8 @@
             var tag = item && item.tag ? item.tag : '';
             return {
                 tag: tag,
-                displayName: (item && (item.displayName || item.label || item.name)) || tag
+                displayName: (item && (item.displayName || item.label || item.nativeName || item.name)) || tag,
+                direction: (item && item.direction) || 'ltr'
             };
         });
     }
@@ -264,6 +293,9 @@
         var client = {
             lang: meta.currentLang,
             defaultLang: meta.defaultLang,
+            sourceLang: meta.sourceLang,
+            fallbackLang: meta.fallbackLang,
+            cookieName: meta.languageCookieName,
             namespaces: namespaces.slice(),
             supportedLocales: normalizeSupportedLocales(meta.supportedLocales),
             bundleMap: bundleMap,
@@ -310,10 +342,23 @@
             ? config.namespaces.slice()
             : [DEFAULT_NAMESPACE];
         var preferredLang = normalizeLang(config.lang || readStoredLang() || global.navigator.language);
-        var meta = await fetchJsonOrDefault(
-            '/api/i18n/meta?lang=' + encodeURIComponent(preferredLang),
-            buildFallbackMeta(preferredLang)
-        );
+        var meta = await fetchMeta(preferredLang);
+        if (!meta || !meta.defaultLang || !meta.currentLang) {
+            // 后端与静态 meta 都不可用：客户端仍可工作，但语言菜单 / 归一化缺失，
+            // 直接以首选语言尝试加载 bundle。不在此处写死任何语言。
+            meta = {
+                currentLang: preferredLang || '',
+                sourceLang: '',
+                defaultLang: '',
+                fallbackLang: '',
+                languageCookieName: '',
+                languageParamName: '',
+                supportedLocales: [],
+                supportedNamespaces: []
+            };
+        } else {
+            meta.currentLang = resolveSupportedLang(preferredLang || meta.currentLang, meta) || meta.currentLang;
+        }
         var bundleMap = {};
 
         for (var i = 0; i < namespaces.length; i += 1) {

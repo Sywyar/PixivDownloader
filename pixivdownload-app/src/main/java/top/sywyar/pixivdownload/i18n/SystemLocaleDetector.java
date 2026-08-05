@@ -27,7 +27,7 @@ import java.util.Locale;
  *     实时读取会回到上次显式选择，导致跟随系统失效。</p></li>
  *   <li>POSIX env 兜底（仅 Linux/macOS）：再读一遍 {@code LC_ALL} / {@code LC_MESSAGES} / {@code LANG}，
  *     处理 JDK 因为 {@code -Dfile.encoding} 等参数被改写的极端情况</li>
- *   <li>仍找不到匹配 → {@link AppLocale#DEFAULT_LOCALE}（en-US）</li>
+ *   <li>仍找不到匹配 → catalog 默认语言（当前 zh-CN）</li>
  * </ol>
  *
  * <p><strong>实现约束：本类禁止使用 SLF4J 或任何 {@code @Slf4j} 标注的类。</strong>
@@ -69,35 +69,36 @@ public final class SystemLocaleDetector {
     }
 
     private static DetectionResult detect() {
+        LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
         Locale fromConfig = readConfigPreference();
         if (fromConfig != null) {
-            Locale matched = AppLocale.matchSupported(fromConfig);
+            LocaleDescriptor matched = catalog.match(fromConfig).orElse(null);
             if (matched != null) {
-                return new DetectionResult(matched,
+                return new DetectionResult(matched.toLocale(),
                         "from config.yaml app.language=" + fromConfig.toLanguageTag());
             }
         }
 
         // 必须使用启动时缓存的 OS 原始值；Locale.getDefault() 可能已被 GUI 显式切换污染
         Locale jvm = OS_LOCALE_AT_STARTUP;
-        Locale matchedJvm = AppLocale.matchSupported(jvm);
+        LocaleDescriptor matchedJvm = catalog.match(jvm).orElse(null);
         if (matchedJvm != null) {
-            return new DetectionResult(matchedJvm,
+            return new DetectionResult(matchedJvm.toLocale(),
                     "from JVM default " + jvm.toLanguageTag() + " (native OS API at startup)");
         }
 
         Locale fromEnv = readPosixEnv();
         if (fromEnv != null) {
-            Locale matchedEnv = AppLocale.matchSupported(fromEnv);
+            LocaleDescriptor matchedEnv = catalog.match(fromEnv).orElse(null);
             if (matchedEnv != null) {
-                return new DetectionResult(matchedEnv,
+                return new DetectionResult(matchedEnv.toLocale(),
                         "from POSIX env " + fromEnv.toLanguageTag());
             }
         }
 
-        return new DetectionResult(AppLocale.DEFAULT_LOCALE,
+        return new DetectionResult(catalog.defaultLocale().toLocale(),
                 "no supported locale detected (JVM at startup=" + jvm.toLanguageTag()
-                        + "), falling back to " + AppLocale.DEFAULT_LOCALE.toLanguageTag());
+                        + "), falling back to " + catalog.defaultLocale().tag());
     }
 
     private static Locale readConfigPreference() {
@@ -107,8 +108,8 @@ public final class SystemLocaleDetector {
             }
             try {
                 String value = new ConfigFileEditor(candidate).read("app.language");
-                Locale parsed = AppLocale.parse(value);
-                if (parsed != null) {
+                Locale parsed = Locale.forLanguageTag(value.trim().replace('_', '-'));
+                if (LocaleCatalog.defaultCatalog().match(parsed).isPresent()) {
                     return parsed;
                 }
             } catch (Exception e) {

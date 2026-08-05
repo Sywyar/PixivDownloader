@@ -251,7 +251,7 @@ function openCookieModal() {
             updateCookieImportStatus(
                 bt('status.cookie-saved-warning', 'Cookie 已保存（{count} 个字段）⚠ {warnings}', {
                     count: result.count,
-                    warnings: result.warnings.join(uiLang() === 'en-US' ? '; ' : '；')
+                    warnings: result.warnings.join(punct('semicolon'))
                 }), 'error');
         } else {
             updateCookieImportStatus(

@@ -469,7 +469,7 @@
                 parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
             }
             parts.push(searchStatText('total', searchState.total));
-            setStatus(prefix + (uiLang() === 'en-US' ? ' ' : '') + summaryJoin(parts), 'success');
+            setStatus(prefix + summaryJoin(parts), 'success');
         }
 
         return stats;

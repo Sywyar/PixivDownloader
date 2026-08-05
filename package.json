@@ -3,6 +3,14 @@
   "private": true,
   "scripts": {
     "test:js": "node --test \"pixivdownload-*/src/test/js/*.test.js\" \"plugin-templates/*/src/test/js/*.test.js\"",
-    "test:web-standards": "node scripts/check-web-standards.mjs"
+    "test:web-standards": "node scripts/check-web-standards.mjs",
+    "test:i18n": "node --test \"scripts/i18n/test/*.test.mjs\"",
+    "i18n:check": "node scripts/i18n/check.mjs --strict",
+    "i18n:report": "node scripts/i18n/check.mjs --report-only",
+    "i18n:prompt": "node scripts/i18n/check.mjs --strict --write-agent-prompts",
+    "i18n:accept": "node scripts/i18n/accept.mjs",
+    "i18n:generate-static": "node scripts/i18n/generate-static.mjs",
+    "setup:hooks": "node scripts/i18n/install-hooks.mjs",
+    "doctor:hooks": "node scripts/i18n/doctor-hooks.mjs"
   }
 }
