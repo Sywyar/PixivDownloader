@@ -1,7 +1,7 @@
 {
   "namespace": "maintenance",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "page.auto-retry": "{0} 秒后自动重试",
     "page.description": "服务器正在进行例行维护，请稍后再试。",

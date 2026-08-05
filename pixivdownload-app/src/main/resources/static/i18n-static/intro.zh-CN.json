@@ -1,7 +1,7 @@
 {
   "namespace": "intro",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "artwork.author.meta": "ID 18374826 · 共 23 件",
     "artwork.author.name": "あさひかげ",

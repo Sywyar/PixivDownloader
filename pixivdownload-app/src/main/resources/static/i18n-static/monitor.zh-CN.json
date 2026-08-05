@@ -1,7 +1,7 @@
 {
   "namespace": "monitor",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "alert.load-artwork-failed": "加载作品详情失败",
     "alert.load-image-failed": "加载图片失败",

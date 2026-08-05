@@ -1,7 +1,7 @@
 {
   "namespace": "plugins",
   "lang": "en-US",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "action.done": "Done: {action}",
     "action.error.generic": "Action failed",

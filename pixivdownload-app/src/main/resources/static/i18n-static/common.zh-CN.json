@@ -1,7 +1,7 @@
 {
   "namespace": "common",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "app.name": "PixivDownloader",
     "button.cancel": "取消",

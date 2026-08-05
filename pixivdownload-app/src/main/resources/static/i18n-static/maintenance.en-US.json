@@ -1,7 +1,7 @@
 {
   "namespace": "maintenance",
   "lang": "en-US",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "page.auto-retry": "Retry in {0}s",
     "page.description": "The server is undergoing scheduled maintenance. Please try again later.",

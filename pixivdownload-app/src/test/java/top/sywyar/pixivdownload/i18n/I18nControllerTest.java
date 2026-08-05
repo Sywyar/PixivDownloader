@@ -19,10 +19,10 @@ class I18nControllerTest {
             catalog);
 
     @Test
-    @DisplayName("默认 / 未知语言时 currentLang 为默认语言 zh-CN")
-    void currentLangDefaultsToChinese() {
+    @DisplayName("默认 / 未知语言时 currentLang 为默认语言 en-US")
+    void currentLangDefaultsToEnglish() {
         I18nMetadataResponse meta = controller.metadata(null);
-        assertThat(meta.getCurrentLang()).isEqualTo("zh-CN");
+        assertThat(meta.getCurrentLang()).isEqualTo("en-US");
     }
 
     @Test

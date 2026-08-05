@@ -1,7 +1,7 @@
 {
   "namespace": "setup",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "account.title": "管理员账号",
     "button.submit": "完成配置",

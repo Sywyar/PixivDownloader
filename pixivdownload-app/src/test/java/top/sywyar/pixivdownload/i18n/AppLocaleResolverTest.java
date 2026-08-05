@@ -33,11 +33,11 @@ class AppLocaleResolverTest {
     }
 
     @Test
-    @DisplayName("Accept-Language 基于 catalog：候选语言不参与、无匹配落到默认 zh-CN")
+    @DisplayName("Accept-Language 基于 catalog：候选语言不参与、无匹配落到默认 en-US")
     void acceptLanguageIsCatalogDriven() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("Accept-Language", "ja-JP,ja;q=0.9,en;q=0.8");
-        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.US);
 
         request = new MockHttpServletRequest();
         request.addHeader("Accept-Language", "en-US;q=1.0,zh-CN;q=0.5");
@@ -45,10 +45,10 @@ class AppLocaleResolverTest {
     }
 
     @Test
-    @DisplayName("无任何信号时落到默认语言 zh-CN")
-    void defaultsToChinese() {
+    @DisplayName("无任何信号时落到默认语言 en-US")
+    void defaultsToEnglish() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.US);
     }
 
     @Test

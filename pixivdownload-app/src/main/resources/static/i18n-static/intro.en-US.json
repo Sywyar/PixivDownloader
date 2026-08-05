@@ -1,7 +1,7 @@
 {
   "namespace": "intro",
   "lang": "en-US",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "artwork.author.meta": "ID 18374826 · 23 works",
     "artwork.author.name": "asahikage",

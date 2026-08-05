@@ -27,7 +27,7 @@ import java.util.Locale;
  *     实时读取会回到上次显式选择，导致跟随系统失效。</p></li>
  *   <li>POSIX env 兜底（仅 Linux/macOS）：再读一遍 {@code LC_ALL} / {@code LC_MESSAGES} / {@code LANG}，
  *     处理 JDK 因为 {@code -Dfile.encoding} 等参数被改写的极端情况</li>
- *   <li>仍找不到匹配 → catalog 默认语言（当前 zh-CN）</li>
+ *   <li>仍找不到匹配 → catalog 默认语言（当前 en-US）</li>
  * </ol>
  *
  * <p><strong>实现约束：本类禁止使用 SLF4J 或任何 {@code @Slf4j} 标注的类。</strong>

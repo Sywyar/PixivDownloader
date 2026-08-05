@@ -1,7 +1,7 @@
 {
   "namespace": "tour",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "batch.cookie-import.install.body": "一键导入需要 pixiv.net 上的「体验增强工具箱」配合。引导期间页面其它内容不可点击，请点击下方高亮的「体验增强工具箱」安装按钮，安装后才能进入下一步。若你已安装包含工具箱的 All-in-One 合并包，可直接点「我已安装 All-in-One」。",
     "batch.cookie-import.install.have-aio": "我已安装 All-in-One",

@@ -24,11 +24,11 @@ let passed = 0;
 function ok(label, cond) { assert.ok(cond, label); passed++; }
 
 const META = {
-    currentLang: 'zh-CN', sourceLang: 'zh-CN', defaultLang: 'zh-CN', fallbackLang: 'en-US',
+    currentLang: 'en-US', sourceLang: 'zh-CN', defaultLang: 'en-US', fallbackLang: 'en-US',
     languageCookieName: 'pixiv_lang', languageParamName: 'lang',
     supportedLocales: [
-        { tag: 'zh-CN', displayName: '简体中文', direction: 'ltr' },
-        { tag: 'en-US', displayName: 'English', direction: 'ltr' }
+        { tag: 'en-US', displayName: 'English', direction: 'ltr' },
+        { tag: 'zh-CN', displayName: '简体中文', direction: 'ltr' }
     ],
     supportedNamespaces: ['common', 'gallery']
 };
@@ -85,7 +85,7 @@ function createSandbox(fetch) {
 
 async function createClient(namespaces, options) {
     const sandbox = createSandbox(makeFetch(options));
-    const client = await sandbox.PixivI18n.create({ namespaces: namespaces, lang: 'zh-CN' });
+    const client = await sandbox.PixivI18n.create({ namespaces: namespaces, lang: 'en-US' });
     return { client, sandbox };
 }
 
@@ -108,33 +108,33 @@ async function main() {
 
     // ===== b) 后端 meta 优先 =====
     const { client: backendClient } = await createClient(['common'], {});
-    ok('b: 后端 meta 的 currentLang 生效', backendClient.lang === 'zh-CN');
-    ok('b: 后端 meta 的 defaultLang 生效', backendClient.defaultLang === 'zh-CN');
+    ok('b: 后端 meta 的 currentLang 生效', backendClient.lang === 'en-US');
+    ok('b: 后端 meta 的 defaultLang 生效', backendClient.defaultLang === 'en-US');
     ok('b: cookie 名来自 meta', backendClient.cookieName === 'pixiv_lang');
 
     // ===== b2) 后端不可用时回退静态 meta =====
     const STATIC_META = {
-        currentLang: 'zh-CN', sourceLang: 'zh-CN', defaultLang: 'zh-CN', fallbackLang: 'en-US',
-        languageCookieName: 'pixiv_lang', languageParameterName: 'lang',
+        currentLang: 'en-US', sourceLang: 'zh-CN', defaultLang: 'en-US', fallbackLang: 'en-US',
+        languageCookieName: 'pixiv_lang', languageParamName: 'lang',
         supportedLocales: [
-            { tag: 'zh-CN', displayName: '简体中文', direction: 'ltr' },
-            { tag: 'en-US', displayName: 'English', direction: 'ltr' }
+            { tag: 'en-US', displayName: 'English', direction: 'ltr' },
+            { tag: 'zh-CN', displayName: '简体中文', direction: 'ltr' }
         ],
         supportedNamespaces: ['common']
     };
     const { client: staticClient } = await createClient(['common'], {
         backendMeta: null, staticMeta: STATIC_META
     });
-    ok('b2: 后端不可用时使用静态 meta', staticClient.lang === 'zh-CN');
+    ok('b2: 后端不可用时使用静态 meta', staticClient.lang === 'en-US');
     ok('b2: 静态 meta 驱动菜单', staticClient.supportedLocales.length === 2);
 
     // ===== c) 无硬编码语言数组：菜单完全来自 meta =====
     const META_WITH_CANDIDATE = {
-        currentLang: 'zh-CN', sourceLang: 'zh-CN', defaultLang: 'zh-CN', fallbackLang: 'en-US',
+        currentLang: 'en-US', sourceLang: 'zh-CN', defaultLang: 'en-US', fallbackLang: 'en-US',
         languageCookieName: 'pixiv_lang', languageParamName: 'lang',
         supportedLocales: [
-            { tag: 'zh-CN', displayName: '简体中文' },
-            { tag: 'en-US', displayName: 'English' }
+            { tag: 'en-US', displayName: 'English' },
+            { tag: 'zh-CN', displayName: '简体中文' }
         ],
         supportedNamespaces: ['common']
     };
@@ -143,7 +143,7 @@ async function main() {
     ok('c: 菜单只含 meta 中的正式语言', menuTags.indexOf('en-US') >= 0 && menuTags.indexOf('zh-CN') >= 0);
     ok('c: 菜单不含未发布的 candidate（candidate 由服务端/生成器过滤，前端不写死）',
         menuClient.supportedLocales.length === 2);
-    ok('c: displayName 归一化', menuClient.supportedLocales[0].displayName === '简体中文');
+    ok('c: displayName 归一化', menuClient.supportedLocales[0].displayName === 'English');
 
     // ===== d) 当前语言归一化 =====
     const sandboxD = createSandbox(makeFetch({ backendMeta: META }));
@@ -151,7 +151,7 @@ async function main() {
     ok('d: 语言级唯一匹配 zh → zh-CN', clientD.lang === 'zh-CN');
     const sandboxD2 = createSandbox(makeFetch({ backendMeta: META }));
     const clientD2 = await sandboxD2.PixivI18n.create({ namespaces: ['common'], lang: 'fr-FR' });
-    ok('d: 未知语言落到 default zh-CN', clientD2.lang === 'zh-CN');
+    ok('d: 未知语言落到 default en-US', clientD2.lang === 'en-US');
     const sandboxD3 = createSandbox(makeFetch({ backendMeta: META }));
     const clientD3 = await sandboxD3.PixivI18n.create({ namespaces: ['common'], lang: 'en-US' });
     ok('d: 精确 tag 保留', clientD3.lang === 'en-US');

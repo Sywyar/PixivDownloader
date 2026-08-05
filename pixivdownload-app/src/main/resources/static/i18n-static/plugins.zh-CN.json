@@ -1,7 +1,7 @@
 {
   "namespace": "plugins",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "action.done": "已执行：{action}",
     "action.error.generic": "操作失败",

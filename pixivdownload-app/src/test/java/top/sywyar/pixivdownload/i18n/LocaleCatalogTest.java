@@ -17,7 +17,7 @@ class LocaleCatalogTest {
             {
               "schemaVersion": 1,
               "sourceLocale": "zh-CN",
-              "defaultLocale": "zh-CN",
+              "defaultLocale": "en-US",
               "fallbackLocale": "en-US",
               "languageCookieName": "pixiv_lang",
               "languageParameterName": "lang",
@@ -71,13 +71,13 @@ class LocaleCatalogTest {
     }
 
     @Test
-    @DisplayName("默认目录从 classpath 加载且 source/default/fallback 正确（默认语言为 zh-CN）")
+    @DisplayName("默认目录从 classpath 加载且 source/default/fallback 正确（默认语言为 en-US）")
     void defaultCatalogExposesSourceDefaultFallback() {
         LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
         assertThat(catalog.schemaVersion()).isEqualTo(1);
         assertThat(catalog.sourceLocale().tag()).isEqualTo("zh-CN");
         assertThat(catalog.sourceLocale().status()).isEqualTo(LocaleStatus.SOURCE);
-        assertThat(catalog.defaultLocale().tag()).isEqualTo("zh-CN");
+        assertThat(catalog.defaultLocale().tag()).isEqualTo("en-US");
         assertThat(catalog.fallbackLocale().tag()).isEqualTo("en-US");
         assertThat(catalog.fallbackLocale().status()).isEqualTo(LocaleStatus.SUPPORTED);
         assertThat(catalog.languageCookieName()).isEqualTo("pixiv_lang");
@@ -120,12 +120,12 @@ class LocaleCatalogTest {
     }
 
     @Test
-    @DisplayName("无匹配时 resolve 落到默认语言 zh-CN")
+    @DisplayName("无匹配时 resolve 落到默认语言 en-US")
     void resolveFallsBackToDefaultLocale() {
         LocaleCatalog catalog = fixture();
-        assertThat(catalog.resolve("fr-FR").tag()).isEqualTo("zh-CN");
-        assertThat(catalog.resolve((String) null).tag()).isEqualTo("zh-CN");
-        assertThat(catalog.resolve(Locale.FRENCH).tag()).isEqualTo("zh-CN");
+        assertThat(catalog.resolve("fr-FR").tag()).isEqualTo("en-US");
+        assertThat(catalog.resolve((String) null).tag()).isEqualTo("en-US");
+        assertThat(catalog.resolve(Locale.FRENCH).tag()).isEqualTo("en-US");
         assertThat(catalog.match("")).isEmpty();
     }
 

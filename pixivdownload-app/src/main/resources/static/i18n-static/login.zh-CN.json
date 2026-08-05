@@ -1,7 +1,7 @@
 {
   "namespace": "login",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "admin.title": "管理员登录",
     "button.login": "登录",

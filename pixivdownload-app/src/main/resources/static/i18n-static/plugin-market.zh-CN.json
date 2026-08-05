@@ -1,7 +1,7 @@
 {
   "namespace": "plugin-market",
   "lang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "badge.community": "社区",
     "badge.official": "官方",

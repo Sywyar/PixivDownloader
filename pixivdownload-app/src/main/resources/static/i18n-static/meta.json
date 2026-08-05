@@ -1,7 +1,7 @@
 {
-  "currentLang": "zh-CN",
+  "currentLang": "en-US",
   "sourceLang": "zh-CN",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "fallbackLang": "en-US",
   "languageCookieName": "pixiv_lang",
   "languageParamName": "lang",

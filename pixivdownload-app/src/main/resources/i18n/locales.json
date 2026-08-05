@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sourceLocale": "zh-CN",
-  "defaultLocale": "zh-CN",
+  "defaultLocale": "en-US",
   "fallbackLocale": "en-US",
   "languageCookieName": "pixiv_lang",
   "languageParameterName": "lang",

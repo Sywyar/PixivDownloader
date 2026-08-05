@@ -1,7 +1,7 @@
 {
   "namespace": "monitor",
   "lang": "en-US",
-  "defaultLang": "zh-CN",
+  "defaultLang": "en-US",
   "messages": {
     "alert.load-artwork-failed": "Failed to load artwork details",
     "alert.load-image-failed": "Failed to load image",
