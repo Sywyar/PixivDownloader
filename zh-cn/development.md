@@ -90,6 +90,20 @@ mvn -pl pixivdownload-app -am -Precovery-mode process-classes -Dexec.skip=true
 
 `pixiv-batch.html` 通过 `/api/scripts` 读取已经物化的脚本目录。独立 `*.user.js` 与 `scripts/build-userscript-bundle.ps1` 生成的整合脚本会在 Maven `generate-resources` 阶段复制到应用资源。因此修改用户脚本后至少运行一次 Maven 生命周期，不能只依赖 IDE 的旧输出目录。
 
+## i18n 国际化工作流
+
+`i18n/locales.json` 是语言清单；中文（`zh-CN`）是开发源语言，英文（`en-US`）是全局回退语言。常用命令：
+
+```bash
+npm run setup:hooks
+npm run doctor:hooks
+npm run i18n:check
+npm run i18n:generate-static
+npm run test:i18n
+```
+
+新增中文文案必须同时提交英文翻译。静态资源发生变化时，重新生成并提交 `pixivdownload-app/src/main/resources/static/i18n-static`。基线接受和 hooks 细节见[仓库 i18n 工作流](https://github.com/Sywyar/PixivDownloader/blob/master/docs/i18n-workflow.md)。
+
 ## 本地 Windows 打包
 
 `scripts/package-local.ps1` 会构建应用壳、官方插件输入、在线/离线便携包及可选的 Inno Setup 安装包。正式产物要求每个官方插件都有可复验的签名：可以传入已经带 `.sig` sidecar 的 `-PrebuiltPluginsDir`，或对本地模块产物传入 `-OfficialKeyId`、仓库外的 `-PrivateKeyFile` 和可选的 `-SignatureToolJar`。产物默认写入 `build/out/`。
