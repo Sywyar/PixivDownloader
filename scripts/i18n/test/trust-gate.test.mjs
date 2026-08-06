@@ -21,6 +21,10 @@ const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 const CLI = path.join(SCRIPTS_DIR, 'trust-gate.mjs');
 
+// advance 的 trusted contract 使用 yaml 解析候选 workflow：fixture 仓库没有 node_modules，
+// 通过 NODE_PATH 指向真实仓库的 node_modules 完成解析（与 CI 的 npm ci 等价）。
+process.env.NODE_PATH = process.env.NODE_PATH || path.join(REPO_ROOT, 'node_modules');
+
 const CATALOG = `{
   "schemaVersion": 1,
   "sourceLocale": "zh-CN",
@@ -70,6 +74,12 @@ function makeRepo(withAnchor = false) {
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    // bootstrap 要求 policy 的 required paths 全部存在：夹具必须携带完整 gate bundle
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');
@@ -80,7 +90,7 @@ function makeRepo(withAnchor = false) {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir); // C1
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -157,7 +167,7 @@ test('trust-gate：bootstrap 写入 local config；--show 输出 SHA 与 contrac
         const show = runCli(root, ['--show']);
         assert.equal(show.status, 0, show.stdout + show.stderr);
         assert.match(show.stdout, new RegExp('trustedGateRef: ' + head));
-        assert.match(show.stdout, /contractVersion: 1/);
+        assert.match(show.stdout, /contractVersion: 2/);
     } finally {
         cleanRepo(root);
     }
@@ -306,6 +316,78 @@ test('trust-gate：advance 无 anchor 拒绝；候选非 commit 拒绝；CI 拒�
         const ci = runCli(root, ['--advance', '--ref', 'HEAD'], { CI: 'true' });
         assert.notEqual(ci.status, 0, 'CI 环境禁止 advance（不得由 CI 修改 local config）');
         assert.match(ci.stderr, /forbidden in CI/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('trust-gate：advance 单调推进 —— 向后 / sibling / 无共同历史拒绝；等于 current no-op；后代推进', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeRepo();
+    try {
+        const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const boot = runCli(root, ['--bootstrap', '--ref', 'HEAD'], { clearCI: true });
+        assert.equal(boot.status, 0, boot.stdout + boot.stderr);
+
+        // 正常提交 C3（走本地 pre-commit，锚点不自动推进）
+        const jsDir = path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js');
+        fs.mkdirSync(jsDir, { recursive: true });
+        fs.writeFileSync(path.join(jsDir, 'x.js'), 'var x = 1;\n', 'utf8');
+        git(['add', '-A'], root);
+        const commit = git(['commit', '-q', '-m', 'normal commit'], root);
+        assert.equal(commit.status, 0, commit.stdout + commit.stderr);
+        const c3 = git(['rev-parse', 'HEAD'], root).stdout.trim();
+
+        // 向后推进：candidate = C1（current 的严格祖先）→ 拒绝
+        const c1 = git(['rev-parse', 'HEAD~2'], root).stdout.trim();
+        const backward = runCli(root, ['--advance', '--ref', c1], { clearCI: true });
+        assert.notEqual(backward.status, 0, '向后推进必须拒绝');
+        assert.match(backward.stderr, /not a descendant of the current anchor/);
+
+        // 无共同历史：orphan 分支 → 拒绝
+        const orphanDir = path.join(os.tmpdir(), 'pixiv orphan ' + Date.now() + '-' + Math.random().toString(36).slice(2));
+        fs.mkdirSync(orphanDir, { recursive: true });
+        git(['init', '-q', orphanDir], root);
+        git(['config', 'user.email', 't@example.com'], orphanDir);
+        git(['config', 'user.name', 'test'], orphanDir);
+        fs.writeFileSync(path.join(orphanDir, 'orphan.txt'), 'orphan\n', 'utf8');
+        git(['add', '-A'], orphanDir);
+        git(['commit', '-q', '-m', 'orphan'], orphanDir);
+        const orphanSha = git(['rev-parse', 'HEAD'], orphanDir).stdout.trim();
+        git(['fetch', '-q', orphanDir, 'master'], root);
+        const noHistory = runCli(root, ['--advance', '--ref', orphanSha], { clearCI: true });
+        assert.notEqual(noHistory.status, 0, '无共同历史的推进必须拒绝');
+        assert.match(noHistory.stderr, /not a descendant of the current anchor/);
+        fs.rmSync(orphanDir, { recursive: true, force: true });
+
+        // candidate == current → no-op（不报错）
+        const currentAnchor = git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim();
+        const equalRun = runCli(root, ['--advance', '--ref', currentAnchor], { clearCI: true });
+        assert.equal(equalRun.status, 0, 'candidate == current 必须 no-op: ' + equalRun.stdout + equalRun.stderr);
+        assert.match(equalRun.stdout, /nothing to do/);
+
+        // 正常后代 C3 → 推进成功（锚点 = C3）
+        const advance = runCli(root, ['--advance', '--ref', c3], { clearCI: true });
+        assert.equal(advance.status, 0, advance.stdout + advance.stderr);
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim(), c3);
+
+        // sibling：从 C2 分出分支提交 C3'（C3 不是 C3' 的祖先，反之亦然）→ 拒绝
+        git(['checkout', '-q', '-b', 'sibling', c2], root);
+        fs.mkdirSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 's.js'),
+            'var s = 2;\n', 'utf8');
+        git(['add', '-A'], root);
+        const siblingCommit = git(['commit', '-q', '-m', 'sibling commit'], root);
+        assert.equal(siblingCommit.status, 0, siblingCommit.stdout + siblingCommit.stderr);
+        const siblingSha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const sibling = runCli(root, ['--advance', '--ref', siblingSha], { clearCI: true });
+        assert.notEqual(sibling.status, 0, 'sibling 推进必须拒绝');
+        assert.match(sibling.stderr, /not a descendant of the current anchor/);
+        // 失败推进不得改动锚点
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim(), c3);
     } finally {
         cleanRepo(root);
     }

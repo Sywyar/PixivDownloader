@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractVersion": 1,
+  "contractVersion": 2,
   "i18nEnforcementStartCommit": "05f4ebed7ce00f0b923fe48ec2e0971610511547",
   "requiredPaths": [
     "scripts/i18n/check.mjs",
@@ -10,6 +10,22 @@
     "scripts/i18n/lib/trusted-gate.mjs",
     "scripts/hooks/pre-commit",
     "scripts/hooks/pre-push",
-    "scripts/hooks/pre-push-guard.sh"
+    "scripts/hooks/pre-push-guard.sh",
+    "scripts/hooks/execfile-shim.cjs",
+    "scripts/ci/resolve-trusted-base.mjs",
+    "scripts/ci/materialize-trusted-gate.sh",
+    "scripts/ci/contract-v1-transition-check.cjs",
+    ".github/workflows/quality-gate.yml",
+    "package.json"
+  ],
+  "protectedBranches": [
+    "refs/heads/master"
+  ],
+  "requiredWorkflowJobs": [
+    "java-tests",
+    "javascript-tests",
+    "signature-guard",
+    "trusted-gate-contract",
+    "i18n-check"
   ]
 }

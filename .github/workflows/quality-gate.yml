@@ -6,16 +6,19 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+    inputs:
+      trusted_base_sha:
+        description: 'Explicit trusted base commit for this dispatch (optional; falls back to the protected default branch remote ref)'
+        required: false
+        type: string
   workflow_call:
+    inputs:
+      trusted_base_sha:
+        required: true
+        type: string
 
 permissions:
   contents: read
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # 本次信任链起点迁移的 legacy bootstrap ref（唯一允许缺 gate contract 的 trusted base）。
-  # 迁移完成后该分支不可再用于任意 commit：其它缺 contract 的 base 一律失败。
-  LEGACY_BOOTSTRAP_REF: 19c3bc47387762130d593ddfcf7e2c4acbc992bd
 
 jobs:
   java-tests:
@@ -24,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -48,38 +51,107 @@ jobs:
 
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Determine trusted base
+      # bootstrap shell：解析 trusted base 并物化可信 gate bundle。
+      # 解析逻辑只使用 GitHub 提供的 event 数据（镜像 scripts/ci/resolve-trusted-base.mjs）；
+      # 物化逻辑与 scripts/ci/materialize-trusted-gate.sh 完全一致；
+      # trusted base 中已有 helper 时再交叉验证，helper 来自 trusted base，候选不能自我批准。
+      - name: Determine trusted base and materialize the trusted gate
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"
-          elif [ "${{ github.event_name }}" = "merge_group" ]; then base="${{ github.event.merge_group.base_sha }}"
-          elif [ "${{ github.event_name }}" = "push" ]; then base="${{ github.event.before }}"
-          else base=""; fi
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base="$(git rev-parse --verify --quiet "${{ github.sha }}^" || true)"
-          fi
-          if [ -z "$base" ]; then
-            echo "cannot determine a trusted base for ${{ github.sha }}; refusing to run the signature guard" >&2
+          zero="0000000000000000000000000000000000000000"
+          base=""
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              ;;
+            merge_group)
+              base="${{ github.event.merge_group.base_sha }}"
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              if [ -n "$before" ] && [ "$before" != "$zero" ] \
+                  && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
+                base="$before"
+              else
+                default_branch="${{ github.event.repository.default_branch }}"
+                git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
+                base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || true)"
+              fi
+              ;;
+            workflow_dispatch)
+              base="${{ github.event.inputs.trusted_base_sha }}"
+              if [ -z "$base" ]; then
+                default_branch="${{ github.event.repository.default_branch }}"
+                git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
+                base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || true)"
+              fi
+              ;;
+            workflow_call)
+              base="${{ inputs.trusted_base_sha }}"
+              ;;
+          esac
+          if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "cannot determine a valid trusted base for $GITHUB_SHA (event $GITHUB_EVENT_NAME); fail closed" >&2
             exit 1
           fi
+          if [ "$base" = "$GITHUB_SHA" ]; then
+            echo "trusted base $base equals the candidate $GITHUB_SHA; fail closed" >&2
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+            echo "trusted base $base is not present in the local object database; fail closed" >&2
+            exit 1
+          fi
+          # 物化 trusted gate bundle（checkout-index --stdin 必须显式提供 < paths-file）
+          gate="$RUNNER_TEMP/gate"
+          paths_file="$gate/paths.txt"
+          index_file="$gate/index"
+          out="$gate/out"
+          mkdir -p "$gate" "$out"
+          rm -f "$paths_file" "$index_file"
+          git ls-tree -r --name-only "$base" -- \
+            scripts/i18n \
+            scripts/hooks \
+            scripts/ci \
+            .github/workflows/quality-gate.yml \
+            package.json \
+            > "$paths_file"
+          test -s "$paths_file" || { echo "trusted base $base has no gate paths; fail closed" >&2; exit 1; }
+          GIT_INDEX_FILE="$index_file" git read-tree "$base"
+          GIT_INDEX_FILE="$index_file" git -c core.autocrlf=false checkout-index \
+            --stdin \
+            --prefix="$out/" \
+            < "$paths_file"
+          test -f "$out/scripts/i18n/check.mjs" || { echo "gate materialization is empty; fail closed" >&2; exit 1; }
+          test -f "$out/scripts/hooks/pre-push-guard.sh" || { echo "gate materialization misses the guard; fail closed" >&2; exit 1; }
+          # 与 trusted helper 交叉验证（helper 来自 trusted base；过渡完成后 helper 成为 required path）
+          if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
+            helper_base="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --before "${{ github.event.before }}" \
+              --pr-base "${{ github.event.pull_request.base.sha }}" \
+              --merge-group-base "${{ github.event.merge_group.base_sha }}" \
+              --input-base "${{ github.event.inputs.trusted_base_sha }}" \
+              --default-branch "${{ github.event.repository.default_branch }}")"
+            if [ "$helper_base" != "$base" ]; then
+              echo "trusted base helper resolved $helper_base but the bootstrap resolved $base; fail closed" >&2
+              exit 1
+            fi
+          fi
           echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "GATE_DIR=$out" >> "$GITHUB_ENV"
           echo "trusted base: $base"
 
       # 签名守卫必须来自 trusted base：候选提交不能用自己的 guard 自我批准
       - name: Reject reverse-engineered Douyin signature code (trusted guard)
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/guard"
-          git ls-tree -r --name-only "$BASE_SHA" -- scripts/i18n scripts/hooks > "$RUNNER_TEMP/guard/paths.txt"
-          GIT_INDEX_FILE="$RUNNER_TEMP/guard/index" git read-tree "$BASE_SHA"
-          mkdir -p "$RUNNER_TEMP/guard/out"
-          GIT_INDEX_FILE="$RUNNER_TEMP/guard/index" git -c core.autocrlf=false checkout-index --stdin --prefix="$RUNNER_TEMP/guard/out/"
-          bash "$RUNNER_TEMP/guard/out/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
+          bash "$GATE_DIR/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
 
   javascript-tests:
     runs-on: ubuntu-latest
@@ -87,15 +159,18 @@ jobs:
 
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run JavaScript tests
         run: npm run test:js
@@ -112,83 +187,141 @@ jobs:
 
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
-      - name: Determine trusted base
+      - name: Install dependencies (yaml parser for the workflow contract)
+        run: npm ci
+
+      - name: Determine trusted base and materialize the trusted gate
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"
-          elif [ "${{ github.event_name }}" = "merge_group" ]; then base="${{ github.event.merge_group.base_sha }}"
-          elif [ "${{ github.event_name }}" = "push" ]; then base="${{ github.event.before }}"
-          else base=""; fi
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base="$(git rev-parse --verify --quiet "${{ github.sha }}^" || true)"
-          fi
-          if [ -z "$base" ]; then
-            echo "cannot determine a trusted base for ${{ github.sha }}; refusing to run the trusted gate contract" >&2
+          zero="0000000000000000000000000000000000000000"
+          base=""
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              ;;
+            merge_group)
+              base="${{ github.event.merge_group.base_sha }}"
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              if [ -n "$before" ] && [ "$before" != "$zero" ] \
+                  && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
+                base="$before"
+              else
+                default_branch="${{ github.event.repository.default_branch }}"
+                git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
+                base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || true)"
+              fi
+              ;;
+            workflow_dispatch)
+              base="${{ github.event.inputs.trusted_base_sha }}"
+              if [ -z "$base" ]; then
+                default_branch="${{ github.event.repository.default_branch }}"
+                git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
+                base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || true)"
+              fi
+              ;;
+            workflow_call)
+              base="${{ inputs.trusted_base_sha }}"
+              ;;
+          esac
+          if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "cannot determine a valid trusted base for $GITHUB_SHA (event $GITHUB_EVENT_NAME); fail closed" >&2
             exit 1
           fi
+          if [ "$base" = "$GITHUB_SHA" ]; then
+            echo "trusted base $base equals the candidate $GITHUB_SHA; fail closed" >&2
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+            echo "trusted base $base is not present in the local object database; fail closed" >&2
+            exit 1
+          fi
+          gate="$RUNNER_TEMP/gate"
+          paths_file="$gate/paths.txt"
+          index_file="$gate/index"
+          out="$gate/out"
+          mkdir -p "$gate" "$out"
+          rm -f "$paths_file" "$index_file"
+          git ls-tree -r --name-only "$base" -- \
+            scripts/i18n \
+            scripts/hooks \
+            scripts/ci \
+            .github/workflows/quality-gate.yml \
+            package.json \
+            > "$paths_file"
+          test -s "$paths_file" || { echo "trusted base $base has no gate paths; fail closed" >&2; exit 1; }
+          GIT_INDEX_FILE="$index_file" git read-tree "$base"
+          GIT_INDEX_FILE="$index_file" git -c core.autocrlf=false checkout-index \
+            --stdin \
+            --prefix="$out/" \
+            < "$paths_file"
+          test -f "$out/scripts/i18n/check.mjs" || { echo "gate materialization is empty; fail closed" >&2; exit 1; }
+          test -f "$out/scripts/hooks/pre-push-guard.sh" || { echo "gate materialization misses the guard; fail closed" >&2; exit 1; }
+          if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
+            helper_base="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --before "${{ github.event.before }}" \
+              --pr-base "${{ github.event.pull_request.base.sha }}" \
+              --merge-group-base "${{ github.event.merge_group.base_sha }}" \
+              --input-base "${{ github.event.inputs.trusted_base_sha }}" \
+              --default-branch "${{ github.event.repository.default_branch }}")"
+            if [ "$helper_base" != "$base" ]; then
+              echo "trusted base helper resolved $helper_base but the bootstrap resolved $base; fail closed" >&2
+              exit 1
+            fi
+          fi
           echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "GATE_DIR=$out" >> "$GITHUB_ENV"
           echo "trusted base: $base"
 
       - name: Trusted base contract validates the candidate
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/gate"
-          git ls-tree -r --name-only "$BASE_SHA" -- scripts/i18n scripts/hooks > "$RUNNER_TEMP/gate/paths.txt"
-          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git read-tree "$BASE_SHA"
-          mkdir -p "$RUNNER_TEMP/gate/out"
-          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git -c core.autocrlf=false checkout-index --stdin --prefix="$RUNNER_TEMP/gate/out/"
-          if [ "$BASE_SHA" = "$LEGACY_BOOTSTRAP_REF" ]; then
-            echo "legacy bootstrap: base is exactly the one-time migration ref ($LEGACY_BOOTSTRAP_REF)"
-            node "$RUNNER_TEMP/gate/out/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --snapshot ref --ref "${{ github.sha }}"
-            bash "$RUNNER_TEMP/gate/out/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
-            for p in scripts/i18n/check.mjs scripts/i18n/gate-contract.mjs scripts/i18n/gate-policy.json \
-                     scripts/i18n/lib/repository-snapshot.mjs scripts/i18n/lib/trusted-gate.mjs \
-                     scripts/hooks/pre-commit scripts/hooks/pre-push scripts/hooks/pre-push-guard.sh; do
-              git cat-file -e "${{ github.sha }}^{commit}:$p" >/dev/null \
-                || { echo "candidate missing required gate file: $p" >&2; exit 1; }
-            done
-            echo "legacy bootstrap ok: the chain start migrates to the candidate's contract."
-          elif git cat-file -e "$BASE_SHA^{commit}:scripts/i18n/gate-contract.mjs" >/dev/null 2>&1; then
-            echo "trusted base gate contract validates the candidate..."
-            node "$RUNNER_TEMP/gate/out/scripts/i18n/gate-contract.mjs" \
-              --repo-root "$PWD" --report-root "$PWD" --candidate-ref "${{ github.sha }}"
-            echo "trusted base checker checks the candidate ref..."
-            node "$RUNNER_TEMP/gate/out/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --snapshot ref --ref "${{ github.sha }}"
-          else
-            echo "base $BASE_SHA lacks the gate contract and is not the legacy bootstrap ref; fail closed" >&2
+          test -f "$GATE_DIR/scripts/i18n/gate-contract.mjs" || {
+            echo "trusted base $BASE_SHA lacks the gate contract; fail closed (legacy bootstrap paths are retired)" >&2
             exit 1
-          fi
+          }
+          test -f "$GATE_DIR/scripts/i18n/gate-policy.json" || {
+            echo "trusted base $BASE_SHA lacks the gate policy; fail closed (legacy bootstrap paths are retired)" >&2
+            exit 1
+          }
+          node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
+            --repo-root "$PWD" --report-root "$PWD" \
+            --candidate-ref "${{ github.sha }}"
+          echo "trusted base checker checks the candidate ref..."
+          node "$GATE_DIR/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
+            --snapshot ref --ref "${{ github.sha }}"
 
       - name: Upload gate contract report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gate-contract-report
           path: build/reports/i18n/
           if-no-files-found: ignore
 
-      # 仓库管理员最终门禁提示（14.4）：仅靠仓库内 workflow 不能建立绝对不可变的信任根。
+      # 仓库管理员最终门禁提示：仅靠仓库内 workflow 不能建立绝对不可变的信任根。
       - name: Manual gate notes for repository admins
         if: always()
         run: |
+          set -euo pipefail
           echo "REMINDER for repository admins:"
           echo "  - Do NOT allow bypassing branch protection."
           echo "  - Configure Quality Gate jobs (java-tests, javascript-tests, signature-guard,"
           echo "    trusted-gate-contract, i18n-check) as required checks."
           echo "  - Gate / workflow files (.github/workflows/quality-gate.yml, scripts/i18n/**,"
-          echo "    scripts/hooks/**) must go through protected review."
+          echo "    scripts/hooks/**, scripts/ci/**, package.json) must go through protected review."
           echo "  - A stronger setup is an external workflow / separate repository checker that"
           echo "    the candidate commit cannot modify."
           echo "  - A repository-internal workflow cannot establish an absolutely immutable trust root."
@@ -199,16 +332,19 @@ jobs:
 
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           # 物化非 tip commit 的 tree 需要完整对象库，浅克隆会碰巧可用但不可依赖
           fetch-depth: 0
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
+
+      - name: Install dependencies (yaml parser for the workflow contract)
+        run: npm ci
 
       - name: Set up JDK 17 (properties oracle differential tests)
         uses: actions/setup-java@v5
@@ -217,21 +353,89 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Determine trusted base
+      - name: Determine trusted base and materialize the trusted gate
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"
-          elif [ "${{ github.event_name }}" = "merge_group" ]; then base="${{ github.event.merge_group.base_sha }}"
-          elif [ "${{ github.event_name }}" = "push" ]; then base="${{ github.event.before }}"
-          else base=""; fi
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base="$(git rev-parse --verify --quiet "${{ github.sha }}^" || true)"
-          fi
-          if [ -z "$base" ]; then
-            echo "cannot determine a trusted base for ${{ github.sha }}; refusing to run the trusted gate contract" >&2
+          zero="0000000000000000000000000000000000000000"
+          base=""
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              ;;
+            merge_group)
+              base="${{ github.event.merge_group.base_sha }}"
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              if [ -n "$before" ] && [ "$before" != "$zero" ] \
+                  && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
+                base="$before"
+              else
+                default_branch="${{ github.event.repository.default_branch }}"
+                git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
+                base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || true)"
+              fi
+              ;;
+            workflow_dispatch)
+              base="${{ github.event.inputs.trusted_base_sha }}"
+              if [ -z "$base" ]; then
+                default_branch="${{ github.event.repository.default_branch }}"
+                git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
+                base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || true)"
+              fi
+              ;;
+            workflow_call)
+              base="${{ inputs.trusted_base_sha }}"
+              ;;
+          esac
+          if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "cannot determine a valid trusted base for $GITHUB_SHA (event $GITHUB_EVENT_NAME); fail closed" >&2
             exit 1
           fi
+          if [ "$base" = "$GITHUB_SHA" ]; then
+            echo "trusted base $base equals the candidate $GITHUB_SHA; fail closed" >&2
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+            echo "trusted base $base is not present in the local object database; fail closed" >&2
+            exit 1
+          fi
+          gate="$RUNNER_TEMP/gate"
+          paths_file="$gate/paths.txt"
+          index_file="$gate/index"
+          out="$gate/out"
+          mkdir -p "$gate" "$out"
+          rm -f "$paths_file" "$index_file"
+          git ls-tree -r --name-only "$base" -- \
+            scripts/i18n \
+            scripts/hooks \
+            scripts/ci \
+            .github/workflows/quality-gate.yml \
+            package.json \
+            > "$paths_file"
+          test -s "$paths_file" || { echo "trusted base $base has no gate paths; fail closed" >&2; exit 1; }
+          GIT_INDEX_FILE="$index_file" git read-tree "$base"
+          GIT_INDEX_FILE="$index_file" git -c core.autocrlf=false checkout-index \
+            --stdin \
+            --prefix="$out/" \
+            < "$paths_file"
+          test -f "$out/scripts/i18n/check.mjs" || { echo "gate materialization is empty; fail closed" >&2; exit 1; }
+          test -f "$out/scripts/hooks/pre-push-guard.sh" || { echo "gate materialization misses the guard; fail closed" >&2; exit 1; }
+          if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
+            helper_base="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --before "${{ github.event.before }}" \
+              --pr-base "${{ github.event.pull_request.base.sha }}" \
+              --merge-group-base "${{ github.event.merge_group.base_sha }}" \
+              --input-base "${{ github.event.inputs.trusted_base_sha }}" \
+              --default-branch "${{ github.event.repository.default_branch }}")"
+            if [ "$helper_base" != "$base" ]; then
+              echo "trusted base helper resolved $helper_base but the bootstrap resolved $base; fail closed" >&2
+              exit 1
+            fi
+          fi
           echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "GATE_DIR=$out" >> "$GITHUB_ENV"
           echo "trusted base: $base"
 
       # 各独立检查尽量都执行：某一项失败不跳过其余项（continue-on-error 收集 outcome，
@@ -248,29 +452,17 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/gate"
-          git ls-tree -r --name-only "$BASE_SHA" -- scripts/i18n scripts/hooks > "$RUNNER_TEMP/gate/paths.txt"
-          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git read-tree "$BASE_SHA"
-          mkdir -p "$RUNNER_TEMP/gate/out"
-          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git -c core.autocrlf=false checkout-index --stdin --prefix="$RUNNER_TEMP/gate/out/"
-          if [ "$BASE_SHA" = "$LEGACY_BOOTSTRAP_REF" ]; then
-            echo "legacy bootstrap: base is exactly the one-time migration ref ($LEGACY_BOOTSTRAP_REF)"
-            node "$RUNNER_TEMP/gate/out/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --snapshot ref --ref "${{ github.sha }}"
-            bash "$RUNNER_TEMP/gate/out/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
-            for p in scripts/i18n/check.mjs scripts/i18n/gate-contract.mjs scripts/i18n/gate-policy.json \
-                     scripts/i18n/lib/repository-snapshot.mjs scripts/i18n/lib/trusted-gate.mjs \
-                     scripts/hooks/pre-commit scripts/hooks/pre-push scripts/hooks/pre-push-guard.sh; do
-              git cat-file -e "${{ github.sha }}^{commit}:$p" >/dev/null \
-                || { echo "candidate missing required gate file: $p" >&2; exit 1; }
-            done
-          elif git cat-file -e "$BASE_SHA^{commit}:scripts/i18n/gate-contract.mjs" >/dev/null 2>&1; then
-            node "$RUNNER_TEMP/gate/out/scripts/i18n/gate-contract.mjs" \
-              --repo-root "$PWD" --report-root "$PWD" --candidate-ref "${{ github.sha }}"
-          else
-            echo "base $BASE_SHA lacks the gate contract and is not the legacy bootstrap ref; fail closed" >&2
+          test -f "$GATE_DIR/scripts/i18n/gate-contract.mjs" || {
+            echo "trusted base $BASE_SHA lacks the gate contract; fail closed (legacy bootstrap paths are retired)" >&2
             exit 1
-          fi
+          }
+          test -f "$GATE_DIR/scripts/i18n/gate-policy.json" || {
+            echo "trusted base $BASE_SHA lacks the gate policy; fail closed (legacy bootstrap paths are retired)" >&2
+            exit 1
+          }
+          node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
+            --repo-root "$PWD" --report-root "$PWD" \
+            --candidate-ref "${{ github.sha }}"
 
       - name: Run i18n check on the tested commit (ref snapshot)
         id: ref
@@ -292,22 +484,32 @@ jobs:
         continue-on-error: true
         run: git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static
 
-      - name: Propagate result
-        if: always()
-        run: |
-          test "${{ steps.tests.outcome }}" = "success"
-          test "${{ steps.trusted.outcome }}" = "success"
-          test "${{ steps.ref.outcome }}" = "success"
-          test "${{ steps.worktree.outcome }}" = "success"
-          test "${{ steps.static-generate.outcome }}" = "success"
-          test "${{ steps.static-diff.outcome }}" = "success"
-
       - name: Upload i18n report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: i18n-report
           path: |
             build/reports/i18n/
             pixivdownload-app/src/main/resources/static/i18n-static/
           if-no-files-found: ignore
+
+      - name: Propagate result
+        if: always()
+        run: |
+          failed=0
+          check_outcome() {
+            name="$1"
+            value="$2"
+            echo "- $name: $value" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$value" != "success" ]; then
+              failed=1
+            fi
+          }
+          check_outcome tests "${{ steps.tests.outcome }}"
+          check_outcome trusted "${{ steps.trusted.outcome }}"
+          check_outcome ref "${{ steps.ref.outcome }}"
+          check_outcome worktree "${{ steps.worktree.outcome }}"
+          check_outcome static-generate "${{ steps.static-generate.outcome }}"
+          check_outcome static-diff "${{ steps.static-diff.outcome }}"
+          exit "$failed"

@@ -11,6 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +23,11 @@ import staleLock from '../lib/stale-lock.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
+
+// pre-commit/pre-push 内的 trusted contract 使用 yaml 解析候选 workflow：
+// fixture 仓库没有 node_modules，通过 NODE_PATH 指向真实仓库的 node_modules
+// （与 CI 的 npm ci 等价），子进程（bash hooks / node checker / git push）继承该环境。
+process.env.NODE_PATH = process.env.NODE_PATH || path.join(REPO_ROOT, 'node_modules');
 
 const CATALOG = `{
   "schemaVersion": 1,
@@ -70,8 +76,10 @@ function hasBash() {
  * - C2：引入 gate-policy.json（i18nEnforcementStartCommit = C1），作为本地 trusted anchor。
  * 之后启用 core.hooksPath 并写入 pixiv.i18n.trustedGateRef = C2。
  * 这样后续每个历史 commit 都满足 i18n 门禁，pre-push 的逐 commit 检查只在故意注入的坏提交上失败。
+ * fullGate=true 时 C1 还包含 scripts/ci、.github/workflows/quality-gate.yml 与 package.json
+ * （候选 gate 完整 bundle；用于 workflow/package scripts 弱化场景）。
  */
-function makeGitRepo(base = os.tmpdir()) {
+function makeGitRepo(base = os.tmpdir(), opts = {}) {
     const dir = path.join(base, 'pixiv test repo ' + Date.now() + '-' + Math.random().toString(36).slice(2));
     fs.mkdirSync(dir, { recursive: true });
     git(['init', '-q'], dir);
@@ -79,12 +87,32 @@ function makeGitRepo(base = os.tmpdir()) {
     git(['config', 'user.name', 'test'], dir);
     git(['config', 'core.autocrlf', 'false'], dir);
 
+    // WSL bash 不继承 Windows 进程的 NODE_PATH：junction node_modules，让 hook 内的
+    // trusted contract 与 CI（npm ci）一样从 repoRoot 解析 yaml
+    fs.writeFileSync(path.join(dir, '.gitignore'), 'build/\nnode_modules/\n', 'utf8');
+    try {
+        if (process.platform === 'win32') {
+            fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(dir, 'node_modules'), 'junction');
+        } else {
+            fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(dir, 'node_modules'));
+        }
+    } catch (e) {
+        // node_modules 不可链接时静默跳过：候选 predates workflow 的场景不需要 yaml
+    }
+
     // 复制真实检查器与 hooks（hooks 经 core.hooksPath 生效）；测试目录不需要且含签名标记字样
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     // C1 不带 gate-policy.json（与真实 enforcement start 05f4ebed 同构：policy 在后续提交引入）
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    if (opts.fullGate) {
+        fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+        fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+        fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+            path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+        fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
+    }
 
     // 初始 bundle + 静态资源 + lock（全部合法）
     const i18nDir = path.join(dir, APP_I18N);
@@ -98,7 +126,7 @@ function makeGitRepo(base = os.tmpdir()) {
     }
     runGenerate(dir);
 
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir); // C1 = enforcement start
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -498,6 +526,7 @@ test('pre-push：中间 commit 坏、tip 修好 → 必须检测中间 commit；
 
         // 把工作树修复并提交（fixup）→ 历史坏 commit A 仍在推送范围，仍然失败
         writeBundles(root, GOOD_ZH, GOOD_EN);
+        fs.writeFileSync(path.join(root, 'fixup.txt'), 'fixup\n', 'utf8');
         commitAll(root, 'commit C fixup');
         const stillBad = git(['push', 'origin', 'master'], root, { allowFailure: true });
         assert.notEqual(stillBad.status, 0, 'fixup 不消除历史坏 commit，pre-push 必须仍然失败');
@@ -794,7 +823,7 @@ function makeEnforcementRepo() {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'C: enforcement start'], dir);
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -961,6 +990,184 @@ test('Windows 路径含空格：hooks 与快照物化均可用', () => {
     } finally {
         cleanRepo(root);
         fs.rmSync(base, { recursive: true, force: true });
+    }
+});
+
+test('pre-commit：暂存 workflow 删除关键 job → 必须失败', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    try {
+        const workflowPath = path.join(root, '.github', 'workflows', 'quality-gate.yml');
+                const YAML = createRequire(path.join(REPO_ROOT, 'package.json'))('yaml');
+        const doc = YAML.parse(fs.readFileSync(workflowPath, 'utf8'));
+        delete doc.jobs['java-tests'];
+        fs.writeFileSync(workflowPath, YAML.stringify(doc), 'utf8');
+        git(['add', '-A'], root);
+        const result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, '删除关键 job 的 workflow 必须被 trusted contract 拒绝');
+        assert.match(result.stdout + result.stderr, /GATE CONTRACT FAILED|job java-tests|workflow/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('pre-commit：暂存 workflow 关键命令改为 true → 必须失败', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    try {
+        const workflowPath = path.join(root, '.github', 'workflows', 'quality-gate.yml');
+                const YAML = createRequire(path.join(REPO_ROOT, 'package.json'))('yaml');
+        const doc = YAML.parse(fs.readFileSync(workflowPath, 'utf8'));
+        const testsStep = doc.jobs['i18n-check'].steps.find((s) => typeof s.run === 'string'
+            && s.run.includes('npm run test:i18n'));
+        testsStep.run = 'true';
+        fs.writeFileSync(workflowPath, YAML.stringify(doc), 'utf8');
+        git(['add', '-A'], root);
+        const result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, '关键命令改为 true 的 workflow 必须被 trusted contract 拒绝');
+        assert.match(result.stdout + result.stderr, /GATE CONTRACT FAILED|echo \/ true|test:i18n/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('pre-commit：暂存 package.json test:i18n = true → 必须失败', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    try {
+        const pkgPath = path.join(root, 'package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        pkg.scripts['test:i18n'] = 'true';
+        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        git(['add', '-A'], root);
+        const result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, 'test:i18n = true 必须被 trusted contract 拒绝');
+        assert.match(result.stdout + result.stderr, /GATE CONTRACT FAILED|test:i18n/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('pre-push：protected master —— 远端 master 存在时 force push 回退 → 必须失败', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo();
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+        const seed = git(['push', 'origin', 'master'], root, { allowFailure: true });
+        assert.equal(seed.status, 0, seed.stdout + seed.stderr);
+        const remoteTip = git(['rev-parse', 'HEAD'], root).stdout.trim();
+
+        // 本地重写历史到 enforcement 之前（模拟 force push 回退到旧 gate commit）
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        const oldSha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        assert.notEqual(oldSha, remoteTip);
+
+        const forced = git(['push', 'origin', 'master', '--force'], root, { allowFailure: true });
+        assert.notEqual(forced.status, 0, 'protected master force rewind 必须被 pre-push 拒绝');
+        assert.match(forced.stdout + forced.stderr, /protected|refusing|trusted gate anchor/);
+
+        // 远端必须没有任何更新（仍指向原 tip）
+        const lsRemote = git(['ls-remote', remote], root).stdout;
+        assert.ok(lsRemote.includes(remoteTip + '\trefs/heads/master'),
+            '远端 master 必须保持原 tip: ' + lsRemote);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
+test('pre-push：protected master —— tip 不包含 trusted anchor（旧 gate commit）→ 必须失败', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo();
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        // 远端 master = enforcement start（C1）：不含 trusted anchor（C2）
+        const c1 = git(['rev-parse', 'HEAD~1'], root).stdout.trim();
+        const seed = git(['-c', 'core.hooksPath=/dev/null', 'push', 'origin', c1 + ':refs/heads/master'], root, { allowFailure: true });
+        assert.equal(seed.status, 0, seed.stdout + seed.stderr);
+
+        // 在 C1 之上提交 X（X 是 C1 后代、但历史不包含 trusted anchor C2）→ 推送必须被拒绝
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        fs.writeFileSync(path.join(root, 'extra.txt'), 'extra\n', 'utf8');
+        commitAll(root, 'commit without anchor', { bypass: true });
+        const pushed = git(['push', 'origin', 'master'], root, { allowFailure: true });
+        assert.notEqual(pushed.status, 0, 'tip 不含 trusted anchor 的 master 推送必须失败');
+        assert.match(pushed.stdout + pushed.stderr, /protected|trusted gate anchor|refusing/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
+test('pre-push：final tip 始终检查 —— 非保护分支 force push 重写坏 tip（range 为空）→ 必须失败', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo();
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        // 非保护分支 feature 先推送合法提交 G（远端 tip = G）
+        git(['checkout', '-q', '-b', 'feature'], root);
+        const seed = git(['push', 'origin', 'feature'], root, { allowFailure: true });
+        assert.equal(seed.status, 0, seed.stdout + seed.stderr);
+        const g = git(['rev-parse', 'HEAD'], root).stdout.trim();
+
+        // 重写历史：回到 G 的父提交，写入坏翻译 B 并 force push。
+        // range = G..B 为空（B 不是 G 的后代），但 final tip B 必须仍被检查。
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        writeBundles(root, GOOD_ZH, BAD_EN);
+        commitAll(root, 'rewritten bad tip', { bypass: true });
+        const b = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        assert.equal(git(['merge-base', '--is-ancestor', g, b], root, { allowFailure: true }).status, 1,
+            '测试前提：B 不是 G 的后代（range 为空）');
+
+        const forced = git(['push', 'origin', 'feature', '--force'], root, { allowFailure: true });
+        assert.notEqual(forced.status, 0, 'range 为空也必须检查 final tip（坏 tip 必须被拦截）');
+        assert.match(forced.stdout + forced.stderr, /does not pass the i18n gate/);
+
+        // 合法重写（tip 合法）→ 非保护分支允许 force push
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        fs.writeFileSync(path.join(root, APP_I18N, 'web', 'common.properties'),
+            GOOD_ZH + 'status=状态\n', 'utf8');
+        fs.writeFileSync(path.join(root, APP_I18N, 'web', 'common_en.properties'),
+            GOOD_EN + 'status=Status\n', 'utf8');
+        runGenerate(root);
+        const accept = runAcceptCore(root, { locale: 'en-US' });
+        assert.equal(accept.ok, true, accept.refused.join('\n'));
+        commitAll(root, 'rewritten good tip', { bypass: true });
+        const okPush = git(['push', 'origin', 'feature', '--force'], root, { allowFailure: true });
+        assert.equal(okPush.status, 0, '非保护分支的合法 force push 必须通过: ' + okPush.stdout + okPush.stderr);
+        assert.match(okPush.stdout + okPush.stderr, /all \d+ pushed commit/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
     }
 });
 

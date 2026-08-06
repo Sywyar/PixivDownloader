@@ -15,9 +15,48 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  trusted-base:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      # Quality Gate 的 workflow_call 要求显式 trusted_base_sha：
+      # 解析受保护默认分支的当前远端状态；与候选相同（默认分支 tip 被分发）时用其父提交
+      # （此前已过质量门禁的 master 状态）。解析失败 fail closed，绝不回退到未验证的提交。
+      - name: Resolve trusted base
+        id: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="${{ github.event.repository.default_branch }}"
+          git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
+          tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" || true)"
+          if [ -z "$tip" ]; then
+            echo "cannot resolve the protected default branch remote ref; fail closed" >&2
+            exit 1
+          fi
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            tip="$(git rev-parse --verify --quiet "$tip^{commit}^" || true)"
+          fi
+          if ! [[ "$tip" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "cannot resolve a trusted base for $GITHUB_SHA; fail closed" >&2
+            exit 1
+          fi
+          echo "sha=$tip" >> "$GITHUB_OUTPUT"
+
   draft-quality-gate:
+    needs: trusted-base
     if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/quality-gate.yml
+    with:
+      trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
 
   publish-plugins:
     if: github.event_name == 'push'

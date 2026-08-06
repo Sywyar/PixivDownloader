@@ -78,3 +78,6 @@ build/
 # Local packaging-only layout survey configuration. The example file with empty
 # values is tracked; the real per-machine file must never be committed.
 /scripts/properties/posthog.properties
+
+### Node.js ###
+node_modules/

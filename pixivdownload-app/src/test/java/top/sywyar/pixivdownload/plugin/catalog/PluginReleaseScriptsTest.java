@@ -672,6 +672,7 @@ class PluginReleaseScriptsTest {
                 "pull_request:",
                 "merge_group:",
                 "workflow_call:",
+                "trusted_base_sha:",
                 "ref: ${{ github.sha }}",
                 "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
                 "mvn -B -ntp test -Dexec.skip=true",
@@ -679,7 +680,7 @@ class PluginReleaseScriptsTest {
                 // 签名守卫必须来自 trusted base 的物化（候选提交不能用自己的 guard 自我批准）
                 "pre-push-guard.sh\" --repo-root \"$PWD\" --ref \"${{ github.sha }}\"",
                 "trusted-gate-contract:",
-                "uses: actions/setup-node@v4",
+                "uses: actions/setup-node@v7",
                 "node-version: '24'",
                 "run: npm run test:js",
                 "run: npm run test:web-standards",
@@ -690,11 +691,19 @@ class PluginReleaseScriptsTest {
                 "run: npm run i18n:check",
                 "run: npm run i18n:generate-static",
                 "git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static",
-                "uses: actions/upload-artifact@v4",
+                "uses: actions/upload-artifact@v7",
                 "name: i18n-report",
-                "if-no-files-found: ignore");
+                "if-no-files-found: ignore",
+                // 可信物化：stdin 显式重定向 + 输出验证；contract/guard 只来自 trusted bundle
+                "< \"$paths_file\"",
+                "$GATE_DIR/scripts/i18n/gate-contract.mjs",
+                "GATE_DIR",
+                "actions/checkout@v7");
         assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(6);
         assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
+        assertThat(workflow).doesNotContain("LEGACY_BOOTSTRAP_REF");
+        assertThat(workflow).doesNotContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24");
+        assertThat(workflow).doesNotContain("actions/checkout@v4", "actions/setup-node@v4", "actions/upload-artifact@v4");
         assertThat(workflow.indexOf("run: npm run test:web-standards"))
                 .isGreaterThan(workflow.indexOf("run: npm run test:js"));
         assertThat(packageJson.path("private").asBoolean()).isTrue();
@@ -704,7 +713,8 @@ class PluginReleaseScriptsTest {
         assertThat(packageJson.path("scripts").path("test:web-standards").asText())
                 .isEqualTo("node scripts/check-web-standards.mjs");
         assertThat(packageJson.has("dependencies")).isFalse();
-        assertThat(packageJson.has("devDependencies")).isFalse();
+        assertThat(packageJson.path("devDependencies").path("yaml").asText())
+                .isNotBlank();
     }
 
     @Test

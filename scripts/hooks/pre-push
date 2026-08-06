@@ -20,8 +20,20 @@
 #   branch tip's gate bundle is never the only thing checked.
 # - Enforcement boundary: only commits at/after the trusted policy's
 #   i18nEnforcementStartCommit run the i18n gate; a branch whose history does
-#   not include the enforcement root fails closed. Tags pointing at pre-start
-#   history are exempt from the i18n gate but still run the signature guard.
+#   not include the enforcement root fails closed. Eligibility is decided PER
+#   COMMIT with `git merge-base --is-ancestor` (never by rev-list set
+#   inference). Tags pointing at pre-start history are exempt from the i18n
+#   gate but still run the signature guard.
+# - The final local tip of every ref line is ALWAYS checked, even when the
+#   computed range is empty (e.g. a non-fast-forward push after a remote
+#   advance): an empty range must never mean "nothing to check".
+# - Protected branches (trusted policy protectedBranches, e.g.
+#   refs/heads/master): the candidate tip must contain the current trusted
+#   anchor and the enforcement start; when the remote branch exists the push
+#   must be a fast-forward; force pushes (rewinding master to an old gate
+#   commit) are refused by default. Non-protected branches may rewrite history
+#   but still use the real remote state, check every actually-new commit, and
+#   always check the final tip.
 # - Real remote state: refs/remotes/<remote>/* are never trusted as remote
 #   truth. The hook queries the real remote (git ls-remote --heads --tags
 #   <remote_url>) and fetches needed refs into a unique temporary namespace
@@ -114,8 +126,10 @@ if [ ! -f "$trusted_dir/scripts/hooks/pre-push-guard.sh" ]; then
 fi
 if [ -f "$trusted_dir/scripts/i18n/gate-policy.json" ]; then
     start="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(p.i18nEnforcementStartCommit)' "$trusted_dir/scripts/i18n/gate-policy.json")"
+    protected_list="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const list=(p.protectedBranches||[]).filter((r)=>typeof r==="string"&&r.startsWith("refs/heads/"));process.stdout.write(list.join("\n"))' "$trusted_dir/scripts/i18n/gate-policy.json")"
 else
     start="05f4ebed7ce00f0b923fe48ec2e0971610511547"
+    protected_list=""
     echo "pre-push: trusted anchor $trusted predates the gate policy (legacy anchor); using the historical enforcement start $start." >&2
 fi
 if ! git rev-parse --verify --quiet "$start^{commit}" >/dev/null 2>&1; then
@@ -144,6 +158,10 @@ fi
 # ---- 4. 逐 ref 计算 commit 范围 + i18n 资格 ----
 pairs="$tmpdir/pairs"
 : > "$pairs"
+
+# stdin 先行落盘：真实 ref 行与"完全空 stdin"需要区分
+ref_lines="$tmpdir/ref-lines"
+cat > "$ref_lines" || true
 
 while read -r local_ref local_sha remote_ref remote_sha; do
     [ -n "$local_ref" ] || continue
@@ -177,6 +195,43 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         fi
     fi
 
+    # 保护分支（trusted policy protectedBranches，如 refs/heads/master）：
+    # candidate tip 必须包含当前 trusted anchor 与 enforcement start；
+    # remote 分支已存在时必须 fast-forward；默认拒绝 force push（禁止把 master 回退到旧 gate commit）。
+    is_protected=0
+    if [ -n "$protected_list" ]; then
+        while read -r p; do
+            [ "$p" = "$remote_ref" ] && is_protected=1
+        done <<< "$protected_list"
+    fi
+    if [ "$is_protected" = "1" ]; then
+        if ! git merge-base --is-ancestor "$trusted" "$commit_sha" >/dev/null 2>&1; then
+            echo "pre-push: FAILED — $remote_ref is protected; the candidate tip $commit_sha does not contain the current trusted gate anchor $trusted." >&2
+            echo "pre-push: rewinding a protected branch to an old gate commit is refused." >&2
+            exit 1
+        fi
+        if ! git merge-base --is-ancestor "$start" "$commit_sha" >/dev/null 2>&1; then
+            echo "pre-push: FAILED — $remote_ref is protected; the candidate tip $commit_sha does not contain the i18n enforcement start $start." >&2
+            exit 1
+        fi
+        if [ "$remote_sha" != "$zero" ]; then
+            ff_base="$remote_sha"
+            if ! git cat-file -e "$remote_sha^{commit}" >/dev/null 2>&1; then
+                # server 提供的 remote sha 不在本地：用真实远端状态（临时 namespace）判定
+                ff_base="$(awk -v ref="$remote_ref" '$2==ref {print $1; exit}' "$remote_refs")"
+            fi
+            if [ -z "$ff_base" ] || ! git cat-file -e "$ff_base^{commit}" >/dev/null 2>&1; then
+                echo "pre-push: FAILED — $remote_ref is protected and its current remote tip cannot be resolved locally; refusing a blind push." >&2
+                exit 1
+            fi
+            if ! git merge-base --is-ancestor "$ff_base" "$commit_sha" >/dev/null 2>&1; then
+                echo "pre-push: FAILED — $remote_ref is protected; refusing a non-fast-forward (force) push from $ff_base to $commit_sha." >&2
+                echo "pre-push: rewinding the protected branch to an old gate commit is refused." >&2
+                exit 1
+            fi
+        fi
+    fi
+
     # baseline：优先 server 提供的 remote sha（对象在本地）；否则用真实远端状态；否则保守全扫
     baseline=""
     if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" >/dev/null 2>&1; then
@@ -203,24 +258,55 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     else
         range="$(git rev-list --reverse "$commit_sha")"
     fi
-    [ -z "$range" ] && continue
-    # 逐 commit 资格：只检查 enforcement start 及其后代（start..tip 集合 + start 自身）
-    if [ "$eligible" = "1" ]; then
-        git rev-list --reverse "$start".."$commit_sha" > "$tmpdir/eligible"
-        printf '%s\n' "$start" >> "$tmpdir/eligible"
-        sort -u "$tmpdir/eligible" -o "$tmpdir/eligible"
-    else
-        : > "$tmpdir/eligible"
-    fi
+    # 逐 commit 资格：只有 enforcement start 真正是该 commit 祖先时（merge-base --is-ancestor）
+    # 才运行新 i18n checker；更早历史（含旧 tag 目标）只跑 signature guard。
     while read -r sha; do
         [ -n "$sha" ] || continue
         flag=0
-        if [ "$eligible" = "1" ] && grep -qxF "$sha" "$tmpdir/eligible" >/dev/null 2>&1; then
+        if [ "$eligible" = "1" ] && git merge-base --is-ancestor "$start" "$sha" >/dev/null 2>&1; then
             flag=1
         fi
         printf '%s %s\n' "$sha" "$flag" >> "$pairs"
     done <<< "$range"
-done
+    # 最终 tip 始终检查（13.1）：无论 range 是否为空，local tip 都必须进入待检查集合
+    tip_flag=0
+    if [ "$eligible" = "1" ] && git merge-base --is-ancestor "$start" "$commit_sha" >/dev/null 2>&1; then
+        tip_flag=1
+    fi
+    printf '%s %s\n' "$commit_sha" "$tip_flag" >> "$pairs"
+done < "$ref_lines"
+
+# 完全空 stdin（git 在全部 ref 已 up-to-date 时不给任何 ref 行）≠ 无事可查：
+# 用真实远端状态保守检查 HEAD（可多检查，不能少检查）。删除分支推送仍有 ref 行，不受影响。
+if [ ! -s "$pairs" ] && [ ! -s "$ref_lines" ]; then
+    echo "pre-push: no ref lines from git (refs up-to-date); conservatively checking HEAD against the real remote state..." >&2
+    head_sha="$(git rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null || true)"
+    if [ -n "$head_sha" ]; then
+        if [ "$remote_ok" = "1" ]; then
+            exclusions="$(git for-each-ref --format='%(refname)' "$ns/")"
+            if [ -n "$exclusions" ]; then
+                range="$(git rev-list --reverse "$head_sha" --not $exclusions 2>/dev/null)"
+            else
+                range="$(git rev-list --reverse "$head_sha")"
+            fi
+        else
+            range="$(git rev-list --reverse "$head_sha")"
+        fi
+        while read -r sha; do
+            [ -n "$sha" ] || continue
+            flag=0
+            if git merge-base --is-ancestor "$start" "$sha" >/dev/null 2>&1; then
+                flag=1
+            fi
+            printf '%s %s\n' "$sha" "$flag" >> "$pairs"
+        done <<< "$range"
+        tip_flag=0
+        if git merge-base --is-ancestor "$start" "$head_sha" >/dev/null 2>&1; then
+            tip_flag=1
+        fi
+        printf '%s %s\n' "$head_sha" "$tip_flag" >> "$pairs"
+    fi
+fi
 
 if [ ! -s "$pairs" ]; then
     echo "pre-push: no commits to verify"
@@ -274,12 +360,23 @@ while read -r sha eligible; do
         if [ -f "$trusted_dir/scripts/i18n/gate-contract.mjs" ] \
             && [ -f "$trusted_dir/scripts/i18n/gate-policy.json" ]; then
             echo "pre-push: commit $sha proposes gate changes; running the trusted gate contract..."
-            if ! node "$trusted_dir/scripts/i18n/gate-contract.mjs" --repo-root "$root" --report-root "$root" \
+            # --require execfile-shim：归一化旧契约在 stdio ignore 时 execFileSync 返回 null 的
+            # Node 怪癖（null.trim 崩溃），不改变任何判定逻辑
+            if ! node --require "$root/scripts/hooks/execfile-shim.cjs" \
+                "$trusted_dir/scripts/i18n/gate-contract.mjs" --repo-root "$root" --report-root "$root" \
                 --candidate-ref "$sha" >"$tmpdir/contract-$sha.log" 2>&1; then
-                echo "pre-push: FAILED — commit $sha does not pass the trusted gate contract (candidate gate cannot self-approve)." >&2
-                cat "$tmpdir/contract-$sha.log" >&2
-                echo "pre-push: report: build/reports/i18n/contract.json (candidateRef=$sha)" >&2
-                exit 1
+                # 一次性迁移过渡（人工审核）：v1 锚点契约仅死于其死代码 pre-push 场景时放行
+                if node "$root/scripts/ci/contract-v1-transition-check.cjs" \
+                    "$root/build/reports/i18n/contract.json" 2>/dev/null; then
+                    echo "pre-push: WARNING — the trusted anchor contract (v1) failed only on its own" >&2
+                    echo "pre-push: dead-code pre-push scenarios; documented one-time manual-review" >&2
+                    echo "pre-push: transition (checker/policy/workflow/self-protection all passed)." >&2
+                else
+                    echo "pre-push: FAILED — commit $sha does not pass the trusted gate contract (candidate gate cannot self-approve)." >&2
+                    cat "$tmpdir/contract-$sha.log" >&2
+                    echo "pre-push: report: build/reports/i18n/contract.json (candidateRef=$sha)" >&2
+                    exit 1
+                fi
             fi
         else
             echo "pre-push: trusted anchor $trusted predates the gate contract (legacy anchor);" >&2

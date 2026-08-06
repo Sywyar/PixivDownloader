@@ -29,13 +29,61 @@ import snapshot from './repository-snapshot.mjs';
 export const TRUSTED_REF_KEY = 'pixiv.i18n.trustedGateRef';
 
 /** hooks 与 contract 从可信锚点物化的路径范围。 */
-export const GATE_PATHS = ['scripts/i18n', 'scripts/hooks'];
+export const GATE_PATHS = [
+    'scripts/i18n',
+    'scripts/hooks',
+    'scripts/ci',
+    '.github/workflows/quality-gate.yml',
+    'package.json',
+];
 
 /** gate-policy.json 相对仓库根的路径。 */
 export const POLICY_REL = path.posix.join('scripts', 'i18n', 'gate-policy.json');
 
 /** gate-contract.mjs 相对仓库根的路径。 */
 export const CONTRACT_REL = path.posix.join('scripts', 'i18n', 'gate-contract.mjs');
+
+/** quality-gate.yml 相对仓库根的路径。 */
+export const WORKFLOW_REL = path.posix.join('.github', 'workflows', 'quality-gate.yml');
+
+/** package.json 相对仓库根的路径。 */
+export const PACKAGE_JSON_REL = path.posix.join('package.json');
+
+const REF_RE = /^refs\/heads\/[A-Za-z0-9._/-]+$/;
+
+function validateRefList(name, list) {
+    if (!Array.isArray(list) || list.length === 0) {
+        throw new Error('gate-policy.json: ' + name + ' must be a non-empty array');
+    }
+    const seen = new Set();
+    for (const entry of list) {
+        if (typeof entry !== 'string' || !REF_RE.test(entry)) {
+            throw new Error('gate-policy.json: ' + name + ' entries must be full refs (refs/heads/...): '
+                + JSON.stringify(entry));
+        }
+        if (seen.has(entry)) {
+            throw new Error('gate-policy.json: ' + name + ' must not contain duplicates: ' + entry);
+        }
+        seen.add(entry);
+    }
+}
+
+function validateJobIdList(list) {
+    if (!Array.isArray(list) || list.length === 0) {
+        throw new Error('gate-policy.json: requiredWorkflowJobs must be a non-empty array');
+    }
+    const seen = new Set();
+    for (const entry of list) {
+        if (typeof entry !== 'string' || entry.length === 0 || !/^[A-Za-z0-9._-]+$/.test(entry)) {
+            throw new Error('gate-policy.json: requiredWorkflowJobs entries must be job ids: '
+                + JSON.stringify(entry));
+        }
+        if (seen.has(entry)) {
+            throw new Error('gate-policy.json: requiredWorkflowJobs must not contain duplicates: ' + entry);
+        }
+        seen.add(entry);
+    }
+}
 
 /**
  * 本次信任链起点迁移的明确 legacy bootstrap ref。
@@ -61,9 +109,10 @@ export const BOOTSTRAP_HINT = 'npm run i18n:trust-gate -- --bootstrap --ref HEAD
 export const SHA_RE = /^[0-9a-f]{40}$/;
 
 function git(args, repoRoot, opts = {}) {
-    return execFileSync('git', args, {
+    // (execFileSync(...) || '')：stdio:'ignore' 时 execFileSync 返回 null（Node 怪癖），归一化为 ''
+    return (execFileSync('git', args, {
         cwd: repoRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...opts,
-    }).trim();
+    }) || '').trim();
 }
 
 /** CI 判定（同 accept.mjs 的契约：CI / true / 1 都是 CI）。 */
@@ -165,6 +214,20 @@ export function validatePolicyStructure(policy) {
             throw new Error('gate-policy.json: invalid required path: ' + JSON.stringify(p));
         }
     }
+    // v2 扩展字段：可选（v1 policy 允许缺失），存在时必须合法
+    if (policy.protectedBranches !== undefined) {
+        validateRefList('protectedBranches', policy.protectedBranches);
+    }
+    if (policy.requiredWorkflowJobs !== undefined) {
+        validateJobIdList(policy.requiredWorkflowJobs);
+    }
+}
+
+/** trusted 集合相对 candidate 是否被减少（trusted 缺失视为空集；candidate 缺失视为空集）。 */
+export function policySetReduced(trustedList, candidateList) {
+    const trusted = new Set(trustedList || []);
+    const candidate = new Set(candidateList || []);
+    return [...trusted].filter((entry) => !candidate.has(entry));
 }
 
 /** 从给定目录读取并校验 gate-policy.json（trusted 物化或候选快照）。 */
@@ -262,6 +325,22 @@ export function checkRequiredPaths(repoRoot, historyRef, candidateDir, requiredP
     return { missing, predated };
 }
 
+/**
+ * required paths 并集校验（5.3）：trusted ∪ candidate。
+ * - 所有 trusted 路径（含 candidate 共享的）沿用 checkRequiredPaths 语义：
+ *   缺失 fail closed；predates 只报告；
+ * - candidate 新声明的路径必须在同一个候选快照中真实存在（无 predates 豁免），
+ *   不能让 candidate 声明一个不存在的 required path 后仍被接受。
+ * @returns {{missing: Array<string>, predated: Array<string>}}
+ */
+export function checkUnionRequiredPaths(repoRoot, historyRef, candidateDir, trustedPaths, candidatePaths) {
+    const candidateOnly = (candidatePaths || []).filter((p) => !(trustedPaths || []).includes(p));
+    const result = checkRequiredPaths(repoRoot, historyRef, candidateDir, trustedPaths);
+    const candidateMissing = candidateOnly.filter((p) => !hasPathInDir(candidateDir, p));
+    result.missing.push(...candidateMissing);
+    return result;
+}
+
 /** 运行完整 i18n 测试套件（排除本命令自身所在文件，避免递归）。返回 {ok, output}。 */
 export function runI18nTestSuite(repoRoot, excludeFile) {
     const testDir = path.join(repoRoot, 'scripts', 'i18n', 'test');
@@ -290,6 +369,8 @@ export default {
     GATE_PATHS,
     POLICY_REL,
     CONTRACT_REL,
+    WORKFLOW_REL,
+    PACKAGE_JSON_REL,
     LEGACY_BOOTSTRAP_REF,
     LEGACY_ENFORCEMENT_START,
     LEGACY_REQUIRED_PATHS,
@@ -308,5 +389,7 @@ export default {
     materializeTrustedGate,
     hasPathInDir,
     checkRequiredPaths,
+    checkUnionRequiredPaths,
     runI18nTestSuite,
+    policySetReduced,
 };

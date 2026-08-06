@@ -73,6 +73,29 @@ function removeTempDir(dir) {
     }
 }
 
+/**
+ * 逐级 symlink 检查：从文件系统根到 dir，逐段 lstatSync()，每个已存在组件都不得是
+ * symlink（junctions 在 Windows 上同样被 lstat 识别为 symlink）。不能只检查最近
+ * 存在的一个节点——中间组件被替换为 symlink 同样构成逃逸面。
+ */
+function assertNoSymlinkPath(dir) {
+    const resolved = path.resolve(dir);
+    let current = path.parse(resolved).root;
+    const rest = resolved.slice(current.length).split(path.sep).filter(Boolean);
+    for (const segment of rest) {
+        current = path.join(current, segment);
+        let st = null;
+        try {
+            st = fs.lstatSync(current);
+        } catch (e) {
+            break; // 组件不存在：后续组件尚未创建，无可检查节点
+        }
+        if (st.isSymbolicLink()) {
+            throw new Error('refusing to materialize through a symlink path component: ' + current);
+        }
+    }
+}
+
 /** 检查 ref 在仓库中可解析，避免把任意字符串塞给 git read-tree。 */
 function assertRefExists(repoRoot, ref) {
     git(['rev-parse', '--verify', '--quiet', ref + '^{commit}'], repoRoot);
@@ -136,6 +159,7 @@ function materializePaths(repoRoot, ref, paths) {
         const selected = selectPaths(repoRoot, ref, paths);
         if (selected.length > 0) {
             checkoutIndexTo(repoRoot, root, { indexFile, paths: selected });
+            verifyMaterializedTree(repoRoot, ref, root, paths);
         }
     } finally {
         fs.rmSync(indexFile, { force: true });
@@ -164,9 +188,10 @@ function selectPaths(repoRoot, ref, paths) {
  * Windows 无法创建符号链接的场景由调用方预先检测并显式失败，绝不静默跳过）。
  */
 function checkoutIndexTo(repoRoot, outputDir, { indexFile, paths } = {}) {
+    assertNoSymlinkPath(outputDir);
     fs.mkdirSync(outputDir, { recursive: true });
     const prefix = outputDir.endsWith(path.sep) ? outputDir : outputDir + path.sep;
-    const args = ['-c', 'core.autocrlf=false', '-c', 'core.symlinks=true', 'checkout-index'];
+    const args = ['-c', 'core.autocrlf=false', '-c', 'core.symlinks=true', 'checkout-index', '-f'];
     if (paths) {
         args.push('--stdin');
     } else {
@@ -183,17 +208,21 @@ function checkoutIndexTo(repoRoot, outputDir, { indexFile, paths } = {}) {
 
 /** Git index 内容直接物化到用户指定输出目录（不经过临时目录复制）。 */
 function materializeIndexTo(repoRoot, outputDir) {
+    assertNoSymlinkPath(outputDir);
     checkoutIndexTo(repoRoot, outputDir);
+    verifyMaterializedIndex(repoRoot, outputDir, null);
     return outputDir;
 }
 
 /** 给定 ref 的 tree 直接物化到用户指定输出目录（独立临时 index，不改仓库 index）。 */
 function materializeRefTo(repoRoot, ref, outputDir) {
     assertRefExists(repoRoot, ref);
+    assertNoSymlinkPath(outputDir);
     const indexFile = path.join(tempRoot(), 'tmp-index-' + process.pid + '-' + Math.random().toString(36).slice(2));
     try {
         git(['read-tree', ref], repoRoot, { GIT_INDEX_FILE: indexFile });
         checkoutIndexTo(repoRoot, outputDir, { indexFile });
+        verifyMaterializedTree(repoRoot, ref, outputDir, null);
     } finally {
         fs.rmSync(indexFile, { force: true });
     }
@@ -209,6 +238,7 @@ function materializePathsTo(repoRoot, ref, paths, outputDir) {
         const selected = selectPaths(repoRoot, ref, paths);
         if (selected.length > 0) {
             checkoutIndexTo(repoRoot, outputDir, { indexFile, paths: selected });
+            verifyMaterializedTree(repoRoot, ref, outputDir, paths);
         }
     } finally {
         fs.rmSync(indexFile, { force: true });
@@ -231,6 +261,7 @@ function materializeIndexPathsTo(repoRoot, paths, outputDir) {
         wanted.includes(name) || prefixes.some((prefix) => name.startsWith(prefix)));
     if (selected.length > 0) {
         checkoutIndexTo(repoRoot, outputDir, { paths: selected });
+        verifyMaterializedIndex(repoRoot, outputDir, paths);
     }
     return outputDir;
 }
@@ -242,6 +273,172 @@ function hasSymlinksInTree(repoRoot, ref) {
         return entries.split('\n').some((line) => line.startsWith('120000'));
     } catch (e) {
         return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 精确物化验证：Git mode / blob hash / symlink 类型与内容 / executable bit /
+// 不多文件 / 不缺文件（git ls-tree / git ls-files --stage / git hash-object）
+// ---------------------------------------------------------------------------
+
+function parseLsTreeLine(line) {
+    const match = /^(\d{6}) (blob|tree|commit) ([0-9a-f]{40})\t(.+)$/.exec(line);
+    if (!match) {
+        return null;
+    }
+    return { mode: match[1], type: match[2], sha: match[3], name: match[4] };
+}
+
+function parseLsFilesLine(line) {
+    const tab = line.indexOf('\t');
+    if (tab < 0) {
+        return null;
+    }
+    const meta = line.slice(0, tab).split(' ');
+    if (meta.length < 2) {
+        return null;
+    }
+    return { mode: meta[0], sha: meta[1], name: line.slice(tab + 1) };
+}
+
+function walkDir(root, relPrefix, results) {
+    let entries;
+    try {
+        entries = fs.readdirSync(relPrefix ? path.join(root, ...relPrefix.split('/')) : root, { withFileTypes: true });
+    } catch (e) {
+        return; // 不存在的目录没有条目
+    }
+    for (const entry of entries) {
+        const rel = relPrefix ? relPrefix + '/' + entry.name : entry.name;
+        if (entry.isDirectory()) {
+            walkDir(root, rel, results);
+        } else {
+            results.push(rel);
+        }
+    }
+}
+
+function collectExpected(repoRoot, ref, paths) {
+    const wanted = (paths || []).map((p) => p.split(path.sep).join('/'));
+    const prefixes = wanted.map((p) => p.endsWith('/') ? p : p + '/');
+    const listed = git(['ls-tree', '-r', ref], repoRoot).split('\n').filter(Boolean);
+    const expected = new Map();
+    for (const line of listed) {
+        const entry = parseLsTreeLine(line);
+        if (!entry || entry.type === 'tree') {
+            continue;
+        }
+        if (paths === null || paths === undefined
+            || wanted.includes(entry.name) || prefixes.some((prefix) => entry.name.startsWith(prefix))) {
+            expected.set(entry.name, entry);
+        }
+    }
+    return expected;
+}
+
+function verifySymlinkEntry(outputDir, rel, expectedSha) {
+    const full = path.join(outputDir, ...rel.split('/'));
+    const st = fs.lstatSync(full);
+    if (!st.isSymbolicLink()) {
+        throw new Error('snapshot verification: expected symlink but got a regular entry: ' + rel);
+    }
+    const target = fs.readlinkSync(full);
+    const targetHash = gitHashBytes(Buffer.from(target, 'utf8'));
+    if (targetHash !== expectedSha) {
+        throw new Error('snapshot verification: symlink content hash mismatch for ' + rel
+            + ' (expected ' + expectedSha + ', got ' + targetHash + ')');
+    }
+}
+
+function gitHashBytes(buf) {
+    const result = execFileSync('git', ['hash-object', '--stdin'], {
+        encoding: 'utf8', input: buf, stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return result.trim();
+}
+
+function verifyBlobEntry(outputDir, rel, expectedSha, expectedMode) {
+    const full = path.join(outputDir, ...rel.split('/'));
+    if (!fs.existsSync(full)) {
+        throw new Error('snapshot verification: missing file: ' + rel);
+    }
+    const st = fs.lstatSync(full);
+    if (st.isSymbolicLink()) {
+        throw new Error('snapshot verification: expected a regular file but got a symlink: ' + rel);
+    }
+    if (!st.isFile()) {
+        throw new Error('snapshot verification: expected a regular file but got ' + st.mode + ': ' + rel);
+    }
+    const actualHash = gitHashBytes(fs.readFileSync(full));
+    if (actualHash !== expectedSha) {
+        throw new Error('snapshot verification: blob hash mismatch for ' + rel
+            + ' (expected ' + expectedSha + ', got ' + actualHash + ')');
+    }
+    if (process.platform !== 'win32') {
+        const hasExec = (st.mode & 0o111) !== 0;
+        const wantExec = expectedMode === '100755';
+        if (hasExec !== wantExec) {
+            throw new Error('snapshot verification: executable bit mismatch for ' + rel
+                + ' (expected ' + expectedMode + ', fs mode ' + st.mode.toString(8) + ')');
+        }
+    }
+}
+
+/**
+ * 验证 ref 的指定路径子集在 outputDir 中精确物化：
+ * - Git mode 与文件类型（blob / symlink）；
+ * - 普通文件 blob hash（git hash-object 与 ls-tree sha 一致）；
+ * - symlink 类型 + 内容（readlink 内容 hash 与 blob sha 一致）；
+ * - executable bit（非 Windows 平台）；
+ * - 不得缺文件、不得多文件。
+ * 任何不一致抛 Error（fail closed）。
+ */
+function verifyMaterializedTree(repoRoot, ref, outputDir, paths) {
+    const expected = collectExpected(repoRoot, ref, paths);
+    const actual = [];
+    walkDir(outputDir, '', actual);
+    for (const rel of actual) {
+        if (!expected.has(rel)) {
+            throw new Error('snapshot verification: extra file not in the requested paths: ' + rel);
+        }
+    }
+    for (const [rel, entry] of expected) {
+        if (entry.mode === '120000') {
+            verifySymlinkEntry(outputDir, rel, entry.sha);
+        } else {
+            verifyBlobEntry(outputDir, rel, entry.sha, entry.mode);
+        }
+    }
+}
+
+/** index 版本：与 verifyMaterializedTree 相同语义，但期望来自 git ls-files --stage。 */
+function verifyMaterializedIndex(repoRoot, outputDir, paths) {
+    const wanted = (paths || []).map((p) => p.split(path.sep).join('/'));
+    const prefixes = wanted.map((p) => p.endsWith('/') ? p : p + '/');
+    const expected = new Map();
+    for (const line of git(['ls-files', '--cached', '--stage'], repoRoot).split('\n').filter(Boolean)) {
+        const entry = parseLsFilesLine(line);
+        if (!entry) {
+            continue;
+        }
+        if (paths === null || paths === undefined
+            || wanted.includes(entry.name) || prefixes.some((prefix) => entry.name.startsWith(prefix))) {
+            expected.set(entry.name, entry);
+        }
+    }
+    const actual = [];
+    walkDir(outputDir, '', actual);
+    for (const rel of actual) {
+        if (!expected.has(rel)) {
+            throw new Error('snapshot verification: extra file not in the requested paths: ' + rel);
+        }
+    }
+    for (const [rel, entry] of expected) {
+        if (entry.mode === '120000') {
+            verifySymlinkEntry(outputDir, rel, entry.sha);
+        } else {
+            verifyBlobEntry(outputDir, rel, entry.sha, entry.mode);
+        }
     }
 }
 
@@ -277,10 +474,12 @@ export {
     materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll,
     materializeIndexTo, materializeRefTo, materializePathsTo, materializeIndexPathsTo,
     hasSymlinksInTree, hasSymlinksInIndex,
+    verifyMaterializedTree, verifyMaterializedIndex,
 };
 
 export default {
     materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll,
     materializeIndexTo, materializeRefTo, materializePathsTo, materializeIndexPathsTo,
     hasSymlinksInTree, hasSymlinksInIndex,
+    verifyMaterializedTree, verifyMaterializedIndex,
 };

@@ -20,6 +20,10 @@ import { runGenerate } from '../generate-static.mjs';
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 
+// 契约使用 yaml 解析候选 workflow：fixture 仓库没有 node_modules，
+// 通过 NODE_PATH 指向真实仓库的 node_modules 完成解析（与 CI 的 npm ci 等价）。
+process.env.NODE_PATH = process.env.NODE_PATH || path.join(REPO_ROOT, 'node_modules');
+
 const CATALOG = `{
   "schemaVersion": 1,
   "sourceLocale": "zh-CN",
@@ -76,7 +80,7 @@ function makeCandidateRepo() {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir);
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -166,7 +170,7 @@ test('gate-contract：candidate checker 被改为 exit(0) → 黑盒拒绝（不
         const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
         assert.notEqual(run.status, 0, 'no-op checker 必须被 trusted contract 拒绝');
         assert.match(run.stdout + run.stderr, /GATE CONTRACT FAILED/);
-        assert.match(run.stdout + run.stderr, /bad placeholder|expected exit|black-box/);
+        assert.match(run.stdout + run.stderr, /bad-placeholder|issue\.type|black-box/);
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });
@@ -257,6 +261,80 @@ test('gate-contract：candidate policy 弱化（contractVersion 降低 / require
     }
 });
 
+test('gate-contract：candidate 新增 required path 但文件不存在（phantom 声明）→ 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+        const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        policy.requiredPaths = [...policy.requiredPaths, 'scripts/i18n/nonexistent.mjs'];
+        fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'declare phantom required path');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'candidate 声明不存在的 required path 必须被拒绝');
+        assert.match(run.stdout + run.stderr, /required|incomplete|missing/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：candidate 减少 protectedBranches / requiredWorkflowJobs → 拒绝；新增允许', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+
+        // protectedBranches 置空数组 → 结构校验拒绝
+        const p1 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p1.protectedBranches = [];
+        fs.writeFileSync(policyPath, JSON.stringify(p1, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'drop protected branches');
+        let sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        let run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'protectedBranches 置空必须拒绝');
+        assert.match(run.stdout + run.stderr, /protectedBranch(es)?/);
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+
+        // protectedBranches 字段整体删除 → 集合减少 → 拒绝
+        const p1b = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        delete p1b.protectedBranches;
+        fs.writeFileSync(policyPath, JSON.stringify(p1b, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'omit protected branches');
+        sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, '删除 protectedBranches 字段必须拒绝');
+        assert.match(run.stdout + run.stderr, /protected branches/);
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+
+        // requiredWorkflowJobs 减少
+        const p2 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p2.requiredWorkflowJobs = p2.requiredWorkflowJobs.filter((j) => j !== 'java-tests');
+        fs.writeFileSync(policyPath, JSON.stringify(p2, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'drop required workflow jobs');
+        sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'requiredWorkflowJobs 减少必须拒绝');
+        assert.match(run.stdout + run.stderr, /required workflow jobs/);
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+
+        // 新增 protectedBranches / requiredWorkflowJobs 允许（不会减少 trusted 集合）
+        const p3 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p3.protectedBranches = ['refs/heads/master', 'refs/heads/release'];
+        p3.requiredWorkflowJobs = [...p3.requiredWorkflowJobs, 'extra-job'];
+        fs.writeFileSync(policyPath, JSON.stringify(p3, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'add protected branches and jobs');
+        sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.equal(run.status, 0, '新增 protectedBranches / requiredWorkflowJobs 必须允许: '
+            + run.stdout + run.stderr);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
 test('gate-contract：--version 完整性检查；缺参数 usage error', () => {
     const repo = makeCandidateRepo();
     const trusted = makeTrustedCopy(repo);
@@ -264,7 +342,7 @@ test('gate-contract：--version 完整性检查；缺参数 usage error', () => 
         const version = spawnSync('node', [path.join(trusted, 'scripts', 'i18n', 'gate-contract.mjs'), '--version'],
             { encoding: 'utf8' });
         assert.equal(version.status, 0, version.stdout + version.stderr);
-        assert.match(version.stdout, /i18n-gate-contract 1/);
+        assert.match(version.stdout, /i18n-gate-contract 2/);
 
         const noRepo = spawnSync('node', [path.join(trusted, 'scripts', 'i18n', 'gate-contract.mjs'),
             '--candidate-ref', 'x'], { encoding: 'utf8' });

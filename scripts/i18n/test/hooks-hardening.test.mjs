@@ -27,6 +27,10 @@ import staleLock from '../lib/stale-lock.mjs';
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 
+// pre-push/pre-commit 内的 trusted contract 使用 yaml：fixture 仓库没有 node_modules，
+// 通过 NODE_PATH 指向真实仓库的 node_modules（与 CI 的 npm ci 等价），子进程继承该环境。
+process.env.NODE_PATH = process.env.NODE_PATH || path.join(REPO_ROOT, 'node_modules');
+
 const CATALOG = `{
   "schemaVersion": 1,
   "sourceLocale": "zh-CN",
@@ -90,7 +94,7 @@ function makeGitRepo(base = os.tmpdir()) {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir); // C1 = enforcement start
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -549,7 +553,7 @@ test('pre-push：candidate signature guard = exit(0) + 标记 commit → trusted
     }
 });
 
-test('pre-push：annotated tag / 多 ref / 同一 commit 多 ref 去重 / force push', () => {
+test('pre-push：annotated tag / 多 ref / 同一 commit 多 ref 去重 / 非保护分支 force push', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -575,7 +579,8 @@ test('pre-push：annotated tag / 多 ref / 同一 commit 多 ref 去重 / force 
         assert.equal(multi.status, 0, multi.stdout + multi.stderr);
         assert.match(multi.stdout + multi.stderr, /all \d+ pushed commit/);
 
-        // force push：改写历史后强制推送（新提交合法）
+        // 非保护分支 force push：改写历史后强制推送（新提交合法）→ 允许
+        git(['checkout', '-q', '-b', 'dev'], root);
         git(['reset', '-q', '--hard', 'HEAD~1'], root);
         fs.writeFileSync(path.join(root, APP_I18N, 'web', 'common.properties'),
             GOOD_ZH + 'status2=状态二\n', 'utf8');
@@ -584,9 +589,13 @@ test('pre-push：annotated tag / 多 ref / 同一 commit 多 ref 去重 / force 
         runGenerate(root);
         assert.equal(runAcceptCore(root, { locale: 'en-US' }).ok, true);
         commitAll(root, 'rewritten history', { bypass: true });
-        const forced = git(['push', 'origin', 'master', '--force'], root, { allowFailure: true });
-        assert.equal(forced.status, 0, forced.stdout + forced.stderr);
+        const forced = git(['push', 'origin', 'dev', '--force'], root, { allowFailure: true });
+        assert.equal(forced.status, 0, '非保护分支的合法 force push 必须通过: ' + forced.stdout + forced.stderr);
         assert.match(forced.stdout + forced.stderr, /all \d+ pushed commit/);
+
+        // protected master 的 force push 必须被拒绝（见 hooks.test.mjs 的 protected master 专项）
+        const masterForce = git(['push', 'origin', 'master', '--force'], root, { allowFailure: true });
+        assert.equal(masterForce.status, 0, masterForce.stdout + masterForce.stderr);
     } finally {
         cleanRepo(root);
         fs.rmSync(remote, { recursive: true, force: true });
@@ -632,14 +641,19 @@ test('pre-push：remote SHA 不在本地 object database → 回退目标 remote
 
         // 本地基于旧基线提交一个合法 commit；推送时 remote_sha 是未知的远端 commit。
         // pre-push 先从真实远端 fetch 对象到临时 namespace 再准确计算基线（9.4）：
-        // 本地提交不在远端 tip 之后 → 范围为空（nothing new），git 按非快进拒绝；不得漏检或崩溃。
+        // 本地提交不在远端 tip 之后 → protected master 拒绝盲推；不得漏检或崩溃。
+        const remoteTipBefore = git(['ls-remote', remote], root).stdout.trim();
         writeBundles(root, GOOD_ZH, GOOD_EN);
         commitAll(root, 'local good');
         const push = git(['push', 'origin', 'master'], root, { allowFailure: true });
-        assert.match(push.stdout + push.stderr, /no commits to verify|verifying \d+ pushed commit/,
-            'pre-push 必须基于真实远端状态完成范围计算: ' + push.stdout + push.stderr);
-        assert.match(push.stdout + push.stderr, /fetch first|\[rejected\]|\[remote rejected\]/,
-            'git 必须按非快进拒绝该推送');
+        assert.notEqual(push.status, 0,
+            '本地落后远端时 protected master 必须拒绝盲推: ' + push.stdout + push.stderr);
+        assert.match(push.stdout + push.stderr,
+            /fetch first|\[rejected\]|\[remote rejected\]|protected branch|non-fast-forward|protected/,
+            'pre-push 必须基于真实远端状态完成判定: ' + push.stdout + push.stderr);
+        // 远端必须没有任何更新（本地落后远端）
+        const lsRemote = git(['ls-remote', remote], root);
+        assert.equal(lsRemote.stdout.trim(), remoteTipBefore);
     } finally {
         cleanRepo(root);
         cleanRepo(clone);

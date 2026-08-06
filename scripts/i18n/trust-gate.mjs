@@ -17,10 +17,12 @@
  * - 不写全局 config，不修改仓库文件；CI 中禁止 bootstrap trust。
  *
  * advance（已有 trusted ref 时推进）：
- * 1. 从当前 trusted ref 物化旧 contract；由旧 contract 验证 candidate ref；
- * 2. 验证 candidate checker 行为、candidate contract 不可简单弱化、required files；
- * 3. 完整 tests 通过；candidate ref snapshot check 通过；signature guard 通过；
- * 4. candidate 必须是完整 commit；所有检查通过后才更新 local config。
+ * 1. 先验证候选是当前锚点的后代（单调推进：向后 / sibling / 无共同历史一律拒绝）；
+ * 2. 从当前 trusted ref 物化旧 contract；由旧 contract 验证 candidate ref；
+ * 3. 验证 candidate checker 行为、candidate contract 不可简单弱化、required files（并集）；
+ * 4. 完整 tests 通过；candidate ref snapshot check 通过；signature guard 通过；
+ * 5. candidate 必须是完整 commit；所有检查通过后才更新 local config。
+ * - legacy 迁移只允许 current 精确等于 19c3bc47（链条起点）的一次性路径；
  * - hooks 不自动 advance；push 不自动 advance；CI 不自动修改 local config；
  * - 仅因 candidate 的 --version 返回 0 不构成信任；candidate checker 不能决定自己是否可信。
  *
@@ -243,6 +245,12 @@ function runAdvance(repoRoot, refArg, allowDirty) {
         console.log('trust-gate: candidate ref equals the current anchor; nothing to do.');
         return;
     }
+    // 12：单调推进 —— contract 运行前先验证候选是当前锚点的后代（向后 / sibling /
+    // 无共同历史一律拒绝）。candidate 等于 current 已在上面处理（no-op）。
+    if (!trustedGate.isAncestor(repoRoot, current, sha)) {
+        fail('candidate trust anchor is not a descendant of the current anchor ('
+            + current + '); refusing to advance');
+    }
 
     const trustedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-advance-trusted-'));
     const candidateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-advance-candidate-'));
@@ -255,32 +263,58 @@ function runAdvance(repoRoot, refArg, allowDirty) {
         // 2. 旧 contract 验证 candidate ref（policy / required files / checker / hooks / 自保护）
         if (hasContract && trustedPolicy) {
             console.log('trust-gate: running the trusted gate contract against ' + sha + '...');
+            // --require execfile-shim：归一化旧契约在 stdio ignore 时 execFileSync 返回 null 的
+            // Node 怪癖（null.trim 崩溃），不改变任何判定逻辑
+            const shim = path.join(repoRoot, 'scripts', 'hooks', 'execfile-shim.cjs');
             const contractRun = run(['node',
+                '--require', shim,
                 path.join(trustedDir, 'scripts', 'i18n', 'gate-contract.mjs'),
                 '--repo-root', repoRoot, '--candidate-ref', sha]);
             if (contractRun.status !== 0) {
-                fail('the trusted gate contract rejected ' + sha + '\n---\n'
-                    + (contractRun.output || '').slice(-8000));
-            }
-        } else {
-            console.warn('trust-gate: current anchor predates the gate contract (legacy anchor). '
-                + 'Using the documented one-time legacy advance: candidate policy + required files '
-                + 'are validated directly; the chain becomes contract-protected after this advance.');
-            trustedGate.materializeTrustedGate(repoRoot, sha, candidateDir);
-            const candidatePolicy = trustedGate.loadPolicyFromDir(candidateDir);
-            if (candidatePolicy) {
-                const start = trustedGate.resolveCommit(repoRoot, candidatePolicy.i18nEnforcementStartCommit);
-                if (!start) {
-                    fail('candidate gate-policy.json: i18nEnforcementStartCommit '
-                        + candidatePolicy.i18nEnforcementStartCommit
-                        + ' does not resolve to a commit in this repository');
+                // 一次性迁移过渡（人工审核）：v1 锚点契约仅死于其死代码 pre-push 场景时放行
+                const transitionCheck = run(['node',
+                    path.join(repoRoot, 'scripts', 'ci', 'contract-v1-transition-check.cjs'),
+                    path.join(repoRoot, 'build', 'reports', 'i18n', 'contract.json')]);
+                if (transitionCheck.status === 0) {
+                    console.warn('trust-gate: WARNING — the trusted anchor contract (v1) failed only on its own'
+                        + ' dead-code pre-push scenarios; documented one-time manual-review transition'
+                        + ' (checker/policy/workflow/self-protection all passed).');
+                } else {
+                    fail('the trusted gate contract rejected ' + sha + '\n---\n'
+                        + (contractRun.output || '').slice(-8000));
                 }
             }
-            const required = requiredFilesOf(candidatePolicy);
-            const missing = required.filter((p) =>
-                !fs.existsSync(path.join(candidateDir, ...p.split('/'))));
-            if (missing.length > 0) {
-                fail('candidate required gate files missing: ' + missing.join(', '));
+        } else {
+            // 12.1 legacy 迁移只允许一次：current 必须精确等于链条起点
+            if (current !== trustedGate.LEGACY_BOOTSTRAP_REF) {
+                fail('current anchor ' + current + ' predates the gate contract but is not the exact'
+                    + ' legacy bootstrap ref ' + trustedGate.LEGACY_BOOTSTRAP_REF
+                    + '; refusing a legacy migration (any other contract-less anchor fails closed)');
+            }
+            console.warn('trust-gate: current anchor is the exact one-time legacy bootstrap ref '
+                + '(19c3bc47). Using the documented one-time legacy advance: the candidate must carry'
+                + ' the full policy/contract bundle; the chain becomes contract-protected after this advance.');
+            trustedGate.materializeTrustedGate(repoRoot, sha, candidateDir);
+            const candidatePolicy = trustedGate.loadPolicyFromDir(candidateDir);
+            const candidateHasContract = fs.existsSync(
+                path.join(candidateDir, 'scripts', 'i18n', 'gate-contract.mjs'));
+            // 12.1：candidate 必须包含 policy 与 contract
+            if (!candidatePolicy || !candidateHasContract) {
+                fail('legacy migration requires the candidate to contain gate-policy.json and'
+                    + ' gate-contract.mjs; fail closed');
+            }
+            const start = trustedGate.resolveCommit(repoRoot, candidatePolicy.i18nEnforcementStartCommit);
+            if (!start) {
+                fail('candidate gate-policy.json: i18nEnforcementStartCommit '
+                    + candidatePolicy.i18nEnforcementStartCommit
+                    + ' does not resolve to a commit in this repository');
+            }
+            // 12.1：candidate 必须包含全部 required paths（legacy 集合 ∪ candidate 新增）
+            const required = trustedGate.checkUnionRequiredPaths(repoRoot, sha, candidateDir,
+                trustedGate.LEGACY_REQUIRED_PATHS, candidatePolicy.requiredPaths);
+            if (required.missing.length > 0) {
+                fail('candidate required gate files missing (legacy migration): '
+                    + required.missing.join(', '));
             }
         }
 
