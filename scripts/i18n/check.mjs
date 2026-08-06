@@ -12,6 +12,7 @@
  *   node scripts/i18n/check.mjs --snapshot ref --ref <sha>   # 严格检查给定 commit（pre-push 使用）
  *   node scripts/i18n/check.mjs --repo-root <path>       # 检查对象根（预推钩子用 HEAD 物化的检查器时指向仓库）
  *   node scripts/i18n/check.mjs --report-root <path>     # 报告输出根（快照检查时指向原始仓库）
+ *   node scripts/i18n/check.mjs --version                # 自检：打印版本并退出 0（hooks 验证 checker 完整性用）
  *
  * 快照语义：
  * - snapshotRoot = 被检查的文件系统快照（worktree 原样 / index / ref 物化到临时目录）；
@@ -57,6 +58,8 @@ function parseArgs(argv) {
             args.reportOnly = true;
         } else if (arg === '--hardcoded-only') {
             args.hardcodedOnly = true;
+        } else if (arg === '--version') {
+            args.version = true;
         } else if (arg === '--write-agent-prompts') {
             // 兼容旧脚本：提示词现在总是生成，本标志为 no-op
         } else if (arg === '--snapshot') {
@@ -78,6 +81,8 @@ function parseArgs(argv) {
     return args;
 }
 
+const CHECKER_VERSION = '1';
+
 function main() {
     let args;
     try {
@@ -85,6 +90,10 @@ function main() {
     } catch (e) {
         console.error('I18N CHECK ERROR: ' + e.message);
         process.exit(2);
+        return;
+    }
+    if (args.version) {
+        console.log('i18n-check ' + CHECKER_VERSION);
         return;
     }
 
@@ -120,12 +129,13 @@ function main() {
 
     if (fatalError !== null) {
         console.error('I18N CHECK ERROR: ' + fatalError.message);
-        reportLib.write(reportRoot, { catalogError: fatalError.message, issues: [], coverage: [], warnings: [] });
+        reportLib.write(reportRoot, { catalogError: fatalError.message, issues: [], coverage: [], warnings: [] },
+            { snapshotRef: args.snapshot === 'ref' ? args.ref : null });
         process.exit(1);
         return;
     }
 
-    reportLib.write(reportRoot, report);
+    reportLib.write(reportRoot, report, { snapshotRef: args.snapshot === 'ref' ? args.ref : null });
     if (!args.hardcodedOnly) {
         prompts.write(reportRoot, report);
     }

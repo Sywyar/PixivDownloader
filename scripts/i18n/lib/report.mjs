@@ -33,13 +33,15 @@ function sortWarnings(a, b) {
 
 /**
  * @param {Object} report { catalog, issues, coverage, warnings, catalogError }
+ * @param {Object} [options] { snapshotRef: 快照检查时记录被检查的 commit，供 pre-push 多 commit 报告定位 }
  */
-function write(repoRoot, report) {
+function write(repoRoot, report, options = {}) {
     const dir = path.join(repoRoot, REPORT_DIR);
     fs.mkdirSync(dir, { recursive: true });
 
     const payload = {
         generatedAt: new Date().toISOString(),
+        snapshotRef: options.snapshotRef || null,
         catalog: report.catalogError
             ? { error: report.catalogError }
             : {
@@ -71,6 +73,9 @@ function summarize(report) {
         lines.push(report.catalog.error);
         lines.push('```');
         return lines.join('\n');
+    }
+    if (report.snapshotRef) {
+        lines.push('- snapshotRef: ' + report.snapshotRef);
     }
     lines.push('- source: ' + report.catalog.sourceLocale);
     lines.push('- default: ' + report.catalog.defaultLocale);

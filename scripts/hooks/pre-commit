@@ -3,18 +3,30 @@
 #
 # Contract (never bypassable by fixing the worktree without staging):
 #   1. If nothing is staged, exit fast (0).
-#   2. Staged scannable production code always runs the hardcoded-language guard
-#      in index snapshot mode (lightweight).
-#   3. If staged files touch the i18n surface (catalog / lock / properties /
-#      i18n Java or JS / generators / static bundles), run the FULL index
-#      snapshot check (coverage / stale / static sync / hardcoded guard).
+#   2. The checkers themselves are immutable snapshots:
+#      a. The trusted HEAD checker is materialized from the committed HEAD
+#         (scripts/i18n + scripts/hooks) via an isolated temp index;
+#         unstaged worktree checker edits can never change the verdict.
+#      b. When the staged change touches scripts/i18n or scripts/hooks, the
+#         staged (index) checker is materialized from the Git index and run
+#         too, so a staged checker cannot silently widen or close the gate
+#         that the previous committed version enforced.
+#   3. The HEAD checker runs the hardcoded-language guard in index snapshot
+#      mode (lightweight) for every commit; the FULL index snapshot check
+#      (coverage / stale / static sync / hardcoded guard) runs when staged
+#      files touch the i18n surface.
 #   4. The check reads ONLY the Git index snapshot; unstaged fixes never count.
 #   5. Never generates or modifies staged files; never runs accept;
 #      propagates non-zero exit codes.
+#   6. No tar / rsync / zip: materialization uses read-tree + checkout-index
+#      with a dedicated GIT_INDEX_FILE. Temp dirs live in system temp and are
+#      removed on exit (trap EXIT).
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+
+docs_hint="see README (online docs: https://sywyar.github.io/PixivDownloader/#/zh-cn/development)"
 
 staged="$(git diff --cached --name-only 2>/dev/null || true)"
 if [ -z "$staged" ]; then
@@ -24,18 +36,88 @@ fi
 
 if ! command -v node >/dev/null 2>&1; then
     echo "pre-commit: node is required for the i18n gate but was not found in PATH." >&2
-    echo "pre-commit: install Node.js (see docs/i18n-workflow.md) and re-run the commit." >&2
+    echo "pre-commit: install Node.js ($docs_hint) and re-run the commit." >&2
     exit 1
 fi
 
-# ---- 1. 轻量硬编码守卫：总是检查（index 快照，不读工作树） ----
-echo "pre-commit: checking staged code for hardcoded languages (index snapshot)..."
-node scripts/i18n/check.mjs --snapshot index --hardcoded-only
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/pixiv-i18n-precommit.XXXXXX")"
+cleanup() {
+    if [ -n "${tmpdir:-}" ] && [ -d "$tmpdir" ]; then
+        rm -rf "$tmpdir" || true
+    fi
+}
+trap cleanup EXIT
 
-# ---- 2. i18n 表面文件：完整 index 检查 ----
+# ---- 物化 HEAD 中的受信任 checker（scripts/i18n + scripts/hooks） ----
+materialize_from_head() {
+    local out="$1"
+    local paths
+    paths="$(git ls-tree -r --name-only HEAD -- scripts/i18n scripts/hooks)"
+    if [ -z "$paths" ]; then
+        echo "pre-commit: HEAD does not contain scripts/i18n or scripts/hooks; cannot establish a trusted checker." >&2
+        echo "pre-commit: commit the i18n gate files first." >&2
+        exit 1
+    fi
+    mkdir -p "$out"
+    GIT_INDEX_FILE="$tmpdir/head-index" git read-tree HEAD
+    printf '%s\n' "$paths" | GIT_INDEX_FILE="$tmpdir/head-index" \
+        git -c core.autocrlf=false checkout-index --stdin --prefix="$out/"
+    if [ ! -f "$out/scripts/i18n/check.mjs" ]; then
+        echo "pre-commit: HEAD checker is incomplete (scripts/i18n/check.mjs missing)." >&2
+        exit 1
+    fi
+}
+
+# ---- 物化 index 中暂存的 checker（scripts/i18n + scripts/hooks） ----
+materialize_from_index() {
+    local out="$1"
+    local paths
+    paths="$(git ls-files --cached -- scripts/i18n scripts/hooks)"
+    if [ -z "$paths" ]; then
+        return 1
+    fi
+    mkdir -p "$out"
+    printf '%s\n' "$paths" | git -c core.autocrlf=false checkout-index --stdin --prefix="$out/"
+    if [ ! -f "$out/scripts/i18n/check.mjs" ]; then
+        return 1
+    fi
+    return 0
+}
+
 if printf '%s\n' "$staged" | grep -Eq '(^|/)(i18n/|locales\.json$|.*\.properties$|.*[Ii]18n.*\.(java|js|mjs)$|pixiv-i18n\.js$|pixiv-lang-switcher\.js$|scripts/i18n/|scripts/hooks/|i18n-static/)'; then
-    echo "pre-commit: i18n files staged, running full index snapshot check..."
-    node scripts/i18n/check.mjs --snapshot index
+    surface_changed=1
+else
+    surface_changed=0
+fi
+if printf '%s\n' "$staged" | grep -Eq '^scripts/(i18n|hooks)/'; then
+    checker_changed=1
+else
+    checker_changed=0
+fi
+
+# ---- 1. 受信任 HEAD checker：轻量硬编码守卫总是执行（index 快照，不读工作树） ----
+echo "pre-commit: running trusted HEAD checker (hardcoded guard, index snapshot)..."
+materialize_from_head "$tmpdir/head"
+node "$tmpdir/head/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
+    --snapshot index --hardcoded-only
+
+# ---- 2. i18n 表面变化：HEAD checker 完整 index 检查 ----
+if [ "$surface_changed" = "1" ]; then
+    echo "pre-commit: i18n files staged, running trusted HEAD checker (full index snapshot)..."
+    node "$tmpdir/head/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
+        --snapshot index
+fi
+
+# ---- 3. index 中修改了 checker / hooks：执行暂存的 index checker（完整检查） ----
+if [ "$checker_changed" = "1" ]; then
+    echo "pre-commit: running staged index checker (index snapshot)..."
+    if materialize_from_index "$tmpdir/index"; then
+        node "$tmpdir/index/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
+            --snapshot index
+    else
+        echo "pre-commit: staged index checker is incomplete (scripts/i18n/check.mjs missing from the index);" >&2
+        echo "pre-commit: relying on the trusted HEAD checker verdict." >&2
+    fi
 fi
 
 echo "pre-commit: index snapshot i18n gate passed."

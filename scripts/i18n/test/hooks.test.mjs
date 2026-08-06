@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runGenerate } from '../generate-static.mjs';
+import { runAcceptCore } from '../accept.mjs';
 import staleLock from '../lib/stale-lock.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -83,11 +84,10 @@ function makeGitRepo(base = os.tmpdir()) {
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');
     writeBundles(dir, GOOD_ZH, GOOD_EN);
-    const accept = spawnSync('node',
-        [path.join(dir, 'scripts', 'i18n', 'accept.mjs'), '--bootstrap'],
-        { cwd: dir, encoding: 'utf8' });
-    if (accept.status !== 0) {
-        throw new Error('fixture bootstrap failed: ' + accept.stdout + accept.stderr);
+    // 核心库路径 bootstrap：不受外部 CI=true 环境变量污染（CLI 安全策略只在 main() 生效）
+    const bootstrap = runAcceptCore(dir, { bootstrap: true });
+    if (!bootstrap.ok) {
+        throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
 
@@ -117,20 +117,36 @@ function commitAll(root, message, opts = {}) {
     }
 }
 
-/** 写入 bundle 后接受基线并提交（fixture 的初始合法状态）。 */
+/** 写入 bundle 后接受基线并提交（fixture 的初始合法状态；核心库路径，不受 CI 环境变量影响）。 */
 function bootstrapRepo(root) {
-    const accept = spawnSync('node',
-        [path.join(root, 'scripts', 'i18n', 'accept.mjs'), '--bootstrap'],
-        { cwd: root, encoding: 'utf8' });
-    assert.equal(accept.status, 0, 'bootstrap 必须成功: ' + accept.stdout + accept.stderr);
+    const bootstrap = runAcceptCore(root, { bootstrap: true });
+    assert.equal(bootstrap.ok, true, 'bootstrap 必须成功: ' + bootstrap.refused.join('\n'));
     runGenerate(root);
     git(['add', '-A'], root);
     git(['commit', '-q', '-m', 'i18n baseline'], root);
 }
 
+/**
+ * 持久泄漏快照目录计数：只统计存在超过 30 秒的目录。
+ * 并行测试进程的临时快照目录生命周期只有毫秒级，持续存在的目录才代表真正的泄漏
+ * （crash / 未清理路径），这样断言不依赖并发时序。
+ */
 function snapshotLeakCount() {
-    const tmp = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith('pixivdownload-i18n-snapshot-'));
-    return tmp.length;
+    const cutoff = Date.now() - 30 * 1000;
+    return fs.readdirSync(os.tmpdir(), { withFileTypes: true })
+        .filter((e) => e.isDirectory() && e.name.startsWith('pixivdownload-i18n-snapshot-'))
+        .filter((e) => fs.statSync(path.join(os.tmpdir(), e.name)).mtimeMs < cutoff)
+        .length;
+}
+
+/** 测试文件以独立进程并行执行，共享系统临时目录；检查器进程在 finally 中清理，等待并发进程清理完毕。 */
+function waitForLeakCount(target) {
+    for (let i = 0; i < 40; i += 1) {
+        if (snapshotLeakCount() <= target) {
+            return;
+        }
+        execFileSync('bash', ['-c', 'sleep 0.25'], { stdio: 'ignore' });
+    }
 }
 
 function cleanRepo(root) {
@@ -181,6 +197,7 @@ test('pre-commit：暂存坏英文、工作树修好但不 add → 必须失败'
     } finally {
         cleanRepo(root);
     }
+    waitForLeakCount(before);
     assert.equal(snapshotLeakCount(), before, '临时快照必须全部清理');
 });
 
@@ -421,6 +438,7 @@ test('check --snapshot index/ref 不读取工作树；异常退出也不残留�
     } finally {
         cleanRepo(root);
     }
+    waitForLeakCount(0);
     assert.equal(snapshotLeakCount(), 0, '临时快照目录必须全部清理');
 });
 

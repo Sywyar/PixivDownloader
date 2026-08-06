@@ -8,15 +8,50 @@
 # never committed to this repository.
 #
 # Usage:
-#   bash scripts/hooks/pre-push-guard.sh            # scan the worktree
-#   bash scripts/hooks/pre-push-guard.sh --ref <sha> # scan the given commit tree
+#   bash scripts/hooks/pre-push-guard.sh                 # scan the worktree
+#   bash scripts/hooks/pre-push-guard.sh --ref <sha>     # scan the given commit tree
+#   bash scripts/hooks/pre-push-guard.sh --repo-root <path> [--ref <sha>]
+#                                                         # scan inside the given repository root
 #
 # Shared by the local pre-push hook (scripts/hooks/pre-push) and the CI
 # quality-gate workflow (.github/workflows/quality-gate.yml). Activate the
 # local hook with:  git config core.hooksPath scripts/hooks
 set -euo pipefail
 
-root="$(git rev-parse --show-toplevel)"
+root=""
+ref=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --repo-root)
+            root="${2:-}"
+            if [ -z "$root" ]; then
+                echo "pre-push-guard: --repo-root requires a path" >&2
+                exit 2
+            fi
+            shift 2
+            ;;
+        --ref)
+            ref="${2:-}"
+            if [ -z "$ref" ]; then
+                echo "pre-push-guard: --ref requires a commit" >&2
+                exit 2
+            fi
+            shift 2
+            ;;
+        *)
+            echo "pre-push-guard: unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [ -z "$root" ]; then
+    root="$(git rev-parse --show-toplevel)"
+fi
+if [ ! -d "$root/.git" ] && ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "pre-push-guard: not inside a git repository: $root" >&2
+    exit 1
+fi
 cd "$root"
 
 # Markers unique to the removed crack code. They have no legitimate use
@@ -26,15 +61,6 @@ marker_re='DouyinXBogusSigner|DouyinABogusSigner|DouyinSm3|generateChromeFingerp
 guard_rel="scripts/hooks/pre-push-guard.sh"
 # 守卫自身的回归测试必须引用标记字面量（验证守卫能检出），与守卫本体一样豁免。
 guard_test_rel="scripts/i18n/test/hooks.test.mjs"
-
-ref=""
-if [ "${1:-}" = "--ref" ]; then
-    ref="${2:-}"
-    if [ -z "$ref" ]; then
-        echo "pre-push-guard: --ref requires a commit" >&2
-        exit 2
-    fi
-fi
 
 if [ -n "$ref" ]; then
     matches="$(git grep -nE "$marker_re" "$ref" -- . ":(exclude)$guard_rel" ":(exclude)$guard_test_rel" 2>/dev/null || true)"

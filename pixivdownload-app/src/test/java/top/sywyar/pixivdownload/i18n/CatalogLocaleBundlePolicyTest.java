@@ -50,6 +50,11 @@ class CatalogLocaleBundlePolicyTest {
                 .isEqualTo("ja-JP");
         assertThat(policy.normalize(Locale.FRENCH).toLanguageTag())
                 .isEqualTo("en-US"); // 未知语言 → default
+        // Locale 形态的 alias 归一化（match(Locale) 与 match(String) 一致；Java 无法用 forLanguageTag 承载下划线）
+        assertThat(policy.normalize(Locale.forLanguageTag("zh-hans")).toLanguageTag())
+                .isEqualTo(policy.normalize(Locale.forLanguageTag("zh-Hans")).toLanguageTag());
+        assertThat(policy.normalize(Locale.forLanguageTag("zh-Hans")).toLanguageTag())
+                .isEqualTo("zh-CN");
     }
 
     @Test

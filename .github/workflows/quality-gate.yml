@@ -24,9 +24,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: temurin
@@ -47,6 +48,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Reject reverse-engineered Douyin signature code
         run: bash scripts/hooks/pre-push-guard.sh --ref ${{ github.sha }}
@@ -60,6 +62,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -81,6 +84,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          # 物化非 tip commit 的 tree 需要完整对象库，浅克隆会碰巧可用但不可依赖
+          fetch-depth: 0
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -88,34 +93,29 @@ jobs:
           node-version: '24'
 
       - name: Set up JDK 17 (properties oracle differential tests)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: temurin
           cache: maven
 
+      # 所有步骤都不使用 continue-on-error：任何一步失败都直接使 job 失败，
+      # 状态由 GitHub Actions 原生 outcome 传播，不依赖事后组合判断。
       - name: Run i18n tests (incl. JVM properties oracle differential)
-        id: i18n
-        continue-on-error: true
         run: npm run test:i18n
+        env:
+          CI: 'true'
 
       - name: Run i18n check on the tested commit (ref snapshot)
-        id: i18n-ref
-        continue-on-error: true
         run: node scripts/i18n/check.mjs --snapshot ref --ref ${{ github.sha }}
 
       - name: Run i18n worktree check
-        id: i18n-check
-        continue-on-error: true
         run: npm run i18n:check
 
       - name: Generate static i18n resources (defense-in-depth diff)
-        id: i18n-static
-        continue-on-error: true
         run: npm run i18n:generate-static
 
       - name: Verify generated resources are in sync
-        if: steps.i18n-static.outcome == 'success'
         run: git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static
 
       - name: Upload i18n report
@@ -127,7 +127,3 @@ jobs:
             build/reports/i18n/
             pixivdownload-app/src/main/resources/static/i18n-static/
           if-no-files-found: ignore
-
-      - name: Propagate i18n result
-        if: steps.i18n.outcome == 'failure' || steps.i18n-ref.outcome == 'failure' || steps.i18n-check.outcome == 'failure' || steps.i18n-static.outcome == 'failure'
-        run: exit 1

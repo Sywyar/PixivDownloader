@@ -182,21 +182,35 @@ function findBundle(bundles, module, baseName) {
 
 /**
  * 删除 orphan 条目并原子保存。
+ * disabled locale 的旧条目一并清理：disabled 语言处于翻译覆盖与审核范围之外，
+ * 永远不能再被 accept（accept 拒绝 disabled），因此其历史锁记录是无用残留（legacy）。
  * @returns {number} 清理的条目数
  */
 function prune(repoRoot, lock, catalog, bundles, sourceMaps) {
     const { orphans, errors } = validateAgainstCatalog(lock, catalog, bundles, sourceMaps);
-    if (orphans.length === 0) {
+    const legacyKeys = new Set();
+    for (const entry of lock.entries) {
+        const descriptor = catalog.byTag.get(entry.locale) || null;
+        if (descriptor && descriptor.status === 'disabled') {
+            legacyKeys.add(entryKey(entry));
+        }
+    }
+    const dropKeys = new Set([...orphans.map(entryKey), ...legacyKeys]);
+    if (dropKeys.size === 0) {
         return 0;
     }
-    const orphanKeys = new Set(orphans.map(entryKey));
-    lock.entries = lock.entries.filter((entry) => !orphanKeys.has(entryKey(entry)));
+    const before = lock.entries.length;
+    lock.entries = lock.entries.filter((entry) => !dropKeys.has(entryKey(entry)));
     save(repoRoot, lock);
-    return orphans.length;
+    return before - lock.entries.length;
 }
 
-export { load, save, hashValue, entryKey, index, validateAgainstCatalog, prune, validateStructure, LOCK_PATH };
+export {
+    load, save, hashValue, entryKey, index, validateAgainstCatalog, prune, validateStructure,
+    LOCK_PATH, LOCK_VERSION,
+};
 
 export default {
-    load, save, hashValue, entryKey, index, validateAgainstCatalog, prune, validateStructure, LOCK_PATH,
+    load, save, hashValue, entryKey, index, validateAgainstCatalog, prune, validateStructure,
+    LOCK_PATH, LOCK_VERSION,
 };

@@ -11,8 +11,12 @@
  * - POSIX 平台下文件实际可执行（Windows 不依赖 fs.constants.X_OK）；
  * - shebang 合法（#!/usr/bin/env bash）；
  * - 文件使用 LF 且不含 BOM；
- * - 每个 bash hook 能通过语法检查（bash -n，最小 dry-run）。
+ * - 每个 bash hook 能通过语法检查（bash -n）：全平台（含 Windows）执行——
+ *   Windows 下 hooks 经 Git for Windows / Git Bash 的 bash 运行，跳过检查会掩盖语法错误；
+ * - bash 可从 PATH 解析且 `bash --version` 可执行（Windows 缺失时给出 Git for Windows 提示）；
+ * - hooks 中声明的本地文档路径必须存在于 Git 仓库（git ls-files 判定），禁止引用不存在的本地文件。
  *
+ * 平台判定封装为 platform()（默认 process.platform），测试可注入 PIXIV_DOCTOR_MOCK_PLATFORM。
  * 仓库根目录由 git rev-parse --show-toplevel 解析。
  */
 
@@ -24,8 +28,22 @@ const REQUIRED_HOOKS = ['pre-commit', 'pre-push', 'pre-push-guard.sh'];
 const BASH_HOOKS = ['pre-commit', 'pre-push', 'pre-push-guard.sh'];
 const HOOKS_DIR = path.join('scripts', 'hooks').split(path.sep).join('/');
 
+function platform() {
+    return process.env.PIXIV_DOCTOR_MOCK_PLATFORM || process.platform;
+}
+
 function run(args, opts = {}) {
     return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
+}
+
+/** bash 可用性探测：不抛异常，返回 true/false。 */
+function bashAvailable() {
+    try {
+        execFileSync('bash', ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        return true;
+    } catch (e) {
+        return false;
+    }
 }
 
 function main() {
@@ -41,6 +59,7 @@ function main() {
     const hooksAbs = path.join(repoRoot, ...HOOKS_DIR.split(path.sep));
     const problems = [];
     const fixes = [];
+    let hooksConfigured = false;
 
     // ---- core.hooksPath：local 配置 + 预期值 ----
     let configured = null;
@@ -53,6 +72,7 @@ function main() {
         problems.push('core.hooksPath is not configured (local)');
         fixes.push('npm run setup:hooks');
     } else {
+        hooksConfigured = true;
         let globalValue = null;
         try {
             globalValue = run(['config', '--get', 'core.hooksPath'], { cwd: repoRoot });
@@ -95,6 +115,21 @@ function main() {
             if (!/^#!\/usr\/bin\/env\s+bash$/.test(firstLine)) {
                 problems.push(hook + ' has an invalid shebang (expected "#!/usr/bin/env bash")');
             }
+
+            // ---- 本地文档引用必须存在于仓库（git ls-files） ----
+            for (const match of raw.matchAll(/docs\/[A-Za-z0-9_./-]+\.md/g)) {
+                const docPath = match[0];
+                try {
+                    const tracked = run(['ls-files', '--', docPath], { cwd: repoRoot });
+                    if (!tracked) {
+                        problems.push(hook + ' references a local doc path that does not exist in the repository: '
+                            + docPath);
+                        fixes.push('point the hook message at the online docs (README 在线文档章节)');
+                    }
+                } catch (e) {
+                    problems.push(hook + ': cannot verify doc reference ' + docPath);
+                }
+            }
         }
 
         // ---- Git index 文件模式（executable bit） ----
@@ -122,8 +157,8 @@ function main() {
             problems.push('cannot read Git index modes for ' + HOOKS_DIR);
         }
 
-        // ---- POSIX 平台下实际可执行（Windows 不依赖 X_OK） ----
-        if (process.platform !== 'win32') {
+        // ---- POSIX 平台下实际可执行（Windows 不依赖 X_OK，Git for Windows 忽略文件位） ----
+        if (platform() !== 'win32') {
             for (const hook of BASH_HOOKS) {
                 const file = path.join(hooksAbs, hook);
                 try {
@@ -135,14 +170,32 @@ function main() {
             }
         }
 
-        // ---- bash 语法检查（最小 dry-run；不执行任何 hook 逻辑） ----
-        if (process.platform !== 'win32') {
+        // ---- bash 语法检查（全平台）：bash --version + bash -n 每个 hook ----
+        if (bashAvailable()) {
             for (const hook of BASH_HOOKS) {
                 try {
-                    execFileSync('bash', ['-n', path.join(hooksAbs, hook)], { stdio: ['ignore', 'pipe', 'pipe'] });
+                    // bash -n 无参数时从 stdin 读取：规避 MSYS / WSL 对 Windows 路径的参数改写
+                    const content = fs.readFileSync(path.join(hooksAbs, hook), 'utf8');
+                    execFileSync('bash', ['-n'], { input: content, stdio: ['pipe', 'ignore', 'pipe'] });
                 } catch (e) {
                     problems.push(hook + ' failed bash syntax check (bash -n)');
                     fixes.push('fix syntax errors in ' + HOOKS_DIR + '/' + hook);
+                }
+            }
+        } else {
+            const message = 'bash is not available on PATH; the hooks run under bash (#!/usr/bin/env bash) '
+                + 'so syntax cannot be verified';
+            if (hooksConfigured) {
+                problems.push(message + ' and hooks are configured');
+                if (platform() === 'win32') {
+                    fixes.push('install Git for Windows (Git Bash) or add its bin to PATH, then re-run doctor');
+                } else {
+                    fixes.push('install bash and ensure it is on PATH, then re-run doctor');
+                }
+            } else {
+                problems.push(message + ' (hooks not configured yet)');
+                if (platform() === 'win32') {
+                    fixes.push('install Git for Windows (Git Bash) or add its bin to PATH');
                 }
             }
         }
@@ -161,7 +214,8 @@ function main() {
         process.exit(1);
     }
     console.log('doctor:hooks: OK — core.hooksPath = ' + HOOKS_DIR + ' (local), '
-        + REQUIRED_HOOKS.length + ' hooks present with mode 100755, LF, valid shebang and syntax.');
+        + REQUIRED_HOOKS.length + ' hooks present with mode 100755, LF, valid shebang, '
+        + 'bash syntax (bash -n) and local doc references verified.');
 }
 
 main();

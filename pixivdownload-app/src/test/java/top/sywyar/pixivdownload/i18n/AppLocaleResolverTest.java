@@ -25,6 +25,17 @@ class AppLocaleResolverTest {
     }
 
     @Test
+    @DisplayName("?lang= 参数支持 alias（zh-Hans → zh-CN，字符串与 Locale 形态一致）")
+    void paramSupportsAliases() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("lang", "zh-Hans");
+        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+        request = new MockHttpServletRequest();
+        request.setParameter("lang", "ZH_HANS");
+        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+    }
+
+    @Test
     @DisplayName("Cookie 其次，参数缺省时生效")
     void cookieUsedWhenNoParam() {
         MockHttpServletRequest request = new MockHttpServletRequest();

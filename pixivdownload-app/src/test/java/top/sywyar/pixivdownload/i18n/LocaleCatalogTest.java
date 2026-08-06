@@ -107,6 +107,47 @@ class LocaleCatalogTest {
     }
 
     @Test
+    @DisplayName("match(Locale) 与 match(String) 共享 alias 逻辑：zh-Hans / zh-SG / zh-Hant-HK / en 一致")
+    void localeFormMatchesAliasesExactlyLikeStringForm() {
+        LocaleCatalog catalog = fixture();
+        for (String candidate : List.of("zh-Hans", "zh-SG", "zh-hans", "zh-Hant-HK", "en", "en-GB")) {
+            assertThat(catalog.match(Locale.forLanguageTag(candidate)))
+                    .as("match(Locale.forLanguageTag(\"" + candidate + "\"))")
+                    .isEqualTo(catalog.match(candidate));
+        }
+        assertThat(catalog.match(Locale.forLanguageTag("zh-Hans"))).contains(fixture().sourceLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-hans"))).contains(fixture().sourceLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-Hant-HK")))
+                .contains(fixture().allLocales().stream().filter(d -> d.tag().equals("zh-HK")).findFirst().orElseThrow());
+        // 精确 tag 形态也不漂移
+        assertThat(catalog.match(Locale.forLanguageTag("zh-CN"))).contains(fixture().sourceLocale());
+        assertThat(catalog.match(Locale.SIMPLIFIED_CHINESE)).contains(fixture().sourceLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("en-US"))).contains(fixture().fallbackLocale());
+        // 字符串形态容忍 _ / - 混用（Locale.forLanguageTag 无法承载下划线，String 路径覆盖）
+        assertThat(catalog.match("ZH_HANS")).contains(fixture().sourceLocale());
+    }
+
+    @Test
+    @DisplayName("match(Locale)：同语言多个正式 tag 且无 alias 时语言级匹配歧义 → 无匹配；有 alias 时走 alias")
+    void localeFormLanguageLevelMatchRequiresUniqueness() {
+        LocaleCatalog catalog = fixture();
+        // zh-CN 与 zh-HK 都是 zh 语言，且都没有泛化 zh-TW alias → 语言级歧义 → 无匹配
+        assertThat(catalog.match(Locale.forLanguageTag("zh-TW"))).isEmpty();
+        assertThat(catalog.match("zh-TW")).isEmpty();
+        // zh-Hans 是 zh-CN 的显式 alias → 非歧义命中
+        assertThat(catalog.match(Locale.forLanguageTag("zh-Hans"))).contains(fixture().sourceLocale());
+        // zh-Hant-HK 是 zh-HK 的显式 alias → 非歧义命中
+        assertThat(catalog.match(Locale.forLanguageTag("zh-Hant-HK")))
+                .contains(fixture().allLocales().stream().filter(d -> d.tag().equals("zh-HK")).findFirst().orElseThrow());
+        // en 语言唯一 → en-GB 唯一命中 en-US（String 与 Locale 一致）
+        assertThat(catalog.match(Locale.forLanguageTag("en-GB"))).contains(fixture().fallbackLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("en-GB"))).isEqualTo(catalog.match("en-GB"));
+        // null / 空语言 Locale → 无匹配
+        assertThat(catalog.match((Locale) null)).isEmpty();
+        assertThat(catalog.match(Locale.forLanguageTag(""))).isEmpty();
+    }
+
+    @Test
     @DisplayName("语言级匹配仅在结果唯一时允许；歧义时不错误匹配")
     void languageLevelMatchRequiresUniqueness() {
         LocaleCatalog catalog = fixture();

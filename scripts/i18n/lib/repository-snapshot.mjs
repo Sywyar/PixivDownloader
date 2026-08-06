@@ -36,14 +36,12 @@ function tempDir(label) {
     return dir;
 }
 
-function git(args, cwd, env = {}) {
+function git(args, cwd, env = {}, input) {
     // -c core.autocrlf=false：物化快照必须与 Git index 字节完全一致，
     // 不做工作树换行转换（否则 CRLF 化文件与生成器输出 LF 比较时永远 stale）。
     return execFileSync('git', ['-c', 'core.autocrlf=false', ...args],
-        { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env } });
-}
-
-function assertSafeTempDir(dir) {
+        { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env }, input });
+}function assertSafeTempDir(dir) {
     const resolved = path.resolve(dir);
     const tmpResolved = path.resolve(os.tmpdir());
     if (!resolved.startsWith(tmpResolved + path.sep) && resolved !== tmpResolved) {
@@ -104,6 +102,43 @@ function materializeRef(repoRoot, ref) {
     };
 }
 
+/**
+ * 从给定 ref（commit / tree）物化指定相对路径子集。
+ * 路径从 git ls-tree -r 精确枚举，只物化匹配路径前缀（允许目录）或精确路径（文件）的条目；
+ * 未命中任何条目时返回空快照（root 存在、无文件），由调用方决定兼容语义。
+ * 独立临时 index + read-tree + checkout-index --stdin，绝不使用 tar / rsync / zip。
+ * @param {string} repoRoot
+ * @param {string} ref 必须是仓库内可解析的 commit / tree（会被 rev-parse 验证）
+ * @param {Array<string>} paths 相对仓库根的路径前缀（如 'scripts/i18n'）
+ * @returns {{root: string, cleanup: () => void}}
+ */
+function materializePaths(repoRoot, ref, paths) {
+    assertRefExists(repoRoot, ref);
+    const root = tempDir('paths');
+    const indexFile = path.join(tempRoot(), 'tmp-index-' + process.pid + '-' + Math.random().toString(36).slice(2));
+    try {
+        git(['read-tree', ref], repoRoot, { GIT_INDEX_FILE: indexFile });
+        const wanted = paths.map((p) => p.split(path.sep).join('/'));
+        const prefixes = wanted.map((p) => p.endsWith('/') ? p : p + '/');
+        const listed = git(['ls-tree', '-r', '--name-only', ref], repoRoot).split('\n').filter(Boolean);
+        const selected = listed.filter((name) =>
+            wanted.includes(name) || prefixes.some((prefix) => name.startsWith(prefix)));
+        if (selected.length > 0) {
+            const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+            git(['checkout-index', '--stdin', '--prefix=' + prefix],
+                repoRoot, { GIT_INDEX_FILE: indexFile }, selected.join('\n') + '\n');
+        }
+    } finally {
+        fs.rmSync(indexFile, { force: true });
+    }
+    return {
+        root,
+        cleanup() {
+            removeTempDir(root);
+        },
+    };
+}
+
 /** worktree 模式：直接使用仓库根（不做复制）；cleanup 为 no-op。 */
 function materializeWorktree(repoRoot) {
     return {
@@ -122,6 +157,6 @@ function cleanupAll() {
     }
 }
 
-export { materializeWorktree, materializeIndex, materializeRef, cleanupAll };
+export { materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll };
 
-export default { materializeWorktree, materializeIndex, materializeRef, cleanupAll };
+export default { materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll };

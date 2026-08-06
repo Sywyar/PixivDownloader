@@ -16,7 +16,7 @@ import java.util.Set;
  * 运行期契约：
  * <ul>
  *   <li>source = 开发源语言（当前 zh-CN），是新增文案时直接维护的语言；</li>
- *   <li>default = 默认界面语言（当前 zh-CN），无匹配时的最终落点；</li>
+ *   <li>default = 默认界面语言（当前 en-US），无匹配时的最终落点；</li>
  *   <li>fallback = 全局回退语言（当前 en-US），目标语言缺少翻译时的第一回退；</li>
  *   <li>回退链：目标语言 → fallback → source；</li>
  *   <li>匹配规则：精确规范化 tag → alias → 语言级匹配（仅当结果唯一）→ default。</li>
@@ -192,27 +192,42 @@ public final class LocaleCatalog {
         }
         String normalized = candidate.trim().replace('_', '-');
         String canonical = canonicalTag(normalized);
-        LocaleDescriptor byTagMatch = canonical == null ? null : byTag.get(canonical);
-        if (byTagMatch != null) {
-            return Optional.of(byTagMatch);
+        if (canonical == null) {
+            return Optional.empty();
         }
-        LocaleDescriptor aliasMatch = canonical == null ? null : byAlias.get(canonical);
-        if (aliasMatch != null) {
-            return Optional.of(aliasMatch);
+        Optional<LocaleDescriptor> tagMatch = matchCanonicalTag(canonical);
+        if (tagMatch.isPresent()) {
+            return tagMatch;
         }
         return matchByLanguage(normalized);
     }
 
-    /** {@link #match(String)} 的 {@link Locale} 形态。 */
+    /** {@link #match(String)} 的 {@link Locale} 形态：与字符串形态共享同一 alias 逻辑，杜绝漂移。 */
     public Optional<LocaleDescriptor> match(Locale candidate) {
         if (candidate == null || candidate.getLanguage().isBlank()) {
             return Optional.empty();
         }
-        LocaleDescriptor byTagMatch = byTag.get(candidate.toLanguageTag());
+        String canonical = canonicalTag(candidate.toLanguageTag());
+        if (canonical == null) {
+            return Optional.empty();
+        }
+        return matchCanonicalTag(canonical);
+    }
+
+    /**
+     * 统一匹配管线：精确规范化 tag → alias → 唯一语言级匹配。
+     * 供 {@link #match(String)} 与 {@link #match(Locale)} 共用，保证两条路径行为一致。
+     */
+    private Optional<LocaleDescriptor> matchCanonicalTag(String canonical) {
+        LocaleDescriptor byTagMatch = byTag.get(canonical);
         if (byTagMatch != null) {
             return Optional.of(byTagMatch);
         }
-        return matchByLanguage(candidate.toLanguageTag());
+        LocaleDescriptor aliasMatch = byAlias.get(canonical);
+        if (aliasMatch != null) {
+            return Optional.of(aliasMatch);
+        }
+        return matchByLanguage(canonical);
     }
 
     /** 匹配并归一化；无匹配时返回 default。 */
