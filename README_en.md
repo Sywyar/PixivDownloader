@@ -115,39 +115,40 @@ For the exact settings entry points per browser/OS (Firefox `about:preferences#g
 `ms-settings:network-proxy`, etc.), see [Configuration · Route web Pixiv through the same
 proxy](https://sywyar.github.io/PixivDownloader/#/en/configuration).
 
-> [!TIP]
-> **See the [online documentation](https://sywyar.github.io/PixivDownloader/#/en/) for detailed installation, usage,
-configuration, and development guides.**
+---
 
-## Development
+## Online Documentation
 
-The repository's i18n infrastructure is a catalog-driven continuous localization workflow: `i18n/locales.json` is the single source of truth for languages; Chinese (zh-CN) is the development source language and English (en-US) is the global fallback language. Common commands:
+For detailed installation steps, usage guides, configuration reference, and development guides, see the
+[online documentation](https://sywyar.github.io/PixivDownloader/#/en/). Quick jump to each section:
 
-```bash
-npm run setup:hooks        # install local Git hooks (local config only)
-npm run doctor:hooks       # verify hooks configuration
-npm run i18n:check         # full i18n check (coverage / stale / placeholders / hardcoded guard / static sync)
-npm run i18n:generate-static  # generate frontend static meta and bundles (commit the generated files)
-npm run test:i18n          # i18n tooling tests
-```
+**Quick Start**
 
-New Chinese copy must ship with its English translation in the same commit, then accept the reviewed baseline per locale:
+- [📥 Installation & Startup](https://sywyar.github.io/PixivDownloader/#/en/installation)
+- [⚙️ First-Time Setup](https://sywyar.github.io/PixivDownloader/#/en/first-setup)
+- [⬇️ First Download](https://sywyar.github.io/PixivDownloader/#/en/first-download)
 
-```bash
-npm run i18n:accept -- --locale en-US
-npm run i18n:accept -- --locale en-US --module pixivdownload-app
-```
+**Feature Guide**
 
-Commit generated static resources after regeneration:
+- [⚡ Quick Fetch](https://sywyar.github.io/PixivDownloader/#/en/quick-access)
+- [📋 URL Batch Download](https://sywyar.github.io/PixivDownloader/#/en/batch-download)
+- [👤 Artist Batch Download](https://sywyar.github.io/PixivDownloader/#/en/user-download)
+- [🔍 Search Download](https://sywyar.github.io/PixivDownloader/#/en/search)
+- [📖 Novel Download](https://sywyar.github.io/PixivDownloader/#/en/novel)
+- [🖼️ Artwork Gallery](https://sywyar.github.io/PixivDownloader/#/en/gallery)
+- [⏰ Scheduled Tasks](https://sywyar.github.io/PixivDownloader/#/en/scheduled-tasks)
+- [🧩 Userscripts](https://sywyar.github.io/PixivDownloader/#/en/userscripts)
 
-```bash
-npm run i18n:generate-static
-git add pixivdownload-app/src/main/resources/static/i18n-static
-```
+**Reference**
 
-Local hooks and the GitHub Actions `i18n-check` job form a double gate (hooks verify the Git index / pushed commit snapshots). See [docs/i18n-workflow.md](docs/i18n-workflow.md) for the full workflow.
+- [⚙️ Configuration](https://sywyar.github.io/PixivDownloader/#/en/configuration)
+- [🔌 Plugin Management](https://sywyar.github.io/PixivDownloader/#/en/plugin-management)
+- [💾 Storage Principles](https://sywyar.github.io/PixivDownloader/#/en/storage)
+- [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
+- [🛠️ Development](https://sywyar.github.io/PixivDownloader/#/en/development)
 
 ---
+
 ## Disclaimer
 
 - This project is for personal learning and research only; do not use it for any commercial purposes.

@@ -100,38 +100,36 @@ sh run.sh
 
 各浏览器 / 系统的具体设置入口地址（Firefox `about:preferences#general`、Windows `ms-settings:network-proxy` 等）见[配置参考 · 让网页版 Pixiv 走同一个代理](https://sywyar.github.io/PixivDownloader/#/zh-cn/configuration)。
 
-> [!TIP]
-> **详细安装步骤、使用指南、配置参考、开发指南等请查阅 [在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)**
-
 ---
 
-## 开发
+## 在线文档
 
-仓库的 i18n（多语言）基础设施是清单驱动的持续本地化工作流：`i18n/locales.json` 是唯一语言事实来源，中文是开发源语言、英文是全局回退语言。常用命令：
+详细的安装步骤、使用指南、配置参考、开发指南等请查阅[在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)，各章节快速跳转：
 
-```bash
-npm run setup:hooks        # 安装本地 Git hooks（只改 local 配置）
-npm run doctor:hooks       # 校验 hooks 配置
-npm run i18n:check         # 完整 i18n 检查（覆盖率 / stale / 占位符 / 硬编码守卫 / 静态资源同步）
-npm run i18n:generate-static  # 生成前端静态 meta 与 bundle（改动后需 git add 提交产物）
-npm run test:i18n          # i18n 工具测试
-```
+**快速上手**
 
-新增中文文案必须同提交更新英文，然后按语言接受已审核翻译基线：
+- [📥 安装与启动](https://sywyar.github.io/PixivDownloader/#/zh-cn/installation)
+- [⚙️ 首次配置](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-setup)
+- [⬇️ 第一次下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-download)
 
-```bash
-npm run i18n:accept -- --locale en-US
-npm run i18n:accept -- --locale en-US --module pixivdownload-app
-```
+**功能指南**
 
-静态生成资源变更后提交生成产物：
+- [⚡ 快捷获取](https://sywyar.github.io/PixivDownloader/#/zh-cn/quick-access)
+- [📋 URL 批量下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/batch-download)
+- [👤 画师批量下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/user-download)
+- [🔍 搜索下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/search)
+- [📖 小说下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/novel)
+- [🖼️ 作品画廊](https://sywyar.github.io/PixivDownloader/#/zh-cn/gallery)
+- [⏰ 计划任务](https://sywyar.github.io/PixivDownloader/#/zh-cn/scheduled-tasks)
+- [🧩 油猴脚本](https://sywyar.github.io/PixivDownloader/#/zh-cn/userscripts)
 
-```bash
-npm run i18n:generate-static
-git add pixivdownload-app/src/main/resources/static/i18n-static
-```
+**参考**
 
-本地 hooks 与 GitHub Actions 的 `i18n-check` 是双重门禁（hooks 检查 Git index / 待推送 commit 快照）。完整工作流见 [docs/i18n-workflow.md](docs/i18n-workflow.md)。
+- [⚙️ 配置参考](https://sywyar.github.io/PixivDownloader/#/zh-cn/configuration)
+- [🔌 插件管理](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-management)
+- [💾 存储原理](https://sywyar.github.io/PixivDownloader/#/zh-cn/storage)
+- [❓ 常见问题](https://sywyar.github.io/PixivDownloader/#/zh-cn/faq)
+- [🛠️ 开发指南](https://sywyar.github.io/PixivDownloader/#/zh-cn/development)
 
 ---
 
