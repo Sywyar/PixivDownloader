@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Developer Mode" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="top.sywyar.pixivdownload.gui.GuiLauncher" />
-    <module name="pixivdownload-app" />
+    <module name="PixivDownload" />
     <option name="VM_PARAMETERS" value="-Dpixivdownload.plugin-dev.enabled=true -Dpixivdownload.plugin-dev.root=&quot;$PROJECT_DIR$&quot;" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <method v="2">

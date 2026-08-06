@@ -100,6 +100,21 @@
 
     <build>
         <plugins>
+            <!-- JDK 23+ 默认禁用隐式注解处理（Lombok 等处理器不再经 classpath 自动发现），
+                显式声明 Lombok 处理器路径，使任意 JDK（17/21/23/26…）下 @RequiredArgsConstructor
+                等注解都能正常生成代码；未依赖 Lombok 的模块不受影响。 -->
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>1.18.40</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
             <!-- Windows 中文环境下，JDK 17 的 surefire 测试 fork 默认用平台编码（GBK/cp936）写 stdout/stderr，
                 而 surefire 按 UTF-8 解码，导致测试输出的中文在控制台与 surefire-reports 中乱码。
                 显式让 fork 使用 UTF-8（@{argLine} 延迟替换，保留 jacoco 等插件注入的 argLine）。 -->
