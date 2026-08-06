@@ -676,7 +676,9 @@ class PluginReleaseScriptsTest {
                 "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
                 "mvn -B -ntp test -Dexec.skip=true",
                 "signature-guard:",
-                "run: bash scripts/hooks/pre-push-guard.sh --ref ${{ github.sha }}",
+                // 签名守卫必须来自 trusted base 的物化（候选提交不能用自己的 guard 自我批准）
+                "pre-push-guard.sh\" --repo-root \"$PWD\" --ref \"${{ github.sha }}\"",
+                "trusted-gate-contract:",
                 "uses: actions/setup-node@v4",
                 "node-version: '24'",
                 "run: npm run test:js",
@@ -691,7 +693,7 @@ class PluginReleaseScriptsTest {
                 "uses: actions/upload-artifact@v4",
                 "name: i18n-report",
                 "if-no-files-found: ignore");
-        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(5);
+        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(6);
         assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
         assertThat(workflow.indexOf("run: npm run test:web-standards"))
                 .isGreaterThan(workflow.indexOf("run: npm run test:js"));

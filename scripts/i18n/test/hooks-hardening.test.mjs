@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runGenerate } from '../generate-static.mjs';
 import { runAcceptCore, validateCliPolicy } from '../accept.mjs';
+import { runDoctor } from '../doctor-hooks.mjs';
 import staleLock from '../lib/stale-lock.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,7 +69,7 @@ function hasBash() {
     }
 }
 
-/** 与 hooks.test.mjs 同构的临时仓库夹具。 */
+/** 与 hooks.test.mjs 同构的临时仓库夹具（C1 = enforcement start 无 policy；C2 = policy；anchor = C2）。 */
 function makeGitRepo(base = os.tmpdir()) {
     const dir = path.join(base, 'pixiv harden repo ' + Date.now() + '-' + Math.random().toString(36).slice(2));
     fs.mkdirSync(dir, { recursive: true });
@@ -78,6 +79,7 @@ function makeGitRepo(base = os.tmpdir()) {
     git(['config', 'core.autocrlf', 'false'], dir);
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
+    fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
@@ -90,8 +92,17 @@ function makeGitRepo(base = os.tmpdir()) {
     runGenerate(dir);
     git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
     git(['add', '-A'], dir);
-    git(['commit', '-q', '-m', 'init'], dir);
+    git(['commit', '-q', '-m', 'init'], dir); // C1 = enforcement start
+    const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
+    const policy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
+    policy.i18nEnforcementStartCommit = start;
+    fs.writeFileSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'),
+        JSON.stringify(policy, null, 2) + '\n', 'utf8');
+    git(['add', '-A'], dir);
+    git(['commit', '-q', '-m', 'add gate policy'], dir); // C2
+    const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
+    git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }
 
@@ -291,7 +302,7 @@ function tamperChecker(root, body) {
 
 const EXIT_ZERO_CHECKER = '#!/usr/bin/env node\nprocess.exit(0);\n';
 
-test('pre-commit：index 坏翻译 + 工作树 checker 篡改为 exit 0 → 必须失败（HEAD checker 判定）', () => {
+test('pre-commit：index 坏翻译 + 工作树 checker 篡改为 exit 0 → 必须失败（trusted checker 判定）', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -304,7 +315,7 @@ test('pre-commit：index 坏翻译 + 工作树 checker 篡改为 exit 0 → 必�
         tamperChecker(root, EXIT_ZERO_CHECKER);
         const result = bash(['scripts/hooks/pre-commit'], root);
         assert.notEqual(result.status, 0, 'index 是坏翻译，工作树篡改 checker 不得放行');
-        assert.match(result.stdout + result.stderr, /trusted HEAD checker/);
+        assert.match(result.stdout + result.stderr, /trusted gate checker/);
         assert.match(result.stdout + result.stderr, /I18N CHECK FAILED|FAILED/);
         // 工作树篡改仍在（pre-commit 不得修改文件）
         assert.equal(fs.readFileSync(path.join(root, 'scripts', 'i18n', 'check.mjs'), 'utf8'), EXIT_ZERO_CHECKER);
@@ -313,7 +324,7 @@ test('pre-commit：index 坏翻译 + 工作树 checker 篡改为 exit 0 → 必�
     }
 });
 
-test('pre-commit：index 暂存 exit-0 checker + 坏翻译 → HEAD checker 仍然失败', () => {
+test('pre-commit：index 暂存 exit-0 checker + 坏翻译 → trusted checker 仍然失败', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -325,13 +336,13 @@ test('pre-commit：index 暂存 exit-0 checker + 坏翻译 → HEAD checker 仍�
         git(['add', '-A'], root); // 坏翻译 + 篡改 checker 一起暂存
         const result = bash(['scripts/hooks/pre-commit'], root);
         assert.notEqual(result.status, 0, '暂存 exit-0 checker 不得让坏翻译通过');
-        assert.match(result.stdout + result.stderr, /trusted HEAD checker/);
+        assert.match(result.stdout + result.stderr, /trusted gate checker/);
     } finally {
         cleanRepo(root);
     }
 });
 
-test('pre-commit：HEAD checker 与 index checker 都正常 → 通过；i18n 表面变化触发完整检查', () => {
+test('pre-commit：trusted checker 与 gate contract 都正常 → 通过；i18n 表面变化触发完整检查', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -345,31 +356,31 @@ test('pre-commit：HEAD checker 与 index checker 都正常 → 通过；i18n �
         git(['add', '-A'], root);
         const result = bash(['scripts/hooks/pre-commit'], root);
         assert.equal(result.status, 0, result.stdout + result.stderr);
-        assert.match(result.stdout, /trusted HEAD checker/);
+        assert.match(result.stdout, /trusted gate checker/);
     } finally {
         cleanRepo(root);
     }
 });
 
-test('pre-commit：暂存新 checker（合法增强版）时运行 staged index checker；两者都通过才允许', () => {
+test('pre-commit：合法 gate 升级（暂存合法增强的 checker）→ trusted contract 通过', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
     }
     const root = makeGitRepo();
     try {
-        // 暂存一个「合法增强」的 checker：在 check.mjs 末尾追加一行无副作用注释（内容仍通过 --version 自检）
+        // 在 check.mjs 末尾追加一行无副作用注释（checker 行为不变，contract 必须通过）
         const checkerPath = path.join(root, 'scripts', 'i18n', 'check.mjs');
         const original = fs.readFileSync(checkerPath, 'utf8');
         fs.writeFileSync(checkerPath, original + '\n// staged enhancement\n', 'utf8');
-        // 同时暂存一个普通业务文件变化，触发 pre-commit（checker 变化 → index checker 必须运行）
+        // 同时暂存一个普通业务文件变化，触发 pre-commit（checker 变化 → trusted contract 必须运行）
         fs.mkdirSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
         fs.writeFileSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'x.js'),
             'var x = 1;\n', 'utf8');
         git(['add', '-A'], root);
         const result = bash(['scripts/hooks/pre-commit'], root);
         assert.equal(result.status, 0, result.stdout + result.stderr);
-        assert.match(result.stdout, /running staged index checker/);
+        assert.match(result.stdout, /GATE CONTRACT OK|running the trusted gate contract/);
     } finally {
         cleanRepo(root);
     }
@@ -431,7 +442,7 @@ test('pre-push：双远端 —— upstream 已有坏 commit、origin 没有；�
     }
 });
 
-test('pre-push：checker 来自待推送 ref tip（当前 HEAD 无关）', () => {
+test('pre-push：candidate tip checker = exit(0)（自批准尝试）→ 必须失败；候选 checker 只作为被检查对象', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -443,20 +454,21 @@ test('pre-push：checker 来自待推送 ref tip（当前 HEAD 无关）', () =>
         git(['init', '-q', '--bare', remote], root);
         git(['remote', 'add', 'origin', remote], root);
 
-        // 分支 other：tip 的 checker 被篡改为 exit 0（该分支自带契约），且历史含坏翻译
+        // 分支 other：tip 的 checker 被篡改为 exit 0 且历史含坏翻译
         git(['checkout', '-q', '-b', 'other'], root);
         tamperChecker(root, EXIT_ZERO_CHECKER);
         writeBundles(root, GOOD_ZH, BAD_EN);
         commitAll(root, 'tampered checker + bad translation', { bypass: true });
 
-        // 停留在 master（HEAD 是正常 checker）推送 other → 必须使用 other tip 的 checker
+        // 停留在 master（HEAD 是正常 checker）推送 other → 必须失败：
+        // 候选 ref 自带 no-op checker 不能自我批准（trusted anchor checker/contract 判定）
         git(['checkout', '-q', 'master'], root);
         const push = git(['push', 'origin', 'other'], root, { allowFailure: true });
-        assert.equal(push.status, 0, 'checker 必须来自待推送 ref tip（篡改后的分支 checker），而不是 HEAD: '
-            + push.stdout + push.stderr);
-        assert.match(push.stdout + push.stderr, /checker from/);
+        assert.notEqual(push.status, 0, '篡改后的分支 checker 必须不能放行: ' + push.stdout + push.stderr);
+        assert.match(push.stdout + push.stderr, /trusted gate/);
+        assert.match(push.stdout + push.stderr, /does not pass the i18n gate|GATE CONTRACT FAILED/);
 
-        // 对照组：分支 other2 用正常 checker + 坏翻译 → HEAD 无关，仍被其自身 tip checker 拦截
+        // 对照组：分支 other2 用正常 checker + 坏翻译 → 同样被 trusted checker 拦截
         git(['checkout', '-q', 'other'], root);
         git(['checkout', '-q', '-b', 'other2'], root);
         git(['checkout', '-q', 'master'], root);
@@ -469,6 +481,68 @@ test('pre-push：checker 来自待推送 ref tip（当前 HEAD 无关）', () =>
         const blocked = git(['push', 'origin', 'other2'], root, { allowFailure: true });
         assert.notEqual(blocked.status, 0, '正常 checker 的分支坏翻译必须被拦截');
         assert.match(blocked.stdout + blocked.stderr, /does not pass the i18n gate/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
+test('pre-push：candidate tip contract = exit(0)（自批准尝试）→ trusted contract 必须拒绝', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo();
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        // 分支 noopc：candidate gate-contract.mjs = exit(0)（checker 正常、翻译合法）
+        git(['checkout', '-q', '-b', 'noopc'], root);
+        fs.writeFileSync(path.join(root, 'scripts', 'i18n', 'gate-contract.mjs'),
+            '#!/usr/bin/env node\nprocess.exit(0);\n', 'utf8');
+        commitAll(root, 'noop contract', { bypass: true });
+        git(['checkout', '-q', 'master'], root);
+
+        const push = git(['push', 'origin', 'noopc'], root, { allowFailure: true });
+        assert.notEqual(push.status, 0, 'no-op contract 必须被 trusted contract 拒绝（不能保护下一次升级）');
+        assert.match(push.stdout + push.stderr, /does not pass the trusted gate contract|GATE CONTRACT FAILED/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
+test('pre-push：candidate signature guard = exit(0) + 标记 commit → trusted guard 仍发现', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo();
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        // 分支 noguard：candidate pre-push-guard.sh = exit(0) + 新增标记（动态拼接，测试源不含字面量，
+        // 避免 signature guard 自身扫描测试文件时误报——guard 只豁免 scripts/i18n/test/hooks.test.mjs）
+        git(['checkout', '-q', '-b', 'noguard'], root);
+        fs.writeFileSync(path.join(root, 'scripts', 'hooks', 'pre-push-guard.sh'),
+            '#!/usr/bin/env bash\nexit 0\n', 'utf8');
+        const badJavaDir = path.join(root, 'pixivdownload-app', 'src', 'main', 'java');
+        fs.mkdirSync(badJavaDir, { recursive: true });
+        const marker = 'DouyinXBogus' + 'Signer';
+        fs.writeFileSync(path.join(badJavaDir, 'Bad.java'),
+            'class Bad { String s = "' + marker + '"; }\n', 'utf8');
+        commitAll(root, 'guard noop + marker', { bypass: true });
+        git(['checkout', '-q', 'master'], root);
+
+        const push = git(['push', 'origin', 'noguard'], root, { allowFailure: true });
+        assert.notEqual(push.status, 0, 'candidate guard no-op 不得放行标记 commit');
+        assert.match(push.stdout + push.stderr, /does not pass the signature guard|reverse-engineered/);
     } finally {
         cleanRepo(root);
         fs.rmSync(remote, { recursive: true, force: true });
@@ -556,13 +630,16 @@ test('pre-push：remote SHA 不在本地 object database → 回退目标 remote
         const remoteAdvance2 = git(['-c', 'core.hooksPath=/dev/null', 'push', 'origin', 'master'], clone, { allowFailure: true });
         assert.equal(remoteAdvance2.status, 0, remoteAdvance2.stdout + remoteAdvance2.stderr);
 
-        // 本地基于旧基线提交一个合法 commit；推送时 remote_sha 是未知的远端 commit
+        // 本地基于旧基线提交一个合法 commit；推送时 remote_sha 是未知的远端 commit。
+        // pre-push 先从真实远端 fetch 对象到临时 namespace 再准确计算基线（9.4）：
+        // 本地提交不在远端 tip 之后 → 范围为空（nothing new），git 按非快进拒绝；不得漏检或崩溃。
         writeBundles(root, GOOD_ZH, GOOD_EN);
         commitAll(root, 'local good');
         const push = git(['push', 'origin', 'master'], root, { allowFailure: true });
-        // 远端更新被 git 拒绝（非快进）属于预期；pre-push 必须明确走 tracking refs 回退路径
-        assert.match(push.stdout + push.stderr, /not present locally/);
-        assert.match(push.stdout + push.stderr, /tracking refs/);
+        assert.match(push.stdout + push.stderr, /no commits to verify|verifying \d+ pushed commit/,
+            'pre-push 必须基于真实远端状态完成范围计算: ' + push.stdout + push.stderr);
+        assert.match(push.stdout + push.stderr, /fetch first|\[rejected\]|\[remote rejected\]/,
+            'git 必须按非快进拒绝该推送');
     } finally {
         cleanRepo(root);
         cleanRepo(clone);
@@ -587,10 +664,10 @@ test('pre-push / pre-commit：不依赖 tar；不使用 --remotes=*；不从 rem
 });
 
 // ---------------------------------------------------------------------------
-// doctor：Windows bash 检查
+// doctor：Windows / POSIX bash 检查（依赖注入，不拼接 PATH、不修改环境）
 // ---------------------------------------------------------------------------
 
-test('doctor：Windows mock 平台下 bash 可用 → 通过（X_OK 不作为硬要求）', () => {
+test('doctor：真实 CLI 在 bash 可用环境下通过（hooks 已配置、mode 100755）', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -598,49 +675,94 @@ test('doctor：Windows mock 平台下 bash 可用 → 通过（X_OK 不作为硬
     const root = makeGitRepo();
     try {
         const doctor = spawnSync('node', [path.join(SCRIPTS_DIR, 'doctor-hooks.mjs')],
-            { cwd: root, encoding: 'utf8', env: { ...process.env, PIXIV_DOCTOR_MOCK_PLATFORM: 'win32' } });
+            { cwd: root, encoding: 'utf8' });
         assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
+        assert.match(doctor.stdout + doctor.stderr, /doctor:hooks: OK/);
     } finally {
         cleanRepo(root);
     }
 });
 
-test('doctor：bash 缺失（PATH 注入失败 bash）→ hooks 已配置时失败并提示 Git for Windows', () => {
-    if (!hasBash()) {
-        test.skip('bash 不可用');
-        return;
-    }
+test('doctor：Windows + bash 缺失（注入 bashProbe:false）→ 失败并提示 Git for Windows；环境零污染', () => {
     const root = makeGitRepo();
-    const fake = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-no-bash-'));
+    const previousPath = process.env.PATH;
+    const previousCI = process.env.CI;
     try {
-        // libuv 只解析精确文件名 + PATHEXT；用假的 bash.exe 让 bashAvailable() 失败
-        fs.writeFileSync(path.join(fake, 'bash.exe'), 'not a real executable', 'utf8');
-        const pathWithFake = fake + path.delimiter + process.env.PATH;
-        const doctor = spawnSync('node', [path.join(SCRIPTS_DIR, 'doctor-hooks.mjs')],
-            { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: pathWithFake } });
-        assert.notEqual(doctor.status, 0, 'bash 不可用时 doctor 必须失败');
-        assert.match(doctor.stdout + doctor.stderr, /bash is not available/);
+        const result = runDoctor({
+            repoRoot: root,
+            platform: 'win32',
+            bashProbe: () => false,
+        });
+        assert.equal(result.ok, false, 'bash 缺失时 doctor 必须失败');
+        const joined = result.problems.join('\n') + '\n' + result.fixes.join('\n');
+        assert.match(joined, /bash is not available/);
+        assert.match(joined, /hooks are configured/);
+        assert.match(joined, /Git for Windows \(Git Bash\)/);
     } finally {
         cleanRepo(root);
-        fs.rmSync(fake, { recursive: true, force: true });
+    }
+    assert.equal(process.env.PATH, previousPath, 'doctor 不得修改 PATH');
+    assert.equal(process.env.CI, previousCI, 'doctor 不得修改 process.env');
+});
+
+test('doctor：POSIX + bash 缺失（注入）→ 失败并提示安装 bash', () => {
+    const root = makeGitRepo();
+    try {
+        const result = runDoctor({
+            repoRoot: root,
+            platform: 'linux',
+            bashProbe: () => false,
+        });
+        assert.equal(result.ok, false);
+        assert.match(result.problems.join(' '), /bash is not available/);
+        assert.ok(result.fixes.some((f) => f.includes('install bash')));
+    } finally {
+        cleanRepo(root);
     }
 });
 
-test('doctor：bash 语法错误 → 失败并定位 hook', () => {
-    if (!hasBash()) {
-        test.skip('bash 不可用');
-        return;
-    }
+test('doctor：bash 语法错误（注入 bashSyntaxCheck）→ 失败并定位 hook', () => {
     const root = makeGitRepo();
     try {
         fs.writeFileSync(path.join(root, 'scripts', 'hooks', 'pre-commit'),
             '#!/usr/bin/env bash\nif [[[ then\n', 'utf8');
-        const doctor = spawnSync('node', [path.join(SCRIPTS_DIR, 'doctor-hooks.mjs')],
-            { cwd: root, encoding: 'utf8' });
-        assert.notEqual(doctor.status, 0);
-        assert.match(doctor.stdout + doctor.stderr, /pre-commit failed bash syntax check/);
+        const result = runDoctor({
+            repoRoot: root,
+            bashProbe: () => true,
+            bashSyntaxCheck: (content) => {
+                if (content.includes('[[[')) {
+                    throw new Error('syntax error');
+                }
+            },
+        });
+        assert.equal(result.ok, false);
+        assert.match(result.problems.join(' '), /pre-commit failed bash syntax check/);
     } finally {
         cleanRepo(root);
+    }
+});
+
+test('doctor：BOM / CRLF → 失败并给出修复；并发注入不互相污染', () => {
+    const rootA = makeGitRepo();
+    const rootB = makeGitRepo();
+    try {
+        fs.writeFileSync(path.join(rootA, 'scripts', 'hooks', 'pre-commit'),
+            '\uFEFF#!/usr/bin/env bash\nexit 0\n', 'utf8');
+        const bom = runDoctor({ repoRoot: rootA, bashProbe: () => true, bashSyntaxCheck: () => undefined });
+        assert.equal(bom.ok, false);
+        assert.match(bom.problems.join(' '), /has a BOM/);
+
+        fs.writeFileSync(path.join(rootB, 'scripts', 'hooks', 'pre-commit'),
+            '#!/usr/bin/env bash\r\nexit 0\r\n', 'utf8');
+        const crlf = runDoctor({ repoRoot: rootB, bashProbe: () => true, bashSyntaxCheck: () => undefined });
+        assert.equal(crlf.ok, false);
+        assert.match(crlf.problems.join(' '), /CRLF/);
+
+        // 同一进程内两次注入互不影响：rootA 的失败不会污染 rootB 的判定（rootB 只是 CRLF 问题）
+        assert.equal(crlf.problems.some((p) => p.includes('BOM')), false);
+    } finally {
+        cleanRepo(rootA);
+        cleanRepo(rootB);
     }
 });
 

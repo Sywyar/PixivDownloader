@@ -13,6 +13,9 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # 本次信任链起点迁移的 legacy bootstrap ref（唯一允许缺 gate contract 的 trusted base）。
+  # 迁移完成后该分支不可再用于任意 commit：其它缺 contract 的 base 一律失败。
+  LEGACY_BOOTSTRAP_REF: 19c3bc47387762130d593ddfcf7e2c4acbc992bd
 
 jobs:
   java-tests:
@@ -41,7 +44,7 @@ jobs:
 
   signature-guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Checkout tested commit
@@ -50,8 +53,33 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Reject reverse-engineered Douyin signature code
-        run: bash scripts/hooks/pre-push-guard.sh --ref ${{ github.sha }}
+      - name: Determine trusted base
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then base="${{ github.event.merge_group.base_sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then base="${{ github.event.before }}"
+          else base=""; fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse --verify --quiet "${{ github.sha }}^" || true)"
+          fi
+          if [ -z "$base" ]; then
+            echo "cannot determine a trusted base for ${{ github.sha }}; refusing to run the signature guard" >&2
+            exit 1
+          fi
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "trusted base: $base"
+
+      # 签名守卫必须来自 trusted base：候选提交不能用自己的 guard 自我批准
+      - name: Reject reverse-engineered Douyin signature code (trusted guard)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/guard"
+          git ls-tree -r --name-only "$BASE_SHA" -- scripts/i18n scripts/hooks > "$RUNNER_TEMP/guard/paths.txt"
+          GIT_INDEX_FILE="$RUNNER_TEMP/guard/index" git read-tree "$BASE_SHA"
+          mkdir -p "$RUNNER_TEMP/guard/out"
+          GIT_INDEX_FILE="$RUNNER_TEMP/guard/index" git -c core.autocrlf=false checkout-index --stdin --prefix="$RUNNER_TEMP/guard/out/"
+          bash "$RUNNER_TEMP/guard/out/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
 
   javascript-tests:
     runs-on: ubuntu-latest
@@ -75,9 +103,99 @@ jobs:
       - name: Run web standards guard
         run: npm run test:web-standards
 
+  # 升级链：trusted base 的 gate 审核候选（github.sha）。
+  # 仓库内 workflow 不能被描述为绝对不可修改；真正的最终门禁必须由 GitHub Ruleset /
+  # 分支保护 / required check 提供，且可信检查器不能由同一个候选提交自行批准。
+  trusted-gate-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Determine trusted base
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then base="${{ github.event.merge_group.base_sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then base="${{ github.event.before }}"
+          else base=""; fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse --verify --quiet "${{ github.sha }}^" || true)"
+          fi
+          if [ -z "$base" ]; then
+            echo "cannot determine a trusted base for ${{ github.sha }}; refusing to run the trusted gate contract" >&2
+            exit 1
+          fi
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "trusted base: $base"
+
+      - name: Trusted base contract validates the candidate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gate"
+          git ls-tree -r --name-only "$BASE_SHA" -- scripts/i18n scripts/hooks > "$RUNNER_TEMP/gate/paths.txt"
+          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git read-tree "$BASE_SHA"
+          mkdir -p "$RUNNER_TEMP/gate/out"
+          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git -c core.autocrlf=false checkout-index --stdin --prefix="$RUNNER_TEMP/gate/out/"
+          if [ "$BASE_SHA" = "$LEGACY_BOOTSTRAP_REF" ]; then
+            echo "legacy bootstrap: base is exactly the one-time migration ref ($LEGACY_BOOTSTRAP_REF)"
+            node "$RUNNER_TEMP/gate/out/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
+              --snapshot ref --ref "${{ github.sha }}"
+            bash "$RUNNER_TEMP/gate/out/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
+            for p in scripts/i18n/check.mjs scripts/i18n/gate-contract.mjs scripts/i18n/gate-policy.json \
+                     scripts/i18n/lib/repository-snapshot.mjs scripts/i18n/lib/trusted-gate.mjs \
+                     scripts/hooks/pre-commit scripts/hooks/pre-push scripts/hooks/pre-push-guard.sh; do
+              git cat-file -e "${{ github.sha }}^{commit}:$p" >/dev/null \
+                || { echo "candidate missing required gate file: $p" >&2; exit 1; }
+            done
+            echo "legacy bootstrap ok: the chain start migrates to the candidate's contract."
+          elif git cat-file -e "$BASE_SHA^{commit}:scripts/i18n/gate-contract.mjs" >/dev/null 2>&1; then
+            echo "trusted base gate contract validates the candidate..."
+            node "$RUNNER_TEMP/gate/out/scripts/i18n/gate-contract.mjs" \
+              --repo-root "$PWD" --report-root "$PWD" --candidate-ref "${{ github.sha }}"
+            echo "trusted base checker checks the candidate ref..."
+            node "$RUNNER_TEMP/gate/out/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
+              --snapshot ref --ref "${{ github.sha }}"
+          else
+            echo "base $BASE_SHA lacks the gate contract and is not the legacy bootstrap ref; fail closed" >&2
+            exit 1
+          fi
+
+      - name: Upload gate contract report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-contract-report
+          path: build/reports/i18n/
+          if-no-files-found: ignore
+
+      # 仓库管理员最终门禁提示（14.4）：仅靠仓库内 workflow 不能建立绝对不可变的信任根。
+      - name: Manual gate notes for repository admins
+        if: always()
+        run: |
+          echo "REMINDER for repository admins:"
+          echo "  - Do NOT allow bypassing branch protection."
+          echo "  - Configure Quality Gate jobs (java-tests, javascript-tests, signature-guard,"
+          echo "    trusted-gate-contract, i18n-check) as required checks."
+          echo "  - Gate / workflow files (.github/workflows/quality-gate.yml, scripts/i18n/**,"
+          echo "    scripts/hooks/**) must go through protected review."
+          echo "  - A stronger setup is an external workflow / separate repository checker that"
+          echo "    the candidate commit cannot modify."
+          echo "  - A repository-internal workflow cannot establish an absolutely immutable trust root."
+
   i18n-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - name: Checkout tested commit
@@ -99,24 +217,90 @@ jobs:
           distribution: temurin
           cache: maven
 
-      # 所有步骤都不使用 continue-on-error：任何一步失败都直接使 job 失败，
-      # 状态由 GitHub Actions 原生 outcome 传播，不依赖事后组合判断。
+      - name: Determine trusted base
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then base="${{ github.event.merge_group.base_sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then base="${{ github.event.before }}"
+          else base=""; fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse --verify --quiet "${{ github.sha }}^" || true)"
+          fi
+          if [ -z "$base" ]; then
+            echo "cannot determine a trusted base for ${{ github.sha }}; refusing to run the trusted gate contract" >&2
+            exit 1
+          fi
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "trusted base: $base"
+
+      # 各独立检查尽量都执行：某一项失败不跳过其余项（continue-on-error 收集 outcome，
+      # 最后一步统一传播）。不得因为 tests 失败就跳过 trusted / ref / worktree / static。
       - name: Run i18n tests (incl. JVM properties oracle differential)
+        id: tests
+        continue-on-error: true
         run: npm run test:i18n
         env:
           CI: 'true'
 
+      - name: Trusted base contract validates the candidate
+        id: trusted
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gate"
+          git ls-tree -r --name-only "$BASE_SHA" -- scripts/i18n scripts/hooks > "$RUNNER_TEMP/gate/paths.txt"
+          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git read-tree "$BASE_SHA"
+          mkdir -p "$RUNNER_TEMP/gate/out"
+          GIT_INDEX_FILE="$RUNNER_TEMP/gate/index" git -c core.autocrlf=false checkout-index --stdin --prefix="$RUNNER_TEMP/gate/out/"
+          if [ "$BASE_SHA" = "$LEGACY_BOOTSTRAP_REF" ]; then
+            echo "legacy bootstrap: base is exactly the one-time migration ref ($LEGACY_BOOTSTRAP_REF)"
+            node "$RUNNER_TEMP/gate/out/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
+              --snapshot ref --ref "${{ github.sha }}"
+            bash "$RUNNER_TEMP/gate/out/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
+            for p in scripts/i18n/check.mjs scripts/i18n/gate-contract.mjs scripts/i18n/gate-policy.json \
+                     scripts/i18n/lib/repository-snapshot.mjs scripts/i18n/lib/trusted-gate.mjs \
+                     scripts/hooks/pre-commit scripts/hooks/pre-push scripts/hooks/pre-push-guard.sh; do
+              git cat-file -e "${{ github.sha }}^{commit}:$p" >/dev/null \
+                || { echo "candidate missing required gate file: $p" >&2; exit 1; }
+            done
+          elif git cat-file -e "$BASE_SHA^{commit}:scripts/i18n/gate-contract.mjs" >/dev/null 2>&1; then
+            node "$RUNNER_TEMP/gate/out/scripts/i18n/gate-contract.mjs" \
+              --repo-root "$PWD" --report-root "$PWD" --candidate-ref "${{ github.sha }}"
+          else
+            echo "base $BASE_SHA lacks the gate contract and is not the legacy bootstrap ref; fail closed" >&2
+            exit 1
+          fi
+
       - name: Run i18n check on the tested commit (ref snapshot)
+        id: ref
+        continue-on-error: true
         run: node scripts/i18n/check.mjs --snapshot ref --ref ${{ github.sha }}
 
       - name: Run i18n worktree check
+        id: worktree
+        continue-on-error: true
         run: npm run i18n:check
 
       - name: Generate static i18n resources (defense-in-depth diff)
+        id: static-generate
+        continue-on-error: true
         run: npm run i18n:generate-static
 
       - name: Verify generated resources are in sync
+        id: static-diff
+        continue-on-error: true
         run: git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static
+
+      - name: Propagate result
+        if: always()
+        run: |
+          test "${{ steps.tests.outcome }}" = "success"
+          test "${{ steps.trusted.outcome }}" = "success"
+          test "${{ steps.ref.outcome }}" = "success"
+          test "${{ steps.worktree.outcome }}" = "success"
+          test "${{ steps.static-generate.outcome }}" = "success"
+          test "${{ steps.static-diff.outcome }}" = "success"
 
       - name: Upload i18n report
         if: always()

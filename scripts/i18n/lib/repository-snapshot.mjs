@@ -51,11 +51,26 @@ function git(args, cwd, env = {}, input) {
 
 /**
  * 删除临时目录（路径边界检查：只允许删除系统临时目录下的内容，且不得是仓库根 / 系统根）。
+ * Windows 上子进程句柄可能短暂残留导致 rm 失败，重试几次再放弃。
  */
 function removeTempDir(dir) {
     const resolved = path.resolve(dir);
     assertSafeTempDir(resolved);
-    fs.rmSync(resolved, { recursive: true, force: true });
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+            fs.rmSync(resolved, { recursive: true, force: true });
+            return;
+        } catch (e) {
+            if (attempt === 5) {
+                throw e;
+            }
+            // 幂等重试：不能依赖 bash（本模块被 check.mjs 等纯 Node 进程使用）
+            const deadline = Date.now() + 300;
+            while (Date.now() < deadline) {
+                // busy-wait 短间隔
+            }
+        }
+    }
 }
 
 /** 检查 ref 在仓库中可解析，避免把任意字符串塞给 git read-tree。 */
@@ -118,15 +133,9 @@ function materializePaths(repoRoot, ref, paths) {
     const indexFile = path.join(tempRoot(), 'tmp-index-' + process.pid + '-' + Math.random().toString(36).slice(2));
     try {
         git(['read-tree', ref], repoRoot, { GIT_INDEX_FILE: indexFile });
-        const wanted = paths.map((p) => p.split(path.sep).join('/'));
-        const prefixes = wanted.map((p) => p.endsWith('/') ? p : p + '/');
-        const listed = git(['ls-tree', '-r', '--name-only', ref], repoRoot).split('\n').filter(Boolean);
-        const selected = listed.filter((name) =>
-            wanted.includes(name) || prefixes.some((prefix) => name.startsWith(prefix)));
+        const selected = selectPaths(repoRoot, ref, paths);
         if (selected.length > 0) {
-            const prefix = root.endsWith(path.sep) ? root : root + path.sep;
-            git(['checkout-index', '--stdin', '--prefix=' + prefix],
-                repoRoot, { GIT_INDEX_FILE: indexFile }, selected.join('\n') + '\n');
+            checkoutIndexTo(repoRoot, root, { indexFile, paths: selected });
         }
     } finally {
         fs.rmSync(indexFile, { force: true });
@@ -137,6 +146,113 @@ function materializePaths(repoRoot, ref, paths) {
             removeTempDir(root);
         },
     };
+}
+
+/**
+ * 从 ls-tree 枚举匹配给定路径前缀 / 精确路径的条目名（确定性排序）。
+ */
+function selectPaths(repoRoot, ref, paths) {
+    const wanted = paths.map((p) => p.split(path.sep).join('/'));
+    const prefixes = wanted.map((p) => p.endsWith('/') ? p : p + '/');
+    const listed = git(['ls-tree', '-r', '--name-only', ref], repoRoot).split('\n').filter(Boolean);
+    return listed.filter((name) =>
+        wanted.includes(name) || prefixes.some((prefix) => name.startsWith(prefix)));
+}
+
+/**
+ * checkout-index 到指定输出目录（core.symlinks=true：POSIX 下按 Git 语义物化符号链接；
+ * Windows 无法创建符号链接的场景由调用方预先检测并显式失败，绝不静默跳过）。
+ */
+function checkoutIndexTo(repoRoot, outputDir, { indexFile, paths } = {}) {
+    fs.mkdirSync(outputDir, { recursive: true });
+    const prefix = outputDir.endsWith(path.sep) ? outputDir : outputDir + path.sep;
+    const args = ['-c', 'core.autocrlf=false', '-c', 'core.symlinks=true', 'checkout-index'];
+    if (paths) {
+        args.push('--stdin');
+    } else {
+        args.push('--all');
+    }
+    args.push('--prefix=' + prefix);
+    const env = indexFile ? { GIT_INDEX_FILE: indexFile } : {};
+    if (paths) {
+        git(args, repoRoot, env, paths.join('\n') + '\n');
+    } else {
+        git(args, repoRoot, env);
+    }
+}
+
+/** Git index 内容直接物化到用户指定输出目录（不经过临时目录复制）。 */
+function materializeIndexTo(repoRoot, outputDir) {
+    checkoutIndexTo(repoRoot, outputDir);
+    return outputDir;
+}
+
+/** 给定 ref 的 tree 直接物化到用户指定输出目录（独立临时 index，不改仓库 index）。 */
+function materializeRefTo(repoRoot, ref, outputDir) {
+    assertRefExists(repoRoot, ref);
+    const indexFile = path.join(tempRoot(), 'tmp-index-' + process.pid + '-' + Math.random().toString(36).slice(2));
+    try {
+        git(['read-tree', ref], repoRoot, { GIT_INDEX_FILE: indexFile });
+        checkoutIndexTo(repoRoot, outputDir, { indexFile });
+    } finally {
+        fs.rmSync(indexFile, { force: true });
+    }
+    return outputDir;
+}
+
+/** 给定 ref 的指定路径子集直接物化到用户指定输出目录。 */
+function materializePathsTo(repoRoot, ref, paths, outputDir) {
+    assertRefExists(repoRoot, ref);
+    const indexFile = path.join(tempRoot(), 'tmp-index-' + process.pid + '-' + Math.random().toString(36).slice(2));
+    try {
+        git(['read-tree', ref], repoRoot, { GIT_INDEX_FILE: indexFile });
+        const selected = selectPaths(repoRoot, ref, paths);
+        if (selected.length > 0) {
+            checkoutIndexTo(repoRoot, outputDir, { indexFile, paths: selected });
+        }
+    } finally {
+        fs.rmSync(indexFile, { force: true });
+    }
+    return outputDir;
+}
+
+/** 真实 index 中的指定路径子集直接物化到用户指定输出目录（ls-files 精确枚举）。 */
+function materializeIndexPathsTo(repoRoot, paths, outputDir) {
+    const wanted = paths.map((p) => p.split(path.sep).join('/'));
+    const prefixes = wanted.map((p) => p.endsWith('/') ? p : p + '/');
+    let listed = [];
+    try {
+        listed = git(['ls-files', '--cached', '--stage'], repoRoot)
+            .split('\n').filter(Boolean).map((line) => line.split('\t').pop());
+    } catch (e) {
+        throw new Error('cannot enumerate the git index: ' + e.message);
+    }
+    const selected = listed.filter((name) =>
+        wanted.includes(name) || prefixes.some((prefix) => name.startsWith(prefix)));
+    if (selected.length > 0) {
+        checkoutIndexTo(repoRoot, outputDir, { paths: selected });
+    }
+    return outputDir;
+}
+
+/** 树中是否存在 symlink 条目（mode 120000）。 */
+function hasSymlinksInTree(repoRoot, ref) {
+    try {
+        const entries = git(['ls-tree', '-r', ref], repoRoot);
+        return entries.split('\n').some((line) => line.startsWith('120000'));
+    } catch (e) {
+        return false;
+    }
+}
+
+/** index 中是否存在 symlink 条目（mode 120000）。 */
+function hasSymlinksInIndex(repoRoot) {
+    try {
+        const entries = git(['ls-files', '--stage'], repoRoot);
+        return entries.split('\n').some((line) => line.startsWith('120000'));
+    } catch (e) {
+        return false;
+    }
 }
 
 /** worktree 模式：直接使用仓库根（不做复制）；cleanup 为 no-op。 */
@@ -157,6 +273,14 @@ function cleanupAll() {
     }
 }
 
-export { materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll };
+export {
+    materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll,
+    materializeIndexTo, materializeRefTo, materializePathsTo, materializeIndexPathsTo,
+    hasSymlinksInTree, hasSymlinksInIndex,
+};
 
-export default { materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll };
+export default {
+    materializeWorktree, materializeIndex, materializeRef, materializePaths, cleanupAll,
+    materializeIndexTo, materializeRefTo, materializePathsTo, materializeIndexPathsTo,
+    hasSymlinksInTree, hasSymlinksInIndex,
+};

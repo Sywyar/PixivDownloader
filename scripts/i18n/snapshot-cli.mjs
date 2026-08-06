@@ -12,29 +12,51 @@
  * 语义：
  * - materialize-index：物化仓库 Git index 全部内容；
  * - materialize-ref：物化给定 commit / tree 的全部内容；
- * - materialize-paths：物化给定 ref 的指定路径子集（scripts/i18n、scripts/hooks 等），
- *   供 hooks 在物化可信 checker 后复用 Node 实现做后续快照；
- * - 绝不使用 tar / rsync / zip / Python；Git Bash 与 POSIX shell 共用；
- * - 临时目录位于系统临时目录，进程退出自动清理（finally / signal）。
+ * - materialize-paths：物化给定 ref 的指定路径子集（scripts/i18n、scripts/hooks 等）；
+ * - 直接以 checkout-index 物化到最终 output（无临时目录复制）；绝不使用 tar / rsync / zip / Python。
  *
- * 安全边界：
- * - shell hooks 不得把「工作树中未暂存的 snapshot-cli」当作唯一可信入口：
- *   物化可信 checker 的最小 Git 命令仍由 hook 自身以 HEAD / index / ref 物化后执行，
- *   一旦可信 checker 就位，后续快照统一复用本实现。
- * - 输出目录必须显式给出；拒绝相对仓库根的意外覆盖（--output 会新建目录，绝不 rm 已有目录）。
+ * 输出目录安全边界（--output）：
+ * - output 路径不得已经存在（即使是空目录也默认拒绝）：不得覆盖现有文件、不得混合旧快照；
+ * - 不得是仓库根、不得是仓库根祖先、不得是文件系统根、不得是 .git 或其子路径；
+ * - parent 必须存在或安全创建；output 或 parent 路径链中的异常 symlink 一律拒绝；
+ * - 失败不留下半成品目录（任何错误都会清理已创建的 output）；
+ * - 物化完成后做精确校验：物化文件集合必须与 Git tree / index 完全一致，缺 / 多都失败。
+ *
+ * 符号链接语义：
+ * - POSIX 下按 Git 语义物化（core.symlinks=true，checkout-index 原生处理）；
+ * - Windows 无法创建符号链接时明确失败，绝不静默跳过、绝不把 symlink 目标当普通文件复制。
  */
 
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 import snapshot from './lib/repository-snapshot.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+// 进程退出（含 fail() 的 process.exit 路径）也必须清理会话级临时快照目录
+process.on('exit', () => {
+    try {
+        snapshot.cleanupAll();
+    } catch (ignored) {
+        // 退出清理失败不掩盖 verdict
+    }
+});
+
 function fail(message) {
     console.error('snapshot-cli ERROR: ' + message);
     process.exit(2);
+}
+
+function git(args, cwd) {
+    const result = spawnSync('git', ['-c', 'core.autocrlf=false', ...args],
+        { cwd, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+    if (result.status !== 0) {
+        throw new Error('git ' + args.join(' ') + ' failed: ' + (result.stderr || result.stdout));
+    }
+    return result.stdout.trim();
 }
 
 function requireOutput(args, index) {
@@ -53,6 +75,150 @@ function parseFlag(args, index, name) {
     return value;
 }
 
+/**
+ * 校验输出路径（规则见文件头）。违规直接 fail。
+ * @returns {string} 解析后的绝对路径
+ */
+function validateOutputDir(output, repoRoot) {
+    const resolved = path.resolve(output);
+    const rootResolved = path.resolve(repoRoot);
+    const rootOf = (p) => path.parse(p).root;
+
+    if (resolved === rootResolved) {
+        fail('output must not be the repository root: ' + resolved);
+    }
+    if (resolved === rootOf(resolved)) {
+        fail('output must not be the filesystem root: ' + resolved);
+    }
+    if (rootResolved.startsWith(resolved + path.sep)) {
+        fail('output must not be an ancestor of the repository root: ' + resolved);
+    }
+    if (resolved.startsWith(rootResolved + path.sep)) {
+        const rel = resolved.slice(rootResolved.length + 1).split(path.sep);
+        if (rel[0] === '.git') {
+            fail('output must not be inside .git: ' + resolved);
+        }
+    }
+
+    // 已存在 → 拒绝（空目录同样拒绝，防止混合旧快照）
+    let stat;
+    try {
+        stat = fs.lstatSync(resolved);
+    } catch (e) {
+        stat = null;
+    }
+    if (stat) {
+        fail('output path already exists: ' + resolved
+            + ' (the output must not exist; delete it or choose a fresh path)');
+    }
+
+    // 路径链 symlink 检查：从 output 向上找最近存在的段，必须是真实目录
+    let cur = resolved;
+    let existing = null;
+    for (;;) {
+        try {
+            const st = fs.lstatSync(cur);
+            existing = { seg: cur, st };
+            break;
+        } catch (e) {
+            // 不存在，继续向上
+        }
+        if (cur === rootOf(cur)) {
+            break;
+        }
+        cur = path.dirname(cur);
+    }
+    if (existing) {
+        if (existing.st.isSymbolicLink()) {
+            fail('output path contains a symlink: ' + existing.seg + ' (refusing to materialize through it)');
+        }
+        if (!existing.st.isDirectory()) {
+            fail('output parent is not a directory: ' + existing.seg);
+        }
+    }
+
+    // parent 安全创建（只创建 parent，不创建 output 本身）
+    const parent = path.dirname(resolved);
+    fs.mkdirSync(parent, { recursive: true });
+
+    // 创建 parent 后再次确认 output 不存在（不变量）
+    try {
+        fs.lstatSync(resolved);
+        fail('output path appeared during preparation: ' + resolved);
+    } catch (e) {
+        // 期望不存在
+    }
+    return resolved;
+}
+
+/**
+ * 物化后精确校验：output 的文件集合必须与 Git tree / index 完全一致（gitlink 除外）。
+ */
+function verifyMaterialization(repoRoot, expectedNames, outputDir) {
+    const expected = new Set(expectedNames);
+    const actual = new Set();
+    const walk = (dir, rel) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const relPath = rel ? rel + '/' + entry.name : entry.name;
+            if (entry.isDirectory()) {
+                walk(path.join(dir, entry.name), relPath);
+            } else {
+                actual.add(relPath);
+            }
+        }
+    };
+    walk(outputDir, '');
+    const missing = [...expected].filter((n) => !actual.has(n)).sort();
+    const extra = [...actual].filter((n) => !expected.has(n)).sort();
+    if (missing.length > 0 || extra.length > 0) {
+        throw new Error('materialized file set does not match the Git tree'
+            + (missing.length > 0 ? '; missing: ' + missing.slice(0, 10).join(', ') : '')
+            + (extra.length > 0 ? '; extra: ' + extra.slice(0, 10).join(', ') : ''));
+    }
+}
+
+function treeNames(repoRoot, ref) {
+    return git(['ls-tree', '-r', ref], repoRoot).split('\n')
+        .filter((line) => line && !line.startsWith('160000'))
+        .map((line) => line.split('\t').pop());
+}
+
+function indexNames(repoRoot) {
+    return git(['ls-files', '--stage'], repoRoot).split('\n')
+        .filter((line) => line && !line.startsWith('160000'))
+        .map((line) => line.split('\t').pop());
+}
+
+function treeNamesFiltered(repoRoot, ref, paths) {
+    const wanted = paths.map((p) => p.split(path.sep).join('/'));
+    const prefixes = wanted.map((p) => p.endsWith('/') ? p : p + '/');
+    return treeNames(repoRoot, ref)
+        .filter((name) => wanted.includes(name) || prefixes.some((prefix) => name.startsWith(prefix)));
+}
+
+/**
+ * 执行物化；任何失败清理已创建的 output，不留下半成品。
+ */
+function materialize(repoRoot, outputDir, fn) {
+    let created = false;
+    try {
+        outputDir = validateOutputDir(outputDir, repoRoot);
+        fn(outputDir);
+        created = true;
+        return outputDir;
+    } catch (e) {
+        if (created || fs.existsSync(outputDir)) {
+            try {
+                fs.rmSync(outputDir, { recursive: true, force: true });
+            } catch (ignored) {
+                // 清理失败不能掩盖原始错误
+            }
+        }
+        fail(e.message);
+        return null;
+    }
+}
+
 function main() {
     const argv = process.argv.slice(2);
     if (argv.length === 0) {
@@ -68,109 +234,97 @@ function main() {
             break;
         }
     }
-
-    let materialized = null;
+    let gitDirOk = false;
     try {
-        if (command === 'materialize-index') {
-            for (let i = 0; i < args.length; i += 1) {
-                if (args[i] === '--output') {
-                    const output = requireOutput(args, i);
-                    fs.mkdirSync(output, { recursive: true });
-                    materialized = snapshot.materializeIndex(repoRoot);
-                    copySnapshot(materialized.root, output);
-                    materialized.cleanup();
-                    materialized = null;
-                    snapshot.cleanupAll();
-                    console.log('materialized git index (' + fs.readdirSync(output).length + ' top-level entries)');
-                    console.log(output);
-                    return;
-                }
-            }
-            fail('--output <dir> is required');
-        } else if (command === 'materialize-ref') {
-            let ref = null;
-            let output = null;
-            for (let i = 0; i < args.length; i += 1) {
-                if (args[i] === '--ref') {
-                    ref = parseFlag(args, i, 'ref');
-                } else if (args[i] === '--output') {
-                    output = requireOutput(args, i);
-                }
-            }
-            if (!ref) {
-                fail('--ref <sha> is required');
-            }
-            if (!output) {
-                fail('--output <dir> is required');
-            }
-            fs.mkdirSync(output, { recursive: true });
-            materialized = snapshot.materializeRef(repoRoot, ref);
-            copySnapshot(materialized.root, output);
-            materialized.cleanup();
-            materialized = null;
-            snapshot.cleanupAll();
-            console.log('materialized ref ' + ref + ' (' + fs.readdirSync(output).length + ' top-level entries)');
-            console.log(output);
-        } else if (command === 'materialize-paths') {
-            let ref = null;
-            let output = null;
-            const paths = [];
-            for (let i = 0; i < args.length; i += 1) {
-                if (args[i] === '--ref') {
-                    ref = parseFlag(args, i, 'ref');
-                } else if (args[i] === '--paths') {
-                    while (i + 1 < args.length && !args[i + 1].startsWith('--')) {
-                        paths.push(args[i + 1]);
-                        i += 1;
-                    }
-                } else if (args[i] === '--output') {
-                    output = requireOutput(args, i);
-                }
-            }
-            if (!ref) {
-                fail('--ref <sha> is required');
-            }
-            if (paths.length === 0) {
-                fail('--paths requires at least one path');
-            }
-            if (!output) {
-                fail('--output <dir> is required');
-            }
-            fs.mkdirSync(output, { recursive: true });
-            materialized = snapshot.materializePaths(repoRoot, ref, paths);
-            copySnapshot(materialized.root, output);
-            materialized.cleanup();
-            materialized = null;
-            snapshot.cleanupAll();
-            console.log('materialized paths [' + paths.join(', ') + '] from ref ' + ref);
-            console.log(output);
-        } else {
-            fail('unknown command: ' + command);
-        }
+        git(['rev-parse', '--git-dir'], repoRoot);
+        gitDirOk = true;
     } catch (e) {
-        if (materialized) {
-            try {
-                materialized.cleanup();
-            } catch (ignored) {
-                // cleanup 失败不能掩盖原始错误
+        gitDirOk = false;
+    }
+    if (!gitDirOk) {
+        fail('not inside a git repository: ' + repoRoot);
+    }
+
+    if (command === 'materialize-index') {
+        let output = null;
+        for (let i = 0; i < args.length; i += 1) {
+            if (args[i] === '--output') {
+                output = requireOutput(args, i);
             }
         }
-        snapshot.cleanupAll();
-        fail(e.message);
-    }
-}
-
-/** 把临时物化目录内容复制到用户指定输出目录（只处理文件与目录，跳过符号链接）。 */
-function copySnapshot(from, to) {
-    const entries = fs.readdirSync(from, { withFileTypes: true });
-    for (const entry of entries) {
-        const src = path.join(from, entry.name);
-        const dst = path.join(to, entry.name);
-        if (entry.isDirectory()) {
-            fs.cpSync(src, dst, { recursive: true });
-        } else if (entry.isFile()) {
-            fs.copyFileSync(src, dst);
+        if (!output) {
+            fail('--output <dir> is required');
         }
+        if (process.platform === 'win32' && snapshot.hasSymlinksInIndex(repoRoot)) {
+            fail('the git index contains symlink entries which cannot be materialized on Windows; refusing');
+        }
+        materialize(repoRoot, output, (out) => {
+            snapshot.materializeIndexTo(repoRoot, out);
+            verifyMaterialization(repoRoot, indexNames(repoRoot), out);
+            console.log('materialized git index (' + fs.readdirSync(out).length + ' top-level entries)');
+            console.log(out);
+        });
+    } else if (command === 'materialize-ref') {
+        let ref = null;
+        let output = null;
+        for (let i = 0; i < args.length; i += 1) {
+            if (args[i] === '--ref') {
+                ref = parseFlag(args, i, 'ref');
+            } else if (args[i] === '--output') {
+                output = requireOutput(args, i);
+            }
+        }
+        if (!ref) {
+            fail('--ref <sha> is required');
+        }
+        if (!output) {
+            fail('--output <dir> is required');
+        }
+        if (process.platform === 'win32' && snapshot.hasSymlinksInTree(repoRoot, ref)) {
+            fail('the ref ' + ref + ' contains symlink entries which cannot be materialized on Windows; refusing');
+        }
+        materialize(repoRoot, output, (out) => {
+            snapshot.materializeRefTo(repoRoot, ref, out);
+            verifyMaterialization(repoRoot, treeNames(repoRoot, ref), out);
+            console.log('materialized ref ' + ref + ' (' + fs.readdirSync(out).length + ' top-level entries)');
+            console.log(out);
+        });
+    } else if (command === 'materialize-paths') {
+        let ref = null;
+        let output = null;
+        const paths = [];
+        for (let i = 0; i < args.length; i += 1) {
+            if (args[i] === '--ref') {
+                ref = parseFlag(args, i, 'ref');
+            } else if (args[i] === '--paths') {
+                while (i + 1 < args.length && !args[i + 1].startsWith('--')) {
+                    paths.push(args[i + 1]);
+                    i += 1;
+                }
+            } else if (args[i] === '--output') {
+                output = requireOutput(args, i);
+            }
+        }
+        if (!ref) {
+            fail('--ref <sha> is required');
+        }
+        if (paths.length === 0) {
+            fail('--paths requires at least one path');
+        }
+        if (!output) {
+            fail('--output <dir> is required');
+        }
+        if (process.platform === 'win32' && snapshot.hasSymlinksInTree(repoRoot, ref)) {
+            fail('the ref ' + ref + ' contains symlink entries which cannot be materialized on Windows; refusing');
+        }
+        materialize(repoRoot, output, (out) => {
+            snapshot.materializePathsTo(repoRoot, ref, paths, out);
+            verifyMaterialization(repoRoot, treeNamesFiltered(repoRoot, ref, paths), out);
+            console.log('materialized paths [' + paths.join(', ') + '] from ref ' + ref);
+            console.log(out);
+        });
+    } else {
+        fail('unknown command: ' + command);
     }
 }
 
