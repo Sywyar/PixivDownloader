@@ -1,4 +1,2 @@
-/mvnw text eol=lf
+* text=auto eol=lf
 *.cmd text eol=crlf
-scripts/hooks/* text eol=lf
-scripts/nightly-changelog-gate.sh text eol=lf
