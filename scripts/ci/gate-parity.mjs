@@ -640,8 +640,11 @@ function auditGateSurface(checks, trustedDir, candidateRoot) {
     const trustedFile = path.join(trustedDir, ...SURFACE_REL.split('/'));
     const candidateFile = path.join(candidateRoot, ...SURFACE_REL.split('/'));
     if (!fs.existsSync(trustedFile)) {
-        pushCheck('gate-surface.json present in the trusted bundle', false,
-            'the trusted bundle has no scripts/ci/gate-surface.json; fail closed');
+        // trusted base predates gate-surface.json（如 Epoch 2 root cb587e01）：
+        // 无法做 trusted→candidate 单调比较，只报告；候选侧删除清单仍 fail closed
+        pushCheck('candidate gate-surface.json preserved (trusted predates the manifest)',
+            fs.existsSync(candidateFile),
+            'candidate deleted scripts/ci/gate-surface.json; fail closed');
         return;
     }
     let trustedSurface;

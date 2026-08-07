@@ -219,7 +219,11 @@ jobs:
           test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
+          # trusted base 早于 gate-surface.json（如 Epoch 2 root cb587e01）时不做硬性物化要求；
+          # 引入清单之后的 base 必须完整物化（与 materialize-trusted-gate.sh 的 cat-file -e 模式一致）
+          if git cat-file -e "$base:scripts/ci/gate-surface.json" >/dev/null 2>&1; then
+            test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
+          fi
           # 与 trusted helper 交叉验证（helper 来自 trusted base；候选不能自我批准）
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
@@ -471,7 +475,11 @@ jobs:
           test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
+          # trusted base 早于 gate-surface.json（如 Epoch 2 root cb587e01）时不做硬性物化要求；
+          # 引入清单之后的 base 必须完整物化（与 materialize-trusted-gate.sh 的 cat-file -e 模式一致）
+          if git cat-file -e "$base:scripts/ci/gate-surface.json" >/dev/null 2>&1; then
+            test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
+          fi
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
               --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
@@ -747,7 +755,11 @@ jobs:
           test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
+          # trusted base 早于 gate-surface.json（如 Epoch 2 root cb587e01）时不做硬性物化要求；
+          # 引入清单之后的 base 必须完整物化（与 materialize-trusted-gate.sh 的 cat-file -e 模式一致）
+          if git cat-file -e "$base:scripts/ci/gate-surface.json" >/dev/null 2>&1; then
+            test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
+          fi
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
               --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
