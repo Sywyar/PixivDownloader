@@ -98,7 +98,7 @@ class PluginReleaseScriptsTest {
         );
         assertThat(script).doesNotContain("already published; skip (immutable");
         assertThat(script).contains("Bump plugin.version instead of publishing new bytes under an existing tag");
-        assertThat(script).doesNotContain(
+        assertThat(script).contains(
                 "[switch]$Force",
                 "Remove-ExistingReleaseAssets",
                 "gh release delete-asset",
@@ -646,6 +646,7 @@ class PluginReleaseScriptsTest {
                 "Repo = $env:PLUGINS_REPO",
                 "OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID",
                 "PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
+                "$publishArgs[\"Force\"] = $true",
                 ".\\scripts\\publish-plugin-releases.ps1 @publishArgs",
                 "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",
                 "-PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
@@ -654,7 +655,7 @@ class PluginReleaseScriptsTest {
                 "Cleanup plugin signing private key");
         assertThat(workflow).doesNotContain("tags:");
         assertThat(workflow).doesNotContain("schedule:");
-        assertThat(workflow).doesNotContain("publish_args", "PUBLISH_PLUGIN_ARGS", "[\"Force\"]");
+        assertThat(workflow).contains("publish_args", "PUBLISH_PLUGIN_ARGS", "[\"Force\"]");
         assertThat(workflow).doesNotContain("-----BEGIN PRIVATE KEY-----");
         assertThat(workflow).doesNotContain("\"-Repo\", $env:PLUGINS_REPO");
         assertThat(workflow).doesNotContain("\"-PrivateKeyFile\", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE");
