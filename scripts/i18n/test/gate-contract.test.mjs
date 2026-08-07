@@ -80,7 +80,7 @@ function makeCandidateRepo() {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir);
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -92,6 +92,8 @@ function makeCandidateRepo() {
     git(['commit', '-q', '-m', 'add gate policy'], dir);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
+    // Epoch 2 单一标准：hooks 要求 epoch == 2 才运行 trusted gate
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }
@@ -335,6 +337,83 @@ test('gate-contract：candidate 减少 protectedBranches / requiredWorkflowJobs 
     }
 });
 
+test('gate-contract：candidate gateEpoch 改变（2→3）/ 删除字段 → 拒绝（epoch 升级属另一轮人工 root admission）', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+
+        // gateEpoch 2 → 3：结构校验拒绝（未来 epoch）
+        const p1 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p1.gateEpoch = 3;
+        fs.writeFileSync(policyPath, JSON.stringify(p1, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'change gate epoch to 3');
+        let sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        let run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'gateEpoch 2→3 必须拒绝');
+        assert.match(run.stdout + run.stderr, /gateEpoch/);
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+
+        // gateEpoch 2 → 1：结构校验拒绝（obsolete epoch）
+        const p1b = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p1b.gateEpoch = 1;
+        fs.writeFileSync(policyPath, JSON.stringify(p1b, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'change gate epoch to 1');
+        sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'gateEpoch 2→1 必须拒绝');
+        assert.match(run.stdout + run.stderr, /gateEpoch/);
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：candidate 减少 requiredPackageScripts / requiredExternalChecks → 拒绝；新增允许', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+
+        // requiredPackageScripts 减少
+        const p1 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p1.requiredPackageScripts = p1.requiredPackageScripts.filter((s) => s !== 'test:i18n');
+        fs.writeFileSync(policyPath, JSON.stringify(p1, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'drop required package scripts');
+        let sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        let run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'requiredPackageScripts 减少必须拒绝');
+        assert.match(run.stdout + run.stderr, /required package scripts/);
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+
+        // requiredExternalChecks 减少
+        const p2 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p2.requiredExternalChecks = [];
+        fs.writeFileSync(policyPath, JSON.stringify(p2, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'drop required external checks');
+        sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'requiredExternalChecks 置空必须拒绝');
+        assert.match(run.stdout + run.stderr, /required external checks|requiredExternalChecks/);
+        git(['reset', '-q', '--hard', 'HEAD~1'], root);
+
+        // 新增允许
+        const p3 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        p3.requiredPackageScripts = [...p3.requiredPackageScripts, 'i18n:extra'];
+        p3.requiredExternalChecks = [...p3.requiredExternalChecks, 'Extra Check'];
+        fs.writeFileSync(policyPath, JSON.stringify(p3, null, 2) + '\n', 'utf8');
+        commitBypass(root, 'add package scripts and external checks');
+        sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.equal(run.status, 0, '新增 requiredPackageScripts / requiredExternalChecks 必须允许: '
+            + run.stdout + run.stderr);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
 test('gate-contract：--version 完整性检查；缺参数 usage error', () => {
     const repo = makeCandidateRepo();
     const trusted = makeTrustedCopy(repo);
@@ -342,7 +421,7 @@ test('gate-contract：--version 完整性检查；缺参数 usage error', () => 
         const version = spawnSync('node', [path.join(trusted, 'scripts', 'i18n', 'gate-contract.mjs'), '--version'],
             { encoding: 'utf8' });
         assert.equal(version.status, 0, version.stdout + version.stderr);
-        assert.match(version.stdout, /i18n-gate-contract 2/);
+        assert.match(version.stdout, /i18n-gate-contract 3/);
 
         const noRepo = spawnSync('node', [path.join(trusted, 'scripts', 'i18n', 'gate-contract.mjs'),
             '--candidate-ref', 'x'], { encoding: 'utf8' });

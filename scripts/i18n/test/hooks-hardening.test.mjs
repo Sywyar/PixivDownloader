@@ -94,7 +94,7 @@ function makeGitRepo(base = os.tmpdir()) {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir); // C1 = enforcement start
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -106,6 +106,8 @@ function makeGitRepo(base = os.tmpdir()) {
     git(['commit', '-q', '-m', 'add gate policy'], dir); // C2
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
+    // Epoch 2 单一标准：hooks 要求 epoch == 2 才运行 trusted gate
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }

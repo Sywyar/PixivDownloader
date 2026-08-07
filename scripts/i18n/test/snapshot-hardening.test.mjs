@@ -80,7 +80,7 @@ function makeGitRepo(base = os.tmpdir()) {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir);
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -274,9 +274,12 @@ test('snapshot：symlink 条目的 mode 与内容验证（非 Windows）', { ski
     const head = git(['rev-parse', 'HEAD'], root).stdout.trim();
     const outBase = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-snap-sym-'));
     try {
-        // 在 fixture 仓库中加入 symlink 条目（mode 120000，指向一个存在的相对目标）
-        const targetBlob = spawnSync('git', ['hash-object', '--stdin'], { cwd: root,
-            input: 'scripts/i18n/check.mjs\n', encoding: 'utf8' }).stdout.trim();
+        // 在 fixture 仓库中加入 symlink 条目（mode 120000，指向一个真实存在的相对目标）：
+        // 目标内容 = scripts/hooks/link-to-check 相对 ../i18n/check.mjs 的真实相对路径；
+        // hash-object -w 必须写 object database（--cacheinfo 要求对象已存在）。
+        const targetBlob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: root,
+            input: '../i18n/check.mjs\n', encoding: 'utf8' }).stdout.trim();
+        assert.ok(/^[0-9a-f]{40}$/.test(targetBlob), 'symlink blob 必须写入 object database');
         git(['update-index', '--add', '--cacheinfo', '120000,' + targetBlob + ',scripts/hooks/link-to-check'], root);
         git(['commit', '-q', '-m', 'add symlink'], root);
         const symHead = git(['rev-parse', 'HEAD'], root).stdout.trim();
@@ -288,7 +291,10 @@ test('snapshot：symlink 条目的 mode 与内容验证（非 Windows）', { ski
         const linkStat = fs.lstatSync(path.join(out, 'scripts', 'hooks', 'link-to-check'));
         assert.ok(linkStat.isSymbolicLink(), '物化产物必须是 symlink');
         assert.equal(fs.readlinkSync(path.join(out, 'scripts', 'hooks', 'link-to-check')),
-            'scripts/i18n/check.mjs', 'symlink 内容必须与 blob 一致');
+            '../i18n/check.mjs', 'symlink 内容必须与 blob 一致');
+        // 真实相对目标必须解析到物化目录内真实存在的文件
+        const target = path.resolve(path.join(out, 'scripts', 'hooks', 'link-to-check'), '..', '..', 'i18n', 'check.mjs');
+        assert.ok(fs.existsSync(target), 'symlink 相对目标必须真实存在（../i18n/check.mjs）');
 
         // 把 symlink 换成普通文件 → 类型验证拒绝
         fs.rmSync(path.join(out, 'scripts', 'hooks', 'link-to-check'));

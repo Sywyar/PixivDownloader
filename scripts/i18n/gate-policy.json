@@ -1,6 +1,7 @@
 {
-  "schemaVersion": 1,
-  "contractVersion": 2,
+  "schemaVersion": 2,
+  "gateEpoch": 2,
+  "contractVersion": 3,
   "i18nEnforcementStartCommit": "05f4ebed7ce00f0b923fe48ec2e0971610511547",
   "requiredPaths": [
     "scripts/i18n/check.mjs",
@@ -11,12 +12,13 @@
     "scripts/hooks/pre-commit",
     "scripts/hooks/pre-push",
     "scripts/hooks/pre-push-guard.sh",
-    "scripts/hooks/execfile-shim.cjs",
     "scripts/ci/resolve-trusted-base.mjs",
     "scripts/ci/materialize-trusted-gate.sh",
-    "scripts/ci/contract-v1-transition-check.cjs",
+    "scripts/ci/gate-parity.mjs",
+    "scripts/ci/gate-invariants.json",
     ".github/workflows/quality-gate.yml",
-    "package.json"
+    "package.json",
+    "package-lock.json"
   ],
   "protectedBranches": [
     "refs/heads/master"
@@ -27,5 +29,18 @@
     "signature-guard",
     "trusted-gate-contract",
     "i18n-check"
+  ],
+  "requiredPackageScripts": [
+    "test:i18n",
+    "i18n:check",
+    "i18n:generate-static",
+    "i18n:trust-gate",
+    "i18n:gate-contract",
+    "i18n:gate-parity",
+    "test:js",
+    "test:web-standards"
+  ],
+  "requiredExternalChecks": [
+    "Shared Snippet Drift Check"
   ]
 }

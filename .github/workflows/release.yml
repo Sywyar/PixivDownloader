@@ -11,9 +11,6 @@ on:
         required: true
         type: string
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   trusted-base:
     if: github.event_name == 'workflow_dispatch'

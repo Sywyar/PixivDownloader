@@ -2,18 +2,25 @@
 'use strict';
 /**
  * 可信 Gate Contract：由 trusted anchor 物化并执行，黑盒验证候选 gate（index 或 ref）。
+ * 本实现属于 Gate Epoch 2 单一标准；Epoch 1 及更早的兼容逻辑已整体移除。
  *
  * 用法：
  *   node gate-contract.mjs --repo-root <repo> --candidate-snapshot index
  *   node gate-contract.mjs --repo-root <repo> --candidate-ref <sha>
+ *   node gate-contract.mjs --repo-root <repo> --candidate-ref <sha> --force-self-protection
  *   node gate-contract.mjs --version
  *
  * 信任模型：
  * - 本脚本自身必须运行在 trusted anchor 物化的 gate bundle 内（同目录 gate-policy.json 是
  *   可信事实）；候选快照只作为被检查对象，candidate 的 checker / contract / guard 不能自批准；
- * - candidate 可以提出新 policy，但旧 trusted contract 必须审核它：contractVersion 不得降低、
- *   i18nEnforcementStartCommit 不得向后移动或删除、required paths 不得减少（允许新增）、
- *   protectedBranches 与 requiredWorkflowJobs 集合不得减少（允许新增）；
+ * - Epoch 2 信任根是仓库外的受保护 annotated tag refs/tags/i18n-gate-epoch-2-root；
+ *   普通候选必须由 trusted predecessor 审核；root admission 是唯一显式人工例外
+ *   （candidate == root 时运行 root 自身 gate + 全量 root self-protection suite，
+ *   由 --force-self-protection 关闭归纳跳过）；
+ * - candidate 可以提出新 policy，但旧 trusted contract 必须审核它：gateEpoch 不得改变、
+ *   contractVersion 不得降低、i18nEnforcementStartCommit 不得向后移动或删除、
+ *   required paths / protectedBranches / requiredWorkflowJobs / requiredPackageScripts /
+ *   requiredExternalChecks 集合不得减少（允许新增）；
  * - required paths 使用 trusted ∪ candidate 并集：candidate 新声明的 required path 必须在
  *   同一候选快照中真实存在；被候选删除 → fail closed（candidate gate bundle incomplete）；
  *   candidate 早于 trusted required path 引入（enforcement start 自身等）→ 只报告不阻断；
@@ -21,14 +28,17 @@
  *   report.json 的 issue type）：合法 fixture 必须通过，坏占位符 / 缺英文文件 / missing key /
  *   stale / translation-unaccepted / invalid lock / static 失步 / 硬编码语言必须失败；
  * - candidate hooks 实际运行验证（候选 hook 文件是执行对象）：pre-commit 必须找到 trusted
- *   anchor 并由 trusted checker/contract 判定；no-op pre-commit / no-op pre-push / 删除
- *   trustedGateRef 读取 / pre-push 改回使用 candidate checker → 一律失败；
+ *   anchor（epoch == 2）并由 trusted checker/contract 判定；no-op pre-commit / no-op pre-push /
+ *   删除 trustedGateRef 读取 / pre-push 改回使用 candidate checker → 一律失败；
  * - candidate quality-gate.yml（真实 YAML 解析）与 package.json scripts 契约：触发器、
- *   必需 job、关键行为、action 版本、result 传播、github.sha^ 回退禁令；
+ *   必需 job、关键行为（经 shell 规范化：注释 / || true / if false 包裹全部拒绝）、
+ *   action 版本、result 传播、github.sha^ 回退禁令、root tag / ROOT_ADMISSION 机制、
+ *   reusable input 优先级、trusted helper 交叉验证、gate parity 步骤；
  * - 自保护：构造「下一代恶意 gate」（no-op checker / hooks / guard / workflow 弱化 /
- *   package scripts 弱化 / required paths 减少），运行 candidate contract 必须拒绝它；
+ *   package scripts 弱化 / policy 减少 / epoch 改变），运行 candidate contract 必须拒绝它；
  * - 归纳跳过：candidate 的某部分与 trusted bundle 逐字节一致时，其行为由 trust 链归纳保证，
- *   跳过对应行为测试（只在行为可能被候选改变时才黑盒运行）。
+ *   跳过对应行为测试（只在行为可能被候选改变时才黑盒运行）；root admission 用
+ *   --force-self-protection 显式关闭自保护部分的归纳跳过。
  *
  * 本地 Git hooks 是开发便利性门禁，用户始终可以主动修改 hook、修改 .git/config 或使用
  * --no-verify，因此不能宣称其绝对不可绕过。真正的最终门禁必须由 GitHub Ruleset /
@@ -45,7 +55,7 @@ import { fileURLToPath } from 'url';
 import trustedGate from './lib/trusted-gate.mjs';
 import snapshot from './lib/repository-snapshot.mjs';
 
-const CONTRACT_VERSION = '2';
+const CONTRACT_VERSION = '3';
 const OWN_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /** 嵌套契约调用深度（main() 初始化；runHookScenarios 用它跳过重复的 hook 执行场景）。 */
@@ -63,6 +73,7 @@ const CANDIDATE_PATHS = [
     'scripts/ci',
     '.github/workflows/quality-gate.yml',
     'package.json',
+    'package-lock.json',
 ];
 
 const CATALOG_BASIC = `{
@@ -273,7 +284,8 @@ process.on('exit', () => {
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-    const args = { repoRoot: null, mode: null, ref: null, reportRoot: null, version: false };
+    const args = { repoRoot: null, mode: null, ref: null, reportRoot: null, version: false,
+        forceSelfProtection: false };
     for (let i = 0; i < argv.length; i += 1) {
         if (argv[i] === '--repo-root') {
             args.repoRoot = argv[++i];
@@ -284,6 +296,8 @@ function parseArgs(argv) {
             args.mode = 'ref';
         } else if (argv[i] === '--report-root') {
             args.reportRoot = argv[++i];
+        } else if (argv[i] === '--force-self-protection') {
+            args.forceSelfProtection = true;
         } else if (argv[i] === '--version') {
             args.version = true;
         } else {
@@ -640,6 +654,8 @@ async function makeContractRepo(repoRoot, candidateRoot, trustedPolicy) {
     git(['commit', '-q', '--allow-empty', '-m', 'trust anchor'], repo); // C3
     const anchor = git(['rev-parse', 'HEAD'], repo);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], repo);
+    // Epoch 2 单一标准：hooks 要求 epoch == 2 才运行 trusted gate
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], repo);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], repo);
     // anchor 提交后：candidate hooks 重新写入工作树并提交（C4，bypass hooks）。
     // 执行对象 = candidate hooks；提交它们使场景的 git add -A 不再暂存 hook 差异
@@ -873,10 +889,69 @@ const APPROVED_ACTIONS = {
     'actions/upload-artifact': '7',
     'actions/setup-java': '5',
 };
-const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'test:js', 'test:web-standards'];
+/** Epoch 2 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
+const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'i18n:trust-gate',
+    'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards'];
 
 /** 可信 gate 执行必须来自物化的 trusted bundle，禁止直接运行候选工作树的 contract/guard。 */
 const TRUSTED_LOC = /\$GATE_DIR|\$RUNNER_TEMP|\bguard\/out\b|materialize-trusted-gate/;
+
+/**
+ * Shell 命令序列规范化（23.1）：只保留实际可执行的命令文本。
+ * - 删除纯注释行与行尾注释（# 到行尾；单引号内的 # 例外不处理，属已知保守简化）；
+ * - 以 ; / && / || 拆分命令序列；
+ * - 删除纯 no-op 命令（true / : / exit 0 / echo 单行）；
+ * - 返回实际命令列表；空列表 = 该 step 什么都不执行。
+ */
+function extractCommands(script) {
+    const lines = String(script || '').split(/\r?\n/);
+    const statements = [];
+    for (const raw of lines) {
+        const line = raw.replace(/#.*$/, '').trim();
+        if (!line) {
+            continue;
+        }
+        const parts = line.split(/[;|&]{1,2}\s*/).map((p) => p.trim()).filter(Boolean);
+        for (const part of parts) {
+            const command = part.trim();
+            if (!command) {
+                continue;
+            }
+            if (/^(true|:|exit(\s+0)?|echo(\s.*)?)$/.test(command)) {
+                continue;
+            }
+            statements.push(command);
+        }
+    }
+    return statements;
+}
+
+/** 候选 step 是否实际执行过匹配命令（规范化后；注释 / no-op 不能伪装成命令）。 */
+function commandsInclude(script, re) {
+    return extractCommands(script).some((c) => re.test(c));
+}
+
+/** step 是否吞掉失败：|| true / || : / || exit 0 / ; true / ; exit 0 等（; exit 1 是合法失败传播）。 */
+function hasNoopSwallow(script) {
+    const s = String(script || '');
+    return /(\|\||;)\s*(true|:)(\s|;|$|\|\||&&)/.test(s)
+        || /(\|\||;)\s*exit(?:\s*0)?(?=\s*(?:;|$|\|\||&&))/.test(s)
+        || /;\s*exit(?!\s*[1-9])/.test(s);
+}
+
+/** step 是否用 if false; then ... fi 条件包裹（默认跳过）。 */
+function hasConditionalSkip(script) {
+    return /if\s+false\s*;?\s*then/.test(String(script || ''));
+}
+
+/** step 是否被降级为纯 no-op（注释 + : / true / exit 0 / echo）。 */
+function isNoopStep(script) {
+    const stripped = String(script || '').replace(/#.*$/g, '').replace(/\s+/g, ' ').trim();
+    if (!stripped) {
+        return true;
+    }
+    return /^(true|:|exit(\s+0)?|echo(\s.*)?)$/.test(stripped);
+}
 
 function stepRun(step) {
     return typeof step.run === 'string' ? step.run : '';
@@ -898,8 +973,9 @@ function jobSteps(job) {
     return job && Array.isArray(job.steps) ? job.steps : [];
 }
 
+/** job 中任一 step 的规范化命令序列包含匹配命令。 */
 function jobHasRun(job, re) {
-    return jobSteps(job).some((s) => re.test(stepRun(s)));
+    return jobSteps(job).some((s) => commandsInclude(stepRun(s), re));
 }
 
 function jobHasUses(job, re) {
@@ -928,6 +1004,25 @@ function isBannedScript(value) {
     return !(/\b(node|mvn)\b/.test(v) || v.includes('/'));
 }
 
+/** step 是否运行了关键门禁命令（只有关键命令被吞掉才构成降级）。 */
+const CRITICAL_RUN_RE = [
+    /\bmvn\b/,
+    /npm run test:js/,
+    /npm run test:web-standards/,
+    /npm run test:i18n/,
+    /npm run i18n:check/,
+    /i18n:generate-static/,
+    /git diff --exit-code/,
+    /gate-contract\.mjs/,
+    /gate-parity\.mjs/,
+    /pre-push-guard\.sh/,
+    /check\.mjs/,
+];
+
+function isCriticalStep(script) {
+    return extractCommands(script).some((c) => CRITICAL_RUN_RE.some((re) => re.test(c)));
+}
+
 function pushCheck(checks, name, ok, diagnostic) {
     checks.push({ name, kind: 'workflow', expected: ok ? 'present' : 'absent', status: null, ok,
         diagnostic: ok ? '' : diagnostic });
@@ -940,8 +1035,11 @@ function pushPackageCheck(checks, name, ok, diagnostic) {
 
 /**
  * 解析候选 quality-gate.yml（真实 YAML parser）并验证：
- * 触发器 / 必需 job / job 级 continue-on-error 禁令 / 关键行为 / 关键命令不得改为 echo|true /
- * action 主版本 / github.sha^ 回退禁令 / FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 清理。
+ * 触发器 / 必需 job / job 级 continue-on-error 禁令 / 关键行为（shell 规范化）/
+ * 关键命令不得改为 echo|true 或 || true / if false 包裹 / action 主版本 /
+ * github.sha^ 回退禁令 / FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 清理 /
+ * Epoch 2 root tag 与 ROOT_ADMISSION 机制 / reusable input 优先级 / trusted helper 交叉验证 /
+ * gate parity 步骤。
  * 候选缺失 workflow 文件（predates）时只报告不阻断。
  */
 function runWorkflowContractChecks(repoRoot, candidateRoot) {
@@ -975,6 +1073,18 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
             'candidate workflow dropped the ' + trigger + ' trigger');
     }
 
+    // Epoch 2：workflow_dispatch 必须提供显式 root admission inputs（人工触发专用）
+    const dispatch = triggers.workflow_dispatch && typeof triggers.workflow_dispatch === 'object'
+        ? triggers.workflow_dispatch : {};
+    const dispatchInputs = dispatch.inputs && typeof dispatch.inputs === 'object' ? dispatch.inputs : {};
+    pushCheck(checks, 'workflow_dispatch exposes root_admission input',
+        dispatchInputs.root_admission !== undefined,
+        'workflow_dispatch must expose the explicit root_admission boolean input'
+            + ' (only a human-triggered dispatch may enter ROOT_ADMISSION)');
+    pushCheck(checks, 'workflow_dispatch exposes root_candidate_sha input',
+        dispatchInputs.root_candidate_sha !== undefined,
+        'workflow_dispatch must expose the root_candidate_sha input for root admission verification');
+
     // 6.2 必需 job
     const jobs = doc.jobs && typeof doc.jobs === 'object' ? doc.jobs : {};
     for (const jobId of REQUIRED_WORKFLOW_JOBS) {
@@ -990,7 +1100,57 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         }
     }
 
-    // 6.3 关键行为
+    // trusted helper 行为 / 内容检查（23.2 的 wrapper 语义应用于 helpers）：
+    // 候选弱化 scripts/ci 共享实现（exit 0 / echo）必须被拒绝；CI 侧还经交叉验证兜底。
+    const matHelper = path.join(candidateRoot, 'scripts', 'ci', 'materialize-trusted-gate.sh');
+    if (fs.existsSync(matHelper)) {
+        const matText = fs.readFileSync(matHelper, 'utf8');
+        const matOk = /ls-tree/.test(matText) && /read-tree/.test(matText)
+            && /checkout-index/.test(matText) && /test -s/.test(matText)
+            && /pre-push-guard\.sh/.test(matText) && !isNoopStep(matText);
+        pushCheck(checks, 'materialize-trusted-gate.sh keeps its materialization behavior', matOk,
+            'candidate weakened scripts/ci/materialize-trusted-gate.sh (must keep ls-tree/read-tree/'
+                + 'checkout-index/test -s/pre-push-guard.sh semantics; exit-0 stubs are refused)');
+    }
+    const resolver = path.join(candidateRoot, 'scripts', 'ci', 'resolve-trusted-base.mjs');
+    if (fs.existsSync(resolver)) {
+        const resText = fs.readFileSync(resolver, 'utf8');
+        const resOk = /i18n-gate-epoch-2-root/.test(resText)
+            && /ROOT_ADMISSION/.test(resText)
+            && /trusted_base_sha/.test(resText)
+            && !isNoopStep(resText);
+        pushCheck(checks, 'resolve-trusted-base.mjs keeps root/input-precedence semantics', resOk,
+            'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
+                + ' ROOT_ADMISSION / trusted_base_sha input-precedence logic; exit-0 stubs are refused)');
+    }
+
+    // 关键行为 step 的失败吞没 / 条件跳过禁令：只针对运行关键门禁命令的 step
+    // （bootstrap 里 get-or-empty 的 `|| true` 解析惯用法不构成降级）；
+    // 必需 job 里任何纯 no-op step 一律拒绝。
+    for (const jobId of REQUIRED_WORKFLOW_JOBS) {
+        const job = jobs[jobId];
+        for (const step of jobSteps(job)) {
+            if (!stepRun(step)) {
+                continue;
+            }
+            if (isCriticalStep(stepRun(step))) {
+                pushCheck(checks, jobId + ': no critical step swallows failures (|| true / ; true / exit 0)',
+                    !hasNoopSwallow(stepRun(step)),
+                    'candidate ' + jobId + ' step "' + (stepName(step) || '(unnamed)')
+                        + '" swallows the gate command with || true / ; true / ; exit 0; fail closed');
+                pushCheck(checks, jobId + ': no critical step hides behind if false; then',
+                    !hasConditionalSkip(stepRun(step)),
+                    'candidate ' + jobId + ' step "' + (stepName(step) || '(unnamed)')
+                        + '" hides the gate command behind if false; then ... fi; fail closed');
+            }
+            pushCheck(checks, jobId + ': no step reduced to comments + no-op',
+                !isNoopStep(stepRun(step)),
+                'candidate ' + jobId + ' step "' + (stepName(step) || '(unnamed)')
+                    + '" reduces to comments + no-op commands; fail closed');
+        }
+    }
+
+    // 6.3 关键行为（23.1：规范化 shell，注释不能伪装成命令）
     const jJava = jobs['java-tests'];
     pushCheck(checks, 'java-tests: checkout full tested commit', jobHasUses(jJava, /actions\/checkout@/),
         'java-tests must checkout the tested commit');
@@ -1002,20 +1162,48 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
     pushCheck(checks, 'java-tests: full maven tests',
         jobHasRun(jJava, /mvn/) && jobHasRun(jJava, /test/) && jobHasRun(jJava, /exec\.skip/),
         'java-tests must run the full maven tests (mvn test -Dexec.skip=true)');
+    pushCheck(checks, 'java-tests: no -DskipTests in the test step',
+        !jobSteps(jJava).some((s) => commandsInclude(stepRun(s), /mvn/) && /-DskipTests/.test(stepRun(s))),
+        'java-tests must never run mvn with -DskipTests');
 
     const jJs = jobs['javascript-tests'];
     pushCheck(checks, 'javascript-tests: checkout tested commit', jobHasUses(jJs, /actions\/checkout@/),
         'javascript-tests must checkout the tested commit');
     pushCheck(checks, 'javascript-tests: setup Node 24', jobHasStepWith(jJs, /actions\/setup-node@/, 'node-version', /24/),
         'javascript-tests must set up Node.js 24 via actions/setup-node');
+    pushCheck(checks, 'javascript-tests: npm ci', jobHasRun(jJs, /npm\s+ci/),
+        'javascript-tests must run npm ci');
     pushCheck(checks, 'javascript-tests: npm run test:js', jobHasRun(jJs, /npm run test:js/),
         'javascript-tests must run npm run test:js');
     pushCheck(checks, 'javascript-tests: npm run test:web-standards', jobHasRun(jJs, /npm run test:web-standards/),
         'javascript-tests must run npm run test:web-standards');
 
+    // 模式解析：root tag + ROOT_ADMISSION 机制必须在三个 gate job 中体现
+    for (const jobId of ['signature-guard', 'trusted-gate-contract', 'i18n-check']) {
+        const job = jobs[jobId];
+        const hasMode = jobSteps(job).some((s) => /i18n-gate-epoch-2-root/.test(stepRun(s))
+            && /ROOT_ADMISSION/.test(stepRun(s)));
+        pushCheck(checks, jobId + ': Epoch 2 root tag + ROOT_ADMISSION mode machinery',
+            hasMode,
+            jobId + ' must resolve refs/tags/i18n-gate-epoch-2-root and branch on ROOT_ADMISSION/NORMAL');
+        const hasInputFirst = jobSteps(job).some((s) => /inputs\.trusted_base_sha/.test(stepRun(s)));
+        pushCheck(checks, jobId + ': trusted_base_sha input takes priority (reusable semantics)',
+            hasInputFirst,
+            jobId + ' must prefer the explicit inputs.trusted_base_sha before any event-based fallback'
+                + ' (github.event_name == workflow_call cannot be assumed)');
+        const hasHelper = jobSteps(job).some((s) => /resolve-trusted-base\.mjs/.test(stepRun(s)));
+        pushCheck(checks, jobId + ': trusted helper cross-validation (resolve-trusted-base.mjs)',
+            hasHelper,
+            jobId + ' must cross-validate the inline bootstrap against the trusted resolve-trusted-base.mjs');
+        const hasMatHelper = jobSteps(job).some((s) => /materialize-trusted-gate\.sh/.test(stepRun(s)));
+        pushCheck(checks, jobId + ': materialization cross-check with the trusted helper',
+            hasMatHelper,
+            jobId + ' must cross-check inline materialization against scripts/ci/materialize-trusted-gate.sh');
+    }
+
     const jGuard = jobs['signature-guard'];
     pushCheck(checks, 'signature-guard: trusted base determination',
-        jobHasRun(jGuard, /(base_sha|event\.before|trusted_base_sha)/),
+        jobHasRun(jGuard, /(base_sha|event\.before|trusted_base_sha|ROOT_ADMISSION)/),
         'signature-guard must determine a trusted base from GitHub event data (no github.sha^ fallback)');
     // 只匹配实际「执行 guard」的 step（bash <guard>），物化 step 中的 test -f 引用不算
     const guardSteps = jobSteps(jGuard).filter((s) => /(^|\n)\s*bash\s+[^\n]*pre-push-guard\.sh/.test(stepRun(s)));
@@ -1029,27 +1217,39 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
 
     const jContract = jobs['trusted-gate-contract'];
     pushCheck(checks, 'trusted-gate-contract: trusted base determination',
-        jobHasRun(jContract, /(base_sha|event\.before|trusted_base_sha)/),
+        jobHasRun(jContract, /(base_sha|event\.before|trusted_base_sha|ROOT_ADMISSION)/),
         'trusted-gate-contract must determine a trusted base from GitHub event data');
-    const contractSteps = jobSteps(jContract).filter((s) => /gate-contract\.mjs/.test(stepRun(s)));
+    // 只匹配实际执行 contract 的 step（同时含 gate-contract.mjs 与 --candidate-ref；
+    // bootstrap step 里的 test -f gate-contract.mjs 引用不算）
+    const contractSteps = jobSteps(jContract).filter((s) => /gate-contract\.mjs/.test(stepRun(s))
+        && /--candidate-ref/.test(stepRun(s)));
     const contractOk = contractSteps.length > 0
         && contractSteps.every((s) => TRUSTED_LOC.test(stepRun(s))
             && /--candidate-ref/.test(stepRun(s)) && /github\.sha/.test(stepRun(s)));
     pushCheck(checks, 'trusted-gate-contract: trusted contract checks github.sha', contractOk,
         'trusted-gate-contract must run the materialized trusted gate-contract.mjs'
             + ' with --candidate-ref ${{ github.sha }} (candidate contract self-approval is refused)');
+    const rootContractStep = contractSteps[0] || null;
+    pushCheck(checks, 'trusted-gate-contract: root admission forces self-protection',
+        !!rootContractStep && /--force-self-protection/.test(stepRun(rootContractStep)),
+        'trusted-gate-contract must run the contract with --force-self-protection'
+            + ' so ROOT_ADMISSION runs the full root self-protection suite');
+    pushCheck(checks, 'trusted-gate-contract: gate parity audit step',
+        jobHasRun(jContract, /gate-parity\.mjs/),
+        'trusted-gate-contract must run scripts/ci/gate-parity.mjs (no gate may be weakened)');
     pushCheck(checks, 'trusted-gate-contract: report upload', jobHasUploadAlways(jContract),
         'trusted-gate-contract must upload the contract report with if: always()');
 
     const jI18n = jobs['i18n-check'];
     pushCheck(checks, 'i18n-check: trusted base determination',
-        jobHasRun(jI18n, /(base_sha|event\.before|trusted_base_sha)/),
+        jobHasRun(jI18n, /(base_sha|event\.before|trusted_base_sha|ROOT_ADMISSION)/),
         'i18n-check must determine a trusted base from GitHub event data');
-    const ciTestsOk = jobSteps(jI18n).some((s) => /npm run test:i18n/.test(stepRun(s))
+    const ciTestsOk = jobSteps(jI18n).some((s) => commandsInclude(stepRun(s), /npm run test:i18n/)
         && s.env && typeof s.env.CI === 'string' && /true/i.test(s.env.CI));
     pushCheck(checks, 'i18n-check: CI=true npm run test:i18n', ciTestsOk,
         'i18n-check must run npm run test:i18n with CI=true');
-    const i18nContractSteps = jobSteps(jI18n).filter((s) => /gate-contract\.mjs/.test(stepRun(s)));
+    const i18nContractSteps = jobSteps(jI18n).filter((s) => /gate-contract\.mjs/.test(stepRun(s))
+        && /--candidate-ref/.test(stepRun(s)));
     const i18nContractOk = i18nContractSteps.length > 0
         && i18nContractSteps.every((s) => TRUSTED_LOC.test(stepRun(s))
             && /--candidate-ref/.test(stepRun(s)) && /github\.sha/.test(stepRun(s)));
@@ -1065,6 +1265,9 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
     pushCheck(checks, 'i18n-check: static diff',
         jobHasRun(jI18n, /git diff --exit-code/) && jobHasRun(jI18n, /i18n-static/),
         'i18n-check must verify the generated resources with git diff --exit-code');
+    pushCheck(checks, 'i18n-check: gate parity audit step',
+        jobHasRun(jI18n, /gate-parity\.mjs/),
+        'i18n-check must run scripts/ci/gate-parity.mjs (no gate may be weakened)');
     pushCheck(checks, 'i18n-check: report upload', jobHasUploadAlways(jI18n),
         'i18n-check must upload the i18n report with if: always()');
     pushCheck(checks, 'i18n-check: final propagation',
@@ -1072,12 +1275,15 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         'i18n-check must propagate all collected outcomes (tests/trusted/ref/worktree/static) at the end');
 
     // 关键命令不得改成 echo / true（各必需 job 的行为检查已覆盖对应 run 内容）
-    const bannedStepRun = /^\s*(echo\b|true\b|exit\s+0\b|:\s*true\b)/;
     const bannedRuns = [];
-    for (const jobId of Object.keys(jobs)) {
-        for (const step of jobSteps(jobs[jobId])) {
-            if (bannedStepRun.test(stepRun(step))) {
-                bannedRuns.push(jobId + ': ' + stepName(step) || '(unnamed step)');
+    for (const jobId of REQUIRED_WORKFLOW_JOBS) {
+        const job = jobs[jobId];
+        for (const step of jobSteps(job)) {
+            if (!stepRun(step)) {
+                continue;
+            }
+            if (isNoopStep(stepRun(step))) {
+                bannedRuns.push(jobId + ': ' + (stepName(step) || '(unnamed step)'));
             }
         }
     }
@@ -1129,11 +1335,17 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
     pushCheck(checks, 'trusted base never falls back to github.sha^', badShaCaret.length === 0,
         'candidate workflow uses the untrusted parent fallback github.sha^: ' + badShaCaret.join(', '));
 
+    // root admission 运行模式提示：ROOT ADMISSION MODE 必须在 workflow 中出现
+    const hasRootModeBanner = Object.values(jobs).some((job) =>
+        jobSteps(job).some((s) => /ROOT ADMISSION MODE/.test(stepRun(s))));
+    pushCheck(checks, 'ROOT ADMISSION MODE banner is explicit', hasRootModeBanner,
+        'the workflow must explicitly print ROOT ADMISSION MODE when running the root gate');
+
     return checks;
 }
 
-/** 候选 package.json scripts 契约：五个入口必须指向真实测试入口。 */
-function runPackageContractChecks(candidateRoot) {
+/** 候选 package.json scripts 契约：required scripts 必须指向真实测试入口。 */
+function runPackageContractChecks(candidateRoot, trustedPolicy) {
     const checks = [];
     const pkgFile = path.join(candidateRoot, ...PACKAGE_JSON_REL.split('/'));
     if (!fs.existsSync(pkgFile)) {
@@ -1151,7 +1363,13 @@ function runPackageContractChecks(candidateRoot) {
         return checks;
     }
     const scripts = pkg && typeof pkg.scripts === 'object' ? pkg.scripts : {};
-    for (const script of REQUIRED_SCRIPTS) {
+    const required = new Set(REQUIRED_SCRIPTS);
+    if (trustedPolicy && Array.isArray(trustedPolicy.requiredPackageScripts)) {
+        for (const s of trustedPolicy.requiredPackageScripts) {
+            required.add(s);
+        }
+    }
+    for (const script of required) {
         const value = scripts[script];
         pushPackageCheck(checks, 'package script ' + script + ' points at a real entry',
             typeof value === 'string' && !isBannedScript(value),
@@ -1165,9 +1383,10 @@ function runPackageContractChecks(candidateRoot) {
 // 自保护：candidate contract 必须能拒绝「下一代恶意 gate」
 // ---------------------------------------------------------------------------
 
-async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasContract, skip, skipReason) {
+async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasContract, skip, skipReason,
+    forceSelfProtection) {
     const results = [];
-    if (skip) {
+    if (skip && !forceSelfProtection) {
         results.push({ name: 'self-protection (candidate contract vs next malicious gate)', kind: 'self-protection',
             expected: null, status: null, ok: true,
             diagnostic: skipReason || 'candidate contract bundle is byte-identical to the trusted bundle;'
@@ -1188,7 +1407,8 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
     const repo = await makeContractRepo(repoRoot, candidateRoot, trustedPolicy);
     try {
         // 下一代恶意 gate：checker / pre-commit / pre-push / guard 全部 no-op，
-        // workflow 删除关键 jobs + 关键命令改为 true，package script 改为 true，required paths 减少
+        // workflow 删除关键 jobs + 关键命令改为 true + 候选 guard + continue-on-error，
+        // package script 改为 true / echo ok，policy 各集合减少 + gateEpoch / contractVersion 改变
         writeFile(repo, 'scripts/i18n/check.mjs', '#!/usr/bin/env node\nprocess.exit(0);\n');
         writeFile(repo, 'scripts/hooks/pre-commit', EXIT_ZERO);
         writeFile(repo, 'scripts/hooks/pre-push', EXIT_ZERO);
@@ -1199,13 +1419,26 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             const doc = YAML.parse(fs.readFileSync(workflowFile, 'utf8'));
             if (doc && doc.jobs && typeof doc.jobs === 'object') {
                 delete doc.jobs['java-tests'];
+                delete doc.jobs['trusted-gate-contract'];
+                const sigSteps = doc.jobs['signature-guard'] && Array.isArray(doc.jobs['signature-guard'].steps)
+                    ? doc.jobs['signature-guard'].steps : [];
+                for (const step of sigSteps) {
+                    if (typeof step.run === 'string' && /pre-push-guard\.sh/.test(step.run)) {
+                        step.run = 'bash scripts/hooks/pre-push-guard.sh --repo-root "$PWD" --ref "${{ github.sha }}"';
+                    }
+                }
                 if (doc.jobs['i18n-check'] && Array.isArray(doc.jobs['i18n-check'].steps)) {
                     const tests = doc.jobs['i18n-check'].steps.find((s) => typeof s.run === 'string'
                         && s.run.includes('npm run test:i18n'));
                     if (tests) {
                         tests.run = 'true';
+                        if (tests.env && typeof tests.env === 'object') {
+                            tests.env.CI = 'false';
+                        }
                     }
                 }
+                doc.jobs['java-tests'] = { ...(doc.jobs['java-tests'] || {}), 'continue-on-error': true };
+                doc.jobs['javascript-tests'] = { ...(doc.jobs['javascript-tests'] || {}), 'continue-on-error': true };
             }
             fs.writeFileSync(workflowFile, YAML.stringify(doc), 'utf8');
         }
@@ -1214,6 +1447,7 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
             if (pkg && pkg.scripts && typeof pkg.scripts === 'object') {
                 pkg.scripts['test:i18n'] = 'true';
+                pkg.scripts['i18n:check'] = 'echo ok';
             }
             fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
         }
@@ -1223,6 +1457,20 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             if (pol && Array.isArray(pol.requiredPaths)) {
                 pol.requiredPaths = pol.requiredPaths.filter((p) => p !== 'scripts/i18n/check.mjs');
             }
+            if (Array.isArray(pol.protectedBranches)) {
+                pol.protectedBranches = pol.protectedBranches.filter((r) => r !== 'refs/heads/master');
+            }
+            if (Array.isArray(pol.requiredWorkflowJobs)) {
+                pol.requiredWorkflowJobs = pol.requiredWorkflowJobs.filter((j) => j !== 'i18n-check');
+            }
+            if (Array.isArray(pol.requiredPackageScripts)) {
+                pol.requiredPackageScripts = pol.requiredPackageScripts.filter((s) => s !== 'test:i18n');
+            }
+            if (Array.isArray(pol.requiredExternalChecks)) {
+                pol.requiredExternalChecks = [];
+            }
+            pol.gateEpoch = 3;
+            pol.contractVersion = 0;
             fs.writeFileSync(policyPath, JSON.stringify(pol, null, 2) + '\n', 'utf8');
         }
         git(['add', '-A'], repo);
@@ -1233,7 +1481,7 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             { cwd: repo });
         const ok = result.status !== 0;
         results.push({
-            name: 'candidate contract must reject the next malicious gate (no-op checker/hooks/guard, weakened workflow/package/policy)',
+            name: 'candidate contract must reject the next malicious gate (no-op checker/hooks/guard, weakened workflow/package/policy, epoch change)',
             kind: 'self-protection', expected: 'exit != 0', status: result.status, ok,
             diagnostic: ok ? '' : 'candidate contract accepted a no-op checker gate (exit 0);'
                 + ' the candidate contract cannot protect the next upgrade',
@@ -1369,6 +1617,21 @@ async function main() {
                     expected: '>= ' + trustedPolicy.contractVersion, status: null, ok: true, diagnostic: '',
                 });
             }
+            // 7.1 Epoch 不得变化：正常 advance 只能 same epoch；2 → 1 / 2 → 3 属于另一轮人工 root reset
+            if (candidatePolicy.gateEpoch !== trustedPolicy.gateEpoch) {
+                checks.push({
+                    name: 'candidate gateEpoch unchanged', kind: 'policy',
+                    expected: '== ' + trustedPolicy.gateEpoch, status: null, ok: false,
+                    diagnostic: 'candidate gateEpoch ' + candidatePolicy.gateEpoch
+                        + ' != trusted ' + trustedPolicy.gateEpoch
+                        + '; epoch changes are a separate manual root admission, not a normal advance',
+                });
+            } else {
+                checks.push({
+                    name: 'candidate gateEpoch unchanged', kind: 'policy',
+                    expected: '== ' + trustedPolicy.gateEpoch, status: null, ok: true, diagnostic: '',
+                });
+            }
             // enforcement start 不得向后移动或删除：候选 start 必须是 trusted start 的祖先（或相等）
             const candidateStart = candidatePolicy.i18nEnforcementStartCommit;
             const trustedStart = trustedPolicy.i18nEnforcementStartCommit;
@@ -1413,6 +1676,25 @@ async function main() {
                 diagnostic: removedJobs.length > 0
                     ? 'candidate dropped required workflow jobs: ' + removedJobs.join(', ') : '',
             });
+            // 7.7 / 7.8：requiredPackageScripts / requiredExternalChecks 集合不得减少
+            const removedScripts = trustedGate.policySetReduced(
+                trustedPolicy.requiredPackageScripts, candidatePolicy.requiredPackageScripts);
+            checks.push({
+                name: 'required package scripts not reduced', kind: 'policy',
+                expected: 'candidate keeps all trusted required package scripts', status: null,
+                ok: removedScripts.length === 0,
+                diagnostic: removedScripts.length > 0
+                    ? 'candidate dropped required package scripts: ' + removedScripts.join(', ') : '',
+            });
+            const removedExternal = trustedGate.policySetReduced(
+                trustedPolicy.requiredExternalChecks, candidatePolicy.requiredExternalChecks);
+            checks.push({
+                name: 'required external checks not reduced', kind: 'policy',
+                expected: 'candidate keeps all trusted required external checks', status: null,
+                ok: removedExternal.length === 0,
+                diagnostic: removedExternal.length > 0
+                    ? 'candidate dropped required external checks: ' + removedExternal.join(', ') : '',
+            });
         } else {
             checks.push({
                 name: 'candidate policy proposal', kind: 'policy', expected: null, status: null, ok: true,
@@ -1451,7 +1733,7 @@ async function main() {
 
         // 3.5 candidate quality-gate.yml + package.json 语义契约（真实 YAML 解析）
         checks.push(...runWorkflowContractChecks(repoRoot, candidateRoot));
-        checks.push(...runPackageContractChecks(candidateRoot));
+        checks.push(...runPackageContractChecks(candidateRoot, trustedPolicy));
 
         const hasChecker = fs.existsSync(path.join(candidateRoot, 'scripts', 'i18n', 'check.mjs'));
         const hasHooks = fs.existsSync(path.join(candidateRoot, 'scripts', 'hooks'));
@@ -1480,11 +1762,13 @@ async function main() {
         checks.push(...hookScenarios);
         const hooksOk = hookScenarios.every((c) => c.ok);
 
-        // 6. 自保护：candidate contract 必须拒绝恶意下一代 gate
+        // 6. 自保护：candidate contract 必须拒绝恶意下一代 gate。
+        // root admission（--force-self-protection）时关闭归纳跳过，强制运行自保护套件。
         const selfProtection = await runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasContract,
             candidateContractIdentical || !checkerOk || !hooksOk,
             !checkerOk || !hooksOk ? 'candidate behavior already failed; self-protection skipped'
-                : undefined);
+                : undefined,
+            args.forceSelfProtection);
         checks.push(...selfProtection);
 
         for (const check of checks) {

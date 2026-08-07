@@ -1,21 +1,26 @@
 'use strict';
 /**
- * 本地可信 Gate Anchor 库。
+ * 本地可信 Gate Anchor 库（Gate Epoch 2 单一标准）。
  *
  * 信任模型：
  * - 本地 Git hooks 是开发便利性门禁：用户始终可以主动修改 hook、修改 .git/config 或使用
  *   --no-verify，因此不能宣称其绝对不可绕过。真正的最终门禁必须由 GitHub Ruleset /
  *   分支保护 / required check 提供，并且可信 workflow / 检查器不能由同一个候选提交自行批准。
- * - 候选提交不能作为自己的唯一检查者。本地可信锚点由
+ * - 候选提交不能作为自己的唯一检查者。Epoch 2 信任根是仓库外的受保护 annotated tag
+ *   `refs/tags/i18n-gate-epoch-2-root`（由仓库管理员人工创建，代码不写 root SHA）。
+ *   本地锚点由 `git config --local pixiv.i18n.trustedGateEpoch <epoch>` 与
  *   `git config --local pixiv.i18n.trustedGateRef <commit-sha>` 持有：
  *   - 配置存在于 .git/config，不提交到仓库，候选提交不能修改；
  *   - hooks 只从该 commit 物化可信 checker、contract、policy 与 signature guard；
  *   - 锚点不随 HEAD 自动更新，只有显式信任命令（trust-gate.mjs）才能推进；
- *   - 首次信任是明确的 Trust On First Use（--bootstrap），之后只能 --advance，
- *     advance 由「旧 trusted contract 审核候选」完成，候选不能自我批准。
+ *   - Epoch 2 root 采用显式人工 root adoption（--adopt-root）：没有任何提交能自动证明
+ *     自己可信，root 由人工 review + 全量自动检查 + root admission 门禁共同建立；
+ *   - 之后只能 --advance，advance 由「当前 Epoch 2 trusted contract 审核候选」完成，
+ *     候选不能自我批准；Epoch 1 及更早 anchor 不迁移、不兼容、无自动升级权。
  *
  * 门禁事实来源只允许：
- * - trusted ref 中的 gate-policy.json（required paths / contract version / enforcement start）；
+ * - trusted ref 中的 gate-policy.json（gateEpoch / required paths / contract version /
+ *   enforcement start / protected branches / required jobs / scripts / external checks）；
  * - trusted ref 中物化的 check.mjs / gate-contract.mjs / pre-push-guard.sh；
  * - 候选快照（index / ref）只作为被检查对象，不参与自身批准。
  */
@@ -27,6 +32,13 @@ import path from 'path';
 import snapshot from './repository-snapshot.mjs';
 
 export const TRUSTED_REF_KEY = 'pixiv.i18n.trustedGateRef';
+export const TRUSTED_EPOCH_KEY = 'pixiv.i18n.trustedGateEpoch';
+
+/** 当前唯一受支持的 Gate Epoch。epoch < 2 视为 obsolete；epoch > 2 视为 unsupported future。 */
+export const CURRENT_GATE_EPOCH = 2;
+
+/** Epoch 2 信任根 tag（仓库内容之外的不可自我修改锚点，由管理员人工创建并受 Ruleset 保护）。 */
+export const ROOT_TAG_NAME = 'i18n-gate-epoch-2-root';
 
 /** hooks 与 contract 从可信锚点物化的路径范围。 */
 export const GATE_PATHS = [
@@ -35,6 +47,7 @@ export const GATE_PATHS = [
     'scripts/ci',
     '.github/workflows/quality-gate.yml',
     'package.json',
+    'package-lock.json',
 ];
 
 /** gate-policy.json 相对仓库根的路径。 */
@@ -86,25 +99,9 @@ function validateJobIdList(list) {
 }
 
 /**
- * 本次信任链起点迁移的明确 legacy bootstrap ref。
- * 仓库历史中唯一「缺 contract 的 trusted base」允许按显式迁移路径处理（见 14.2），
- * 其它缺 contract 的 base 一律 fail closed。bootstrap 路径只在迁移当次可用。
+ * 本次信任链起点迁移的 legacy 常量已整体移除：Epoch 1 及更早 anchor 不再参与正常门禁运行，
+ * 不迁移、不兼容、无自动升级权；遇到 epoch != CURRENT_GATE_EPOCH 一律 fail closed。
  */
-export const LEGACY_BOOTSTRAP_REF = '19c3bc47387762130d593ddfcf7e2c4acbc992bd';
-
-/** legacy anchor（19c3bc47 之前的架构）下回退的 i18n enforcement start（基础设施首次引入点）。 */
-export const LEGACY_ENFORCEMENT_START = '05f4ebed7ce00f0b923fe48ec2e0971610511547';
-
-/** legacy anchor 下仍强制存在的 required gate 文件（contract/policy 尚未引入）。 */
-export const LEGACY_REQUIRED_PATHS = [
-    'scripts/i18n/check.mjs',
-    'scripts/i18n/lib/repository-snapshot.mjs',
-    'scripts/hooks/pre-commit',
-    'scripts/hooks/pre-push',
-    'scripts/hooks/pre-push-guard.sh',
-];
-
-export const BOOTSTRAP_HINT = 'npm run i18n:trust-gate -- --bootstrap --ref HEAD';
 
 export const SHA_RE = /^[0-9a-f]{40}$/;
 
@@ -135,16 +132,70 @@ export function getTrustedRef(repoRoot) {
     }
 }
 
-/** 写本地 trustedGateRef（只写 local 配置）并回读验证。 */
-export function setTrustedRef(repoRoot, sha) {
+/** 读取本地 trustedGateEpoch；未配置返回 null。 */
+export function getTrustedEpoch(repoRoot) {
+    try {
+        const value = git(['config', '--local', '--get', TRUSTED_EPOCH_KEY], repoRoot);
+        return value || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * 写本地 Epoch 2 trust anchor（epoch + ref 一起写，只写 local 配置）并回读验证。
+ * 这是 root adoption / advance 的唯一写入路径。
+ */
+export function setTrustedAnchor(repoRoot, sha) {
     if (!SHA_RE.test(sha)) {
         throw new Error('refusing to trust a non-commit value: ' + sha);
     }
+    git(['config', '--local', TRUSTED_EPOCH_KEY, String(CURRENT_GATE_EPOCH)], repoRoot);
     git(['config', '--local', TRUSTED_REF_KEY, sha], repoRoot);
-    const actual = getTrustedRef(repoRoot);
-    if (actual !== sha) {
-        throw new Error('trusted gate ref verification failed: expected ' + sha + ', got ' + actual);
+    const actualRef = getTrustedRef(repoRoot);
+    const actualEpoch = getTrustedEpoch(repoRoot);
+    if (actualRef !== sha || actualEpoch !== String(CURRENT_GATE_EPOCH)) {
+        throw new Error('trusted gate anchor verification failed: expected epoch '
+            + CURRENT_GATE_EPOCH + ' + ref ' + sha + ', got epoch ' + actualEpoch + ' + ref ' + actualRef);
     }
+}
+
+/**
+ * 解析本地 Epoch 2 root tag（refs/tags/i18n-gate-epoch-2-root^{commit}）。
+ * tag 不存在 / 不是 commit / 不是完整 SHA → 返回 null（fail closed 由调用方处理）。
+ */
+export function resolveRootTag(repoRoot) {
+    return resolveCommit(repoRoot, 'refs/tags/' + ROOT_TAG_NAME);
+}
+
+/** 本地仓库中是否存在 Epoch 2 root tag。 */
+export function hasRootTag(repoRoot) {
+    try {
+        git(['rev-parse', '--verify', '--quiet', 'refs/tags/' + ROOT_TAG_NAME + '^{commit}'], repoRoot);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+/** 本地 anchor 是否属于当前 Epoch：epoch 配置必须精确等于 CURRENT_GATE_EPOCH。 */
+export function isTrustedEpochCurrent(repoRoot) {
+    return getTrustedEpoch(repoRoot) === String(CURRENT_GATE_EPOCH);
+}
+
+/** 本地 anchor 状态描述（hook fail-closed 提示用）。 */
+export function describeTrustedEpoch(repoRoot) {
+    const epoch = getTrustedEpoch(repoRoot);
+    if (epoch === null) {
+        return 'uninitialized';
+    }
+    if (epoch < String(CURRENT_GATE_EPOCH)) {
+        return 'obsolete';
+    }
+    if (epoch > String(CURRENT_GATE_EPOCH)) {
+        return 'unsupported future';
+    }
+    return 'current';
 }
 
 /** ref 必须精确解析为完整 commit；不接受工作树路径 / 非 commit。 */
@@ -199,6 +250,11 @@ export function validatePolicyStructure(policy) {
     if (!Number.isInteger(policy.schemaVersion) || policy.schemaVersion < 1) {
         throw new Error('gate-policy.json: schemaVersion must be an integer >= 1');
     }
+    // Epoch 单一标准：只支持 CURRENT_GATE_EPOCH；epoch < 2 是 obsolete，epoch > 2 是 unsupported
+    if (policy.gateEpoch !== CURRENT_GATE_EPOCH) {
+        throw new Error('gate-policy.json: gateEpoch must be exactly ' + CURRENT_GATE_EPOCH
+            + ' (obsolete / unsupported future epochs fail closed; got ' + policy.gateEpoch + ')');
+    }
     if (!Number.isInteger(policy.contractVersion) || policy.contractVersion < 1) {
         throw new Error('gate-policy.json: contractVersion must be an integer >= 1');
     }
@@ -214,12 +270,40 @@ export function validatePolicyStructure(policy) {
             throw new Error('gate-policy.json: invalid required path: ' + JSON.stringify(p));
         }
     }
-    // v2 扩展字段：可选（v1 policy 允许缺失），存在时必须合法
     if (policy.protectedBranches !== undefined) {
         validateRefList('protectedBranches', policy.protectedBranches);
     }
     if (policy.requiredWorkflowJobs !== undefined) {
         validateJobIdList(policy.requiredWorkflowJobs);
+    }
+    if (policy.requiredPackageScripts !== undefined) {
+        if (!Array.isArray(policy.requiredPackageScripts) || policy.requiredPackageScripts.length === 0) {
+            throw new Error('gate-policy.json: requiredPackageScripts must be a non-empty array');
+        }
+        const seen = new Set();
+        for (const entry of policy.requiredPackageScripts) {
+            if (typeof entry !== 'string' || entry.length === 0 || !/^[A-Za-z0-9._:-]+$/.test(entry)) {
+                throw new Error('gate-policy.json: requiredPackageScripts entries must be script names: '
+                    + JSON.stringify(entry));
+            }
+            if (seen.has(entry)) {
+                throw new Error('gate-policy.json: requiredPackageScripts must not contain duplicates: ' + entry);
+            }
+            seen.add(entry);
+        }
+    }
+    if (policy.requiredExternalChecks !== undefined) {
+        if (!Array.isArray(policy.requiredExternalChecks) || policy.requiredExternalChecks.length === 0) {
+            throw new Error('gate-policy.json: requiredExternalChecks must be a non-empty array');
+        }
+        const seen = new Set();
+        for (const entry of policy.requiredExternalChecks) {
+            if (typeof entry !== 'string' || entry.length === 0 || seen.has(entry)) {
+                throw new Error('gate-policy.json: requiredExternalChecks entries must be distinct strings: '
+                    + JSON.stringify(entry));
+            }
+            seen.add(entry);
+        }
     }
 }
 
@@ -273,6 +357,13 @@ export function materializeTrustedGate(repoRoot, trustedSha, outDir) {
         materialized.cleanup();
         throw new Error('trusted gate anchor ' + trustedSha
             + ' has no complete gate bundle (scripts/hooks/pre-push-guard.sh missing)');
+    }
+    // Epoch 2 单一标准：policy 是强制组成，缺 policy 的 anchor 一律 fail closed
+    if (!fs.existsSync(path.join(materialized.root, 'scripts', 'i18n', 'gate-policy.json'))) {
+        materialized.cleanup();
+        throw new Error('trusted gate anchor ' + trustedSha
+            + ' has no Epoch 2 gate policy (scripts/i18n/gate-policy.json missing);'
+            + ' obsolete-epoch anchors are not migrated');
     }
     if (fs.existsSync(outDir)) {
         fs.rmSync(outDir, { recursive: true, force: true });
@@ -366,19 +457,23 @@ export function runI18nTestSuite(repoRoot, excludeFile) {
 
 export default {
     TRUSTED_REF_KEY,
+    TRUSTED_EPOCH_KEY,
+    CURRENT_GATE_EPOCH,
+    ROOT_TAG_NAME,
     GATE_PATHS,
     POLICY_REL,
     CONTRACT_REL,
     WORKFLOW_REL,
     PACKAGE_JSON_REL,
-    LEGACY_BOOTSTRAP_REF,
-    LEGACY_ENFORCEMENT_START,
-    LEGACY_REQUIRED_PATHS,
-    BOOTSTRAP_HINT,
     SHA_RE,
     isCI,
     getTrustedRef,
-    setTrustedRef,
+    getTrustedEpoch,
+    setTrustedAnchor,
+    resolveRootTag,
+    hasRootTag,
+    isTrustedEpochCurrent,
+    describeTrustedEpoch,
     resolveCommit,
     isAncestor,
     isIndexClean,

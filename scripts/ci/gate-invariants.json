@@ -1,0 +1,38 @@
+{
+  "gateEpoch": 2,
+  "contractVersion": 3,
+  "requiredJobs": [
+    "java-tests",
+    "javascript-tests",
+    "signature-guard",
+    "trusted-gate-contract",
+    "i18n-check"
+  ],
+  "requiredTriggers": [
+    "push",
+    "pull_request",
+    "merge_group",
+    "workflow_dispatch",
+    "workflow_call"
+  ],
+  "requiredCommands": [
+    "mvn compile",
+    "mvn test",
+    "npm run test:js",
+    "npm run test:web-standards",
+    "npm run test:i18n",
+    "npm run i18n:check",
+    "npm run i18n:generate-static",
+    "gate-parity.mjs"
+  ],
+  "requiredFiles": [
+    "scripts/i18n/check.mjs",
+    "scripts/i18n/gate-contract.mjs",
+    "scripts/i18n/gate-policy.json",
+    "scripts/hooks/pre-commit",
+    "scripts/hooks/pre-push",
+    "scripts/hooks/pre-push-guard.sh",
+    "scripts/ci/gate-parity.mjs",
+    "scripts/ci/gate-invariants.json"
+  ]
+}

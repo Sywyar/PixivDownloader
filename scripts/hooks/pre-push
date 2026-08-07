@@ -1,23 +1,27 @@
 #!/usr/bin/env bash
 # Local pre-push hook: i18n gate + signature guard against the ACTUAL commits
-# being pushed (not the worktree), judged by the LOCAL TRUSTED GATE ANCHOR.
+# being pushed (not the worktree), judged by the LOCAL TRUSTED EPOCH 2 ANCHOR.
 #
 # Git invokes pre-push with: $1 = remote name, $2 = remote URL; ref lines on
 # stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>
 #
 # Trust model:
-# - The trusted ref comes from `git config --local pixiv.i18n.trustedGateRef`;
-#   when missing, the hook fails closed and prints the bootstrap command.
+# - The local anchor must belong to Gate Epoch 2 (pixiv.i18n.trustedGateEpoch == 2 +
+#   pixiv.i18n.trustedGateRef); obsolete / uninitialized epochs fail closed and are
+#   never migrated (no v1 / legacy / transition compatibility paths).
+# - When the Epoch 2 root tag (refs/tags/i18n-gate-epoch-2-root) exists locally,
+#   the trusted ref must descend from it.
 # - ALL pushed commits are checked by the TRUSTED anchor's checker, contract,
 #   policy and signature guard (materialized once from the trusted commit via
 #   an isolated temp index). A candidate ref's own checker/contract/guard is
 #   only ever the OBJECT of the trusted contract's black-box tests; it can
 #   never approve itself.
 # - When a pushed commit changes gate paths (scripts/i18n/**, scripts/hooks/**,
-#   .github/workflows/quality-gate.yml) relative to ANY parent, the trusted
-#   gate contract validates that commit (--candidate-ref). Intermediate commits
-#   that introduce a no-op checker fail even when a later commit fixes it; the
-#   branch tip's gate bundle is never the only thing checked.
+#   scripts/ci/**, .github/workflows/quality-gate.yml, package.json,
+#   package-lock.json) relative to ANY parent, the trusted gate contract
+#   validates that commit (--candidate-ref). Intermediate commits that introduce
+#   a no-op checker fail even when a later commit fixes it; the branch tip's
+#   gate bundle is never the only thing checked.
 # - Enforcement boundary: only commits at/after the trusted policy's
 #   i18nEnforcementStartCommit run the i18n gate; a branch whose history does
 #   not include the enforcement root fails closed. Eligibility is decided PER
@@ -75,19 +79,29 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-# ---- 1. trusted anchor：缺失即 fail closed ----
+# ---- 1. Epoch 2 trust anchor：epoch 缺失 / 非 2 → fail closed，绝不迁移 ----
+epoch="$(git config --local --get pixiv.i18n.trustedGateEpoch || true)"
 trusted="$(git config --local --get pixiv.i18n.trustedGateRef || true)"
-if [ -z "$trusted" ]; then
-    echo "pre-push: no trusted gate anchor is configured (pixiv.i18n.trustedGateRef)." >&2
-    echo "pre-push: establish the local trust anchor first:" >&2
-    echo "pre-push:   npm run i18n:trust-gate -- --bootstrap --ref HEAD" >&2
+if [ -z "$trusted" ] || [ -z "$epoch" ] || [ "$epoch" != "2" ]; then
+    echo "pre-push: Your local gate anchor belongs to an obsolete or uninitialized epoch." >&2
+    echo "pre-push: Run the explicit Epoch 2 root adoption command:" >&2
+    echo "pre-push:   npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2" >&2
     echo "pre-push: this is a local convenience gate; the final gate is the GitHub required check." >&2
     exit 1
 fi
 if ! git rev-parse --verify --quiet "$trusted^{commit}" >/dev/null 2>&1; then
     echo "pre-push: trusted gate anchor $trusted does not resolve to a commit in this repository." >&2
-    echo "pre-push: restore the anchor or re-run: npm run i18n:trust-gate -- --bootstrap --ref HEAD" >&2
+    echo "pre-push: restore the anchor or re-run: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2" >&2
     exit 1
+fi
+# 本地已安装 Epoch 2 root tag 时，anchor 必须包含该 root
+if git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" >/dev/null 2>&1; then
+    root_sha="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}")"
+    if ! git merge-base --is-ancestor "$root_sha" "$trusted" >/dev/null 2>&1; then
+        echo "pre-push: trusted anchor $trusted does not descend from the Gate Epoch 2 trust root $root_sha." >&2
+        echo "pre-push: re-adopt the Epoch 2 root: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2" >&2
+        exit 1
+    fi
 fi
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/pixiv-i18n-prepush.XXXXXX")"
@@ -124,14 +138,18 @@ if [ ! -f "$trusted_dir/scripts/hooks/pre-push-guard.sh" ]; then
     echo "pre-push: trusted gate bundle is incomplete (scripts/hooks/pre-push-guard.sh missing at $trusted); fail closed." >&2
     exit 1
 fi
-if [ -f "$trusted_dir/scripts/i18n/gate-policy.json" ]; then
-    start="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(p.i18nEnforcementStartCommit)' "$trusted_dir/scripts/i18n/gate-policy.json")"
-    protected_list="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const list=(p.protectedBranches||[]).filter((r)=>typeof r==="string"&&r.startsWith("refs/heads/"));process.stdout.write(list.join("\n"))' "$trusted_dir/scripts/i18n/gate-policy.json")"
-else
-    start="05f4ebed7ce00f0b923fe48ec2e0971610511547"
-    protected_list=""
-    echo "pre-push: trusted anchor $trusted predates the gate policy (legacy anchor); using the historical enforcement start $start." >&2
+if [ ! -f "$trusted_dir/scripts/i18n/gate-policy.json" ]; then
+    echo "pre-push: trusted gate bundle is incomplete (scripts/i18n/gate-policy.json missing at $trusted); fail closed." >&2
+    echo "pre-push: Epoch 2 anchors always carry the gate policy; obsolete epochs are not migrated." >&2
+    exit 1
 fi
+if [ ! -f "$trusted_dir/scripts/i18n/gate-contract.mjs" ]; then
+    echo "pre-push: trusted gate bundle is incomplete (scripts/i18n/gate-contract.mjs missing at $trusted); fail closed." >&2
+    echo "pre-push: Epoch 2 anchors always carry the gate contract; obsolete epochs are not migrated." >&2
+    exit 1
+fi
+start="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(p.i18nEnforcementStartCommit)' "$trusted_dir/scripts/i18n/gate-policy.json")"
+protected_list="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const list=(p.protectedBranches||[]).filter((r)=>typeof r==="string"&&r.startsWith("refs/heads/"));process.stdout.write(list.join("\n"))' "$trusted_dir/scripts/i18n/gate-policy.json")"
 if ! git rev-parse --verify --quiet "$start^{commit}" >/dev/null 2>&1; then
     echo "pre-push: i18n enforcement start $start (from the trusted policy) does not resolve in this repository; fail closed." >&2
     exit 1
@@ -318,72 +336,54 @@ sort -k1,1 -k2,2nr "$pairs" | awk '!seen[$1]++' > "$pairs.dedup"
 count="$(wc -l < "$pairs.dedup" | tr -d ' ')"
 echo "pre-push: verifying $count pushed commit(s) against the trusted i18n gate (anchor $(git rev-parse --short "$trusted")) and signature guard (remote '$remote_name', $remote_url)..."
 
-index=0
-while read -r sha eligible; do
-    index=$((index + 1))
-    contract=0
-    if [ "$eligible" = "1" ]; then
-        parents="$(git rev-list --parents -n 1 "$sha" 2>/dev/null || true)"
-        rest="${parents#* }"
-        if [ -z "$rest" ]; then
-            contract=1
-        else
-            for p in $rest; do
-                if git diff-tree --no-commit-id --name-only -r "$p" "$sha" 2>/dev/null \
-                    | grep -Eq '^(scripts/(i18n|hooks)/|\.github/workflows/quality-gate\.yml)'; then
-                    contract=1
-                    break
-                fi
-            done
+    index=0
+    while read -r sha eligible; do
+        index=$((index + 1))
+        contract=0
+        if [ "$eligible" = "1" ]; then
+            parents="$(git rev-list --parents -n 1 "$sha" 2>/dev/null || true)"
+            rest="${parents#* }"
+            if [ -z "$rest" ]; then
+                contract=1
+            else
+                for p in $rest; do
+                    if git diff-tree --no-commit-id --name-only -r "$p" "$sha" 2>/dev/null \
+                        | grep -Eq '^(scripts/(i18n|hooks|ci)/|\.github/workflows/quality-gate\.yml$|package\.json$|package-lock\.json$)'; then
+                        contract=1
+                        break
+                    fi
+                done
+            fi
         fi
-    fi
 
-    echo "pre-push: [$index/$count] checking commit $sha (trusted gate)..."
-    if [ "$eligible" = "1" ]; then
-        if ! node "$trusted_dir/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
-            --snapshot ref --ref "$sha" >"$tmpdir/check-$sha.log" 2>&1; then
-            echo "pre-push: FAILED — commit $sha does not pass the i18n gate (trusted checker from anchor $trusted)." >&2
-            echo "pre-push: full diagnostics:" >&2
-            cat "$tmpdir/check-$sha.log" >&2
-            echo "pre-push: report: build/reports/i18n/report.json (snapshotRef=$sha)" >&2
-            echo "pre-push: run locally: node scripts/i18n/check.mjs --snapshot ref --ref $sha" >&2
+        echo "pre-push: [$index/$count] checking commit $sha (trusted gate)..."
+        if [ "$eligible" = "1" ]; then
+            if ! node "$trusted_dir/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
+                --snapshot ref --ref "$sha" >"$tmpdir/check-$sha.log" 2>&1; then
+                echo "pre-push: FAILED — commit $sha does not pass the i18n gate (trusted checker from anchor $trusted)." >&2
+                echo "pre-push: full diagnostics:" >&2
+                cat "$tmpdir/check-$sha.log" >&2
+                echo "pre-push: report: build/reports/i18n/report.json (snapshotRef=$sha)" >&2
+                echo "pre-push: run locally: node scripts/i18n/check.mjs --snapshot ref --ref $sha" >&2
+                exit 1
+            fi
+        fi
+        if ! bash "$trusted_dir/scripts/hooks/pre-push-guard.sh" --repo-root "$root" --ref "$sha" \
+            >"$tmpdir/guard-$sha.log" 2>&1; then
+            echo "pre-push: FAILED — commit $sha does not pass the signature guard (guard from anchor $trusted)." >&2
+            cat "$tmpdir/guard-$sha.log" >&2
             exit 1
         fi
-    fi
-    if ! bash "$trusted_dir/scripts/hooks/pre-push-guard.sh" --repo-root "$root" --ref "$sha" \
-        >"$tmpdir/guard-$sha.log" 2>&1; then
-        echo "pre-push: FAILED — commit $sha does not pass the signature guard (guard from anchor $trusted)." >&2
-        cat "$tmpdir/guard-$sha.log" >&2
-        exit 1
-    fi
-    if [ "$contract" = "1" ]; then
-        if [ -f "$trusted_dir/scripts/i18n/gate-contract.mjs" ] \
-            && [ -f "$trusted_dir/scripts/i18n/gate-policy.json" ]; then
+        if [ "$contract" = "1" ]; then
             echo "pre-push: commit $sha proposes gate changes; running the trusted gate contract..."
-            # --require execfile-shim：归一化旧契约在 stdio ignore 时 execFileSync 返回 null 的
-            # Node 怪癖（null.trim 崩溃），不改变任何判定逻辑
-            if ! node --require "$root/scripts/hooks/execfile-shim.cjs" \
-                "$trusted_dir/scripts/i18n/gate-contract.mjs" --repo-root "$root" --report-root "$root" \
+            if ! node "$trusted_dir/scripts/i18n/gate-contract.mjs" --repo-root "$root" --report-root "$root" \
                 --candidate-ref "$sha" >"$tmpdir/contract-$sha.log" 2>&1; then
-                # 一次性迁移过渡（人工审核）：v1 锚点契约仅死于其死代码 pre-push 场景时放行
-                if node "$root/scripts/ci/contract-v1-transition-check.cjs" \
-                    "$root/build/reports/i18n/contract.json" 2>/dev/null; then
-                    echo "pre-push: WARNING — the trusted anchor contract (v1) failed only on its own" >&2
-                    echo "pre-push: dead-code pre-push scenarios; documented one-time manual-review" >&2
-                    echo "pre-push: transition (checker/policy/workflow/self-protection all passed)." >&2
-                else
-                    echo "pre-push: FAILED — commit $sha does not pass the trusted gate contract (candidate gate cannot self-approve)." >&2
-                    cat "$tmpdir/contract-$sha.log" >&2
-                    echo "pre-push: report: build/reports/i18n/contract.json (candidateRef=$sha)" >&2
-                    exit 1
-                fi
+                echo "pre-push: FAILED — commit $sha does not pass the trusted gate contract (candidate gate cannot self-approve)." >&2
+                cat "$tmpdir/contract-$sha.log" >&2
+                echo "pre-push: report: build/reports/i18n/contract.json (candidateRef=$sha)" >&2
+                exit 1
             fi
-        else
-            echo "pre-push: trusted anchor $trusted predates the gate contract (legacy anchor);" >&2
-            echo "pre-push: gate proposals in this push are covered by the trusted checker and will be validated" >&2
-            echo "pre-push: by the trusted contract at the next trust advance." >&2
         fi
-    fi
-done < "$pairs.dedup"
+    done < "$pairs.dedup"
 
 echo "pre-push: all $count pushed commit(s) pass the i18n gate and the signature guard."

@@ -126,7 +126,7 @@ function makeGitRepo(base = os.tmpdir(), opts = {}) {
     }
     runGenerate(dir);
 
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir); // C1 = enforcement start
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -140,8 +140,9 @@ function makeGitRepo(base = os.tmpdir(), opts = {}) {
     git(['commit', '-q', '-m', 'add gate policy'], dir);
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
 
-    // 激活本地 hooks 并写入 trusted anchor（模拟已 bootstrap 的状态）
+    // 激活本地 hooks 并写入 Epoch 2 trust anchor（模拟已 adopt-root 的状态）
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }
@@ -249,7 +250,7 @@ test('pre-commit：暂存坏英文、工作树修好但不 add → 必须失败'
     assert.equal(snapshotLeakCount(), before, '临时快照必须全部清理');
 });
 
-test('pre-commit：trusted anchor 缺失 → fail closed 并提示 bootstrap', () => {
+test('pre-commit：trusted anchor 缺失 → fail closed 并提示 adopt-root', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -257,6 +258,7 @@ test('pre-commit：trusted anchor 缺失 → fail closed 并提示 bootstrap', (
     const root = makeGitRepo();
     try {
         git(['config', '--local', '--unset', 'pixiv.i18n.trustedGateRef'], root);
+        git(['config', '--local', '--unset', 'pixiv.i18n.trustedGateEpoch'], root);
         // 暂存一个普通业务文件触发 hook
         fs.mkdirSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
         fs.writeFileSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'x.js'),
@@ -264,8 +266,43 @@ test('pre-commit：trusted anchor 缺失 → fail closed 并提示 bootstrap', (
         git(['add', '-A'], root);
         const result = bash(['scripts/hooks/pre-commit'], root);
         assert.notEqual(result.status, 0, 'anchor 缺失必须 fail closed');
-        assert.match(result.stdout + result.stderr, /no trusted gate anchor/);
-        assert.match(result.stdout + result.stderr, /i18n:trust-gate -- --bootstrap --ref HEAD/);
+        assert.match(result.stdout + result.stderr, /obsolete or uninitialized epoch/);
+        assert.match(result.stdout + result.stderr, /i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('pre-commit：epoch1 / 缺失 epoch 的旧 anchor → OBSOLETE GATE EPOCH fail closed，绝不迁移', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo();
+    try {
+        const anchor = git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim();
+        // 模拟旧 epoch anchor：epoch 缺失（只写了 ref）
+        git(['config', '--local', '--unset', 'pixiv.i18n.trustedGateEpoch'], root);
+        fs.mkdirSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'y.js'),
+            'var y = 1;\n', 'utf8');
+        git(['add', '-A'], root);
+        let result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, 'epoch 缺失必须 fail closed');
+        assert.match(result.stdout + result.stderr, /obsolete or uninitialized epoch/);
+        // 显式 epoch 1 同样拒绝
+        git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '1'], root);
+        result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, 'epoch 1 必须 fail closed（不迁移、不兼容）');
+        assert.match(result.stdout + result.stderr, /obsolete or uninitialized epoch/);
+        // 未来 epoch 也拒绝
+        git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '3'], root);
+        result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, 'epoch 3 必须 fail closed');
+        assert.match(result.stdout + result.stderr, /obsolete or uninitialized epoch/);
+        // 恢复 epoch 2 后 hooks 正常（fixture 其余状态合法）
+        git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], root);
+        assert.equal(anchor.length, 40);
     } finally {
         cleanRepo(root);
     }
@@ -761,6 +798,66 @@ test('pre-push：中间 commit 引入 no-op checker、tip 修复 → 历史降�
     }
 });
 
+test('pre-push：A 弱化 package.json test:i18n = true、B 恢复 → push A..B 必须失败（package.json 纳入 gate 变更面）', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        git(['checkout', '-q', '-b', 'pkg-weaken'], root);
+        const pkgPath = path.join(root, 'package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        pkg.scripts['test:i18n'] = 'true';
+        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        commitAll(root, 'A: weaken package.json', { bypass: true });
+        fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), pkgPath);
+        commitAll(root, 'B: restore package.json', { bypass: true });
+        git(['checkout', '-q', 'master'], root);
+
+        const push = git(['push', 'origin', 'pkg-weaken'], root, { allowFailure: true });
+        assert.notEqual(push.status, 0, '中间 commit 的 test:i18n = true 必须被 trusted contract 拦截（即使 tip 恢复）');
+        assert.match(push.stdout + push.stderr, /does not pass the trusted gate contract|GATE CONTRACT FAILED|test:i18n/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
+test('pre-push：A 弱化 scripts/ci helper、B 恢复 → push A..B 必须失败（scripts/ci 纳入 gate 变更面）', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        git(['checkout', '-q', '-b', 'ci-weaken'], root);
+        const helper = path.join(root, 'scripts', 'ci', 'materialize-trusted-gate.sh');
+        fs.writeFileSync(helper, '#!/usr/bin/env bash\nexit 0\n', 'utf8');
+        commitAll(root, 'A: weaken ci helper', { bypass: true });
+        fs.copyFileSync(path.join(REPO_ROOT, 'scripts', 'ci', 'materialize-trusted-gate.sh'), helper);
+        commitAll(root, 'B: restore ci helper', { bypass: true });
+        git(['checkout', '-q', 'master'], root);
+
+        const push = git(['push', 'origin', 'ci-weaken'], root, { allowFailure: true });
+        assert.notEqual(push.status, 0, '中间 commit 的 scripts/ci helper 弱化必须被 trusted contract 拦截（即使 tip 恢复）');
+        assert.match(push.stdout + push.stderr, /does not pass the trusted gate contract|GATE CONTRACT FAILED|materialize-trusted-gate/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
 test('pre-push：临时 remote refs 清理（成功与失败路径都不残留）', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
@@ -823,7 +920,7 @@ function makeEnforcementRepo() {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'C: enforcement start'], dir);
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -837,6 +934,7 @@ function makeEnforcementRepo() {
     git(['commit', '-q', '-m', 'D: policy + follow-up'], dir);
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }

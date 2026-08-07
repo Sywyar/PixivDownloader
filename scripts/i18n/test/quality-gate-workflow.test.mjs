@@ -92,7 +92,7 @@ function makeFullCandidateRepo() {
         throw new Error('fixture bootstrap failed: ' + bootstrap.refused.join('\n'));
     }
     runGenerate(dir);
-    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh', 'scripts/hooks/execfile-shim.cjs'], dir);
+    git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir);
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
@@ -104,6 +104,8 @@ function makeFullCandidateRepo() {
     git(['commit', '-q', '-m', 'add gate policy'], dir);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
+    // Epoch 2 单一标准：hooks 要求 epoch == 2 才运行 trusted gate
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }
@@ -432,6 +434,158 @@ test('workflow 契约：job 增加 continue-on-error → 拒绝', () => {
         const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
         assert.notEqual(run.status, 0, '必需 job 的 continue-on-error 必须被拒绝');
         assert.match(run.stdout + run.stderr, /continue-on-error/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// 23.1 shell 规范化：注释 / || true / ; true / if false 包裹 必须全部拒绝
+// ---------------------------------------------------------------------------
+
+test('workflow 契约：test:js 被注释 + : 伪装 → 拒绝（注释不能伪装成命令）', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const step = doc.jobs['javascript-tests'].steps.find((s) => typeof s.run === 'string'
+            && s.run.includes('npm run test:js'));
+        assert.ok(step, '测试前提：必须存在 test:js step');
+        step.run = '# npm run test:js\n:';
+        writeWorkflow(root, doc);
+        commitBypass(root, 'comment + colon instead of test:js');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, '注释 + : 伪装必须被拒绝');
+        assert.match(run.stdout + run.stderr, /no-op|test:js/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：npm run test:js || true → 拒绝（吞掉失败）', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const step = doc.jobs['javascript-tests'].steps.find((s) => typeof s.run === 'string'
+            && s.run.includes('npm run test:js'));
+        assert.ok(step, '测试前提：必须存在 test:js step');
+        step.run = 'npm run test:js || true';
+        writeWorkflow(root, doc);
+        commitBypass(root, 'swallow test:js failure');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'npm run test:js || true 必须被拒绝');
+        assert.match(run.stdout + run.stderr, /swallows|true/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：npm run test:js; true → 拒绝（分号吞掉失败）', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const step = doc.jobs['javascript-tests'].steps.find((s) => typeof s.run === 'string'
+            && s.run.includes('npm run test:js'));
+        assert.ok(step, '测试前提：必须存在 test:js step');
+        step.run = 'npm run test:js; true';
+        writeWorkflow(root, doc);
+        commitBypass(root, 'semicolon + true after test:js');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'npm run test:js; true 必须被拒绝');
+        assert.match(run.stdout + run.stderr, /swallows|true/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：if false; then npm run test:js; fi → 拒绝（条件跳过）', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const step = doc.jobs['javascript-tests'].steps.find((s) => typeof s.run === 'string'
+            && s.run.includes('npm run test:js'));
+        assert.ok(step, '测试前提：必须存在 test:js step');
+        step.run = 'if false; then npm run test:js; fi';
+        writeWorkflow(root, doc);
+        commitBypass(root, 'if false wrapper around test:js');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'if false; then 包裹必须被拒绝');
+        assert.match(run.stdout + run.stderr, /if false|conditional/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Epoch 2 机制：input 优先级 / root tag / 物化交叉验证
+// ---------------------------------------------------------------------------
+
+test('workflow 契约：删除 inputs.trusted_base_sha 优先级（reusable 语义）→ 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const baseStep = doc.jobs['signature-guard'].steps.find((s) => /base_sha|event\.before/.test(s.run || ''));
+        assert.ok(baseStep, '测试前提：必须存在 trusted base 解析 step');
+        baseStep.run = baseStep.run.replace(/inputs\.trusted_base_sha/g, 'inputs.missing_input');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'drop input precedence');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'input 优先级被移除必须被拒绝（workflow_call 不能依赖 event）');
+        assert.match(run.stdout + run.stderr, /input takes priority|trusted_base_sha/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：删除 Epoch 2 root tag 解析 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const baseStep = doc.jobs['signature-guard'].steps.find((s) => /base_sha|event\.before/.test(s.run || ''));
+        assert.ok(baseStep, '测试前提：必须存在 trusted base 解析 step');
+        baseStep.run = baseStep.run.replace(/i18n-gate-epoch-2-root/g, 'i18n-gate-epoch-1-root');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'swap root tag name');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'root tag 解析被移除必须被拒绝');
+        assert.match(run.stdout + run.stderr, /root tag|ROOT_ADMISSION/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：删除物化交叉验证（materialize-trusted-gate.sh）→ 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const baseStep = doc.jobs['signature-guard'].steps.find((s) => /base_sha|event\.before/.test(s.run || ''));
+        assert.ok(baseStep, '测试前提：必须存在 trusted base 解析 step');
+        baseStep.run = baseStep.run.replace(/materialize-trusted-gate\.sh/g, 'materialize-other.sh');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'drop materialization cross-check');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, '物化交叉验证被移除必须被拒绝');
+        assert.match(run.stdout + run.stderr, /materialization cross-check/);
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });
