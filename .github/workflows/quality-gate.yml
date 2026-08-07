@@ -264,7 +264,7 @@ jobs:
             bash "$out/scripts/ci/materialize-trusted-gate.sh" \
               --repo-root "$PWD" --base "$base" \
               --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
-              --paths $manifest_paths
+              --paths "$manifest_paths"
             if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
               echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
               exit 1
@@ -519,7 +519,7 @@ jobs:
             bash "$out/scripts/ci/materialize-trusted-gate.sh" \
               --repo-root "$PWD" --base "$base" \
               --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
-              --paths $manifest_paths
+              --paths "$manifest_paths"
             if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
               echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
               exit 1
@@ -799,7 +799,7 @@ jobs:
             bash "$out/scripts/ci/materialize-trusted-gate.sh" \
               --repo-root "$PWD" --base "$base" \
               --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
-              --paths $manifest_paths
+              --paths "$manifest_paths"
             if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
               echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
               exit 1
