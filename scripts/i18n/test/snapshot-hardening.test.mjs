@@ -276,9 +276,10 @@ test('snapshot：symlink 条目的 mode 与内容验证（非 Windows）', { ski
     try {
         // 在 fixture 仓库中加入 symlink 条目（mode 120000，指向一个真实存在的相对目标）：
         // 目标内容 = scripts/hooks/link-to-check 相对 ../i18n/check.mjs 的真实相对路径；
-        // hash-object -w 必须写 object database（--cacheinfo 要求对象已存在）。
+        // hash-object -w 必须写 object database（--cacheinfo 要求对象已存在）；
+        // blob 不含尾随换行（git 真实 symlink blob = 链接目标原始字节）。
         const targetBlob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: root,
-            input: '../i18n/check.mjs\n', encoding: 'utf8' }).stdout.trim();
+            input: '../i18n/check.mjs', encoding: 'utf8' }).stdout.trim();
         assert.ok(/^[0-9a-f]{40}$/.test(targetBlob), 'symlink blob 必须写入 object database');
         git(['update-index', '--add', '--cacheinfo', '120000,' + targetBlob + ',scripts/hooks/link-to-check'], root);
         git(['commit', '-q', '-m', 'add symlink'], root);
