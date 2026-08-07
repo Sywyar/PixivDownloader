@@ -1,6 +1,6 @@
 {
   "gateEpoch": 2,
-  "contractVersion": 3,
+  "contractVersion": 4,
   "requiredJobs": [
     "java-tests",
     "javascript-tests",
@@ -33,6 +33,66 @@
     "scripts/hooks/pre-push",
     "scripts/hooks/pre-push-guard.sh",
     "scripts/ci/gate-parity.mjs",
-    "scripts/ci/gate-invariants.json"
+    "scripts/ci/gate-invariants.json",
+    "scripts/ci/gate-surface.json",
+    "scripts/ci/github-ruleset-invariants.json",
+    ".github/workflows/quality-gate.yml"
+  ],
+  "requiredWorkflowFiles": [
+    ".github/workflows/quality-gate.yml",
+    ".github/workflows/shared-snippets-check.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/nightly.yml",
+    ".github/workflows/publish-plugins.yml"
+  ],
+  "requiredExternalWorkflowJobs": {
+    ".github/workflows/shared-snippets-check.yml": [
+      "check-shared-snippets"
+    ],
+    ".github/workflows/release.yml": [
+      "trusted-base",
+      "draft-quality-gate",
+      "publish-plugins",
+      "build-jar",
+      "build-windows-installer",
+      "release",
+      "create-draft-release"
+    ],
+    ".github/workflows/nightly.yml": [
+      "resolve-version",
+      "publish-plugins",
+      "build-jar",
+      "build-windows-installer",
+      "release-nightly"
+    ],
+    ".github/workflows/publish-plugins.yml": [
+      "trusted-base",
+      "quality-gate",
+      "publish"
+    ]
+  },
+  "requiredExternalWorkflowTriggers": {
+    ".github/workflows/shared-snippets-check.yml": [
+      "push",
+      "pull_request",
+      "workflow_dispatch"
+    ],
+    ".github/workflows/release.yml": [
+      "push",
+      "workflow_dispatch"
+    ],
+    ".github/workflows/nightly.yml": [
+      "schedule",
+      "workflow_dispatch"
+    ],
+    ".github/workflows/publish-plugins.yml": [
+      "workflow_call",
+      "workflow_dispatch"
+    ]
+  },
+  "requiredPublicationDependencies": [
+    ".github/workflows/publish-plugins.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/nightly.yml"
   ]
 }

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runAcceptCore } from '../accept.mjs';
 import { runGenerate } from '../generate-static.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -65,6 +66,7 @@ function makeFullCandidateRepo() {
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
     fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, WORKFLOW_REL), path.join(dir, WORKFLOW_REL));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
     fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     const i18nDir = path.join(dir, APP_I18N);
@@ -102,6 +104,7 @@ function makeTrustedCopy(fixtureRoot) {
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
     fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, WORKFLOW_REL), path.join(dir, WORKFLOW_REL));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
     fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     const policy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
     const start = git(['rev-parse', 'HEAD~1'], fixtureRoot).stdout.trim();
@@ -351,6 +354,96 @@ const MUTATIONS = [
             const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
             policy.gateEpoch = 3;
             fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'shared-snippets-check.yml 关键命令改 true',
+        mutate: async (root) => {
+            const file = path.join(root, '.github', 'workflows', 'shared-snippets-check.yml');
+            const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+            const step = doc.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+                && s.run.includes('sync-shared-snippets.ps1'));
+            step.run = 'true';
+            fs.writeFileSync(file, YAML.stringify(doc), 'utf8');
+        },
+    },
+    {
+        name: 'shared-snippets-check.yml 删除 check-shared-snippets job',
+        mutate: async (root) => {
+            const file = path.join(root, '.github', 'workflows', 'shared-snippets-check.yml');
+            const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+            delete doc.jobs['check-shared-snippets'];
+            fs.writeFileSync(file, YAML.stringify(doc), 'utf8');
+        },
+    },
+    {
+        name: 'release.yml 删除 draft-quality-gate',
+        mutate: async (root) => {
+            const file = path.join(root, '.github', 'workflows', 'release.yml');
+            const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+            delete doc.jobs['draft-quality-gate'];
+            fs.writeFileSync(file, YAML.stringify(doc), 'utf8');
+        },
+    },
+    {
+        name: 'release.yml build-jar 去掉 needs publish-plugins',
+        mutate: async (root) => {
+            const file = path.join(root, '.github', 'workflows', 'release.yml');
+            const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+            const needs = Array.isArray(doc.jobs['build-jar'].needs) ? doc.jobs['build-jar'].needs : [doc.jobs['build-jar'].needs];
+            doc.jobs['build-jar'].needs = needs.filter((n) => n !== 'publish-plugins');
+            fs.writeFileSync(file, YAML.stringify(doc), 'utf8');
+        },
+    },
+    {
+        name: 'publish-plugins.yml publish if 改 always()',
+        mutate: async (root) => {
+            const file = path.join(root, '.github', 'workflows', 'publish-plugins.yml');
+            const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+            doc.jobs['publish'].if = '${{ always() }}';
+            fs.writeFileSync(file, YAML.stringify(doc), 'utf8');
+        },
+    },
+    {
+        name: 'publish-plugins.yml 删除 quality-gate job',
+        mutate: async (root) => {
+            const file = path.join(root, '.github', 'workflows', 'publish-plugins.yml');
+            const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+            delete doc.jobs['quality-gate'];
+            fs.writeFileSync(file, YAML.stringify(doc), 'utf8');
+        },
+    },
+    {
+        name: 'nightly.yml build-jar 去掉 needs publish-plugins',
+        mutate: async (root) => {
+            const file = path.join(root, '.github', 'workflows', 'nightly.yml');
+            const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+            doc.jobs['build-jar'].needs = doc.jobs['build-jar'].needs.filter((n) => n !== 'publish-plugins');
+            fs.writeFileSync(file, YAML.stringify(doc), 'utf8');
+        },
+    },
+    {
+        name: 'gate-surface.json 删除 trusted 条目',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'gate-surface.json');
+            const surface = JSON.parse(fs.readFileSync(file, 'utf8'));
+            surface.paths = surface.paths.filter((p) => p !== 'scripts/ci');
+            fs.writeFileSync(file, JSON.stringify(surface, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'sync-shared-snippets.ps1 = exit 0（checker 本体弱化）',
+        mutate: async (root) => {
+            fs.writeFileSync(path.join(root, 'scripts', 'sync-shared-snippets.ps1'), 'exit 0\n', 'utf8');
+        },
+    },
+    {
+        name: 'resolve-trusted-base.mjs 删除 base-ancestor 检查',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'resolve-trusted-base.mjs');
+            const text = fs.readFileSync(file, 'utf8');
+            fs.writeFileSync(file, text.replace('if (!isAncestor(repoRoot, base, candidate)) {',
+                'if (false) {'), 'utf8');
         },
     },
 ];

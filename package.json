@@ -13,9 +13,10 @@
     "i18n:generate-static": "node scripts/i18n/generate-static.mjs",
     "i18n:trust-gate": "node scripts/i18n/trust-gate.mjs",
     "i18n:gate-contract": "node scripts/i18n/gate-contract.mjs",
-    "i18n:gate-parity": "node scripts/ci/gate-parity.mjs",
+    "i18n:gate-parity": "node -e \"const{execSync,spawnSync}=require('child_process');const sha=execSync('git rev-parse HEAD').toString().trim();const r=spawnSync(process.execPath,['scripts/ci/gate-parity.mjs','--repo-root','.','--candidate-ref',sha,'--invariants'],{stdio:'inherit'});process.exit(r.status===null?1:r.status)\"",
     "setup:hooks": "node scripts/i18n/install-hooks.mjs",
-    "doctor:hooks": "node scripts/i18n/doctor-hooks.mjs"
+    "doctor:hooks": "node scripts/i18n/doctor-hooks.mjs",
+    "doctor:github-gate": "node scripts/ci/doctor-github-ruleset.mjs"
   },
   "devDependencies": {
     "yaml": "^2.5.1"

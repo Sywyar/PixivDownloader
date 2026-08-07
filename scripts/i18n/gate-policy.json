@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "gateEpoch": 2,
-  "contractVersion": 3,
+  "contractVersion": 4,
   "i18nEnforcementStartCommit": "05f4ebed7ce00f0b923fe48ec2e0971610511547",
   "requiredPaths": [
     "scripts/i18n/check.mjs",
@@ -16,6 +16,8 @@
     "scripts/ci/materialize-trusted-gate.sh",
     "scripts/ci/gate-parity.mjs",
     "scripts/ci/gate-invariants.json",
+    "scripts/ci/gate-surface.json",
+    "scripts/ci/github-ruleset-invariants.json",
     ".github/workflows/quality-gate.yml",
     "package.json",
     "package-lock.json"
@@ -30,6 +32,13 @@
     "trusted-gate-contract",
     "i18n-check"
   ],
+  "requiredWorkflowFiles": [
+    ".github/workflows/quality-gate.yml",
+    ".github/workflows/shared-snippets-check.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/nightly.yml",
+    ".github/workflows/publish-plugins.yml"
+  ],
   "requiredPackageScripts": [
     "test:i18n",
     "i18n:check",
@@ -42,5 +51,13 @@
   ],
   "requiredExternalChecks": [
     "Shared Snippet Drift Check"
+  ],
+  "requiredExternalCheckDefinitions": [
+    {
+      "workflow": ".github/workflows/shared-snippets-check.yml",
+      "workflowName": "Shared Snippet Drift Check",
+      "jobId": "check-shared-snippets",
+      "requiredContext": "Shared Snippet Drift Check / check-shared-snippets"
+    }
   ]
 }

@@ -34,6 +34,14 @@
  *   必需 job、关键行为（经 shell 规范化：注释 / || true / if false 包裹全部拒绝）、
  *   action 版本、result 传播、github.sha^ 回退禁令、root tag / ROOT_ADMISSION 机制、
  *   reusable input 优先级、trusted helper 交叉验证、gate parity 步骤；
+ * - 外围 workflow（shared-snippets-check / release / nightly / publish-plugins，真实 YAML
+ *   解析）语义契约：shared-snippet 必须真实运行 ./scripts/sync-shared-snippets.ps1 -Check；
+ *   release / nightly / publish 发布链必须经过 quality-gate（uses + trusted_base_sha +
+ *   needs 链 + publish 的 needs.quality-gate.result == 'success'），禁止 always() 绕过；
+ * - gate-surface.json 清单契约：candidate manifest 只能被检查（不能决定检查范围），
+ *   不得删除 trusted 条目，不得声明不存在的路径；
+ * - 外部 checker：candidate scripts/sync-shared-snippets.ps1 内容守卫 + 黑盒行为
+ *   （drift fixture 必须 exit != 0，合法同步 exit 0）；
  * - 自保护：构造「下一代恶意 gate」（no-op checker / hooks / guard / workflow 弱化 /
  *   package scripts 弱化 / policy 减少 / epoch 改变），运行 candidate contract 必须拒绝它；
  * - 归纳跳过：candidate 的某部分与 trusted bundle 逐字节一致时，其行为由 trust 链归纳保证，
@@ -55,7 +63,7 @@ import { fileURLToPath } from 'url';
 import trustedGate from './lib/trusted-gate.mjs';
 import snapshot from './lib/repository-snapshot.mjs';
 
-const CONTRACT_VERSION = '3';
+const CONTRACT_VERSION = '4';
 const OWN_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /** 嵌套契约调用深度（main() 初始化；runHookScenarios 用它跳过重复的 hook 执行场景）。 */
@@ -65,13 +73,28 @@ const APP_I18N = path.posix.join('pixivdownload-app', 'src', 'main', 'resources'
 const STATIC_REL = path.posix.join('pixivdownload-app', 'src', 'main', 'resources', 'static', 'i18n-static');
 const WORKFLOW_REL = path.posix.join('.github', 'workflows', 'quality-gate.yml');
 const PACKAGE_JSON_REL = path.posix.join('package.json');
+const SURFACE_REL = path.posix.join('scripts', 'ci', 'gate-surface.json');
+const SYNC_REL = path.posix.join('scripts', 'sync-shared-snippets.ps1');
 
-/** 候选快照物化路径范围：gate 文件 + CI workflow + package scripts 必须全部可见。 */
+/** 外围发布 / 外部检查 workflow（与 gate-surface.json 的 .github/workflows 条目一一对应）。 */
+const EXTERNAL_WORKFLOW_RELS = [
+    path.posix.join('.github', 'workflows', 'shared-snippets-check.yml'),
+    path.posix.join('.github', 'workflows', 'release.yml'),
+    path.posix.join('.github', 'workflows', 'nightly.yml'),
+    path.posix.join('.github', 'workflows', 'publish-plugins.yml'),
+];
+
+/** 候选快照物化路径范围：gate 文件 + CI / 外围 workflow + package scripts 必须全部可见。 */
 const CANDIDATE_PATHS = [
     'scripts/i18n',
     'scripts/hooks',
     'scripts/ci',
+    'scripts/sync-shared-snippets.ps1',
     '.github/workflows/quality-gate.yml',
+    '.github/workflows/shared-snippets-check.yml',
+    '.github/workflows/release.yml',
+    '.github/workflows/nightly.yml',
+    '.github/workflows/publish-plugins.yml',
     'package.json',
     'package-lock.json',
 ];
@@ -126,6 +149,15 @@ function git(args, repoRoot, opts = {}) {
 function hasBash() {
     try {
         execFileSync('bash', ['--version'], { stdio: 'ignore' });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function hasPwsh() {
+    try {
+        execFileSync('pwsh', ['-NoProfile', '-Command', '$true'], { stdio: 'ignore' });
         return true;
     } catch (e) {
         return false;
@@ -618,6 +650,14 @@ async function makeContractRepo(repoRoot, candidateRoot, trustedPolicy) {
     if (fs.existsSync(path.join(candidateRoot, ...WORKFLOW_REL.split('/')))) {
         writeFile(repo, WORKFLOW_REL, readFile(candidateRoot, WORKFLOW_REL));
     }
+    for (const rel of EXTERNAL_WORKFLOW_RELS) {
+        if (fs.existsSync(path.join(candidateRoot, ...rel.split('/')))) {
+            writeFile(repo, rel, readFile(candidateRoot, rel));
+        }
+    }
+    if (fs.existsSync(path.join(candidateRoot, ...SYNC_REL.split('/')))) {
+        writeFile(repo, SYNC_REL, readFile(candidateRoot, SYNC_REL));
+    }
     if (fs.existsSync(path.join(candidateRoot, ...PACKAGE_JSON_REL.split('/')))) {
         writeFile(repo, PACKAGE_JSON_REL, readFile(candidateRoot, PACKAGE_JSON_REL));
     }
@@ -748,24 +788,32 @@ async function runHookScenarios(repoRoot, candidateRoot, trustedPolicy, hasHooks
             });
             git(['reset', '-q', '--hard', 'HEAD'], repo, { stdio: 'ignore' });
 
-            // 直接场景：candidate pre-commit = exit 0 → trusted contract 必须失败
+            // 直接场景：candidate pre-commit = exit 0 → trusted contract 必须拒绝该候选
+            // （执行恶意 hook 本身只会 exit 0；正确做法是把恶意 hook 作为候选提交，
+            // 由 trusted contract 黑盒审核它——见 runHookContentChecks 的锚点语义守卫）
             await hookScenario('candidate pre-commit = exit 0 must fail (trusted contract)', false, async () => {
                 writeFile(repo, 'scripts/hooks/pre-commit', EXIT_ZERO);
-                writeFile(repo, APP_I18N + '/web/common_en.properties', BAD_EN);
                 git(['add', '-A'], repo);
-                writeFile(repo, APP_I18N + '/web/common_en.properties', GOOD_EN);
-                return run(['bash', 'scripts/hooks/pre-commit'], { cwd: repo });
+                git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'malicious hook'], repo);
+                const malicious = git(['rev-parse', 'HEAD'], repo);
+                const result = run(['node', path.join(OWN_DIR, 'gate-contract.mjs'),
+                    '--repo-root', repo, '--candidate-ref', malicious], { cwd: repo });
+                git(['reset', '-q', '--hard', 'HEAD~1'], repo, { stdio: 'ignore' });
+                return result;
             });
             git(['reset', '-q', '--hard', 'HEAD'], repo, { stdio: 'ignore' });
 
-            // 直接场景：candidate pre-commit 删除 trustedGateRef 读取（改检工作树）→ 必须失败
+            // 直接场景：candidate pre-commit 删除 trustedGateRef 读取（改检工作树）→ 必须拒绝
             await hookScenario('candidate pre-commit without trustedGateRef must fail', false, async () => {
                 writeFile(repo, 'scripts/hooks/pre-commit',
                     '#!/usr/bin/env bash\nset -euo pipefail\nnode "$(git rev-parse --show-toplevel)/scripts/i18n/check.mjs"\n');
-                writeFile(repo, APP_I18N + '/web/common_en.properties', BAD_EN);
                 git(['add', '-A'], repo);
-                writeFile(repo, APP_I18N + '/web/common_en.properties', GOOD_EN);
-                return run(['bash', 'scripts/hooks/pre-commit'], { cwd: repo });
+                git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'hook without anchor'], repo);
+                const malicious = git(['rev-parse', 'HEAD'], repo);
+                const result = run(['node', path.join(OWN_DIR, 'gate-contract.mjs'),
+                    '--repo-root', repo, '--candidate-ref', malicious], { cwd: repo });
+                git(['reset', '-q', '--hard', 'HEAD~1'], repo, { stdio: 'ignore' });
+                return result;
             });
             git(['reset', '-q', '--hard', 'HEAD'], repo, { stdio: 'ignore' });
 
@@ -805,7 +853,7 @@ async function runHookScenarios(repoRoot, candidateRoot, trustedPolicy, hasHooks
             });
             rmrf(remote2);
 
-            // 直接场景：candidate pre-push = exit 0 → 必须失败
+            // 直接场景：candidate pre-push = exit 0 → trusted contract 必须拒绝该候选
             const remote3 = tempDir('remote3');
             git(['init', '-q', '--bare', remote3], repo);
             git(['remote', 'add', 'origin3', remote3], repo);
@@ -813,16 +861,17 @@ async function runHookScenarios(repoRoot, candidateRoot, trustedPolicy, hasHooks
 
             await hookScenario('candidate pre-push = exit 0 must fail (trusted contract)', false, async () => {
                 writeFile(repo, 'scripts/hooks/pre-push', EXIT_ZERO);
-                writeFile(repo, APP_I18N + '/web/common_en.properties', BAD_EN);
                 git(['add', '-A'], repo);
-                git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'bad translation'], repo);
-                const result = run(['git', 'push', 'origin3', 'master'], { cwd: repo });
+                git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'malicious pre-push'], repo);
+                const malicious = git(['rev-parse', 'HEAD'], repo);
+                const result = run(['node', path.join(OWN_DIR, 'gate-contract.mjs'),
+                    '--repo-root', repo, '--candidate-ref', malicious], { cwd: repo });
                 git(['reset', '-q', '--hard', 'HEAD~1'], repo, { stdio: 'ignore' });
                 return result;
             });
             rmrf(remote3);
 
-            // 直接场景：candidate pre-push 改回使用 candidate checker（自批准）→ 必须失败
+            // 直接场景：candidate pre-push 改回使用 candidate checker（自批准）→ 必须拒绝
             const remote4 = tempDir('remote4');
             git(['init', '-q', '--bare', remote4], repo);
             git(['remote', 'add', 'origin4', remote4], repo);
@@ -833,10 +882,11 @@ async function runHookScenarios(repoRoot, candidateRoot, trustedPolicy, hasHooks
                     '#!/usr/bin/env bash\nset -euo pipefail\nnode "$(git rev-parse --show-toplevel)/scripts/i18n/check.mjs" --version\n');
                 // 候选 checker = 工作树里的 exit-0 checker（hook 直接使用它 → 自我批准）
                 writeFile(repo, 'scripts/i18n/check.mjs', '#!/usr/bin/env node\nprocess.exit(0);\n');
-                writeFile(repo, APP_I18N + '/web/common_en.properties', BAD_EN);
                 git(['add', '-A'], repo);
-                git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'bad translation'], repo);
-                const result = run(['git', 'push', 'origin4', 'master'], { cwd: repo });
+                git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'self-approving pre-push'], repo);
+                const malicious = git(['rev-parse', 'HEAD'], repo);
+                const result = run(['node', path.join(OWN_DIR, 'gate-contract.mjs'),
+                    '--repo-root', repo, '--candidate-ref', malicious], { cwd: repo });
                 git(['reset', '-q', '--hard', 'HEAD~1'], repo, { stdio: 'ignore' });
                 return result;
             });
@@ -887,6 +937,7 @@ const APPROVED_ACTIONS = {
     'actions/checkout': '7',
     'actions/setup-node': '7',
     'actions/upload-artifact': '7',
+    'actions/download-artifact': '7',
     'actions/setup-java': '5',
 };
 /** Epoch 2 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
@@ -971,6 +1022,18 @@ function stepName(step) {
 
 function jobSteps(job) {
     return job && Array.isArray(job.steps) ? job.steps : [];
+}
+
+/** job 的 needs 归一化为数组（string 或 array）。 */
+function jobNeeds(job) {
+    if (!job || typeof job.needs !== 'string' && !Array.isArray(job.needs)) {
+        return [];
+    }
+    return typeof job.needs === 'string' ? [job.needs] : job.needs;
+}
+
+function stepShell(step) {
+    return typeof step.shell === 'string' ? step.shell : '';
 }
 
 /** job 中任一 step 的规范化命令序列包含匹配命令。 */
@@ -1118,10 +1181,15 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         const resOk = /i18n-gate-epoch-2-root/.test(resText)
             && /ROOT_ADMISSION/.test(resText)
             && /trusted_base_sha/.test(resText)
+            && (resText.match(/isAncestor\(repoRoot, (root|base),/g) || []).length >= 3
+            && /'merge-base', candidate/.test(resText)
             && !isNoopStep(resText);
-        pushCheck(checks, 'resolve-trusted-base.mjs keeps root/input-precedence semantics', resOk,
+        pushCheck(checks, 'resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
             'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
-                + ' ROOT_ADMISSION / trusted_base_sha input-precedence logic; exit-0 stubs are refused)');
+                + ' ROOT_ADMISSION / trusted_base_sha input-precedence logic plus the full ancestry'
+                + ' provenance root <= base < candidate — root->candidate, root->base, base->candidate'
+                + ' isAncestor checks and the new-branch fork-base merge-base(candidate, default);'
+                + ' exit-0 stubs are refused)');
     }
 
     // 关键行为 step 的失败吞没 / 条件跳过禁令：只针对运行关键门禁命令的 step
@@ -1344,6 +1412,478 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
     return checks;
 }
 
+// ---------------------------------------------------------------------------
+// 外围 workflow 语义契约（shared-snippets / release / nightly / publish-plugins）
+// ---------------------------------------------------------------------------
+
+/** 外部 workflow 的最低语义契约：name / triggers / jobs。 */
+const EXTERNAL_WORKFLOW_SPECS = {
+    '.github/workflows/shared-snippets-check.yml': {
+        requiredName: 'Shared Snippet Drift Check',
+        requiredTriggers: ['push', 'pull_request', 'workflow_dispatch'],
+        requiredJobs: ['check-shared-snippets'],
+    },
+    '.github/workflows/release.yml': {
+        requiredName: 'Release',
+        requiredTriggers: ['push', 'workflow_dispatch'],
+        requiredJobs: ['trusted-base', 'draft-quality-gate', 'publish-plugins', 'build-jar',
+            'build-windows-installer', 'release', 'create-draft-release'],
+    },
+    '.github/workflows/nightly.yml': {
+        requiredName: 'Nightly Build',
+        requiredTriggers: ['schedule', 'workflow_dispatch'],
+        requiredJobs: ['resolve-version', 'publish-plugins', 'build-jar', 'build-windows-installer',
+            'release-nightly'],
+    },
+    '.github/workflows/publish-plugins.yml': {
+        requiredName: 'Publish plugins',
+        requiredTriggers: ['workflow_call', 'workflow_dispatch'],
+        requiredJobs: ['trusted-base', 'quality-gate', 'publish'],
+    },
+};
+
+/** job 的 with 输入值（reusable workflow 调用参数）。 */
+function jobWithValue(job, key) {
+    return job && job.with && typeof job.with[key] === 'string' ? job.with[key] : '';
+}
+
+/** job 级 uses（reusable workflow 调用：uses 在 job 顶层而非 step）。 */
+function jobUsesValue(job) {
+    return job && typeof job.uses === 'string' ? job.uses : '';
+}
+
+function jobHasUsesAtJobLevel(job, re) {
+    return re.test(jobUsesValue(job));
+}
+
+/**
+ * 候选是否曾引入过该路径（git log --diff-filter=A）。
+ * 用于「文件缺失但历史已引入 → 删除 → fail closed」判定（predates 只报告）。
+ */
+function wasIntroducedInHistory(repoRoot, historyRef, rel) {
+    try {
+        const introduced = git(['log', '--diff-filter=A', '--format=%H', historyRef, '--', rel], repoRoot);
+        return introduced.length > 0;
+    } catch (e) {
+        return true;
+    }
+}
+
+/**
+ * 外围 workflow 语义契约（真实 YAML 解析）：
+ * - shared-snippets-check.yml：冻结 name / 触发器 / check-shared-snippets job /
+ *   真实 ./scripts/sync-shared-snippets.ps1 -Check 命令；删除 -Check / 改 true / echo /
+ *   || true / ; true / continue-on-error / if false / job-level continue-on-error 全部拒绝；
+ * - release.yml：draft-quality-gate（workflow_dispatch）必须 uses quality-gate.yml 并传
+ *   trusted_base_sha；tag push 链 publish-plugins → build-jar（needs publish-plugins）→
+ *   build-windows-installer → release（needs build-jar + build-windows-installer），
+ *   release / build 链不得 always() 绕过失败；
+ * - publish-plugins.yml：trusted-base → quality-gate（uses quality-gate.yml +
+ *   trusted_base_sha）→ publish（needs quality-gate + if 必须检查
+ *   needs.quality-gate.result == 'success'）；禁止 always() / 无 success 检查的 !cancelled()；
+ * - nightly.yml：publish-plugins（uses publish-plugins.yml）→ build-jar（needs
+ *   publish-plugins，即 quality gate 传递生效）→ release-nightly（needs 构建产物）。
+ * 候选缺文件（predates）只报告不阻断；删除由 requiredPaths 统一 fail closed。
+ */
+function runExternalWorkflowContracts(repoRoot, candidateRoot, historyRef) {
+    const checks = [];
+    let yamlMod = null;
+    let yamlLoaded = false;
+    for (const rel of EXTERNAL_WORKFLOW_RELS) {
+        const file = path.join(candidateRoot, ...rel.split('/'));
+        if (!fs.existsSync(file)) {
+            // 候选 predates → 只报告；历史已引入却被删除 → fail closed
+            // （本轮起由语义契约 + parity predecessor diff + gate-surface 清单拦截；
+            // requiredPaths 条目由下一个 NORMAL successor 落地，见 gate-policy.json 注释）
+            const deleted = wasIntroducedInHistory(repoRoot, historyRef, rel);
+            checks.push({ name: rel + ' contract', kind: 'workflow', expected: null, status: null,
+                ok: !deleted,
+                diagnostic: deleted
+                    ? rel + ' was introduced in the candidate history but is missing from the'
+                        + ' candidate snapshot (deletion of a protected workflow must fail closed)'
+                    : 'candidate predates ' + rel + ' (report only)' });
+            continue;
+        }
+        const spec = EXTERNAL_WORKFLOW_SPECS[rel];
+        let doc;
+        try {
+            if (!yamlLoaded) {
+                yamlMod = loadYamlModule(repoRoot);
+                yamlLoaded = true;
+            }
+            doc = yamlMod.parse(fs.readFileSync(file, 'utf8'));
+        } catch (e) {
+            pushCheck(checks, rel + ' parses as YAML', false,
+                'cannot parse the candidate ' + rel + ': ' + e.message);
+            continue;
+        }
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+            pushCheck(checks, rel + ' structure', false, rel + ' must be a YAML mapping');
+            continue;
+        }
+        pushCheck(checks, rel + ': workflow name is preserved', doc.name === spec.requiredName,
+            rel + ' must keep the exact name "' + spec.requiredName + '"'
+                + ' (got ' + JSON.stringify(doc.name) + '); the required check context depends on it');
+
+        // action 主版本：外围 workflow 的官方 action 也必须是项目认可的 maintained major
+        const jobsAll = doc.jobs && typeof doc.jobs === 'object' ? doc.jobs : {};
+        const badActions = [];
+        for (const jobId of Object.keys(jobsAll)) {
+            for (const step of jobSteps(jobsAll[jobId])) {
+                const uses = stepUses(step);
+                const match = /^([a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+)@(.+)$/.exec(uses);
+                if (!match) {
+                    continue;
+                }
+                const approvedMajor = APPROVED_ACTIONS[match[1]];
+                if (approvedMajor === undefined) {
+                    continue;
+                }
+                const version = match[2];
+                if (version === 'v' + approvedMajor || /^[0-9a-f]{40}$/.test(version)) {
+                    continue;
+                }
+                badActions.push(jobId + ': ' + uses);
+            }
+        }
+        pushCheck(checks, rel + ': official actions use the approved maintained majors',
+            badActions.length === 0,
+            rel + ' uses deprecated action versions (expected '
+                + Object.entries(APPROVED_ACTIONS).map(([a, v]) => a + '@v' + v).join(', ')
+                + ' or release SHA pins): ' + badActions.join(', '));
+
+        const triggers = doc.on && typeof doc.on === 'object' ? doc.on : {};
+        for (const trigger of spec.requiredTriggers) {
+            pushCheck(checks, rel + ': trigger ' + trigger + ' is preserved', triggers[trigger] !== undefined,
+                rel + ' dropped the ' + trigger + ' trigger');
+        }
+        const jobs = doc.jobs && typeof doc.jobs === 'object' ? doc.jobs : {};
+        for (const jobId of spec.requiredJobs) {
+            pushCheck(checks, rel + ': job ' + jobId + ' is preserved',
+                jobs[jobId] && typeof jobs[jobId] === 'object',
+                rel + ' dropped the required job ' + jobId);
+        }
+
+        if (rel === '.github/workflows/shared-snippets-check.yml') {
+            // push 触发器必须覆盖受保护默认分支 master
+            const pushOn = triggers.push && typeof triggers.push === 'object' ? triggers.push : {};
+            const branches = pushOn.branches || [];
+            pushCheck(checks, rel + ': push trigger covers master',
+                Array.isArray(branches) && branches.includes('master'),
+                rel + ' must run on push to master');
+            const job = jobs['check-shared-snippets'];
+            if (job) {
+                pushCheck(checks, rel + ': job must not set continue-on-error',
+                    !job['continue-on-error'],
+                    rel + ' sets continue-on-error on check-shared-snippets');
+                const checkSteps = jobSteps(job).filter((s) => commandsInclude(stepRun(s), /sync-shared-snippets\.ps1/));
+                pushCheck(checks, rel + ': runs the real -Check command',
+                    checkSteps.length > 0
+                        && checkSteps.every((s) => commandsInclude(stepRun(s), /-Check/)
+                            && !hasNoopSwallow(stepRun(s)) && !hasConditionalSkip(stepRun(s))
+                            && !isNoopStep(stepRun(s)) && !s['continue-on-error']
+                            && /pwsh|powershell/i.test(stepShell(s))),
+                    rel + ' must run ./scripts/sync-shared-snippets.ps1 -Check under pwsh/powershell'
+                        + ' (deleting -Check / echo / true / || true / ; true / continue-on-error /'
+                        + ' if false / non-pwsh shell are all refused)');
+            }
+        }
+
+        if (rel === '.github/workflows/release.yml') {
+            const jDraft = jobs['draft-quality-gate'];
+            const jPublishPlugins = jobs['publish-plugins'];
+            const jBuildJar = jobs['build-jar'];
+            const jWin = jobs['build-windows-installer'];
+            const jRelease = jobs['release'];
+            const jDraftRelease = jobs['create-draft-release'];
+            pushCheck(checks, 'release: draft-quality-gate uses the quality gate',
+                !!jDraft && jobHasUsesAtJobLevel(jDraft, /\.github\/workflows\/quality-gate\.yml/),
+                'release workflow_dispatch must call ./.github/workflows/quality-gate.yml'
+                    + ' (no manual dispatch may skip the gate)');
+            pushCheck(checks, 'release: draft-quality-gate needs trusted-base',
+                !!jDraft && jobNeeds(jDraft).includes('trusted-base'),
+                'release draft-quality-gate must depend on trusted-base');
+            pushCheck(checks, 'release: draft-quality-gate passes trusted_base_sha',
+                !!jDraft && /needs\.trusted-base\.outputs\.sha/.test(jobWithValue(jDraft, 'trusted_base_sha')),
+                'release draft-quality-gate must pass the trusted_base_sha from trusted-base'
+                    + ' (the gate proves the base; the caller only proposes it)');
+            pushCheck(checks, 'release: create-draft-release needs draft-quality-gate',
+                !!jDraftRelease && jobNeeds(jDraftRelease).includes('draft-quality-gate'),
+                'create-draft-release must depend on the gated draft-quality-gate');
+            pushCheck(checks, 'release: tag push publish-plugins uses publish-plugins.yml',
+                !!jPublishPlugins && jobHasUsesAtJobLevel(jPublishPlugins, /\.github\/workflows\/publish-plugins\.yml/),
+                'release tag push must call ./.github/workflows/publish-plugins.yml');
+            pushCheck(checks, 'release: build-jar needs publish-plugins',
+                !!jBuildJar && jobNeeds(jBuildJar).includes('publish-plugins'),
+                'release build-jar must depend on publish-plugins (plugin gate failure blocks the app jar)');
+            pushCheck(checks, 'release: build-windows-installer needs build-jar',
+                !!jWin && jobNeeds(jWin).includes('build-jar'),
+                'release build-windows-installer must depend on build-jar');
+            pushCheck(checks, 'release: release needs both build artifacts',
+                !!jRelease && jobNeeds(jRelease).includes('build-jar')
+                    && jobNeeds(jRelease).includes('build-windows-installer'),
+                'release must depend on build-jar AND build-windows-installer');
+            for (const [jobId, job] of [['build-jar', jBuildJar], ['build-windows-installer', jWin],
+                ['release', jRelease], ['create-draft-release', jDraftRelease]]) {
+                if (job) {
+                    pushCheck(checks, 'release: ' + jobId + ' never bypasses failures with always()',
+                        !/always\(\)/.test(stepIf(job)),
+                        'release ' + jobId + ' uses if: always() / always(); failure bypass is refused');
+                }
+            }
+        }
+
+        if (rel === '.github/workflows/publish-plugins.yml') {
+            const jGate = jobs['quality-gate'];
+            const jPublish = jobs['publish'];
+            pushCheck(checks, 'publish: quality-gate uses the quality gate',
+                !!jGate && jobHasUsesAtJobLevel(jGate, /\.github\/workflows\/quality-gate\.yml/),
+                'publish-plugins must call ./.github/workflows/quality-gate.yml');
+            pushCheck(checks, 'publish: quality-gate needs trusted-base',
+                !!jGate && jobNeeds(jGate).includes('trusted-base'),
+                'publish quality-gate must depend on trusted-base');
+            pushCheck(checks, 'publish: quality-gate passes trusted_base_sha',
+                !!jGate && /needs\.trusted-base\.outputs\.sha/.test(jobWithValue(jGate, 'trusted_base_sha')),
+                'publish quality-gate must pass the trusted_base_sha from trusted-base');
+            pushCheck(checks, 'publish: publish needs quality-gate',
+                !!jPublish && jobNeeds(jPublish).includes('quality-gate'),
+                'publish must depend on quality-gate');
+            if (jPublish) {
+                const publishIf = stepIf(jPublish);
+                pushCheck(checks, 'publish: publish if checks needs.quality-gate.result == success',
+                    /needs\.quality-gate\.result/.test(publishIf) && /success/.test(publishIf),
+                    'publish must gate on needs.quality-gate.result == \'success\''
+                        + ' (always() / !cancelled() without a success check are refused)');
+                pushCheck(checks, 'publish: publish never bypasses with always()',
+                    !/always\(\)/.test(publishIf),
+                    'publish uses if: always(); failure bypass is refused');
+                pushCheck(checks, 'publish: publish must not set continue-on-error',
+                    !jPublish['continue-on-error'],
+                    'publish sets continue-on-error; the gate result would be swallowed');
+            }
+        }
+
+        if (rel === '.github/workflows/nightly.yml') {
+            const jPublishPlugins = jobs['publish-plugins'];
+            const jBuildJar = jobs['build-jar'];
+            const jWin = jobs['build-windows-installer'];
+            const jRelease = jobs['release-nightly'];
+            pushCheck(checks, 'nightly: publish-plugins uses publish-plugins.yml',
+                !!jPublishPlugins && jobHasUsesAtJobLevel(jPublishPlugins, /\.github\/workflows\/publish-plugins\.yml/),
+                'nightly must call ./.github/workflows/publish-plugins.yml (which gates on the quality gate)');
+            pushCheck(checks, 'nightly: build-jar needs publish-plugins',
+                !!jBuildJar && jobNeeds(jBuildJar).includes('publish-plugins'),
+                'nightly build-jar must depend on publish-plugins (nightly artifacts cannot be produced'
+                    + ' unless the required quality gates succeeded)');
+            pushCheck(checks, 'nightly: build-windows-installer needs build-jar',
+                !!jWin && jobNeeds(jWin).includes('build-jar'),
+                'nightly build-windows-installer must depend on build-jar');
+            pushCheck(checks, 'nightly: release-nightly needs both build artifacts',
+                !!jRelease && jobNeeds(jRelease).includes('build-jar')
+                    && jobNeeds(jRelease).includes('build-windows-installer'),
+                'nightly release-nightly must depend on build-jar AND build-windows-installer');
+            if (jRelease) {
+                pushCheck(checks, 'nightly: release-nightly never bypasses failures with always()',
+                    !/always\(\)/.test(stepIf(jRelease)),
+                    'nightly release-nightly uses if: always(); failure bypass is refused');
+            }
+        }
+    }
+    return checks;
+}
+
+// ---------------------------------------------------------------------------
+// Gate Surface 清单契约（candidate manifest 只能被检查，不能决定检查范围）
+// ---------------------------------------------------------------------------
+
+function runGateSurfaceContract(candidateRoot, trustedPolicy) {
+    const checks = [];
+    const candidateFile = path.join(candidateRoot, ...SURFACE_REL.split('/'));
+    const trustedFile = path.join(OWN_DIR, '..', 'ci', 'gate-surface.json');
+    if (!fs.existsSync(candidateFile)) {
+        // 候选整体 predates gate surface（连 scripts/ci 都没有）→ 只报告；
+        // scripts/ci 存在但清单被删 → fail closed（删除由 requiredPaths + 本检查双重拦截）
+        const ciDir = path.join(candidateRoot, 'scripts', 'ci');
+        const predated = !fs.existsSync(ciDir);
+        pushCheck(checks, 'candidate gate-surface.json present', predated,
+            predated
+                ? 'candidate predates the gate surface manifest (report only)'
+                : 'candidate has no scripts/ci/gate-surface.json (deletion of the gate surface'
+                    + ' manifest must fail closed)');
+        return checks;
+    }
+    let candidateSurface = null;
+    try {
+        candidateSurface = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
+    } catch (e) {
+        pushCheck(checks, 'candidate gate-surface.json parses as JSON', false,
+            'cannot parse the candidate gate-surface.json: ' + e.message);
+        return checks;
+    }
+    const candidatePaths = Array.isArray(candidateSurface && candidateSurface.paths)
+        ? candidateSurface.paths.filter((p) => typeof p === 'string') : [];
+    pushCheck(checks, 'candidate gate-surface.json declares a non-empty path list',
+        candidatePaths.length > 0,
+        'candidate gate-surface.json must declare a non-empty paths array');
+    // trusted manifest 存在时（hooks / CI 已物化 scripts/ci）：候选不得减少
+    if (fs.existsSync(trustedFile)) {
+        let trustedSurface = null;
+        try {
+            trustedSurface = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+        } catch (e) {
+            pushCheck(checks, 'trusted gate-surface.json parses as JSON', false,
+                'trusted gate-surface.json is invalid; fail closed: ' + e.message);
+            return checks;
+        }
+        const trustedPaths = Array.isArray(trustedSurface && trustedSurface.paths)
+            ? trustedSurface.paths.filter((p) => typeof p === 'string') : [];
+        const removed = trustedPaths.filter((p) => !candidatePaths.includes(p));
+        pushCheck(checks, 'candidate gate-surface.json keeps the trusted gate surface',
+            removed.length === 0,
+            'candidate dropped gate surface entries: ' + removed.join(', ')
+                + '; pre-commit / pre-push / contract / parity must share one surface');
+    } else {
+        pushCheck(checks, 'candidate gate-surface.json keeps the trusted gate surface',
+            true,
+            'trusted bundle predates scripts/ci/gate-surface.json (report only)');
+    }
+    // phantom 声明禁令：候选 manifest 里声明的每个路径必须在同一候选快照中真实存在
+    const phantom = candidatePaths.filter((p) => !fs.existsSync(path.join(candidateRoot, ...p.split('/'))));
+    pushCheck(checks, 'candidate gate-surface.json declares only real paths',
+        phantom.length === 0,
+        'candidate gate-surface.json declares paths that do not exist in the candidate snapshot: '
+            + phantom.join(', ') + '; the candidate manifest cannot enlarge what is checked');
+    return checks;
+}
+
+// ---------------------------------------------------------------------------
+// 外部 checker 行为测试（candidate scripts/sync-shared-snippets.ps1）
+// ---------------------------------------------------------------------------
+
+/**
+ * 外部 checker 行为测试（candidate scripts/sync-shared-snippets.ps1 是执行对象）：
+ * - 内容守卫：必须保留 -Check / drift 失败语义（exit 1），不得退化为 no-op stub；
+ * - 行为：drift fixture（shared source != .user.js 标记区）→ -Check 必须 exit != 0；
+ *   合法同步（无 -Check 写回）后重新 -Check 必须 exit 0；
+ * - 历史已引入却被删除 → fail closed（本轮起由内容守卫 + parity + gate-surface 清单拦截；
+ *   requiredPaths 条目由下一个 NORMAL successor 落地）。
+ * 与 trusted bundle 逐字节一致时归纳跳过（行为由信任链保证）。
+ */
+async function runSyncScenarios(repoRoot, candidateRoot, historyRef, skip) {
+    const results = [];
+    if (skip) {
+        results.push({ name: 'sync-shared-snippets.ps1 behavior (black-box)', kind: 'external-checker',
+            expected: null, status: null, ok: true,
+            diagnostic: 'candidate scripts/sync-shared-snippets.ps1 is byte-identical to the trusted'
+                + ' script; behavior is guaranteed by the trust chain (inductive skip)' });
+        return results;
+    }
+    const scriptFile = path.join(candidateRoot, ...SYNC_REL.split('/'));
+    if (!fs.existsSync(scriptFile)) {
+        const deleted = wasIntroducedInHistory(repoRoot, historyRef, SYNC_REL);
+        results.push({ name: 'sync-shared-snippets.ps1 content', kind: 'report', expected: null,
+            status: null, ok: !deleted,
+            diagnostic: deleted
+                ? 'scripts/sync-shared-snippets.ps1 was introduced in the candidate history but is'
+                    + ' missing from the candidate snapshot (deletion of the shared snippet checker'
+                    + ' must fail closed)'
+                : 'candidate predates scripts/sync-shared-snippets.ps1 (report only)' });
+        return results;
+    }
+    const content = fs.readFileSync(scriptFile, 'utf8');
+    const contentOk = /-Check/.test(content) && /exit\s+1/.test(content)
+        && /[Dd]rift/.test(content) && !isNoopStep(content);
+    results.push({
+        name: 'sync-shared-snippets.ps1 keeps the -Check drift gate',
+        kind: 'external-checker', expected: 'real -Check + exit-1 drift semantics', status: null,
+        ok: contentOk,
+        diagnostic: contentOk ? '' : 'candidate scripts/sync-shared-snippets.ps1 was weakened'
+            + ' (missing -Check / exit 1 / drift detection, or reduced to a no-op stub); fail closed',
+    });
+    if (!hasPwsh()) {
+        results.push({ name: 'sync-shared-snippets.ps1 behavior (execution)', kind: 'report',
+            expected: null, status: null, ok: true,
+            diagnostic: 'pwsh is not available; sync behavior scenarios skipped' });
+        return results;
+    }
+    const fixture = tempDir('sync');
+    try {
+        fs.mkdirSync(path.join(fixture, 'scripts', 'shared'), { recursive: true });
+        fs.writeFileSync(path.join(fixture, 'scripts', 'shared', 'sse-manager.js'),
+            'export const sse = 1;\n', 'utf8');
+        fs.copyFileSync(scriptFile, path.join(fixture, 'scripts', 'sync-shared-snippets.ps1'));
+        const scriptArgs = ['-NoProfile', '-File', toPosix(path.join(fixture, 'scripts', 'sync-shared-snippets.ps1'))];
+        const driftedUserJs = '// >>> SHARED:sse-manager.js\n// stale block\n// <<< SHARED:sse-manager.js\n';
+        const runOne = (args) => run(['pwsh', ...args], { cwd: fixture });
+
+        fs.writeFileSync(path.join(fixture, 'test.user.js'), driftedUserJs, 'utf8');
+        const driftRun = runOne([...scriptArgs, '-Check']);
+        results.push({
+            name: 'sync-shared-snippets.ps1 -Check fails when the .user.js snippet drifts',
+            kind: 'external-checker', expected: 'exit != 0', status: driftRun.status,
+            ok: driftRun.status !== 0,
+            diagnostic: driftRun.status === 0
+                ? 'drift fixture passed -Check; the checker is a no-op (output: '
+                    + (driftRun.output || '').split('\n').slice(-6).join(' | ') + ')'
+                : (driftRun.status === null
+                    ? 'pwsh failed to run the checker: ' + (driftRun.output || '').slice(-300)
+                    : ''),
+        });
+
+        const syncRun = runOne(scriptArgs);
+        const recheckRun = runOne([...scriptArgs, '-Check']);
+        results.push({
+            name: 'sync-shared-snippets.ps1 legal sync + recheck exit 0',
+            kind: 'external-checker', expected: 'exit 0', status: recheckRun.status,
+            ok: syncRun.status === 0 && recheckRun.status === 0,
+            diagnostic: syncRun.status !== 0 || recheckRun.status !== 0
+                ? 'legal sync (exit ' + syncRun.status + ') or recheck (exit ' + recheckRun.status + ') failed: '
+                    + (syncRun.output || '').split('\n').slice(-4).join(' | ')
+                    + ' | ' + (recheckRun.output || '').split('\n').slice(-4).join(' | ') : '',
+        });
+    } finally {
+        rmrf(fixture);
+    }
+    return results;
+}
+
+// ---------------------------------------------------------------------------
+// 候选 hook 内容守卫（无条件执行，不依赖归纳跳过 / bash / 场景执行）：
+// pre-commit / pre-push 必须保留 trusted-anchor 语义（trustedGateRef +
+// trustedGateEpoch 路由）且不得退化为 no-op——恶意 hook（exit 0 / 自批准）一律拒绝。
+// ---------------------------------------------------------------------------
+
+function runHookContentChecks(candidateRoot) {
+    const checks = [];
+    const hooksRoot = path.join(candidateRoot, 'scripts', 'hooks');
+    if (!fs.existsSync(hooksRoot)) {
+        checks.push({ name: 'candidate hooks bundle', kind: 'hooks-static', expected: null,
+            status: null, ok: true,
+            diagnostic: 'candidate predates scripts/hooks (report only; required paths govern deletion)' });
+        return checks;
+    }
+    for (const hook of ['pre-commit', 'pre-push']) {
+        const file = path.join(hooksRoot, hook);
+        if (!fs.existsSync(file)) {
+            checks.push({ name: 'candidate hook constraint: missing ' + hook, kind: 'hooks-static',
+                expected: null, status: null, ok: true,
+                diagnostic: 'candidate lacks ' + hook + ' (report; required paths govern deletion)' });
+            continue;
+        }
+        const content = fs.readFileSync(file, 'utf8');
+        const ok = !isNoopStep(content)
+            && /trustedGateRef/.test(content)
+            && /trustedGateEpoch/.test(content);
+        checks.push({
+            name: 'candidate ' + hook + ' keeps trusted-anchor semantics', kind: 'hooks-static',
+            expected: 'trustedGateRef + trustedGateEpoch routing with real commands', status: null, ok,
+            diagnostic: ok ? '' : 'candidate ' + hook + ' was weakened (missing trustedGateRef /'
+                + ' trustedGateEpoch routing, or reduced to a no-op stub); fail closed',
+        });
+    }
+    return checks;
+}
+
 /** 候选 package.json scripts 契约：required scripts 必须指向真实测试入口。 */
 function runPackageContractChecks(candidateRoot, trustedPolicy) {
     const checks = [];
@@ -1441,6 +1981,58 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
                 doc.jobs['javascript-tests'] = { ...(doc.jobs['javascript-tests'] || {}), 'continue-on-error': true };
             }
             fs.writeFileSync(workflowFile, YAML.stringify(doc), 'utf8');
+        }
+        // 下一代恶意 gate 同时弱化外围 workflow：shared-snippet 改 true /
+        // release 删 quality gate 与 publish 依赖 / publish 删 quality gate /
+        // nightly 删 publish 依赖 → 新 contract 必须拒绝
+        const extMutations = [
+            ['.github/workflows/shared-snippets-check.yml', (d) => {
+                if (d && d.jobs && d.jobs['check-shared-snippets'] && Array.isArray(d.jobs['check-shared-snippets'].steps)) {
+                    const step = d.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+                        && s.run.includes('sync-shared-snippets.ps1'));
+                    if (step) {
+                        step.run = 'true';
+                    }
+                }
+            }],
+            ['.github/workflows/release.yml', (d) => {
+                if (d && d.jobs && typeof d.jobs === 'object') {
+                    delete d.jobs['draft-quality-gate'];
+                    if (d.jobs['build-jar']) {
+                        const needs = Array.isArray(d.jobs['build-jar'].needs)
+                            ? d.jobs['build-jar'].needs
+                            : [d.jobs['build-jar'].needs].filter(Boolean);
+                        d.jobs['build-jar'].needs = needs.filter((n) => n !== 'publish-plugins');
+                    }
+                }
+            }],
+            ['.github/workflows/publish-plugins.yml', (d) => {
+                if (d && d.jobs && typeof d.jobs === 'object') {
+                    delete d.jobs['quality-gate'];
+                    if (d.jobs['publish']) {
+                        d.jobs['publish'].if = '${{ always() }}';
+                    }
+                }
+            }],
+            ['.github/workflows/nightly.yml', (d) => {
+                if (d && d.jobs && d.jobs['build-jar'] && Array.isArray(d.jobs['build-jar'].needs)) {
+                    d.jobs['build-jar'].needs = d.jobs['build-jar'].needs.filter((n) => n !== 'publish-plugins');
+                }
+            }],
+        ];
+        for (const [rel, mutate] of extMutations) {
+            const extFile = path.join(repo, ...rel.split('/'));
+            if (!fs.existsSync(extFile)) {
+                continue;
+            }
+            try {
+                const YAML = loadYamlModule(repo);
+                const doc = YAML.parse(fs.readFileSync(extFile, 'utf8'));
+                mutate(doc);
+                fs.writeFileSync(extFile, YAML.stringify(doc), 'utf8');
+            } catch (e) {
+                throw new Error('self-protection: cannot mutate ' + rel + ': ' + e.message);
+            }
         }
         const pkgFile = path.join(repo, ...PACKAGE_JSON_REL.split('/'));
         if (fs.existsSync(pkgFile)) {
@@ -1676,6 +2268,16 @@ async function main() {
                 diagnostic: removedJobs.length > 0
                     ? 'candidate dropped required workflow jobs: ' + removedJobs.join(', ') : '',
             });
+            // requiredWorkflowFiles（受保护 workflow 本体）不得减少
+            const removedWorkflowFiles = trustedGate.policySetReduced(
+                trustedPolicy.requiredWorkflowFiles, candidatePolicy.requiredWorkflowFiles);
+            checks.push({
+                name: 'required workflow files not reduced', kind: 'policy',
+                expected: 'candidate keeps all trusted required workflow files', status: null,
+                ok: removedWorkflowFiles.length === 0,
+                diagnostic: removedWorkflowFiles.length > 0
+                    ? 'candidate dropped required workflow files: ' + removedWorkflowFiles.join(', ') : '',
+            });
             // 7.7 / 7.8：requiredPackageScripts / requiredExternalChecks 集合不得减少
             const removedScripts = trustedGate.policySetReduced(
                 trustedPolicy.requiredPackageScripts, candidatePolicy.requiredPackageScripts);
@@ -1694,6 +2296,17 @@ async function main() {
                 ok: removedExternal.length === 0,
                 diagnostic: removedExternal.length > 0
                     ? 'candidate dropped required external checks: ' + removedExternal.join(', ') : '',
+            });
+            // 结构化 external check 定义（workflow / name / job / required context）不得减少
+            const removedDefinitions = trustedGate.policySetReduced(
+                trustedPolicy.requiredExternalCheckDefinitions, candidatePolicy.requiredExternalCheckDefinitions);
+            checks.push({
+                name: 'required external check definitions not reduced', kind: 'policy',
+                expected: 'candidate keeps all trusted required external check definitions', status: null,
+                ok: removedDefinitions.length === 0,
+                diagnostic: removedDefinitions.length > 0
+                    ? 'candidate dropped required external check definitions: '
+                        + removedDefinitions.join(', ') : '',
             });
         } else {
             checks.push({
@@ -1733,7 +2346,10 @@ async function main() {
 
         // 3.5 candidate quality-gate.yml + package.json 语义契约（真实 YAML 解析）
         checks.push(...runWorkflowContractChecks(repoRoot, candidateRoot));
+        checks.push(...runExternalWorkflowContracts(repoRoot, candidateRoot, historyRef));
         checks.push(...runPackageContractChecks(candidateRoot, trustedPolicy));
+        checks.push(...runGateSurfaceContract(candidateRoot, trustedPolicy));
+        checks.push(...runHookContentChecks(candidateRoot));
 
         const hasChecker = fs.existsSync(path.join(candidateRoot, 'scripts', 'i18n', 'check.mjs'));
         const hasHooks = fs.existsSync(path.join(candidateRoot, 'scripts', 'hooks'));
@@ -1754,10 +2370,25 @@ async function main() {
         checks.push(...checkerScenarios);
         const checkerOk = checkerScenarios.every((c) => c.ok);
 
+        // 4.5 外部 checker：shared-snippet 真实 -Check 行为（candidate ps1 是执行对象；
+        // 与 trusted 逐字节一致时归纳跳过）
+        const candidateSyncIdentical = (() => {
+            const candidateFile = path.join(candidateRoot, ...SYNC_REL.split('/'));
+            const trustedFile = path.join(OWN_DIR, '..', '..', ...SYNC_REL.split('/'));
+            if (!fs.existsSync(candidateFile) || !fs.existsSync(trustedFile)) {
+                return false;
+            }
+            return fs.readFileSync(candidateFile, 'utf8') === fs.readFileSync(trustedFile, 'utf8');
+        })();
+        const syncScenarios = await runSyncScenarios(repoRoot, candidateRoot, historyRef, candidateSyncIdentical);
+        checks.push(...syncScenarios);
+        const syncOk = syncScenarios.every((c) => c.ok);
+
         // 5. candidate hooks 行为（黑盒失败后仍收集静态文本约束，执行场景跳过）
         const hookScenarios = await runHookScenarios(repoRoot, candidateRoot, trustedPolicy, hasHooks,
-            candidateHooksIdentical || !checkerOk,
-            !checkerOk ? 'candidate checker behavior already failed; hook execution scenarios skipped'
+            candidateHooksIdentical || !checkerOk || !syncOk,
+            !checkerOk || !syncOk
+                ? 'candidate behavior already failed; hook execution scenarios skipped'
                 : undefined);
         checks.push(...hookScenarios);
         const hooksOk = hookScenarios.every((c) => c.ok);
@@ -1765,8 +2396,9 @@ async function main() {
         // 6. 自保护：candidate contract 必须拒绝恶意下一代 gate。
         // root admission（--force-self-protection）时关闭归纳跳过，强制运行自保护套件。
         const selfProtection = await runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasContract,
-            candidateContractIdentical || !checkerOk || !hooksOk,
-            !checkerOk || !hooksOk ? 'candidate behavior already failed; self-protection skipped'
+            candidateContractIdentical || !checkerOk || !hooksOk || !syncOk,
+            !checkerOk || !hooksOk || !syncOk
+                ? 'candidate behavior already failed; self-protection skipped'
                 : undefined,
             args.forceSelfProtection);
         checks.push(...selfProtection);

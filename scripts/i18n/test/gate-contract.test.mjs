@@ -421,7 +421,7 @@ test('gate-contract：--version 完整性检查；缺参数 usage error', () => 
         const version = spawnSync('node', [path.join(trusted, 'scripts', 'i18n', 'gate-contract.mjs'), '--version'],
             { encoding: 'utf8' });
         assert.equal(version.status, 0, version.stdout + version.stderr);
-        assert.match(version.stdout, /i18n-gate-contract 3/);
+        assert.match(version.stdout, /i18n-gate-contract 4/);
 
         const noRepo = spawnSync('node', [path.join(trusted, 'scripts', 'i18n', 'gate-contract.mjs'),
             '--candidate-ref', 'x'], { encoding: 'utf8' });

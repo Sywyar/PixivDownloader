@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runAcceptCore } from '../accept.mjs';
 import { runGenerate } from '../generate-static.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -81,7 +82,9 @@ function makeFullCandidateRepo() {
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
     fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, WORKFLOW_REL), path.join(dir, WORKFLOW_REL));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
     fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
+    fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');
@@ -119,6 +122,7 @@ function makeTrustedCopy(fixtureRoot) {
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
     fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, WORKFLOW_REL), path.join(dir, WORKFLOW_REL));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
     fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     const policy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
     const start = git(['rev-parse', 'HEAD~1'], fixtureRoot).stdout.trim();
@@ -586,6 +590,225 @@ test('workflow 契约：删除物化交叉验证（materialize-trusted-gate.sh�
         const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
         assert.notEqual(run.status, 0, '物化交叉验证被移除必须被拒绝');
         assert.match(run.stdout + run.stderr, /materialization cross-check/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// 外围 workflow 语义契约 mutation（shared-snippets / release / nightly / publish）
+// ---------------------------------------------------------------------------
+
+function readExternalWorkflow(root, rel) {
+    return YAML.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
+}
+
+function writeExternalWorkflow(root, rel, doc) {
+    fs.writeFileSync(path.join(root, rel), YAML.stringify(doc), 'utf8');
+}
+
+function runExternalMutation(root, trusted, rel, mutate, expectPattern) {
+    const doc = readExternalWorkflow(root, rel);
+    mutate(doc);
+    writeExternalWorkflow(root, rel, doc);
+    commitBypass(root, 'mutation: ' + rel);
+    const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+    const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+    assert.notEqual(run.status, 0, 'mutation of ' + rel + ' must be rejected');
+    assert.match(run.stdout + run.stderr, expectPattern);
+}
+
+test('shared-snippets 契约：删除 check-shared-snippets job → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/shared-snippets-check.yml',
+            (d) => { delete d.jobs['check-shared-snippets']; }, /check-shared-snippets/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('shared-snippets 契约：workflow 只 echo（去掉真实 -Check）→ 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/shared-snippets-check.yml',
+            (d) => {
+                const step = d.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+                    && s.run.includes('sync-shared-snippets.ps1'));
+                step.run = 'echo ok';
+            }, /sync-shared-snippets|-Check/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('shared-snippets 契约：删除 -Check 参数 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/shared-snippets-check.yml',
+            (d) => {
+                const step = d.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+                    && s.run.includes('sync-shared-snippets.ps1'));
+                step.run = './scripts/sync-shared-snippets.ps1';
+            }, /-Check|sync-shared-snippets/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('shared-snippets 契约：step continue-on-error → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/shared-snippets-check.yml',
+            (d) => {
+                const step = d.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+                    && s.run.includes('sync-shared-snippets.ps1'));
+                step['continue-on-error'] = true;
+            }, /continue-on-error|sync-shared-snippets/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('shared-snippets 契约：if false 包裹 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/shared-snippets-check.yml',
+            (d) => {
+                const step = d.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+                    && s.run.includes('sync-shared-snippets.ps1'));
+                step.run = 'if false; then ./scripts/sync-shared-snippets.ps1 -Check; fi';
+            }, /if false|sync-shared-snippets/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('shared-snippets 契约：sync-shared-snippets.ps1 = exit 0 → 拒绝（checker 本体受保护）', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        fs.writeFileSync(path.join(root, 'scripts', 'sync-shared-snippets.ps1'), 'exit 0\n', 'utf8');
+        commitBypass(root, 'sync checker = exit 0');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'sync-shared-snippets.ps1 = exit 0 必须被拒绝');
+        assert.match(run.stdout + run.stderr, /sync-shared-snippets|drift gate/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('release 契约：删除 draft-quality-gate → 拒绝（手动发布不能跳门禁）', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/release.yml',
+            (d) => { delete d.jobs['draft-quality-gate']; }, /draft-quality-gate/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('release 契约：build-jar 去掉 needs: publish-plugins → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/release.yml',
+            (d) => {
+                const needs = Array.isArray(d.jobs['build-jar'].needs) ? d.jobs['build-jar'].needs : [d.jobs['build-jar'].needs];
+                d.jobs['build-jar'].needs = needs.filter((n) => n !== 'publish-plugins');
+            }, /publish-plugins/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('release 契约：release job 改 always() → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/release.yml',
+            (d) => { d.jobs['release'].if = '${{ always() }}'; }, /always\(\)/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('publish 契约：删除 quality-gate → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/publish-plugins.yml',
+            (d) => { delete d.jobs['quality-gate']; }, /quality-gate/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('publish 契约：publish 去掉 needs: quality-gate → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/publish-plugins.yml',
+            (d) => {
+                const needs = Array.isArray(d.jobs['publish'].needs) ? d.jobs['publish'].needs : [d.jobs['publish'].needs];
+                d.jobs['publish'].needs = needs.filter((n) => n !== 'quality-gate');
+            }, /quality-gate/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('publish 契约：publish if 改 always() → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/publish-plugins.yml',
+            (d) => { d.jobs['publish'].if = '${{ always() }}'; }, /always\(\)|success/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('nightly 契约：删除 publish-plugins 依赖（build-jar）→ 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/nightly.yml',
+            (d) => {
+                d.jobs['build-jar'].needs = d.jobs['build-jar'].needs.filter((n) => n !== 'publish-plugins');
+            }, /publish-plugins/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('nightly 契约：删除 publish-plugins job → 拒绝（nightly 产物不能脱离质量门禁）', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        runExternalMutation(root, trusted, '.github/workflows/nightly.yml',
+            (d) => { delete d.jobs['publish-plugins']; }, /publish-plugins/);
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });

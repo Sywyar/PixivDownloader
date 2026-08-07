@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runAcceptCore } from '../accept.mjs';
 import { runGenerate } from '../generate-static.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -68,6 +69,7 @@ function makeRepo() {
     fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
         path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
     fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
@@ -335,6 +337,140 @@ test('root admission：tag 指向缺 gate-contract.mjs 的提交 → materialize
             fs.rmSync(trustedCopy, { recursive: true, force: true });
         }
 
+        git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('trusted base provenance DAG matrix：root <= base < candidate；sibling / descendant / unrelated / pre-root / base==candidate / force-push before 全部 fail closed', () => {
+    const root = makeRepo();
+    try {
+        const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        git(['tag', 'i18n-gate-epoch-2-root', c2], root);
+        const zero = '0000000000000000000000000000000000000000';
+        const jsDir = path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js');
+        fs.mkdirSync(jsDir, { recursive: true });
+
+        // R ─ A ─ C：合法，base = A（candidate 的真实祖先）
+        fs.writeFileSync(path.join(jsDir, 'x.js'), 'var x = 1;\n', 'utf8');
+        commitBypass(root, 'A (legal ancestor)');
+        const a = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        fs.writeFileSync(path.join(jsDir, 'x.js'), 'var x = 2;\n', 'utf8');
+        commitBypass(root, 'C (candidate)');
+        const c = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const legal = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', a,
+            '--default-branch', 'master', '--mode']);
+        assert.equal(legal.status, 0, legal.stdout + legal.stderr);
+        assert.equal(JSON.parse(legal.stdout).base, a, '合法链 root <= A < C 必须通过');
+
+        // sibling：R ─ A ─ B（base）与 R ─ A ─ C（candidate）互为 sibling
+        git(['checkout', '-q', '-b', 'sibling-b', a], root);
+        fs.writeFileSync(path.join(jsDir, 'y.js'), 'var y = 1;\n', 'utf8');
+        commitBypass(root, 'B (sibling base)');
+        const b = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        git(['checkout', '-q', 'master'], root);
+        const sibling = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', zero,
+            '--default-branch', 'master', '--mode', '--input-base', b]);
+        assert.notEqual(sibling.status, 0, 'sibling base 必须 fail closed');
+        assert.match(sibling.stderr, /not an ancestor of the candidate/,
+            '必须显式回归：root ancestor base == true 但 base ancestor candidate == false → FAIL');
+
+        // base 是 candidate 后代：R ─ A ─ C ─ B，base = B
+        fs.writeFileSync(path.join(jsDir, 'z.js'), 'var z = 1;\n', 'utf8');
+        commitBypass(root, 'B descendant of candidate');
+        const desc = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const descendant = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', zero,
+            '--default-branch', 'master', '--mode', '--input-base', desc]);
+        assert.notEqual(descendant.status, 0, 'base 是 candidate 后代必须 fail closed');
+        assert.match(descendant.stderr, /not an ancestor of the candidate/);
+
+        // unrelated：orphan 提交作为 base
+        const orphanDir = path.join(os.tmpdir(), 'pixiv orphan base ' + Date.now() + '-' + Math.random().toString(36).slice(2));
+        fs.mkdirSync(orphanDir, { recursive: true });
+        git(['init', '-q', orphanDir], root);
+        git(['config', 'user.email', 't@example.com'], orphanDir);
+        git(['config', 'user.name', 'test'], orphanDir);
+        fs.writeFileSync(path.join(orphanDir, 'orphan.txt'), 'orphan\n', 'utf8');
+        git(['add', '-A'], orphanDir);
+        git(['commit', '-q', '-m', 'orphan'], orphanDir);
+        const orphanSha = git(['rev-parse', 'HEAD'], orphanDir).stdout.trim();
+        git(['fetch', '-q', orphanDir, 'master'], root);
+        const unrelated = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', zero,
+            '--default-branch', 'master', '--mode', '--input-base', orphanSha]);
+        assert.notEqual(unrelated.status, 0, 'unrelated base 必须 fail closed');
+        fs.rmSync(orphanDir, { recursive: true, force: true });
+
+        // pre-root base：C1 在 root 之前（root tag = C2；历史 C1 → C2 → A → C → desc）
+        const c1 = git(['rev-parse', 'HEAD~4'], root).stdout.trim();
+        const preRoot = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', zero,
+            '--default-branch', 'master', '--mode', '--input-base', c1]);
+        assert.notEqual(preRoot.status, 0, 'base 在 root 之前必须 fail closed');
+        assert.match(preRoot.stderr, /does not descend from the Gate Epoch 2 trust root/);
+
+        // base == candidate
+        const selfBase = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', zero,
+            '--default-branch', 'master', '--mode', '--input-base', c]);
+        assert.notEqual(selfBase.status, 0, 'base == candidate 必须 fail closed');
+        assert.match(selfBase.stderr, /equals the candidate/);
+
+        // push before 非零但 before 不是 candidate 祖先（force push / sibling 拓扑）→ fail
+        const forcePush = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', b,
+            '--default-branch', 'master', '--mode']);
+        assert.notEqual(forcePush.status, 0, 'push before 不是 candidate 祖先必须 fail closed');
+        assert.match(forcePush.stderr, /not an ancestor of the candidate/);
+
+        git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('push 新分支（before 全零）：fork base = merge-base(candidate, protected default branch)；无远端 fail closed', () => {
+    const root = makeRepo();
+    try {
+        const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        git(['tag', 'i18n-gate-epoch-2-root', c2], root);
+        const zero = '0000000000000000000000000000000000000000';
+
+        // 无远端：新分支无法确定 fork base → fail closed
+        const noRemote = makeRepo();
+        try {
+            git(['tag', 'i18n-gate-epoch-2-root', git(['rev-parse', 'HEAD'], noRemote).stdout.trim()], noRemote);
+            fs.mkdirSync(path.join(noRemote, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
+            fs.writeFileSync(path.join(noRemote, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'f.js'),
+                'var f = 1;\n', 'utf8');
+            commitBypass(noRemote, 'feature commit');
+            const feat = git(['rev-parse', 'HEAD'], noRemote).stdout.trim();
+            const fail = runResolver(noRemote, ['--event-name', 'push', '--candidate', feat, '--before', zero,
+                '--default-branch', 'master', '--mode']);
+            assert.notEqual(fail.status, 0, '无远端的新分支 push 必须 fail closed');
+            assert.match(fail.stderr, /fork base|protected default/);
+        } finally {
+            cleanRepo(noRemote);
+        }
+
+        // 有远端：新 feature 分支 fork base = merge-base(candidate, origin/master)
+        const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now() + '-' + Math.random().toString(36).slice(2));
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+        git(['-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'master'], root);
+        git(['checkout', '-q', '-b', 'feature', c2], root);
+        fs.mkdirSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'f.js'),
+            'var f = 1;\n', 'utf8');
+        commitBypass(root, 'feature commit');
+        const featTip = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const fork = runResolver(root, ['--event-name', 'push', '--candidate', featTip, '--before', zero,
+            '--default-branch', 'master', '--mode']);
+        assert.equal(fork.status, 0, fork.stdout + fork.stderr);
+        assert.equal(JSON.parse(fork.stdout).base, c2,
+            '新分支 trusted base 必须是 merge-base(candidate, protected default branch)，'
+                + '而不是 default branch 当前 tip');
+        assert.equal(JSON.parse(fork.stdout).mode, 'NORMAL');
+
+        fs.rmSync(remote, { recursive: true, force: true });
         git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
     } finally {
         cleanRepo(root);

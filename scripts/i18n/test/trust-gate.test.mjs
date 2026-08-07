@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runAcceptCore } from '../accept.mjs';
 import { runGenerate } from '../generate-static.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -82,6 +83,7 @@ function makeRepo(withAnchor = false, anchorEpoch = '2') {
     fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
         path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
     fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     const i18nDir = path.join(dir, APP_I18N);
@@ -174,7 +176,7 @@ test('trust-gate：adopt-root 写入 epoch 2 + ref；--show 输出 SHA 与 contr
         assert.equal(show.status, 0, show.stdout + show.stderr);
         assert.match(show.stdout, new RegExp('trustedGateRef: ' + head));
         assert.match(show.stdout, /trustedGateEpoch: 2/);
-        assert.match(show.stdout, /contractVersion: 3/);
+        assert.match(show.stdout, /contractVersion: 4/);
     } finally {
         cleanRepo(root);
     }

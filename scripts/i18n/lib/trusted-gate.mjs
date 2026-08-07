@@ -45,7 +45,12 @@ export const GATE_PATHS = [
     'scripts/i18n',
     'scripts/hooks',
     'scripts/ci',
+    'scripts/sync-shared-snippets.ps1',
     '.github/workflows/quality-gate.yml',
+    '.github/workflows/shared-snippets-check.yml',
+    '.github/workflows/release.yml',
+    '.github/workflows/nightly.yml',
+    '.github/workflows/publish-plugins.yml',
     'package.json',
     'package-lock.json',
 ];
@@ -270,6 +275,9 @@ export function validatePolicyStructure(policy) {
             throw new Error('gate-policy.json: invalid required path: ' + JSON.stringify(p));
         }
     }
+    if (policy.requiredWorkflowFiles !== undefined) {
+        validatePathList('requiredWorkflowFiles', policy.requiredWorkflowFiles);
+    }
     if (policy.protectedBranches !== undefined) {
         validateRefList('protectedBranches', policy.protectedBranches);
     }
@@ -305,12 +313,75 @@ export function validatePolicyStructure(policy) {
             seen.add(entry);
         }
     }
+    if (policy.requiredExternalCheckDefinitions !== undefined) {
+        if (!Array.isArray(policy.requiredExternalCheckDefinitions)
+            || policy.requiredExternalCheckDefinitions.length === 0) {
+            throw new Error('gate-policy.json: requiredExternalCheckDefinitions must be a non-empty array');
+        }
+        const seen = new Set();
+        for (const entry of policy.requiredExternalCheckDefinitions) {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                throw new Error('gate-policy.json: requiredExternalCheckDefinitions entries must be'
+                    + ' structured objects: ' + JSON.stringify(entry));
+            }
+            for (const field of ['workflow', 'workflowName', 'jobId', 'requiredContext']) {
+                if (typeof entry[field] !== 'string' || entry[field].length === 0) {
+                    throw new Error('gate-policy.json: requiredExternalCheckDefinitions entry must have'
+                        + ' a non-empty ' + field + ': ' + JSON.stringify(entry));
+                }
+            }
+            const normalized = normalizeExternalCheck(entry);
+            if (seen.has(normalized)) {
+                throw new Error('gate-policy.json: requiredExternalCheckDefinitions must not contain'
+                    + ' duplicates: ' + normalized);
+            }
+            seen.add(normalized);
+        }
+    }
 }
 
-/** trusted 集合相对 candidate 是否被减少（trusted 缺失视为空集；candidate 缺失视为空集）。 */
+function validatePathList(name, list) {
+    if (!Array.isArray(list) || list.length === 0) {
+        throw new Error('gate-policy.json: ' + name + ' must be a non-empty array');
+    }
+    const seen = new Set();
+    for (const p of list) {
+        if (typeof p !== 'string' || p.length === 0 || p.startsWith('/') || p.endsWith('/')
+            || p.split('/').includes('..') || p.includes('\\')) {
+            throw new Error('gate-policy.json: ' + name + ' contains an invalid path: ' + JSON.stringify(p));
+        }
+        if (seen.has(p)) {
+            throw new Error('gate-policy.json: ' + name + ' must not contain duplicates: ' + p);
+        }
+        seen.add(p);
+    }
+}
+
+/** 结构化 requiredExternalChecks 条目规范化为可比较字符串（对象按字段序序列化）。 */
+function normalizeExternalCheck(entry) {
+    if (typeof entry === 'string') {
+        return entry;
+    }
+    if (entry && typeof entry === 'object') {
+        const fields = ['workflow', 'workflowName', 'jobId', 'requiredContext'];
+        const ordered = {};
+        for (const f of fields) {
+            if (entry[f] !== undefined) {
+                ordered[f] = entry[f];
+            }
+        }
+        return JSON.stringify(ordered);
+    }
+    return JSON.stringify(entry);
+}
+
+/**
+ * trusted 集合相对 candidate 是否被减少（trusted 缺失视为空集；candidate 缺失视为空集）。
+ * requiredExternalChecks 条目按结构化规范化后比较（对象字段序无关）。
+ */
 export function policySetReduced(trustedList, candidateList) {
-    const trusted = new Set(trustedList || []);
-    const candidate = new Set(candidateList || []);
+    const trusted = new Set((trustedList || []).map(normalizeExternalCheck));
+    const candidate = new Set((candidateList || []).map(normalizeExternalCheck));
     return [...trusted].filter((entry) => !candidate.has(entry));
 }
 

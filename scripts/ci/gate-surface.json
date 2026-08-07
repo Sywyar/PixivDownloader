@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "comment": "统一 Gate Surface 清单：pre-commit / pre-push / gate-contract / gate-parity / CI bootstrap 共用同一外围门禁面。candidate 侧同名文件只能作为被检查对象（候选 manifest 不能决定哪些候选文件被检查）；候选删除任何条目即 fail closed。",
+  "paths": [
+    "scripts/i18n",
+    "scripts/hooks",
+    "scripts/ci",
+    "scripts/sync-shared-snippets.ps1",
+    ".github/workflows/quality-gate.yml",
+    ".github/workflows/shared-snippets-check.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/nightly.yml",
+    ".github/workflows/publish-plugins.yml",
+    "package.json",
+    "package-lock.json"
+  ]
+}

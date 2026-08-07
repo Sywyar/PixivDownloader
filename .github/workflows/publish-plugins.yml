@@ -74,12 +74,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout main repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -156,7 +156,7 @@ jobs:
           -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
 
       - name: Checkout plugins repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Sywyar/PixivDownloader-plugins
           token: ${{ secrets.PLUGINS_REPO_TOKEN }}

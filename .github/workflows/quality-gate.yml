@@ -130,11 +130,24 @@ jobs:
                       && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
                     base="$before"
                   else
+                    # 新分支（before 全零）：不伪装成「默认分支 tip → candidate」。
+                    # fork base = merge-base(candidate, protected default branch)；
+                    # 随后统一验证 root <= forkBase < candidate。
                     default_branch="${{ github.event.repository.default_branch }}"
                     if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
                       echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
                     fi
-                    base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                    default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                    if [ -z "$default_tip" ]; then
+                      echo "cannot resolve the protected default branch remote ref for a new branch; fail closed" >&2
+                      exit 1
+                    fi
+                    fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                    if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
+                      exit 1
+                    fi
+                    base="$fork_base"
                   fi
                   ;;
                 workflow_dispatch)
@@ -166,6 +179,10 @@ jobs:
               echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
               exit 1
             fi
+            if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
+              echo "trusted base $base is not an ancestor of the candidate $GITHUB_SHA; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
+              exit 1
+            fi
           else
             base="$root"
             echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
@@ -181,7 +198,12 @@ jobs:
             scripts/i18n \
             scripts/hooks \
             scripts/ci \
+            scripts/sync-shared-snippets.ps1 \
             .github/workflows/quality-gate.yml \
+            .github/workflows/shared-snippets-check.yml \
+            .github/workflows/release.yml \
+            .github/workflows/nightly.yml \
+            .github/workflows/publish-plugins.yml \
             package.json \
             package-lock.json \
             > "$paths_file"
@@ -197,6 +219,7 @@ jobs:
           test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
+          test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
           # 与 trusted helper 交叉验证（helper 来自 trusted base；候选不能自我批准）
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
@@ -222,9 +245,24 @@ jobs:
             bash "$out/scripts/ci/materialize-trusted-gate.sh" \
               --repo-root "$PWD" --base "$base" \
               --output "$out2" --index "$gate/index2" --paths-file "$gate/paths2.txt" \
-              --paths 'scripts/i18n scripts/hooks scripts/ci .github/workflows/quality-gate.yml package.json package-lock.json'
+              --paths 'scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml .github/workflows/release.yml .github/workflows/nightly.yml .github/workflows/publish-plugins.yml package.json package-lock.json'
             if ! diff -r "$out" "$out2" >/dev/null 2>&1; then
               echo "materialized gate differs from the trusted helper output; fail closed" >&2
+              exit 1
+            fi
+          fi
+          # gate-surface.json 单一事实来源交叉检查：trusted manifest 驱动的物化必须与
+          # bootstrap 硬编码 gate surface 完全一致（manifest 与硬编码列表漂移 → fail closed；
+          # candidate manifest 只作为被检查对象，不能决定检查范围）
+          if [ -f "$out/scripts/ci/gate-surface.json" ]; then
+            manifest_paths="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").join(" "))' "$out/scripts/ci/gate-surface.json")"
+            out3="$gate/out3"
+            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
+              --repo-root "$PWD" --base "$base" \
+              --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
+              --paths $manifest_paths
+            if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
+              echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
               exit 1
             fi
           fi
@@ -345,11 +383,24 @@ jobs:
                       && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
                     base="$before"
                   else
+                    # 新分支（before 全零）：不伪装成「默认分支 tip → candidate」。
+                    # fork base = merge-base(candidate, protected default branch)；
+                    # 随后统一验证 root <= forkBase < candidate。
                     default_branch="${{ github.event.repository.default_branch }}"
                     if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
                       echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
                     fi
-                    base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                    default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                    if [ -z "$default_tip" ]; then
+                      echo "cannot resolve the protected default branch remote ref for a new branch; fail closed" >&2
+                      exit 1
+                    fi
+                    fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                    if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
+                      exit 1
+                    fi
+                    base="$fork_base"
                   fi
                   ;;
                 workflow_dispatch)
@@ -381,6 +432,10 @@ jobs:
               echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
               exit 1
             fi
+            if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
+              echo "trusted base $base is not an ancestor of the candidate $GITHUB_SHA; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
+              exit 1
+            fi
           else
             base="$root"
             echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
@@ -395,7 +450,12 @@ jobs:
             scripts/i18n \
             scripts/hooks \
             scripts/ci \
+            scripts/sync-shared-snippets.ps1 \
             .github/workflows/quality-gate.yml \
+            .github/workflows/shared-snippets-check.yml \
+            .github/workflows/release.yml \
+            .github/workflows/nightly.yml \
+            .github/workflows/publish-plugins.yml \
             package.json \
             package-lock.json \
             > "$paths_file"
@@ -411,6 +471,7 @@ jobs:
           test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
+          test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
               --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
@@ -435,9 +496,24 @@ jobs:
             bash "$out/scripts/ci/materialize-trusted-gate.sh" \
               --repo-root "$PWD" --base "$base" \
               --output "$out2" --index "$gate/index2" --paths-file "$gate/paths2.txt" \
-              --paths 'scripts/i18n scripts/hooks scripts/ci .github/workflows/quality-gate.yml package.json package-lock.json'
+              --paths 'scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml .github/workflows/release.yml .github/workflows/nightly.yml .github/workflows/publish-plugins.yml package.json package-lock.json'
             if ! diff -r "$out" "$out2" >/dev/null 2>&1; then
               echo "materialized gate differs from the trusted helper output; fail closed" >&2
+              exit 1
+            fi
+          fi
+          # gate-surface.json 单一事实来源交叉检查：trusted manifest 驱动的物化必须与
+          # bootstrap 硬编码 gate surface 完全一致（manifest 与硬编码列表漂移 → fail closed；
+          # candidate manifest 只作为被检查对象，不能决定检查范围）
+          if [ -f "$out/scripts/ci/gate-surface.json" ]; then
+            manifest_paths="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").join(" "))' "$out/scripts/ci/gate-surface.json")"
+            out3="$gate/out3"
+            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
+              --repo-root "$PWD" --base "$base" \
+              --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
+              --paths $manifest_paths
+            if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
+              echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
               exit 1
             fi
           fi
@@ -489,11 +565,15 @@ jobs:
           echo "  - Do NOT allow bypassing branch protection."
           echo "  - Configure Quality Gate jobs (java-tests, javascript-tests, signature-guard,"
           echo "    trusted-gate-contract, i18n-check) as required checks."
+          echo "  - Configure 'Shared Snippet Drift Check / check-shared-snippets' as a required"
+          echo "    external check (strict required status checks, no permanent always bypass)."
           echo "  - Create the annotated tag i18n-gate-epoch-2-root at the reviewed Epoch 2 root"
-          echo "    commit and protect it with a Ruleset (no delete, no force update, admin-only)."
-          echo "  - Configure Shared Snippet Drift Check as a required external check."
-          echo "  - Gate / workflow files (.github/workflows/quality-gate.yml, scripts/i18n/**,"
-          echo "    scripts/hooks/**, scripts/ci/**, package.json, package-lock.json) must go through protected review."
+          echo "    commit and protect it with a Ruleset (no delete, no force update, no bypass)."
+          echo "  - Gate surface (.github/workflows/quality-gate.yml, shared-snippets-check.yml,"
+          echo "    release.yml, nightly.yml, publish-plugins.yml, scripts/i18n/**, scripts/hooks/**,"
+          echo "    scripts/ci/**, scripts/sync-shared-snippets.ps1, package.json,"
+          echo "    package-lock.json; see scripts/ci/gate-surface.json) must go through"
+          echo "    protected review."
           echo "  - A stronger setup is an external workflow / separate repository checker that"
           echo "    the candidate commit cannot modify."
           echo "  - A repository-internal workflow cannot establish an absolutely immutable trust root."
@@ -579,11 +659,24 @@ jobs:
                       && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
                     base="$before"
                   else
+                    # 新分支（before 全零）：不伪装成「默认分支 tip → candidate」。
+                    # fork base = merge-base(candidate, protected default branch)；
+                    # 随后统一验证 root <= forkBase < candidate。
                     default_branch="${{ github.event.repository.default_branch }}"
                     if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
                       echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
                     fi
-                    base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                    default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                    if [ -z "$default_tip" ]; then
+                      echo "cannot resolve the protected default branch remote ref for a new branch; fail closed" >&2
+                      exit 1
+                    fi
+                    fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                    if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
+                      exit 1
+                    fi
+                    base="$fork_base"
                   fi
                   ;;
                 workflow_dispatch)
@@ -615,6 +708,10 @@ jobs:
               echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
               exit 1
             fi
+            if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
+              echo "trusted base $base is not an ancestor of the candidate $GITHUB_SHA; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
+              exit 1
+            fi
           else
             base="$root"
             echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
@@ -629,7 +726,12 @@ jobs:
             scripts/i18n \
             scripts/hooks \
             scripts/ci \
+            scripts/sync-shared-snippets.ps1 \
             .github/workflows/quality-gate.yml \
+            .github/workflows/shared-snippets-check.yml \
+            .github/workflows/release.yml \
+            .github/workflows/nightly.yml \
+            .github/workflows/publish-plugins.yml \
             package.json \
             package-lock.json \
             > "$paths_file"
@@ -645,6 +747,7 @@ jobs:
           test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
           test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
+          test -f "$out/scripts/ci/gate-surface.json" || { echo "gate materialization misses gate-surface; fail closed" >&2; exit 1; }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
               --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
@@ -669,9 +772,24 @@ jobs:
             bash "$out/scripts/ci/materialize-trusted-gate.sh" \
               --repo-root "$PWD" --base "$base" \
               --output "$out2" --index "$gate/index2" --paths-file "$gate/paths2.txt" \
-              --paths 'scripts/i18n scripts/hooks scripts/ci .github/workflows/quality-gate.yml package.json package-lock.json'
+              --paths 'scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml .github/workflows/release.yml .github/workflows/nightly.yml .github/workflows/publish-plugins.yml package.json package-lock.json'
             if ! diff -r "$out" "$out2" >/dev/null 2>&1; then
               echo "materialized gate differs from the trusted helper output; fail closed" >&2
+              exit 1
+            fi
+          fi
+          # gate-surface.json 单一事实来源交叉检查：trusted manifest 驱动的物化必须与
+          # bootstrap 硬编码 gate surface 完全一致（manifest 与硬编码列表漂移 → fail closed；
+          # candidate manifest 只作为被检查对象，不能决定检查范围）
+          if [ -f "$out/scripts/ci/gate-surface.json" ]; then
+            manifest_paths="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").join(" "))' "$out/scripts/ci/gate-surface.json")"
+            out3="$gate/out3"
+            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
+              --repo-root "$PWD" --base "$base" \
+              --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
+              --paths $manifest_paths
+            if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
+              echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
               exit 1
             fi
           fi

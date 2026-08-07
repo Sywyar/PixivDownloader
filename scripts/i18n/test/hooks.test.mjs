@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { runGenerate } from '../generate-static.mjs';
 import { runAcceptCore } from '../accept.mjs';
 import staleLock from '../lib/stale-lock.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -111,7 +112,9 @@ function makeGitRepo(base = os.tmpdir(), opts = {}) {
         fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
         fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
             path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+        copyGateSurfaceFiles(REPO_ROOT, dir);
         fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
+        fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     }
 
     // 初始 bundle + 静态资源 + lock（全部合法）
@@ -858,6 +861,101 @@ test('pre-push：A 弱化 scripts/ci helper、B 恢复 → push A..B 必须失�
     }
 });
 
+test('pre-push：A 弱化 release.yml（删除 draft-quality-gate）、B 恢复 → push A..B 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    const YAML = createRequire(path.join(REPO_ROOT, 'package.json'))('yaml');
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        git(['checkout', '-q', '-b', 'release-weaken'], root);
+        const relPath = path.join(root, '.github', 'workflows', 'release.yml');
+        const doc = YAML.parse(fs.readFileSync(relPath, 'utf8'));
+        delete doc.jobs['draft-quality-gate'];
+        fs.writeFileSync(relPath, YAML.stringify(doc), 'utf8');
+        commitAll(root, 'A: remove draft quality gate from release', { bypass: true });
+        fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'release.yml'), relPath);
+        commitAll(root, 'B: restore release.yml', { bypass: true });
+        git(['checkout', '-q', 'master'], root);
+
+        const push = git(['push', 'origin', 'release-weaken'], root, { allowFailure: true });
+        assert.notEqual(push.status, 0, '中间 commit 的 release.yml 弱化必须被 trusted contract 拦截（即使 tip 恢复）');
+        assert.match(push.stdout + push.stderr, /does not pass the trusted gate contract|GATE CONTRACT FAILED|draft-quality-gate/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
+test('pre-push：A 把 shared-snippets-check.yml 改成 true、B 恢复 → push A..B 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    const YAML = createRequire(path.join(REPO_ROOT, 'package.json'))('yaml');
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        git(['checkout', '-q', '-b', 'snip-weaken'], root);
+        const snipPath = path.join(root, '.github', 'workflows', 'shared-snippets-check.yml');
+        const doc = YAML.parse(fs.readFileSync(snipPath, 'utf8'));
+        const step = doc.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+            && s.run.includes('sync-shared-snippets.ps1'));
+        step.run = 'true';
+        fs.writeFileSync(snipPath, YAML.stringify(doc), 'utf8');
+        commitAll(root, 'A: shared snippet check -> true', { bypass: true });
+        fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'shared-snippets-check.yml'), snipPath);
+        commitAll(root, 'B: restore shared-snippets-check.yml', { bypass: true });
+        git(['checkout', '-q', 'master'], root);
+
+        const push = git(['push', 'origin', 'snip-weaken'], root, { allowFailure: true });
+        assert.notEqual(push.status, 0, '中间 commit 的 shared snippet workflow 弱化必须被 trusted contract 拦截（即使 tip 恢复）');
+        assert.match(push.stdout + push.stderr, /does not pass the trusted gate contract|GATE CONTRACT FAILED|sync-shared-snippets/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
+test('pre-push：A 把 sync-shared-snippets.ps1 改成 exit 0、B 恢复 → push A..B 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now());
+    try {
+        fs.mkdirSync(remote);
+        git(['init', '-q', '--bare', remote], root);
+        git(['remote', 'add', 'origin', remote], root);
+
+        git(['checkout', '-q', '-b', 'sync-weaken'], root);
+        const syncPath = path.join(root, 'scripts', 'sync-shared-snippets.ps1');
+        fs.writeFileSync(syncPath, 'exit 0\n', 'utf8');
+        commitAll(root, 'A: sync-shared-snippets.ps1 -> exit 0', { bypass: true });
+        fs.copyFileSync(path.join(REPO_ROOT, 'scripts', 'sync-shared-snippets.ps1'), syncPath);
+        commitAll(root, 'B: restore sync-shared-snippets.ps1', { bypass: true });
+        git(['checkout', '-q', 'master'], root);
+
+        const push = git(['push', 'origin', 'sync-weaken'], root, { allowFailure: true });
+        assert.notEqual(push.status, 0, '中间 commit 的 checker 弱化必须被 trusted contract 拦截（即使 tip 恢复）');
+        assert.match(push.stdout + push.stderr, /does not pass the trusted gate contract|GATE CONTRACT FAILED|sync-shared-snippets/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(remote, { recursive: true, force: true });
+    }
+});
+
 test('pre-push：临时 remote refs 清理（成功与失败路径都不残留）', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
@@ -1130,6 +1228,50 @@ test('pre-commit：暂存 workflow 关键命令改为 true → 必须失败', ()
         const result = bash(['scripts/hooks/pre-commit'], root);
         assert.notEqual(result.status, 0, '关键命令改为 true 的 workflow 必须被 trusted contract 拒绝');
         assert.match(result.stdout + result.stderr, /GATE CONTRACT FAILED|echo \/ true|test:i18n/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('pre-commit：暂存 release.yml 删除 draft-quality-gate → 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    try {
+        const relPath = path.join(root, '.github', 'workflows', 'release.yml');
+        const YAML = createRequire(path.join(REPO_ROOT, 'package.json'))('yaml');
+        const doc = YAML.parse(fs.readFileSync(relPath, 'utf8'));
+        delete doc.jobs['draft-quality-gate'];
+        fs.writeFileSync(relPath, YAML.stringify(doc), 'utf8');
+        git(['add', '-A'], root);
+        const result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, '删除 draft-quality-gate 的 release.yml 必须被 trusted contract 拒绝');
+        assert.match(result.stdout + result.stderr, /GATE CONTRACT FAILED|draft-quality-gate/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('pre-commit：暂存 shared-snippets-check.yml 删除 -Check → 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeGitRepo(os.tmpdir(), { fullGate: true });
+    try {
+        const snipPath = path.join(root, '.github', 'workflows', 'shared-snippets-check.yml');
+        const YAML = createRequire(path.join(REPO_ROOT, 'package.json'))('yaml');
+        const doc = YAML.parse(fs.readFileSync(snipPath, 'utf8'));
+        const step = doc.jobs['check-shared-snippets'].steps.find((s) => typeof s.run === 'string'
+            && s.run.includes('sync-shared-snippets.ps1'));
+        step.run = './scripts/sync-shared-snippets.ps1';
+        fs.writeFileSync(snipPath, YAML.stringify(doc), 'utf8');
+        git(['add', '-A'], root);
+        const result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, '删除 -Check 的 shared-snippets-check.yml 必须被 trusted contract 拒绝');
+        assert.match(result.stdout + result.stderr, /GATE CONTRACT FAILED|sync-shared-snippets|-Check/);
     } finally {
         cleanRepo(root);
     }

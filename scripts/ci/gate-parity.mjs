@@ -37,18 +37,32 @@ import { fileURLToPath } from 'url';
 
 import snapshot from '../i18n/lib/repository-snapshot.mjs';
 
-const VERSION = '1';
+const VERSION = '2';
 const WORKFLOW_REL = path.posix.join('.github', 'workflows', 'quality-gate.yml');
 const PACKAGE_JSON_REL = path.posix.join('package.json');
 const POLICY_REL = path.posix.join('scripts', 'i18n', 'gate-policy.json');
 const INVARIANTS_REL = path.posix.join('scripts', 'ci', 'gate-invariants.json');
+const SURFACE_REL = path.posix.join('scripts', 'ci', 'gate-surface.json');
 const CANDIDATE_PATHS = [
     'scripts/i18n',
     'scripts/hooks',
     'scripts/ci',
+    'scripts/sync-shared-snippets.ps1',
     '.github/workflows/quality-gate.yml',
+    '.github/workflows/shared-snippets-check.yml',
+    '.github/workflows/release.yml',
+    '.github/workflows/nightly.yml',
+    '.github/workflows/publish-plugins.yml',
     'package.json',
     'package-lock.json',
+];
+
+/** 外围发布 / 外部检查 workflow（与 gate-surface.json 的 .github/workflows 条目一一对应）。 */
+const EXTERNAL_WORKFLOW_RELS = [
+    path.posix.join('.github', 'workflows', 'shared-snippets-check.yml'),
+    path.posix.join('.github', 'workflows', 'release.yml'),
+    path.posix.join('.github', 'workflows', 'nightly.yml'),
+    path.posix.join('.github', 'workflows', 'publish-plugins.yml'),
 ];
 
 const REQUIRED_TRIGGERS = ['push', 'pull_request', 'merge_group', 'workflow_dispatch', 'workflow_call'];
@@ -144,6 +158,42 @@ function jobSteps(job) {
     return job && Array.isArray(job.steps) ? job.steps : [];
 }
 
+function jobNeeds(job) {
+    if (!job || (typeof job.needs !== 'string' && !Array.isArray(job.needs))) {
+        return [];
+    }
+    return typeof job.needs === 'string' ? [job.needs] : job.needs;
+}
+
+/** job 内所有 step 的规范化命令并集。 */
+function jobCommands(job) {
+    const commands = new Set();
+    for (const s of jobSteps(job)) {
+        for (const c of extractCommands(stepRun(s))) {
+            commands.add(c);
+        }
+    }
+    return commands;
+}
+
+/** 结构化 requiredExternalChecks 条目规范化为可比较字符串（对象按字段序序列化）。 */
+function normalizeExternalCheck(entry) {
+    if (typeof entry === 'string') {
+        return entry;
+    }
+    if (entry && typeof entry === 'object') {
+        const fields = ['workflow', 'workflowName', 'jobId', 'requiredContext'];
+        const ordered = {};
+        for (const f of fields) {
+            if (entry[f] !== undefined) {
+                ordered[f] = entry[f];
+            }
+        }
+        return JSON.stringify(ordered);
+    }
+    return JSON.stringify(entry);
+}
+
 function jobHasRun(job, re) {
     return jobSteps(job).some((s) => commandsInclude(stepRun(s), re));
 }
@@ -220,9 +270,9 @@ function loadJson(dir, rel) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-function setReduced(trustedList, candidateList) {
-    const trusted = new Set(trustedList || []);
-    const candidate = new Set(candidateList || []);
+function setReduced(trustedList, candidateList, normalize) {
+    const trusted = new Set((trustedList || []).map((e) => (normalize ? normalize(e) : e)));
+    const candidate = new Set((candidateList || []).map((e) => (normalize ? normalize(e) : e)));
     return [...trusted].filter((entry) => !candidate.has(entry));
 }
 
@@ -381,8 +431,7 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         'i18n-check must propagate all collected outcomes at the end');
 
     // trusted helper 内容检查：候选弱化 scripts/ci 共享实现必须被拒绝
-    const matFile = path.join(candidateRoot, 'scripts', 'ci', 'materialize-trusted-gate.sh');
-    if (fs.existsSync(matFile)) {
+    const matFile = path.join(candidateRoot, 'scripts', 'ci', 'materialize-trusted-gate.sh');    if (fs.existsSync(matFile)) {
         const matText = fs.readFileSync(matFile, 'utf8');
         const matOk = /ls-tree/.test(matText) && /read-tree/.test(matText)
             && /checkout-index/.test(matText) && /test -s/.test(matText)
@@ -396,9 +445,22 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         const resOk = /i18n-gate-epoch-2-root/.test(resText)
             && /ROOT_ADMISSION/.test(resText)
             && /trusted_base_sha/.test(resText)
+            && (resText.match(/isAncestor\(repoRoot, (root|base),/g) || []).length >= 3
+            && /'merge-base', candidate/.test(resText)
             && !isNoopStep(resText);
-        pushCheck('resolve-trusted-base.mjs keeps root/input-precedence semantics', resOk,
-            'candidate weakened scripts/ci/resolve-trusted-base.mjs');
+        pushCheck('resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
+            'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
+                + ' ROOT_ADMISSION / trusted_base_sha input-precedence logic plus the full ancestry'
+                + ' provenance root <= base < candidate; exit-0 stubs are refused)');
+    }
+    const syncFile = path.join(candidateRoot, 'scripts', 'sync-shared-snippets.ps1');
+    if (fs.existsSync(syncFile)) {
+        const syncText = fs.readFileSync(syncFile, 'utf8');
+        const syncOk = /-Check/.test(syncText) && /exit\s+1/.test(syncText)
+            && /[Dd]rift/.test(syncText) && !isNoopStep(syncText);
+        pushCheck('sync-shared-snippets.ps1 keeps the -Check drift gate', syncOk,
+            'candidate weakened scripts/sync-shared-snippets.ps1 (missing -Check / exit 1 / drift'
+                + ' detection, or reduced to a no-op stub)');
     }
 
     // Epoch 2 机制
@@ -456,6 +518,167 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         'candidate workflow uses github.sha^ fallback: ' + badShaCaret.join(', '));
 }
 
+/**
+ * if 条件安全比较：candidate 不得新增 always() / if false / !cancelled() 绕过、
+ * 不得删除 if 本身、不得丢掉 trusted 的 needs.* 依赖检查；其余等价变化允许。
+ */
+function safetyIfOk(trustedIf, candidateIf) {
+    if (candidateIf === trustedIf) {
+        return true;
+    }
+    if (!candidateIf) {
+        return false;
+    }
+    const tHasAlways = /always\(\)/.test(trustedIf);
+    const cHasAlways = /always\(\)/.test(candidateIf);
+    const tHasFalse = /if\s+false|=\s*false/.test(trustedIf);
+    const cHasFalse = /if\s+false|=\s*false/.test(candidateIf);
+    const tHasNeeds = /needs\./.test(trustedIf);
+    const cHasNeeds = /needs\./.test(candidateIf);
+    if (cHasAlways && !tHasAlways) {
+        return false;
+    }
+    if (cHasFalse && !tHasFalse) {
+        return false;
+    }
+    if (tHasNeeds && !cHasNeeds) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * 外围 workflow predecessor diff（trusted vs candidate）：
+ * 最小不变量之外，trusted 已有的触发器 / job / needs / uses / 关键命令 /
+ * if 安全条件一律不得减少（predecessor monotonicity）。
+ */
+function auditExternalWorkflow(checks, trustedDoc, candidateDoc, rel) {
+    const pushCheck = (name, ok, diagnostic) => {
+        checks.push({ name, kind: 'workflow', expected: ok ? 'present' : 'absent', status: null, ok,
+            diagnostic: ok ? '' : diagnostic });
+    };
+    if (!trustedDoc) {
+        return;
+    }
+    if (!candidateDoc || typeof candidateDoc !== 'object' || Array.isArray(candidateDoc)) {
+        pushCheck(rel + ' preserved as a YAML mapping', false,
+            'candidate dropped or broke ' + rel + '; fail closed');
+        return;
+    }
+    pushCheck(rel + ': name preserved', candidateDoc.name === trustedDoc.name,
+        'candidate renamed ' + rel + ' from ' + JSON.stringify(trustedDoc.name)
+            + ' to ' + JSON.stringify(candidateDoc.name));
+    if (trustedDoc.on && typeof trustedDoc.on === 'object') {
+        const candidateOn = candidateDoc.on && typeof candidateDoc.on === 'object' ? candidateDoc.on : {};
+        for (const trigger of Object.keys(trustedDoc.on)) {
+            pushCheck(rel + ': trigger ' + trigger + ' preserved',
+                candidateOn[trigger] !== undefined,
+                'candidate dropped the ' + trigger + ' trigger from ' + rel);
+        }
+    }
+    const trustedJobs = trustedDoc.jobs && typeof trustedDoc.jobs === 'object' ? trustedDoc.jobs : {};
+    const candidateJobs = candidateDoc.jobs && typeof candidateDoc.jobs === 'object' ? candidateDoc.jobs : {};
+    for (const [jobId, trustedJob] of Object.entries(trustedJobs)) {
+        const candidateJob = candidateJobs[jobId];
+        pushCheck(rel + ': job ' + jobId + ' preserved', !!candidateJob,
+            'candidate dropped job ' + jobId + ' from ' + rel);
+        if (!candidateJob) {
+            continue;
+        }
+        pushCheck(rel + ': job ' + jobId + ' does not add continue-on-error',
+            !candidateJob['continue-on-error'] || !!trustedJob['continue-on-error'],
+            'candidate adds continue-on-error to ' + jobId + ' in ' + rel + '; the gate result'
+                + ' would be swallowed');
+        for (const need of jobNeeds(trustedJob)) {
+            pushCheck(rel + ': job ' + jobId + ' keeps needs ' + need,
+                jobNeeds(candidateJob).includes(need),
+                'candidate dropped the ' + need + ' dependency of ' + jobId + ' in ' + rel);
+        }
+        const trustedJobIf = stepIf(trustedJob);
+        const candidateJobIf = stepIf(candidateJob);
+        if (trustedJobIf) {
+            pushCheck(rel + ': job ' + jobId + ' keeps its if-condition',
+                safetyIfOk(trustedJobIf, candidateJobIf),
+                'candidate changed the safety if-condition of ' + jobId + ' in ' + rel
+                    + ' (always() / if false / !cancelled() bypass or dropped needs check); fail closed');
+        }
+        const trustedSteps = jobSteps(trustedJob);
+        const candidateSteps = jobSteps(candidateJob);
+        for (let i = 0; i < trustedSteps.length; i += 1) {
+            const trustedStep = trustedSteps[i];
+            const uses = stepUses(trustedStep);
+            if (uses) {
+                pushCheck(rel + ': job ' + jobId + ' keeps uses ' + uses,
+                    candidateSteps.some((s) => stepUses(s) === uses),
+                    'candidate dropped or changed the ' + uses + ' step of ' + jobId + ' in ' + rel);
+            }
+            const trustedStepIf = stepIf(trustedStep);
+            if (trustedStepIf) {
+                const candidateStepIf = candidateSteps[i] ? stepIf(candidateSteps[i]) : '';
+                pushCheck(rel + ': job ' + jobId + ' keeps its step if-condition',
+                    safetyIfOk(trustedStepIf, candidateStepIf),
+                    'candidate changed the safety if-condition of a step of ' + jobId + ' in ' + rel
+                        + ' (always() / if false / !cancelled() bypass or dropped needs check); fail closed');
+            }
+        }
+        const trustedCommands = jobCommands(trustedJob);
+        const candidateCommands = jobCommands(candidateJob);
+        const droppedCommands = [...trustedCommands].filter((c) => !candidateCommands.has(c));
+        pushCheck(rel + ': job ' + jobId + ' keeps all commands',
+            droppedCommands.length === 0,
+            'candidate dropped commands from ' + jobId + ' in ' + rel + ': '
+                + droppedCommands.join(' | '));
+    }
+}
+
+/** gate-surface.json 清单：候选不得删除 trusted 条目、不得声明不存在的路径。 */
+function auditGateSurface(checks, trustedDir, candidateRoot) {
+    const pushCheck = (name, ok, diagnostic) => {
+        checks.push({ name, kind: 'invariant', expected: ok ? 'kept' : 'reduced', status: null, ok,
+            diagnostic: ok ? '' : diagnostic });
+    };
+    const trustedFile = path.join(trustedDir, ...SURFACE_REL.split('/'));
+    const candidateFile = path.join(candidateRoot, ...SURFACE_REL.split('/'));
+    if (!fs.existsSync(trustedFile)) {
+        pushCheck('gate-surface.json present in the trusted bundle', false,
+            'the trusted bundle has no scripts/ci/gate-surface.json; fail closed');
+        return;
+    }
+    let trustedSurface;
+    let candidateSurface;
+    try {
+        trustedSurface = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+    } catch (e) {
+        pushCheck('trusted gate-surface.json parses as JSON', false,
+            'trusted gate-surface.json is invalid: ' + e.message);
+        return;
+    }
+    if (!fs.existsSync(candidateFile)) {
+        pushCheck('candidate gate-surface.json preserved', false,
+            'candidate deleted scripts/ci/gate-surface.json; fail closed');
+        return;
+    }
+    try {
+        candidateSurface = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
+    } catch (e) {
+        pushCheck('candidate gate-surface.json parses as JSON', false,
+            'candidate gate-surface.json is invalid: ' + e.message);
+        return;
+    }
+    const trustedPaths = Array.isArray(trustedSurface && trustedSurface.paths)
+        ? trustedSurface.paths.filter((p) => typeof p === 'string') : [];
+    const candidatePaths = Array.isArray(candidateSurface && candidateSurface.paths)
+        ? candidateSurface.paths.filter((p) => typeof p === 'string') : [];
+    const removed = trustedPaths.filter((p) => !candidatePaths.includes(p));
+    pushCheck('candidate gate-surface.json keeps the trusted gate surface',
+        removed.length === 0,
+        'candidate dropped gate surface entries: ' + removed.join(', '));
+    const phantom = candidatePaths.filter((p) => !fs.existsSync(path.join(candidateRoot, ...p.split('/'))));
+    pushCheck('candidate gate-surface.json declares only real paths',
+        phantom.length === 0,
+        'candidate gate-surface.json declares non-existent paths: ' + phantom.join(', '));
+}
+
 function auditPolicy(checks, trustedPolicy, candidatePolicy) {
     const pushCheck = (name, ok, diagnostic) => {
         checks.push({ name, kind: 'policy', expected: ok ? 'kept' : 'reduced', status: null, ok,
@@ -476,10 +699,14 @@ function auditPolicy(checks, trustedPolicy, candidatePolicy) {
         ['required paths', 'requiredPaths'],
         ['protected branches', 'protectedBranches'],
         ['required workflow jobs', 'requiredWorkflowJobs'],
+        ['required workflow files', 'requiredWorkflowFiles'],
         ['required package scripts', 'requiredPackageScripts'],
         ['required external checks', 'requiredExternalChecks'],
+        ['required external check definitions', 'requiredExternalCheckDefinitions'],
     ]) {
-        const removed = setReduced(trustedPolicy[key], candidatePolicy[key]);
+        const removed = key === 'requiredExternalChecks' || key === 'requiredExternalCheckDefinitions'
+            ? setReduced(trustedPolicy[key], candidatePolicy[key], normalizeExternalCheck)
+            : setReduced(trustedPolicy[key], candidatePolicy[key]);
         pushCheck(name + ' not reduced', removed.length === 0,
             'candidate dropped ' + name + ': ' + removed.join(', '));
     }
@@ -499,11 +726,26 @@ function auditPackage(checks, requiredScripts, candidatePkg) {
     }
 }
 
-function auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot) {
+function auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot, repoRoot) {
     const pushCheck = (name, ok, diagnostic) => {
         checks.push({ name, kind: 'invariant', expected: ok ? 'satisfied' : 'violated', status: null, ok,
             diagnostic: ok ? '' : diagnostic });
     };
+    // Root Admission 也必须检查所有外围 workflow：解析全部外部 workflow 文档
+    // （yaml 解析器从 repoRoot 解析，候选快照目录没有 node_modules）
+    const candidateExternalDocs = {};
+    for (const rel of EXTERNAL_WORKFLOW_RELS) {
+        const file = path.join(candidateRoot, ...rel.split('/'));
+        if (fs.existsSync(file)) {
+            try {
+                const YAML = loadYamlModule(repoRoot);
+                candidateExternalDocs[rel] = YAML.parse(fs.readFileSync(file, 'utf8'));
+            } catch (e) {
+                pushCheck('invariant: ' + rel + ' parses as YAML', false,
+                    'cannot parse the candidate ' + rel + ': ' + e.message);
+            }
+        }
+    }
     if (!invariants) {
         pushCheck('gate-invariants.json present', false, 'gate-invariants.json is missing');
         return;
@@ -535,19 +777,59 @@ function auditInvariants(checks, invariants, candidatePolicy, candidateDoc, cand
         // token 匹配：命令中每个 token 都必须出现在候选的某个实际执行命令里；
         // token 去引号后按相等或后缀匹配（"gate-parity.mjs" ⊂ "$GATE_DIR/scripts/ci/gate-parity.mjs"）
         const tokens = command.trim().split(/\s+/).filter(Boolean);
-        const found = Object.values(candidateJobs).some((job) => jobSteps(job).some((s) =>
+        const workflows = [candidateDoc, ...Object.values(candidateExternalDocs || {})]
+            .filter((d) => d && d.jobs && typeof d.jobs === 'object');
+        const found = workflows.some((doc) => Object.values(doc.jobs).some((job) => jobSteps(job).some((s) =>
+            extractCommands(stepRun(s)).some((c) => {
+                const cTokens = c.split(/\s+/)
+                    .map((t) => t.replace(/^["']|["']$/g, ''))
+                    .filter(Boolean);
+                return tokens.every((t) => cTokens.some((ct) => ct === t || ct.endsWith('/' + t) || ct.endsWith(t)));
+            }))));
+        pushCheck('invariant: command "' + command + '" present', found,
+            'candidate no longer runs "' + command + '"');
+    }
+    for (const rel of invariants.requiredFiles || []) {
+        pushCheck('invariant: file ' + rel + ' present', fs.existsSync(path.join(candidateRoot, ...rel.split('/'))),
+            'candidate is missing the invariant file ' + rel);
+    }
+    // 外围 workflow job / trigger 不变量（root admission 最低线）
+    for (const [rel, jobs] of Object.entries(invariants.requiredExternalWorkflowJobs || {})) {
+        const doc = candidateExternalDocs[rel];
+        pushCheck('invariant: external workflow ' + rel + ' present', !!doc,
+            'candidate is missing the invariant external workflow ' + rel);
+        if (doc && doc.jobs && typeof doc.jobs === 'object') {
+            for (const jobId of jobs) {
+                pushCheck('invariant: ' + rel + ' job ' + jobId + ' present',
+                    doc.jobs[jobId] && typeof doc.jobs[jobId] === 'object',
+                    'candidate dropped the invariant job ' + jobId + ' from ' + rel);
+            }
+        }
+    }
+    for (const [rel, triggers] of Object.entries(invariants.requiredExternalWorkflowTriggers || {})) {
+        const doc = candidateExternalDocs[rel];
+        if (doc && doc.on && typeof doc.on === 'object') {
+            for (const trigger of triggers) {
+                pushCheck('invariant: ' + rel + ' trigger ' + trigger + ' present',
+                    doc.on[trigger] !== undefined,
+                    'candidate dropped the invariant trigger ' + trigger + ' from ' + rel);
+            }
+        }
+    }
+    // shared-snippet 真实 -Check 命令：必须出现在 shared-snippets-check.yml 的实际执行命令中
+    const sharedCommand = invariants.requiredSharedSnippetCommand;
+    if (sharedCommand) {
+        const tokens = String(sharedCommand).trim().split(/\s+/).filter(Boolean);
+        const doc = candidateExternalDocs[path.posix.join('.github', 'workflows', 'shared-snippets-check.yml')];
+        const found = !!doc && Object.values(doc.jobs || {}).some((job) => jobSteps(job).some((s) =>
             extractCommands(stepRun(s)).some((c) => {
                 const cTokens = c.split(/\s+/)
                     .map((t) => t.replace(/^["']|["']$/g, ''))
                     .filter(Boolean);
                 return tokens.every((t) => cTokens.some((ct) => ct === t || ct.endsWith('/' + t) || ct.endsWith(t)));
             })));
-        pushCheck('invariant: command "' + command + '" present', found,
-            'candidate workflow no longer runs "' + command + '"');
-    }
-    for (const rel of invariants.requiredFiles || []) {
-        pushCheck('invariant: file ' + rel + ' present', fs.existsSync(path.join(candidateRoot, ...rel.split('/'))),
-            'candidate is missing the invariant file ' + rel);
+        pushCheck('invariant: shared snippet command "' + sharedCommand + '" present', found,
+            'candidate no longer runs the real shared snippet check command');
     }
 }
 
@@ -602,7 +884,7 @@ function main() {
 
         if (args.invariants) {
             // root admission / root adoption：没有 trusted predecessor，用 invariants 作为最低线
-            auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot);
+            auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot, repoRoot);
             if (candidatePolicy) {
                 auditPackage(checks, REQUIRED_SCRIPTS, candidatePkg);
             }
@@ -620,9 +902,26 @@ function main() {
             }
             auditPolicy(checks, trustedPolicy, candidatePolicy);
             auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot);
+            // 外围 workflow predecessor diff（trusted vs candidate）+ gate-surface 清单
+            for (const rel of EXTERNAL_WORKFLOW_RELS) {
+                let trustedExt = null;
+                let candidateExt = null;
+                const trustedExtFile = path.join(args.trustedDir, ...rel.split('/'));
+                const candidateExtFile = path.join(candidateRoot, ...rel.split('/'));
+                if (fs.existsSync(trustedExtFile)) {
+                    const YAML = loadYamlModule(repoRoot);
+                    trustedExt = YAML.parse(fs.readFileSync(trustedExtFile, 'utf8'));
+                }
+                if (fs.existsSync(candidateExtFile)) {
+                    const YAML = loadYamlModule(repoRoot);
+                    candidateExt = YAML.parse(fs.readFileSync(candidateExtFile, 'utf8'));
+                }
+                auditExternalWorkflow(checks, trustedExt, candidateExt, rel);
+            }
+            auditGateSurface(checks, args.trustedDir, candidateRoot);
             auditPackage(checks, [...REQUIRED_SCRIPTS, ...(trustedPolicy.requiredPackageScripts || [])], candidatePkg);
             if (invariants) {
-                auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot);
+                auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot, repoRoot);
             }
         }
 

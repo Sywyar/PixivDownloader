@@ -17,12 +17,16 @@
  *    - 其它（不包含 Epoch 2 root 的 candidate）→ fail closed，不尝试任何 v1/legacy 路径。
  * 1. NORMAL 模式下 trusted base 解析（优先级从高到低）：
  *    - inputs.trusted_base_sha 非空 → 使用它（workflow_call 的 github.event_name 是调用方
- *      的原始 event，不能依赖 event 猜测）；
+ *      的原始 event，不能依赖 event 猜测；调用者只 propose，本脚本负责 prove）；
  *    - 否则按当前 event：pull_request → base.sha；merge_group → base_sha；
- *      push → event.before（全零 / 不可解析 → 默认分支远端 ref）；
+ *      push → event.before（全零 / 不可解析 → merge-base(candidate, 受保护默认分支) 的
+ *      fork base，而不是默认分支当前 tip——默认分支 tip 未必是 candidate 的祖先）；
  *      workflow_dispatch → 默认分支远端 ref；其它 → fail closed；
- *    - base 必须是 commit、不等于 candidate、且必须包含 Epoch 2 root（base 降级到 Epoch 1
- *      历史一律 fail closed）。
+ *    - 每个来源的 base 都必须满足完整 provenance：base 是 commit、base != candidate、
+ *      root ancestor base、base ancestor candidate（root <= base < candidate）。
+ *      sibling / descendant / unrelated / pre-root base 全部 fail closed；
+ *    - push 的 before 若不是 candidate 祖先（force push / sibling 拓扑）同样 fail closed；
+ *    - base 降级到 Epoch 1 历史一律 fail closed。
  * 2. ROOT_ADMISSION 模式下 base = root（candidate 自身；这是唯一人工 root 例外）。
  * 3. 结果验证（写 GITHUB_ENV 前）：40 位小写 hex commit SHA；在本地 object database 中存在。
  *
@@ -130,6 +134,21 @@ function parseArgs(argv) {
     return args;
 }
 
+/** 新分支（before 全零）的 fork base：merge-base(candidate, 受保护默认分支)。 */
+function resolveForkBase(repoRoot, candidate, defaultBranch) {
+    const tip = resolveDefaultBranch(repoRoot, defaultBranch);
+    if (!tip) {
+        return null;
+    }
+    let mb;
+    try {
+        mb = git(['merge-base', candidate, tip], repoRoot);
+    } catch (e) {
+        return null;
+    }
+    return SHA_RE.test(mb) ? mb : null;
+}
+
 /** 根据 event / inputs 解析 NORMAL 模式 trusted base（input 优先级最高）。 */
 function resolveNormalBase(repoRoot, args) {
     // 1. 显式 input 优先（reusable workflow 的 event_name 是调用方原始 event，不能依赖它）
@@ -152,7 +171,16 @@ function resolveNormalBase(repoRoot, args) {
             }
             return before;
         }
-        return resolveDefaultBranch(repoRoot, args.defaultBranch);
+        // 新分支：不伪装成「默认分支当前 tip → candidate」；
+        // fork base = merge-base(candidate, protected default branch)，随后统一验证
+        // root <= forkBase < candidate。
+        const forkBase = resolveForkBase(repoRoot, args.candidate, args.defaultBranch);
+        if (!forkBase) {
+            fail('cannot determine a fork base between the candidate and the protected default'
+                + ' branch (merge-base(candidate, refs/remotes/origin/<default>) missing); fail closed');
+            return null;
+        }
+        return forkBase;
     }
     if (event === 'workflow_dispatch') {
         return resolveDefaultBranch(repoRoot, args.defaultBranch);
@@ -169,7 +197,7 @@ function main() {
         return;
     }
     if (args.version) {
-        console.log('resolve-trusted-base 2');
+        console.log('resolve-trusted-base 3');
         return;
     }
     if (!args.repoRoot || !args.eventName || !args.candidate) {
@@ -241,6 +269,14 @@ function main() {
         if (!isAncestor(repoRoot, root, base)) {
             fail('trusted base ' + base + ' does not descend from the Gate Epoch 2 trust root '
                 + root + '; fail closed');
+            return;
+        }
+        // 8.3：trusted base 必须是 candidate 的真实祖先（root <= base < candidate）。
+        // sibling / unrelated / descendant / pre-root base 一律拒绝——仅验证
+        // root ancestor base 无法排除「从未进入受保护历史的 feature branch gate」。
+        if (!isAncestor(repoRoot, base, candidate)) {
+            fail('trusted base ' + base + ' is not an ancestor of the candidate ' + candidate
+                + '; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed');
             return;
         }
         if (args.eventName === 'push' && args.before && SHA_RE.test(args.before) && args.before !== ZERO

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "comment": "GitHub Ruleset 期望不变量声明（仓库内愿望清单，不是远端事实）。仓库代码能保护 workflow 实现 / 名称 / job id / required context 期望，但无法保证 GitHub 界面中的 Ruleset 实际设置；该文件只是机器可读清单，真实远端设置必须由管理员按 scripts/ci/doctor-github-ruleset.mjs 审计确认。",
+  "master": {
+    "requiredChecks": [
+      "Quality Gate / java-tests",
+      "Quality Gate / javascript-tests",
+      "Quality Gate / signature-guard",
+      "Quality Gate / trusted-gate-contract",
+      "Quality Gate / i18n-check",
+      "Shared Snippet Drift Check / check-shared-snippets"
+    ],
+    "requireStrict": true,
+    "allowBypass": false,
+    "allowDeletion": false,
+    "allowNonFastForward": false
+  },
+  "i18n-gate-epoch-2-root": {
+    "allowDeletion": false,
+    "allowNonFastForward": false,
+    "allowBypass": false
+  }
+}

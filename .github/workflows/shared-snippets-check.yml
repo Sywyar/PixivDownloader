@@ -17,7 +17,7 @@ jobs:
         run: git config --global core.quotepath false
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify .user.js shared snippets are in sync
         shell: pwsh
