@@ -17,11 +17,12 @@
 #   only ever the OBJECT of the trusted contract's black-box tests; it can
 #   never approve itself.
 # - When a pushed commit changes gate paths (scripts/i18n/**, scripts/hooks/**,
-#   scripts/ci/**, .github/workflows/quality-gate.yml, package.json,
-#   package-lock.json) relative to ANY parent, the trusted gate contract
-#   validates that commit (--candidate-ref). Intermediate commits that introduce
-#   a no-op checker fail even when a later commit fixes it; the branch tip's
-#   gate bundle is never the only thing checked.
+#   scripts/ci/**, scripts/sync-shared-snippets.ps1, .github/workflows/*.yml in the
+#   gate surface, package.json, package-lock.json; the exact list comes from the
+#   trusted gate-surface.json manifest) relative to ANY parent, the trusted gate
+#   contract validates that commit (--candidate-ref). Intermediate commits that
+#   introduce a no-op checker fail even when a later commit fixes it; the branch
+#   tip's gate bundle is never the only thing checked.
 # - Enforcement boundary: only commits at/after the trusted policy's
 #   i18nEnforcementStartCommit run the i18n gate; a branch whose history does
 #   not include the enforcement root fails closed. Eligibility is decided PER
@@ -121,7 +122,7 @@ trap cleanup EXIT
 
 # ---- 2. 物化 trusted anchor 的 gate bundle（一次） ----
 trusted_dir="$tmpdir/trusted"
-trusted_paths="$(git ls-tree -r --name-only "$trusted" -- scripts/i18n scripts/hooks)"
+trusted_paths="$(git ls-tree -r --name-only "$trusted" -- scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1)"
 if [ -z "$trusted_paths" ]; then
     echo "pre-push: trusted anchor $trusted does not contain the i18n gate bundle (scripts/i18n, scripts/hooks)." >&2
     exit 1
@@ -153,6 +154,16 @@ protected_list="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFile
 if ! git rev-parse --verify --quiet "$start^{commit}" >/dev/null 2>&1; then
     echo "pre-push: i18n enforcement start $start (from the trusted policy) does not resolve in this repository; fail closed." >&2
     exit 1
+fi
+
+# gate 变更检测使用 trusted 的 gate-surface.json 单一清单（与 pre-commit / contract / parity /
+# CI bootstrap 同一外围 Gate Surface）；trusted bundle 早于清单时回退内置默认列表。
+gate_re=""
+if [ -f "$trusted_dir/scripts/ci/gate-surface.json" ]; then
+    gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' "$trusted_dir/scripts/ci/gate-surface.json")"
+fi
+if [ -z "$gate_re" ]; then
+    gate_re='^(scripts/(i18n|hooks|ci)/|scripts/sync-shared-snippets\.ps1$|\.github/workflows/(quality-gate|shared-snippets-check|release|nightly|publish-plugins)\.yml$|package\.json$|package-lock\.json$)'
 fi
 
 # ---- 3. 真实远端状态：ls-remote + 临时 namespace fetch（refs/remotes 不作数） ----
@@ -348,7 +359,7 @@ echo "pre-push: verifying $count pushed commit(s) against the trusted i18n gate 
             else
                 for p in $rest; do
                     if git diff-tree --no-commit-id --name-only -r "$p" "$sha" 2>/dev/null \
-                        | grep -Eq '^(scripts/(i18n|hooks|ci)/|\.github/workflows/quality-gate\.yml$|package\.json$|package-lock\.json$)'; then
+                        | grep -Eq "$gate_re"; then
                         contract=1
                         break
                     fi

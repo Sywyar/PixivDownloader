@@ -861,7 +861,7 @@ test('pre-push：A 弱化 scripts/ci helper、B 恢复 → push A..B 必须失�
     }
 });
 
-test('pre-push：A 弱化 release.yml（删除 draft-quality-gate）、B 恢复 → push A..B 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+test('pre-push：A 弱化 release.yml（删除 draft-quality-gate）、B 恢复 → push A..B 必须失败', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -893,7 +893,7 @@ test('pre-push：A 弱化 release.yml（删除 draft-quality-gate）、B 恢复 
     }
 });
 
-test('pre-push：A 把 shared-snippets-check.yml 改成 true、B 恢复 → push A..B 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+test('pre-push：A 把 shared-snippets-check.yml 改成 true、B 恢复 → push A..B 必须失败', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -927,7 +927,7 @@ test('pre-push：A 把 shared-snippets-check.yml 改成 true、B 恢复 → push
     }
 });
 
-test('pre-push：A 把 sync-shared-snippets.ps1 改成 exit 0、B 恢复 → push A..B 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+test('pre-push：A 把 sync-shared-snippets.ps1 改成 exit 0、B 恢复 → push A..B 必须失败', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -1233,7 +1233,7 @@ test('pre-commit：暂存 workflow 关键命令改为 true → 必须失败', ()
     }
 });
 
-test('pre-commit：暂存 release.yml 删除 draft-quality-gate → 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+test('pre-commit：暂存 release.yml 删除 draft-quality-gate → 必须失败', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -1254,7 +1254,7 @@ test('pre-commit：暂存 release.yml 删除 draft-quality-gate → 必须失败
     }
 });
 
-test('pre-commit：暂存 shared-snippets-check.yml 删除 -Check → 必须失败', { skip: 'deferred to the hook surface unification commit (predecessor contract freezes scripts/hooks)' }, () => {
+test('pre-commit：暂存 shared-snippets-check.yml 删除 -Check → 必须失败', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
