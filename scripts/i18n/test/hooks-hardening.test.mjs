@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { runGenerate } from '../generate-static.mjs';
 import { runAcceptCore, validateCliPolicy } from '../accept.mjs';
 import { runDoctor } from '../doctor-hooks.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 import staleLock from '../lib/stale-lock.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -81,10 +82,28 @@ function makeGitRepo(base = os.tmpdir()) {
     git(['config', 'user.email', 't@example.com'], dir);
     git(['config', 'user.name', 'test'], dir);
     git(['config', 'core.autocrlf', 'false'], dir);
+    fs.writeFileSync(path.join(dir, '.gitignore'), 'build/\nnode_modules/\n', 'utf8');
+    try {
+        if (process.platform === 'win32') {
+            fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(dir, 'node_modules'), 'junction');
+        } else {
+            fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(dir, 'node_modules'));
+        }
+    } catch (e) {
+        // node_modules 不可链接时静默跳过：contract 需要 yaml 的场景会因 NODE_PATH 兜底
+    }
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    // 当前 verifier baseline：anchor 必须携带完整 gate bundle（scripts/ci + workflow + package）
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
+    fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');
@@ -645,7 +664,12 @@ test('pre-push：remote SHA 不在本地 object database → 回退目标 remote
         // pre-push 先从真实远端 fetch 对象到临时 namespace 再准确计算基线（9.4）：
         // 本地提交不在远端 tip 之后 → protected master 拒绝盲推；不得漏检或崩溃。
         const remoteTipBefore = git(['ls-remote', remote], root).stdout.trim();
-        writeBundles(root, GOOD_ZH, GOOD_EN);
+        fs.writeFileSync(path.join(root, APP_I18N, 'web', 'common.properties'),
+            GOOD_ZH + 'status3=状态三\n', 'utf8');
+        fs.writeFileSync(path.join(root, APP_I18N, 'web', 'common_en.properties'),
+            GOOD_EN + 'status3=Status three\n', 'utf8');
+        runGenerate(root);
+        assert.equal(runAcceptCore(root, { locale: 'en-US' }).ok, true);
         commitAll(root, 'local good');
         const push = git(['push', 'origin', 'master'], root, { allowFailure: true });
         assert.notEqual(push.status, 0,

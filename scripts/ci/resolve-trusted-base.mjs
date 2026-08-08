@@ -19,14 +19,19 @@
  *    - inputs.trusted_base_sha 非空 → 使用它（workflow_call 的 github.event_name 是调用方
  *      的原始 event，不能依赖 event 猜测；调用者只 propose，本脚本负责 prove）；
  *    - 否则按当前 event：pull_request → base.sha；merge_group → base_sha；
- *      push → event.before（全零 / 不可解析 → merge-base(candidate, 受保护默认分支) 的
- *      fork base，而不是默认分支当前 tip——默认分支 tip 未必是 candidate 的祖先）；
+ *      push 到受保护默认分支 → event.before；其它分支 push（无论 before 是否非零）→
+ *      merge-base(candidate, 受保护默认分支) 的 fork base；
  *      workflow_dispatch → 默认分支远端 ref；其它 → fail closed；
  *    - 每个来源的 base 都必须满足完整 provenance：base 是 commit、base != candidate、
  *      root ancestor base、base ancestor candidate（root <= base < candidate）。
  *      sibling / descendant / unrelated / pre-root base 全部 fail closed；
- *    - push 的 before 若不是 candidate 祖先（force push / sibling 拓扑）同样 fail closed；
- *    - base 降级到 Epoch 1 历史一律 fail closed。
+ *    - 所有 NORMAL base 都必须属于受保护默认分支历史；显式 trusted_base_sha 还必须
+ *      精确等于 candidate 相对受保护默认分支的 predecessor，不能任意选择更老提交；
+ *    - base 降级到 Epoch 1 历史一律 fail closed；
+ * 8.4 每个 base（含 ROOT_ADMISSION 的 root candidate）还必须满足本 verifier 自身 policy 的
+ *    minimumTrustedVerifier（contractVersion / schemaVersion / requiredFiles）；
+ *    缺任何一项 → FAIL CLOSED（verifier rollback / 旧 verifier 审核新标准一律拒绝，
+ *    不存在 predates / fallback / legacy / transition 兼容路径）。
  * 2. ROOT_ADMISSION 模式下 base = root（candidate 自身；这是唯一人工 root 例外）。
  * 3. 结果验证（写 GITHUB_ENV 前）：40 位小写 hex commit SHA；在本地 object database 中存在。
  *
@@ -40,6 +45,9 @@ import { fileURLToPath } from 'url';
 const ZERO = '0000000000000000000000000000000000000000';
 const SHA_RE = /^[0-9a-f]{40}$/;
 const ROOT_TAG = 'refs/tags/i18n-gate-epoch-2-root';
+
+const VERIFIER_POLICY_REL = 'scripts/i18n/gate-policy.json';
+const OWN_POLICY_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'i18n', 'gate-policy.json');
 
 function fail(message) {
     console.error('resolve-trusted-base ERROR: ' + message);
@@ -94,9 +102,95 @@ function resolveDefaultBranch(repoRoot, defaultBranch) {
     return null;
 }
 
+/** 读 ref 处的文件内容；不存在返回 null。 */
+function readFileAt(repoRoot, sha, rel) {
+    try {
+        return git(['show', sha + ':' + rel], repoRoot);
+    } catch (e) {
+        return null;
+    }
+}
+
+/** ref 处是否存在文件。 */
+function hasFileAt(repoRoot, sha, rel) {
+    try {
+        git(['cat-file', '-e', sha + ':' + rel], repoRoot);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function loadMinimumTrustedVerifier() {
+    let policy;
+    try {
+        policy = JSON.parse(fs.readFileSync(OWN_POLICY_FILE, 'utf8'));
+    } catch (e) {
+        fail('cannot read this verifier\'s gate-policy.json minimumTrustedVerifier: ' + e.message);
+        return null;
+    }
+    const minimum = policy && policy.minimumTrustedVerifier;
+    if (!minimum || !Number.isInteger(minimum.contractVersion)
+        || !Number.isInteger(minimum.schemaVersion) || !Array.isArray(minimum.requiredFiles)
+        || minimum.requiredFiles.length === 0
+        || minimum.requiredFiles.some((rel) => typeof rel !== 'string' || rel.length === 0)) {
+        fail('this verifier has no valid gate-policy.json minimumTrustedVerifier; fail closed');
+        return null;
+    }
+    return minimum;
+}
+
+/**
+ * 校验 trusted base 是否满足执行中 verifier policy 声明的 minimumTrustedVerifier。
+ * minimum 来自本脚本同一 trusted bundle，不能由待审核 base 自行降低。
+ * 缺任何一项 → FAIL CLOSED（verifier rollback 一律拒绝，无 predates / fallback / legacy 路径）。
+ */
+function assertSupportedTrustedVerifier(repoRoot, base, minimum) {
+    const policyText = readFileAt(repoRoot, base, VERIFIER_POLICY_REL);
+    if (policyText === null) {
+        fail('trusted base ' + base + ' has no gate-policy.json; it does not satisfy the'
+            + ' current Gate Epoch 2 verifier baseline; fail closed');
+        return;
+    }
+    let policy;
+    try {
+        policy = JSON.parse(policyText);
+    } catch (e) {
+        fail('trusted base ' + base + ' gate-policy.json is invalid; fail closed');
+        return;
+    }
+    if (policy.gateEpoch !== 2) {
+        fail('trusted base ' + base + ' gateEpoch ' + policy.gateEpoch
+            + ' != 2; it does not satisfy the current verifier baseline; fail closed');
+        return;
+    }
+    if (!Number.isInteger(policy.contractVersion)
+        || policy.contractVersion < minimum.contractVersion) {
+        fail('trusted base ' + base + ' contractVersion ' + policy.contractVersion
+            + ' < current minimum ' + minimum.contractVersion
+            + '; the trusted verifier is too old to review current-standard candidates'
+            + ' (verifier rollback is refused); fail closed');
+        return;
+    }
+    if (!Number.isInteger(policy.schemaVersion)
+        || policy.schemaVersion < minimum.schemaVersion) {
+        fail('trusted base ' + base + ' schemaVersion ' + policy.schemaVersion
+            + ' < current minimum ' + minimum.schemaVersion
+            + '; it does not satisfy the current verifier baseline; fail closed');
+        return;
+    }
+    for (const rel of minimum.requiredFiles) {
+        if (!hasFileAt(repoRoot, base, rel)) {
+            fail('trusted base ' + base + ' is missing ' + rel + '; it does not satisfy the'
+                + ' current Gate Epoch 2 verifier baseline; fail closed');
+            return;
+        }
+    }
+}
+
 function parseArgs(argv) {
     const args = {
-        repoRoot: null, eventName: null, candidate: null, before: null,
+        repoRoot: null, eventName: null, candidate: null, before: null, gitRef: null,
         prBase: null, mergeGroupBase: null, inputBase: null, defaultBranch: null,
         rootAdmission: null, rootCandidateSha: null, mode: false, version: false,
     };
@@ -111,6 +205,8 @@ function parseArgs(argv) {
             args.candidate = value();
         } else if (arg === '--before') {
             args.before = value();
+        } else if (arg === '--ref') {
+            args.gitRef = value();
         } else if (arg === '--pr-base') {
             args.prBase = value();
         } else if (arg === '--merge-group-base') {
@@ -149,6 +245,22 @@ function resolveForkBase(repoRoot, candidate, defaultBranch) {
     return SHA_RE.test(mb) ? mb : null;
 }
 
+function resolveProtectedPredecessor(repoRoot, candidate, defaultBranch) {
+    const tip = resolveDefaultBranch(repoRoot, defaultBranch);
+    if (!tip) {
+        return null;
+    }
+    if (tip === candidate) {
+        return resolveCommit(repoRoot, candidate + '^');
+    }
+    try {
+        const base = git(['merge-base', candidate, tip], repoRoot);
+        return SHA_RE.test(base) ? base : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 /** 根据 event / inputs 解析 NORMAL 模式 trusted base（input 优先级最高）。 */
 function resolveNormalBase(repoRoot, args) {
     // 1. 显式 input 优先（reusable workflow 的 event_name 是调用方原始 event，不能依赖它）
@@ -163,7 +275,12 @@ function resolveNormalBase(repoRoot, args) {
         return SHA_RE.test(args.mergeGroupBase || '') ? args.mergeGroupBase : null;
     }
     if (event === 'push') {
-        if (SHA_RE.test(args.before || '') && args.before !== ZERO) {
+        // 新调用方传 --ref；contract v4 trusted helper 调用面没有该参数，因此 workflow
+        // 先把非默认分支的 before 归一化为全零。无 --ref + 非零 before 只提出 protected
+        // predecessor，后续 protected-history / ancestry 证明仍会拒绝 feature commit。
+        if ((args.gitRef === 'refs/heads/' + args.defaultBranch
+                || (!args.gitRef && SHA_RE.test(args.before || '') && args.before !== ZERO))
+            && SHA_RE.test(args.before || '') && args.before !== ZERO) {
             const before = resolveCommit(repoRoot, args.before);
             if (!before) {
                 fail('event.before ' + args.before + ' is not present in the local object database');
@@ -171,9 +288,7 @@ function resolveNormalBase(repoRoot, args) {
             }
             return before;
         }
-        // 新分支：不伪装成「默认分支当前 tip → candidate」；
-        // fork base = merge-base(candidate, protected default branch)，随后统一验证
-        // root <= forkBase < candidate。
+        // 非受保护分支不能信任 event.before：它可能是上一次 CI 已失败的恶意 verifier。
         const forkBase = resolveForkBase(repoRoot, args.candidate, args.defaultBranch);
         if (!forkBase) {
             fail('cannot determine a fork base between the candidate and the protected default'
@@ -197,7 +312,7 @@ function main() {
         return;
     }
     if (args.version) {
-        console.log('resolve-trusted-base 3');
+        console.log('resolve-trusted-base 4');
         return;
     }
     if (!args.repoRoot || !args.eventName || !args.candidate) {
@@ -212,6 +327,10 @@ function main() {
     const candidate = resolveCommit(repoRoot, args.candidate);
     if (!candidate) {
         fail('candidate ' + args.candidate + ' does not resolve to a commit');
+        return;
+    }
+    const minimum = loadMinimumTrustedVerifier();
+    if (!minimum) {
         return;
     }
 
@@ -279,12 +398,29 @@ function main() {
                 + '; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed');
             return;
         }
-        if (args.eventName === 'push' && args.before && SHA_RE.test(args.before) && args.before !== ZERO
-            && base !== args.before) {
-            fail('trusted base ' + base + ' does not resolve to the push before commit ' + args.before);
+        const protectedTip = resolveDefaultBranch(repoRoot, args.defaultBranch);
+        if (!protectedTip || !isAncestor(repoRoot, base, protectedTip)) {
+            fail('trusted base ' + base + ' is not in the protected default branch history; fail closed');
+            return;
+        }
+        if (SHA_RE.test(args.inputBase || '')) {
+            const expected = resolveProtectedPredecessor(repoRoot, candidate, args.defaultBranch);
+            if (!expected || base !== expected) {
+                fail('explicit trusted_base_sha ' + base + ' is not the protected predecessor '
+                    + (expected || '<unresolved>') + ' for candidate ' + candidate + '; fail closed');
+                return;
+            }
+        }
+        if (args.eventName === 'push' && args.gitRef === 'refs/heads/' + args.defaultBranch
+            && args.before && SHA_RE.test(args.before) && args.before !== ZERO && base !== args.before) {
+            fail('trusted base ' + base + ' does not resolve to the protected push before commit '
+                + args.before);
             return;
         }
     }
+    // 8.4：trusted base（或 ROOT_ADMISSION 的 root candidate）必须同时满足 ancestry 与
+    // 当前 verifier capability（contract / schema / verifier 本体文件）。缺任何一项 → FAIL CLOSED。
+    assertSupportedTrustedVerifier(repoRoot, base, minimum);
 
     if (args.mode) {
         console.log(JSON.stringify({ mode, base, root: root || candidate }));

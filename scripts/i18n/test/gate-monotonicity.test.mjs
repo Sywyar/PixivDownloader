@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Gate Monotonicity 审计测试（Epoch 2 门禁不可减少）：
- * 程序化构造 21 种 downgrade mutation，全部必须被 gate-parity 拒绝。
+ * 程序化构造 downgrade mutation 矩阵，全部必须被 gate-parity 拒绝。
  * 不是「当前 workflow 看起来正确」，而是「候选试图降低要求时一定失败」。
  */
 import { test } from 'node:test';
@@ -330,6 +330,14 @@ const MUTATIONS = [
         },
     },
     {
+        name: 'push branches-ignore [gh-pages] → branches [master]（缩小分支覆盖）',
+        mutate: async (root) => {
+            const doc = await readWorkflow(root);
+            doc.on.push = { branches: ['master'] };
+            await writeWorkflow(root, doc);
+        },
+    },
+    {
         name: '删除 package script（i18n:gate-parity → 真值删除）',
         mutate: async (root) => {
             const pkgPath = path.join(root, 'package.json');
@@ -345,6 +353,37 @@ const MUTATIONS = [
             const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
             policy.contractVersion = 1;
             fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'minimumTrustedVerifier contractVersion 4 → 3',
+        mutate: async (root) => {
+            const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+            const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+            policy.minimumTrustedVerifier.contractVersion = 3;
+            fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'feature push 重新信任 event.before',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'resolve-trusted-base.mjs');
+            const source = fs.readFileSync(file, 'utf8').replace(
+                "if ((args.gitRef === 'refs/heads/' + args.defaultBranch\n"
+                    + "                || (!args.gitRef && SHA_RE.test(args.before || '') && args.before !== ZERO))\n"
+                    + "            && SHA_RE.test(args.before || '') && args.before !== ZERO)",
+                "if (SHA_RE.test(args.before || '') && args.before !== ZERO)");
+            fs.writeFileSync(file, source, 'utf8');
+        },
+    },
+    {
+        name: 'doctor 只拒绝 bypass_mode=always',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'doctor-github-ruleset.mjs');
+            const source = fs.readFileSync(file, 'utf8').replaceAll(
+                'bypassActors.length > 0',
+                "bypassActors.some((a) => a && a.bypass_mode === 'always')");
+            fs.writeFileSync(file, source, 'utf8');
         },
     },
     {
@@ -444,6 +483,115 @@ const MUTATIONS = [
             const text = fs.readFileSync(file, 'utf8');
             fs.writeFileSync(file, text.replace('if (!isAncestor(repoRoot, base, candidate)) {',
                 'if (false) {'), 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants 删除 required check',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.requiredChecks = doc.master.requiredChecks.slice(1);
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants requireStrict true → false',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.requireStrict = false;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants allowBypass false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.allowBypass = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants allowDeletion false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.allowDeletion = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants allowNonFastForward false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.allowNonFastForward = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants root tag allowBypass false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc['i18n-gate-epoch-2-root'].allowBypass = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants 删除既有 verifier root tag',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            delete doc['i18n-gate-epoch-2-root'];
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants 新 verifier root tag 允许 bypass',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc['i18n-gate-epoch-3-root'] = {
+                allowDeletion: false,
+                allowNonFastForward: false,
+                allowBypass: true,
+            };
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants schemaVersion 降低',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.schemaVersion = 0;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'doctor-github-ruleset.mjs 删除',
+        mutate: async (root) => {
+            fs.rmSync(path.join(root, 'scripts', 'ci', 'doctor-github-ruleset.mjs'));
+        },
+    },
+    {
+        name: '删除 doctor:github-gate package script',
+        mutate: async (root) => {
+            const pkgPath = path.join(root, 'package.json');
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            delete pkg.scripts['doctor:github-gate'];
+            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'doctor:github-gate = true',
+        mutate: async (root) => {
+            const pkgPath = path.join(root, 'package.json');
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            pkg.scripts['doctor:github-gate'] = 'true';
+            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
         },
     },
 ];

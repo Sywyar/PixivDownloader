@@ -65,11 +65,13 @@ const EXTERNAL_WORKFLOW_RELS = [
     path.posix.join('.github', 'workflows', 'publish-plugins.yml'),
 ];
 
+const RULESET_INVARIANTS_REL = path.posix.join('scripts', 'ci', 'github-ruleset-invariants.json');
+
 const REQUIRED_TRIGGERS = ['push', 'pull_request', 'merge_group', 'workflow_dispatch', 'workflow_call'];
 const REQUIRED_WORKFLOW_JOBS = ['java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract', 'i18n-check'];
 /** Epoch 2 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
 const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'i18n:trust-gate',
-    'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards'];
+    'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards', 'doctor:github-gate'];
 const TRUSTED_LOC = /\$GATE_DIR|\$RUNNER_TEMP|\bguard\/out\b|materialize-trusted-gate/;
 
 const SHA_RE = /^[0-9a-f]{40}$/;
@@ -355,6 +357,22 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
                 'candidate workflow dropped the required ' + trigger + ' trigger');
         }
     }
+    const trustedPush = trustedDoc && trustedDoc.on && trustedDoc.on.push
+        && typeof trustedDoc.on.push === 'object' ? trustedDoc.on.push : {};
+    const candidatePush = candidateDoc && candidateDoc.on && candidateDoc.on.push
+        && typeof candidateDoc.on.push === 'object' ? candidateDoc.on.push : {};
+    const hasCandidateBranches = Object.prototype.hasOwnProperty.call(candidatePush, 'branches');
+    pushCheck('push coverage does not use a positive branches allow-list', !hasCandidateBranches,
+        'candidate narrowed push coverage with branches: ' + JSON.stringify(candidatePush.branches));
+    const trustedIgnored = Array.isArray(trustedPush['branches-ignore'])
+        ? trustedPush['branches-ignore']
+        : (typeof trustedPush['branches-ignore'] === 'string' ? [trustedPush['branches-ignore']] : []);
+    const candidateIgnored = Array.isArray(candidatePush['branches-ignore'])
+        ? candidatePush['branches-ignore']
+        : (typeof candidatePush['branches-ignore'] === 'string' ? [candidatePush['branches-ignore']] : []);
+    const addedIgnored = candidateIgnored.filter((branch) => !trustedIgnored.includes(branch));
+    pushCheck('push excluded branches not increased', addedIgnored.length === 0,
+        'candidate excluded additional push branches: ' + addedIgnored.join(', '));
 
     // jobs：trusted / required job 集合必须全部存在
     const jobNames = new Set(Object.keys(candidateJobs));
@@ -435,7 +453,8 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         const matText = fs.readFileSync(matFile, 'utf8');
         const matOk = /ls-tree/.test(matText) && /read-tree/.test(matText)
             && /checkout-index/.test(matText) && /test -s/.test(matText)
-            && /pre-push-guard\.sh/.test(matText) && !isNoopStep(matText);
+            && /pre-push-guard\.sh/.test(matText) && /minimumTrustedVerifier/.test(matText)
+            && !isNoopStep(matText);
         pushCheck('materialize-trusted-gate.sh keeps its materialization behavior', matOk,
             'candidate weakened scripts/ci/materialize-trusted-gate.sh');
     }
@@ -445,6 +464,11 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         const resOk = /i18n-gate-epoch-2-root/.test(resText)
             && /ROOT_ADMISSION/.test(resText)
             && /trusted_base_sha/.test(resText)
+            && /minimumTrustedVerifier/.test(resText)
+            && /refs\/remotes\/origin/.test(resText)
+            && /--ref/.test(resText)
+            && /args\.gitRef\s*===\s*'refs\/heads\/'\s*\+\s*args\.defaultBranch[\s\S]{0,500}args\.before[\s\S]{0,1500}resolveForkBase/.test(resText)
+            && /isAncestor\(repoRoot, base, candidate\)/.test(resText)
             && (resText.match(/isAncestor\(repoRoot, (root|base),/g) || []).length >= 3
             && /'merge-base', candidate/.test(resText)
             && !isNoopStep(resText);
@@ -452,6 +476,16 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
             'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
                 + ' ROOT_ADMISSION / trusted_base_sha input-precedence logic plus the full ancestry'
                 + ' provenance root <= base < candidate; exit-0 stubs are refused)');
+    }
+    const doctorFile = path.join(candidateRoot, 'scripts', 'ci', 'doctor-github-ruleset.mjs');
+    if (fs.existsSync(doctorFile)) {
+        const doctorText = fs.readFileSync(doctorFile, 'utf8');
+        const doctorOk = (doctorText.match(
+            /bypassActors\.length\s*>\s*0\s*&&\s*!invariants\.allowBypass/g) || []).length >= 2
+            && !/\.filter\([\s\S]{0,200}bypass_mode\s*===\s*['"]always['"]/.test(doctorText)
+            && !isNoopStep(doctorText);
+        pushCheck('doctor-github-ruleset rejects every bypass actor when allowBypass=false', doctorOk,
+            'candidate weakened doctor-github-ruleset.mjs bypass detection');
     }
     const syncFile = path.join(candidateRoot, 'scripts', 'sync-shared-snippets.ps1');
     if (fs.existsSync(syncFile)) {
@@ -478,6 +512,12 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         pushCheck(jobId + ': materialization cross-check with the trusted helper',
             jobSteps(job).some((s) => /materialize-trusted-gate\.sh/.test(stepRun(s))),
             jobId + ' must cross-check materialization against materialize-trusted-gate.sh');
+        pushCheck(jobId + ': minimumTrustedVerifier applies to NORMAL and ROOT_ADMISSION',
+            jobSteps(job).some((s) =>
+                /ROOT ADMISSION MODE:[^\n]*\n\s*fi[\s\S]{0,300}minimum_json=.*minimumTrustedVerifier/
+                    .test(stepRun(s))),
+            jobId + ' must close the NORMAL/ROOT_ADMISSION branch before enforcing'
+                + ' minimumTrustedVerifier');
     }
 
     // 失败吞没 / 条件跳过禁令：只针对运行关键门禁命令的 step；纯 no-op step 一律拒绝
@@ -640,11 +680,11 @@ function auditGateSurface(checks, trustedDir, candidateRoot) {
     const trustedFile = path.join(trustedDir, ...SURFACE_REL.split('/'));
     const candidateFile = path.join(candidateRoot, ...SURFACE_REL.split('/'));
     if (!fs.existsSync(trustedFile)) {
-        // trusted base predates gate-surface.json（如 Epoch 2 root cb587e01）：
-        // 无法做 trusted→candidate 单调比较，只报告；候选侧删除清单仍 fail closed
-        pushCheck('candidate gate-surface.json preserved (trusted predates the manifest)',
-            fs.existsSync(candidateFile),
-            'candidate deleted scripts/ci/gate-surface.json; fail closed');
+        // trusted verifier 无新标准 manifest → verifier 本身无资格审核新标准 candidate；
+        // 不存在 predates / fallback / legacy 兼容路径，一律 fail closed
+        pushCheck('trusted verifier carries gate-surface.json', false,
+            'trusted verifier does not satisfy the current verifier baseline'
+                + ' (missing scripts/ci/gate-surface.json); fail closed');
         return;
     }
     let trustedSurface;
@@ -682,6 +722,134 @@ function auditGateSurface(checks, trustedDir, candidateRoot) {
         'candidate gate-surface.json declares non-existent paths: ' + phantom.join(', '));
 }
 
+/**
+ * github-ruleset-invariants.json 安全语义单调审计（严格度只能增加，不能降低）：
+ * - NORMAL：trusted invariant vs candidate invariant；
+ *   requiredChecks 只能增加（trusted ⊆ candidate）；
+ *   requireStrict 允许 false→true，禁止 true→false；
+ *   allowBypass / allowDeletion / allowNonFastForward 允许 true→false，禁止 false→true；
+ *   schemaVersion 只增不减（字段缺失 → fail closed）；
+ * - invariants 模式（trustedDir == null）：候选必须满足最低安全合同
+ *   （master.requireStrict=true、master/root-tag allow*=false、requiredChecks 非空）。
+ */
+function auditGithubRulesetInvariants(checks, trustedDir, candidateRoot) {
+    const pushCheck = (name, ok, diagnostic) => {
+        checks.push({ name, kind: 'invariant', expected: ok ? 'kept' : 'weakened', status: null, ok,
+            diagnostic: ok ? '' : diagnostic });
+    };
+    const candidateFile = path.join(candidateRoot, ...RULESET_INVARIANTS_REL.split('/'));
+    if (!fs.existsSync(candidateFile)) {
+        pushCheck('candidate github-ruleset-invariants.json present', false,
+            'candidate has no scripts/ci/github-ruleset-invariants.json; fail closed');
+        return;
+    }
+    let candidate;
+    try {
+        candidate = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
+    } catch (e) {
+        pushCheck('candidate github-ruleset-invariants.json parses as JSON', false,
+            'candidate github-ruleset-invariants.json is invalid: ' + e.message);
+        return;
+    }
+    const cs = Number.isInteger(candidate.schemaVersion) ? candidate.schemaVersion : null;
+    if (cs === null) {
+        pushCheck('candidate ruleset invariants schemaVersion present', false,
+            'candidate github-ruleset-invariants.json has no integer schemaVersion; fail closed');
+        return;
+    }
+    const cMaster = candidate.master && typeof candidate.master === 'object' ? candidate.master : null;
+    const rootTagEntries = (value) => Object.entries(value)
+        .filter(([name, rule]) => /^i18n-gate-epoch-[2-9][0-9]*-root$/.test(name)
+            && rule && typeof rule === 'object');
+    const candidateTags = new Map(rootTagEntries(candidate));
+
+    if (trustedDir) {
+        const trustedFile = path.join(trustedDir, ...RULESET_INVARIANTS_REL.split('/'));
+        if (!fs.existsSync(trustedFile)) {
+            pushCheck('trusted verifier carries github-ruleset-invariants.json', false,
+                'trusted verifier does not satisfy the current verifier baseline; fail closed');
+            return;
+        }
+        let trusted;
+        try {
+            trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+        } catch (e) {
+            pushCheck('trusted github-ruleset-invariants.json parses as JSON', false,
+                'trusted github-ruleset-invariants.json is invalid: ' + e.message);
+            return;
+        }
+        const ts = Number.isInteger(trusted.schemaVersion) ? trusted.schemaVersion : null;
+        pushCheck('ruleset invariants schemaVersion not lowered',
+            ts !== null && cs >= ts,
+            'candidate ruleset invariants schemaVersion ' + cs + (ts === null
+                ? ' (trusted schemaVersion missing)' : ' < trusted ' + ts) + '; fail closed');
+        const tMaster = trusted.master && typeof trusted.master === 'object' ? trusted.master : null;
+        const trustedTags = new Map(rootTagEntries(trusted));
+        const tChecks = Array.isArray(tMaster && tMaster.requiredChecks)
+            ? tMaster.requiredChecks.filter((c) => typeof c === 'string') : [];
+        const cChecks = Array.isArray(cMaster && cMaster.requiredChecks)
+            ? cMaster.requiredChecks.filter((c) => typeof c === 'string') : [];
+        const removedChecks = tChecks.filter((c) => !cChecks.includes(c));
+        pushCheck('ruleset required checks not reduced', removedChecks.length === 0,
+            'candidate dropped required status checks: ' + removedChecks.join(', '));
+        // 布尔安全语义单调：requireStrict 只允许 false→true；allow* 只允许 true→false
+        for (const [key, stricterIs] of [['requireStrict', true], ['allowBypass', false],
+            ['allowDeletion', false], ['allowNonFastForward', false]]) {
+            if (!tMaster || !cMaster || typeof tMaster[key] !== 'boolean' || typeof cMaster[key] !== 'boolean') {
+                pushCheck('ruleset master.' + key + ' strictness not weakened', false,
+                    'ruleset invariants master.' + key + ' must be a boolean on both sides; fail closed');
+                continue;
+            }
+            const weakened = stricterIs
+                ? (tMaster[key] === true && cMaster[key] === false)
+                : (tMaster[key] === false && cMaster[key] === true);
+            pushCheck('ruleset master.' + key + ' strictness not weakened', !weakened,
+                'candidate weakened master.' + key + ' from ' + tMaster[key] + ' to '
+                    + cMaster[key] + '; fail closed');
+        }
+        for (const [name, tTag] of trustedTags) {
+            const cTag = candidateTags.get(name);
+            for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+                const valid = !!cTag && typeof tTag[key] === 'boolean' && typeof cTag[key] === 'boolean';
+                const weakened = valid && tTag[key] === false && cTag[key] === true;
+                pushCheck('ruleset root tag ' + name + ' ' + key + ' strictness not weakened',
+                    valid && !weakened,
+                    'candidate removed or weakened root-tag ' + name + '.' + key + '; fail closed');
+            }
+        }
+        for (const [name, cTag] of candidateTags) {
+            for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+                pushCheck('ruleset root tag ' + name + ' ' + key + ' is fail-closed',
+                    cTag[key] === false,
+                    'candidate root-tag ' + name + '.' + key + ' must be false; fail closed');
+            }
+        }
+    } else {
+        // invariants 模式：候选必须满足最低安全合同（不允许弱于当前期望）
+        pushCheck('invariant: ruleset master requireStrict == true',
+            !!(cMaster && cMaster.requireStrict === true),
+            'candidate ruleset invariants master.requireStrict != true; fail closed');
+        for (const key of ['allowBypass', 'allowDeletion', 'allowNonFastForward']) {
+            pushCheck('invariant: ruleset master ' + key + ' == false',
+                !!(cMaster && cMaster[key] === false),
+                'candidate ruleset invariants master.' + key + ' != false; fail closed');
+        }
+        pushCheck('invariant: at least one verifier root tag declared', candidateTags.size > 0,
+            'candidate ruleset invariants must declare a verifier root tag; fail closed');
+        for (const [name, cTag] of candidateTags) {
+            for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+                pushCheck('invariant: ruleset root tag ' + name + ' ' + key + ' == false',
+                    cTag[key] === false,
+                    'candidate ruleset invariants root-tag ' + name + '.' + key + ' != false; fail closed');
+            }
+        }
+        pushCheck('invariant: ruleset required checks non-empty',
+            Array.isArray(cMaster && cMaster.requiredChecks)
+                && cMaster.requiredChecks.some((c) => typeof c === 'string' && c.length > 0),
+            'candidate ruleset invariants master.requiredChecks must be non-empty; fail closed');
+    }
+}
+
 function auditPolicy(checks, trustedPolicy, candidatePolicy) {
     const pushCheck = (name, ok, diagnostic) => {
         checks.push({ name, kind: 'policy', expected: ok ? 'kept' : 'reduced', status: null, ok,
@@ -698,6 +866,21 @@ function auditPolicy(checks, trustedPolicy, candidatePolicy) {
         candidatePolicy.contractVersion >= trustedPolicy.contractVersion,
         'candidate contractVersion ' + candidatePolicy.contractVersion
             + ' < trusted ' + trustedPolicy.contractVersion);
+    pushCheck('schemaVersion not lowered',
+        candidatePolicy.schemaVersion >= trustedPolicy.schemaVersion,
+        'candidate schemaVersion ' + candidatePolicy.schemaVersion
+            + ' < trusted ' + trustedPolicy.schemaVersion);
+    const trustedMinimum = trustedPolicy.minimumTrustedVerifier;
+    const candidateMinimum = candidatePolicy.minimumTrustedVerifier;
+    for (const key of ['contractVersion', 'schemaVersion']) {
+        pushCheck('minimum trusted verifier ' + key + ' not lowered',
+            candidateMinimum[key] >= trustedMinimum[key],
+            'candidate minimumTrustedVerifier.' + key + ' ' + candidateMinimum[key]
+                + ' < trusted ' + trustedMinimum[key]);
+    }
+    const removedVerifierFiles = setReduced(trustedMinimum.requiredFiles, candidateMinimum.requiredFiles);
+    pushCheck('minimum trusted verifier required files not reduced', removedVerifierFiles.length === 0,
+        'candidate dropped minimumTrustedVerifier.requiredFiles: ' + removedVerifierFiles.join(', '));
     for (const [name, key] of [
         ['required paths', 'requiredPaths'],
         ['protected branches', 'protectedBranches'],
@@ -761,6 +944,19 @@ function auditInvariants(checks, invariants, candidatePolicy, candidateDoc, cand
             candidatePolicy.contractVersion >= invariants.contractVersion,
             'candidate contractVersion ' + candidatePolicy.contractVersion
                 + ' < invariant ' + invariants.contractVersion);
+        const minimum = invariants.minimumTrustedVerifier;
+        const candidateMinimum = candidatePolicy.minimumTrustedVerifier;
+        for (const key of ['contractVersion', 'schemaVersion']) {
+            pushCheck('invariant: minimumTrustedVerifier.' + key + ' >= ' + minimum[key],
+                candidateMinimum[key] >= minimum[key],
+                'candidate minimumTrustedVerifier.' + key + ' ' + candidateMinimum[key]
+                    + ' < invariant ' + minimum[key]);
+        }
+        const missingVerifierFiles = setReduced(minimum.requiredFiles, candidateMinimum.requiredFiles);
+        pushCheck('invariant: minimumTrustedVerifier.requiredFiles preserved',
+            missingVerifierFiles.length === 0,
+            'candidate minimumTrustedVerifier dropped invariant files: '
+                + missingVerifierFiles.join(', '));
     }
     const candidateJobs = candidateDoc && candidateDoc.jobs && typeof candidateDoc.jobs === 'object'
         ? candidateDoc.jobs : {};
@@ -775,6 +971,19 @@ function auditInvariants(checks, invariants, candidatePolicy, candidateDoc, cand
                 candidateDoc.on[trigger] !== undefined,
                 'candidate workflow dropped the invariant trigger ' + trigger);
         }
+        const pushConfig = candidateDoc.on.push && typeof candidateDoc.on.push === 'object'
+            ? candidateDoc.on.push : {};
+        const hasBranches = Object.prototype.hasOwnProperty.call(pushConfig, 'branches');
+        pushCheck('invariant: quality gate push has no branches allow-list', !hasBranches,
+            'candidate narrowed quality gate push coverage with branches: '
+                + JSON.stringify(pushConfig.branches));
+        const ignored = Array.isArray(pushConfig['branches-ignore'])
+            ? pushConfig['branches-ignore']
+            : (typeof pushConfig['branches-ignore'] === 'string' ? [pushConfig['branches-ignore']] : []);
+        const allowedExcluded = invariants.qualityGatePushCoverage.exclude;
+        const extraExcluded = ignored.filter((branch) => !allowedExcluded.includes(branch));
+        pushCheck('invariant: quality gate push exclusions do not grow', extraExcluded.length === 0,
+            'candidate excluded additional quality gate push branches: ' + extraExcluded.join(', '));
     }
     for (const command of invariants.requiredCommands || []) {
         // token 匹配：命令中每个 token 都必须出现在候选的某个实际执行命令里；
@@ -888,6 +1097,7 @@ function main() {
         if (args.invariants) {
             // root admission / root adoption：没有 trusted predecessor，用 invariants 作为最低线
             auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot, repoRoot);
+            auditGithubRulesetInvariants(checks, null, candidateRoot);
             if (candidatePolicy) {
                 auditPackage(checks, REQUIRED_SCRIPTS, candidatePkg);
             }
@@ -922,6 +1132,7 @@ function main() {
                 auditExternalWorkflow(checks, trustedExt, candidateExt, rel);
             }
             auditGateSurface(checks, args.trustedDir, candidateRoot);
+            auditGithubRulesetInvariants(checks, args.trustedDir, candidateRoot);
             auditPackage(checks, [...REQUIRED_SCRIPTS, ...(trustedPolicy.requiredPackageScripts || [])], candidatePkg);
             if (invariants) {
                 auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot, repoRoot);

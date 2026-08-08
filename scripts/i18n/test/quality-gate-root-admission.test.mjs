@@ -91,6 +91,10 @@ function makeRepo() {
         JSON.stringify(policy, null, 2) + '\n', 'utf8');
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'add gate policy'], dir); // C2
+    const remote = path.join(dir, '.git', 'test-origin.git');
+    git(['init', '-q', '--bare', remote], dir);
+    git(['remote', 'add', 'origin', remote], dir);
+    git(['-c', 'core.hooksPath=/dev/null', 'push', '-q', '-u', 'origin', 'master'], dir);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', git(['rev-parse', 'HEAD'], dir).stdout.trim()], dir);
@@ -103,7 +107,11 @@ function commitBypass(root, message) {
 }
 
 function runResolver(root, args) {
-    return spawnSync('node', [RESOLVER, '--repo-root', root, ...args],
+    const resolvedArgs = [...args];
+    if (resolvedArgs.includes('push') && !resolvedArgs.includes('--ref')) {
+        resolvedArgs.push('--ref', 'refs/heads/master');
+    }
+    return spawnSync('node', [RESOLVER, '--repo-root', root, ...resolvedArgs],
         { cwd: root, encoding: 'utf8' });
 }
 
@@ -356,6 +364,7 @@ test('trusted base provenance DAG matrix：root <= base < candidate；sibling / 
         fs.writeFileSync(path.join(jsDir, 'x.js'), 'var x = 1;\n', 'utf8');
         commitBypass(root, 'A (legal ancestor)');
         const a = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        git(['-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'master'], root);
         fs.writeFileSync(path.join(jsDir, 'x.js'), 'var x = 2;\n', 'utf8');
         commitBypass(root, 'C (candidate)');
         const c = git(['rev-parse', 'HEAD'], root).stdout.trim();
@@ -436,6 +445,7 @@ test('push 新分支（before 全零）：fork base = merge-base(candidate, prot
         // 无远端：新分支无法确定 fork base → fail closed
         const noRemote = makeRepo();
         try {
+            git(['remote', 'remove', 'origin'], noRemote);
             git(['tag', 'i18n-gate-epoch-2-root', git(['rev-parse', 'HEAD'], noRemote).stdout.trim()], noRemote);
             fs.mkdirSync(path.join(noRemote, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
             fs.writeFileSync(path.join(noRemote, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'f.js'),
@@ -443,7 +453,7 @@ test('push 新分支（before 全零）：fork base = merge-base(candidate, prot
             commitBypass(noRemote, 'feature commit');
             const feat = git(['rev-parse', 'HEAD'], noRemote).stdout.trim();
             const fail = runResolver(noRemote, ['--event-name', 'push', '--candidate', feat, '--before', zero,
-                '--default-branch', 'master', '--mode']);
+                '--default-branch', 'master', '--ref', 'refs/heads/feature', '--mode']);
             assert.notEqual(fail.status, 0, '无远端的新分支 push 必须 fail closed');
             assert.match(fail.stderr, /fork base|protected default/);
         } finally {
@@ -451,11 +461,6 @@ test('push 新分支（before 全零）：fork base = merge-base(candidate, prot
         }
 
         // 有远端：新 feature 分支 fork base = merge-base(candidate, origin/master)
-        const remote = path.join(os.tmpdir(), 'pixiv bare remote ' + Date.now() + '-' + Math.random().toString(36).slice(2));
-        fs.mkdirSync(remote);
-        git(['init', '-q', '--bare', remote], root);
-        git(['remote', 'add', 'origin', remote], root);
-        git(['-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'master'], root);
         git(['checkout', '-q', '-b', 'feature', c2], root);
         fs.mkdirSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
         fs.writeFileSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'f.js'),
@@ -463,15 +468,52 @@ test('push 新分支（before 全零）：fork base = merge-base(candidate, prot
         commitBypass(root, 'feature commit');
         const featTip = git(['rev-parse', 'HEAD'], root).stdout.trim();
         const fork = runResolver(root, ['--event-name', 'push', '--candidate', featTip, '--before', zero,
-            '--default-branch', 'master', '--mode']);
+            '--default-branch', 'master', '--ref', 'refs/heads/feature', '--mode']);
         assert.equal(fork.status, 0, fork.stdout + fork.stderr);
         assert.equal(JSON.parse(fork.stdout).base, c2,
             '新分支 trusted base 必须是 merge-base(candidate, protected default branch)，'
                 + '而不是 default branch 当前 tip');
         assert.equal(JSON.parse(fork.stdout).mode, 'NORMAL');
 
-        fs.rmSync(remote, { recursive: true, force: true });
         git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('feature push：前一恶意 verifier M 即使已在远端，也不能审核下一提交 C', () => {
+    const root = makeRepo();
+    try {
+        const protectedBase = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        git(['tag', 'i18n-gate-epoch-2-root', protectedBase], root);
+        git(['checkout', '-q', '-b', 'feature', protectedBase], root);
+        fs.writeFileSync(path.join(root, 'malicious-verifier.txt'), 'previous CI failed\n', 'utf8');
+        commitBypass(root, 'M malicious verifier');
+        const malicious = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        fs.writeFileSync(path.join(root, 'candidate.txt'), 'next candidate\n', 'utf8');
+        commitBypass(root, 'C candidate');
+        const candidate = git(['rev-parse', 'HEAD'], root).stdout.trim();
+
+        const run = runResolver(root, ['--event-name', 'push', '--candidate', candidate,
+            '--before', malicious, '--default-branch', 'master',
+            '--ref', 'refs/heads/feature', '--mode']);
+        assert.equal(run.status, 0, run.stdout + run.stderr);
+        assert.equal(JSON.parse(run.stdout).base, protectedBase,
+            'feature push 必须回到受保护 master fork base，不能使用 event.before=M');
+
+        const bridged = spawnSync('node', [RESOLVER, '--repo-root', root,
+            '--event-name', 'push', '--candidate', candidate,
+            '--before', '0000000000000000000000000000000000000000',
+            '--default-branch', 'master', '--mode'], { cwd: root, encoding: 'utf8' });
+        assert.equal(bridged.status, 0, bridged.stdout + bridged.stderr);
+        assert.equal(JSON.parse(bridged.stdout).base, protectedBase,
+            'contract v4 无 --ref 调用必须通过归一化 before 得到同一 protected fork base');
+
+        const proposed = runResolver(root, ['--event-name', 'push', '--candidate', candidate,
+            '--before', malicious, '--input-base', malicious, '--default-branch', 'master',
+            '--ref', 'refs/heads/feature', '--mode']);
+        assert.notEqual(proposed.status, 0, '显式 proposed M 也必须拒绝');
+        assert.match(proposed.stderr, /protected default branch history|protected predecessor/);
     } finally {
         cleanRepo(root);
     }

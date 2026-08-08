@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runAcceptCore } from '../accept.mjs';
 import { runGenerate } from '../generate-static.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -70,6 +71,14 @@ function makeCandidateRepo() {
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    // 当前 verifier baseline：fixture 必须携带完整 gate bundle（scripts/ci + workflow + package）
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
+    fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');
@@ -98,12 +107,19 @@ function makeCandidateRepo() {
     return dir;
 }
 
-/** trusted copy：真实 scripts/i18n + scripts/hooks，policy 的 enforcement start 指向夹具。 */
+/** trusted copy：真实 scripts/i18n + hooks + scripts/ci + workflow + package，policy 的 enforcement start 指向夹具。 */
 function makeTrustedCopy(repoRoot) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv contract trusted-'));
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    // 当前 verifier baseline：trusted verifier 必须携带完整 gate bundle（scripts/ci + workflow + package）
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     const policy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
     const start = git(['rev-parse', 'HEAD~1'], repoRoot).stdout.trim();
     policy.i18nEnforcementStartCommit = start;
@@ -201,6 +217,73 @@ test('gate-contract：candidate contract 被改为 exit(0) → 自保护拒绝�
     }
 });
 
+test('gate-contract：candidate 删除 first-admission source/parent/tree 精确绑定 → 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const hookFile = path.join(root, 'scripts', 'hooks', 'pre-commit');
+        const hook = fs.readFileSync(hookFile, 'utf8').replace(
+            '    && [ "$admission_parent" = "$trusted" ] && [ "$admission_parent" = "$current_parent" ] \\\n'
+                + '    && [ "$admission_tree" = "$current_tree" ]; then',
+            '    ; then');
+        fs.writeFileSync(hookFile, hook, 'utf8');
+        assert.notEqual(hook, fs.readFileSync(path.join(trusted, 'scripts', 'hooks', 'pre-commit'), 'utf8'),
+            '测试前提：必须成功删除 first-admission 精确绑定');
+        commitBypass(root, 'weaken first admission binding');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'first-admission 失去 source/parent/tree 精确绑定必须拒绝');
+        assert.match(run.stdout + run.stderr, /prepared-root binding|candidate pre-commit was weakened/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：candidate 修改 first-admission bridge spec 或 launcher → 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        for (const rel of ['scripts/i18n/epoch-2-first-admission.json',
+            'scripts/i18n/trust-gate.mjs']) {
+            const file = path.join(root, ...rel.split('/'));
+            fs.appendFileSync(file, '\n', 'utf8');
+        }
+        commitBypass(root, 'weaken first admission bridge');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'bridge spec/launcher 被修改时 trusted contract 必须拒绝');
+        assert.match(run.stdout + run.stderr,
+            /first-admission epoch-2-first-admission\.json is frozen/);
+        assert.match(run.stdout + run.stderr, /first-admission trust-gate\.mjs is frozen/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：candidate 删除 trusted contract 的 Git 环境隔离 → 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        for (const hook of ['pre-commit', 'pre-push']) {
+            const hookFile = path.join(root, 'scripts', 'hooks', hook);
+            const original = fs.readFileSync(hookFile, 'utf8');
+            fs.writeFileSync(hookFile,
+                original.replace('git rev-parse --local-env-vars', 'printf GIT_DIR'), 'utf8');
+            commitBypass(root, 'remove trusted contract Git environment isolation from ' + hook);
+            const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+            const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+            assert.notEqual(run.status, 0, hook + ' 删除 Git 环境隔离必须拒绝');
+            assert.match(run.stdout + run.stderr, /Git environment isolation|candidate .* was weakened/);
+            git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        }
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
 test('gate-contract：required path 删除（check.mjs / pre-push / gate-contract.mjs）→ fail closed', () => {
     const root = makeCandidateRepo();
     const trusted = makeTrustedCopy(root);
@@ -257,6 +340,35 @@ test('gate-contract：candidate policy 弱化（contractVersion 降低 / require
         run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
         assert.notEqual(run.status, 0, 'enforcement start 后移必须拒绝');
         assert.match(run.stdout + run.stderr, /enforcement/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：minimumTrustedVerifier 三个维度降低（candidate 自身版本不变）→ 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+        for (const [name, mutate] of [
+            ['contractVersion 4→3', (minimum) => { minimum.contractVersion = 3; }],
+            ['schemaVersion 3→2', (minimum) => { minimum.schemaVersion = 2; }],
+            ['requiredFiles 删除 doctor', (minimum) => {
+                minimum.requiredFiles = minimum.requiredFiles
+                    .filter((rel) => rel !== 'scripts/ci/doctor-github-ruleset.mjs');
+            }],
+        ]) {
+            const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+            mutate(policy.minimumTrustedVerifier);
+            fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+            commitBypass(root, 'lower minimum verifier baseline: ' + name);
+            const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+            const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+            assert.notEqual(run.status, 0, 'minimum verifier baseline 降低必须拒绝: ' + name);
+            assert.match(run.stdout + run.stderr, /minimum trusted verifier|minimumTrustedVerifier/);
+            git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        }
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });

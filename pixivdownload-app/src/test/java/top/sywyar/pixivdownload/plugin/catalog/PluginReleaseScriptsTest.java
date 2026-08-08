@@ -669,7 +669,9 @@ class PluginReleaseScriptsTest {
 
         assertThat(workflow).contains(
                 "push:",
-                "branches: [master]",
+                // push 触发不再限定 master：任意代码分支 push 都运行完整质量门禁；
+                // gh-pages 纯文档分支历史不含 Epoch 2 root，触发只会确定性失败，故排除
+                "branches-ignore: [gh-pages]",
                 "pull_request:",
                 "merge_group:",
                 "workflow_call:",
@@ -701,6 +703,7 @@ class PluginReleaseScriptsTest {
                 "GATE_DIR",
                 "actions/checkout@v7");
         assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(6);
+        assertThat(workflow).doesNotContain("branches: [master]");
         assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
         assertThat(workflow).doesNotContain("LEGACY_BOOTSTRAP_REF");
         assertThat(workflow).doesNotContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24");

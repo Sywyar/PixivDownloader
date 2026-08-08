@@ -234,6 +234,21 @@ test('workflow：trusted materialization —— checkout-index --stdin < paths-f
 // 17.2 / 17.3 / 17.4 workflow + package 契约
 // ---------------------------------------------------------------------------
 
+test('workflow：feature push 以归一化 before 调用 contract v4 trusted resolver', () => {
+    const doc = readWorkflow(REPO_ROOT);
+    for (const jobId of ['signature-guard', 'trusted-gate-contract', 'i18n-check']) {
+        const step = doc.jobs[jobId].steps.find((candidate) =>
+            typeof candidate.run === 'string' && /resolve-trusted-base\.mjs/.test(candidate.run));
+        assert.ok(step, jobId + ' 必须调用 trusted resolver');
+        assert.match(step.run, /helper_before="\$\{\{ github\.event\.before \}\}"/);
+        assert.match(step.run,
+            /GITHUB_REF" != "refs\/heads\/\$helper_default_branch"[\s\S]*helper_before="\$zero"/);
+        assert.match(step.run, /--before "\$helper_before"/);
+        assert.doesNotMatch(step.run, /--candidate "\$GITHUB_SHA" --ref "\$GITHUB_REF"/,
+            jobId + ' 不得向 contract v4 trusted resolver 传递新增参数');
+    }
+});
+
 test('workflow 契约：合法 workflow + package scripts + action 版本 → 通过', () => {
     const root = makeFullCandidateRepo();
     const trusted = makeTrustedCopy(root);
@@ -536,6 +551,50 @@ test('workflow 契约：if false; then npm run test:js; fi → 拒绝（条件�
 // Epoch 2 机制：input 优先级 / root tag / 物化交叉验证
 // ---------------------------------------------------------------------------
 
+test('workflow 契约：push branches-ignore [gh-pages] → branches [master] → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        doc.on.push = { branches: ['master'] };
+        writeWorkflow(root, doc);
+        commitBypass(root, 'narrow push coverage');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'Quality Gate push 覆盖缩回 master-only 必须拒绝');
+        assert.match(run.stdout + run.stderr, /push coverage|branches allow-list|excluded branches/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：minimumTrustedVerifier 只在 ROOT_ADMISSION 分支执行 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const baseStep = doc.jobs['signature-guard'].steps.find((s) =>
+            /minimum_json=.*minimumTrustedVerifier/.test(s.run || ''));
+        assert.ok(baseStep, '测试前提：必须存在 minimumTrustedVerifier bootstrap');
+        const original = baseStep.run;
+        baseStep.run = baseStep.run
+            .replace(/([^\n]*ROOT ADMISSION MODE:[^\n]*\n)\s*fi\n(\s*# Candidate policy proposes)/,
+                '$1$2')
+            .replace(/(\s*done <<< "\$minimum_files"\n)/, '$1fi\n');
+        assert.notEqual(baseStep.run, original, '测试前提：必须成功把 baseline 移入 ROOT_ADMISSION');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'restrict minimum verifier baseline to root admission');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'NORMAL candidate 跳过 minimumTrustedVerifier 必须拒绝');
+        assert.match(run.stdout + run.stderr, /minimumTrustedVerifier applies|NORMAL.*baseline/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
 test('workflow 契约：删除 inputs.trusted_base_sha 优先级（reusable 语义）→ 拒绝', () => {
     const root = makeFullCandidateRepo();
     const trusted = makeTrustedCopy(root);
@@ -809,6 +868,78 @@ test('nightly 契约：删除 publish-plugins job → 拒绝（nightly 产物不
     try {
         runExternalMutation(root, trusted, '.github/workflows/nightly.yml',
             (d) => { delete d.jobs['publish-plugins']; }, /publish-plugins/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Ruleset invariant 契约（github-ruleset-invariants.json 安全语义只增不减）
+// ---------------------------------------------------------------------------
+
+function mutateRulesetInvariants(root, mutate) {
+    const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+    const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+    mutate(doc);
+    fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+}
+
+test('ruleset 契约：恶意候选（requireStrict=false / allowBypass=true / allowDeletion=true / allowNonFastForward=true / requiredChecks=[]）→ 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        mutateRulesetInvariants(root, (doc) => {
+            doc.master = {
+                requiredChecks: [],
+                requireStrict: false,
+                allowBypass: true,
+                allowDeletion: true,
+                allowNonFastForward: true,
+            };
+            doc['i18n-gate-epoch-2-root'] = {
+                allowDeletion: true,
+                allowNonFastForward: true,
+                allowBypass: true,
+            };
+        });
+        commitBypass(root, 'weaken ruleset invariants');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, '弱化 ruleset 不变量必须被 contract 拒绝');
+        assert.match(run.stdout + run.stderr, /requireStrict|allowBypass|required checks not reduced/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('ruleset 契约：删除 github-ruleset-invariants.json → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        fs.rmSync(path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json'));
+        commitBypass(root, 'delete ruleset invariants');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, '删除 ruleset 不变量文件必须被拒绝');
+        assert.match(run.stdout + run.stderr, /github-ruleset-invariants\.json/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('ruleset 契约：schemaVersion 降低 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        mutateRulesetInvariants(root, (doc) => { doc.schemaVersion = 0; });
+        commitBypass(root, 'lower ruleset schemaVersion');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'schemaVersion 降低必须被拒绝');
+        assert.match(run.stdout + run.stderr, /schemaVersion/);
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });

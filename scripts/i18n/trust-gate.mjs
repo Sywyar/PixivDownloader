@@ -5,9 +5,24 @@
  *
  * 用法：
  *   npm run i18n:trust-gate -- --show
+ *   node <Epoch-2-trusted-bundle>/scripts/i18n/trust-gate.mjs --prepare-root --epoch 3
+ *     --trusted-source <exact-sha>
+ *   node <Epoch-2-trusted-bundle>/scripts/i18n/trust-gate.mjs --seal-root --ref HEAD
+ *     --trusted-source <exact-sha>
  *   npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2
  *   npm run i18n:trust-gate -- --advance --ref HEAD
  *   npm run i18n:trust-gate -- --version
+ *
+ * prepare-root（Epoch 2 → 3 一次性 first admission）：
+ * - 第一条 first-admission 执行代码必须直接来自已物化的 Epoch 2 trusted bundle；当前工作树
+ *   candidate CLI 不代理、不启动 bridge；
+ * - trusted source 必须精确等于实时 origin/master tip、包含 Epoch 2 root，且必须精确等于
+ *   staged Epoch 3 root 的单一 parent；candidate 只作为被审核对象；
+ * - bridge 只归一化 sourceEpoch=2 → targetEpoch=3、root 身份与已知 GATE-03 context 身份纠正，
+ *   其它内容仍由 Epoch 2 trusted contract/parity 审核；
+ * - prepare 成功后只写仓库外的一次性 ticket，绑定双 epoch、trusted source、parent 与 tree；
+ *   commit 后由同一 trusted bridge 的 seal-root 唯一绑定 candidate SHA；失败不推进 anchor，
+ *   也不写部分 ticket。
  *
  * adopt-root（人工 root adoption / TOFU；Epoch 2 root 的唯一建立方式）：
  * - 新的 root 不可能由自己自动证明自己可信：root 由人工 code review + 完整自动测试 +
@@ -50,8 +65,11 @@ import { fileURLToPath } from 'url';
 import trustedGate from './lib/trusted-gate.mjs';
 import snapshot from './lib/repository-snapshot.mjs';
 
-const TRUST_CLI_VERSION = '2';
-const MIN_ROOT_CONTRACT_VERSION = 3;
+const TRUST_CLI_VERSION = '3';
+const FIRST_ADMISSION_SPEC_REL = path.posix.join('scripts', 'i18n',
+    'epoch-2-first-admission.json');
+// verifier 最低能力由 trusted gate-policy.json 的 minimumTrustedVerifier 定义；NORMAL contract
+// 保证该声明只能单调增强，adopt-root / advance 前均按声明 fail closed。
 
 function fail(message) {
     console.error('trust-gate ERROR: ' + message);
@@ -62,6 +80,12 @@ function git(args, repoRoot, opts = {}) {
     return execFileSync('git', args, {
         cwd: repoRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...opts,
     }).trim();
+}
+
+function gitBuffer(args, repoRoot, opts = {}) {
+    return execFileSync('git', args, {
+        cwd: repoRoot, encoding: null, stdio: ['pipe', 'pipe', 'pipe'], ...opts,
+    });
 }
 
 function hasBash() {
@@ -130,6 +154,144 @@ function assertCleanState(repoRoot) {
     }
 }
 
+/** Root preparation accepts a staged candidate only; unstaged/untracked files could mask its tests. */
+function assertRootPreparationState(repoRoot) {
+    if (trustedGate.isIndexClean(repoRoot)) {
+        fail('root preparation requires a staged candidate index');
+    }
+    try {
+        git(['diff', '--quiet'], repoRoot);
+    } catch (e) {
+        fail('root preparation refuses unstaged tracked changes; stage the exact candidate first');
+    }
+    const untracked = git(['ls-files', '--others', '--exclude-standard'], repoRoot);
+    if (untracked) {
+        fail('root preparation refuses untracked files that could affect validation: '
+            + untracked.split('\n').slice(0, 5).join(' | '));
+    }
+}
+
+const FIRST_ADMISSION_KEYS = [
+    trustedGate.FIRST_ADMISSION_SOURCE_EPOCH_KEY,
+    trustedGate.FIRST_ADMISSION_TARGET_EPOCH_KEY,
+    trustedGate.FIRST_ADMISSION_TRUSTED_SOURCE_KEY,
+    trustedGate.FIRST_ADMISSION_PARENT_KEY,
+    trustedGate.FIRST_ADMISSION_TREE_KEY,
+    trustedGate.FIRST_ADMISSION_CANDIDATE_KEY,
+];
+
+function getFirstAdmissionTicket(repoRoot) {
+    const get = (key) => {
+        try {
+            return git(['config', '--local', '--get', key], repoRoot) || null;
+        } catch (e) {
+            return null;
+        }
+    };
+    return {
+        sourceEpoch: get(trustedGate.FIRST_ADMISSION_SOURCE_EPOCH_KEY),
+        targetEpoch: get(trustedGate.FIRST_ADMISSION_TARGET_EPOCH_KEY),
+        trustedSource: get(trustedGate.FIRST_ADMISSION_TRUSTED_SOURCE_KEY),
+        parent: get(trustedGate.FIRST_ADMISSION_PARENT_KEY),
+        tree: get(trustedGate.FIRST_ADMISSION_TREE_KEY),
+        candidate: get(trustedGate.FIRST_ADMISSION_CANDIDATE_KEY),
+    };
+}
+
+function ticketHasValues(ticket) {
+    return Object.values(ticket).some((value) => value !== null);
+}
+
+function clearFirstAdmissionTicket(repoRoot, strict = false) {
+    for (const key of FIRST_ADMISSION_KEYS) {
+        try {
+            git(['config', '--local', '--unset-all', key], repoRoot);
+        } catch (e) {
+            if (strict && getFirstAdmissionTicket(repoRoot)[ticketFieldForKey(key)] !== null) {
+                throw e;
+            }
+        }
+    }
+    if (strict && ticketHasValues(getFirstAdmissionTicket(repoRoot))) {
+        throw new Error('first-admission ticket could not be cleared atomically');
+    }
+}
+
+function ticketFieldForKey(key) {
+    const fields = ['sourceEpoch', 'targetEpoch', 'trustedSource', 'parent', 'tree', 'candidate'];
+    return fields[FIRST_ADMISSION_KEYS.indexOf(key)];
+}
+
+function setFirstAdmissionTicket(repoRoot, ticket) {
+    if (ticketHasValues(getFirstAdmissionTicket(repoRoot))) {
+        throw new Error('an unconsumed first-admission ticket already exists');
+    }
+    const values = [ticket.sourceEpoch, ticket.targetEpoch, ticket.trustedSource,
+        ticket.parent, ticket.tree, ticket.candidate];
+    try {
+        for (let i = 0; i < FIRST_ADMISSION_KEYS.length; i += 1) {
+            if (values[i] !== null && values[i] !== undefined) {
+                git(['config', '--local', FIRST_ADMISSION_KEYS[i], String(values[i])], repoRoot);
+            }
+        }
+        const actual = getFirstAdmissionTicket(repoRoot);
+        if (JSON.stringify(actual) !== JSON.stringify({
+            sourceEpoch: String(ticket.sourceEpoch),
+            targetEpoch: String(ticket.targetEpoch),
+            trustedSource: ticket.trustedSource,
+            parent: ticket.parent,
+            tree: ticket.tree,
+            candidate: ticket.candidate || null,
+        })) {
+            throw new Error('first-admission ticket verification failed');
+        }
+    } catch (e) {
+        try {
+            clearFirstAdmissionTicket(repoRoot, true);
+        } catch (cleanupError) {
+            throw new Error(e.message + '; partial ticket cleanup failed: ' + cleanupError.message);
+        }
+        throw e;
+    }
+}
+
+function sealFirstAdmissionCandidate(repoRoot, ticket, candidateSha) {
+    const current = getFirstAdmissionTicket(repoRoot);
+    if (JSON.stringify(current) !== JSON.stringify({ ...ticket, candidate: null })) {
+        throw new Error('first-admission ticket changed before candidate sealing');
+    }
+    try {
+        git(['config', '--local', trustedGate.FIRST_ADMISSION_CANDIDATE_KEY, candidateSha], repoRoot);
+        if (getFirstAdmissionTicket(repoRoot).candidate !== candidateSha) {
+            throw new Error('first-admission candidate SHA verification failed');
+        }
+    } catch (e) {
+        try {
+            git(['config', '--local', '--unset-all', trustedGate.FIRST_ADMISSION_CANDIDATE_KEY], repoRoot);
+        } catch (ignored) {
+            // The key may not have been written. Preserve the prepared ticket either way.
+        }
+        if (getFirstAdmissionTicket(repoRoot).candidate !== null) {
+            throw new Error(e.message + '; partial candidate seal cleanup failed');
+        }
+        throw e;
+    }
+}
+
+function createIndexCandidateCommit(repoRoot) {
+    const parent = trustedGate.resolveCommit(repoRoot, 'HEAD');
+    if (!parent) {
+        fail('HEAD must resolve to a full commit before root preparation');
+    }
+    const tree = git(['write-tree'], repoRoot);
+    const sha = git(['commit-tree', tree, '-p', parent], repoRoot,
+        { input: 'Gate root preparation validation\n' });
+    if (!trustedGate.SHA_RE.test(tree) || !trustedGate.SHA_RE.test(sha)) {
+        fail('cannot create the isolated staged root candidate');
+    }
+    return { parent, tree, sha };
+}
+
 /** 运行完整 i18n 测试套件（排除本 CLI 自身测试文件，避免递归）。 */
 function runFullSuite(repoRoot) {
     const result = trustedGate.runI18nTestSuite(repoRoot, 'trust-gate.test.mjs');
@@ -176,9 +338,9 @@ function validateRefWithGate(repoRoot, refSha, gateDir) {
 }
 
 /** 物化 ref 的 gate bundle 并读取 policy（无 policy → fail closed，Epoch 2 不迁移旧 anchor）。 */
-function materializeAndLoadPolicy(repoRoot, sha, gateDir) {
+function materializeAndLoadPolicy(repoRoot, sha, gateDir, expectedEpoch = trustedGate.CURRENT_GATE_EPOCH) {
     trustedGate.materializeTrustedGate(repoRoot, sha, gateDir);
-    const policy = trustedGate.loadPolicyFromDir(gateDir);
+    const policy = trustedGate.loadPolicyFromDir(gateDir, expectedEpoch);
     if (!policy) {
         throw new Error('gate bundle at ' + sha + ' has no gate-policy.json;'
             + ' obsolete-epoch anchors are not migrated; fail closed');
@@ -245,37 +407,472 @@ function runGateParity(repoRoot, candidateSha, trustedDir, invariantsOnly) {
     }
 }
 
+function validateFirstAdmissionSpec(spec) {
+    if (spec.schemaVersion !== 1 || spec.sourceEpoch !== 2 || spec.targetEpoch !== 3
+        || spec.protectedRemote !== 'origin'
+        || spec.protectedBranch !== 'refs/heads/master'
+        || spec.protectedBranchRef !== 'refs/remotes/origin/master'
+        || !spec.requiredContextReplacements
+        || Object.keys(spec.requiredContextReplacements).length !== 6
+        || !Array.isArray(spec.allowedChangedPaths) || spec.allowedChangedPaths.length === 0) {
+        throw new Error('invalid Epoch 2 first-admission bridge specification');
+    }
+    return spec;
+}
+
+function loadFirstAdmissionSpec(bundleRoot) {
+    const file = path.join(bundleRoot, ...FIRST_ADMISSION_SPEC_REL.split('/'));
+    if (!fs.existsSync(file)) {
+        throw new Error('trusted verifier has no Epoch 2 first-admission bridge specification');
+    }
+    return validateFirstAdmissionSpec(JSON.parse(fs.readFileSync(file, 'utf8')));
+}
+
+function loadFirstAdmissionSpecAtRef(repoRoot, ref) {
+    return validateFirstAdmissionSpec(loadJsonAtRef(repoRoot, ref, FIRST_ADMISSION_SPEC_REL));
+}
+
+function assertExecutingTrustedBundle(repoRoot, trustedSource) {
+    const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+    if (fs.realpathSync(bundleRoot) === fs.realpathSync(repoRoot)) {
+        throw new Error('first-admission bridge must execute from an external materialized trusted bundle');
+    }
+    const trustedPaths = git(['ls-tree', '-r', '--name-only', trustedSource, '--',
+        ...trustedGate.GATE_PATHS], repoRoot).split('\n').filter(Boolean);
+    for (const rel of trustedPaths) {
+        const own = path.join(bundleRoot, ...rel.split('/'));
+        if (!fs.existsSync(own)) {
+            throw new Error('executing bridge bundle is missing ' + rel);
+        }
+        const trusted = gitBuffer(['show', trustedSource + ':' + rel], repoRoot);
+        if (!fs.readFileSync(own).equals(trusted)) {
+            throw new Error('first-admission bridge must execute from the exact trusted bundle: ' + rel);
+        }
+    }
+    return { bundleRoot, spec: loadFirstAdmissionSpec(bundleRoot) };
+}
+
+function loadJsonAtRef(repoRoot, ref, rel) {
+    return JSON.parse(git(['show', ref + ':' + rel], repoRoot));
+}
+
+function resolveLiveProtectedTip(repoRoot, spec) {
+    const lookup = run(['git', 'ls-remote', '--exit-code', spec.protectedRemote,
+        spec.protectedBranch], {
+        cwd: repoRoot,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    const lines = (lookup.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+    if (lookup.status !== 0 || lines.length !== 1) {
+        throw new Error('cannot resolve the live protected master tip from origin');
+    }
+    const fields = lines[0].trim().split(/\s+/);
+    if (fields.length !== 2 || fields[1] !== spec.protectedBranch
+        || !trustedGate.SHA_RE.test(fields[0])) {
+        throw new Error('origin returned an invalid protected master tip');
+    }
+    return fields[0];
+}
+
+function assertProtectedFirstAdmissionSource(repoRoot, trustedSource, spec) {
+    const configuredSource = trustedGate.getTrustedRef(repoRoot);
+    const configuredEpoch = trustedGate.getTrustedEpoch(repoRoot);
+    if (configuredSource !== trustedSource || configuredEpoch !== String(spec.sourceEpoch)) {
+        throw new Error('first-admission source must exactly match local trustedGateRef + sourceEpoch');
+    }
+    const localProtectedTip = trustedGate.resolveCommit(repoRoot, spec.protectedBranchRef);
+    const liveProtectedTip = resolveLiveProtectedTip(repoRoot, spec);
+    if (!trustedGate.resolveCommit(repoRoot, trustedSource)
+        || localProtectedTip !== trustedSource || liveProtectedTip !== trustedSource) {
+        throw new Error('trusted first-admission source must equal the local and live protected master tip');
+    }
+    const previousRoot = trustedGate.resolveRootTag(repoRoot, spec.sourceEpoch);
+    if (!previousRoot || !trustedGate.isAncestor(repoRoot, previousRoot, trustedSource)) {
+        throw new Error('protected previous-epoch root is missing from the trusted source chain');
+    }
+}
+
+function assertExactContextCorrection(repoRoot, candidateSha, trustedSource, spec) {
+    const oldContexts = Object.keys(spec.requiredContextReplacements);
+    const newContexts = Object.values(spec.requiredContextReplacements);
+    const sourceRules = loadJsonAtRef(repoRoot, trustedSource,
+        'scripts/ci/github-ruleset-invariants.json');
+    const candidateRules = loadJsonAtRef(repoRoot, candidateSha,
+        'scripts/ci/github-ruleset-invariants.json');
+    if (JSON.stringify(sourceRules.master.requiredChecks) !== JSON.stringify(oldContexts)
+        || JSON.stringify(candidateRules.master.requiredChecks) !== JSON.stringify(newContexts)) {
+        throw new Error('first admission permits only the exact known required-context identity correction');
+    }
+    const sourceRootName = trustedGate.rootTagNameForEpoch(spec.sourceEpoch);
+    const targetRootName = trustedGate.rootTagNameForEpoch(spec.targetEpoch);
+    if (!candidateRules[sourceRootName]
+        || JSON.stringify(candidateRules[sourceRootName]) !== JSON.stringify(sourceRules[sourceRootName])
+        || JSON.stringify(candidateRules[targetRootName]) !== JSON.stringify(sourceRules[sourceRootName])) {
+        throw new Error('Epoch 3 ruleset invariants must preserve Epoch 2 root protection and add identical Epoch 3 protection');
+    }
+
+    const sourcePolicy = loadJsonAtRef(repoRoot, trustedSource, 'scripts/i18n/gate-policy.json');
+    const candidatePolicy = loadJsonAtRef(repoRoot, candidateSha, 'scripts/i18n/gate-policy.json');
+    if (sourcePolicy.gateEpoch !== spec.sourceEpoch || candidatePolicy.gateEpoch !== spec.targetEpoch) {
+        throw new Error('first admission requires the exact sourceEpoch=2 and targetEpoch=3 transition');
+    }
+    const definitions = candidatePolicy.requiredExternalCheckDefinitions || [];
+    if (definitions.length !== 1 || definitions[0].requiredContext !== 'check-shared-snippets') {
+        throw new Error('Epoch 3 requiredExternalCheckDefinitions.requiredContext must be check-shared-snippets');
+    }
+    for (const list of [candidatePolicy.requiredPaths,
+        candidatePolicy.minimumTrustedVerifier && candidatePolicy.minimumTrustedVerifier.requiredFiles]) {
+        if (!Array.isArray(list) || list.includes(FIRST_ADMISSION_SPEC_REL)) {
+            throw new Error('Epoch 3 policy must remove the one-time Epoch 2 bridge specification');
+        }
+    }
+    const bridgeAtCandidate = run(['git', 'cat-file', '-e', candidateSha + ':' + FIRST_ADMISSION_SPEC_REL],
+        { cwd: repoRoot });
+    if (bridgeAtCandidate.status === 0) {
+        throw new Error('Epoch 3 root must not retain the Epoch 2 first-admission bridge specification');
+    }
+    const grepArgs = ['git', 'grep', '-n', '-F'];
+    for (const oldContext of oldContexts) {
+        grepArgs.push('-e', oldContext);
+    }
+    grepArgs.push(candidateSha, '--', '.');
+    const oldContextScan = run(grepArgs, { cwd: repoRoot });
+    if (oldContextScan.status === 0) {
+        throw new Error('Epoch 3 root still contains an old or dual required context:\n'
+            + (oldContextScan.stdout || '').slice(0, 4000));
+    }
+    if (oldContextScan.status !== 1) {
+        throw new Error('cannot scan the Epoch 3 candidate for forbidden old contexts');
+    }
+
+    const allowed = new Set(spec.allowedChangedPaths);
+    const changes = git(['diff', '--name-status', trustedSource, candidateSha], repoRoot)
+        .split('\n').filter(Boolean);
+    for (const line of changes) {
+        const fields = line.split('\t');
+        const status = fields[0];
+        const rel = fields[fields.length - 1];
+        if (!allowed.has(rel) || (status !== 'M' && !(status === 'D' && rel === FIRST_ADMISSION_SPEC_REL))) {
+            throw new Error('first admission refuses out-of-scope or non-mechanical change: ' + line);
+        }
+    }
+}
+
+function updateIndexBlob(repoRoot, indexFile, refForMode, rel, bytes) {
+    const env = { ...process.env, GIT_INDEX_FILE: indexFile };
+    const modeLine = git(['ls-tree', refForMode, '--', rel], repoRoot);
+    const mode = modeLine ? modeLine.split(/\s+/)[0] : '100644';
+    const blob = git(['hash-object', '-w', '--stdin'], repoRoot, { input: bytes });
+    git(['update-index', '--add', '--cacheinfo', mode, blob, rel], repoRoot, { env });
+}
+
+function normalizeFirstAdmissionCandidate(repoRoot, candidateSha, trustedSource, spec) {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-first-admission-normalized-'));
+    const indexFile = path.join(temp, 'index');
+    const env = { ...process.env, GIT_INDEX_FILE: indexFile };
+    try {
+        git(['read-tree', candidateSha], repoRoot, { env });
+        const paths = git(['ls-tree', '-r', '--name-only', candidateSha, '--',
+            ...trustedGate.GATE_PATHS], repoRoot).split('\n').filter(Boolean);
+        const targetRoot = trustedGate.rootTagNameForEpoch(spec.targetEpoch);
+        const sourceRoot = trustedGate.rootTagNameForEpoch(spec.sourceEpoch);
+        for (const rel of paths) {
+            if (rel === 'scripts/i18n/gate-policy.json'
+                || rel === 'scripts/ci/github-ruleset-invariants.json') {
+                continue;
+            }
+            const original = gitBuffer(['show', candidateSha + ':' + rel], repoRoot);
+            const text = original.toString('utf8');
+            const normalized = text
+                .replaceAll(targetRoot, sourceRoot)
+                .replaceAll('CURRENT_GATE_EPOCH = ' + spec.targetEpoch + ';',
+                    'CURRENT_GATE_EPOCH = ' + spec.sourceEpoch + ';')
+                .replaceAll('"gateEpoch": ' + spec.targetEpoch,
+                    '"gateEpoch": ' + spec.sourceEpoch);
+            if (normalized !== text) {
+                updateIndexBlob(repoRoot, indexFile, candidateSha, rel, Buffer.from(normalized, 'utf8'));
+            }
+        }
+
+        const policy = loadJsonAtRef(repoRoot, candidateSha, 'scripts/i18n/gate-policy.json');
+        policy.gateEpoch = spec.sourceEpoch;
+        const reverse = new Map(Object.entries(spec.requiredContextReplacements)
+            .map(([oldValue, newValue]) => [newValue, oldValue]));
+        for (const definition of policy.requiredExternalCheckDefinitions || []) {
+            definition.requiredContext = reverse.get(definition.requiredContext) || definition.requiredContext;
+        }
+        for (const [list, sourceList] of [
+            [policy.requiredPaths, loadJsonAtRef(repoRoot, trustedSource,
+                'scripts/i18n/gate-policy.json').requiredPaths],
+            [policy.minimumTrustedVerifier.requiredFiles, loadJsonAtRef(repoRoot, trustedSource,
+                'scripts/i18n/gate-policy.json').minimumTrustedVerifier.requiredFiles],
+        ]) {
+            if (sourceList.includes(FIRST_ADMISSION_SPEC_REL) && !list.includes(FIRST_ADMISSION_SPEC_REL)) {
+                list.push(FIRST_ADMISSION_SPEC_REL);
+            }
+        }
+        updateIndexBlob(repoRoot, indexFile, candidateSha, 'scripts/i18n/gate-policy.json',
+            Buffer.from(JSON.stringify(policy, null, 2) + '\n', 'utf8'));
+
+        const rules = loadJsonAtRef(repoRoot, candidateSha,
+            'scripts/ci/github-ruleset-invariants.json');
+        rules.master.requiredChecks = Object.keys(spec.requiredContextReplacements);
+        delete rules[targetRoot];
+        updateIndexBlob(repoRoot, indexFile, candidateSha,
+            'scripts/ci/github-ruleset-invariants.json',
+            Buffer.from(JSON.stringify(rules, null, 2) + '\n', 'utf8'));
+
+        updateIndexBlob(repoRoot, indexFile, trustedSource, FIRST_ADMISSION_SPEC_REL,
+            gitBuffer(['show', trustedSource + ':' + FIRST_ADMISSION_SPEC_REL], repoRoot));
+        const tree = git(['write-tree'], repoRoot, { env });
+        return git(['commit-tree', tree, '-p', trustedSource], repoRoot,
+            { input: 'Normalized Epoch 2 first-admission candidate\n' });
+    } finally {
+        rmrfRetry(temp);
+    }
+}
+
+function runPrepareRootFromTrustedBundle(repoRoot, epochArg, trustedSource) {
+    if (trustedGate.isCI()) {
+        fail('root preparation is forbidden in CI (CI=true); it is an explicit local trust decision');
+    }
+    let trustedExecution;
+    try {
+        trustedExecution = assertExecutingTrustedBundle(repoRoot, trustedSource);
+        if (Number(epochArg) !== trustedExecution.spec.targetEpoch) {
+            throw new Error('--epoch must be exactly ' + trustedExecution.spec.targetEpoch);
+        }
+        assertProtectedFirstAdmissionSource(repoRoot, trustedSource, trustedExecution.spec);
+        if (trustedGate.resolveCommit(repoRoot, 'HEAD') !== trustedSource) {
+            throw new Error('Epoch 3 root parent must exactly equal the trusted Epoch 2 source');
+        }
+    } catch (e) {
+        fail(e.message);
+    }
+    assertRootPreparationState(repoRoot);
+    if (ticketHasValues(getFirstAdmissionTicket(repoRoot))) {
+        fail('an unconsumed first-admission ticket already exists');
+    }
+    const candidate = createIndexCandidateCommit(repoRoot);
+    const candidateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-prepare-root-candidate-'));
+    const trustedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-prepare-root-trusted-'));
+    try {
+        console.log('trust-gate: trusted Epoch ' + trustedExecution.spec.sourceEpoch
+            + ' first-admission bridge is auditing Gate Epoch ' + trustedExecution.spec.targetEpoch
+            + ' staged tree '
+            + candidate.tree + '...');
+        assertExactContextCorrection(repoRoot, candidate.sha, trustedSource, trustedExecution.spec);
+        const normalized = normalizeFirstAdmissionCandidate(repoRoot, candidate.sha,
+            trustedSource, trustedExecution.spec);
+        trustedGate.materializeTrustedGate(repoRoot, trustedSource, trustedDir);
+        trustedGate.assertSupportedTrustedVerifierDir(trustedDir,
+            trustedExecution.spec.sourceEpoch);
+        runTrustedContract(repoRoot, normalized, trustedDir);
+        runGateParity(repoRoot, normalized, trustedDir, false);
+
+        const policy = materializeAndLoadPolicy(repoRoot, candidate.sha, candidateDir,
+            trustedExecution.spec.targetEpoch);
+        trustedGate.assertSupportedTrustedVerifierDir(candidateDir,
+            trustedExecution.spec.targetEpoch,
+            policy.minimumTrustedVerifier);
+        const missing = policy.requiredPaths
+            .filter((p) => !fs.existsSync(path.join(candidateDir, ...p.split('/'))));
+        if (missing.length > 0) {
+            fail('required gate files missing from staged root candidate: ' + missing.join(', '));
+        }
+        runFullSuite(repoRoot);
+        validateRefWithGate(repoRoot, candidate.sha, candidateDir);
+        runRootContract(repoRoot, candidate.sha, candidateDir);
+        runGateParity(repoRoot, candidate.sha, candidateDir, true);
+        setFirstAdmissionTicket(repoRoot, {
+            sourceEpoch: trustedExecution.spec.sourceEpoch,
+            targetEpoch: trustedExecution.spec.targetEpoch,
+            trustedSource,
+            parent: candidate.parent,
+            tree: candidate.tree,
+            candidate: null,
+        });
+    } finally {
+        rmrfRetry(candidateDir);
+        rmrfRetry(trustedDir);
+    }
+    console.log('trust-gate: Gate Epoch ' + trustedExecution.spec.targetEpoch
+        + ' root tree prepared by trusted source ' + trustedSource + ': parent '
+        + candidate.parent + ', tree ' + candidate.tree
+        + '. Commit it once, then run the trusted bridge with --seal-root --ref HEAD.');
+}
+
+function runPrepareRoot(repoRoot, epochArg, trustedSourceArg) {
+    if (!trustedSourceArg) {
+        fail('prepare-root must execute directly from a materialized Epoch 2 trusted bundle'
+            + ' with --trusted-source <exact-sha>; candidate launchers are forbidden');
+    }
+    runPrepareRootFromTrustedBundle(repoRoot, epochArg, trustedSourceArg);
+}
+
+function runSealRoot(repoRoot, refArg, trustedSource) {
+    if (trustedGate.isCI()) {
+        fail('root sealing is forbidden in CI (CI=true); it is an explicit local trust decision');
+    }
+    if (!trustedSource) {
+        fail('seal-root must execute directly from a materialized Epoch 2 trusted bundle'
+            + ' with --trusted-source <exact-sha>; candidate launchers are forbidden');
+    }
+    let trustedExecution;
+    try {
+        trustedExecution = assertExecutingTrustedBundle(repoRoot, trustedSource);
+        assertProtectedFirstAdmissionSource(repoRoot, trustedSource, trustedExecution.spec);
+    } catch (e) {
+        fail(e.message);
+    }
+    assertCleanState(repoRoot);
+    const candidateSha = trustedGate.resolveCommit(repoRoot, refArg);
+    if (!candidateSha || candidateSha !== trustedGate.resolveCommit(repoRoot, 'HEAD')) {
+        fail('seal-root requires --ref to resolve to the current HEAD commit');
+    }
+    const ticket = getFirstAdmissionTicket(repoRoot);
+    const expected = {
+        sourceEpoch: String(trustedExecution.spec.sourceEpoch),
+        targetEpoch: String(trustedExecution.spec.targetEpoch),
+        trustedSource,
+        parent: trustedSource,
+        tree: git(['rev-parse', candidateSha + '^{tree}'], repoRoot),
+        candidate: null,
+    };
+    if (JSON.stringify(ticket) !== JSON.stringify(expected)) {
+        fail('seal-root requires the exact unconsumed prepared ticket and candidate tree');
+    }
+    const parents = git(['rev-list', '--parents', '-n', '1', candidateSha], repoRoot).split(/\s+/);
+    if (parents.length !== 2 || parents[1] !== trustedSource) {
+        fail('sealed Epoch 3 root candidate must have the exact trusted source as its single parent');
+    }
+    try {
+        assertExactContextCorrection(repoRoot, candidateSha, trustedSource, trustedExecution.spec);
+        sealFirstAdmissionCandidate(repoRoot, ticket, candidateSha);
+    } catch (e) {
+        fail(e.message);
+    }
+    console.log('trust-gate: trusted first-admission bridge sealed the unique Epoch '
+        + trustedExecution.spec.targetEpoch + ' root candidate ' + candidateSha);
+}
+
+function assertFirstAdmissionCommitPoint(repoRoot, sha, previousRef, previousEpoch, ticket, sourceSpec) {
+    try {
+        assertProtectedFirstAdmissionSource(repoRoot, previousRef, sourceSpec);
+        const currentTicket = getFirstAdmissionTicket(repoRoot);
+        const parents = git(['rev-list', '--parents', '-n', '1', sha], repoRoot).split(/\s+/);
+        const tree = git(['rev-parse', sha + '^{tree}'], repoRoot);
+        if (trustedGate.getTrustedRef(repoRoot) !== previousRef
+            || trustedGate.getTrustedEpoch(repoRoot) !== String(previousEpoch)
+            || trustedGate.resolveCommit(repoRoot, sourceSpec.protectedBranchRef) !== previousRef
+            || JSON.stringify(currentTicket) !== JSON.stringify(ticket)
+            || currentTicket.candidate !== sha
+            || parents.length !== 2 || parents[1] !== previousRef
+            || tree !== ticket.tree
+            || trustedGate.resolveCommit(repoRoot, 'HEAD') !== sha
+            || !trustedGate.isIndexClean(repoRoot)
+            || !trustedGate.isWorktreeClean(repoRoot)) {
+            throw new Error('trusted source, ticket, root commit or repository state changed');
+        }
+    } catch (e) {
+        throw new Error('first-admission commit-point revalidation failed: ' + e.message);
+    }
+}
+
+function setAnchorAndConsumeFirstAdmission(repoRoot, sha, epoch, previousRef, previousEpoch,
+    ticket, sourceSpec) {
+    assertFirstAdmissionCommitPoint(repoRoot, sha, previousRef, previousEpoch, ticket, sourceSpec);
+    try {
+        trustedGate.setTrustedAnchor(repoRoot, sha, epoch);
+        clearFirstAdmissionTicket(repoRoot, true);
+    } catch (e) {
+        const rollbackErrors = [];
+        try {
+            trustedGate.setTrustedAnchor(repoRoot, previousRef, previousEpoch);
+        } catch (rollbackError) {
+            rollbackErrors.push('anchor rollback failed: ' + rollbackError.message);
+        }
+        try {
+            clearFirstAdmissionTicket(repoRoot);
+            setFirstAdmissionTicket(repoRoot, ticket);
+        } catch (rollbackError) {
+            rollbackErrors.push('ticket rollback failed: ' + rollbackError.message);
+        }
+        throw new Error(e.message + (rollbackErrors.length > 0
+            ? '; ' + rollbackErrors.join('; ') : ''));
+    }
+}
+
 function runAdoptRoot(repoRoot, refArg, epochArg) {
     if (trustedGate.isCI()) {
-        fail('root adoption is forbidden in CI (CI=true); the Epoch 2 trust root must be'
+        fail('root adoption is forbidden in CI (CI=true); the Gate Epoch '
+            + trustedGate.CURRENT_GATE_EPOCH + ' trust root must be'
             + ' established by a human locally');
     }
     if (String(epochArg) !== String(trustedGate.CURRENT_GATE_EPOCH)) {
         fail('--epoch must be exactly ' + trustedGate.CURRENT_GATE_EPOCH
-            + ' (Epoch 2 is the only supported gate epoch; got ' + epochArg + ')');
+            + ' (the executing verifier supports exactly one gate epoch; got ' + epochArg + ')');
     }
     const current = trustedGate.getTrustedRef(repoRoot);
-    if (current) {
-        fail('a local trust anchor already exists at ' + current
-            + '; root adoption is only for establishing a NEW Epoch 2 root —'
-            + ' use --advance to move the existing anchor, or explicitly remove both'
-            + ' pixiv.i18n.trustedGateEpoch / pixiv.i18n.trustedGateRef first');
-    }
+    const previousEpoch = Number(trustedGate.getTrustedEpoch(repoRoot));
     const sha = trustedGate.resolveCommit(repoRoot, refArg);
     if (!sha) {
         fail('ref "' + refArg + '" must resolve to a full commit; worktree paths are not accepted');
     }
     assertCleanState(repoRoot);
 
+    let firstAdmissionTicket = null;
+    let firstAdmissionSourceSpec = null;
+    if (current) {
+        if (previousEpoch === trustedGate.CURRENT_GATE_EPOCH) {
+            fail('a local trust anchor already exists at ' + current
+                + '; use --advance within the current epoch');
+        }
+        let sourceSpec;
+        try {
+            sourceSpec = loadFirstAdmissionSpecAtRef(repoRoot, current);
+            assertProtectedFirstAdmissionSource(repoRoot, current, sourceSpec);
+        } catch (e) {
+            fail('first-admission adoption source check failed: ' + e.message);
+        }
+        const prepared = getFirstAdmissionTicket(repoRoot);
+        const parents = git(['rev-list', '--parents', '-n', '1', sha], repoRoot).split(/\s+/);
+        const tree = git(['rev-parse', sha + '^{tree}'], repoRoot);
+        if (previousEpoch !== trustedGate.CURRENT_GATE_EPOCH - 1
+            || prepared.sourceEpoch !== String(previousEpoch)
+            || prepared.targetEpoch !== String(trustedGate.CURRENT_GATE_EPOCH)
+            || prepared.trustedSource !== current
+            || prepared.candidate !== sha
+            || parents.length !== 2 || prepared.parent !== parents[1]
+            || prepared.parent !== current || prepared.tree !== tree
+            || !trustedGate.isAncestor(repoRoot, current, 'refs/remotes/origin/master')) {
+            fail('existing-anchor root adoption requires an unconsumed trusted first-admission ticket'
+                + ' with the exact source epoch, target epoch, trusted source, parent, tree and sealed candidate SHA');
+        }
+        const previousRoot = trustedGate.resolveRootTag(repoRoot, previousEpoch);
+        if (!previousRoot || !trustedGate.isAncestor(repoRoot, previousRoot, current)) {
+            fail('first-admission ticket source no longer belongs to the protected previous root chain');
+        }
+        firstAdmissionTicket = prepared;
+        firstAdmissionSourceSpec = sourceSpec;
+    } else if (ticketHasValues(getFirstAdmissionTicket(repoRoot))) {
+        fail('a first-admission ticket cannot be consumed without its trusted source anchor');
+    }
+
     const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-adopt-root-'));
     try {
         // ROOT ADMISSION：物化候选自身的 gate bundle（候选 = root candidate）
         console.log('trust-gate: ROOT ADMISSION — ' + sha
-            + ' is the Gate Epoch 2 root candidate; running the full root admission suite...');
+            + ' is the Gate Epoch ' + trustedGate.CURRENT_GATE_EPOCH
+            + ' root candidate; running the full root admission suite...');
         const policy = materializeAndLoadPolicy(repoRoot, sha, gateDir);
-        if (policy.contractVersion < MIN_ROOT_CONTRACT_VERSION) {
-            fail('root admission requires contractVersion >= ' + MIN_ROOT_CONTRACT_VERSION
-                + ' (got ' + policy.contractVersion + '); fail closed');
+        // 新标准 root admission 也必须满足当前 verifier baseline（旧 v3 root 候选不再有资格；
+        // 旧提交按旧标准存在，新标准只接受具备当前能力的 verifier）
+        try {
+            trustedGate.assertSupportedTrustedVerifierDir(gateDir,
+                trustedGate.CURRENT_GATE_EPOCH, policy.minimumTrustedVerifier);
+        } catch (e) {
+            fail('OUTDATED GATE VERIFIER: ' + e.message);
         }
         const required = policy.requiredPaths;
         const missing = required.filter((p) => !fs.existsSync(path.join(gateDir, ...p.split('/'))));
@@ -289,19 +886,32 @@ function runAdoptRoot(repoRoot, refArg, epochArg) {
         validateRefWithGate(repoRoot, sha, gateDir);
         console.log('trust-gate: running the root contract self-test (workflow / package / self-protection)...');
         runRootContract(repoRoot, sha, gateDir);
-        console.log('trust-gate: running gate parity against the Epoch 2 invariants manifest...');
+        console.log('trust-gate: running gate parity against the Gate Epoch '
+            + trustedGate.CURRENT_GATE_EPOCH + ' invariants manifest...');
         runGateParity(repoRoot, sha, gateDir, true);
     } finally {
         rmrfRetry(gateDir);
     }
 
     console.error('');
-    console.error('This is the explicit Gate Epoch 2 root adoption decision.');
-    console.error('The repository state at ' + sha + ' becomes the local Epoch 2 trust root.');
+    console.error('This is the explicit Gate Epoch ' + trustedGate.CURRENT_GATE_EPOCH
+        + ' root adoption decision.');
+    console.error('The repository state at ' + sha + ' becomes the local Gate Epoch '
+        + trustedGate.CURRENT_GATE_EPOCH + ' trust root.');
     console.error('Only an explicit trust command can advance it.');
     console.error('');
-    trustedGate.setTrustedAnchor(repoRoot, sha);
-    console.log('trust-gate: Epoch 2 root adopted; local anchor set to '
+    if (firstAdmissionTicket) {
+        try {
+            setAnchorAndConsumeFirstAdmission(repoRoot, sha, trustedGate.CURRENT_GATE_EPOCH,
+                current, previousEpoch, firstAdmissionTicket, firstAdmissionSourceSpec);
+        } catch (e) {
+            fail('root adoption state transaction failed: ' + e.message);
+        }
+    } else {
+        trustedGate.setTrustedAnchor(repoRoot, sha);
+    }
+    console.log('trust-gate: Gate Epoch ' + trustedGate.CURRENT_GATE_EPOCH
+        + ' root adopted; local anchor set to '
         + 'git config --local pixiv.i18n.trustedGateEpoch ' + trustedGate.CURRENT_GATE_EPOCH
         + ' + pixiv.i18n.trustedGateRef ' + sha);
 }
@@ -312,15 +922,13 @@ function runAdvance(repoRoot, refArg) {
     }
     const current = trustedGate.getTrustedRef(repoRoot);
     if (!current) {
-        fail('no trusted gate anchor; establish the Epoch 2 root first:'
-            + ' npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2');
+        fail('no trusted gate anchor; run --adopt-root for the current Gate Epoch first');
     }
     if (!trustedGate.isTrustedEpochCurrent(repoRoot)) {
         fail('OBSOLETE GATE EPOCH: the local anchor belongs to epoch '
             + (trustedGate.getTrustedEpoch(repoRoot) || '<missing>') + ' (' + trustedGate.describeTrustedEpoch(repoRoot)
-            + '). Epoch 1 anchors are not migrated and have no automatic upgrade rights;'
-            + ' run the explicit Epoch 2 root adoption command instead:'
-            + ' npm run i18n:trust-gate -- --adopt-root --ref <new-root> --epoch 2');
+            + '). Obsolete anchors are not migrated and have no automatic upgrade rights;'
+            + ' run --adopt-root for the current Gate Epoch instead');
     }
     const sha = trustedGate.resolveCommit(repoRoot, refArg);
     if (!sha) {
@@ -341,12 +949,12 @@ function runAdvance(repoRoot, refArg) {
     const root = trustedGate.resolveRootTag(repoRoot);
     if (root) {
         if (!trustedGate.isAncestor(repoRoot, root, current)) {
-            fail('the current anchor ' + current + ' does not descend from the Gate Epoch 2 trust root '
-                + root + '; re-adopt the root first:'
-                + ' npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2');
+            fail('the current anchor ' + current + ' does not descend from the Gate Epoch '
+                + trustedGate.CURRENT_GATE_EPOCH + ' trust root ' + root + '; re-adopt the root first');
         }
         if (!trustedGate.isAncestor(repoRoot, root, sha)) {
-            fail('candidate ' + sha + ' does not descend from the Gate Epoch 2 trust root ' + root
+            fail('candidate ' + sha + ' does not descend from the Gate Epoch '
+                + trustedGate.CURRENT_GATE_EPOCH + ' trust root ' + root
                 + '; v1 / legacy / transition compatibility paths are retired; refusing to advance');
         }
     }
@@ -355,6 +963,12 @@ function runAdvance(repoRoot, refArg) {
     try {
         // 1. 从当前 trusted ref 物化 Epoch 2 contract + policy
         trustedGate.materializeTrustedGate(repoRoot, current, trustedDir);
+        // 1.5 当前 trusted verifier 必须满足当前 verifier baseline（能力只增不减，不兼容旧 verifier）
+        try {
+            trustedGate.assertSupportedTrustedVerifierDir(trustedDir);
+        } catch (e) {
+            fail('OUTDATED GATE VERIFIER: ' + e.message);
+        }
 
         // 2. trusted contract 验证 candidate ref（policy / required files / checker / hooks / 自保护）
         console.log('trust-gate: running the trusted gate contract against ' + sha + '...');
@@ -387,18 +1001,27 @@ function runShow(repoRoot) {
     if (!current || !trustedGate.isTrustedEpochCurrent(repoRoot)) {
         console.log('trustedGateEpoch: ' + (epoch || '<not set>'));
         console.log('trustedGateRef: ' + (current || '<not set>'));
-        console.log('gateEpochRootTag: ' + (root || 'refs/tags/i18n-gate-epoch-2-root <missing>'));
-        console.log('run: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2');
+        console.log('gateEpochRootTag: ' + (root || 'refs/tags/'
+            + trustedGate.rootTagNameForEpoch(trustedGate.CURRENT_GATE_EPOCH) + ' <missing>'));
+        console.log('run: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch '
+            + trustedGate.CURRENT_GATE_EPOCH);
         return;
     }
     let contractVersion = 'n/a';
+    let baseline = 'n/a';
     const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-trust-show-'));
     try {
         try {
             trustedGate.materializeTrustedGate(repoRoot, current, gateDir);
-            const policy = trustedGate.loadPolicyFromDir(gateDir);
-            if (policy) {
-                contractVersion = String(policy.contractVersion);
+            const policy = JSON.parse(fs.readFileSync(
+                path.join(gateDir, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
+            contractVersion = Number.isInteger(policy.contractVersion)
+                ? String(policy.contractVersion) : 'n/a';
+            try {
+                trustedGate.assertSupportedTrustedVerifierDir(gateDir);
+                baseline = 'OK';
+            } catch (e) {
+                baseline = 'BELOW CURRENT VERIFIER BASELINE (OUTDATED GATE VERIFIER)';
             }
         } catch (e) {
             // anchor 无法物化时只提示
@@ -409,19 +1032,25 @@ function runShow(repoRoot) {
     console.log('trustedGateEpoch: ' + epoch);
     console.log('trustedGateRef: ' + current);
     console.log('contractVersion: ' + contractVersion);
-    console.log('gateEpochRootTag: ' + (root || 'refs/tags/i18n-gate-epoch-2-root <missing (install after admission)>'));
+    console.log('verifierBaseline: ' + baseline);
+    console.log('gateEpochRootTag: ' + (root || 'refs/tags/'
+        + trustedGate.rootTagNameForEpoch(trustedGate.CURRENT_GATE_EPOCH)
+        + ' <missing (install after admission)>'));
 }
 
 function parseArgs(argv) {
-    const args = { command: null, ref: null, epoch: null, version: false };
+    const args = { command: null, ref: null, epoch: null, trustedSource: null, version: false };
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i];
-        if (arg === '--adopt-root' || arg === '--advance' || arg === '--show') {
+        if (arg === '--prepare-root' || arg === '--seal-root' || arg === '--adopt-root'
+            || arg === '--advance' || arg === '--show') {
             args.command = arg.slice(2);
         } else if (arg === '--ref') {
             args.ref = argv[++i];
         } else if (arg === '--epoch') {
             args.epoch = argv[++i];
+        } else if (arg === '--trusted-source') {
+            args.trustedSource = argv[++i];
         } else if (arg === '--version') {
             args.version = true;
         } else {
@@ -436,8 +1065,14 @@ function parseArgs(argv) {
             throw new Error('--ref <commit> is required for adopt-root');
         }
         if (!args.epoch) {
-            throw new Error('--epoch 2 is required for adopt-root');
+            throw new Error('--epoch <current-epoch> is required for adopt-root');
         }
+    }
+    if (args.command === 'prepare-root' && !args.epoch) {
+        throw new Error('--epoch <next-epoch> is required for prepare-root');
+    }
+    if (args.command === 'seal-root' && !args.ref) {
+        throw new Error('--ref <commit> is required for seal-root');
     }
     if (args.command === 'advance') {
         if (!args.ref) {
@@ -445,7 +1080,9 @@ function parseArgs(argv) {
         }
     }
     if (!args.command) {
-        throw new Error('usage: trust-gate.mjs --show | --adopt-root --ref HEAD --epoch 2 | --advance --ref HEAD');
+        throw new Error('usage: trust-gate.mjs --show | --prepare-root --epoch <next> |'
+            + ' --seal-root --ref HEAD |'
+            + ' --adopt-root --ref HEAD --epoch <current> | --advance --ref HEAD');
     }
     return args;
 }
@@ -468,6 +1105,14 @@ function main() {
     }
     if (args.command === 'show') {
         runShow(repoRoot);
+        return;
+    }
+    if (args.command === 'prepare-root') {
+        runPrepareRoot(repoRoot, args.epoch, args.trustedSource);
+        return;
+    }
+    if (args.command === 'seal-root') {
+        runSealRoot(repoRoot, args.ref, args.trustedSource);
         return;
     }
     if (args.command === 'adopt-root') {
