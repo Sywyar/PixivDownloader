@@ -369,8 +369,10 @@ const MUTATIONS = [
         mutate: async (root) => {
             const file = path.join(root, 'scripts', 'ci', 'resolve-trusted-base.mjs');
             const source = fs.readFileSync(file, 'utf8').replace(
-                "if (args.gitRef === 'refs/heads/' + args.defaultBranch\n            && SHA_RE.test(args.before || '')",
-                "if (SHA_RE.test(args.before || '')");
+                "if ((args.gitRef === 'refs/heads/' + args.defaultBranch\n"
+                    + "                || (!args.gitRef && SHA_RE.test(args.before || '') && args.before !== ZERO))\n"
+                    + "            && SHA_RE.test(args.before || '') && args.before !== ZERO)",
+                "if (SHA_RE.test(args.before || '') && args.before !== ZERO)");
             fs.writeFileSync(file, source, 'utf8');
         },
     },
