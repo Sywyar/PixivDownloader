@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "sourceEpoch": 2,
   "targetEpoch": 3,
+  "protectedRemote": "origin",
+  "protectedBranch": "refs/heads/master",
   "protectedBranchRef": "refs/remotes/origin/master",
   "requiredContextReplacements": {
     "Quality Gate / java-tests": "java-tests",

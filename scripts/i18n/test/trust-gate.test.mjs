@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runAcceptCore } from '../accept.mjs';
 import { runGenerate } from '../generate-static.mjs';
+import trustedGate from '../lib/trusted-gate.mjs';
 import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -106,12 +107,16 @@ function makeRepo(withAnchor = false, anchorEpoch = '2') {
         JSON.stringify(policy, null, 2) + '\n', 'utf8');
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'add gate policy'], dir); // C2
+    const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
+    const originDir = path.join(dir, '.git', 'test-origin.git');
+    git(['init', '--bare', '-q', originDir], dir);
+    git(['remote', 'add', 'origin', originDir], dir);
+    git(['push', '-q', 'origin', 'HEAD:refs/heads/master'], dir);
+    git(['update-ref', 'refs/remotes/origin/master', anchor], dir);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
     if (withAnchor) {
-        const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
         git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', anchorEpoch], dir);
         git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
-        git(['update-ref', 'refs/remotes/origin/master', anchor], dir);
     }
     return dir;
 }
@@ -140,6 +145,39 @@ function runRepoCli(root, args, env = {}) {
     }
     return spawnSync('node', [path.join(root, 'scripts', 'i18n', 'trust-gate.mjs'), ...args],
         { cwd: root, encoding: 'utf8', env: merged, timeout: 600000 });
+}
+
+function runTrustedCli(root, trustedSource, args, env = {}) {
+    const bundle = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv trusted first admission '));
+    try {
+        const paths = git(['ls-tree', '-r', '--name-only', trustedSource, '--',
+            ...trustedGate.GATE_PATHS], root).stdout.trim().split(/\r?\n/).filter(Boolean);
+        for (const rel of paths) {
+            const target = path.join(bundle, ...rel.split('/'));
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            const shown = spawnSync('git', ['show', trustedSource + ':' + rel], {
+                cwd: root, encoding: null, maxBuffer: 64 * 1024 * 1024,
+            });
+            assert.equal(shown.status, 0, shown.stderr && shown.stderr.toString('utf8'));
+            fs.writeFileSync(target, shown.stdout);
+        }
+        const merged = { ...process.env, ...env };
+        if (env.clearCI) {
+            delete merged.CI;
+            delete merged.clearCI;
+        }
+        return spawnSync('node', [path.join(bundle, 'scripts', 'i18n', 'trust-gate.mjs'),
+            ...args, '--trusted-source', trustedSource], {
+            cwd: root, encoding: 'utf8', env: merged, timeout: 600000,
+        });
+    } finally {
+        fs.rmSync(bundle, { recursive: true, force: true });
+    }
+}
+
+function setLiveMaster(root, sha) {
+    const originDir = git(['remote', 'get-url', 'origin'], root).stdout.trim();
+    git(['--git-dir', originDir, 'update-ref', 'refs/heads/master', sha], root);
 }
 
 function rewriteFixtureForNextEpoch(root) {
@@ -260,12 +298,17 @@ test('trust-gate：adopt-root 只写 local 配置（不写 global）', () => {
     }
 });
 
-test('trust-gate：CI 环境禁止 prepare-root / adopt-root / advance', () => {
+test('trust-gate：CI 环境禁止 prepare-root / seal-root / adopt-root / advance', () => {
     const root = makeRepo();
     try {
-        const prepare = runCli(root, ['--prepare-root', '--epoch', '2'], { CI: 'true' });
+        const prepare = runCli(root,
+            ['--prepare-root', '--epoch', '2', '--trusted-source', '0'.repeat(40)], { CI: 'true' });
         assert.notEqual(prepare.status, 0, 'CI=true 必须拒绝 prepare-root');
         assert.match(prepare.stderr, /forbidden in CI/);
+        const seal = runCli(root, ['--seal-root', '--ref', 'HEAD', '--trusted-source', '0'.repeat(40)],
+            { CI: 'true' });
+        assert.notEqual(seal.status, 0, 'CI=true 必须拒绝 seal-root');
+        assert.match(seal.stderr, /forbidden in CI/);
         const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { CI: 'true' });
         assert.notEqual(adopt.status, 0, 'CI=true 必须拒绝 adopt-root');
         assert.match(adopt.stderr, /forbidden in CI/);
@@ -319,7 +362,7 @@ test('trust-gate：adopt-root 脏工作树 / 已存在 anchor 拒绝', () => {
     }
 });
 
-test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才允许采用下一 Epoch root', () => {
+test('trust-gate：trusted bridge 以实时 master tip 准备 tree、唯一封存 candidate SHA 后才允许采用', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -331,13 +374,21 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
         rewriteFixtureForNextEpoch(root);
         git(['add', '-A'], root);
 
-        git(['update-ref', '-d', 'refs/remotes/origin/master'], root);
-        const unprotected = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
-        assert.notEqual(unprotected.status, 0, '不在受保护 master 历史中的 source 必须拒绝');
-        assert.match(unprotected.stdout + unprotected.stderr, /not in protected origin\/master history/);
+        const staleMaster = git(['rev-parse', previousRoot + '^'], root).stdout.trim();
+        setLiveMaster(root, staleMaster);
+        const unprotected = runTrustedCli(root, previousRoot,
+            ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(unprotected.status, 0, 'source 不等于实时 protected master tip 时必须拒绝');
+        assert.match(unprotected.stdout + unprotected.stderr, /local and live protected master tip/);
         assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTree'], root,
             { allowFailure: true }).status, 0, '失败 bridge 不得部分写 ticket');
-        git(['update-ref', 'refs/remotes/origin/master', previousRoot], root);
+        setLiveMaster(root, previousRoot);
+
+        const candidateLauncher = runRepoCli(root,
+            ['--prepare-root', '--epoch', '3', '--trusted-source', previousRoot], { clearCI: true });
+        assert.notEqual(candidateLauncher.status, 0, 'candidate CLI 不得代理 first-admission bridge');
+        assert.match(candidateLauncher.stdout + candidateLauncher.stderr,
+            /external materialized trusted bundle/);
 
         const policyFile = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
         const badPolicy = JSON.parse(fs.readFileSync(policyFile, 'utf8'));
@@ -345,7 +396,8 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
             'Shared Snippet Drift Check / check-shared-snippets';
         fs.writeFileSync(policyFile, JSON.stringify(badPolicy, null, 2) + '\n', 'utf8');
         git(['add', 'scripts/i18n/gate-policy.json'], root);
-        const dualContext = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        const dualContext = runTrustedCli(root, previousRoot,
+            ['--prepare-root', '--epoch', '3'], { clearCI: true });
         assert.notEqual(dualContext.status, 0, '旧 context 或双 context 必须拒绝');
         assert.match(dualContext.stdout + dualContext.stderr, /requiredExternalCheckDefinitions|required context/);
         badPolicy.requiredExternalCheckDefinitions[0].requiredContext = 'check-shared-snippets';
@@ -354,14 +406,16 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
 
         fs.writeFileSync(path.join(root, 'unrelated.txt'), 'not part of the root transition\n', 'utf8');
         git(['add', 'unrelated.txt'], root);
-        const expanded = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        const expanded = runTrustedCli(root, previousRoot,
+            ['--prepare-root', '--epoch', '3'], { clearCI: true });
         assert.notEqual(expanded.status, 0, 'first admission 不得夹带无关改动');
         assert.match(expanded.stdout + expanded.stderr, /out-of-scope or non-mechanical change/);
         git(['rm', '-q', '-f', 'unrelated.txt'], root);
 
-        const prepare = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        const prepare = runTrustedCli(root, previousRoot,
+            ['--prepare-root', '--epoch', '3'], { clearCI: true });
         assert.equal(prepare.status, 0, prepare.stdout + prepare.stderr);
-        assert.match(prepare.stdout + prepare.stderr, /Gate Epoch 3 root prepared/);
+        assert.match(prepare.stdout + prepare.stderr, /Gate Epoch 3 root tree prepared/);
         const preparedTree = git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTree'], root)
             .stdout.trim();
         assert.equal(preparedTree, git(['write-tree'], root).stdout.trim());
@@ -371,6 +425,8 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
             .stdout.trim(), '3');
         assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTrustedSource'], root)
             .stdout.trim(), previousRoot);
+        assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionCandidate'], root,
+            { allowFailure: true }).status, 0, 'prepare 阶段不得猜测最终 candidate SHA');
 
         git(['config', '--local', 'pixiv.i18n.firstAdmissionTrustedSource', '0'.repeat(40)], root);
         const refusedCommit = git(['commit', '-q', '-m', 'mismatched epoch 3 root'], root,
@@ -379,6 +435,42 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
         git(['config', '--local', 'pixiv.i18n.firstAdmissionTrustedSource', previousRoot], root);
         const commit = git(['commit', '-q', '-m', 'epoch 3 root'], root);
         assert.equal(commit.status, 0, commit.stdout + commit.stderr);
+
+        const unsealedAdopt = runRepoCli(root,
+            ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(unsealedAdopt.status, 0, '未由 trusted bridge seal 的 commit 不得 adoption');
+        assert.match(unsealedAdopt.stdout + unsealedAdopt.stderr, /sealed candidate SHA/);
+
+        const candidateSeal = runRepoCli(root,
+            ['--seal-root', '--ref', 'HEAD', '--trusted-source', previousRoot], { clearCI: true });
+        assert.notEqual(candidateSeal.status, 0, 'candidate CLI 不得自行 seal candidate SHA');
+        assert.match(candidateSeal.stdout + candidateSeal.stderr,
+            /external materialized trusted bundle/);
+
+        const seal = runTrustedCli(root, previousRoot,
+            ['--seal-root', '--ref', 'HEAD'], { clearCI: true });
+        assert.equal(seal.status, 0, seal.stdout + seal.stderr);
+        const candidateSha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionCandidate'], root)
+            .stdout.trim(), candidateSha, 'trusted bridge 必须封存唯一 candidate SHA');
+        const reseal = runTrustedCli(root, previousRoot,
+            ['--seal-root', '--ref', 'HEAD'], { clearCI: true });
+        assert.notEqual(reseal.status, 0, '同一 ticket 不得再次 seal');
+
+        setLiveMaster(root, staleMaster);
+        const movedMasterAdopt = runRepoCli(root,
+            ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(movedMasterAdopt.status, 0, 'adopt 时必须再次确认实时 protected master tip');
+        assert.match(movedMasterAdopt.stdout + movedMasterAdopt.stderr, /live protected master tip/);
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root)
+            .stdout.trim(), previousRoot, '实时 tip 校验失败不得推进 anchor');
+        setLiveMaster(root, previousRoot);
+
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionCandidate', '0'.repeat(40)], root);
+        const refusedCandidate = runRepoCli(root,
+            ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(refusedCandidate.status, 0, 'sealed candidate SHA 不匹配时 adoption 必须拒绝');
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionCandidate', candidateSha], root);
 
         git(['config', '--local', 'pixiv.i18n.firstAdmissionParent', '0'.repeat(40)], root);
         const refusedAdopt = runRepoCli(root,
@@ -398,6 +490,8 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
             .stdout.trim(), git(['rev-parse', 'HEAD'], root).stdout.trim());
         assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTree'], root,
             { allowFailure: true }).status, 0, 'adopt-root 成功后必须清除 preparation ticket');
+        assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionCandidate'], root,
+            { allowFailure: true }).status, 0, 'adopt-root 成功后必须清除 candidate seal');
     } finally {
         cleanRepo(root);
     }

@@ -41,6 +41,7 @@ export const FIRST_ADMISSION_TARGET_EPOCH_KEY = 'pixiv.i18n.firstAdmissionTarget
 export const FIRST_ADMISSION_TRUSTED_SOURCE_KEY = 'pixiv.i18n.firstAdmissionTrustedSource';
 export const FIRST_ADMISSION_PARENT_KEY = 'pixiv.i18n.firstAdmissionParent';
 export const FIRST_ADMISSION_TREE_KEY = 'pixiv.i18n.firstAdmissionTree';
+export const FIRST_ADMISSION_CANDIDATE_KEY = 'pixiv.i18n.firstAdmissionCandidate';
 
 /** 当前唯一受支持的 Gate Epoch。epoch < 2 视为 obsolete；epoch > 2 视为 unsupported future。 */
 export const CURRENT_GATE_EPOCH = 2;
@@ -627,6 +628,7 @@ export default {
     FIRST_ADMISSION_TRUSTED_SOURCE_KEY,
     FIRST_ADMISSION_PARENT_KEY,
     FIRST_ADMISSION_TREE_KEY,
+    FIRST_ADMISSION_CANDIDATE_KEY,
     CURRENT_GATE_EPOCH,
     ROOT_TAG_NAME,
     rootTagNameForEpoch,
