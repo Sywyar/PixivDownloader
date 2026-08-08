@@ -814,3 +814,75 @@ test('nightly 契约：删除 publish-plugins job → 拒绝（nightly 产物不
         fs.rmSync(trusted, { recursive: true, force: true });
     }
 });
+
+// ---------------------------------------------------------------------------
+// Ruleset invariant 契约（github-ruleset-invariants.json 安全语义只增不减）
+// ---------------------------------------------------------------------------
+
+function mutateRulesetInvariants(root, mutate) {
+    const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+    const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+    mutate(doc);
+    fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+}
+
+test('ruleset 契约：恶意候选（requireStrict=false / allowBypass=true / allowDeletion=true / allowNonFastForward=true / requiredChecks=[]）→ 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        mutateRulesetInvariants(root, (doc) => {
+            doc.master = {
+                requiredChecks: [],
+                requireStrict: false,
+                allowBypass: true,
+                allowDeletion: true,
+                allowNonFastForward: true,
+            };
+            doc['i18n-gate-epoch-2-root'] = {
+                allowDeletion: true,
+                allowNonFastForward: true,
+                allowBypass: true,
+            };
+        });
+        commitBypass(root, 'weaken ruleset invariants');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, '弱化 ruleset 不变量必须被 contract 拒绝');
+        assert.match(run.stdout + run.stderr, /requireStrict|allowBypass|required checks not reduced/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('ruleset 契约：删除 github-ruleset-invariants.json → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        fs.rmSync(path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json'));
+        commitBypass(root, 'delete ruleset invariants');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, '删除 ruleset 不变量文件必须被拒绝');
+        assert.match(run.stdout + run.stderr, /github-ruleset-invariants\.json/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('ruleset 契约：schemaVersion 降低 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        mutateRulesetInvariants(root, (doc) => { doc.schemaVersion = 0; });
+        commitBypass(root, 'lower ruleset schemaVersion');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'schemaVersion 降低必须被拒绝');
+        assert.match(run.stdout + run.stderr, /schemaVersion/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});

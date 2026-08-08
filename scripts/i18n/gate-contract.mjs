@@ -17,7 +17,7 @@
  *   普通候选必须由 trusted predecessor 审核；root admission 是唯一显式人工例外
  *   （candidate == root 时运行 root 自身 gate + 全量 root self-protection suite，
  *   由 --force-self-protection 关闭归纳跳过）；
- * - candidate 可以提出新 policy，但旧 trusted contract 必须审核它：gateEpoch 不得改变、
+ * - candidate 可以提出新 policy，但当前 trusted contract 必须审核它：gateEpoch 不得改变、
  *   contractVersion 不得降低、i18nEnforcementStartCommit 不得向后移动或删除、
  *   required paths / protectedBranches / requiredWorkflowJobs / requiredPackageScripts /
  *   requiredExternalChecks 集合不得减少（允许新增）；
@@ -40,6 +40,11 @@
  *   needs 链 + publish 的 needs.quality-gate.result == 'success'），禁止 always() 绕过；
  * - gate-surface.json 清单契约：candidate manifest 只能被检查（不能决定检查范围），
  *   不得删除 trusted 条目，不得声明不存在的路径；
+ * - github-ruleset-invariants.json 契约：candidate 必须携带该清单，schemaVersion 只增不减，
+ *   requiredChecks 只增（trusted ⊆ candidate），requireStrict 只允许 false→true，
+ *   allowBypass / allowDeletion / allowNonFastForward 只允许 true→false；
+ * - 本 contract 自身就是 trusted verifier：启动时断言自身满足当前 verifier baseline
+ *   （contractVersion / schemaVersion / verifier 本体文件），旧 verifier → fail closed；
  * - 外部 checker：candidate scripts/sync-shared-snippets.ps1 内容守卫 + 黑盒行为
  *   （drift fixture 必须 exit != 0，合法同步 exit 0）；
  * - 自保护：构造「下一代恶意 gate」（no-op checker / hooks / guard / workflow 弱化 /
@@ -431,8 +436,9 @@ async function runCheckerScenarios(candidateRoot, hasChecker, skip) {
         return results;
     }
     if (!hasChecker) {
-        results.push({ name: 'checker-bundle', kind: 'report', expected: null, status: null, ok: true,
-            diagnostic: 'candidate has no scripts/i18n/check.mjs (predates the i18n gate); black-box scenarios skipped' });
+        results.push({ name: 'checker-bundle', kind: 'report', expected: null, status: null, ok: false,
+            diagnostic: 'candidate has no scripts/i18n/check.mjs (part of the current verifier'
+                + ' baseline; deletion must fail closed)' });
         return results;
     }
 
@@ -634,7 +640,7 @@ async function makeContractRepo(repoRoot, candidateRoot, trustedPolicy) {
                 fs.symlinkSync(repoNodeModules, path.join(repo, 'node_modules'));
             }
         } catch (ignored) {
-            // 链接失败不阻断：候选 predates workflow 时不需要 yaml
+            // 链接失败不阻断：yaml 解析走 NODE_PATH 兜底（等价 CI 的 npm ci）
         }
     }
     // C1：candidate gate bundle（无 policy）
@@ -735,8 +741,9 @@ async function runHookScenarios(repoRoot, candidateRoot, trustedPolicy, hasHooks
         return results;
     }
     if (!hasHooks) {
-        results.push({ name: 'hooks-bundle', kind: 'report', expected: null, status: null, ok: true,
-            diagnostic: 'candidate has no scripts/hooks; hook behavior scenarios skipped' });
+        results.push({ name: 'hooks-bundle', kind: 'report', expected: null, status: null, ok: false,
+            diagnostic: 'candidate has no scripts/hooks (part of the current verifier baseline;'
+                + ' deletion must fail closed)' });
         return results;
     }
     if (!hasBash()) {
@@ -942,7 +949,10 @@ const APPROVED_ACTIONS = {
 };
 /** Epoch 2 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
 const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'i18n:trust-gate',
-    'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards'];
+    'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards', 'doctor:github-gate'];
+
+/** github-ruleset-invariants.json 相对仓库根的路径（doctor 的期望不变量声明）。 */
+const RULESET_INVARIANTS_REL = path.posix.join('scripts', 'ci', 'github-ruleset-invariants.json');
 
 /** 可信 gate 执行必须来自物化的 trusted bundle，禁止直接运行候选工作树的 contract/guard。 */
 const TRUSTED_LOC = /\$GATE_DIR|\$RUNNER_TEMP|\bguard\/out\b|materialize-trusted-gate/;
@@ -1103,15 +1113,15 @@ function pushPackageCheck(checks, name, ok, diagnostic) {
  * github.sha^ 回退禁令 / FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 清理 /
  * Epoch 2 root tag 与 ROOT_ADMISSION 机制 / reusable input 优先级 / trusted helper 交叉验证 /
  * gate parity 步骤。
- * 候选缺失 workflow 文件（predates）时只报告不阻断。
+ * 候选缺失 workflow 文件 = 删除 baseline 文件 → fail closed（无 predates 报告路径）。
  */
 function runWorkflowContractChecks(repoRoot, candidateRoot) {
     const checks = [];
     const workflowFile = path.join(candidateRoot, ...WORKFLOW_REL.split('/'));
     if (!fs.existsSync(workflowFile)) {
-        checks.push({ name: 'candidate quality-gate.yml contract', kind: 'workflow', expected: null,
-            status: null, ok: true,
-            diagnostic: 'candidate predates .github/workflows/quality-gate.yml (report only)' });
+        pushCheck(checks, 'candidate quality-gate.yml contract', false,
+            'candidate has no .github/workflows/quality-gate.yml (part of the current verifier'
+                + ' baseline; deletion must fail closed)');
         return checks;
     }
     let doc;
@@ -1457,19 +1467,6 @@ function jobHasUsesAtJobLevel(job, re) {
 }
 
 /**
- * 候选是否曾引入过该路径（git log --diff-filter=A）。
- * 用于「文件缺失但历史已引入 → 删除 → fail closed」判定（predates 只报告）。
- */
-function wasIntroducedInHistory(repoRoot, historyRef, rel) {
-    try {
-        const introduced = git(['log', '--diff-filter=A', '--format=%H', historyRef, '--', rel], repoRoot);
-        return introduced.length > 0;
-    } catch (e) {
-        return true;
-    }
-}
-
-/**
  * 外围 workflow 语义契约（真实 YAML 解析）：
  * - shared-snippets-check.yml：冻结 name / 触发器 / check-shared-snippets job /
  *   真实 ./scripts/sync-shared-snippets.ps1 -Check 命令；删除 -Check / 改 true / echo /
@@ -1483,25 +1480,19 @@ function wasIntroducedInHistory(repoRoot, historyRef, rel) {
  *   needs.quality-gate.result == 'success'）；禁止 always() / 无 success 检查的 !cancelled()；
  * - nightly.yml：publish-plugins（uses publish-plugins.yml）→ build-jar（needs
  *   publish-plugins，即 quality gate 传递生效）→ release-nightly（needs 构建产物）。
- * 候选缺文件（predates）只报告不阻断；删除由 requiredPaths 统一 fail closed。
+ * 候选缺文件 = 删除 baseline 文件 → fail closed（无 predates 报告路径）。
  */
-function runExternalWorkflowContracts(repoRoot, candidateRoot, historyRef) {
+function runExternalWorkflowContracts(repoRoot, candidateRoot) {
     const checks = [];
     let yamlMod = null;
     let yamlLoaded = false;
     for (const rel of EXTERNAL_WORKFLOW_RELS) {
         const file = path.join(candidateRoot, ...rel.split('/'));
         if (!fs.existsSync(file)) {
-            // 候选 predates → 只报告；历史已引入却被删除 → fail closed
-            // （本轮起由语义契约 + parity predecessor diff + gate-surface 清单拦截；
-            // requiredPaths 条目由下一个 NORMAL successor 落地，见 gate-policy.json 注释）
-            const deleted = wasIntroducedInHistory(repoRoot, historyRef, rel);
-            checks.push({ name: rel + ' contract', kind: 'workflow', expected: null, status: null,
-                ok: !deleted,
-                diagnostic: deleted
-                    ? rel + ' was introduced in the candidate history but is missing from the'
-                        + ' candidate snapshot (deletion of a protected workflow must fail closed)'
-                    : 'candidate predates ' + rel + ' (report only)' });
+            checks.push({ name: rel + ' contract', kind: 'workflow', expected: 'present',
+                status: null, ok: false,
+                diagnostic: rel + ' is missing from the candidate snapshot (part of the current'
+                    + ' verifier baseline; deletion must fail closed)' });
             continue;
         }
         const spec = EXTERNAL_WORKFLOW_SPECS[rel];
@@ -1701,15 +1692,10 @@ function runGateSurfaceContract(candidateRoot, trustedPolicy) {
     const candidateFile = path.join(candidateRoot, ...SURFACE_REL.split('/'));
     const trustedFile = path.join(OWN_DIR, '..', 'ci', 'gate-surface.json');
     if (!fs.existsSync(candidateFile)) {
-        // 候选整体 predates gate surface（连 scripts/ci 都没有）→ 只报告；
-        // scripts/ci 存在但清单被删 → fail closed（删除由 requiredPaths + 本检查双重拦截）
-        const ciDir = path.join(candidateRoot, 'scripts', 'ci');
-        const predated = !fs.existsSync(ciDir);
-        pushCheck(checks, 'candidate gate-surface.json present', predated,
-            predated
-                ? 'candidate predates the gate surface manifest (report only)'
-                : 'candidate has no scripts/ci/gate-surface.json (deletion of the gate surface'
-                    + ' manifest must fail closed)');
+        // gate-surface.json 属于当前 verifier baseline：候选缺失 = 删除 → fail closed
+        pushCheck(checks, 'candidate gate-surface.json present', false,
+            'candidate has no scripts/ci/gate-surface.json (the gate surface manifest is part of'
+                + ' the current verifier baseline; deletion must fail closed)');
         return checks;
     }
     let candidateSurface = null;
@@ -1725,34 +1711,131 @@ function runGateSurfaceContract(candidateRoot, trustedPolicy) {
     pushCheck(checks, 'candidate gate-surface.json declares a non-empty path list',
         candidatePaths.length > 0,
         'candidate gate-surface.json must declare a non-empty paths array');
-    // trusted manifest 存在时（hooks / CI 已物化 scripts/ci）：候选不得减少
-    if (fs.existsSync(trustedFile)) {
-        let trustedSurface = null;
-        try {
-            trustedSurface = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
-        } catch (e) {
-            pushCheck(checks, 'trusted gate-surface.json parses as JSON', false,
-                'trusted gate-surface.json is invalid; fail closed: ' + e.message);
-            return checks;
-        }
-        const trustedPaths = Array.isArray(trustedSurface && trustedSurface.paths)
-            ? trustedSurface.paths.filter((p) => typeof p === 'string') : [];
-        const removed = trustedPaths.filter((p) => !candidatePaths.includes(p));
-        pushCheck(checks, 'candidate gate-surface.json keeps the trusted gate surface',
-            removed.length === 0,
-            'candidate dropped gate surface entries: ' + removed.join(', ')
-                + '; pre-commit / pre-push / contract / parity must share one surface');
-    } else {
-        pushCheck(checks, 'candidate gate-surface.json keeps the trusted gate surface',
-            true,
-            'trusted bundle predates scripts/ci/gate-surface.json (report only)');
+    // trusted manifest 缺失 → trusted verifier 低于 baseline → fail closed（无兼容路径）
+    if (!fs.existsSync(trustedFile)) {
+        pushCheck(checks, 'trusted verifier carries gate-surface.json', false,
+            'trusted verifier does not satisfy the current verifier baseline'
+                + ' (missing scripts/ci/gate-surface.json); fail closed');
+        return checks;
     }
+    let trustedSurface = null;
+    try {
+        trustedSurface = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+    } catch (e) {
+        pushCheck(checks, 'trusted gate-surface.json parses as JSON', false,
+            'trusted gate-surface.json is invalid; fail closed: ' + e.message);
+        return checks;
+    }
+    const trustedPaths = Array.isArray(trustedSurface && trustedSurface.paths)
+        ? trustedSurface.paths.filter((p) => typeof p === 'string') : [];
+    const removed = trustedPaths.filter((p) => !candidatePaths.includes(p));
+    pushCheck(checks, 'candidate gate-surface.json keeps the trusted gate surface',
+        removed.length === 0,
+        'candidate dropped gate surface entries: ' + removed.join(', ')
+            + '; pre-commit / pre-push / contract / parity must share one surface');
     // phantom 声明禁令：候选 manifest 里声明的每个路径必须在同一候选快照中真实存在
     const phantom = candidatePaths.filter((p) => !fs.existsSync(path.join(candidateRoot, ...p.split('/'))));
     pushCheck(checks, 'candidate gate-surface.json declares only real paths',
         phantom.length === 0,
         'candidate gate-surface.json declares paths that do not exist in the candidate snapshot: '
             + phantom.join(', ') + '; the candidate manifest cannot enlarge what is checked');
+    return checks;
+}
+
+// ---------------------------------------------------------------------------
+// github-ruleset-invariants.json 契约（Ruleset 安全语义只增不减 + 自保护）
+// ---------------------------------------------------------------------------
+
+/**
+ * 候选 github-ruleset-invariants.json 审核：
+ * - 文件必须存在（当前 verifier baseline 组成）；
+ * - schemaVersion 必须是整数且 >= trusted（缺失 → fail closed）；
+ * - master.requiredChecks：trusted ⊆ candidate（只能增加）；
+ * - master.requireStrict 只允许 false→true；master / root-tag 的
+ *   allowBypass / allowDeletion / allowNonFastForward 只允许 true→false；
+ * - trusted 文件缺失 → trusted verifier 低于 baseline → fail closed。
+ */
+function runRulesetInvariantsContract(candidateRoot) {
+    const checks = [];
+    const candidateFile = path.join(candidateRoot, ...RULESET_INVARIANTS_REL.split('/'));
+    if (!fs.existsSync(candidateFile)) {
+        pushCheck(checks, 'candidate github-ruleset-invariants.json present', false,
+            'candidate has no scripts/ci/github-ruleset-invariants.json (part of the current'
+                + ' verifier baseline; deletion must fail closed)');
+        return checks;
+    }
+    let candidate;
+    try {
+        candidate = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
+    } catch (e) {
+        pushCheck(checks, 'candidate github-ruleset-invariants.json parses as JSON', false,
+            'candidate github-ruleset-invariants.json is invalid: ' + e.message);
+        return checks;
+    }
+    const cs = Number.isInteger(candidate.schemaVersion) ? candidate.schemaVersion : null;
+    if (cs === null) {
+        pushCheck(checks, 'candidate ruleset invariants schemaVersion present', false,
+            'candidate github-ruleset-invariants.json has no integer schemaVersion; fail closed');
+        return checks;
+    }
+    const trustedFile = path.join(OWN_DIR, '..', '..', ...RULESET_INVARIANTS_REL.split('/'));
+    if (!fs.existsSync(trustedFile)) {
+        pushCheck(checks, 'trusted verifier carries github-ruleset-invariants.json', false,
+            'trusted verifier does not satisfy the current verifier baseline; fail closed');
+        return checks;
+    }
+    let trusted;
+    try {
+        trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+    } catch (e) {
+        pushCheck(checks, 'trusted github-ruleset-invariants.json parses as JSON', false,
+            'trusted github-ruleset-invariants.json is invalid: ' + e.message);
+        return checks;
+    }
+    const ts = Number.isInteger(trusted.schemaVersion) ? trusted.schemaVersion : null;
+    pushCheck(checks, 'ruleset invariants schemaVersion not lowered',
+        ts !== null && cs >= ts,
+        'candidate ruleset invariants schemaVersion ' + cs + (ts === null
+            ? ' (trusted schemaVersion missing)' : ' < trusted ' + ts) + '; fail closed');
+
+    const tMaster = trusted.master && typeof trusted.master === 'object' ? trusted.master : null;
+    const cMaster = candidate.master && typeof candidate.master === 'object' ? candidate.master : null;
+    const tTag = trusted['i18n-gate-epoch-2-root'] && typeof trusted['i18n-gate-epoch-2-root'] === 'object'
+        ? trusted['i18n-gate-epoch-2-root'] : null;
+    const cTag = candidate['i18n-gate-epoch-2-root'] && typeof candidate['i18n-gate-epoch-2-root'] === 'object'
+        ? candidate['i18n-gate-epoch-2-root'] : null;
+    const tChecks = Array.isArray(tMaster && tMaster.requiredChecks)
+        ? tMaster.requiredChecks.filter((c) => typeof c === 'string') : [];
+    const cChecks = Array.isArray(cMaster && cMaster.requiredChecks)
+        ? cMaster.requiredChecks.filter((c) => typeof c === 'string') : [];
+    const removedChecks = tChecks.filter((c) => !cChecks.includes(c));
+    pushCheck(checks, 'ruleset required checks not reduced', removedChecks.length === 0,
+        'candidate dropped required status checks: ' + removedChecks.join(', '));
+    for (const [key, stricterIs] of [['requireStrict', true], ['allowBypass', false],
+        ['allowDeletion', false], ['allowNonFastForward', false]]) {
+        if (!tMaster || !cMaster || typeof tMaster[key] !== 'boolean' || typeof cMaster[key] !== 'boolean') {
+            pushCheck(checks, 'ruleset master.' + key + ' strictness not weakened', false,
+                'ruleset invariants master.' + key + ' must be a boolean on both sides; fail closed');
+            continue;
+        }
+        const weakened = stricterIs
+            ? (tMaster[key] === true && cMaster[key] === false)
+            : (tMaster[key] === false && cMaster[key] === true);
+        pushCheck(checks, 'ruleset master.' + key + ' strictness not weakened', !weakened,
+            'candidate weakened master.' + key + ' from ' + tMaster[key] + ' to '
+                + cMaster[key] + '; fail closed');
+    }
+    for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+        if (!tTag || !cTag || typeof tTag[key] !== 'boolean' || typeof cTag[key] !== 'boolean') {
+            pushCheck(checks, 'ruleset root tag ' + key + ' strictness not weakened', false,
+                'ruleset invariants root-tag ' + key + ' must be a boolean on both sides; fail closed');
+            continue;
+        }
+        const weakened = tTag[key] === false && cTag[key] === true;
+        pushCheck(checks, 'ruleset root tag ' + key + ' strictness not weakened', !weakened,
+            'candidate weakened root-tag ' + key + ' from ' + tTag[key] + ' to '
+                + cTag[key] + '; fail closed');
+    }
     return checks;
 }
 
@@ -1769,7 +1852,7 @@ function runGateSurfaceContract(candidateRoot, trustedPolicy) {
  *   requiredPaths 条目由下一个 NORMAL successor 落地）。
  * 与 trusted bundle 逐字节一致时归纳跳过（行为由信任链保证）。
  */
-async function runSyncScenarios(repoRoot, candidateRoot, historyRef, skip) {
+async function runSyncScenarios(repoRoot, candidateRoot, skip) {
     const results = [];
     if (skip) {
         results.push({ name: 'sync-shared-snippets.ps1 behavior (black-box)', kind: 'external-checker',
@@ -1780,14 +1863,10 @@ async function runSyncScenarios(repoRoot, candidateRoot, historyRef, skip) {
     }
     const scriptFile = path.join(candidateRoot, ...SYNC_REL.split('/'));
     if (!fs.existsSync(scriptFile)) {
-        const deleted = wasIntroducedInHistory(repoRoot, historyRef, SYNC_REL);
-        results.push({ name: 'sync-shared-snippets.ps1 content', kind: 'report', expected: null,
-            status: null, ok: !deleted,
-            diagnostic: deleted
-                ? 'scripts/sync-shared-snippets.ps1 was introduced in the candidate history but is'
-                    + ' missing from the candidate snapshot (deletion of the shared snippet checker'
-                    + ' must fail closed)'
-                : 'candidate predates scripts/sync-shared-snippets.ps1 (report only)' });
+        results.push({ name: 'sync-shared-snippets.ps1 content', kind: 'external-checker',
+            expected: 'present', status: null, ok: false,
+            diagnostic: 'scripts/sync-shared-snippets.ps1 is missing from the candidate snapshot'
+                + ' (part of the current verifier baseline; deletion must fail closed)' });
         return results;
     }
     const content = fs.readFileSync(scriptFile, 'utf8');
@@ -1857,17 +1936,19 @@ function runHookContentChecks(candidateRoot) {
     const checks = [];
     const hooksRoot = path.join(candidateRoot, 'scripts', 'hooks');
     if (!fs.existsSync(hooksRoot)) {
-        checks.push({ name: 'candidate hooks bundle', kind: 'hooks-static', expected: null,
-            status: null, ok: true,
-            diagnostic: 'candidate predates scripts/hooks (report only; required paths govern deletion)' });
+        checks.push({ name: 'candidate hooks bundle', kind: 'hooks-static', expected: 'present',
+            status: null, ok: false,
+            diagnostic: 'candidate has no scripts/hooks (part of the current verifier baseline;'
+                + ' deletion must fail closed)' });
         return checks;
     }
     for (const hook of ['pre-commit', 'pre-push']) {
         const file = path.join(hooksRoot, hook);
         if (!fs.existsSync(file)) {
             checks.push({ name: 'candidate hook constraint: missing ' + hook, kind: 'hooks-static',
-                expected: null, status: null, ok: true,
-                diagnostic: 'candidate lacks ' + hook + ' (report; required paths govern deletion)' });
+                expected: 'present', status: null, ok: false,
+                diagnostic: 'candidate lacks ' + hook + ' (part of the current verifier baseline;'
+                    + ' deletion must fail closed)' });
             continue;
         }
         const content = fs.readFileSync(file, 'utf8');
@@ -1889,9 +1970,9 @@ function runPackageContractChecks(candidateRoot, trustedPolicy) {
     const checks = [];
     const pkgFile = path.join(candidateRoot, ...PACKAGE_JSON_REL.split('/'));
     if (!fs.existsSync(pkgFile)) {
-        checks.push({ name: 'candidate package.json scripts contract', kind: 'package', expected: null,
-            status: null, ok: true,
-            diagnostic: 'candidate predates package.json (report only)' });
+        pushPackageCheck(checks, 'candidate package.json scripts contract', false,
+            'candidate has no package.json (part of the current verifier baseline; deletion must'
+                + ' fail closed)');
         return checks;
     }
     let pkg;
@@ -1934,9 +2015,9 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
         return results;
     }
     if (!hasContract) {
-        results.push({ name: 'self-protection', kind: 'report', expected: null, status: null, ok: true,
-            diagnostic: 'candidate has no scripts/i18n/gate-contract.mjs; self-protection cannot run'
-                + ' (predates the contract architecture)' });
+        results.push({ name: 'self-protection', kind: 'report', expected: null, status: null, ok: false,
+            diagnostic: 'candidate has no scripts/i18n/gate-contract.mjs (part of the current'
+                + ' verifier baseline; deletion must fail closed)' });
         return results;
     }
     if (!hasBash()) {
@@ -2065,6 +2146,27 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             pol.contractVersion = 0;
             fs.writeFileSync(policyPath, JSON.stringify(pol, null, 2) + '\n', 'utf8');
         }
+        // 下一代恶意 gate 同时弱化 Ruleset 不变量声明（github-ruleset-invariants.json）：
+        // requireStrict=false / allowBypass=true / allowDeletion=true / allowNonFastForward=true /
+        // requiredChecks 清空 / root tag 放开 → 新 contract 必须拒绝
+        const rulesetPath = path.join(repo, 'scripts', 'ci', 'github-ruleset-invariants.json');
+        if (fs.existsSync(rulesetPath)) {
+            fs.writeFileSync(rulesetPath, JSON.stringify({
+                schemaVersion: 1,
+                master: {
+                    requiredChecks: [],
+                    requireStrict: false,
+                    allowBypass: true,
+                    allowDeletion: true,
+                    allowNonFastForward: true,
+                },
+                'i18n-gate-epoch-2-root': {
+                    allowDeletion: true,
+                    allowNonFastForward: true,
+                    allowBypass: true,
+                },
+            }, null, 2) + '\n', 'utf8');
+        }
         git(['add', '-A'], repo);
         git(['commit', '-q', '-m', 'malicious next gate'], repo);
         const malicious = git(['rev-parse', 'HEAD'], repo);
@@ -2145,6 +2247,15 @@ async function main() {
     if (!trustedPolicy) {
         fail('gate-contract must run from the trusted gate materialization'
             + ' (gate-policy.json missing next to gate-contract.mjs)');
+        return;
+    }
+    // 本 contract 自身就是 trusted verifier：它必须满足当前 verifier baseline。
+    // 低于最低能力（旧 verifier）→ fail closed，绝不 predates / fallback / legacy 兼容。
+    try {
+        trustedGate.assertSupportedTrustedVerifierDir(path.join(OWN_DIR, '..', '..'));
+    } catch (e) {
+        fail('trusted verifier does not satisfy the current Gate Epoch 2 verifier baseline;'
+            + ' fail closed: ' + e.message);
         return;
     }
 
@@ -2346,9 +2457,10 @@ async function main() {
 
         // 3.5 candidate quality-gate.yml + package.json 语义契约（真实 YAML 解析）
         checks.push(...runWorkflowContractChecks(repoRoot, candidateRoot));
-        checks.push(...runExternalWorkflowContracts(repoRoot, candidateRoot, historyRef));
+        checks.push(...runExternalWorkflowContracts(repoRoot, candidateRoot));
         checks.push(...runPackageContractChecks(candidateRoot, trustedPolicy));
         checks.push(...runGateSurfaceContract(candidateRoot, trustedPolicy));
+        checks.push(...runRulesetInvariantsContract(candidateRoot));
         checks.push(...runHookContentChecks(candidateRoot));
 
         const hasChecker = fs.existsSync(path.join(candidateRoot, 'scripts', 'i18n', 'check.mjs'));
@@ -2380,7 +2492,7 @@ async function main() {
             }
             return fs.readFileSync(candidateFile, 'utf8') === fs.readFileSync(trustedFile, 'utf8');
         })();
-        const syncScenarios = await runSyncScenarios(repoRoot, candidateRoot, historyRef, candidateSyncIdentical);
+        const syncScenarios = await runSyncScenarios(repoRoot, candidateRoot, candidateSyncIdentical);
         checks.push(...syncScenarios);
         const syncOk = syncScenarios.every((c) => c.ok);
 

@@ -37,6 +37,25 @@ export const TRUSTED_EPOCH_KEY = 'pixiv.i18n.trustedGateEpoch';
 /** 当前唯一受支持的 Gate Epoch。epoch < 2 视为 obsolete；epoch > 2 视为 unsupported future。 */
 export const CURRENT_GATE_EPOCH = 2;
 
+/**
+ * 当前新标准 verifier 最低能力（与 Epoch 2 历史信任 root 分开）：
+ * Epoch 2 root（cb587e01，contract v3）只证明「属于 Epoch 2 历史」，
+ * 不等于「当前允许作为 verifier 的最老提交」。CURRENT_MIN_* 决定当前
+ * trusted verifier 必须具备的能力；低于此线 → fail closed，绝不兼容 / fallback / predates。
+ */
+export const CURRENT_MIN_CONTRACT_VERSION = 4;
+export const CURRENT_MIN_SCHEMA_VERSION = 3;
+
+/** 当前 verifier baseline 要求的 verifier 本体文件（缺任一 → verifier 无资格审核新标准候选）。 */
+export const REQUIRED_VERIFIER_FILES = [
+    path.posix.join('scripts', 'ci', 'gate-surface.json'),
+    path.posix.join('scripts', 'ci', 'gate-invariants.json'),
+    path.posix.join('scripts', 'ci', 'gate-parity.mjs'),
+    path.posix.join('scripts', 'ci', 'resolve-trusted-base.mjs'),
+    path.posix.join('scripts', 'ci', 'materialize-trusted-gate.sh'),
+    path.posix.join('scripts', 'ci', 'doctor-github-ruleset.mjs'),
+];
+
 /** Epoch 2 信任根 tag（仓库内容之外的不可自我修改锚点，由管理员人工创建并受 Ruleset 保护）。 */
 export const ROOT_TAG_NAME = 'i18n-gate-epoch-2-root';
 
@@ -416,6 +435,52 @@ export function loadPolicyFromRef(repoRoot, ref) {
     }
 }
 
+/**
+ * 校验物化后的 verifier 目录是否满足当前 verifier baseline（Gate Epoch 2 新标准）。
+ * 低于最低能力（contract / schema / 缺 verifier 本体文件）→ 抛错 fail closed；
+ * 兼容 / fallback / predates / legacy 分支一律不存在。
+ * @param {string} dir 物化后的 trusted verifier bundle 根目录
+ * @returns {Object} trusted policy（校验通过时）
+ */
+export function assertSupportedTrustedVerifierDir(dir) {
+    const policy = loadPolicyFromDir(dir);
+    const failures = [];
+    if (policy.gateEpoch !== CURRENT_GATE_EPOCH) {
+        failures.push('gateEpoch ' + policy.gateEpoch + ' != ' + CURRENT_GATE_EPOCH);
+    }
+    if (!Number.isInteger(policy.contractVersion)
+        || policy.contractVersion < CURRENT_MIN_CONTRACT_VERSION) {
+        failures.push('contractVersion ' + policy.contractVersion
+            + ' < current minimum ' + CURRENT_MIN_CONTRACT_VERSION
+            + ' (verifier rollback is refused)');
+    }
+    if (!Number.isInteger(policy.schemaVersion)
+        || policy.schemaVersion < CURRENT_MIN_SCHEMA_VERSION) {
+        failures.push('schemaVersion ' + policy.schemaVersion
+            + ' < current minimum ' + CURRENT_MIN_SCHEMA_VERSION);
+    }
+    for (const rel of REQUIRED_VERIFIER_FILES) {
+        if (!fs.existsSync(path.join(dir, ...rel.split('/')))) {
+            failures.push('missing ' + rel);
+        }
+    }
+    if (failures.length > 0) {
+        throw new Error('trusted verifier does not satisfy the current Gate Epoch 2 verifier'
+            + ' baseline (fail closed): ' + failures.join('; '));
+    }
+    return policy;
+}
+
+/** 校验 ref 处的 verifier 是否满足当前 verifier baseline（物化后检查，自动清理）。 */
+export function assertSupportedTrustedVerifierAt(repoRoot, sha) {
+    const materialized = snapshot.materializePaths(repoRoot, sha, GATE_PATHS);
+    try {
+        return assertSupportedTrustedVerifierDir(materialized.root);
+    } finally {
+        materialized.cleanup();
+    }
+}
+
 /** 从可信锚点物化完整 gate bundle（scripts/i18n + scripts/hooks）。 */
 export function materializeTrustedGate(repoRoot, trustedSha, outDir) {
     const materialized = snapshot.materializePaths(repoRoot, trustedSha, GATE_PATHS);
@@ -530,6 +595,9 @@ export default {
     TRUSTED_REF_KEY,
     TRUSTED_EPOCH_KEY,
     CURRENT_GATE_EPOCH,
+    CURRENT_MIN_CONTRACT_VERSION,
+    CURRENT_MIN_SCHEMA_VERSION,
+    REQUIRED_VERIFIER_FILES,
     ROOT_TAG_NAME,
     GATE_PATHS,
     POLICY_REL,
@@ -552,6 +620,8 @@ export default {
     validatePolicyStructure,
     loadPolicyFromDir,
     loadPolicyFromRef,
+    assertSupportedTrustedVerifierDir,
+    assertSupportedTrustedVerifierAt,
     materializeTrustedGate,
     hasPathInDir,
     checkRequiredPaths,

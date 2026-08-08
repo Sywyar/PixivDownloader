@@ -18,6 +18,7 @@
     "scripts/ci/gate-invariants.json",
     "scripts/ci/gate-surface.json",
     "scripts/ci/github-ruleset-invariants.json",
+    "scripts/ci/doctor-github-ruleset.mjs",
     ".github/workflows/quality-gate.yml",
     "package.json",
     "package-lock.json"
@@ -47,7 +48,8 @@
     "i18n:gate-contract",
     "i18n:gate-parity",
     "test:js",
-    "test:web-standards"
+    "test:web-standards",
+    "doctor:github-gate"
   ],
   "requiredExternalChecks": [
     "Shared Snippet Drift Check"

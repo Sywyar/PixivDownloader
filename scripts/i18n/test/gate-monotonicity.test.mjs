@@ -446,6 +446,93 @@ const MUTATIONS = [
                 'if (false) {'), 'utf8');
         },
     },
+    {
+        name: 'github-ruleset-invariants 删除 required check',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.requiredChecks = doc.master.requiredChecks.slice(1);
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants requireStrict true → false',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.requireStrict = false;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants allowBypass false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.allowBypass = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants allowDeletion false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.allowDeletion = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants allowNonFastForward false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.master.allowNonFastForward = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants root tag allowBypass false → true',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc['i18n-gate-epoch-2-root'].allowBypass = true;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'github-ruleset-invariants schemaVersion 降低',
+        mutate: async (root) => {
+            const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+            doc.schemaVersion = 0;
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'doctor-github-ruleset.mjs 删除',
+        mutate: async (root) => {
+            fs.rmSync(path.join(root, 'scripts', 'ci', 'doctor-github-ruleset.mjs'));
+        },
+    },
+    {
+        name: '删除 doctor:github-gate package script',
+        mutate: async (root) => {
+            const pkgPath = path.join(root, 'package.json');
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            delete pkg.scripts['doctor:github-gate'];
+            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        },
+    },
+    {
+        name: 'doctor:github-gate = true',
+        mutate: async (root) => {
+            const pkgPath = path.join(root, 'package.json');
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            pkg.scripts['doctor:github-gate'] = 'true';
+            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        },
+    },
 ];
 
 for (const mutation of MUTATIONS) {

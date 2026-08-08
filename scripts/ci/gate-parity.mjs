@@ -65,11 +65,13 @@ const EXTERNAL_WORKFLOW_RELS = [
     path.posix.join('.github', 'workflows', 'publish-plugins.yml'),
 ];
 
+const RULESET_INVARIANTS_REL = path.posix.join('scripts', 'ci', 'github-ruleset-invariants.json');
+
 const REQUIRED_TRIGGERS = ['push', 'pull_request', 'merge_group', 'workflow_dispatch', 'workflow_call'];
 const REQUIRED_WORKFLOW_JOBS = ['java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract', 'i18n-check'];
 /** Epoch 2 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
 const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'i18n:trust-gate',
-    'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards'];
+    'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards', 'doctor:github-gate'];
 const TRUSTED_LOC = /\$GATE_DIR|\$RUNNER_TEMP|\bguard\/out\b|materialize-trusted-gate/;
 
 const SHA_RE = /^[0-9a-f]{40}$/;
@@ -640,11 +642,11 @@ function auditGateSurface(checks, trustedDir, candidateRoot) {
     const trustedFile = path.join(trustedDir, ...SURFACE_REL.split('/'));
     const candidateFile = path.join(candidateRoot, ...SURFACE_REL.split('/'));
     if (!fs.existsSync(trustedFile)) {
-        // trusted base predates gate-surface.json（如 Epoch 2 root cb587e01）：
-        // 无法做 trusted→candidate 单调比较，只报告；候选侧删除清单仍 fail closed
-        pushCheck('candidate gate-surface.json preserved (trusted predates the manifest)',
-            fs.existsSync(candidateFile),
-            'candidate deleted scripts/ci/gate-surface.json; fail closed');
+        // trusted verifier 无新标准 manifest → verifier 本身无资格审核新标准 candidate；
+        // 不存在 predates / fallback / legacy 兼容路径，一律 fail closed
+        pushCheck('trusted verifier carries gate-surface.json', false,
+            'trusted verifier does not satisfy the current verifier baseline'
+                + ' (missing scripts/ci/gate-surface.json); fail closed');
         return;
     }
     let trustedSurface;
@@ -680,6 +682,123 @@ function auditGateSurface(checks, trustedDir, candidateRoot) {
     pushCheck('candidate gate-surface.json declares only real paths',
         phantom.length === 0,
         'candidate gate-surface.json declares non-existent paths: ' + phantom.join(', '));
+}
+
+/**
+ * github-ruleset-invariants.json 安全语义单调审计（严格度只能增加，不能降低）：
+ * - NORMAL：trusted invariant vs candidate invariant；
+ *   requiredChecks 只能增加（trusted ⊆ candidate）；
+ *   requireStrict 允许 false→true，禁止 true→false；
+ *   allowBypass / allowDeletion / allowNonFastForward 允许 true→false，禁止 false→true；
+ *   schemaVersion 只增不减（字段缺失 → fail closed）；
+ * - invariants 模式（trustedDir == null）：候选必须满足最低安全合同
+ *   （master.requireStrict=true、master/root-tag allow*=false、requiredChecks 非空）。
+ */
+function auditGithubRulesetInvariants(checks, trustedDir, candidateRoot) {
+    const pushCheck = (name, ok, diagnostic) => {
+        checks.push({ name, kind: 'invariant', expected: ok ? 'kept' : 'weakened', status: null, ok,
+            diagnostic: ok ? '' : diagnostic });
+    };
+    const candidateFile = path.join(candidateRoot, ...RULESET_INVARIANTS_REL.split('/'));
+    if (!fs.existsSync(candidateFile)) {
+        pushCheck('candidate github-ruleset-invariants.json present', false,
+            'candidate has no scripts/ci/github-ruleset-invariants.json; fail closed');
+        return;
+    }
+    let candidate;
+    try {
+        candidate = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
+    } catch (e) {
+        pushCheck('candidate github-ruleset-invariants.json parses as JSON', false,
+            'candidate github-ruleset-invariants.json is invalid: ' + e.message);
+        return;
+    }
+    const cs = Number.isInteger(candidate.schemaVersion) ? candidate.schemaVersion : null;
+    if (cs === null) {
+        pushCheck('candidate ruleset invariants schemaVersion present', false,
+            'candidate github-ruleset-invariants.json has no integer schemaVersion; fail closed');
+        return;
+    }
+    const cMaster = candidate.master && typeof candidate.master === 'object' ? candidate.master : null;
+    const cTag = candidate['i18n-gate-epoch-2-root'] && typeof candidate['i18n-gate-epoch-2-root'] === 'object'
+        ? candidate['i18n-gate-epoch-2-root'] : null;
+
+    if (trustedDir) {
+        const trustedFile = path.join(trustedDir, ...RULESET_INVARIANTS_REL.split('/'));
+        if (!fs.existsSync(trustedFile)) {
+            pushCheck('trusted verifier carries github-ruleset-invariants.json', false,
+                'trusted verifier does not satisfy the current verifier baseline; fail closed');
+            return;
+        }
+        let trusted;
+        try {
+            trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+        } catch (e) {
+            pushCheck('trusted github-ruleset-invariants.json parses as JSON', false,
+                'trusted github-ruleset-invariants.json is invalid: ' + e.message);
+            return;
+        }
+        const ts = Number.isInteger(trusted.schemaVersion) ? trusted.schemaVersion : null;
+        pushCheck('ruleset invariants schemaVersion not lowered',
+            ts !== null && cs >= ts,
+            'candidate ruleset invariants schemaVersion ' + cs + (ts === null
+                ? ' (trusted schemaVersion missing)' : ' < trusted ' + ts) + '; fail closed');
+        const tMaster = trusted.master && typeof trusted.master === 'object' ? trusted.master : null;
+        const tTag = trusted['i18n-gate-epoch-2-root'] && typeof trusted['i18n-gate-epoch-2-root'] === 'object'
+            ? trusted['i18n-gate-epoch-2-root'] : null;
+        const tChecks = Array.isArray(tMaster && tMaster.requiredChecks)
+            ? tMaster.requiredChecks.filter((c) => typeof c === 'string') : [];
+        const cChecks = Array.isArray(cMaster && cMaster.requiredChecks)
+            ? cMaster.requiredChecks.filter((c) => typeof c === 'string') : [];
+        const removedChecks = tChecks.filter((c) => !cChecks.includes(c));
+        pushCheck('ruleset required checks not reduced', removedChecks.length === 0,
+            'candidate dropped required status checks: ' + removedChecks.join(', '));
+        // 布尔安全语义单调：requireStrict 只允许 false→true；allow* 只允许 true→false
+        for (const [key, stricterIs] of [['requireStrict', true], ['allowBypass', false],
+            ['allowDeletion', false], ['allowNonFastForward', false]]) {
+            if (!tMaster || !cMaster || typeof tMaster[key] !== 'boolean' || typeof cMaster[key] !== 'boolean') {
+                pushCheck('ruleset master.' + key + ' strictness not weakened', false,
+                    'ruleset invariants master.' + key + ' must be a boolean on both sides; fail closed');
+                continue;
+            }
+            const weakened = stricterIs
+                ? (tMaster[key] === true && cMaster[key] === false)
+                : (tMaster[key] === false && cMaster[key] === true);
+            pushCheck('ruleset master.' + key + ' strictness not weakened', !weakened,
+                'candidate weakened master.' + key + ' from ' + tMaster[key] + ' to '
+                    + cMaster[key] + '; fail closed');
+        }
+        for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+            if (!tTag || !cTag || typeof tTag[key] !== 'boolean' || typeof cTag[key] !== 'boolean') {
+                pushCheck('ruleset root tag ' + key + ' strictness not weakened', false,
+                    'ruleset invariants root-tag ' + key + ' must be a boolean on both sides; fail closed');
+                continue;
+            }
+            const weakened = tTag[key] === false && cTag[key] === true;
+            pushCheck('ruleset root tag ' + key + ' strictness not weakened', !weakened,
+                'candidate weakened root-tag ' + key + ' from ' + tTag[key] + ' to '
+                    + cTag[key] + '; fail closed');
+        }
+    } else {
+        // invariants 模式：候选必须满足最低安全合同（不允许弱于当前期望）
+        pushCheck('invariant: ruleset master requireStrict == true',
+            !!(cMaster && cMaster.requireStrict === true),
+            'candidate ruleset invariants master.requireStrict != true; fail closed');
+        for (const key of ['allowBypass', 'allowDeletion', 'allowNonFastForward']) {
+            pushCheck('invariant: ruleset master ' + key + ' == false',
+                !!(cMaster && cMaster[key] === false),
+                'candidate ruleset invariants master.' + key + ' != false; fail closed');
+        }
+        for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+            pushCheck('invariant: ruleset root tag ' + key + ' == false',
+                !!(cTag && cTag[key] === false),
+                'candidate ruleset invariants root-tag ' + key + ' != false; fail closed');
+        }
+        pushCheck('invariant: ruleset required checks non-empty',
+            Array.isArray(cMaster && cMaster.requiredChecks)
+                && cMaster.requiredChecks.some((c) => typeof c === 'string' && c.length > 0),
+            'candidate ruleset invariants master.requiredChecks must be non-empty; fail closed');
+    }
 }
 
 function auditPolicy(checks, trustedPolicy, candidatePolicy) {
@@ -888,6 +1007,7 @@ function main() {
         if (args.invariants) {
             // root admission / root adoption：没有 trusted predecessor，用 invariants 作为最低线
             auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot, repoRoot);
+            auditGithubRulesetInvariants(checks, null, candidateRoot);
             if (candidatePolicy) {
                 auditPackage(checks, REQUIRED_SCRIPTS, candidatePkg);
             }
@@ -922,6 +1042,7 @@ function main() {
                 auditExternalWorkflow(checks, trustedExt, candidateExt, rel);
             }
             auditGateSurface(checks, args.trustedDir, candidateRoot);
+            auditGithubRulesetInvariants(checks, args.trustedDir, candidateRoot);
             auditPackage(checks, [...REQUIRED_SCRIPTS, ...(trustedPolicy.requiredPackageScripts || [])], candidatePkg);
             if (invariants) {
                 auditInvariants(checks, invariants, candidatePolicy, candidateDoc, candidatePkg, candidateRoot, repoRoot);

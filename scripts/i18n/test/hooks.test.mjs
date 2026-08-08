@@ -77,8 +77,9 @@ function hasBash() {
  * - C2：引入 gate-policy.json（i18nEnforcementStartCommit = C1），作为本地 trusted anchor。
  * 之后启用 core.hooksPath 并写入 pixiv.i18n.trustedGateRef = C2。
  * 这样后续每个历史 commit 都满足 i18n 门禁，pre-push 的逐 commit 检查只在故意注入的坏提交上失败。
- * fullGate=true 时 C1 还包含 scripts/ci、.github/workflows/quality-gate.yml 与 package.json
- * （候选 gate 完整 bundle；用于 workflow/package scripts 弱化场景）。
+ * C1 始终包含完整 gate bundle：scripts/ci、.github/workflows/quality-gate.yml 与 package.json
+ * （当前 verifier baseline 要求 trusted anchor 携带 gate-surface / gate-invariants / parity /
+ *  resolver / materialize / doctor；旧 fixture 直接升级到当前标准，不做 predates 兼容）。
  */
 function makeGitRepo(base = os.tmpdir(), opts = {}) {
     const dir = path.join(base, 'pixiv test repo ' + Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -98,7 +99,7 @@ function makeGitRepo(base = os.tmpdir(), opts = {}) {
             fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(dir, 'node_modules'));
         }
     } catch (e) {
-        // node_modules 不可链接时静默跳过：候选 predates workflow 的场景不需要 yaml
+        // node_modules 不可链接时静默跳过：yaml 解析由 NODE_PATH 兜底
     }
 
     // 复制真实检查器与 hooks（hooks 经 core.hooksPath 生效）；测试目录不需要且含签名标记字样
@@ -107,7 +108,7 @@ function makeGitRepo(base = os.tmpdir(), opts = {}) {
     // C1 不带 gate-policy.json（与真实 enforcement start 05f4ebed 同构：policy 在后续提交引入）
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
-    if (opts.fullGate) {
+    if (opts.fullGate !== false) {
         fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
         fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
         fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
@@ -1004,11 +1005,18 @@ function makeEnforcementRepo() {
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'B: no i18n checker'], dir);
 
-    // C：enforcement start —— 完整 i18n gate bundle（无 policy）
+    // C：enforcement start —— 完整 i18n gate bundle（无 policy）+ 当前 verifier baseline 文件
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
+    fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');

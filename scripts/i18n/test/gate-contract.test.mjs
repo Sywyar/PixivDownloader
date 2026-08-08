@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runAcceptCore } from '../accept.mjs';
 import { runGenerate } from '../generate-static.mjs';
+import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -70,6 +71,14 @@ function makeCandidateRepo() {
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    // 当前 verifier baseline：fixture 必须携带完整 gate bundle（scripts/ci + workflow + package）
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
+    fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');
@@ -98,12 +107,19 @@ function makeCandidateRepo() {
     return dir;
 }
 
-/** trusted copy：真实 scripts/i18n + scripts/hooks，policy 的 enforcement start 指向夹具。 */
+/** trusted copy：真实 scripts/i18n + hooks + scripts/ci + workflow + package，policy 的 enforcement start 指向夹具。 */
 function makeTrustedCopy(repoRoot) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv contract trusted-'));
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+    // 当前 verifier baseline：trusted verifier 必须携带完整 gate bundle（scripts/ci + workflow + package）
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
+        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    copyGateSurfaceFiles(REPO_ROOT, dir);
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     const policy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
     const start = git(['rev-parse', 'HEAD~1'], repoRoot).stdout.trim();
     policy.i18nEnforcementStartCommit = start;

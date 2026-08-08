@@ -26,7 +26,13 @@
  *      root ancestor base、base ancestor candidate（root <= base < candidate）。
  *      sibling / descendant / unrelated / pre-root base 全部 fail closed；
  *    - push 的 before 若不是 candidate 祖先（force push / sibling 拓扑）同样 fail closed；
- *    - base 降级到 Epoch 1 历史一律 fail closed。
+ *    - base 降级到 Epoch 1 历史一律 fail closed；
+ * 8.4 每个 base（含 ROOT_ADMISSION 的 root candidate）还必须满足当前 verifier baseline：
+ *    gate-policy.json 存在、gateEpoch == 2、contractVersion >= 4、schemaVersion >= 3、
+ *    gate-surface.json / gate-invariants.json / gate-parity.mjs / resolve-trusted-base.mjs /
+ *    materialize-trusted-gate.sh / doctor-github-ruleset.mjs 存在；
+ *    缺任何一项 → FAIL CLOSED（verifier rollback / 旧 verifier 审核新标准一律拒绝，
+ *    不存在 predates / fallback / legacy / transition 兼容路径）。
  * 2. ROOT_ADMISSION 模式下 base = root（candidate 自身；这是唯一人工 root 例外）。
  * 3. 结果验证（写 GITHUB_ENV 前）：40 位小写 hex commit SHA；在本地 object database 中存在。
  *
@@ -40,6 +46,19 @@ import { fileURLToPath } from 'url';
 const ZERO = '0000000000000000000000000000000000000000';
 const SHA_RE = /^[0-9a-f]{40}$/;
 const ROOT_TAG = 'refs/tags/i18n-gate-epoch-2-root';
+
+/** 当前新标准 verifier 最低能力（与 Epoch 2 历史 root 分开；root 不要求具备，base 必须具备）。 */
+const CURRENT_MIN_CONTRACT_VERSION = 4;
+const CURRENT_MIN_SCHEMA_VERSION = 3;
+const VERIFIER_POLICY_REL = 'scripts/i18n/gate-policy.json';
+const REQUIRED_VERIFIER_FILES = [
+    'scripts/ci/gate-surface.json',
+    'scripts/ci/gate-invariants.json',
+    'scripts/ci/gate-parity.mjs',
+    'scripts/ci/resolve-trusted-base.mjs',
+    'scripts/ci/materialize-trusted-gate.sh',
+    'scripts/ci/doctor-github-ruleset.mjs',
+];
 
 function fail(message) {
     console.error('resolve-trusted-base ERROR: ' + message);
@@ -92,6 +111,74 @@ function resolveDefaultBranch(repoRoot, defaultBranch) {
         return resolveCommit(repoRoot, 'refs/remotes/origin/' + defaultBranch);
     }
     return null;
+}
+
+/** 读 ref 处的文件内容；不存在返回 null。 */
+function readFileAt(repoRoot, sha, rel) {
+    try {
+        return git(['show', sha + ':' + rel], repoRoot);
+    } catch (e) {
+        return null;
+    }
+}
+
+/** ref 处是否存在文件。 */
+function hasFileAt(repoRoot, sha, rel) {
+    try {
+        git(['cat-file', '-e', sha + ':' + rel], repoRoot);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * 校验 trusted base 是否满足当前 verifier baseline（trusted verifier 能力只增不减）。
+ * base policy 必须存在、gateEpoch == 2、contractVersion >= CURRENT_MIN_CONTRACT_VERSION、
+ * schemaVersion >= CURRENT_MIN_SCHEMA_VERSION、当前 verifier 本体文件齐全；
+ * 缺任何一项 → FAIL CLOSED（verifier rollback 一律拒绝，无 predates / fallback / legacy 路径）。
+ */
+function assertSupportedTrustedVerifier(repoRoot, base) {
+    const policyText = readFileAt(repoRoot, base, VERIFIER_POLICY_REL);
+    if (policyText === null) {
+        fail('trusted base ' + base + ' has no gate-policy.json; it does not satisfy the'
+            + ' current Gate Epoch 2 verifier baseline; fail closed');
+        return;
+    }
+    let policy;
+    try {
+        policy = JSON.parse(policyText);
+    } catch (e) {
+        fail('trusted base ' + base + ' gate-policy.json is invalid; fail closed');
+        return;
+    }
+    if (policy.gateEpoch !== 2) {
+        fail('trusted base ' + base + ' gateEpoch ' + policy.gateEpoch
+            + ' != 2; it does not satisfy the current verifier baseline; fail closed');
+        return;
+    }
+    if (!Number.isInteger(policy.contractVersion)
+        || policy.contractVersion < CURRENT_MIN_CONTRACT_VERSION) {
+        fail('trusted base ' + base + ' contractVersion ' + policy.contractVersion
+            + ' < current minimum ' + CURRENT_MIN_CONTRACT_VERSION
+            + '; the trusted verifier is too old to review current-standard candidates'
+            + ' (verifier rollback is refused); fail closed');
+        return;
+    }
+    if (!Number.isInteger(policy.schemaVersion)
+        || policy.schemaVersion < CURRENT_MIN_SCHEMA_VERSION) {
+        fail('trusted base ' + base + ' schemaVersion ' + policy.schemaVersion
+            + ' < current minimum ' + CURRENT_MIN_SCHEMA_VERSION
+            + '; it does not satisfy the current verifier baseline; fail closed');
+        return;
+    }
+    for (const rel of REQUIRED_VERIFIER_FILES) {
+        if (!hasFileAt(repoRoot, base, rel)) {
+            fail('trusted base ' + base + ' is missing ' + rel + '; it does not satisfy the'
+                + ' current Gate Epoch 2 verifier baseline; fail closed');
+            return;
+        }
+    }
 }
 
 function parseArgs(argv) {
@@ -197,7 +284,7 @@ function main() {
         return;
     }
     if (args.version) {
-        console.log('resolve-trusted-base 3');
+        console.log('resolve-trusted-base 4');
         return;
     }
     if (!args.repoRoot || !args.eventName || !args.candidate) {
@@ -285,6 +372,9 @@ function main() {
             return;
         }
     }
+    // 8.4：trusted base（或 ROOT_ADMISSION 的 root candidate）必须同时满足 ancestry 与
+    // 当前 verifier capability（contract / schema / verifier 本体文件）。缺任何一项 → FAIL CLOSED。
+    assertSupportedTrustedVerifier(repoRoot, base);
 
     if (args.mode) {
         console.log(JSON.stringify({ mode, base, root: root || candidate }));

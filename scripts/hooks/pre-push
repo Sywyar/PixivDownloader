@@ -156,15 +156,34 @@ if ! git rev-parse --verify --quiet "$start^{commit}" >/dev/null 2>&1; then
     exit 1
 fi
 
+# ---- 2.5 trusted verifier 必须满足当前 verifier baseline（能力只增不减，不兼容旧 verifier） ----
+# 当前新标准最低能力：contractVersion >= 4 / schemaVersion >= 3 / verifier 本体文件齐全；
+# 低于此线的 trusted anchor → OUTDATED GATE VERIFIER → fail closed（无 predates / fallback / legacy）
+for rel in scripts/ci/gate-surface.json scripts/ci/gate-invariants.json scripts/ci/gate-parity.mjs scripts/ci/resolve-trusted-base.mjs scripts/ci/materialize-trusted-gate.sh scripts/ci/doctor-github-ruleset.mjs; do
+    if [ ! -f "$trusted_dir/$rel" ]; then
+        echo "pre-push: trusted gate anchor $trusted predates the current verifier baseline (missing $rel); OUTDATED GATE VERIFIER; fail closed." >&2
+        echo "pre-push: advance or re-adopt a current Gate Epoch 2 verifier:" >&2
+        echo "pre-push:   npm run i18n:trust-gate -- --advance --ref <new-approved-verifier>" >&2
+        exit 1
+    fi
+done
+base_contract="$(node -e 'const p=require(process.argv[1]);process.stdout.write(String(p.contractVersion??""))' "$trusted_dir/scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
+base_schema="$(node -e 'const p=require(process.argv[1]);process.stdout.write(String(p.schemaVersion??""))' "$trusted_dir/scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
+if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt 4 ]; then
+    echo "pre-push: trusted gate anchor $trusted contractVersion ($base_contract) is below the current minimum 4; OUTDATED GATE VERIFIER; fail closed." >&2
+    echo "pre-push: advance or re-adopt a current Gate Epoch 2 verifier:" >&2
+    echo "pre-push:   npm run i18n:trust-gate -- --advance --ref <new-approved-verifier>" >&2
+    exit 1
+fi
+if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt 3 ]; then
+    echo "pre-push: trusted gate anchor $trusted schemaVersion ($base_schema) is below the current minimum 3; OUTDATED GATE VERIFIER; fail closed." >&2
+    echo "pre-push: advance or re-adopt a current Gate Epoch 2 verifier." >&2
+    exit 1
+fi
+
 # gate 变更检测使用 trusted 的 gate-surface.json 单一清单（与 pre-commit / contract / parity /
-# CI bootstrap 同一外围 Gate Surface）；trusted bundle 早于清单时回退内置默认列表。
-gate_re=""
-if [ -f "$trusted_dir/scripts/ci/gate-surface.json" ]; then
-    gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' "$trusted_dir/scripts/ci/gate-surface.json")"
-fi
-if [ -z "$gate_re" ]; then
-    gate_re='^(scripts/(i18n|hooks|ci)/|scripts/sync-shared-snippets\.ps1$|\.github/workflows/(quality-gate|shared-snippets-check|release|nightly|publish-plugins)\.yml$|package\.json$|package-lock\.json$)'
-fi
+# CI bootstrap 同一外围 Gate Surface）；baseline 已保证清单存在，不存在回退内置默认列表的路径。
+gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' "$trusted_dir/scripts/ci/gate-surface.json")"
 
 # ---- 3. 真实远端状态：ls-remote + 临时 namespace fetch（refs/remotes 不作数） ----
 remote_refs="$tmpdir/remote-refs"

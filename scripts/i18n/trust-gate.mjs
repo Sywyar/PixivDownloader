@@ -51,7 +51,8 @@ import trustedGate from './lib/trusted-gate.mjs';
 import snapshot from './lib/repository-snapshot.mjs';
 
 const TRUST_CLI_VERSION = '2';
-const MIN_ROOT_CONTRACT_VERSION = 3;
+// 当前新标准 verifier 最低能力由 lib/trusted-gate.mjs 的 CURRENT_MIN_* + REQUIRED_VERIFIER_FILES 定义；
+// adopt-root / advance 前必须断言候选与 trusted anchor 满足该 baseline（低于 → OUTDATED GATE VERIFIER）。
 
 function fail(message) {
     console.error('trust-gate ERROR: ' + message);
@@ -273,9 +274,12 @@ function runAdoptRoot(repoRoot, refArg, epochArg) {
         console.log('trust-gate: ROOT ADMISSION — ' + sha
             + ' is the Gate Epoch 2 root candidate; running the full root admission suite...');
         const policy = materializeAndLoadPolicy(repoRoot, sha, gateDir);
-        if (policy.contractVersion < MIN_ROOT_CONTRACT_VERSION) {
-            fail('root admission requires contractVersion >= ' + MIN_ROOT_CONTRACT_VERSION
-                + ' (got ' + policy.contractVersion + '); fail closed');
+        // 新标准 root admission 也必须满足当前 verifier baseline（旧 v3 root 候选不再有资格；
+        // 旧提交按旧标准存在，新标准只接受具备当前能力的 verifier）
+        try {
+            trustedGate.assertSupportedTrustedVerifierDir(gateDir);
+        } catch (e) {
+            fail('OUTDATED GATE VERIFIER: ' + e.message);
         }
         const required = policy.requiredPaths;
         const missing = required.filter((p) => !fs.existsSync(path.join(gateDir, ...p.split('/'))));
@@ -355,6 +359,12 @@ function runAdvance(repoRoot, refArg) {
     try {
         // 1. 从当前 trusted ref 物化 Epoch 2 contract + policy
         trustedGate.materializeTrustedGate(repoRoot, current, trustedDir);
+        // 1.5 当前 trusted verifier 必须满足当前 verifier baseline（能力只增不减，不兼容旧 verifier）
+        try {
+            trustedGate.assertSupportedTrustedVerifierDir(trustedDir);
+        } catch (e) {
+            fail('OUTDATED GATE VERIFIER: ' + e.message);
+        }
 
         // 2. trusted contract 验证 candidate ref（policy / required files / checker / hooks / 自保护）
         console.log('trust-gate: running the trusted gate contract against ' + sha + '...');
@@ -392,6 +402,7 @@ function runShow(repoRoot) {
         return;
     }
     let contractVersion = 'n/a';
+    let baseline = 'n/a';
     const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-trust-show-'));
     try {
         try {
@@ -399,6 +410,12 @@ function runShow(repoRoot) {
             const policy = trustedGate.loadPolicyFromDir(gateDir);
             if (policy) {
                 contractVersion = String(policy.contractVersion);
+            }
+            try {
+                trustedGate.assertSupportedTrustedVerifierDir(gateDir);
+                baseline = 'OK';
+            } catch (e) {
+                baseline = 'BELOW CURRENT VERIFIER BASELINE (OUTDATED GATE VERIFIER)';
             }
         } catch (e) {
             // anchor 无法物化时只提示
@@ -409,6 +426,7 @@ function runShow(repoRoot) {
     console.log('trustedGateEpoch: ' + epoch);
     console.log('trustedGateRef: ' + current);
     console.log('contractVersion: ' + contractVersion);
+    console.log('verifierBaseline: ' + baseline);
     console.log('gateEpochRootTag: ' + (root || 'refs/tags/i18n-gate-epoch-2-root <missing (install after admission)>'));
 }
 
