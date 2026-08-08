@@ -2,7 +2,9 @@ name: Quality Gate
 
 on:
   push:
-    branches: [master]
+    # 任意代码分支 push 都触发完整 Quality Gate（不再限定 master）；
+    # gh-pages 是纯文档分支，历史不包含 Epoch 2 root，触发只会确定性失败，因此排除
+    branches-ignore: [gh-pages]
   pull_request:
   merge_group:
   workflow_dispatch:
