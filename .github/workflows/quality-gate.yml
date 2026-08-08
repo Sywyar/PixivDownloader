@@ -212,6 +212,7 @@ jobs:
               exit 1
             fi
           done
+          fi
           # 物化 trusted gate bundle（checkout-index --stdin 必须显式提供 < paths-file）
           gate="$RUNNER_TEMP/gate"
           paths_file="$gate/paths.txt"
@@ -493,6 +494,7 @@ jobs:
               exit 1
             fi
           done
+          fi
           gate="$RUNNER_TEMP/gate"
           paths_file="$gate/paths.txt"
           index_file="$gate/index"
@@ -797,6 +799,7 @@ jobs:
               exit 1
             fi
           done
+          fi
           gate="$RUNNER_TEMP/gate"
           paths_file="$gate/paths.txt"
           index_file="$gate/index"
