@@ -5,6 +5,7 @@
  *
  * 用法：
  *   npm run i18n:trust-gate -- --show
+ *   npm run i18n:trust-gate -- --prepare-root --epoch 3
  *   npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2
  *   npm run i18n:trust-gate -- --advance --ref HEAD
  *   npm run i18n:trust-gate -- --version
@@ -50,9 +51,9 @@ import { fileURLToPath } from 'url';
 import trustedGate from './lib/trusted-gate.mjs';
 import snapshot from './lib/repository-snapshot.mjs';
 
-const TRUST_CLI_VERSION = '2';
-// 当前新标准 verifier 最低能力由 lib/trusted-gate.mjs 的 CURRENT_MIN_* + REQUIRED_VERIFIER_FILES 定义；
-// adopt-root / advance 前必须断言候选与 trusted anchor 满足该 baseline（低于 → OUTDATED GATE VERIFIER）。
+const TRUST_CLI_VERSION = '3';
+// verifier 最低能力由 trusted gate-policy.json 的 minimumTrustedVerifier 定义；NORMAL contract
+// 保证该声明只能单调增强，adopt-root / advance 前均按声明 fail closed。
 
 function fail(message) {
     console.error('trust-gate ERROR: ' + message);
@@ -131,6 +132,69 @@ function assertCleanState(repoRoot) {
     }
 }
 
+/** Root preparation accepts a staged candidate only; unstaged/untracked files could mask its tests. */
+function assertRootPreparationState(repoRoot) {
+    if (trustedGate.isIndexClean(repoRoot)) {
+        fail('root preparation requires a staged candidate index');
+    }
+    try {
+        git(['diff', '--quiet'], repoRoot);
+    } catch (e) {
+        fail('root preparation refuses unstaged tracked changes; stage the exact candidate first');
+    }
+    const untracked = git(['ls-files', '--others', '--exclude-standard'], repoRoot);
+    if (untracked) {
+        fail('root preparation refuses untracked files that could affect validation: '
+            + untracked.split('\n').slice(0, 5).join(' | '));
+    }
+}
+
+function getPreparedRoot(repoRoot) {
+    const get = (key) => {
+        try {
+            return git(['config', '--local', '--get', key], repoRoot) || null;
+        } catch (e) {
+            return null;
+        }
+    };
+    return {
+        epoch: get(trustedGate.PREPARED_ROOT_EPOCH_KEY),
+        parent: get(trustedGate.PREPARED_ROOT_PARENT_KEY),
+        tree: get(trustedGate.PREPARED_ROOT_TREE_KEY),
+    };
+}
+
+function setPreparedRoot(repoRoot, epoch, parent, tree) {
+    git(['config', '--local', trustedGate.PREPARED_ROOT_EPOCH_KEY, String(epoch)], repoRoot);
+    git(['config', '--local', trustedGate.PREPARED_ROOT_PARENT_KEY, parent], repoRoot);
+    git(['config', '--local', trustedGate.PREPARED_ROOT_TREE_KEY, tree], repoRoot);
+}
+
+function clearPreparedRoot(repoRoot) {
+    for (const key of [trustedGate.PREPARED_ROOT_EPOCH_KEY, trustedGate.PREPARED_ROOT_PARENT_KEY,
+        trustedGate.PREPARED_ROOT_TREE_KEY]) {
+        try {
+            git(['config', '--local', '--unset-all', key], repoRoot);
+        } catch (e) {
+            // Missing preparation keys are already clear.
+        }
+    }
+}
+
+function createIndexCandidateCommit(repoRoot) {
+    const parent = trustedGate.resolveCommit(repoRoot, 'HEAD');
+    if (!parent) {
+        fail('HEAD must resolve to a full commit before root preparation');
+    }
+    const tree = git(['write-tree'], repoRoot);
+    const sha = git(['commit-tree', tree, '-p', parent], repoRoot,
+        { input: 'Gate root preparation validation\n' });
+    if (!trustedGate.SHA_RE.test(tree) || !trustedGate.SHA_RE.test(sha)) {
+        fail('cannot create the isolated staged root candidate');
+    }
+    return { parent, tree, sha };
+}
+
 /** 运行完整 i18n 测试套件（排除本 CLI 自身测试文件，避免递归）。 */
 function runFullSuite(repoRoot) {
     const result = trustedGate.runI18nTestSuite(repoRoot, 'trust-gate.test.mjs');
@@ -177,9 +241,9 @@ function validateRefWithGate(repoRoot, refSha, gateDir) {
 }
 
 /** 物化 ref 的 gate bundle 并读取 policy（无 policy → fail closed，Epoch 2 不迁移旧 anchor）。 */
-function materializeAndLoadPolicy(repoRoot, sha, gateDir) {
+function materializeAndLoadPolicy(repoRoot, sha, gateDir, expectedEpoch = trustedGate.CURRENT_GATE_EPOCH) {
     trustedGate.materializeTrustedGate(repoRoot, sha, gateDir);
-    const policy = trustedGate.loadPolicyFromDir(gateDir);
+    const policy = trustedGate.loadPolicyFromDir(gateDir, expectedEpoch);
     if (!policy) {
         throw new Error('gate bundle at ' + sha + ' has no gate-policy.json;'
             + ' obsolete-epoch anchors are not migrated; fail closed');
@@ -246,38 +310,105 @@ function runGateParity(repoRoot, candidateSha, trustedDir, invariantsOnly) {
     }
 }
 
+function runPrepareRoot(repoRoot, epochArg) {
+    if (trustedGate.isCI()) {
+        fail('root preparation is forbidden in CI (CI=true); it is an explicit local trust decision');
+    }
+    const targetEpoch = Number(epochArg);
+    const currentEpoch = Number(trustedGate.getTrustedEpoch(repoRoot));
+    const current = trustedGate.getTrustedRef(repoRoot);
+    if (!Number.isInteger(targetEpoch) || targetEpoch !== trustedGate.CURRENT_GATE_EPOCH) {
+        fail('--epoch must equal the candidate verifier epoch ' + trustedGate.CURRENT_GATE_EPOCH);
+    }
+    if (!current || !Number.isInteger(currentEpoch) || targetEpoch !== currentEpoch + 1) {
+        fail('root preparation requires an existing trusted anchor from the immediately previous epoch');
+    }
+    if (!trustedGate.resolveCommit(repoRoot, current)) {
+        fail('trusted gate anchor ' + current + ' does not resolve to a commit');
+    }
+    const head = trustedGate.resolveCommit(repoRoot, 'HEAD');
+    if (!head || !trustedGate.isAncestor(repoRoot, current, head)) {
+        fail('HEAD must descend from the current trusted anchor before root preparation');
+    }
+    const previousRoot = trustedGate.resolveRootTag(repoRoot, currentEpoch);
+    if (!previousRoot || !trustedGate.isAncestor(repoRoot, previousRoot, current)
+        || !trustedGate.isAncestor(repoRoot, previousRoot, head)) {
+        fail('the protected previous-epoch root tag is missing or not an ancestor of the current trust chain');
+    }
+    assertRootPreparationState(repoRoot);
+    clearPreparedRoot(repoRoot);
+    const candidate = createIndexCandidateCommit(repoRoot);
+    const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-prepare-root-'));
+    try {
+        console.log('trust-gate: preparing Gate Epoch ' + targetEpoch + ' root candidate from staged tree '
+            + candidate.tree + '...');
+        const policy = materializeAndLoadPolicy(repoRoot, candidate.sha, gateDir, targetEpoch);
+        trustedGate.assertSupportedTrustedVerifierDir(gateDir, targetEpoch,
+            policy.minimumTrustedVerifier);
+        const missing = policy.requiredPaths
+            .filter((p) => !fs.existsSync(path.join(gateDir, ...p.split('/'))));
+        if (missing.length > 0) {
+            fail('required gate files missing from staged root candidate: ' + missing.join(', '));
+        }
+        runFullSuite(repoRoot);
+        validateRefWithGate(repoRoot, candidate.sha, gateDir);
+        runRootContract(repoRoot, candidate.sha, gateDir);
+        runGateParity(repoRoot, candidate.sha, gateDir, true);
+        setPreparedRoot(repoRoot, targetEpoch, candidate.parent, candidate.tree);
+    } finally {
+        rmrfRetry(gateDir);
+    }
+    console.log('trust-gate: Gate Epoch ' + targetEpoch + ' root prepared for one exact commit: parent '
+        + candidate.parent + ', tree ' + candidate.tree);
+}
+
 function runAdoptRoot(repoRoot, refArg, epochArg) {
     if (trustedGate.isCI()) {
-        fail('root adoption is forbidden in CI (CI=true); the Epoch 2 trust root must be'
+        fail('root adoption is forbidden in CI (CI=true); the Gate Epoch '
+            + trustedGate.CURRENT_GATE_EPOCH + ' trust root must be'
             + ' established by a human locally');
     }
     if (String(epochArg) !== String(trustedGate.CURRENT_GATE_EPOCH)) {
         fail('--epoch must be exactly ' + trustedGate.CURRENT_GATE_EPOCH
-            + ' (Epoch 2 is the only supported gate epoch; got ' + epochArg + ')');
+            + ' (the executing verifier supports exactly one gate epoch; got ' + epochArg + ')');
     }
     const current = trustedGate.getTrustedRef(repoRoot);
-    if (current) {
-        fail('a local trust anchor already exists at ' + current
-            + '; root adoption is only for establishing a NEW Epoch 2 root —'
-            + ' use --advance to move the existing anchor, or explicitly remove both'
-            + ' pixiv.i18n.trustedGateEpoch / pixiv.i18n.trustedGateRef first');
-    }
+    const previousEpoch = Number(trustedGate.getTrustedEpoch(repoRoot));
     const sha = trustedGate.resolveCommit(repoRoot, refArg);
     if (!sha) {
         fail('ref "' + refArg + '" must resolve to a full commit; worktree paths are not accepted');
     }
     assertCleanState(repoRoot);
 
+    if (current) {
+        if (previousEpoch === trustedGate.CURRENT_GATE_EPOCH) {
+            fail('a local trust anchor already exists at ' + current
+                + '; use --advance within the current epoch');
+        }
+        const prepared = getPreparedRoot(repoRoot);
+        const parents = git(['rev-list', '--parents', '-n', '1', sha], repoRoot).split(/\s+/);
+        const tree = git(['rev-parse', sha + '^{tree}'], repoRoot);
+        if (previousEpoch !== trustedGate.CURRENT_GATE_EPOCH - 1
+            || prepared.epoch !== String(trustedGate.CURRENT_GATE_EPOCH)
+            || parents.length !== 2 || prepared.parent !== parents[1] || prepared.tree !== tree
+            || !trustedGate.isAncestor(repoRoot, current, parents[1])) {
+            fail('existing-anchor root adoption requires a successfully prepared next-epoch commit'
+                + ' with the exact parent and tree');
+        }
+    }
+
     const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-adopt-root-'));
     try {
         // ROOT ADMISSION：物化候选自身的 gate bundle（候选 = root candidate）
         console.log('trust-gate: ROOT ADMISSION — ' + sha
-            + ' is the Gate Epoch 2 root candidate; running the full root admission suite...');
+            + ' is the Gate Epoch ' + trustedGate.CURRENT_GATE_EPOCH
+            + ' root candidate; running the full root admission suite...');
         const policy = materializeAndLoadPolicy(repoRoot, sha, gateDir);
         // 新标准 root admission 也必须满足当前 verifier baseline（旧 v3 root 候选不再有资格；
         // 旧提交按旧标准存在，新标准只接受具备当前能力的 verifier）
         try {
-            trustedGate.assertSupportedTrustedVerifierDir(gateDir);
+            trustedGate.assertSupportedTrustedVerifierDir(gateDir,
+                trustedGate.CURRENT_GATE_EPOCH, policy.minimumTrustedVerifier);
         } catch (e) {
             fail('OUTDATED GATE VERIFIER: ' + e.message);
         }
@@ -293,19 +424,24 @@ function runAdoptRoot(repoRoot, refArg, epochArg) {
         validateRefWithGate(repoRoot, sha, gateDir);
         console.log('trust-gate: running the root contract self-test (workflow / package / self-protection)...');
         runRootContract(repoRoot, sha, gateDir);
-        console.log('trust-gate: running gate parity against the Epoch 2 invariants manifest...');
+        console.log('trust-gate: running gate parity against the Gate Epoch '
+            + trustedGate.CURRENT_GATE_EPOCH + ' invariants manifest...');
         runGateParity(repoRoot, sha, gateDir, true);
     } finally {
         rmrfRetry(gateDir);
     }
 
     console.error('');
-    console.error('This is the explicit Gate Epoch 2 root adoption decision.');
-    console.error('The repository state at ' + sha + ' becomes the local Epoch 2 trust root.');
+    console.error('This is the explicit Gate Epoch ' + trustedGate.CURRENT_GATE_EPOCH
+        + ' root adoption decision.');
+    console.error('The repository state at ' + sha + ' becomes the local Gate Epoch '
+        + trustedGate.CURRENT_GATE_EPOCH + ' trust root.');
     console.error('Only an explicit trust command can advance it.');
     console.error('');
     trustedGate.setTrustedAnchor(repoRoot, sha);
-    console.log('trust-gate: Epoch 2 root adopted; local anchor set to '
+    clearPreparedRoot(repoRoot);
+    console.log('trust-gate: Gate Epoch ' + trustedGate.CURRENT_GATE_EPOCH
+        + ' root adopted; local anchor set to '
         + 'git config --local pixiv.i18n.trustedGateEpoch ' + trustedGate.CURRENT_GATE_EPOCH
         + ' + pixiv.i18n.trustedGateRef ' + sha);
 }
@@ -316,15 +452,13 @@ function runAdvance(repoRoot, refArg) {
     }
     const current = trustedGate.getTrustedRef(repoRoot);
     if (!current) {
-        fail('no trusted gate anchor; establish the Epoch 2 root first:'
-            + ' npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2');
+        fail('no trusted gate anchor; run --adopt-root for the current Gate Epoch first');
     }
     if (!trustedGate.isTrustedEpochCurrent(repoRoot)) {
         fail('OBSOLETE GATE EPOCH: the local anchor belongs to epoch '
             + (trustedGate.getTrustedEpoch(repoRoot) || '<missing>') + ' (' + trustedGate.describeTrustedEpoch(repoRoot)
-            + '). Epoch 1 anchors are not migrated and have no automatic upgrade rights;'
-            + ' run the explicit Epoch 2 root adoption command instead:'
-            + ' npm run i18n:trust-gate -- --adopt-root --ref <new-root> --epoch 2');
+            + '). Obsolete anchors are not migrated and have no automatic upgrade rights;'
+            + ' run --adopt-root for the current Gate Epoch instead');
     }
     const sha = trustedGate.resolveCommit(repoRoot, refArg);
     if (!sha) {
@@ -345,12 +479,12 @@ function runAdvance(repoRoot, refArg) {
     const root = trustedGate.resolveRootTag(repoRoot);
     if (root) {
         if (!trustedGate.isAncestor(repoRoot, root, current)) {
-            fail('the current anchor ' + current + ' does not descend from the Gate Epoch 2 trust root '
-                + root + '; re-adopt the root first:'
-                + ' npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2');
+            fail('the current anchor ' + current + ' does not descend from the Gate Epoch '
+                + trustedGate.CURRENT_GATE_EPOCH + ' trust root ' + root + '; re-adopt the root first');
         }
         if (!trustedGate.isAncestor(repoRoot, root, sha)) {
-            fail('candidate ' + sha + ' does not descend from the Gate Epoch 2 trust root ' + root
+            fail('candidate ' + sha + ' does not descend from the Gate Epoch '
+                + trustedGate.CURRENT_GATE_EPOCH + ' trust root ' + root
                 + '; v1 / legacy / transition compatibility paths are retired; refusing to advance');
         }
     }
@@ -397,8 +531,10 @@ function runShow(repoRoot) {
     if (!current || !trustedGate.isTrustedEpochCurrent(repoRoot)) {
         console.log('trustedGateEpoch: ' + (epoch || '<not set>'));
         console.log('trustedGateRef: ' + (current || '<not set>'));
-        console.log('gateEpochRootTag: ' + (root || 'refs/tags/i18n-gate-epoch-2-root <missing>'));
-        console.log('run: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2');
+        console.log('gateEpochRootTag: ' + (root || 'refs/tags/'
+            + trustedGate.rootTagNameForEpoch(trustedGate.CURRENT_GATE_EPOCH) + ' <missing>'));
+        console.log('run: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch '
+            + trustedGate.CURRENT_GATE_EPOCH);
         return;
     }
     let contractVersion = 'n/a';
@@ -407,10 +543,10 @@ function runShow(repoRoot) {
     try {
         try {
             trustedGate.materializeTrustedGate(repoRoot, current, gateDir);
-            const policy = trustedGate.loadPolicyFromDir(gateDir);
-            if (policy) {
-                contractVersion = String(policy.contractVersion);
-            }
+            const policy = JSON.parse(fs.readFileSync(
+                path.join(gateDir, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
+            contractVersion = Number.isInteger(policy.contractVersion)
+                ? String(policy.contractVersion) : 'n/a';
             try {
                 trustedGate.assertSupportedTrustedVerifierDir(gateDir);
                 baseline = 'OK';
@@ -427,14 +563,16 @@ function runShow(repoRoot) {
     console.log('trustedGateRef: ' + current);
     console.log('contractVersion: ' + contractVersion);
     console.log('verifierBaseline: ' + baseline);
-    console.log('gateEpochRootTag: ' + (root || 'refs/tags/i18n-gate-epoch-2-root <missing (install after admission)>'));
+    console.log('gateEpochRootTag: ' + (root || 'refs/tags/'
+        + trustedGate.rootTagNameForEpoch(trustedGate.CURRENT_GATE_EPOCH)
+        + ' <missing (install after admission)>'));
 }
 
 function parseArgs(argv) {
     const args = { command: null, ref: null, epoch: null, version: false };
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i];
-        if (arg === '--adopt-root' || arg === '--advance' || arg === '--show') {
+        if (arg === '--prepare-root' || arg === '--adopt-root' || arg === '--advance' || arg === '--show') {
             args.command = arg.slice(2);
         } else if (arg === '--ref') {
             args.ref = argv[++i];
@@ -454,8 +592,11 @@ function parseArgs(argv) {
             throw new Error('--ref <commit> is required for adopt-root');
         }
         if (!args.epoch) {
-            throw new Error('--epoch 2 is required for adopt-root');
+            throw new Error('--epoch <current-epoch> is required for adopt-root');
         }
+    }
+    if (args.command === 'prepare-root' && !args.epoch) {
+        throw new Error('--epoch <next-epoch> is required for prepare-root');
     }
     if (args.command === 'advance') {
         if (!args.ref) {
@@ -463,7 +604,8 @@ function parseArgs(argv) {
         }
     }
     if (!args.command) {
-        throw new Error('usage: trust-gate.mjs --show | --adopt-root --ref HEAD --epoch 2 | --advance --ref HEAD');
+        throw new Error('usage: trust-gate.mjs --show | --prepare-root --epoch <next> |'
+            + ' --adopt-root --ref HEAD --epoch <current> | --advance --ref HEAD');
     }
     return args;
 }
@@ -486,6 +628,10 @@ function main() {
     }
     if (args.command === 'show') {
         runShow(repoRoot);
+        return;
+    }
+    if (args.command === 'prepare-root') {
+        runPrepareRoot(repoRoot, args.epoch);
         return;
     }
     if (args.command === 'adopt-root') {

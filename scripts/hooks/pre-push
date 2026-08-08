@@ -64,6 +64,13 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
+run_without_local_git_env() (
+    for name in $(git rev-parse --local-env-vars); do
+        unset "$name"
+    done
+    "$@"
+)
+
 remote_name="${1:-}"
 remote_url="${2:-}"
 if [ -z "$remote_name" ]; then
@@ -80,27 +87,26 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-# ---- 1. Epoch 2 trust anchor：epoch 缺失 / 非 2 → fail closed，绝不迁移 ----
+# ---- 1. Current trust anchor: missing / invalid epoch -> fail closed ----
 epoch="$(git config --local --get pixiv.i18n.trustedGateEpoch || true)"
 trusted="$(git config --local --get pixiv.i18n.trustedGateRef || true)"
-if [ -z "$trusted" ] || [ -z "$epoch" ] || [ "$epoch" != "2" ]; then
+if [ -z "$trusted" ] || ! printf '%s' "$epoch" | grep -Eq '^[2-9][0-9]*$'; then
     echo "pre-push: Your local gate anchor belongs to an obsolete or uninitialized epoch." >&2
-    echo "pre-push: Run the explicit Epoch 2 root adoption command:" >&2
-    echo "pre-push:   npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2" >&2
+    echo "pre-push: Run the explicit current root adoption command." >&2
     echo "pre-push: this is a local convenience gate; the final gate is the GitHub required check." >&2
     exit 1
 fi
 if ! git rev-parse --verify --quiet "$trusted^{commit}" >/dev/null 2>&1; then
     echo "pre-push: trusted gate anchor $trusted does not resolve to a commit in this repository." >&2
-    echo "pre-push: restore the anchor or re-run: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2" >&2
+    echo "pre-push: restore or explicitly re-adopt the current root." >&2
     exit 1
 fi
-# 本地已安装 Epoch 2 root tag 时，anchor 必须包含该 root
-if git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" >/dev/null 2>&1; then
-    root_sha="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}")"
+# 本地已安装当前 root tag 时，anchor 必须包含该 root
+root_tag="i18n-gate-epoch-${epoch}-root"
+if git rev-parse --verify --quiet "refs/tags/${root_tag}^{commit}" >/dev/null 2>&1; then
+    root_sha="$(git rev-parse --verify --quiet "refs/tags/${root_tag}^{commit}")"
     if ! git merge-base --is-ancestor "$root_sha" "$trusted" >/dev/null 2>&1; then
-        echo "pre-push: trusted anchor $trusted does not descend from the Gate Epoch 2 trust root $root_sha." >&2
-        echo "pre-push: re-adopt the Epoch 2 root: npm run i18n:trust-gate -- --adopt-root --ref HEAD --epoch 2" >&2
+        echo "pre-push: trusted anchor $trusted does not descend from the Gate Epoch $epoch trust root $root_sha." >&2
         exit 1
     fi
 fi
@@ -122,7 +128,11 @@ trap cleanup EXIT
 
 # ---- 2. 物化 trusted anchor 的 gate bundle（一次） ----
 trusted_dir="$tmpdir/trusted"
-trusted_paths="$(git ls-tree -r --name-only "$trusted" -- scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1)"
+trusted_paths="$(git ls-tree -r --name-only "$trusted" -- \
+    scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 \
+    .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml \
+    .github/workflows/release.yml .github/workflows/nightly.yml \
+    .github/workflows/publish-plugins.yml package.json package-lock.json)"
 if [ -z "$trusted_paths" ]; then
     echo "pre-push: trusted anchor $trusted does not contain the i18n gate bundle (scripts/i18n, scripts/hooks)." >&2
     exit 1
@@ -141,12 +151,17 @@ if [ ! -f "$trusted_dir/scripts/hooks/pre-push-guard.sh" ]; then
 fi
 if [ ! -f "$trusted_dir/scripts/i18n/gate-policy.json" ]; then
     echo "pre-push: trusted gate bundle is incomplete (scripts/i18n/gate-policy.json missing at $trusted); fail closed." >&2
-    echo "pre-push: Epoch 2 anchors always carry the gate policy; obsolete epochs are not migrated." >&2
+    echo "pre-push: current anchors always carry the gate policy; obsolete epochs are not migrated." >&2
     exit 1
 fi
 if [ ! -f "$trusted_dir/scripts/i18n/gate-contract.mjs" ]; then
     echo "pre-push: trusted gate bundle is incomplete (scripts/i18n/gate-contract.mjs missing at $trusted); fail closed." >&2
-    echo "pre-push: Epoch 2 anchors always carry the gate contract; obsolete epochs are not migrated." >&2
+    echo "pre-push: current anchors always carry the gate contract; obsolete epochs are not migrated." >&2
+    exit 1
+fi
+trusted_policy_epoch="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(String(p.gateEpoch||""))' "$trusted_dir/scripts/i18n/gate-policy.json")"
+if [ "$trusted_policy_epoch" != "$epoch" ]; then
+    echo "pre-push: configured epoch $epoch does not match trusted anchor policy epoch $trusted_policy_epoch; fail closed." >&2
     exit 1
 fi
 start="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(p.i18nEnforcementStartCommit)' "$trusted_dir/scripts/i18n/gate-policy.json")"
@@ -156,28 +171,10 @@ if ! git rev-parse --verify --quiet "$start^{commit}" >/dev/null 2>&1; then
     exit 1
 fi
 
-# ---- 2.5 trusted verifier 必须满足当前 verifier baseline（能力只增不减，不兼容旧 verifier） ----
-# 当前新标准最低能力：contractVersion >= 4 / schemaVersion >= 3 / verifier 本体文件齐全；
-# 低于此线的 trusted anchor → OUTDATED GATE VERIFIER → fail closed（无 predates / fallback / legacy）
-for rel in scripts/ci/gate-surface.json scripts/ci/gate-invariants.json scripts/ci/gate-parity.mjs scripts/ci/resolve-trusted-base.mjs scripts/ci/materialize-trusted-gate.sh scripts/ci/doctor-github-ruleset.mjs; do
-    if [ ! -f "$trusted_dir/$rel" ]; then
-        echo "pre-push: trusted gate anchor $trusted predates the current verifier baseline (missing $rel); OUTDATED GATE VERIFIER; fail closed." >&2
-        echo "pre-push: advance or re-adopt a current Gate Epoch 2 verifier:" >&2
-        echo "pre-push:   npm run i18n:trust-gate -- --advance --ref <new-approved-verifier>" >&2
-        exit 1
-    fi
-done
-base_contract="$(node -e 'const p=require(process.argv[1]);process.stdout.write(String(p.contractVersion??""))' "$trusted_dir/scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
-base_schema="$(node -e 'const p=require(process.argv[1]);process.stdout.write(String(p.schemaVersion??""))' "$trusted_dir/scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
-if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt 4 ]; then
-    echo "pre-push: trusted gate anchor $trusted contractVersion ($base_contract) is below the current minimum 4; OUTDATED GATE VERIFIER; fail closed." >&2
-    echo "pre-push: advance or re-adopt a current Gate Epoch 2 verifier:" >&2
-    echo "pre-push:   npm run i18n:trust-gate -- --advance --ref <new-approved-verifier>" >&2
-    exit 1
-fi
-if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt 3 ]; then
-    echo "pre-push: trusted gate anchor $trusted schemaVersion ($base_schema) is below the current minimum 3; OUTDATED GATE VERIFIER; fail closed." >&2
-    echo "pre-push: advance or re-adopt a current Gate Epoch 2 verifier." >&2
+# ---- 2.5 trusted verifier 必须满足执行中 policy.minimumTrustedVerifier（能力只增不减） ----
+if ! node -e 'const fs=require("fs"),path=require("path"),source=process.argv[1],base=process.argv[2],sourceFile=path.join(source,"scripts/i18n/gate-policy.json"),b=JSON.parse(fs.readFileSync(path.join(base,"scripts/i18n/gate-policy.json"),"utf8")),p=fs.existsSync(sourceFile)?JSON.parse(fs.readFileSync(sourceFile,"utf8")):{},m=p.minimumTrustedVerifier||b.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||!Number.isInteger(m.schemaVersion)||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length)process.exit(1);if(!Number.isInteger(b.contractVersion)||b.contractVersion<m.contractVersion||!Number.isInteger(b.schemaVersion)||b.schemaVersion<m.schemaVersion)process.exit(1);for(const rel of m.requiredFiles){if(typeof rel!=="string"||!fs.existsSync(path.join(base,...rel.split("/"))))process.exit(1)}' "$root" "$trusted_dir"; then
+    echo "pre-push: trusted gate anchor $trusted does not satisfy the executing policy.minimumTrustedVerifier; OUTDATED GATE VERIFIER; fail closed." >&2
+    echo "pre-push: advance or explicitly adopt a current Gate Epoch verifier." >&2
     exit 1
 fi
 
@@ -406,7 +403,8 @@ echo "pre-push: verifying $count pushed commit(s) against the trusted i18n gate 
         fi
         if [ "$contract" = "1" ]; then
             echo "pre-push: commit $sha proposes gate changes; running the trusted gate contract..."
-            if ! node "$trusted_dir/scripts/i18n/gate-contract.mjs" --repo-root "$root" --report-root "$root" \
+            if ! run_without_local_git_env node "$trusted_dir/scripts/i18n/gate-contract.mjs" \
+                --repo-root "$root" --report-root "$root" \
                 --candidate-ref "$sha" >"$tmpdir/contract-$sha.log" 2>&1; then
                 echo "pre-push: FAILED — commit $sha does not pass the trusted gate contract (candidate gate cannot self-approve)." >&2
                 cat "$tmpdir/contract-$sha.log" >&2

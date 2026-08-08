@@ -1,6 +1,24 @@
 {
   "gateEpoch": 2,
   "contractVersion": 4,
+  "minimumTrustedVerifier": {
+    "contractVersion": 4,
+    "schemaVersion": 3,
+    "requiredFiles": [
+      "scripts/ci/gate-surface.json",
+      "scripts/ci/gate-invariants.json",
+      "scripts/ci/gate-parity.mjs",
+      "scripts/ci/resolve-trusted-base.mjs",
+      "scripts/ci/materialize-trusted-gate.sh",
+      "scripts/ci/doctor-github-ruleset.mjs",
+      "scripts/i18n/trust-gate.mjs"
+    ]
+  },
+  "qualityGatePushCoverage": {
+    "exclude": [
+      "gh-pages"
+    ]
+  },
   "requiredJobs": [
     "java-tests",
     "javascript-tests",
@@ -29,6 +47,7 @@
     "scripts/i18n/check.mjs",
     "scripts/i18n/gate-contract.mjs",
     "scripts/i18n/gate-policy.json",
+    "scripts/i18n/trust-gate.mjs",
     "scripts/hooks/pre-commit",
     "scripts/hooks/pre-push",
     "scripts/hooks/pre-push-guard.sh",

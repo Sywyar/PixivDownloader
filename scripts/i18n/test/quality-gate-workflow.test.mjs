@@ -536,6 +536,50 @@ test('workflow 契约：if false; then npm run test:js; fi → 拒绝（条件�
 // Epoch 2 机制：input 优先级 / root tag / 物化交叉验证
 // ---------------------------------------------------------------------------
 
+test('workflow 契约：push branches-ignore [gh-pages] → branches [master] → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        doc.on.push = { branches: ['master'] };
+        writeWorkflow(root, doc);
+        commitBypass(root, 'narrow push coverage');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'Quality Gate push 覆盖缩回 master-only 必须拒绝');
+        assert.match(run.stdout + run.stderr, /push coverage|branches allow-list|excluded branches/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：minimumTrustedVerifier 只在 ROOT_ADMISSION 分支执行 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const baseStep = doc.jobs['signature-guard'].steps.find((s) =>
+            /minimum_json=.*minimumTrustedVerifier/.test(s.run || ''));
+        assert.ok(baseStep, '测试前提：必须存在 minimumTrustedVerifier bootstrap');
+        const original = baseStep.run;
+        baseStep.run = baseStep.run
+            .replace(/([^\n]*ROOT ADMISSION MODE:[^\n]*\n)\s*fi\n(\s*# Candidate policy proposes)/,
+                '$1$2')
+            .replace(/(\s*done <<< "\$minimum_files"\n)/, '$1fi\n');
+        assert.notEqual(baseStep.run, original, '测试前提：必须成功把 baseline 移入 ROOT_ADMISSION');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'restrict minimum verifier baseline to root admission');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'NORMAL candidate 跳过 minimumTrustedVerifier 必须拒绝');
+        assert.match(run.stdout + run.stderr, /minimumTrustedVerifier applies|NORMAL.*baseline/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
 test('workflow 契约：删除 inputs.trusted_base_sha 优先级（reusable 语义）→ 拒绝', () => {
     const root = makeFullCandidateRepo();
     const trusted = makeTrustedCopy(root);

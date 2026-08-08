@@ -5,8 +5,8 @@
  *
  * 检查（全部只读）：
  * - master 分支 ruleset：required checks 完整集合 / strict_required_status_checks_policy /
- *   bypass actors（permanent always bypass 禁止）/ deletion / non-fast-forward；
- * - refs/tags/i18n-gate-epoch-2-root ruleset：no deletion / no non-fast-forward / no bypass。
+ *   bypass actors（allowBypass=false 时必须为空）/ deletion / non-fast-forward；
+ * - invariants 中声明的每个 verifier root tag ruleset：no deletion / no non-fast-forward / no bypass。
  *
  * REST API 使用（正确流程）：
  *   GET /repos/{owner}/{repo}/rulesets            → 摘要列表（只含 id / name / target /
@@ -129,11 +129,11 @@ function auditMasterDetail(detail, invariants, problems, report) {
             problems.push('master ruleset ' + name + ' does not block ' + expectedRule);
         }
     }
-    const alwaysBypass = (Array.isArray(detail.bypass_actors) ? detail.bypass_actors : [])
-        .filter((a) => a && a.bypass_mode === 'always');
-    if (alwaysBypass.length > 0 && !invariants.allowBypass) {
-        problems.push('master ruleset ' + name + ' has permanent always-bypass actors: '
-            + alwaysBypass.map((a) => (a.actor_type + ':' + (a.actor_id || '?'))).join(', '));
+    const bypassActors = Array.isArray(detail.bypass_actors) ? detail.bypass_actors : [];
+    if (bypassActors.length > 0 && !invariants.allowBypass) {
+        problems.push('master ruleset ' + name + ' has bypass actors while allowBypass=false: '
+            + bypassActors.map((a) => (a.actor_type + ':' + (a.actor_id || '?')
+                + ':' + (a.bypass_mode || '?'))).join(', '));
     }
 }
 
@@ -153,10 +153,9 @@ function auditTagDetail(detail, invariants, problems, report) {
     if (!rules.some((r) => r && r.type === 'non_fast_forward') && !invariants.allowNonFastForward) {
         problems.push('root tag ruleset ' + name + ' does not block non-fast-forward updates');
     }
-    const alwaysBypass = (Array.isArray(detail.bypass_actors) ? detail.bypass_actors : [])
-        .filter((a) => a && a.bypass_mode === 'always');
-    if (alwaysBypass.length > 0 && !invariants.allowBypass) {
-        problems.push('root tag ruleset ' + name + ' has permanent always-bypass actors');
+    const bypassActors = Array.isArray(detail.bypass_actors) ? detail.bypass_actors : [];
+    if (bypassActors.length > 0 && !invariants.allowBypass) {
+        problems.push('root tag ruleset ' + name + ' has bypass actors while allowBypass=false');
     }
 }
 
@@ -175,7 +174,9 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
     const report = [];
     const base = baseUrl || process.env.GITHUB_API_URL || 'https://api.github.com';
     const masterInvariants = invariants.master;
-    const tagInvariants = invariants['i18n-gate-epoch-2-root'];
+    const tagInvariants = Object.entries(invariants)
+        .filter(([name, value]) => /^i18n-gate-epoch-[2-9][0-9]*-root$/.test(name)
+            && value && typeof value === 'object');
 
     // 1. list endpoint：只提供摘要（id / name / target / conditions / enforcement）
     let list;
@@ -222,7 +223,7 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
     };
 
     const masterMatches = [];
-    const tagMatches = [];
+    const tagMatches = new Map(tagInvariants.map(([name]) => [name, []]));
     for (const rs of list.body) {
         const fetched = await fetchDetail(rs.id);
         if (fetched.error) {
@@ -231,8 +232,10 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
         if (isBranchRulesetFor(fetched.detail, 'refs/heads/master')) {
             masterMatches.push(fetched.detail);
         }
-        if (isTagRulesetFor(fetched.detail, 'refs/tags/i18n-gate-epoch-2-root')) {
-            tagMatches.push(fetched.detail);
+        for (const [name] of tagInvariants) {
+            if (isTagRulesetFor(fetched.detail, 'refs/tags/' + name)) {
+                tagMatches.get(name).push(fetched.detail);
+            }
         }
     }
 
@@ -244,11 +247,14 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
         }
     }
 
-    if (tagMatches.length === 0) {
-        problems.push('no tag ruleset covers refs/tags/i18n-gate-epoch-2-root');
-    } else {
-        for (const detail of tagMatches) {
-            auditTagDetail(detail, tagInvariants, problems, report);
+    for (const [name, expected] of tagInvariants) {
+        const matches = tagMatches.get(name);
+        if (matches.length === 0) {
+            problems.push('no tag ruleset covers refs/tags/' + name);
+        } else {
+            for (const detail of matches) {
+                auditTagDetail(detail, expected, problems, report);
+            }
         }
     }
 
@@ -318,7 +324,7 @@ async function main() {
         process.exitCode = 1;
         return;
     }
-    console.log('doctor-github-ruleset: VERIFIED — master and root-tag rulesets match'
+    console.log('doctor-github-ruleset: VERIFIED — master and all declared root-tag rulesets match'
         + ' scripts/ci/github-ruleset-invariants.json.');
 }
 

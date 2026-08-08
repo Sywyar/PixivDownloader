@@ -131,6 +131,39 @@ function runCli(root, args, env = {}) {
     return spawnSync('node', [CLI, ...args], { cwd: root, encoding: 'utf8', env: merged, timeout: 600000 });
 }
 
+function runRepoCli(root, args, env = {}) {
+    const merged = { ...process.env, ...env };
+    if (env.clearCI) {
+        delete merged.CI;
+        delete merged.clearCI;
+    }
+    return spawnSync('node', [path.join(root, 'scripts', 'i18n', 'trust-gate.mjs'), ...args],
+        { cwd: root, encoding: 'utf8', env: merged, timeout: 600000 });
+}
+
+function rewriteFixtureForNextEpoch(root) {
+    const roots = [path.join(root, 'scripts'), path.join(root, '.github', 'workflows')];
+    for (const start of roots) {
+        const pending = [start];
+        while (pending.length > 0) {
+            const current = pending.pop();
+            for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+                const file = path.join(current, entry.name);
+                if (entry.isDirectory()) {
+                    pending.push(file);
+                    continue;
+                }
+                let content = fs.readFileSync(file, 'utf8');
+                content = content
+                    .replaceAll('i18n-gate-epoch-2-root', 'i18n-gate-epoch-3-root')
+                    .replace('export const CURRENT_GATE_EPOCH = 2;', 'export const CURRENT_GATE_EPOCH = 3;')
+                    .replaceAll('"gateEpoch": 2', '"gateEpoch": 3');
+                fs.writeFileSync(file, content, 'utf8');
+            }
+        }
+    }
+}
+
 function cleanRepo(root) {
     if (!root) {
         return;
@@ -167,7 +200,7 @@ test('trust-gate：adopt-root 写入 epoch 2 + ref；--show 输出 SHA 与 contr
         const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
         assert.match(adopt.stdout + adopt.stderr, /ROOT ADMISSION/);
-        assert.match(adopt.stdout + adopt.stderr, /Epoch 2 root adopted/);
+        assert.match(adopt.stdout + adopt.stderr, /Gate Epoch 2 root adopted/);
         const configured = git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim();
         assert.equal(configured, head, 'adopt-root 必须写入当前 HEAD 的完整 SHA');
         assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root).stdout.trim(), '2');
@@ -196,9 +229,12 @@ test('trust-gate：adopt-root 只写 local 配置（不写 global）', () => {
     }
 });
 
-test('trust-gate：CI 环境禁止 adopt-root / advance', () => {
+test('trust-gate：CI 环境禁止 prepare-root / adopt-root / advance', () => {
     const root = makeRepo();
     try {
+        const prepare = runCli(root, ['--prepare-root', '--epoch', '2'], { CI: 'true' });
+        assert.notEqual(prepare.status, 0, 'CI=true 必须拒绝 prepare-root');
+        assert.match(prepare.stderr, /forbidden in CI/);
         const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { CI: 'true' });
         assert.notEqual(adopt.status, 0, 'CI=true 必须拒绝 adopt-root');
         assert.match(adopt.stderr, /forbidden in CI/);
@@ -247,6 +283,41 @@ test('trust-gate：adopt-root 脏工作树 / 已存在 anchor 拒绝', () => {
         const again = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
         assert.notEqual(again.status, 0, '已有 anchor 必须拒绝再次 adopt-root');
         assert.match(again.stderr, /already exists/);
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才允许采用下一 Epoch root', () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeRepo(true);
+    try {
+        const previousRoot = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        git(['tag', 'i18n-gate-epoch-2-root', previousRoot], root);
+        rewriteFixtureForNextEpoch(root);
+        git(['add', '-A'], root);
+
+        const prepare = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        assert.equal(prepare.status, 0, prepare.stdout + prepare.stderr);
+        assert.match(prepare.stdout + prepare.stderr, /Gate Epoch 3 root prepared/);
+        const preparedTree = git(['config', '--local', '--get', 'pixiv.i18n.preparedRootTree'], root)
+            .stdout.trim();
+        assert.equal(preparedTree, git(['write-tree'], root).stdout.trim());
+
+        const commit = git(['commit', '-q', '-m', 'epoch 3 root'], root);
+        assert.equal(commit.status, 0, commit.stdout + commit.stderr);
+        const adopt = runRepoCli(root,
+            ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
+        assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root)
+            .stdout.trim(), '3');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root)
+            .stdout.trim(), git(['rev-parse', 'HEAD'], root).stdout.trim());
+        assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.preparedRootTree'], root,
+            { allowFailure: true }).status, 0, 'adopt-root 成功后必须清除 preparation ticket');
     } finally {
         cleanRepo(root);
     }

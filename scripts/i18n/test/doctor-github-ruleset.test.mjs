@@ -4,12 +4,13 @@
  * - list endpoint 只给摘要 → doctor 必须逐个 follow detail endpoint 再检查；
  * - detail 正确解析 rules[].parameters.required_status_checks（context）与
  *   strict_required_status_checks_policy；
- * - strict=false / permanent always bypass / required check 缺失 / tag 未保护 → exit 1；
+ * - strict=false / 任意 bypass / required check 缺失 / tag 未保护 → exit 1；
  * - 无 token / 403 / 404 / detail 不可读 → CANNOT VERIFY / exit 2。
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +21,17 @@ const CLI = path.join(SCRIPTS_DIR, '..', 'ci', 'doctor-github-ruleset.mjs');
 const REPO = 'test/repo';
 const invariants = loadInvariants();
 const REQUIRED = invariants.master.requiredChecks;
+
+test('doctor：required contexts 与当前 trusted predecessor 声明一致', () => {
+    assert.deepEqual(REQUIRED, [
+        'Quality Gate / java-tests', 'Quality Gate / javascript-tests',
+        'Quality Gate / signature-guard', 'Quality Gate / trusted-gate-contract',
+        'Quality Gate / i18n-check', 'Shared Snippet Drift Check / check-shared-snippets',
+    ]);
+    const policy = JSON.parse(fs.readFileSync(path.join(SCRIPTS_DIR, 'gate-policy.json'), 'utf8'));
+    assert.equal(policy.requiredExternalCheckDefinitions[0].requiredContext,
+        'Shared Snippet Drift Check / check-shared-snippets');
+});
 
 function validMasterDetail() {
     return {
@@ -136,6 +148,35 @@ test('doctor：master + root tag detail 完全正确 → success (exit 0)', asyn
     assert.equal(result.exitCode, 0, JSON.stringify(result.problems));
 });
 
+test('doctor：声明多个 Epoch root 时逐个要求受保护 ruleset', async () => {
+    const nextInvariants = structuredClone(invariants);
+    nextInvariants['i18n-gate-epoch-3-root'] = structuredClone(
+        nextInvariants['i18n-gate-epoch-2-root']);
+    const master = validMasterDetail();
+    const epoch2 = validTagDetail();
+    const epoch3 = {
+        ...validTagDetail(),
+        id: 203,
+        name: 'epoch3-root-protection',
+        conditions: { ref_name: { include: ['refs/tags/i18n-gate-epoch-3-root'] } },
+    };
+    const completeFetch = makeFetch(
+        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3)],
+        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3 });
+    const complete = await runDoctor({
+        fetchJson: completeFetch.fetchJson, token: 't', repo: REPO, invariants: nextInvariants,
+    });
+    assert.equal(complete.exitCode, 0, JSON.stringify(complete.problems));
+
+    const missingFetch = makeFetch(
+        [summaryOf(master), summaryOf(epoch2)], { [master.id]: master, [epoch2.id]: epoch2 });
+    const missing = await runDoctor({
+        fetchJson: missingFetch.fetchJson, token: 't', repo: REPO, invariants: nextInvariants,
+    });
+    assert.equal(missing.exitCode, 1);
+    assert.ok(missing.problems.some((p) => /refs\/tags\/i18n-gate-epoch-3-root/.test(p)));
+});
+
 test('doctor：strict_required_status_checks_policy=false → violation (exit 1)', async () => {
     const master = validMasterDetail();
     master.rules[0].parameters.strict_required_status_checks_policy = false;
@@ -144,7 +185,7 @@ test('doctor：strict_required_status_checks_policy=false → violation (exit 1)
     assert.ok(result.problems.some((p) => /strict_required_status_checks_policy disabled/.test(p)));
 });
 
-test('doctor：permanent always bypass actor → violation (exit 1)', async () => {
+test('doctor：allowBypass=false 时任意 bypass actor → violation (exit 1)', async () => {
     const master = validMasterDetail();
     master.bypass_actors = [
         { actor_type: 'RepositoryRole', actor_id: 4, bypass_mode: 'always' },
@@ -152,7 +193,27 @@ test('doctor：permanent always bypass actor → violation (exit 1)', async () =
     ];
     const { result } = await doctorWith(master, validTagDetail());
     assert.equal(result.exitCode, 1);
-    assert.ok(result.problems.some((p) => /permanent always-bypass actors: RepositoryRole:4/.test(p)));
+    assert.ok(result.problems.some((p) => /allowBypass=false/.test(p)));
+});
+
+test('doctor：只有 bypass_mode=pull_request 也必须拒绝', async () => {
+    const master = validMasterDetail();
+    master.bypass_actors = [
+        { actor_type: 'OrganizationAdmin', actor_id: 1, bypass_mode: 'pull_request' },
+    ];
+    const { result } = await doctorWith(master, validTagDetail());
+    assert.equal(result.exitCode, 1);
+    assert.ok(result.problems.some((p) => /OrganizationAdmin:1:pull_request/.test(p)));
+});
+
+test('doctor：root tag 的 pull_request bypass 同样拒绝', async () => {
+    const tag = validTagDetail();
+    tag.bypass_actors = [
+        { actor_type: 'OrganizationAdmin', actor_id: 1, bypass_mode: 'pull_request' },
+    ];
+    const { result } = await doctorWith(validMasterDetail(), tag);
+    assert.equal(result.exitCode, 1);
+    assert.ok(result.problems.some((p) => /root tag.*allowBypass=false/.test(p)));
 });
 
 test('doctor：required check 缺失 → violation (exit 1)', async () => {

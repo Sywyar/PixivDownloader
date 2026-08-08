@@ -28,36 +28,28 @@
 import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 import snapshot from './repository-snapshot.mjs';
 
 export const TRUSTED_REF_KEY = 'pixiv.i18n.trustedGateRef';
 export const TRUSTED_EPOCH_KEY = 'pixiv.i18n.trustedGateEpoch';
+export const PREPARED_ROOT_EPOCH_KEY = 'pixiv.i18n.preparedRootEpoch';
+export const PREPARED_ROOT_PARENT_KEY = 'pixiv.i18n.preparedRootParent';
+export const PREPARED_ROOT_TREE_KEY = 'pixiv.i18n.preparedRootTree';
 
 /** 当前唯一受支持的 Gate Epoch。epoch < 2 视为 obsolete；epoch > 2 视为 unsupported future。 */
 export const CURRENT_GATE_EPOCH = 2;
 
-/**
- * 当前新标准 verifier 最低能力（与 Epoch 2 历史信任 root 分开）：
- * Epoch 2 root（cb587e01，contract v3）只证明「属于 Epoch 2 历史」，
- * 不等于「当前允许作为 verifier 的最老提交」。CURRENT_MIN_* 决定当前
- * trusted verifier 必须具备的能力；低于此线 → fail closed，绝不兼容 / fallback / predates。
- */
-export const CURRENT_MIN_CONTRACT_VERSION = 4;
-export const CURRENT_MIN_SCHEMA_VERSION = 3;
-
-/** 当前 verifier baseline 要求的 verifier 本体文件（缺任一 → verifier 无资格审核新标准候选）。 */
-export const REQUIRED_VERIFIER_FILES = [
-    path.posix.join('scripts', 'ci', 'gate-surface.json'),
-    path.posix.join('scripts', 'ci', 'gate-invariants.json'),
-    path.posix.join('scripts', 'ci', 'gate-parity.mjs'),
-    path.posix.join('scripts', 'ci', 'resolve-trusted-base.mjs'),
-    path.posix.join('scripts', 'ci', 'materialize-trusted-gate.sh'),
-    path.posix.join('scripts', 'ci', 'doctor-github-ruleset.mjs'),
-];
-
 /** Epoch 2 信任根 tag（仓库内容之外的不可自我修改锚点，由管理员人工创建并受 Ruleset 保护）。 */
 export const ROOT_TAG_NAME = 'i18n-gate-epoch-2-root';
+
+export function rootTagNameForEpoch(epoch) {
+    if (!Number.isInteger(Number(epoch)) || Number(epoch) < 2) {
+        throw new Error('invalid Gate Epoch: ' + epoch);
+    }
+    return 'i18n-gate-epoch-' + Number(epoch) + '-root';
+}
 
 /** hooks 与 contract 从可信锚点物化的路径范围。 */
 export const GATE_PATHS = [
@@ -85,6 +77,8 @@ export const WORKFLOW_REL = path.posix.join('.github', 'workflows', 'quality-gat
 
 /** package.json 相对仓库根的路径。 */
 export const PACKAGE_JSON_REL = path.posix.join('package.json');
+
+const OWN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const REF_RE = /^refs\/heads\/[A-Za-z0-9._/-]+$/;
 
@@ -120,6 +114,19 @@ function validateJobIdList(list) {
         }
         seen.add(entry);
     }
+}
+
+function validateMinimumTrustedVerifier(minimum) {
+    if (!minimum || typeof minimum !== 'object' || Array.isArray(minimum)) {
+        throw new Error('gate-policy.json: minimumTrustedVerifier must be an object');
+    }
+    if (!Number.isInteger(minimum.contractVersion) || minimum.contractVersion < 1) {
+        throw new Error('gate-policy.json: minimumTrustedVerifier.contractVersion must be an integer >= 1');
+    }
+    if (!Number.isInteger(minimum.schemaVersion) || minimum.schemaVersion < 1) {
+        throw new Error('gate-policy.json: minimumTrustedVerifier.schemaVersion must be an integer >= 1');
+    }
+    validatePathList('minimumTrustedVerifier.requiredFiles', minimum.requiredFiles);
 }
 
 /**
@@ -170,17 +177,20 @@ export function getTrustedEpoch(repoRoot) {
  * 写本地 Epoch 2 trust anchor（epoch + ref 一起写，只写 local 配置）并回读验证。
  * 这是 root adoption / advance 的唯一写入路径。
  */
-export function setTrustedAnchor(repoRoot, sha) {
+export function setTrustedAnchor(repoRoot, sha, epoch = CURRENT_GATE_EPOCH) {
     if (!SHA_RE.test(sha)) {
         throw new Error('refusing to trust a non-commit value: ' + sha);
     }
-    git(['config', '--local', TRUSTED_EPOCH_KEY, String(CURRENT_GATE_EPOCH)], repoRoot);
+    if (!Number.isInteger(Number(epoch)) || Number(epoch) < 2) {
+        throw new Error('refusing to trust an invalid Gate Epoch: ' + epoch);
+    }
+    git(['config', '--local', TRUSTED_EPOCH_KEY, String(Number(epoch))], repoRoot);
     git(['config', '--local', TRUSTED_REF_KEY, sha], repoRoot);
     const actualRef = getTrustedRef(repoRoot);
     const actualEpoch = getTrustedEpoch(repoRoot);
-    if (actualRef !== sha || actualEpoch !== String(CURRENT_GATE_EPOCH)) {
+    if (actualRef !== sha || actualEpoch !== String(Number(epoch))) {
         throw new Error('trusted gate anchor verification failed: expected epoch '
-            + CURRENT_GATE_EPOCH + ' + ref ' + sha + ', got epoch ' + actualEpoch + ' + ref ' + actualRef);
+            + epoch + ' + ref ' + sha + ', got epoch ' + actualEpoch + ' + ref ' + actualRef);
     }
 }
 
@@ -188,14 +198,15 @@ export function setTrustedAnchor(repoRoot, sha) {
  * 解析本地 Epoch 2 root tag（refs/tags/i18n-gate-epoch-2-root^{commit}）。
  * tag 不存在 / 不是 commit / 不是完整 SHA → 返回 null（fail closed 由调用方处理）。
  */
-export function resolveRootTag(repoRoot) {
-    return resolveCommit(repoRoot, 'refs/tags/' + ROOT_TAG_NAME);
+export function resolveRootTag(repoRoot, epoch = CURRENT_GATE_EPOCH) {
+    return resolveCommit(repoRoot, 'refs/tags/' + rootTagNameForEpoch(epoch));
 }
 
 /** 本地仓库中是否存在 Epoch 2 root tag。 */
-export function hasRootTag(repoRoot) {
+export function hasRootTag(repoRoot, epoch = CURRENT_GATE_EPOCH) {
     try {
-        git(['rev-parse', '--verify', '--quiet', 'refs/tags/' + ROOT_TAG_NAME + '^{commit}'], repoRoot);
+        git(['rev-parse', '--verify', '--quiet',
+            'refs/tags/' + rootTagNameForEpoch(epoch) + '^{commit}'], repoRoot);
         return true;
     } catch (e) {
         return false;
@@ -213,10 +224,10 @@ export function describeTrustedEpoch(repoRoot) {
     if (epoch === null) {
         return 'uninitialized';
     }
-    if (epoch < String(CURRENT_GATE_EPOCH)) {
+    if (Number(epoch) < CURRENT_GATE_EPOCH) {
         return 'obsolete';
     }
-    if (epoch > String(CURRENT_GATE_EPOCH)) {
+    if (Number(epoch) > CURRENT_GATE_EPOCH) {
         return 'unsupported future';
     }
     return 'current';
@@ -267,7 +278,7 @@ export function isWorktreeClean(repoRoot) {
 }
 
 /** 校验 policy 结构。非法时抛出带原因的 Error。 */
-export function validatePolicyStructure(policy) {
+export function validatePolicyStructure(policy, expectedEpoch = CURRENT_GATE_EPOCH) {
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
         throw new Error('gate-policy.json: root must be a JSON object');
     }
@@ -275,12 +286,17 @@ export function validatePolicyStructure(policy) {
         throw new Error('gate-policy.json: schemaVersion must be an integer >= 1');
     }
     // Epoch 单一标准：只支持 CURRENT_GATE_EPOCH；epoch < 2 是 obsolete，epoch > 2 是 unsupported
-    if (policy.gateEpoch !== CURRENT_GATE_EPOCH) {
-        throw new Error('gate-policy.json: gateEpoch must be exactly ' + CURRENT_GATE_EPOCH
+    if (policy.gateEpoch !== expectedEpoch) {
+        throw new Error('gate-policy.json: gateEpoch must be exactly ' + expectedEpoch
             + ' (obsolete / unsupported future epochs fail closed; got ' + policy.gateEpoch + ')');
     }
     if (!Number.isInteger(policy.contractVersion) || policy.contractVersion < 1) {
         throw new Error('gate-policy.json: contractVersion must be an integer >= 1');
+    }
+    validateMinimumTrustedVerifier(policy.minimumTrustedVerifier);
+    if (policy.contractVersion < policy.minimumTrustedVerifier.contractVersion
+        || policy.schemaVersion < policy.minimumTrustedVerifier.schemaVersion) {
+        throw new Error('gate-policy.json: verifier policy is below minimumTrustedVerifier');
     }
     if (!SHA_RE.test(policy.i18nEnforcementStartCommit || '')) {
         throw new Error('gate-policy.json: i18nEnforcementStartCommit must be a full 40-char lowercase hex commit sha');
@@ -405,7 +421,7 @@ export function policySetReduced(trustedList, candidateList) {
 }
 
 /** 从给定目录读取并校验 gate-policy.json（trusted 物化或候选快照）。 */
-export function loadPolicyFromDir(dir) {
+export function loadPolicyFromDir(dir, expectedEpoch = CURRENT_GATE_EPOCH) {
     const file = path.join(dir, POLICY_REL);
     if (!fs.existsSync(file)) {
         return null;
@@ -416,7 +432,7 @@ export function loadPolicyFromDir(dir) {
     } catch (e) {
         throw new Error('gate-policy.json: cannot parse: ' + e.message);
     }
-    validatePolicyStructure(policy);
+    validatePolicyStructure(policy, expectedEpoch);
     return policy;
 }
 
@@ -442,30 +458,38 @@ export function loadPolicyFromRef(repoRoot, ref) {
  * @param {string} dir 物化后的 trusted verifier bundle 根目录
  * @returns {Object} trusted policy（校验通过时）
  */
-export function assertSupportedTrustedVerifierDir(dir) {
-    const policy = loadPolicyFromDir(dir);
+export function assertSupportedTrustedVerifierDir(dir, expectedEpoch = CURRENT_GATE_EPOCH,
+    declaredMinimum = null) {
+    const minimum = declaredMinimum || loadPolicyFromDir(OWN_ROOT).minimumTrustedVerifier;
+    const policyFile = path.join(dir, ...POLICY_REL.split('/'));
+    let policy;
+    try {
+        policy = JSON.parse(fs.readFileSync(policyFile, 'utf8'));
+    } catch (e) {
+        throw new Error('cannot read trusted verifier gate-policy.json: ' + e.message);
+    }
     const failures = [];
-    if (policy.gateEpoch !== CURRENT_GATE_EPOCH) {
-        failures.push('gateEpoch ' + policy.gateEpoch + ' != ' + CURRENT_GATE_EPOCH);
+    if (policy.gateEpoch !== expectedEpoch) {
+        failures.push('gateEpoch ' + policy.gateEpoch + ' != ' + expectedEpoch);
     }
     if (!Number.isInteger(policy.contractVersion)
-        || policy.contractVersion < CURRENT_MIN_CONTRACT_VERSION) {
+        || policy.contractVersion < minimum.contractVersion) {
         failures.push('contractVersion ' + policy.contractVersion
-            + ' < current minimum ' + CURRENT_MIN_CONTRACT_VERSION
+            + ' < declared minimum ' + minimum.contractVersion
             + ' (verifier rollback is refused)');
     }
     if (!Number.isInteger(policy.schemaVersion)
-        || policy.schemaVersion < CURRENT_MIN_SCHEMA_VERSION) {
+        || policy.schemaVersion < minimum.schemaVersion) {
         failures.push('schemaVersion ' + policy.schemaVersion
-            + ' < current minimum ' + CURRENT_MIN_SCHEMA_VERSION);
+            + ' < declared minimum ' + minimum.schemaVersion);
     }
-    for (const rel of REQUIRED_VERIFIER_FILES) {
+    for (const rel of minimum.requiredFiles) {
         if (!fs.existsSync(path.join(dir, ...rel.split('/')))) {
             failures.push('missing ' + rel);
         }
     }
     if (failures.length > 0) {
-        throw new Error('trusted verifier does not satisfy the current Gate Epoch 2 verifier'
+        throw new Error('trusted verifier does not satisfy the current Gate Epoch ' + expectedEpoch + ' verifier'
             + ' baseline (fail closed): ' + failures.join('; '));
     }
     return policy;
@@ -594,11 +618,12 @@ export function runI18nTestSuite(repoRoot, excludeFile) {
 export default {
     TRUSTED_REF_KEY,
     TRUSTED_EPOCH_KEY,
+    PREPARED_ROOT_EPOCH_KEY,
+    PREPARED_ROOT_PARENT_KEY,
+    PREPARED_ROOT_TREE_KEY,
     CURRENT_GATE_EPOCH,
-    CURRENT_MIN_CONTRACT_VERSION,
-    CURRENT_MIN_SCHEMA_VERSION,
-    REQUIRED_VERIFIER_FILES,
     ROOT_TAG_NAME,
+    rootTagNameForEpoch,
     GATE_PATHS,
     POLICY_REL,
     CONTRACT_REL,

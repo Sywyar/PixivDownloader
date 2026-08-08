@@ -127,23 +127,25 @@ jobs:
                   base="${{ github.event.merge_group.base_sha }}"
                   ;;
                 push)
-                  before="${{ github.event.before }}"
-                  if [ -n "$before" ] && [ "$before" != "$zero" ] \
-                      && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
-                    base="$before"
-                  else
-                    # 新分支（before 全零）：不伪装成「默认分支 tip → candidate」。
-                    # fork base = merge-base(candidate, protected default branch)；
-                    # 随后统一验证 root <= forkBase < candidate。
-                    default_branch="${{ github.event.repository.default_branch }}"
-                    if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
-                      echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
-                    fi
-                    default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                    if [ -z "$default_tip" ]; then
-                      echo "cannot resolve the protected default branch remote ref for a new branch; fail closed" >&2
+                  default_branch="${{ github.event.repository.default_branch }}"
+                  if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
+                    echo "warning: cannot fetch the protected default branch; continuing (may fail closed later)" >&2
+                  fi
+                  default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                  if [ -z "$default_tip" ]; then
+                    echo "cannot resolve the protected default branch remote ref; fail closed" >&2
+                    exit 1
+                  fi
+                  if [ "$GITHUB_REF" = "refs/heads/$default_branch" ]; then
+                    before="${{ github.event.before }}"
+                    if [ -z "$before" ] || [ "$before" = "$zero" ] \
+                        || ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
+                      echo "protected branch push has no valid event.before; fail closed" >&2
                       exit 1
                     fi
+                    base="$before"
+                  else
+                    # Feature branch event.before is not trusted: it may be a previously failed verifier.
                     fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
                     if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
                       echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
@@ -182,37 +184,64 @@ jobs:
               exit 1
             fi
             if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
-              echo "trusted base $base is not an ancestor of the candidate $GITHUB_SHA; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
+              echo "signature-guard trusted base $base is not an ancestor of candidate $GITHUB_SHA; fail closed" >&2
               exit 1
+            fi
+            default_branch="${{ github.event.repository.default_branch }}"
+            if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
+              echo "warning: cannot fetch the protected default branch; continuing (will fail closed if unavailable)" >&2
+            fi
+            default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+            if [ -z "$default_tip" ] || ! git merge-base --is-ancestor "$base" "$default_tip" >/dev/null 2>&1; then
+              echo "trusted base $base is not in the protected default branch history; fail closed" >&2
+              exit 1
+            fi
+            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
+              if [ "$default_tip" = "$GITHUB_SHA" ]; then
+                protected_predecessor="$(git rev-parse --verify --quiet "$GITHUB_SHA^{commit}^" 2>/dev/null || printf '%s' '')"
+              else
+                protected_predecessor="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+              fi
+              if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
+                echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
+                exit 1
+              fi
             fi
           else
             base="$root"
             echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
-          # 当前 verifier baseline：trusted base（或 ROOT_ADMISSION root candidate）必须携带
-          # gate-policy.json 且 contractVersion >= 4 / schemaVersion >= 3 / verifier 本体齐全；
-          # 旧 verifier 无资格审核新标准候选（verifier rollback 拒绝）→ FAIL CLOSED
+          fi
+          # Candidate policy proposes the next monotonic minimum. The protected predecessor must
+          # satisfy it before any verifier code is materialized or executed.
+          minimum_json="$(node -e 'const fs=require("fs"),p=JSON.parse(fs.readFileSync("scripts/i18n/gate-policy.json","utf8")),m=p.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||m.contractVersion<1||!Number.isInteger(m.schemaVersion)||m.schemaVersion<1||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length||m.requiredFiles.some(r=>typeof r!=="string"||!r||r.startsWith("/")||r.includes("\\")||r.split("/").includes("..")))process.exit(1);process.stdout.write(JSON.stringify(m))' 2>/dev/null || printf '%s' '')"
+          if [ -z "$minimum_json" ]; then
+            echo "candidate gate-policy.json has no valid minimumTrustedVerifier; fail closed" >&2
+            exit 1
+          fi
           base_policy="$(git show "$base:scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
           if [ -z "$base_policy" ]; then
-            echo "trusted base $base has no gate-policy.json; it does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+            echo "trusted base $base has no gate-policy.json; fail closed" >&2
             exit 1
           fi
-          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(typeof j.contractVersion==="number"?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(typeof j.schemaVersion==="number"?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt 4 ]; then
-            echo "trusted base $base contractVersion ($base_contract) is below the current minimum 4; verifier rollback is refused; fail closed" >&2
+          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.contractVersion)?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
+          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.schemaVersion)?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
+          minimum_contract="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).contractVersion))' "$minimum_json")"
+          minimum_schema="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).schemaVersion))' "$minimum_json")"
+          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt "$minimum_contract" ]; then
+            echo "trusted base $base contractVersion ($base_contract) is below minimumTrustedVerifier $minimum_contract; verifier rollback is refused; fail closed" >&2
             exit 1
           fi
-          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt 3 ]; then
-            echo "trusted base $base schemaVersion ($base_schema) is below the current minimum 3; fail closed" >&2
+          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt "$minimum_schema" ]; then
+            echo "trusted base $base schemaVersion ($base_schema) is below minimumTrustedVerifier $minimum_schema; fail closed" >&2
             exit 1
           fi
-          for rel in scripts/ci/gate-surface.json scripts/ci/gate-invariants.json scripts/ci/gate-parity.mjs scripts/ci/resolve-trusted-base.mjs scripts/ci/materialize-trusted-gate.sh scripts/ci/doctor-github-ruleset.mjs; do
-            if ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
-              echo "trusted base $base is missing $rel; it does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+          minimum_files="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).requiredFiles.join("\n"))' "$minimum_json")"
+          while IFS= read -r rel; do
+            if [ -z "$rel" ] || ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
+              echo "trusted base $base is missing minimumTrustedVerifier file $rel; fail closed" >&2
               exit 1
             fi
-          done
-          fi
+          done <<< "$minimum_files"
           # 物化 trusted gate bundle（checkout-index --stdin 必须显式提供 < paths-file）
           gate="$RUNNER_TEMP/gate"
           paths_file="$gate/paths.txt"
@@ -254,7 +283,7 @@ jobs:
           # 与 trusted helper 交叉验证（helper 来自 trusted base；候选不能自我批准）
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --ref "$GITHUB_REF" \
               --before "${{ github.event.before }}" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
@@ -409,23 +438,25 @@ jobs:
                   base="${{ github.event.merge_group.base_sha }}"
                   ;;
                 push)
-                  before="${{ github.event.before }}"
-                  if [ -n "$before" ] && [ "$before" != "$zero" ] \
-                      && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
-                    base="$before"
-                  else
-                    # 新分支（before 全零）：不伪装成「默认分支 tip → candidate」。
-                    # fork base = merge-base(candidate, protected default branch)；
-                    # 随后统一验证 root <= forkBase < candidate。
-                    default_branch="${{ github.event.repository.default_branch }}"
-                    if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
-                      echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
-                    fi
-                    default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                    if [ -z "$default_tip" ]; then
-                      echo "cannot resolve the protected default branch remote ref for a new branch; fail closed" >&2
+                  default_branch="${{ github.event.repository.default_branch }}"
+                  if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
+                    echo "warning: cannot fetch the protected default branch; continuing (may fail closed later)" >&2
+                  fi
+                  default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                  if [ -z "$default_tip" ]; then
+                    echo "cannot resolve the protected default branch remote ref; fail closed" >&2
+                    exit 1
+                  fi
+                  if [ "$GITHUB_REF" = "refs/heads/$default_branch" ]; then
+                    before="${{ github.event.before }}"
+                    if [ -z "$before" ] || [ "$before" = "$zero" ] \
+                        || ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
+                      echo "protected branch push has no valid event.before; fail closed" >&2
                       exit 1
                     fi
+                    base="$before"
+                  else
+                    # Feature branch event.before is not trusted: it may be a previously failed verifier.
                     fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
                     if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
                       echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
@@ -464,37 +495,64 @@ jobs:
               exit 1
             fi
             if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
-              echo "trusted base $base is not an ancestor of the candidate $GITHUB_SHA; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
+              echo "trusted-gate-contract base $base is not an ancestor of candidate $GITHUB_SHA; fail closed" >&2
               exit 1
+            fi
+            default_branch="${{ github.event.repository.default_branch }}"
+            if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
+              echo "warning: cannot fetch the protected default branch; continuing (will fail closed if unavailable)" >&2
+            fi
+            default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+            if [ -z "$default_tip" ] || ! git merge-base --is-ancestor "$base" "$default_tip" >/dev/null 2>&1; then
+              echo "trusted base $base is not in the protected default branch history; fail closed" >&2
+              exit 1
+            fi
+            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
+              if [ "$default_tip" = "$GITHUB_SHA" ]; then
+                protected_predecessor="$(git rev-parse --verify --quiet "$GITHUB_SHA^{commit}^" 2>/dev/null || printf '%s' '')"
+              else
+                protected_predecessor="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+              fi
+              if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
+                echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
+                exit 1
+              fi
             fi
           else
             base="$root"
             echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
-          # 当前 verifier baseline：trusted base（或 ROOT_ADMISSION root candidate）必须携带
-          # gate-policy.json 且 contractVersion >= 4 / schemaVersion >= 3 / verifier 本体齐全；
-          # 旧 verifier 无资格审核新标准候选（verifier rollback 拒绝）→ FAIL CLOSED
+          fi
+          # Candidate policy proposes the next monotonic minimum. The protected predecessor must
+          # satisfy it before any verifier code is materialized or executed.
+          minimum_json="$(node -e 'const fs=require("fs"),p=JSON.parse(fs.readFileSync("scripts/i18n/gate-policy.json","utf8")),m=p.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||m.contractVersion<1||!Number.isInteger(m.schemaVersion)||m.schemaVersion<1||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length||m.requiredFiles.some(r=>typeof r!=="string"||!r||r.startsWith("/")||r.includes("\\")||r.split("/").includes("..")))process.exit(1);process.stdout.write(JSON.stringify(m))' 2>/dev/null || printf '%s' '')"
+          if [ -z "$minimum_json" ]; then
+            echo "candidate gate-policy.json has no valid minimumTrustedVerifier; fail closed" >&2
+            exit 1
+          fi
           base_policy="$(git show "$base:scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
           if [ -z "$base_policy" ]; then
-            echo "trusted base $base has no gate-policy.json; it does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+            echo "trusted base $base has no gate-policy.json; fail closed" >&2
             exit 1
           fi
-          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(typeof j.contractVersion==="number"?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(typeof j.schemaVersion==="number"?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt 4 ]; then
-            echo "trusted base $base contractVersion ($base_contract) is below the current minimum 4; verifier rollback is refused; fail closed" >&2
+          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.contractVersion)?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
+          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.schemaVersion)?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
+          minimum_contract="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).contractVersion))' "$minimum_json")"
+          minimum_schema="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).schemaVersion))' "$minimum_json")"
+          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt "$minimum_contract" ]; then
+            echo "trusted base $base contractVersion ($base_contract) is below minimumTrustedVerifier $minimum_contract; verifier rollback is refused; fail closed" >&2
             exit 1
           fi
-          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt 3 ]; then
-            echo "trusted base $base schemaVersion ($base_schema) is below the current minimum 3; fail closed" >&2
+          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt "$minimum_schema" ]; then
+            echo "trusted base $base schemaVersion ($base_schema) is below minimumTrustedVerifier $minimum_schema; fail closed" >&2
             exit 1
           fi
-          for rel in scripts/ci/gate-surface.json scripts/ci/gate-invariants.json scripts/ci/gate-parity.mjs scripts/ci/resolve-trusted-base.mjs scripts/ci/materialize-trusted-gate.sh scripts/ci/doctor-github-ruleset.mjs; do
-            if ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
-              echo "trusted base $base is missing $rel; it does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+          minimum_files="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).requiredFiles.join("\n"))' "$minimum_json")"
+          while IFS= read -r rel; do
+            if [ -z "$rel" ] || ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
+              echo "trusted base $base is missing minimumTrustedVerifier file $rel; fail closed" >&2
               exit 1
             fi
-          done
-          fi
+          done <<< "$minimum_files"
           gate="$RUNNER_TEMP/gate"
           paths_file="$gate/paths.txt"
           index_file="$gate/index"
@@ -534,7 +592,7 @@ jobs:
           }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --ref "$GITHUB_REF" \
               --before "${{ github.event.before }}" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
@@ -625,8 +683,8 @@ jobs:
           echo "  - Do NOT allow bypassing branch protection."
           echo "  - Configure Quality Gate jobs (java-tests, javascript-tests, signature-guard,"
           echo "    trusted-gate-contract, i18n-check) as required checks."
-          echo "  - Configure 'Shared Snippet Drift Check / check-shared-snippets' as a required"
-          echo "    external check (strict required status checks, no permanent always bypass)."
+          echo "  - Configure 'check-shared-snippets' as a required external check"
+          echo "    (strict required status checks, no bypass actors)."
           echo "  - Create the annotated tag i18n-gate-epoch-2-root at the reviewed Epoch 2 root"
           echo "    commit and protect it with a Ruleset (no delete, no force update, no bypass)."
           echo "  - Gate surface (.github/workflows/quality-gate.yml, shared-snippets-check.yml,"
@@ -714,23 +772,25 @@ jobs:
                   base="${{ github.event.merge_group.base_sha }}"
                   ;;
                 push)
-                  before="${{ github.event.before }}"
-                  if [ -n "$before" ] && [ "$before" != "$zero" ] \
-                      && git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
-                    base="$before"
-                  else
-                    # 新分支（before 全零）：不伪装成「默认分支 tip → candidate」。
-                    # fork base = merge-base(candidate, protected default branch)；
-                    # 随后统一验证 root <= forkBase < candidate。
-                    default_branch="${{ github.event.repository.default_branch }}"
-                    if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
-                      echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
-                    fi
-                    default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                    if [ -z "$default_tip" ]; then
-                      echo "cannot resolve the protected default branch remote ref for a new branch; fail closed" >&2
+                  default_branch="${{ github.event.repository.default_branch }}"
+                  if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
+                    echo "warning: cannot fetch the protected default branch; continuing (may fail closed later)" >&2
+                  fi
+                  default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+                  if [ -z "$default_tip" ]; then
+                    echo "cannot resolve the protected default branch remote ref; fail closed" >&2
+                    exit 1
+                  fi
+                  if [ "$GITHUB_REF" = "refs/heads/$default_branch" ]; then
+                    before="${{ github.event.before }}"
+                    if [ -z "$before" ] || [ "$before" = "$zero" ] \
+                        || ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
+                      echo "protected branch push has no valid event.before; fail closed" >&2
                       exit 1
                     fi
+                    base="$before"
+                  else
+                    # Feature branch event.before is not trusted: it may be a previously failed verifier.
                     fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
                     if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
                       echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
@@ -772,34 +832,61 @@ jobs:
               echo "trusted base $base is not an ancestor of the candidate $GITHUB_SHA; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
               exit 1
             fi
+            default_branch="${{ github.event.repository.default_branch }}"
+            if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
+              echo "warning: cannot fetch the protected default branch; continuing (will fail closed if unavailable)" >&2
+            fi
+            default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
+            if [ -z "$default_tip" ] || ! git merge-base --is-ancestor "$base" "$default_tip" >/dev/null 2>&1; then
+              echo "trusted base $base is not in the protected default branch history; fail closed" >&2
+              exit 1
+            fi
+            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
+              if [ "$default_tip" = "$GITHUB_SHA" ]; then
+                protected_predecessor="$(git rev-parse --verify --quiet "$GITHUB_SHA^{commit}^" 2>/dev/null || printf '%s' '')"
+              else
+                protected_predecessor="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+              fi
+              if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
+                echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
+                exit 1
+              fi
+            fi
           else
             base="$root"
             echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
-          # 当前 verifier baseline：trusted base（或 ROOT_ADMISSION root candidate）必须携带
-          # gate-policy.json 且 contractVersion >= 4 / schemaVersion >= 3 / verifier 本体齐全；
-          # 旧 verifier 无资格审核新标准候选（verifier rollback 拒绝）→ FAIL CLOSED
+          fi
+          # Candidate policy proposes the next monotonic minimum. The protected predecessor must
+          # satisfy it before any verifier code is materialized or executed.
+          minimum_json="$(node -e 'const fs=require("fs"),p=JSON.parse(fs.readFileSync("scripts/i18n/gate-policy.json","utf8")),m=p.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||m.contractVersion<1||!Number.isInteger(m.schemaVersion)||m.schemaVersion<1||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length||m.requiredFiles.some(r=>typeof r!=="string"||!r||r.startsWith("/")||r.includes("\\")||r.split("/").includes("..")))process.exit(1);process.stdout.write(JSON.stringify(m))' 2>/dev/null || printf '%s' '')"
+          if [ -z "$minimum_json" ]; then
+            echo "candidate gate-policy.json has no valid minimumTrustedVerifier; fail closed" >&2
+            exit 1
+          fi
           base_policy="$(git show "$base:scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
           if [ -z "$base_policy" ]; then
-            echo "trusted base $base has no gate-policy.json; it does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+            echo "trusted base $base has no gate-policy.json; fail closed" >&2
             exit 1
           fi
-          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(typeof j.contractVersion==="number"?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(typeof j.schemaVersion==="number"?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt 4 ]; then
-            echo "trusted base $base contractVersion ($base_contract) is below the current minimum 4; verifier rollback is refused; fail closed" >&2
+          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.contractVersion)?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
+          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.schemaVersion)?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
+          minimum_contract="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).contractVersion))' "$minimum_json")"
+          minimum_schema="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).schemaVersion))' "$minimum_json")"
+          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt "$minimum_contract" ]; then
+            echo "trusted base $base contractVersion ($base_contract) is below minimumTrustedVerifier $minimum_contract; verifier rollback is refused; fail closed" >&2
             exit 1
           fi
-          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt 3 ]; then
-            echo "trusted base $base schemaVersion ($base_schema) is below the current minimum 3; fail closed" >&2
+          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt "$minimum_schema" ]; then
+            echo "trusted base $base schemaVersion ($base_schema) is below minimumTrustedVerifier $minimum_schema; fail closed" >&2
             exit 1
           fi
-          for rel in scripts/ci/gate-surface.json scripts/ci/gate-invariants.json scripts/ci/gate-parity.mjs scripts/ci/resolve-trusted-base.mjs scripts/ci/materialize-trusted-gate.sh scripts/ci/doctor-github-ruleset.mjs; do
-            if ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
-              echo "trusted base $base is missing $rel; it does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+          minimum_files="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).requiredFiles.join("\n"))' "$minimum_json")"
+          while IFS= read -r rel; do
+            if [ -z "$rel" ] || ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
+              echo "trusted base $base is missing minimumTrustedVerifier file $rel; fail closed" >&2
               exit 1
             fi
-          done
-          fi
+          done <<< "$minimum_files"
           gate="$RUNNER_TEMP/gate"
           paths_file="$gate/paths.txt"
           index_file="$gate/index"
@@ -839,7 +926,7 @@ jobs:
           }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --ref "$GITHUB_REF" \
               --before "${{ github.event.before }}" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \

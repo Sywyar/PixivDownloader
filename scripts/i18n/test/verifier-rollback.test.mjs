@@ -21,6 +21,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import trustedGate from '../lib/trusted-gate.mjs';
+
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 const RESOLVER = path.join(REPO_ROOT, 'scripts', 'ci', 'resolve-trusted-base.mjs');
@@ -32,6 +34,14 @@ const VERIFIER_FILES = [
     'scripts/ci/resolve-trusted-base.mjs',
     'scripts/ci/materialize-trusted-gate.sh',
     'scripts/ci/doctor-github-ruleset.mjs',
+    'scripts/i18n/trust-gate.mjs',
+];
+const VERIFIER_CORE_FILES = [
+    'scripts/i18n/check.mjs',
+    'scripts/i18n/gate-contract.mjs',
+    'scripts/i18n/lib/trusted-gate.mjs',
+    'scripts/i18n/lib/repository-snapshot.mjs',
+    'scripts/hooks/pre-push-guard.sh',
 ];
 
 function git(args, cwd, opts = {}) {
@@ -85,7 +95,7 @@ function makeDagRepo({ v4Contract = 4, withSurface = true } = {}) {
     };
     fs.writeFileSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'),
         JSON.stringify(policy, null, 2) + '\n', 'utf8');
-    for (const rel of VERIFIER_FILES) {
+    for (const rel of [...VERIFIER_CORE_FILES, ...VERIFIER_FILES]) {
         if (!withSurface && rel === 'scripts/ci/gate-surface.json') {
             continue;
         }
@@ -96,7 +106,20 @@ function makeDagRepo({ v4Contract = 4, withSurface = true } = {}) {
     git(['commit', '-q', '-m', 'V4 verifier'], dir);
     const v4 = git(['rev-parse', 'HEAD'], dir).stdout.trim();
 
-    // C：candidate
+    // origin/master 模拟受保护默认分支：只有已经进入该历史的 verifier 才能审核 candidate。
+    const remote = path.join(dir, '.git', 'test-origin.git');
+    git(['init', '-q', '--bare', remote], dir);
+    git(['remote', 'add', 'origin', remote], dir);
+    git(['push', '-q', '-u', 'origin', 'master'], dir);
+
+    // C：candidate 首次声明单调 baseline；V4 只需满足其实际 capability，不要求预知新字段。
+    policy.minimumTrustedVerifier = {
+        contractVersion: 4,
+        schemaVersion: 3,
+        requiredFiles: VERIFIER_FILES,
+    };
+    fs.writeFileSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'),
+        JSON.stringify(policy, null, 2) + '\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'feature.txt'), 'feature\n', 'utf8');
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'C candidate'], dir);
@@ -106,7 +129,8 @@ function makeDagRepo({ v4Contract = 4, withSurface = true } = {}) {
 }
 
 function runResolver(root, args) {
-    return spawnSync('node', [RESOLVER, '--repo-root', root, ...args],
+    const resolvedArgs = args.includes('--default-branch') ? args : [...args, '--default-branch', 'master'];
+    return spawnSync('node', [RESOLVER, '--repo-root', root, ...resolvedArgs],
         { cwd: root, encoding: 'utf8' });
 }
 
@@ -154,7 +178,8 @@ test('verifier rollback Case B：旧 verifier 是祖先（base = R(v3)，root <=
         const viaInput = runResolver(dir, ['--event-name', 'workflow_dispatch', '--candidate', c,
             '--input-base', r0, '--default-branch', 'master', '--mode']);
         assert.notEqual(viaInput.status, 0, '显式 trusted_base_sha = 旧 verifier 必须 FAIL');
-        assert.match(viaInput.stderr, /contractVersion 3 < current minimum 4|verifier rollback is refused/);
+        assert.match(viaInput.stderr,
+            /contractVersion 3 < current minimum 4|verifier rollback is refused|protected predecessor/);
     } finally {
         cleanRepo(dir);
     }
@@ -213,6 +238,23 @@ test('verifier rollback Case F：contractVersion 降到 3 → FAIL（capability�
             '--pr-base', v4, '--mode']);
         assert.notEqual(run.status, 0, 'contractVersion 3 的 verifier 必须 FAIL');
         assert.match(run.stderr, /contractVersion 3 < current minimum 4|verifier rollback is refused/);
+    } finally {
+        cleanRepo(dir);
+    }
+});
+
+test('verifier baseline 首次声明：执行中 policy 审核 V4 实际能力，不要求 predecessor 预知新字段', () => {
+    const { dir, v4 } = makeDagRepo();
+    const output = path.join(dir, 'build', 'materialized-verifier');
+    try {
+        assert.doesNotThrow(() => trustedGate.assertSupportedTrustedVerifierAt(dir, v4));
+        const run = spawnSync('bash', ['scripts/ci/materialize-trusted-gate.sh',
+            '--repo-root', '.', '--base', v4, '--output', 'build/materialized-verifier',
+            '--index', 'build/materialize-index', '--paths-file', 'build/materialize-paths',
+            '--paths', 'scripts/i18n scripts/hooks scripts/ci'],
+        { cwd: dir, encoding: 'utf8' });
+        assert.equal(run.status, 0, run.stdout + run.stderr);
+        assert.ok(fs.existsSync(path.join(output, 'scripts', 'ci', 'gate-parity.mjs')));
     } finally {
         cleanRepo(dir);
     }

@@ -2,6 +2,19 @@
   "schemaVersion": 3,
   "gateEpoch": 2,
   "contractVersion": 4,
+  "minimumTrustedVerifier": {
+    "contractVersion": 4,
+    "schemaVersion": 3,
+    "requiredFiles": [
+      "scripts/ci/gate-surface.json",
+      "scripts/ci/gate-invariants.json",
+      "scripts/ci/gate-parity.mjs",
+      "scripts/ci/resolve-trusted-base.mjs",
+      "scripts/ci/materialize-trusted-gate.sh",
+      "scripts/ci/doctor-github-ruleset.mjs",
+      "scripts/i18n/trust-gate.mjs"
+    ]
+  },
   "i18nEnforcementStartCommit": "05f4ebed7ce00f0b923fe48ec2e0971610511547",
   "requiredPaths": [
     "scripts/i18n/check.mjs",
@@ -9,6 +22,7 @@
     "scripts/i18n/gate-policy.json",
     "scripts/i18n/lib/repository-snapshot.mjs",
     "scripts/i18n/lib/trusted-gate.mjs",
+    "scripts/i18n/trust-gate.mjs",
     "scripts/hooks/pre-commit",
     "scripts/hooks/pre-push",
     "scripts/hooks/pre-push-guard.sh",

@@ -18,7 +18,8 @@
  *   （candidate == root 时运行 root 自身 gate + 全量 root self-protection suite，
  *   由 --force-self-protection 关闭归纳跳过）；
  * - candidate 可以提出新 policy，但当前 trusted contract 必须审核它：gateEpoch 不得改变、
- *   contractVersion 不得降低、i18nEnforcementStartCommit 不得向后移动或删除、
+ *   contractVersion / schemaVersion / minimumTrustedVerifier 不得降低、
+ *   i18nEnforcementStartCommit 不得向后移动或删除、
  *   required paths / protectedBranches / requiredWorkflowJobs / requiredPackageScripts /
  *   requiredExternalChecks 集合不得减少（允许新增）；
  * - required paths 使用 trusted ∪ candidate 并集：candidate 新声明的 required path 必须在
@@ -1145,6 +1146,31 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         pushCheck(checks, 'trigger ' + trigger + ' is preserved', triggers[trigger] !== undefined,
             'candidate workflow dropped the ' + trigger + ' trigger');
     }
+    const pushConfig = triggers.push && typeof triggers.push === 'object' ? triggers.push : {};
+    const hasCandidateBranches = Object.prototype.hasOwnProperty.call(pushConfig, 'branches');
+    pushCheck(checks, 'push coverage does not use a positive branches allow-list',
+        !hasCandidateBranches,
+        'candidate quality-gate.yml narrowed push coverage with branches: '
+            + JSON.stringify(pushConfig.branches) + '; fail closed');
+    try {
+        const YAML = loadYamlModule(repoRoot);
+        const trustedWorkflow = YAML.parse(fs.readFileSync(
+            path.join(OWN_DIR, '..', '..', ...WORKFLOW_REL.split('/')), 'utf8'));
+        const trustedPush = trustedWorkflow.on && trustedWorkflow.on.push
+            && typeof trustedWorkflow.on.push === 'object' ? trustedWorkflow.on.push : {};
+        const trustedIgnored = Array.isArray(trustedPush['branches-ignore'])
+            ? trustedPush['branches-ignore']
+            : (typeof trustedPush['branches-ignore'] === 'string' ? [trustedPush['branches-ignore']] : []);
+        const candidateIgnored = Array.isArray(pushConfig['branches-ignore'])
+            ? pushConfig['branches-ignore']
+            : (typeof pushConfig['branches-ignore'] === 'string' ? [pushConfig['branches-ignore']] : []);
+        const addedIgnored = candidateIgnored.filter((branch) => !trustedIgnored.includes(branch));
+        pushCheck(checks, 'push excluded branches not increased', addedIgnored.length === 0,
+            'candidate excluded additional push branches: ' + addedIgnored.join(', ') + '; fail closed');
+    } catch (e) {
+        pushCheck(checks, 'trusted push coverage can be loaded', false,
+            'cannot load trusted quality-gate push coverage: ' + e.message);
+    }
 
     // Epoch 2：workflow_dispatch 必须提供显式 root admission inputs（人工触发专用）
     const dispatch = triggers.workflow_dispatch && typeof triggers.workflow_dispatch === 'object'
@@ -1180,7 +1206,8 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         const matText = fs.readFileSync(matHelper, 'utf8');
         const matOk = /ls-tree/.test(matText) && /read-tree/.test(matText)
             && /checkout-index/.test(matText) && /test -s/.test(matText)
-            && /pre-push-guard\.sh/.test(matText) && !isNoopStep(matText);
+            && /pre-push-guard\.sh/.test(matText) && /minimumTrustedVerifier/.test(matText)
+            && !isNoopStep(matText);
         pushCheck(checks, 'materialize-trusted-gate.sh keeps its materialization behavior', matOk,
             'candidate weakened scripts/ci/materialize-trusted-gate.sh (must keep ls-tree/read-tree/'
                 + 'checkout-index/test -s/pre-push-guard.sh semantics; exit-0 stubs are refused)');
@@ -1191,15 +1218,33 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         const resOk = /i18n-gate-epoch-2-root/.test(resText)
             && /ROOT_ADMISSION/.test(resText)
             && /trusted_base_sha/.test(resText)
+            && /minimumTrustedVerifier/.test(resText)
+            && /refs\/remotes\/origin/.test(resText)
+            && /--ref/.test(resText)
+            && /args\.gitRef\s*===\s*'refs\/heads\/'\s*\+\s*args\.defaultBranch[\s\S]{0,500}args\.before[\s\S]{0,1500}resolveForkBase/.test(resText)
+            && /isAncestor\(repoRoot, base, candidate\)/.test(resText)
             && (resText.match(/isAncestor\(repoRoot, (root|base),/g) || []).length >= 3
             && /'merge-base', candidate/.test(resText)
             && !isNoopStep(resText);
         pushCheck(checks, 'resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
             'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
-                + ' ROOT_ADMISSION / trusted_base_sha input-precedence logic plus the full ancestry'
+                + ' ROOT_ADMISSION / trusted_base_sha input-precedence / minimumTrustedVerifier'
+                + ' / protected-default-history logic plus the full ancestry'
                 + ' provenance root <= base < candidate — root->candidate, root->base, base->candidate'
                 + ' isAncestor checks and the new-branch fork-base merge-base(candidate, default);'
                 + ' exit-0 stubs are refused)');
+    }
+    const doctorFile = path.join(candidateRoot, 'scripts', 'ci', 'doctor-github-ruleset.mjs');
+    if (fs.existsSync(doctorFile)) {
+        const doctorText = fs.readFileSync(doctorFile, 'utf8');
+        const doctorOk = (doctorText.match(
+            /bypassActors\.length\s*>\s*0\s*&&\s*!invariants\.allowBypass/g) || []).length >= 2
+            && !/\.filter\([\s\S]{0,200}bypass_mode\s*===\s*['"]always['"]/.test(doctorText)
+            && !isNoopStep(doctorText);
+        pushCheck(checks, 'doctor-github-ruleset rejects every bypass actor when allowBypass=false',
+            doctorOk,
+            'candidate weakened doctor-github-ruleset.mjs: allowBypass=false must reject every'
+                + ' master/root-tag bypass actor, not only bypass_mode=always');
     }
 
     // 关键行为 step 的失败吞没 / 条件跳过禁令：只针对运行关键门禁命令的 step
@@ -1277,6 +1322,13 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         pushCheck(checks, jobId + ': materialization cross-check with the trusted helper',
             hasMatHelper,
             jobId + ' must cross-check inline materialization against scripts/ci/materialize-trusted-gate.sh');
+        const minimumRunsInBothModes = jobSteps(job).some((s) =>
+            /ROOT ADMISSION MODE:[^\n]*\n\s*fi[\s\S]{0,300}minimum_json=.*minimumTrustedVerifier/
+                .test(stepRun(s)));
+        pushCheck(checks, jobId + ': minimumTrustedVerifier applies to NORMAL and ROOT_ADMISSION',
+            minimumRunsInBothModes,
+            jobId + ' must close the NORMAL/ROOT_ADMISSION branch before enforcing'
+                + ' minimumTrustedVerifier; NORMAL candidates cannot skip the baseline');
     }
 
     const jGuard = jobs['signature-guard'];
@@ -1800,10 +1852,11 @@ function runRulesetInvariantsContract(candidateRoot) {
 
     const tMaster = trusted.master && typeof trusted.master === 'object' ? trusted.master : null;
     const cMaster = candidate.master && typeof candidate.master === 'object' ? candidate.master : null;
-    const tTag = trusted['i18n-gate-epoch-2-root'] && typeof trusted['i18n-gate-epoch-2-root'] === 'object'
-        ? trusted['i18n-gate-epoch-2-root'] : null;
-    const cTag = candidate['i18n-gate-epoch-2-root'] && typeof candidate['i18n-gate-epoch-2-root'] === 'object'
-        ? candidate['i18n-gate-epoch-2-root'] : null;
+    const rootTagEntries = (value) => Object.entries(value)
+        .filter(([name, rule]) => /^i18n-gate-epoch-[2-9][0-9]*-root$/.test(name)
+            && rule && typeof rule === 'object');
+    const trustedTags = new Map(rootTagEntries(trusted));
+    const candidateTags = new Map(rootTagEntries(candidate));
     const tChecks = Array.isArray(tMaster && tMaster.requiredChecks)
         ? tMaster.requiredChecks.filter((c) => typeof c === 'string') : [];
     const cChecks = Array.isArray(cMaster && cMaster.requiredChecks)
@@ -1825,16 +1878,22 @@ function runRulesetInvariantsContract(candidateRoot) {
             'candidate weakened master.' + key + ' from ' + tMaster[key] + ' to '
                 + cMaster[key] + '; fail closed');
     }
-    for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
-        if (!tTag || !cTag || typeof tTag[key] !== 'boolean' || typeof cTag[key] !== 'boolean') {
-            pushCheck(checks, 'ruleset root tag ' + key + ' strictness not weakened', false,
-                'ruleset invariants root-tag ' + key + ' must be a boolean on both sides; fail closed');
-            continue;
+    for (const [name, tTag] of trustedTags) {
+        const cTag = candidateTags.get(name);
+        for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+            const valid = !!cTag && typeof tTag[key] === 'boolean' && typeof cTag[key] === 'boolean';
+            const weakened = valid && tTag[key] === false && cTag[key] === true;
+            pushCheck(checks, 'ruleset root tag ' + name + ' ' + key + ' strictness not weakened',
+                valid && !weakened,
+                'candidate removed or weakened root-tag ' + name + '.' + key + '; fail closed');
         }
-        const weakened = tTag[key] === false && cTag[key] === true;
-        pushCheck(checks, 'ruleset root tag ' + key + ' strictness not weakened', !weakened,
-            'candidate weakened root-tag ' + key + ' from ' + tTag[key] + ' to '
-                + cTag[key] + '; fail closed');
+    }
+    for (const [name, cTag] of candidateTags) {
+        for (const key of ['allowDeletion', 'allowNonFastForward', 'allowBypass']) {
+            pushCheck(checks, 'ruleset root tag ' + name + ' ' + key + ' is fail-closed',
+                cTag[key] === false,
+                'candidate root-tag ' + name + '.' + key + ' must be false; fail closed');
+        }
     }
     return checks;
 }
@@ -1952,14 +2011,30 @@ function runHookContentChecks(candidateRoot) {
             continue;
         }
         const content = fs.readFileSync(file, 'utf8');
+        const preparedRootBound = hook !== 'pre-commit'
+            || (/preparedRootEpoch/.test(content)
+                && /preparedRootParent/.test(content)
+                && /preparedRootTree/.test(content)
+                && /git write-tree/.test(content)
+                && /prepared_parent.*current_parent/.test(content)
+                && /prepared_tree.*current_tree/.test(content));
+        const localGitEnvIsolated = /git rev-parse --local-env-vars/.test(content)
+            && /unset "\$name"/.test(content)
+            && /run_without_local_git_env node/.test(content);
         const ok = !isNoopStep(content)
             && /trustedGateRef/.test(content)
-            && /trustedGateEpoch/.test(content);
+            && /trustedGateEpoch/.test(content)
+            && /minimumTrustedVerifier/.test(content)
+            && localGitEnvIsolated
+            && preparedRootBound;
         checks.push({
             name: 'candidate ' + hook + ' keeps trusted-anchor semantics', kind: 'hooks-static',
-            expected: 'trustedGateRef + trustedGateEpoch routing with real commands', status: null, ok,
+            expected: 'trustedGateRef + trustedGateEpoch + minimumTrustedVerifier routing'
+                + ' + isolated trusted-contract Git environment'
+                + (hook === 'pre-commit' ? ' + exact prepared-root parent/tree binding' : ''), status: null, ok,
             diagnostic: ok ? '' : 'candidate ' + hook + ' was weakened (missing trustedGateRef /'
-                + ' trustedGateEpoch routing, or reduced to a no-op stub); fail closed',
+                + ' trustedGateEpoch routing / trusted-contract Git environment isolation / prepared-root'
+                + ' binding, or reduced to a no-op stub); fail closed',
         });
     }
     return checks;
@@ -2168,7 +2243,7 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             }, null, 2) + '\n', 'utf8');
         }
         git(['add', '-A'], repo);
-        git(['commit', '-q', '-m', 'malicious next gate'], repo);
+        git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'malicious next gate'], repo);
         const malicious = git(['rev-parse', 'HEAD'], repo);
         const candidateContract = path.join(candidateRoot, 'scripts', 'i18n', 'gate-contract.mjs');
         const result = run(['node', candidateContract, '--repo-root', repo, '--candidate-ref', malicious],
@@ -2179,6 +2254,40 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             kind: 'self-protection', expected: 'exit != 0', status: result.status, ok,
             diagnostic: ok ? '' : 'candidate contract accepted a no-op checker gate (exit 0);'
                 + ' the candidate contract cannot protect the next upgrade',
+        });
+
+        git(['reset', '-q', '--hard', 'HEAD~1'], repo, { stdio: 'ignore' });
+        const minimumPolicy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+        minimumPolicy.minimumTrustedVerifier.contractVersion -= 1;
+        fs.writeFileSync(policyPath, JSON.stringify(minimumPolicy, null, 2) + '\n', 'utf8');
+        git(['add', '-A'], repo);
+        git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'lower minimum verifier baseline'], repo);
+        const minimumCandidate = git(['rev-parse', 'HEAD'], repo);
+        const minimumResult = run(['node', candidateContract, '--repo-root', repo,
+            '--candidate-ref', minimumCandidate], { cwd: repo });
+        results.push({
+            name: 'candidate contract must reject a minimumTrustedVerifier downgrade by itself',
+            kind: 'self-protection', expected: 'exit != 0', status: minimumResult.status,
+            ok: minimumResult.status !== 0,
+            diagnostic: minimumResult.status !== 0 ? ''
+                : 'candidate contract accepted minimumTrustedVerifier.contractVersion downgrade',
+        });
+
+        git(['reset', '-q', '--hard', 'HEAD~1'], repo, { stdio: 'ignore' });
+        const coverageDoc = loadYamlModule(repo).parse(fs.readFileSync(workflowFile, 'utf8'));
+        coverageDoc.on.push = { branches: ['master'] };
+        fs.writeFileSync(workflowFile, loadYamlModule(repo).stringify(coverageDoc), 'utf8');
+        git(['add', '-A'], repo);
+        git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'narrow quality gate push coverage'], repo);
+        const coverageCandidate = git(['rev-parse', 'HEAD'], repo);
+        const coverageResult = run(['node', candidateContract, '--repo-root', repo,
+            '--candidate-ref', coverageCandidate], { cwd: repo });
+        results.push({
+            name: 'candidate contract must reject branches-ignore to branches master downgrade by itself',
+            kind: 'self-protection', expected: 'exit != 0', status: coverageResult.status,
+            ok: coverageResult.status !== 0,
+            diagnostic: coverageResult.status !== 0 ? ''
+                : 'candidate contract accepted narrowed quality-gate push coverage',
         });
     } finally {
         rmrf(repo);
@@ -2320,6 +2429,40 @@ async function main() {
                     expected: '>= ' + trustedPolicy.contractVersion, status: null, ok: true, diagnostic: '',
                 });
             }
+            if (candidatePolicy.schemaVersion < trustedPolicy.schemaVersion) {
+                checks.push({
+                    name: 'candidate schemaVersion not lowered', kind: 'policy',
+                    expected: '>= ' + trustedPolicy.schemaVersion, status: null, ok: false,
+                    diagnostic: 'candidate schemaVersion ' + candidatePolicy.schemaVersion
+                        + ' < trusted ' + trustedPolicy.schemaVersion,
+                });
+            } else {
+                checks.push({
+                    name: 'candidate schemaVersion not lowered', kind: 'policy',
+                    expected: '>= ' + trustedPolicy.schemaVersion, status: null, ok: true, diagnostic: '',
+                });
+            }
+            const trustedMinimum = trustedPolicy.minimumTrustedVerifier;
+            const candidateMinimum = candidatePolicy.minimumTrustedVerifier;
+            for (const key of ['contractVersion', 'schemaVersion']) {
+                const ok = candidateMinimum[key] >= trustedMinimum[key];
+                checks.push({
+                    name: 'minimum trusted verifier ' + key + ' not lowered', kind: 'policy',
+                    expected: '>= ' + trustedMinimum[key], status: null, ok,
+                    diagnostic: ok ? '' : 'candidate minimumTrustedVerifier.' + key + ' '
+                        + candidateMinimum[key] + ' < trusted ' + trustedMinimum[key] + '; fail closed',
+                });
+            }
+            const removedVerifierFiles = trustedGate.policySetReduced(
+                trustedMinimum.requiredFiles, candidateMinimum.requiredFiles);
+            checks.push({
+                name: 'minimum trusted verifier required files not reduced', kind: 'policy',
+                expected: 'candidate keeps all trusted verifier files', status: null,
+                ok: removedVerifierFiles.length === 0,
+                diagnostic: removedVerifierFiles.length > 0
+                    ? 'candidate dropped minimumTrustedVerifier.requiredFiles: '
+                        + removedVerifierFiles.join(', ') : '',
+            });
             // 7.1 Epoch 不得变化：正常 advance 只能 same epoch；2 → 1 / 2 → 3 属于另一轮人工 root reset
             if (candidatePolicy.gateEpoch !== trustedPolicy.gateEpoch) {
                 checks.push({

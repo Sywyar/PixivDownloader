@@ -217,6 +217,48 @@ test('gate-contract：candidate contract 被改为 exit(0) → 自保护拒绝�
     }
 });
 
+test('gate-contract：candidate 删除 prepared-root parent/tree 精确绑定 → 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const hookFile = path.join(root, 'scripts', 'hooks', 'pre-commit');
+        const hook = fs.readFileSync(hookFile, 'utf8').replace(
+            '    && [ "$prepared_parent" = "$current_parent" ] && [ "$prepared_tree" = "$current_tree" ]; then',
+            '    ; then');
+        fs.writeFileSync(hookFile, hook, 'utf8');
+        commitBypass(root, 'weaken prepared root binding');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'prepared-root 失去 parent/tree 精确绑定必须拒绝');
+        assert.match(run.stdout + run.stderr, /prepared-root binding|candidate pre-commit was weakened/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：candidate 删除 trusted contract 的 Git 环境隔离 → 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        for (const hook of ['pre-commit', 'pre-push']) {
+            const hookFile = path.join(root, 'scripts', 'hooks', hook);
+            const original = fs.readFileSync(hookFile, 'utf8');
+            fs.writeFileSync(hookFile,
+                original.replace('git rev-parse --local-env-vars', 'printf GIT_DIR'), 'utf8');
+            commitBypass(root, 'remove trusted contract Git environment isolation from ' + hook);
+            const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+            const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+            assert.notEqual(run.status, 0, hook + ' 删除 Git 环境隔离必须拒绝');
+            assert.match(run.stdout + run.stderr, /Git environment isolation|candidate .* was weakened/);
+            git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        }
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
 test('gate-contract：required path 删除（check.mjs / pre-push / gate-contract.mjs）→ fail closed', () => {
     const root = makeCandidateRepo();
     const trusted = makeTrustedCopy(root);
@@ -273,6 +315,35 @@ test('gate-contract：candidate policy 弱化（contractVersion 降低 / require
         run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
         assert.notEqual(run.status, 0, 'enforcement start 后移必须拒绝');
         assert.match(run.stdout + run.stderr, /enforcement/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：minimumTrustedVerifier 三个维度降低（candidate 自身版本不变）→ 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+        for (const [name, mutate] of [
+            ['contractVersion 4→3', (minimum) => { minimum.contractVersion = 3; }],
+            ['schemaVersion 3→2', (minimum) => { minimum.schemaVersion = 2; }],
+            ['requiredFiles 删除 doctor', (minimum) => {
+                minimum.requiredFiles = minimum.requiredFiles
+                    .filter((rel) => rel !== 'scripts/ci/doctor-github-ruleset.mjs');
+            }],
+        ]) {
+            const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+            mutate(policy.minimumTrustedVerifier);
+            fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+            commitBypass(root, 'lower minimum verifier baseline: ' + name);
+            const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+            const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+            assert.notEqual(run.status, 0, 'minimum verifier baseline 降低必须拒绝: ' + name);
+            assert.match(run.stdout + run.stderr, /minimum trusted verifier|minimumTrustedVerifier/);
+            git(['reset', '-q', '--hard', 'HEAD~1'], root);
+        }
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });
