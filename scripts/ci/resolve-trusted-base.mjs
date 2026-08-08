@@ -275,11 +275,11 @@ function resolveNormalBase(repoRoot, args) {
         return SHA_RE.test(args.mergeGroupBase || '') ? args.mergeGroupBase : null;
     }
     if (event === 'push') {
-        if (!args.gitRef) {
-            fail('push event is missing --ref; protected-branch provenance cannot be proved');
-            return null;
-        }
-        if (args.gitRef === 'refs/heads/' + args.defaultBranch
+        // 新调用方传 --ref；contract v4 trusted helper 调用面没有该参数，因此 workflow
+        // 先把非默认分支的 before 归一化为全零。无 --ref + 非零 before 只提出 protected
+        // predecessor，后续 protected-history / ancestry 证明仍会拒绝 feature commit。
+        if ((args.gitRef === 'refs/heads/' + args.defaultBranch
+                || (!args.gitRef && SHA_RE.test(args.before || '') && args.before !== ZERO))
             && SHA_RE.test(args.before || '') && args.before !== ZERO) {
             const before = resolveCommit(repoRoot, args.before);
             if (!before) {

@@ -501,6 +501,14 @@ test('feature push：前一恶意 verifier M 即使已在远端，也不能审�
         assert.equal(JSON.parse(run.stdout).base, protectedBase,
             'feature push 必须回到受保护 master fork base，不能使用 event.before=M');
 
+        const bridged = spawnSync('node', [RESOLVER, '--repo-root', root,
+            '--event-name', 'push', '--candidate', candidate,
+            '--before', '0000000000000000000000000000000000000000',
+            '--default-branch', 'master', '--mode'], { cwd: root, encoding: 'utf8' });
+        assert.equal(bridged.status, 0, bridged.stdout + bridged.stderr);
+        assert.equal(JSON.parse(bridged.stdout).base, protectedBase,
+            'contract v4 无 --ref 调用必须通过归一化 before 得到同一 protected fork base');
+
         const proposed = runResolver(root, ['--event-name', 'push', '--candidate', candidate,
             '--before', malicious, '--input-base', malicious, '--default-branch', 'master',
             '--ref', 'refs/heads/feature', '--mode']);

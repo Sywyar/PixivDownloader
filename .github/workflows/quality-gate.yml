@@ -73,7 +73,8 @@ jobs:
       # - candidate == root → ROOT_ADMISSION（root 自身 gate + 全量 root self-protection）；
       # - candidate 是 root 后代 → NORMAL：trusted base 优先级 = inputs.trusted_base_sha
       #   （reusable workflow 的 github.event_name 是调用方原始 event，不能依赖它）→
-      #   pull_request base.sha / merge_group base_sha / push event.before（全零则默认分支远端）/
+      #   pull_request base.sha / merge_group base_sha / protected push event.before /
+      #   other push merge-base(candidate, protected default branch) /
       #   workflow_dispatch 默认分支远端；base 必须 != candidate、必须包含 Epoch 2 root；
       # - 其它 candidate（不包含 root）→ fail closed，不尝试任何 v1 / legacy / transition 路径；
       # - 物化路径含 package-lock.json；物化结果与 trusted helper
@@ -282,9 +283,15 @@ jobs:
           }
           # 与 trusted helper 交叉验证（helper 来自 trusted base；候选不能自我批准）
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
+            helper_default_branch="${{ github.event.repository.default_branch }}"
+            helper_before="${{ github.event.before }}"
+            if [ "$GITHUB_EVENT_NAME" = "push" ] \
+                && [ "$GITHUB_REF" != "refs/heads/$helper_default_branch" ]; then
+              helper_before="$zero"
+            fi
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --ref "$GITHUB_REF" \
-              --before "${{ github.event.before }}" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --before "$helper_before" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \
@@ -591,9 +598,15 @@ jobs:
             exit 1
           }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
+            helper_default_branch="${{ github.event.repository.default_branch }}"
+            helper_before="${{ github.event.before }}"
+            if [ "$GITHUB_EVENT_NAME" = "push" ] \
+                && [ "$GITHUB_REF" != "refs/heads/$helper_default_branch" ]; then
+              helper_before="$zero"
+            fi
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --ref "$GITHUB_REF" \
-              --before "${{ github.event.before }}" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --before "$helper_before" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \
@@ -925,9 +938,15 @@ jobs:
             exit 1
           }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
+            helper_default_branch="${{ github.event.repository.default_branch }}"
+            helper_before="${{ github.event.before }}"
+            if [ "$GITHUB_EVENT_NAME" = "push" ] \
+                && [ "$GITHUB_REF" != "refs/heads/$helper_default_branch" ]; then
+              helper_before="$zero"
+            fi
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --ref "$GITHUB_REF" \
-              --before "${{ github.event.before }}" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --before "$helper_before" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \

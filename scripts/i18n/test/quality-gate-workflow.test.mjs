@@ -234,6 +234,21 @@ test('workflow：trusted materialization —— checkout-index --stdin < paths-f
 // 17.2 / 17.3 / 17.4 workflow + package 契约
 // ---------------------------------------------------------------------------
 
+test('workflow：feature push 以归一化 before 调用 contract v4 trusted resolver', () => {
+    const doc = readWorkflow(REPO_ROOT);
+    for (const jobId of ['signature-guard', 'trusted-gate-contract', 'i18n-check']) {
+        const step = doc.jobs[jobId].steps.find((candidate) =>
+            typeof candidate.run === 'string' && /resolve-trusted-base\.mjs/.test(candidate.run));
+        assert.ok(step, jobId + ' 必须调用 trusted resolver');
+        assert.match(step.run, /helper_before="\$\{\{ github\.event\.before \}\}"/);
+        assert.match(step.run,
+            /GITHUB_REF" != "refs\/heads\/\$helper_default_branch"[\s\S]*helper_before="\$zero"/);
+        assert.match(step.run, /--before "\$helper_before"/);
+        assert.doesNotMatch(step.run, /--candidate "\$GITHUB_SHA" --ref "\$GITHUB_REF"/,
+            jobId + ' 不得向 contract v4 trusted resolver 传递新增参数');
+    }
+});
+
 test('workflow 契约：合法 workflow + package scripts + action 版本 → 通过', () => {
     const root = makeFullCandidateRepo();
     const trusted = makeTrustedCopy(root);
