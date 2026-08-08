@@ -17,6 +17,8 @@
  *     自己可信，root 由人工 review + 全量自动检查 + root admission 门禁共同建立；
  *   - 之后只能 --advance，advance 由「当前 Epoch 2 trusted contract 审核候选」完成，
  *     候选不能自我批准；Epoch 1 及更早 anchor 不迁移、不兼容、无自动升级权。
+ * - Epoch 2 → 3 first admission 另由 Epoch 2 trusted bundle 中的一次性 bridge 审核；
+ *   ticket 存在共享 Git config，精确绑定 source/target epoch、trusted source、parent 与 tree。
  *
  * 门禁事实来源只允许：
  * - trusted ref 中的 gate-policy.json（gateEpoch / required paths / contract version /
@@ -34,9 +36,11 @@ import snapshot from './repository-snapshot.mjs';
 
 export const TRUSTED_REF_KEY = 'pixiv.i18n.trustedGateRef';
 export const TRUSTED_EPOCH_KEY = 'pixiv.i18n.trustedGateEpoch';
-export const PREPARED_ROOT_EPOCH_KEY = 'pixiv.i18n.preparedRootEpoch';
-export const PREPARED_ROOT_PARENT_KEY = 'pixiv.i18n.preparedRootParent';
-export const PREPARED_ROOT_TREE_KEY = 'pixiv.i18n.preparedRootTree';
+export const FIRST_ADMISSION_SOURCE_EPOCH_KEY = 'pixiv.i18n.firstAdmissionSourceEpoch';
+export const FIRST_ADMISSION_TARGET_EPOCH_KEY = 'pixiv.i18n.firstAdmissionTargetEpoch';
+export const FIRST_ADMISSION_TRUSTED_SOURCE_KEY = 'pixiv.i18n.firstAdmissionTrustedSource';
+export const FIRST_ADMISSION_PARENT_KEY = 'pixiv.i18n.firstAdmissionParent';
+export const FIRST_ADMISSION_TREE_KEY = 'pixiv.i18n.firstAdmissionTree';
 
 /** 当前唯一受支持的 Gate Epoch。epoch < 2 视为 obsolete；epoch > 2 视为 unsupported future。 */
 export const CURRENT_GATE_EPOCH = 2;
@@ -618,9 +622,11 @@ export function runI18nTestSuite(repoRoot, excludeFile) {
 export default {
     TRUSTED_REF_KEY,
     TRUSTED_EPOCH_KEY,
-    PREPARED_ROOT_EPOCH_KEY,
-    PREPARED_ROOT_PARENT_KEY,
-    PREPARED_ROOT_TREE_KEY,
+    FIRST_ADMISSION_SOURCE_EPOCH_KEY,
+    FIRST_ADMISSION_TARGET_EPOCH_KEY,
+    FIRST_ADMISSION_TRUSTED_SOURCE_KEY,
+    FIRST_ADMISSION_PARENT_KEY,
+    FIRST_ADMISSION_TREE_KEY,
     CURRENT_GATE_EPOCH,
     ROOT_TAG_NAME,
     rootTagNameForEpoch,

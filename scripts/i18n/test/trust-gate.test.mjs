@@ -111,6 +111,7 @@ function makeRepo(withAnchor = false, anchorEpoch = '2') {
         const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
         git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', anchorEpoch], dir);
         git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
+        git(['update-ref', 'refs/remotes/origin/master', anchor], dir);
     }
     return dir;
 }
@@ -142,6 +143,14 @@ function runRepoCli(root, args, env = {}) {
 }
 
 function rewriteFixtureForNextEpoch(root) {
+    const contextReplacements = new Map([
+        ['Quality Gate / java-tests', 'java-tests'],
+        ['Quality Gate / javascript-tests', 'javascript-tests'],
+        ['Quality Gate / signature-guard', 'signature-guard'],
+        ['Quality Gate / trusted-gate-contract', 'trusted-gate-contract'],
+        ['Quality Gate / i18n-check', 'i18n-check'],
+        ['Shared Snippet Drift Check / check-shared-snippets', 'check-shared-snippets'],
+    ]);
     const roots = [path.join(root, 'scripts'), path.join(root, '.github', 'workflows')];
     for (const start of roots) {
         const pending = [start];
@@ -153,11 +162,33 @@ function rewriteFixtureForNextEpoch(root) {
                     pending.push(file);
                     continue;
                 }
+                if (file.endsWith(path.join('scripts', 'i18n', 'epoch-2-first-admission.json'))) {
+                    fs.rmSync(file);
+                    continue;
+                }
+                if (file.endsWith(path.join('scripts', 'ci', 'github-ruleset-invariants.json'))) {
+                    const rules = JSON.parse(fs.readFileSync(file, 'utf8'));
+                    rules.master.requiredChecks = [...contextReplacements.values()];
+                    rules['i18n-gate-epoch-3-root'] = { ...rules['i18n-gate-epoch-2-root'] };
+                    fs.writeFileSync(file, JSON.stringify(rules, null, 2) + '\n', 'utf8');
+                    continue;
+                }
                 let content = fs.readFileSync(file, 'utf8');
                 content = content
                     .replaceAll('i18n-gate-epoch-2-root', 'i18n-gate-epoch-3-root')
                     .replace('export const CURRENT_GATE_EPOCH = 2;', 'export const CURRENT_GATE_EPOCH = 3;')
                     .replaceAll('"gateEpoch": 2', '"gateEpoch": 3');
+                for (const [oldValue, newValue] of contextReplacements) {
+                    content = content.replaceAll(oldValue, newValue);
+                }
+                if (file.endsWith(path.join('scripts', 'i18n', 'gate-policy.json'))) {
+                    const policy = JSON.parse(content);
+                    policy.requiredPaths = policy.requiredPaths
+                        .filter((entryPath) => entryPath !== 'scripts/i18n/epoch-2-first-admission.json');
+                    policy.minimumTrustedVerifier.requiredFiles = policy.minimumTrustedVerifier.requiredFiles
+                        .filter((entryPath) => entryPath !== 'scripts/i18n/epoch-2-first-admission.json');
+                    content = JSON.stringify(policy, null, 2) + '\n';
+                }
                 fs.writeFileSync(file, content, 'utf8');
             }
         }
@@ -300,15 +331,64 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
         rewriteFixtureForNextEpoch(root);
         git(['add', '-A'], root);
 
+        git(['update-ref', '-d', 'refs/remotes/origin/master'], root);
+        const unprotected = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(unprotected.status, 0, '不在受保护 master 历史中的 source 必须拒绝');
+        assert.match(unprotected.stdout + unprotected.stderr, /not in protected origin\/master history/);
+        assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTree'], root,
+            { allowFailure: true }).status, 0, '失败 bridge 不得部分写 ticket');
+        git(['update-ref', 'refs/remotes/origin/master', previousRoot], root);
+
+        const policyFile = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
+        const badPolicy = JSON.parse(fs.readFileSync(policyFile, 'utf8'));
+        badPolicy.requiredExternalCheckDefinitions[0].requiredContext =
+            'Shared Snippet Drift Check / check-shared-snippets';
+        fs.writeFileSync(policyFile, JSON.stringify(badPolicy, null, 2) + '\n', 'utf8');
+        git(['add', 'scripts/i18n/gate-policy.json'], root);
+        const dualContext = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(dualContext.status, 0, '旧 context 或双 context 必须拒绝');
+        assert.match(dualContext.stdout + dualContext.stderr, /requiredExternalCheckDefinitions|required context/);
+        badPolicy.requiredExternalCheckDefinitions[0].requiredContext = 'check-shared-snippets';
+        fs.writeFileSync(policyFile, JSON.stringify(badPolicy, null, 2) + '\n', 'utf8');
+        git(['add', 'scripts/i18n/gate-policy.json'], root);
+
+        fs.writeFileSync(path.join(root, 'unrelated.txt'), 'not part of the root transition\n', 'utf8');
+        git(['add', 'unrelated.txt'], root);
+        const expanded = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(expanded.status, 0, 'first admission 不得夹带无关改动');
+        assert.match(expanded.stdout + expanded.stderr, /out-of-scope or non-mechanical change/);
+        git(['rm', '-q', '-f', 'unrelated.txt'], root);
+
         const prepare = runRepoCli(root, ['--prepare-root', '--epoch', '3'], { clearCI: true });
         assert.equal(prepare.status, 0, prepare.stdout + prepare.stderr);
         assert.match(prepare.stdout + prepare.stderr, /Gate Epoch 3 root prepared/);
-        const preparedTree = git(['config', '--local', '--get', 'pixiv.i18n.preparedRootTree'], root)
+        const preparedTree = git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTree'], root)
             .stdout.trim();
         assert.equal(preparedTree, git(['write-tree'], root).stdout.trim());
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionSourceEpoch'], root)
+            .stdout.trim(), '2');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTargetEpoch'], root)
+            .stdout.trim(), '3');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTrustedSource'], root)
+            .stdout.trim(), previousRoot);
 
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionTrustedSource', '0'.repeat(40)], root);
+        const refusedCommit = git(['commit', '-q', '-m', 'mismatched epoch 3 root'], root,
+            { allowFailure: true });
+        assert.notEqual(refusedCommit.status, 0, 'ticket trusted source 不匹配时 pre-commit 必须拒绝');
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionTrustedSource', previousRoot], root);
         const commit = git(['commit', '-q', '-m', 'epoch 3 root'], root);
         assert.equal(commit.status, 0, commit.stdout + commit.stderr);
+
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionParent', '0'.repeat(40)], root);
+        const refusedAdopt = runRepoCli(root,
+            ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
+        assert.notEqual(refusedAdopt.status, 0, 'ticket parent 不匹配时 adoption 必须拒绝');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root)
+            .stdout.trim(), previousRoot, '失败 adoption 不得推进 anchor');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionParent'], root)
+            .stdout.trim(), '0'.repeat(40), '失败 adoption 不得消费或改写 ticket');
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionParent', previousRoot], root);
         const adopt = runRepoCli(root,
             ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
@@ -316,7 +396,7 @@ test('trust-gate：prepare-root 精确绑定 staged tree + parent，提交后才
             .stdout.trim(), '3');
         assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root)
             .stdout.trim(), git(['rev-parse', 'HEAD'], root).stdout.trim());
-        assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.preparedRootTree'], root,
+        assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionTree'], root,
             { allowFailure: true }).status, 0, 'adopt-root 成功后必须清除 preparation ticket');
     } finally {
         cleanRepo(root);

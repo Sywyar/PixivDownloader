@@ -151,17 +151,21 @@ if [ "$trusted_policy_epoch" != "$epoch" ]; then
     exit 1
 fi
 
-# A next-epoch root may be committed exactly once after explicit root preparation. The ticket is
-# outside the candidate tree and binds both its staged tree and its single parent.
-prepared_epoch="$(git config --local --get pixiv.i18n.preparedRootEpoch || true)"
-prepared_parent="$(git config --local --get pixiv.i18n.preparedRootParent || true)"
-prepared_tree="$(git config --local --get pixiv.i18n.preparedRootTree || true)"
+# A next-epoch root may be committed exactly once after the previous trusted verifier issues an
+# external ticket. It binds both epochs, the exact trusted source, its parent and its staged tree.
+admission_source_epoch="$(git config --local --get pixiv.i18n.firstAdmissionSourceEpoch || true)"
+admission_target_epoch="$(git config --local --get pixiv.i18n.firstAdmissionTargetEpoch || true)"
+admission_trusted_source="$(git config --local --get pixiv.i18n.firstAdmissionTrustedSource || true)"
+admission_parent="$(git config --local --get pixiv.i18n.firstAdmissionParent || true)"
+admission_tree="$(git config --local --get pixiv.i18n.firstAdmissionTree || true)"
 candidate_epoch="$(git show :scripts/i18n/gate-policy.json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).gateEpoch||""))}catch{}})')"
 current_parent="$(git rev-parse HEAD)"
 current_tree="$(git write-tree)"
 next_epoch="$((epoch + 1))"
-if [ "$prepared_epoch" = "$next_epoch" ] && [ "$candidate_epoch" = "$next_epoch" ] \
-    && [ "$prepared_parent" = "$current_parent" ] && [ "$prepared_tree" = "$current_tree" ]; then
+if [ "$admission_source_epoch" = "$epoch" ] && [ "$admission_target_epoch" = "$next_epoch" ] \
+    && [ "$candidate_epoch" = "$next_epoch" ] && [ "$admission_trusted_source" = "$trusted" ] \
+    && [ "$admission_parent" = "$trusted" ] && [ "$admission_parent" = "$current_parent" ] \
+    && [ "$admission_tree" = "$current_tree" ]; then
     prepared_root=1
 else
     prepared_root=0
@@ -202,7 +206,7 @@ fi
 # ---- 6. gate 文件变更：trusted contract 验证候选 index（candidate 不能自批准） ----
 if [ "$gate_changed" = "1" ]; then
     if [ "$prepared_root" = "1" ]; then
-        echo "pre-commit: exact prepared Gate Epoch $candidate_epoch root candidate accepted for commit."
+        echo "pre-commit: exact trusted first-admission Gate Epoch $candidate_epoch root candidate accepted for commit."
     else
         echo "pre-commit: gate files staged, running the trusted gate contract against the candidate index..."
         run_without_local_git_env node "$tmpdir/trusted/scripts/i18n/gate-contract.mjs" \

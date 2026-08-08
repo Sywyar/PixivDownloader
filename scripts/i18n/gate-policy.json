@@ -23,6 +23,7 @@
     "scripts/i18n/lib/repository-snapshot.mjs",
     "scripts/i18n/lib/trusted-gate.mjs",
     "scripts/i18n/trust-gate.mjs",
+    "scripts/i18n/epoch-2-first-admission.json",
     "scripts/hooks/pre-commit",
     "scripts/hooks/pre-push",
     "scripts/hooks/pre-push-guard.sh",

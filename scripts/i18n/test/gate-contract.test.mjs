@@ -217,20 +217,45 @@ test('gate-contract：candidate contract 被改为 exit(0) → 自保护拒绝�
     }
 });
 
-test('gate-contract：candidate 删除 prepared-root parent/tree 精确绑定 → 拒绝', () => {
+test('gate-contract：candidate 删除 first-admission source/parent/tree 精确绑定 → 拒绝', () => {
     const root = makeCandidateRepo();
     const trusted = makeTrustedCopy(root);
     try {
         const hookFile = path.join(root, 'scripts', 'hooks', 'pre-commit');
         const hook = fs.readFileSync(hookFile, 'utf8').replace(
-            '    && [ "$prepared_parent" = "$current_parent" ] && [ "$prepared_tree" = "$current_tree" ]; then',
+            '    && [ "$admission_parent" = "$trusted" ] && [ "$admission_parent" = "$current_parent" ] \\\n'
+                + '    && [ "$admission_tree" = "$current_tree" ]; then',
             '    ; then');
         fs.writeFileSync(hookFile, hook, 'utf8');
-        commitBypass(root, 'weaken prepared root binding');
+        assert.notEqual(hook, fs.readFileSync(path.join(trusted, 'scripts', 'hooks', 'pre-commit'), 'utf8'),
+            '测试前提：必须成功删除 first-admission 精确绑定');
+        commitBypass(root, 'weaken first admission binding');
         const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
         const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
-        assert.notEqual(run.status, 0, 'prepared-root 失去 parent/tree 精确绑定必须拒绝');
+        assert.notEqual(run.status, 0, 'first-admission 失去 source/parent/tree 精确绑定必须拒绝');
         assert.match(run.stdout + run.stderr, /prepared-root binding|candidate pre-commit was weakened/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('gate-contract：candidate 修改 first-admission bridge spec 或 launcher → 拒绝', () => {
+    const root = makeCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        for (const rel of ['scripts/i18n/epoch-2-first-admission.json',
+            'scripts/i18n/trust-gate.mjs']) {
+            const file = path.join(root, ...rel.split('/'));
+            fs.appendFileSync(file, '\n', 'utf8');
+        }
+        commitBypass(root, 'weaken first admission bridge');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'bridge spec/launcher 被修改时 trusted contract 必须拒绝');
+        assert.match(run.stdout + run.stderr,
+            /first-admission epoch-2-first-admission\.json is frozen/);
+        assert.match(run.stdout + run.stderr, /first-admission trust-gate\.mjs is frozen/);
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });

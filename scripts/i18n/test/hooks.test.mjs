@@ -289,7 +289,7 @@ test('pre-commit：epoch1 / 缺失 epoch 的旧 anchor → OBSOLETE GATE EPOCH f
     }
 });
 
-test('pre-commit：下一 Epoch root 票据必须同时绑定候选 epoch、HEAD parent 与 staged tree', () => {
+test('pre-commit：first-admission 票据必须绑定双 epoch、trusted source、HEAD parent 与 staged tree', () => {
     if (!hasBash()) {
         test.skip('bash 不可用');
         return;
@@ -303,15 +303,17 @@ test('pre-commit：下一 Epoch root 票据必须同时绑定候选 epoch、HEAD
         git(['add', 'scripts/i18n/gate-policy.json'], root);
         const parent = git(['rev-parse', 'HEAD'], root).stdout.trim();
         const tree = git(['write-tree'], root).stdout.trim();
-        git(['config', '--local', 'pixiv.i18n.preparedRootEpoch', '3'], root);
-        git(['config', '--local', 'pixiv.i18n.preparedRootParent', parent], root);
-        git(['config', '--local', 'pixiv.i18n.preparedRootTree', tree], root);
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionSourceEpoch', '2'], root);
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionTargetEpoch', '3'], root);
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionTrustedSource', parent], root);
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionParent', parent], root);
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionTree', tree], root);
 
         const exact = bash(['scripts/hooks/pre-commit'], root);
         assert.equal(exact.status, 0, exact.stdout + exact.stderr);
-        assert.match(exact.stdout + exact.stderr, /exact prepared Gate Epoch 3 root candidate/);
+        assert.match(exact.stdout + exact.stderr, /exact trusted first-admission Gate Epoch 3 root candidate/);
 
-        git(['config', '--local', 'pixiv.i18n.preparedRootTree', '0'.repeat(40)], root);
+        git(['config', '--local', 'pixiv.i18n.firstAdmissionTree', '0'.repeat(40)], root);
         const mismatched = bash(['scripts/hooks/pre-commit'], root);
         assert.notEqual(mismatched.status, 0, 'tree 不匹配时不得使用 root preparation 例外');
         assert.match(mismatched.stdout + mismatched.stderr, /GATE CONTRACT FAILED|gateEpoch/);

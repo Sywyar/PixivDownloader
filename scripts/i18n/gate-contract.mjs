@@ -2012,12 +2012,14 @@ function runHookContentChecks(candidateRoot) {
         }
         const content = fs.readFileSync(file, 'utf8');
         const preparedRootBound = hook !== 'pre-commit'
-            || (/preparedRootEpoch/.test(content)
-                && /preparedRootParent/.test(content)
-                && /preparedRootTree/.test(content)
+            || (/firstAdmissionSourceEpoch/.test(content)
+                && /firstAdmissionTargetEpoch/.test(content)
+                && /firstAdmissionTrustedSource/.test(content)
+                && /firstAdmissionParent/.test(content)
+                && /firstAdmissionTree/.test(content)
                 && /git write-tree/.test(content)
-                && /prepared_parent.*current_parent/.test(content)
-                && /prepared_tree.*current_tree/.test(content));
+                && /admission_parent.*current_parent/.test(content)
+                && /admission_tree.*current_tree/.test(content));
         const localGitEnvIsolated = /git rev-parse --local-env-vars/.test(content)
             && /unset "\$name"/.test(content)
             && /run_without_local_git_env node/.test(content);
@@ -2036,6 +2038,24 @@ function runHookContentChecks(candidateRoot) {
                 + ' trustedGateEpoch routing / trusted-contract Git environment isolation / prepared-root'
                 + ' binding, or reduced to a no-op stub); fail closed',
         });
+    }
+    return checks;
+}
+
+function runFirstAdmissionBridgeContract(candidateRoot) {
+    const checks = [];
+    const specName = 'epoch-2-first-admission.json';
+    const trustedSpec = path.join(OWN_DIR, specName);
+    if (!fs.existsSync(trustedSpec)) {
+        return checks;
+    }
+    for (const rel of [specName, 'trust-gate.mjs']) {
+        const trustedFile = path.join(OWN_DIR, rel);
+        const candidateFile = path.join(candidateRoot, 'scripts', 'i18n', rel);
+        const identical = fs.existsSync(candidateFile)
+            && fs.readFileSync(candidateFile).equals(fs.readFileSync(trustedFile));
+        pushCheck(checks, 'Epoch 2 first-admission ' + rel + ' is frozen to the trusted bundle',
+            identical, identical ? '' : 'candidate changed or removed the one-time trusted bridge; fail closed');
     }
     return checks;
 }
@@ -2605,6 +2625,23 @@ async function main() {
         checks.push(...runGateSurfaceContract(candidateRoot, trustedPolicy));
         checks.push(...runRulesetInvariantsContract(candidateRoot));
         checks.push(...runHookContentChecks(candidateRoot));
+        const bridgeChecks = runFirstAdmissionBridgeContract(candidateRoot);
+        checks.push(...bridgeChecks);
+        if (bridgeChecks.some((check) => !check.ok)) {
+            for (const check of bridgeChecks.filter((entry) => !entry.ok)) {
+                diagnostics.push('FAIL: ' + check.name + ' — ' + check.diagnostic);
+            }
+            const payload = {
+                contractVersion: CONTRACT_VERSION,
+                trustedPolicy,
+                candidate: { mode: args.mode, ref: candidateRef, policyProposal: candidatePolicy || null },
+                requiredPaths: required,
+                checks, verdict: 'fail', diagnostics,
+            };
+            emitFailure(reportRoot, payload, args.mode === 'ref' ? candidateRef : 'index');
+            process.exitCode = 1;
+            return;
+        }
 
         const hasChecker = fs.existsSync(path.join(candidateRoot, 'scripts', 'i18n', 'check.mjs'));
         const hasHooks = fs.existsSync(path.join(candidateRoot, 'scripts', 'hooks'));
