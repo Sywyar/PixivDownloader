@@ -11,7 +11,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -145,6 +145,47 @@ function runRepoCli(root, args, env = {}) {
     }
     return spawnSync('node', [path.join(root, 'scripts', 'i18n', 'trust-gate.mjs'), ...args],
         { cwd: root, encoding: 'utf8', env: merged, timeout: 600000 });
+}
+
+function runRepoCliWithStdoutAction(root, args, marker, action, env = {}) {
+    const merged = { ...process.env, ...env };
+    if (env.clearCI) {
+        delete merged.CI;
+        delete merged.clearCI;
+    }
+    return new Promise((resolve, reject) => {
+        const child = spawn('node', [path.join(root, 'scripts', 'i18n', 'trust-gate.mjs'), ...args],
+            { cwd: root, env: merged });
+        let stdout = '';
+        let stderr = '';
+        let actionRun = false;
+        let actionError = null;
+        const timer = setTimeout(() => child.kill(), 600000);
+        child.stdout.on('data', (chunk) => {
+            stdout += chunk.toString();
+            if (!actionRun && stdout.includes(marker)) {
+                actionRun = true;
+                try {
+                    action();
+                } catch (e) {
+                    actionError = e;
+                    child.kill();
+                }
+            }
+        });
+        child.stderr.on('data', (chunk) => {
+            stderr += chunk.toString();
+        });
+        child.once('error', reject);
+        child.once('close', (status) => {
+            clearTimeout(timer);
+            if (actionError) {
+                reject(actionError);
+                return;
+            }
+            resolve({ status: status === null ? 1 : status, stdout, stderr, actionRun });
+        });
+    });
 }
 
 function runTrustedCli(root, trustedSource, args, env = {}) {
@@ -492,6 +533,63 @@ test('trust-gate：trusted bridge 以实时 master tip 准备 tree、唯一封�
             { allowFailure: true }).status, 0, 'adopt-root 成功后必须清除 preparation ticket');
         assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.firstAdmissionCandidate'], root,
             { allowFailure: true }).status, 0, 'adopt-root 成功后必须清除 candidate seal');
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('trust-gate：adopt-root 在 ROOT_ADMISSION 后按 commit-point 重验 live master', async () => {
+    if (!hasBash()) {
+        test.skip('bash 不可用');
+        return;
+    }
+    const root = makeRepo(true);
+    try {
+        const previousRoot = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        git(['tag', 'i18n-gate-epoch-2-root', previousRoot], root);
+        rewriteFixtureForNextEpoch(root);
+        git(['add', '-A'], root);
+        const prepare = runTrustedCli(root, previousRoot,
+            ['--prepare-root', '--epoch', '3'], { clearCI: true });
+        assert.equal(prepare.status, 0, prepare.stdout + prepare.stderr);
+        const commit = git(['commit', '-q', '-m', 'epoch 3 root'], root);
+        assert.equal(commit.status, 0, commit.stdout + commit.stderr);
+        const seal = runTrustedCli(root, previousRoot,
+            ['--seal-root', '--ref', 'HEAD'], { clearCI: true });
+        assert.equal(seal.status, 0, seal.stdout + seal.stderr);
+        const candidateSha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const ticketKeys = [
+            trustedGate.FIRST_ADMISSION_SOURCE_EPOCH_KEY,
+            trustedGate.FIRST_ADMISSION_TARGET_EPOCH_KEY,
+            trustedGate.FIRST_ADMISSION_TRUSTED_SOURCE_KEY,
+            trustedGate.FIRST_ADMISSION_PARENT_KEY,
+            trustedGate.FIRST_ADMISSION_TREE_KEY,
+            trustedGate.FIRST_ADMISSION_CANDIDATE_KEY,
+        ];
+        const ticketBefore = ticketKeys.map((key) =>
+            git(['config', '--local', '--get', key], root).stdout.trim());
+        const originDir = git(['remote', 'get-url', 'origin'], root).stdout.trim();
+        const advancedMaster = git(['--git-dir', originDir,
+            '-c', 'user.name=test', '-c', 'user.email=t@example.com',
+            'commit-tree', previousRoot + '^{tree}', '-p', previousRoot], root,
+            { input: 'advance protected master\n' }).stdout.trim();
+
+        const adopt = await runRepoCliWithStdoutAction(root,
+            ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'],
+            'running the full i18n test suite', () => setLiveMaster(root, advancedMaster),
+            { clearCI: true });
+        assert.equal(adopt.actionRun, true, '必须在 ROOT_ADMISSION suite 运行期间推进 live master');
+        assert.notEqual(adopt.status, 0, 'commit-point 必须拒绝 suite 期间发生的 live master 变化');
+        assert.match(adopt.stdout + adopt.stderr, /commit-point revalidation failed.*live protected master tip/s);
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root)
+            .stdout.trim(), '2', '失败后必须保留 Epoch 2');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root)
+            .stdout.trim(), previousRoot, '失败后必须保留 Epoch 2 trusted source');
+        assert.deepEqual(ticketKeys.map((key) =>
+            git(['config', '--local', '--get', key], root).stdout.trim()), ticketBefore,
+        '失败后必须保留完整 first-admission ticket 与 candidate seal');
+        assert.notEqual(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root)
+            .stdout.trim(), candidateSha, '失败后不得建立 Epoch 3 anchor');
     } finally {
         cleanRepo(root);
     }

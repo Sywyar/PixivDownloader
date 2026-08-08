@@ -756,7 +756,32 @@ function runSealRoot(repoRoot, refArg, trustedSource) {
         + trustedExecution.spec.targetEpoch + ' root candidate ' + candidateSha);
 }
 
-function setAnchorAndConsumeFirstAdmission(repoRoot, sha, epoch, previousRef, previousEpoch, ticket) {
+function assertFirstAdmissionCommitPoint(repoRoot, sha, previousRef, previousEpoch, ticket, sourceSpec) {
+    try {
+        assertProtectedFirstAdmissionSource(repoRoot, previousRef, sourceSpec);
+        const currentTicket = getFirstAdmissionTicket(repoRoot);
+        const parents = git(['rev-list', '--parents', '-n', '1', sha], repoRoot).split(/\s+/);
+        const tree = git(['rev-parse', sha + '^{tree}'], repoRoot);
+        if (trustedGate.getTrustedRef(repoRoot) !== previousRef
+            || trustedGate.getTrustedEpoch(repoRoot) !== String(previousEpoch)
+            || trustedGate.resolveCommit(repoRoot, sourceSpec.protectedBranchRef) !== previousRef
+            || JSON.stringify(currentTicket) !== JSON.stringify(ticket)
+            || currentTicket.candidate !== sha
+            || parents.length !== 2 || parents[1] !== previousRef
+            || tree !== ticket.tree
+            || trustedGate.resolveCommit(repoRoot, 'HEAD') !== sha
+            || !trustedGate.isIndexClean(repoRoot)
+            || !trustedGate.isWorktreeClean(repoRoot)) {
+            throw new Error('trusted source, ticket, root commit or repository state changed');
+        }
+    } catch (e) {
+        throw new Error('first-admission commit-point revalidation failed: ' + e.message);
+    }
+}
+
+function setAnchorAndConsumeFirstAdmission(repoRoot, sha, epoch, previousRef, previousEpoch,
+    ticket, sourceSpec) {
+    assertFirstAdmissionCommitPoint(repoRoot, sha, previousRef, previousEpoch, ticket, sourceSpec);
     try {
         trustedGate.setTrustedAnchor(repoRoot, sha, epoch);
         clearFirstAdmissionTicket(repoRoot, true);
@@ -797,6 +822,7 @@ function runAdoptRoot(repoRoot, refArg, epochArg) {
     assertCleanState(repoRoot);
 
     let firstAdmissionTicket = null;
+    let firstAdmissionSourceSpec = null;
     if (current) {
         if (previousEpoch === trustedGate.CURRENT_GATE_EPOCH) {
             fail('a local trust anchor already exists at ' + current
@@ -828,6 +854,7 @@ function runAdoptRoot(repoRoot, refArg, epochArg) {
             fail('first-admission ticket source no longer belongs to the protected previous root chain');
         }
         firstAdmissionTicket = prepared;
+        firstAdmissionSourceSpec = sourceSpec;
     } else if (ticketHasValues(getFirstAdmissionTicket(repoRoot))) {
         fail('a first-admission ticket cannot be consumed without its trusted source anchor');
     }
@@ -876,7 +903,7 @@ function runAdoptRoot(repoRoot, refArg, epochArg) {
     if (firstAdmissionTicket) {
         try {
             setAnchorAndConsumeFirstAdmission(repoRoot, sha, trustedGate.CURRENT_GATE_EPOCH,
-                current, previousEpoch, firstAdmissionTicket);
+                current, previousEpoch, firstAdmissionTicket, firstAdmissionSourceSpec);
         } catch (e) {
             fail('root adoption state transaction failed: ' + e.message);
         }
