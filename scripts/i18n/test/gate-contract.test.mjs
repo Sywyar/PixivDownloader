@@ -101,8 +101,8 @@ function makeCandidateRepo() {
     git(['commit', '-q', '-m', 'add gate policy'], dir);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
-    // Epoch 2 单一标准：hooks 要求 epoch == 2 才运行 trusted gate
-    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
+    // fixture 始终采用当前 policy epoch，避免跨 Epoch 时把旧常量伪装成 contract 失败。
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', String(policy.gateEpoch)], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }
@@ -449,31 +449,32 @@ test('gate-contract：candidate 减少 protectedBranches / requiredWorkflowJobs 
     }
 });
 
-test('gate-contract：candidate gateEpoch 改变（2→3）/ 删除字段 → 拒绝（epoch 升级属另一轮人工 root admission）', () => {
+test('gate-contract：candidate gateEpoch 改变 / 删除字段 → 拒绝（epoch 升级属另一轮人工 root admission）', () => {
     const root = makeCandidateRepo();
     const trusted = makeTrustedCopy(root);
     try {
         const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
 
-        // gateEpoch 2 → 3：结构校验拒绝（未来 epoch）
+        // 当前 gateEpoch → 下一 epoch：结构校验拒绝（未来 epoch）
         const p1 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
-        p1.gateEpoch = 3;
+        const currentEpoch = p1.gateEpoch;
+        p1.gateEpoch = currentEpoch + 1;
         fs.writeFileSync(policyPath, JSON.stringify(p1, null, 2) + '\n', 'utf8');
-        commitBypass(root, 'change gate epoch to 3');
+        commitBypass(root, 'change gate epoch forward');
         let sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
         let run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
-        assert.notEqual(run.status, 0, 'gateEpoch 2→3 必须拒绝');
+        assert.notEqual(run.status, 0, 'gateEpoch 向前改变必须拒绝');
         assert.match(run.stdout + run.stderr, /gateEpoch/);
         git(['reset', '-q', '--hard', 'HEAD~1'], root);
 
-        // gateEpoch 2 → 1：结构校验拒绝（obsolete epoch）
+        // 当前 gateEpoch → 1：结构校验拒绝（obsolete epoch）
         const p1b = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
         p1b.gateEpoch = 1;
         fs.writeFileSync(policyPath, JSON.stringify(p1b, null, 2) + '\n', 'utf8');
         commitBypass(root, 'change gate epoch to 1');
         sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
         run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
-        assert.notEqual(run.status, 0, 'gateEpoch 2→1 必须拒绝');
+        assert.notEqual(run.status, 0, 'gateEpoch 向后改变必须拒绝');
         assert.match(run.stdout + run.stderr, /gateEpoch/);
         git(['reset', '-q', '--hard', 'HEAD~1'], root);
     } finally {

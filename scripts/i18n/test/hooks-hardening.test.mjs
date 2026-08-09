@@ -125,8 +125,8 @@ function makeGitRepo(base = os.tmpdir()) {
     git(['commit', '-q', '-m', 'add gate policy'], dir); // C2
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
-    // Epoch 2 单一标准：hooks 要求 epoch == 2 才运行 trusted gate
-    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
+    // fixture 始终采用当前 policy epoch，避免跨 Epoch 时把旧常量伪装成 hook 失败。
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', String(policy.gateEpoch)], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }
