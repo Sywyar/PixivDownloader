@@ -293,6 +293,30 @@ test('workflow 契约：任一 gate job 将 exact root PR helper 退回 event SH
     }
 });
 
+test('workflow 契约：任一 gate job 删除 exact root merge push parent 证明 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const step = doc.jobs['signature-guard'].steps.find((candidate) =>
+            typeof candidate.run === 'string' && /candidate_line=.*rev-list --parents/.test(candidate.run));
+        assert.ok(step, 'fixture 必须包含 exact root merge push parent 证明');
+        const original = step.run;
+        step.run = step.run.replace('candidate_line="$(git rev-list --parents -n 1 "$candidate")"',
+            'candidate_line="$candidate"');
+        assert.notEqual(step.run, original, 'fixture 必须真实删除 candidate parent 证明');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'drop exact root merge push parent proof');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'exact root merge push parent 证明被删除时必须 fail closed');
+        assert.match(run.stdout + run.stderr, /exact root merge push|merge parents/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
 test('workflow 契约：trusted consumer 删除 event SHA 双绑定 → 拒绝', () => {
     const root = makeFullCandidateRepo();
     const trusted = makeTrustedCopy(root);

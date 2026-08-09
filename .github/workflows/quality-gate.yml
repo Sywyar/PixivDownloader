@@ -162,7 +162,17 @@ jobs:
                       echo "protected branch push has no valid event.before; fail closed" >&2
                       exit 1
                     fi
-                    base="$before"
+                    root_line="$(git rev-list --parents -n 1 "$root")"
+                    candidate_line="$(git rev-list --parents -n 1 "$candidate")"
+                    root_tree="$(git rev-parse --verify "$root^{tree}")"
+                    candidate_tree="$(git rev-parse --verify "$candidate^{tree}")"
+                    if [ "$root_line" = "$root $before" ] \
+                        && [ "$candidate_line" = "$candidate $before $root" ] \
+                        && [ "$candidate_tree" = "$root_tree" ]; then
+                      base="$root"
+                    else
+                      base="$before"
+                    fi
                   else
                     # Feature branch event.before is not trusted: it may be a previously failed verifier.
                     fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
@@ -506,7 +516,17 @@ jobs:
                       echo "protected branch push has no valid event.before; fail closed" >&2
                       exit 1
                     fi
-                    base="$before"
+                    root_line="$(git rev-list --parents -n 1 "$root")"
+                    candidate_line="$(git rev-list --parents -n 1 "$candidate")"
+                    root_tree="$(git rev-parse --verify "$root^{tree}")"
+                    candidate_tree="$(git rev-parse --verify "$candidate^{tree}")"
+                    if [ "$root_line" = "$root $before" ] \
+                        && [ "$candidate_line" = "$candidate $before $root" ] \
+                        && [ "$candidate_tree" = "$root_tree" ]; then
+                      base="$root"
+                    else
+                      base="$before"
+                    fi
                   else
                     # Feature branch event.before is not trusted: it may be a previously failed verifier.
                     fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
@@ -873,7 +893,17 @@ jobs:
                       echo "protected branch push has no valid event.before; fail closed" >&2
                       exit 1
                     fi
-                    base="$before"
+                    root_line="$(git rev-list --parents -n 1 "$root")"
+                    candidate_line="$(git rev-list --parents -n 1 "$candidate")"
+                    root_tree="$(git rev-parse --verify "$root^{tree}")"
+                    candidate_tree="$(git rev-parse --verify "$candidate^{tree}")"
+                    if [ "$root_line" = "$root $before" ] \
+                        && [ "$candidate_line" = "$candidate $before $root" ] \
+                        && [ "$candidate_tree" = "$root_tree" ]; then
+                      base="$root"
+                    else
+                      base="$before"
+                    fi
                   else
                     # Feature branch event.before is not trusted: it may be a previously failed verifier.
                     fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
