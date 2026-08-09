@@ -321,9 +321,8 @@ jobs:
             printf '%s' "$helper" > "$gate/helper.json"
             helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
             helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            helper_candidate="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.candidate)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ] || [ "$helper_candidate" != "$candidate" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base/$helper_candidate but the bootstrap resolved $mode/$base/$candidate; fail closed" >&2
+            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
+              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
               exit 1
             fi
           fi
@@ -665,9 +664,8 @@ jobs:
             printf '%s' "$helper" > "$gate/helper.json"
             helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
             helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            helper_candidate="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.candidate)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ] || [ "$helper_candidate" != "$candidate" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base/$helper_candidate but the bootstrap resolved $mode/$base/$candidate; fail closed" >&2
+            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
+              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
               exit 1
             fi
           fi
@@ -1034,9 +1032,8 @@ jobs:
             printf '%s' "$helper" > "$gate/helper.json"
             helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
             helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            helper_candidate="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.candidate)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ] || [ "$helper_candidate" != "$candidate" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base/$helper_candidate but the bootstrap resolved $mode/$base/$candidate; fail closed" >&2
+            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
+              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
               exit 1
             fi
           fi

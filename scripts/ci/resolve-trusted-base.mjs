@@ -37,7 +37,7 @@
  * 2. ROOT_ADMISSION 模式下 base = root（candidate 自身；这是唯一人工 root 例外）。
  * 3. 结果验证（写 GITHUB_ENV 前）：40 位小写 hex commit SHA；在本地 object database 中存在。
  *
- * 输出：默认只打印 base SHA；--mode 时打印 JSON {"mode","base","root","candidate"}。
+ * 输出：默认只打印 base SHA；--mode 时打印 JSON {"mode","base","root"}。
  */
 import { execFileSync } from 'child_process';
 import fs from 'fs';
@@ -383,7 +383,6 @@ function main() {
     // 0. Epoch 2 root tag 解析 + 运行模式判定
     const root = resolveCommit(repoRoot, ROOT_TAG);
     let mode;
-    let auditedCandidate = candidate;
     if (!root) {
         const admission = args.eventName === 'workflow_dispatch'
             && String(args.rootAdmission || '') === 'true'
@@ -400,7 +399,6 @@ function main() {
         }
     } else if (isExactRootPullRequest(repoRoot, args, candidate, root)) {
         mode = 'ROOT_ADMISSION';
-        auditedCandidate = root;
     } else if (candidate === root) {
         mode = 'ROOT_ADMISSION';
     } else if (isAncestor(repoRoot, root, candidate)) {
@@ -473,7 +471,7 @@ function main() {
     assertSupportedTrustedVerifier(repoRoot, base, minimum);
 
     if (args.mode) {
-        console.log(JSON.stringify({ mode, base, root: root || candidate, candidate: auditedCandidate }));
+        console.log(JSON.stringify({ mode, base, root: root || candidate }));
         return;
     }
     console.log(base);

@@ -680,8 +680,10 @@ class PluginReleaseScriptsTest {
                 "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
                 "mvn -B -ntp test -Dexec.skip=true",
                 "signature-guard:",
+                "event_candidate=\"${{ github.sha }}\"",
+                "echo \"CANDIDATE_SHA=$candidate\" >> \"$GITHUB_ENV\"",
                 // 签名守卫必须来自 trusted base 的物化（候选提交不能用自己的 guard 自我批准）
-                "pre-push-guard.sh\" --repo-root \"$PWD\" --ref \"${{ github.sha }}\"",
+                "pre-push-guard.sh\" --repo-root \"$PWD\" --ref \"$CANDIDATE_SHA\"",
                 "trusted-gate-contract:",
                 "uses: actions/setup-node@v7",
                 "node-version: '24'",
@@ -690,7 +692,7 @@ class PluginReleaseScriptsTest {
                 // i18n 持续本地化门禁 job
                 "i18n-check:",
                 "run: npm run test:i18n",
-                "node scripts/i18n/check.mjs --snapshot ref --ref ${{ github.sha }}",
+                "node scripts/i18n/check.mjs --snapshot ref --ref \"$CANDIDATE_SHA\"",
                 "run: npm run i18n:check",
                 "run: npm run i18n:generate-static",
                 "git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static",

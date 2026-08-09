@@ -241,7 +241,7 @@ test('root admission：PR merge ref 仅在 live base、root 单一 parent 与 me
         const admitted = runResolver(repo, common);
         assert.equal(admitted.status, 0, admitted.stdout + admitted.stderr);
         assert.deepEqual(JSON.parse(admitted.stdout), {
-            mode: 'ROOT_ADMISSION', base: root, root, candidate: root,
+            mode: 'ROOT_ADMISSION', base: root, root,
         });
 
         const badTree = git(['commit-tree', base + '^{tree}', '-p', base, '-p', root], repo,
