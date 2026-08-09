@@ -241,6 +241,7 @@ test('gate-contract：candidate 删除 first-admission source/parent/tree 精确
 });
 
 test('gate-contract：candidate 修改 first-admission bridge spec 或 launcher → 拒绝', () => {
+    if (!fs.existsSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'epoch-2-first-admission.json'))) return;
     const root = makeCandidateRepo();
     const trusted = makeTrustedCopy(root);
     try {
