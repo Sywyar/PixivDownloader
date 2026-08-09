@@ -1560,6 +1560,47 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("Nightly 版本解析同时考虑正式版与 Beta 标签")
+    void nightlyVersionResolutionHandlesStableAndBetaTags() throws Exception {
+        String nightly = workflow("nightly.yml");
+        assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
+        assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
+
+        assertThat(nightly).contains(
+                "set -euo pipefail",
+                "LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)",
+                "PATCH=\"${PATCH%%-*}\"",
+                "git rev-parse --verify --quiet \"refs/tags/v${MAJOR}.${MINOR}.${PATCH}\"",
+                "NEXT_PATCH=$((PATCH + 1))",
+                "NEXT_VERSION=\"${MAJOR}.${MINOR}.${NEXT_PATCH}\"");
+
+        Path repo = Files.createTempDirectory("nightly-version-");
+        try {
+            initGitRepo(repo);
+            Files.writeString(repo.resolve("marker"), "nightly\n", StandardCharsets.UTF_8);
+            commitAll(repo, "baseline");
+            String resolveScript = nightly.substring(
+                    nightly.indexOf("          set -euo pipefail", nightly.indexOf("Resolve next version")),
+                    nightly.indexOf("          NIGHTLY_VERSION=", nightly.indexOf("Resolve next version")))
+                    .replaceAll("(?m)^ {10}", "");
+            Path script = repo.resolve("resolve-nightly-version.sh");
+            Files.writeString(script, resolveScript + "printf '%s\\n' \"$NEXT_VERSION\"\n", StandardCharsets.UTF_8);
+
+            assertThat(runBash(repo, script)).isEqualTo("0.0.1");
+            runGit(repo, "tag", "v1.13.1");
+            assertThat(runBash(repo, script)).isEqualTo("1.13.2");
+            runGit(repo, "tag", "v1.14.0-beta.1");
+            assertThat(runBash(repo, script)).isEqualTo("1.14.0");
+            runGit(repo, "tag", "v1.14.0");
+            assertThat(runBash(repo, script)).isEqualTo("1.14.1");
+            runGit(repo, "tag", "v1.15.0-beta.2");
+            assertThat(runBash(repo, script)).isEqualTo("1.15.0");
+        } finally {
+            deleteRecursively(repo);
+        }
+    }
+
+    @Test
     @DisplayName("Nightly 标签只在完整发布成功后推进：清理 < 发布 < 标签，且标签步骤不吞错")
     void nightlyAdvancesTagOnlyAfterSuccessfulRelease() throws Exception {
         String nightly = workflow("nightly.yml");
@@ -1686,6 +1727,19 @@ class PluginReleaseScriptsTest {
         String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         int code = p.waitFor();
         assertThat(code).as("gate script failed: %s", output).isEqualTo(0);
+        return output.trim();
+    }
+
+    private static String runBash(Path repo, Path script, String... args) throws Exception {
+        String[] command = new String[args.length + 2];
+        command[0] = "bash";
+        command[1] = toBashPath(script);
+        System.arraycopy(args, 0, command, 2, args.length);
+        Process p = new ProcessBuilder(command)
+                .directory(repo.toFile()).redirectErrorStream(true).start();
+        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int code = p.waitFor();
+        assertThat(code).as("bash script failed: %s", output).isEqualTo(0);
         return output.trim();
     }
 
