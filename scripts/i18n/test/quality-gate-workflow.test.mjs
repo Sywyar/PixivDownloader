@@ -244,8 +244,12 @@ test('workflow：feature push 以归一化 before 调用 contract v4 trusted res
         assert.match(step.run,
             /GITHUB_REF" != "refs\/heads\/\$helper_default_branch"[\s\S]*helper_before="\$zero"/);
         assert.match(step.run, /--before "\$helper_before"/);
-        assert.doesNotMatch(step.run, /--candidate "\$GITHUB_SHA" --ref "\$GITHUB_REF"/,
-            jobId + ' 不得向 contract v4 trusted resolver 传递新增参数');
+        assert.match(step.run, /--candidate "\$candidate"/);
+        assert.doesNotMatch(step.run, /--pr-head/,
+            jobId + ' 不得扩展 Epoch 2 trusted resolver 的参数合同');
+        assert.match(step.run, /CANDIDATE_SHA=\$candidate/);
+        assert.doesNotMatch(step.run, /--candidate "\$GITHUB_SHA"/,
+            jobId + ' 必须把拓扑审核后的 candidate 传给 trusted resolver');
     }
 });
 
@@ -263,6 +267,48 @@ test('workflow 契约：合法 workflow + package scripts + action 版本 → �
         assert.ok(kinds.has('workflow'), '必须包含 workflow 契约检查');
         assert.ok(kinds.has('package'), '必须包含 package scripts 契约检查');
         assert.equal(contract.checks.filter((c) => !c.ok).length, 0);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：任一 gate job 将 exact root PR helper 退回 event SHA → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const step = doc.jobs['signature-guard'].steps.find((candidate) =>
+            typeof candidate.run === 'string' && /resolve-trusted-base\.mjs/.test(candidate.run));
+        step.run = step.run.replace('--candidate "$candidate"', '--candidate "$GITHUB_SHA"');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'replace resolved root candidate with event sha');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'exact root PR helper 退回 event SHA 时必须 fail closed');
+        assert.match(run.stdout + run.stderr, /exact root PR|head\/base\/parents\/tree/);
+    } finally {
+        cleanRepo(root);
+        fs.rmSync(trusted, { recursive: true, force: true });
+    }
+});
+
+test('workflow 契约：trusted consumer 删除 event SHA 双绑定 → 拒绝', () => {
+    const root = makeFullCandidateRepo();
+    const trusted = makeTrustedCopy(root);
+    try {
+        const doc = readWorkflow(root);
+        const step = doc.jobs['signature-guard'].steps.find((candidate) =>
+            typeof candidate.run === 'string' && /bash\s+[^\n]*pre-push-guard\.sh/.test(candidate.run));
+        const original = step.run;
+        step.run = step.run.replace(/^\s*event_candidate="\$\{\{ github\.sha \}\}"\r?\n/m, '');
+        assert.notEqual(step.run, original, 'fixture 必须真实删除 event SHA 双绑定');
+        writeWorkflow(root, doc);
+        commitBypass(root, 'drop event candidate binding');
+        const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
+        assert.notEqual(run.status, 0, 'event SHA 双绑定被删除时必须 fail closed');
+        assert.match(run.stdout + run.stderr, /github\.sha|bind CANDIDATE_SHA/);
     } finally {
         cleanRepo(root);
         fs.rmSync(trusted, { recursive: true, force: true });

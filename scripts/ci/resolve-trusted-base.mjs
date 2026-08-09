@@ -13,6 +13,8 @@
  *      时进入 ROOT_ADMISSION（root = candidate）；否则 fail closed
  *      （"Gate Epoch 2 trust root has not been installed."）；
  *    - candidate == root → ROOT_ADMISSION（root 自身 gate + 全量 root self-protection）；
+ *    - pull_request 的 head == root 时，仅当 live protected base == root 的唯一 parent、
+ *      merge ref parents == [base, root] 且 merge tree == root tree，审核 root SHA；
  *    - candidate 是 root 后代 → NORMAL；
  *    - 其它（不包含 Epoch 2 root 的 candidate）→ fail closed，不尝试任何 v1/legacy 路径。
  * 1. NORMAL 模式下 trusted base 解析（优先级从高到低）：
@@ -35,7 +37,7 @@
  * 2. ROOT_ADMISSION 模式下 base = root（candidate 自身；这是唯一人工 root 例外）。
  * 3. 结果验证（写 GITHUB_ENV 前）：40 位小写 hex commit SHA；在本地 object database 中存在。
  *
- * 输出：默认只打印 base SHA；--mode 时打印 JSON {"mode","base","root"}（root = root SHA）。
+ * 输出：默认只打印 base SHA；--mode 时打印 JSON {"mode","base","root"}。
  */
 import { execFileSync } from 'child_process';
 import fs from 'fs';
@@ -100,6 +102,30 @@ function resolveDefaultBranch(repoRoot, defaultBranch) {
         return resolveCommit(repoRoot, 'refs/remotes/origin/' + defaultBranch);
     }
     return null;
+}
+
+function resolveLiveDefaultBranch(repoRoot, defaultBranch) {
+    if (!defaultBranch || !fetchDefaultBranch(repoRoot, defaultBranch)) {
+        return null;
+    }
+    return resolveCommit(repoRoot, 'refs/remotes/origin/' + defaultBranch);
+}
+
+function commitParents(repoRoot, sha) {
+    try {
+        return git(['rev-list', '--parents', '-n', '1', sha], repoRoot).split(/\s+/).slice(1);
+    } catch (e) {
+        return [];
+    }
+}
+
+function commitTree(repoRoot, sha) {
+    try {
+        const tree = git(['rev-parse', '--verify', sha + '^{tree}'], repoRoot);
+        return SHA_RE.test(tree) ? tree : null;
+    } catch (e) {
+        return null;
+    }
 }
 
 /** 读 ref 处的文件内容；不存在返回 null。 */
@@ -191,7 +217,7 @@ function assertSupportedTrustedVerifier(repoRoot, base, minimum) {
 function parseArgs(argv) {
     const args = {
         repoRoot: null, eventName: null, candidate: null, before: null, gitRef: null,
-        prBase: null, mergeGroupBase: null, inputBase: null, defaultBranch: null,
+        prHead: null, prBase: null, mergeGroupBase: null, inputBase: null, defaultBranch: null,
         rootAdmission: null, rootCandidateSha: null, mode: false, version: false,
     };
     for (let i = 0; i < argv.length; i += 1) {
@@ -207,6 +233,8 @@ function parseArgs(argv) {
             args.before = value();
         } else if (arg === '--ref') {
             args.gitRef = value();
+        } else if (arg === '--pr-head') {
+            args.prHead = value();
         } else if (arg === '--pr-base') {
             args.prBase = value();
         } else if (arg === '--merge-group-base') {
@@ -228,6 +256,24 @@ function parseArgs(argv) {
         }
     }
     return args;
+}
+
+function isExactRootPullRequest(repoRoot, args, mergeCandidate, root) {
+    if (args.eventName !== 'pull_request' || args.prHead !== root) {
+        return false;
+    }
+    const liveBase = resolveLiveDefaultBranch(repoRoot, args.defaultBranch);
+    const rootParents = commitParents(repoRoot, root);
+    const mergeParents = commitParents(repoRoot, mergeCandidate);
+    if (!SHA_RE.test(args.prBase || '') || liveBase !== args.prBase
+        || rootParents.length !== 1 || rootParents[0] !== args.prBase
+        || mergeParents.length !== 2 || mergeParents[0] !== args.prBase || mergeParents[1] !== root
+        || commitTree(repoRoot, mergeCandidate) !== commitTree(repoRoot, root)) {
+        fail('exact root pull request admission requires live base == root parent, merge parents'
+            + ' == [base, root], and merge tree == root tree; fail closed');
+        return false;
+    }
+    return true;
 }
 
 /** 新分支（before 全零）的 fork base：merge-base(candidate, 受保护默认分支)。 */
@@ -351,6 +397,8 @@ function main() {
                 + ' ROOT_ADMISSION; fail closed');
             return;
         }
+    } else if (isExactRootPullRequest(repoRoot, args, candidate, root)) {
+        mode = 'ROOT_ADMISSION';
     } else if (candidate === root) {
         mode = 'ROOT_ADMISSION';
     } else if (isAncestor(repoRoot, root, candidate)) {
