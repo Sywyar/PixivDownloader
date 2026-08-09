@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Local pre-commit hook: i18n gate against the Git INDEX snapshot, judged by the
-# TRUSTED Epoch 2 gate anchor (never by the staged/candidate checker itself).
+# TRUSTED Epoch 3 gate anchor (never by the staged/candidate checker itself).
 #
 # Contract (never bypassable by fixing the worktree without staging):
 #   1. If nothing is staged, exit fast (0).
-#   2. The local anchor must belong to Gate Epoch 2:
-#      a. pixiv.i18n.trustedGateEpoch must be exactly 2 and
+#   2. The local anchor must belong to Gate Epoch 3:
+#      a. pixiv.i18n.trustedGateEpoch must be exactly 3 and
 #         pixiv.i18n.trustedGateRef must resolve to a commit;
 #         otherwise fail closed (obsolete / uninitialized epochs are never migrated);
-#      b. when the Epoch 2 root tag (refs/tags/i18n-gate-epoch-2-root) exists locally,
+#      b. when the Epoch 3 root tag (refs/tags/i18n-gate-epoch-3-root) exists locally,
 #         the trusted ref must descend from it.
 #   3. The checker/contract/policy are the LOCAL TRUSTED ANCHOR's snapshots:
 #      a. The trusted gate bundle (scripts/i18n + scripts/hooks) is materialized

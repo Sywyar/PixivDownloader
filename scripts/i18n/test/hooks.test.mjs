@@ -144,9 +144,9 @@ function makeGitRepo(base = os.tmpdir(), opts = {}) {
     git(['commit', '-q', '-m', 'add gate policy'], dir);
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
 
-    // 激活本地 hooks 并写入 Epoch 2 trust anchor（模拟已 adopt-root 的状态）
+    // 激活本地 hooks 并写入 Epoch 3 trust anchor（模拟已 adopt-root 的状态）
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
-    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '3'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }
@@ -276,13 +276,17 @@ test('pre-commit：epoch1 / 缺失 epoch 的旧 anchor → OBSOLETE GATE EPOCH f
         result = bash(['scripts/hooks/pre-commit'], root);
         assert.notEqual(result.status, 0, 'epoch 1 必须 fail closed（不迁移、不兼容）');
         assert.match(result.stdout + result.stderr, /obsolete or uninitialized epoch/);
-        // 未来 epoch 也拒绝
-        git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '3'], root);
-        result = bash(['scripts/hooks/pre-commit'], root);
-        assert.notEqual(result.status, 0, 'epoch 3 必须 fail closed');
-        assert.match(result.stdout + result.stderr, /does not match trusted anchor policy epoch/);
-        // 恢复 epoch 2 后 hooks 正常（fixture 其余状态合法）
+        // 上一 epoch 与未来 epoch 都拒绝
         git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], root);
+        result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, 'epoch 2 必须 fail closed');
+        assert.match(result.stdout + result.stderr, /does not match trusted anchor policy epoch/);
+        git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '4'], root);
+        result = bash(['scripts/hooks/pre-commit'], root);
+        assert.notEqual(result.status, 0, 'epoch 4 必须 fail closed');
+        assert.match(result.stdout + result.stderr, /does not match trusted anchor policy epoch/);
+        // 恢复 epoch 3 后 hooks 正常（fixture 其余状态合法）
+        git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '3'], root);
         assert.equal(anchor.length, 40);
     } finally {
         cleanRepo(root);
@@ -298,10 +302,20 @@ test('pre-commit：first-admission 票据必须绑定双 epoch、trusted source�
     try {
         const policyFile = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
         const policy = JSON.parse(fs.readFileSync(policyFile, 'utf8'));
+        policy.gateEpoch = 2;
+        fs.writeFileSync(policyFile, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+        git(['add', 'scripts/i18n/gate-policy.json'], root);
+        const sourceTree = git(['write-tree'], root).stdout.trim();
+        const previous = git(['rev-parse', 'HEAD'], root).stdout.trim();
+        const parent = git(['commit-tree', sourceTree, '-p', previous, '-m', 'epoch 2 parent'], root)
+            .stdout.trim();
+        git(['update-ref', 'HEAD', parent], root);
+        git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], root);
+        git(['config', '--local', 'pixiv.i18n.trustedGateRef', parent], root);
+
         policy.gateEpoch = 3;
         fs.writeFileSync(policyFile, JSON.stringify(policy, null, 2) + '\n', 'utf8');
         git(['add', 'scripts/i18n/gate-policy.json'], root);
-        const parent = git(['rev-parse', 'HEAD'], root).stdout.trim();
         const tree = git(['write-tree'], root).stdout.trim();
         git(['config', '--local', 'pixiv.i18n.firstAdmissionSourceEpoch', '2'], root);
         git(['config', '--local', 'pixiv.i18n.firstAdmissionTargetEpoch', '3'], root);
@@ -1054,7 +1068,7 @@ function makeEnforcementRepo() {
     git(['commit', '-q', '-m', 'D: policy + follow-up'], dir);
     const anchor = git(['rev-parse', 'HEAD'], dir).stdout.trim();
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
-    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '3'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], dir);
     return dir;
 }

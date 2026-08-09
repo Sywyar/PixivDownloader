@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Local pre-push hook: i18n gate + signature guard against the ACTUAL commits
-# being pushed (not the worktree), judged by the LOCAL TRUSTED EPOCH 2 ANCHOR.
+# being pushed (not the worktree), judged by the LOCAL TRUSTED EPOCH 3 ANCHOR.
 #
 # Git invokes pre-push with: $1 = remote name, $2 = remote URL; ref lines on
 # stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>
 #
 # Trust model:
-# - The local anchor must belong to Gate Epoch 2 (pixiv.i18n.trustedGateEpoch == 2 +
+# - The local anchor must belong to Gate Epoch 3 (pixiv.i18n.trustedGateEpoch == 3 +
 #   pixiv.i18n.trustedGateRef); obsolete / uninitialized epochs fail closed and are
 #   never migrated (no v1 / legacy / transition compatibility paths).
-# - When the Epoch 2 root tag (refs/tags/i18n-gate-epoch-2-root) exists locally,
+# - When the Epoch 3 root tag (refs/tags/i18n-gate-epoch-3-root) exists locally,
 #   the trusted ref must descend from it.
 # - ALL pushed commits are checked by the TRUSTED anchor's checker, contract,
 #   policy and signature guard (materialized once from the trusted commit via

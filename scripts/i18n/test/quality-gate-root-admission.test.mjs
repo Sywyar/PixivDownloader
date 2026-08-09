@@ -1,13 +1,13 @@
 'use strict';
 /**
- * Gate Epoch 2 root admission + reusable input 优先级测试：
+ * Gate Epoch 3 root admission + reusable input 优先级测试：
  * - §35：direct push / PR / merge group / reusable（push + 显式 input）/
  *   workflow_dispatch + 显式 input / 恶意 input（== candidate / 不含 root）→ 拒绝；
  * - §36：root tag 缺失 → fail；缺失 + 显式 dispatch root_admission → ROOT_ADMISSION；
  *   candidate == root → ROOT_ADMISSION；candidate 是 root 后代 → NORMAL；
  *   candidate 与 root 无关 → fail；candidate 是 root 祖先 → fail；
  *   root tag 指向缺 contract 的提交 → 物化 / contract fail closed。
- * 全部使用临时 repo + 临时 tag（i18n-gate-epoch-2-root），绝不持久创建真实 tag。
+ * 全部使用临时 repo + 临时 tag（i18n-gate-epoch-3-root），绝不持久创建真实 tag。
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -52,7 +52,7 @@ function git(args, cwd, opts = {}) {
     return result;
 }
 
-/** 夹具：C1（enforcement start，完整 gate bundle 无 policy）+ C2（Epoch 2 policy）。 */
+/** 夹具：C1（enforcement start，完整 gate bundle 无 policy）+ C2（Epoch 3 policy）。 */
 function makeRepo() {
     const dir = path.join(os.tmpdir(), 'pixiv root repo ' + Date.now() + '-' + Math.random().toString(36).slice(2));
     fs.mkdirSync(dir, { recursive: true });
@@ -96,7 +96,7 @@ function makeRepo() {
     git(['remote', 'add', 'origin', remote], dir);
     git(['-c', 'core.hooksPath=/dev/null', 'push', '-q', '-u', 'origin', 'master'], dir);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], dir);
-    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], dir);
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '3'], dir);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', git(['rev-parse', 'HEAD'], dir).stdout.trim()], dir);
     return dir;
 }
@@ -142,7 +142,7 @@ test('root admission：tag 缺失 → fail closed；显式 dispatch root_admissi
         // 普通 event 无 tag → fail
         const noTag = runResolver(root, [...common, '--event-name', 'push']);
         assert.notEqual(noTag.status, 0, 'tag 缺失且非显式 admission 必须 fail closed');
-        assert.match(noTag.stderr, /Gate Epoch 2 trust root has not been installed/);
+        assert.match(noTag.stderr, /Gate Epoch 3 trust root has not been installed/);
 
         // workflow_dispatch + root_admission=true + sha 匹配 → ROOT_ADMISSION（base == candidate）
         const admit = runResolver(root, [...common, '--event-name', 'workflow_dispatch',
@@ -172,7 +172,7 @@ test('root admission：candidate == root → ROOT_ADMISSION；root 后代 → NO
     try {
         const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
         // 临时 tag 指向 C2（fixture 内创建，绝不持久）
-        git(['tag', 'i18n-gate-epoch-2-root', c2], root);
+        git(['tag', 'i18n-gate-epoch-3-root', c2], root);
         const before = '0000000000000000000000000000000000000000';
 
         // candidate == root → ROOT_ADMISSION（即使 event=push）
@@ -198,7 +198,7 @@ test('root admission：candidate == root → ROOT_ADMISSION；root 后代 → NO
         const ancestor = runResolver(root, ['--event-name', 'push', '--candidate', c2 + '^', '--before', c2,
             '--default-branch', 'master', '--mode']);
         assert.notEqual(ancestor.status, 0, 'candidate 是 root 祖先必须 fail closed');
-        assert.match(ancestor.stderr, /does not descend from the Gate Epoch 2 trust root/);
+        assert.match(ancestor.stderr, /does not descend from the Gate Epoch 3 trust root/);
 
         // 无关历史（orphan）→ fail
         const orphanDir = path.join(os.tmpdir(), 'pixiv orphan ' + Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -214,10 +214,10 @@ test('root admission：candidate == root → ROOT_ADMISSION；root 后代 → NO
         const unrelated = runResolver(root, ['--event-name', 'push', '--candidate', orphanSha, '--before', before,
             '--default-branch', 'master', '--mode']);
         assert.notEqual(unrelated.status, 0, '与 root 无关的 candidate 必须 fail closed');
-        assert.match(unrelated.stderr, /does not descend from the Gate Epoch 2 trust root/);
+        assert.match(unrelated.stderr, /does not descend from the Gate Epoch 3 trust root/);
         fs.rmSync(orphanDir, { recursive: true, force: true });
 
-        git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+        git(['tag', '-d', 'i18n-gate-epoch-3-root'], root, { allowFailure: true });
     } finally {
         cleanRepo(root);
     }
@@ -229,7 +229,7 @@ test('root admission：PR merge ref 仅在 live base、root 单一 parent 与 me
         const root = git(['rev-parse', 'HEAD'], repo).stdout.trim();
         const base = git(['rev-parse', 'HEAD^'], repo).stdout.trim();
         const rootTree = git(['rev-parse', root + '^{tree}'], repo).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', root], repo);
+        git(['tag', 'i18n-gate-epoch-3-root', root], repo);
         const remote = git(['remote', 'get-url', 'origin'], repo).stdout.trim();
         git(['--git-dir', remote, 'update-ref', 'refs/heads/master', base], repo);
         git(['update-ref', 'refs/remotes/origin/master', base], repo);
@@ -269,7 +269,7 @@ test('reusable input 优先级：显式 trusted_base_sha 优先于 event；input
     const root = makeRepo();
     try {
         const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', c2], root);
+        git(['tag', 'i18n-gate-epoch-3-root', c2], root);
         fs.mkdirSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
         fs.writeFileSync(path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'x.js'),
             'var x = 1;\n', 'utf8');
@@ -298,8 +298,8 @@ test('reusable input 优先级：显式 trusted_base_sha 优先于 event；input
         const c1 = git(['rev-parse', 'HEAD~2'], root).stdout.trim();
         const badInput = runResolver(root, ['--event-name', 'workflow_dispatch', '--candidate', c3,
             '--input-base', c1, '--default-branch', 'master', '--mode']);
-        assert.notEqual(badInput.status, 0, 'input 不含 Epoch 2 root 必须拒绝');
-        assert.match(badInput.stderr, /does not descend from the Gate Epoch 2 trust root/);
+        assert.notEqual(badInput.status, 0, 'input 不含 Epoch 3 root 必须拒绝');
+        assert.match(badInput.stderr, /does not descend from the Gate Epoch 3 trust root/);
 
         // event=push + 空 input → event.before
         const beforePush = runResolver(root, ['--event-name', 'push', '--candidate', c3, '--before', c2,
@@ -325,7 +325,7 @@ test('reusable input 优先级：显式 trusted_base_sha 优先于 event；input
         assert.notEqual(noInput.status, 0, '无法解析 base 必须 fail closed');
         assert.match(noInput.stderr, /fail closed/);
 
-        git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+        git(['tag', '-d', 'i18n-gate-epoch-3-root'], root, { allowFailure: true });
     } finally {
         cleanRepo(root);
     }
@@ -339,7 +339,7 @@ test('root admission：tag 指向缺 gate-contract.mjs 的提交 → materialize
         git(['rm', '-q', 'scripts/i18n/gate-contract.mjs'], root);
         commitBypass(root, 'drop contract');
         const broken = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', broken], root);
+        git(['tag', 'i18n-gate-epoch-3-root', broken], root);
 
         // candidate == root（缺 contract）→ ROOT_ADMISSION 模式；随后物化必须失败
         const same = runResolver(root, ['--event-name', 'push', '--candidate', broken,
@@ -387,7 +387,7 @@ test('root admission：tag 指向缺 gate-contract.mjs 的提交 → materialize
             fs.rmSync(trustedCopy, { recursive: true, force: true });
         }
 
-        git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+        git(['tag', '-d', 'i18n-gate-epoch-3-root'], root, { allowFailure: true });
     } finally {
         cleanRepo(root);
     }
@@ -397,7 +397,7 @@ test('trusted base provenance DAG matrix：root <= base < candidate；sibling / 
     const root = makeRepo();
     try {
         const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', c2], root);
+        git(['tag', 'i18n-gate-epoch-3-root', c2], root);
         const zero = '0000000000000000000000000000000000000000';
         const jsDir = path.join(root, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js');
         fs.mkdirSync(jsDir, { recursive: true });
@@ -457,7 +457,7 @@ test('trusted base provenance DAG matrix：root <= base < candidate；sibling / 
         const preRoot = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', zero,
             '--default-branch', 'master', '--mode', '--input-base', c1]);
         assert.notEqual(preRoot.status, 0, 'base 在 root 之前必须 fail closed');
-        assert.match(preRoot.stderr, /does not descend from the Gate Epoch 2 trust root/);
+        assert.match(preRoot.stderr, /does not descend from the Gate Epoch 3 trust root/);
 
         // base == candidate
         const selfBase = runResolver(root, ['--event-name', 'push', '--candidate', c, '--before', zero,
@@ -471,7 +471,7 @@ test('trusted base provenance DAG matrix：root <= base < candidate；sibling / 
         assert.notEqual(forcePush.status, 0, 'push before 不是 candidate 祖先必须 fail closed');
         assert.match(forcePush.stderr, /not an ancestor of the candidate/);
 
-        git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+        git(['tag', '-d', 'i18n-gate-epoch-3-root'], root, { allowFailure: true });
     } finally {
         cleanRepo(root);
     }
@@ -481,14 +481,14 @@ test('push 新分支（before 全零）：fork base = merge-base(candidate, prot
     const root = makeRepo();
     try {
         const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', c2], root);
+        git(['tag', 'i18n-gate-epoch-3-root', c2], root);
         const zero = '0000000000000000000000000000000000000000';
 
         // 无远端：新分支无法确定 fork base → fail closed
         const noRemote = makeRepo();
         try {
             git(['remote', 'remove', 'origin'], noRemote);
-            git(['tag', 'i18n-gate-epoch-2-root', git(['rev-parse', 'HEAD'], noRemote).stdout.trim()], noRemote);
+            git(['tag', 'i18n-gate-epoch-3-root', git(['rev-parse', 'HEAD'], noRemote).stdout.trim()], noRemote);
             fs.mkdirSync(path.join(noRemote, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js'), { recursive: true });
             fs.writeFileSync(path.join(noRemote, 'pixivdownload-app', 'src', 'main', 'resources', 'static', 'js', 'f.js'),
                 'var f = 1;\n', 'utf8');
@@ -517,7 +517,7 @@ test('push 新分支（before 全零）：fork base = merge-base(candidate, prot
                 + '而不是 default branch 当前 tip');
         assert.equal(JSON.parse(fork.stdout).mode, 'NORMAL');
 
-        git(['tag', '-d', 'i18n-gate-epoch-2-root'], root, { allowFailure: true });
+        git(['tag', '-d', 'i18n-gate-epoch-3-root'], root, { allowFailure: true });
     } finally {
         cleanRepo(root);
     }
@@ -527,7 +527,7 @@ test('feature push：前一恶意 verifier M 即使已在远端，也不能审�
     const root = makeRepo();
     try {
         const protectedBase = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', protectedBase], root);
+        git(['tag', 'i18n-gate-epoch-3-root', protectedBase], root);
         git(['checkout', '-q', '-b', 'feature', protectedBase], root);
         fs.writeFileSync(path.join(root, 'malicious-verifier.txt'), 'previous CI failed\n', 'utf8');
         commitBypass(root, 'M malicious verifier');
