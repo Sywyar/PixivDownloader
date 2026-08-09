@@ -308,9 +308,8 @@ jobs:
               helper_before="$zero"
             fi
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$candidate" \
               --before "$helper_before" \
-              --pr-head "$pr_head" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \
@@ -651,9 +650,8 @@ jobs:
               helper_before="$zero"
             fi
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$candidate" \
               --before "$helper_before" \
-              --pr-head "$pr_head" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \
@@ -1019,9 +1017,8 @@ jobs:
               helper_before="$zero"
             fi
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
+              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$candidate" \
               --before "$helper_before" \
-              --pr-head "$pr_head" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \

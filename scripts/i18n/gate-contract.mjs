@@ -1336,7 +1336,8 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
                 + ' minimumTrustedVerifier; NORMAL candidates cannot skip the baseline');
         const exactRootPr = jobSteps(job).some((s) => /pull_request\.head\.sha/.test(stepRun(s))
             && /rev-list --parents/.test(stepRun(s)) && /\^\{tree\}/.test(stepRun(s))
-            && /--pr-head/.test(stepRun(s)) && /CANDIDATE_SHA/.test(stepRun(s)));
+            && /--candidate "\$candidate"/.test(stepRun(s)) && !/--pr-head/.test(stepRun(s))
+            && /CANDIDATE_SHA/.test(stepRun(s)));
         pushCheck(checks, jobId + ': exact root PR merge ref is bound to head/base/parents/tree',
             exactRootPr,
             jobId + ' must audit the protected root head only after the PR merge ref matches the live'

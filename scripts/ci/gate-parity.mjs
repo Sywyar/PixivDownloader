@@ -529,7 +529,8 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         pushCheck(jobId + ': exact root PR merge ref is bound to head/base/parents/tree',
             jobSteps(job).some((s) => /pull_request\.head\.sha/.test(stepRun(s))
                 && /rev-list --parents/.test(stepRun(s)) && /\^\{tree\}/.test(stepRun(s))
-                && /--pr-head/.test(stepRun(s)) && /CANDIDATE_SHA/.test(stepRun(s))),
+                && /--candidate "\$candidate"/.test(stepRun(s)) && !/--pr-head/.test(stepRun(s))
+                && /CANDIDATE_SHA/.test(stepRun(s))),
             jobId + ' must bind root PR admission to the live base, root parent, merge parents and root tree');
     }
 
