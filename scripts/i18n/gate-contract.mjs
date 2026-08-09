@@ -957,6 +957,8 @@ const RULESET_INVARIANTS_REL = path.posix.join('scripts', 'ci', 'github-ruleset-
 
 /** 可信 gate 执行必须来自物化的 trusted bundle，禁止直接运行候选工作树的 contract/guard。 */
 const TRUSTED_LOC = /\$GATE_DIR|\$RUNNER_TEMP|\bguard\/out\b|materialize-trusted-gate/;
+const RESOLVED_CANDIDATE = /\bCANDIDATE_SHA\b/;
+const EVENT_CANDIDATE = /github\.sha/;
 
 /**
  * Shell 命令序列规范化（23.1）：只保留实际可执行的命令文本。
@@ -1225,6 +1227,9 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
             && /isAncestor\(repoRoot, base, candidate\)/.test(resText)
             && (resText.match(/isAncestor\(repoRoot, (root|base),/g) || []).length >= 3
             && /'merge-base', candidate/.test(resText)
+            && /--pr-head/.test(resText) && /resolveLiveDefaultBranch/.test(resText)
+            && /commitParents/.test(resText) && /commitTree/.test(resText)
+            && /exact root pull request admission/.test(resText)
             && !isNoopStep(resText);
         pushCheck(checks, 'resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
             'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
@@ -1329,6 +1334,13 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
             minimumRunsInBothModes,
             jobId + ' must close the NORMAL/ROOT_ADMISSION branch before enforcing'
                 + ' minimumTrustedVerifier; NORMAL candidates cannot skip the baseline');
+        const exactRootPr = jobSteps(job).some((s) => /pull_request\.head\.sha/.test(stepRun(s))
+            && /rev-list --parents/.test(stepRun(s)) && /\^\{tree\}/.test(stepRun(s))
+            && /--pr-head/.test(stepRun(s)) && /CANDIDATE_SHA/.test(stepRun(s)));
+        pushCheck(checks, jobId + ': exact root PR merge ref is bound to head/base/parents/tree',
+            exactRootPr,
+            jobId + ' must audit the protected root head only after the PR merge ref matches the live'
+                + ' base, root parent, merge parents and root tree');
     }
 
     const jGuard = jobs['signature-guard'];
@@ -1340,9 +1352,10 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
     pushCheck(checks, 'signature-guard: trusted guard materialization', guardSteps.length > 0,
         'signature-guard must materialize and run the trusted pre-push-guard.sh');
     const guardOk = guardSteps.length > 0
-        && guardSteps.every((s) => TRUSTED_LOC.test(stepRun(s)) && /github\.sha/.test(stepRun(s)));
-    pushCheck(checks, 'signature-guard: guard comes from the trusted base, checks github.sha', guardOk,
-        'signature-guard must run the guard from the materialized trusted bundle against github.sha'
+        && guardSteps.every((s) => TRUSTED_LOC.test(stepRun(s)) && RESOLVED_CANDIDATE.test(stepRun(s))
+            && EVENT_CANDIDATE.test(stepRun(s)));
+    pushCheck(checks, 'signature-guard: guard comes from the trusted base, checks resolved candidate', guardOk,
+        'signature-guard must bind CANDIDATE_SHA to github.sha before running the trusted guard'
             + ' (candidate guard self-approval is refused)');
 
     const jContract = jobs['trusted-gate-contract'];
@@ -1355,10 +1368,11 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         && /--candidate-ref/.test(stepRun(s)));
     const contractOk = contractSteps.length > 0
         && contractSteps.every((s) => TRUSTED_LOC.test(stepRun(s))
-            && /--candidate-ref/.test(stepRun(s)) && /github\.sha/.test(stepRun(s)));
-    pushCheck(checks, 'trusted-gate-contract: trusted contract checks github.sha', contractOk,
-        'trusted-gate-contract must run the materialized trusted gate-contract.mjs'
-            + ' with --candidate-ref ${{ github.sha }} (candidate contract self-approval is refused)');
+            && /--candidate-ref/.test(stepRun(s)) && RESOLVED_CANDIDATE.test(stepRun(s))
+            && EVENT_CANDIDATE.test(stepRun(s)));
+    pushCheck(checks, 'trusted-gate-contract: trusted contract checks resolved candidate', contractOk,
+        'trusted-gate-contract must bind CANDIDATE_SHA to github.sha before running the materialized'
+            + ' trusted contract (candidate contract self-approval is refused)');
     const rootContractStep = contractSteps[0] || null;
     pushCheck(checks, 'trusted-gate-contract: root admission forces self-protection',
         !!rootContractStep && /--force-self-protection/.test(stepRun(rootContractStep)),
@@ -1382,12 +1396,13 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
         && /--candidate-ref/.test(stepRun(s)));
     const i18nContractOk = i18nContractSteps.length > 0
         && i18nContractSteps.every((s) => TRUSTED_LOC.test(stepRun(s))
-            && /--candidate-ref/.test(stepRun(s)) && /github\.sha/.test(stepRun(s)));
-    pushCheck(checks, 'i18n-check: trusted base contract checks github.sha', i18nContractOk,
-        'i18n-check must run the materialized trusted gate-contract.mjs against github.sha');
+            && /--candidate-ref/.test(stepRun(s)) && RESOLVED_CANDIDATE.test(stepRun(s))
+            && EVENT_CANDIDATE.test(stepRun(s)));
+    pushCheck(checks, 'i18n-check: trusted base contract checks resolved candidate', i18nContractOk,
+        'i18n-check must bind CANDIDATE_SHA to github.sha before running the trusted contract');
     pushCheck(checks, 'i18n-check: ref snapshot check',
         jobHasRun(jI18n, /check\.mjs/) && jobHasRun(jI18n, /--snapshot ref/) && jobHasRun(jI18n, /--ref/),
-        'i18n-check must run the ref snapshot check (check.mjs --snapshot ref --ref github.sha)');
+        'i18n-check must run the ref snapshot check (check.mjs --snapshot ref --ref CANDIDATE_SHA)');
     pushCheck(checks, 'i18n-check: worktree check', jobHasRun(jI18n, /npm run i18n:check/),
         'i18n-check must run the worktree i18n check');
     pushCheck(checks, 'i18n-check: static generation', jobHasRun(jI18n, /i18n:generate-static/),

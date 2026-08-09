@@ -98,6 +98,9 @@ function makeRepo(withAnchor = false, anchorEpoch = '2') {
     }
     runGenerate(dir);
     git(['add', '--chmod=+x', 'scripts/hooks/pre-commit', 'scripts/hooks/pre-push', 'scripts/hooks/pre-push-guard.sh'], dir);
+    for (const hook of ['pre-commit', 'pre-push', 'pre-push-guard.sh']) {
+        fs.chmodSync(path.join(dir, 'scripts', 'hooks', hook), 0o755);
+    }
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir); // C1
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();

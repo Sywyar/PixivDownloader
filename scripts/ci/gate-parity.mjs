@@ -73,6 +73,8 @@ const REQUIRED_WORKFLOW_JOBS = ['java-tests', 'javascript-tests', 'signature-gua
 const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'i18n:trust-gate',
     'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards', 'doctor:github-gate'];
 const TRUSTED_LOC = /\$GATE_DIR|\$RUNNER_TEMP|\bguard\/out\b|materialize-trusted-gate/;
+const RESOLVED_CANDIDATE = /\bCANDIDATE_SHA\b/;
+const EVENT_CANDIDATE = /github\.sha/;
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 
@@ -404,17 +406,19 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
     const jGuard = candidateJobs['signature-guard'];
     const guardSteps = jobSteps(jGuard).filter((s) => /(^|\n)\s*bash\s+[^\n]*pre-push-guard\.sh/.test(stepRun(s)));
     pushCheck('signature-guard: guard from the trusted base',
-        guardSteps.length > 0 && guardSteps.every((s) => TRUSTED_LOC.test(stepRun(s)) && /github\.sha/.test(stepRun(s))),
-        'signature-guard must run the guard from the materialized trusted bundle against github.sha');
+        guardSteps.length > 0 && guardSteps.every((s) => TRUSTED_LOC.test(stepRun(s))
+            && RESOLVED_CANDIDATE.test(stepRun(s)) && EVENT_CANDIDATE.test(stepRun(s))),
+        'signature-guard must bind CANDIDATE_SHA to github.sha before running the trusted guard');
     const jContract = candidateJobs['trusted-gate-contract'];
     // 只匹配实际执行 contract 的 step（同时含 gate-contract.mjs 与 --candidate-ref；
     // bootstrap step 里的 test -f gate-contract.mjs 引用不算）
     const contractSteps = jobSteps(jContract).filter((s) => /gate-contract\.mjs/.test(stepRun(s))
         && /--candidate-ref/.test(stepRun(s)));
-    pushCheck('trusted-gate-contract: trusted contract checks github.sha',
+    pushCheck('trusted-gate-contract: trusted contract checks resolved candidate',
         contractSteps.length > 0 && contractSteps.every((s) => TRUSTED_LOC.test(stepRun(s))
-            && /--candidate-ref/.test(stepRun(s)) && /github\.sha/.test(stepRun(s))),
-        'trusted-gate-contract must run the materialized trusted gate-contract.mjs against github.sha');
+            && /--candidate-ref/.test(stepRun(s)) && RESOLVED_CANDIDATE.test(stepRun(s))
+            && EVENT_CANDIDATE.test(stepRun(s))),
+        'trusted-gate-contract must bind CANDIDATE_SHA to github.sha before running the trusted contract');
     pushCheck('trusted-gate-contract: gate parity step', jobHasRun(jContract, /gate-parity\.mjs/),
         'trusted-gate-contract must run gate-parity.mjs');
     pushCheck('trusted-gate-contract: report upload', jobHasUploadAlways(jContract),
@@ -426,10 +430,11 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
         'i18n-check must run npm run test:i18n with CI=true');
     const i18nContractSteps = jobSteps(jI18n).filter((s) => /gate-contract\.mjs/.test(stepRun(s))
         && /--candidate-ref/.test(stepRun(s)));
-    pushCheck('i18n-check: trusted contract checks github.sha',
+    pushCheck('i18n-check: trusted contract checks resolved candidate',
         i18nContractSteps.length > 0 && i18nContractSteps.every((s) => TRUSTED_LOC.test(stepRun(s))
-            && /--candidate-ref/.test(stepRun(s)) && /github\.sha/.test(stepRun(s))),
-        'i18n-check must run the materialized trusted gate-contract.mjs against github.sha');
+            && /--candidate-ref/.test(stepRun(s)) && RESOLVED_CANDIDATE.test(stepRun(s))
+            && EVENT_CANDIDATE.test(stepRun(s))),
+        'i18n-check must bind CANDIDATE_SHA to github.sha before running the trusted contract');
     pushCheck('i18n-check: ref snapshot check',
         jobHasRun(jI18n, /check\.mjs/) && jobHasRun(jI18n, /--snapshot ref/) && jobHasRun(jI18n, /--ref/),
         'i18n-check must run the ref snapshot check');
@@ -471,6 +476,9 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
             && /isAncestor\(repoRoot, base, candidate\)/.test(resText)
             && (resText.match(/isAncestor\(repoRoot, (root|base),/g) || []).length >= 3
             && /'merge-base', candidate/.test(resText)
+            && /--pr-head/.test(resText) && /resolveLiveDefaultBranch/.test(resText)
+            && /commitParents/.test(resText) && /commitTree/.test(resText)
+            && /exact root pull request admission/.test(resText)
             && !isNoopStep(resText);
         pushCheck('resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
             'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
@@ -518,6 +526,11 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
                     .test(stepRun(s))),
             jobId + ' must close the NORMAL/ROOT_ADMISSION branch before enforcing'
                 + ' minimumTrustedVerifier');
+        pushCheck(jobId + ': exact root PR merge ref is bound to head/base/parents/tree',
+            jobSteps(job).some((s) => /pull_request\.head\.sha/.test(stepRun(s))
+                && /rev-list --parents/.test(stepRun(s)) && /\^\{tree\}/.test(stepRun(s))
+                && /--pr-head/.test(stepRun(s)) && /CANDIDATE_SHA/.test(stepRun(s))),
+            jobId + ' must bind root PR admission to the live base, root parent, merge parents and root tree');
     }
 
     // 失败吞没 / 条件跳过禁令：只针对运行关键门禁命令的 step；纯 no-op step 一律拒绝

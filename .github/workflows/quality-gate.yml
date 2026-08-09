@@ -83,6 +83,10 @@ jobs:
         run: |
           set -euo pipefail
           zero="0000000000000000000000000000000000000000"
+          candidate="$GITHUB_SHA"
+          pr_head="${{ github.event.pull_request.head.sha }}"
+          pr_base="${{ github.event.pull_request.base.sha }}"
+          default_branch="${{ github.event.repository.default_branch }}"
           root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" 2>/dev/null || printf '%s' '')"
           admission=""
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
@@ -96,9 +100,23 @@ jobs:
             fi
           fi
           if [ -n "$root" ]; then
-            if [ "$root" = "$GITHUB_SHA" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$pr_head" = "$root" ]; then
+              git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch"
+              default_tip="$(git rev-parse --verify "refs/remotes/origin/$default_branch^{commit}")"
+              root_line="$(git rev-list --parents -n 1 "$root")"
+              merge_line="$(git rev-list --parents -n 1 "$GITHUB_SHA")"
+              root_tree="$(git rev-parse --verify "$root^{tree}")"
+              merge_tree="$(git rev-parse --verify "$GITHUB_SHA^{tree}")"
+              if [ "$default_tip" != "$pr_base" ] || [ "$root_line" != "$root $pr_base" ] \
+                  || [ "$merge_line" != "$GITHUB_SHA $pr_base $root" ] || [ "$merge_tree" != "$root_tree" ]; then
+                echo "exact root pull request admission requires live base == root parent, merge parents == [base, root], and merge tree == root tree; fail closed" >&2
+                exit 1
+              fi
+              candidate="$root"
               mode="ROOT_ADMISSION"
-            elif git merge-base --is-ancestor "$root" "$GITHUB_SHA" >/dev/null 2>&1; then
+            elif [ "$root" = "$candidate" ]; then
+              mode="ROOT_ADMISSION"
+            elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
               mode="NORMAL"
             else
               echo "candidate does not descend from the Gate Epoch 2 trust root" >&2
@@ -107,7 +125,7 @@ jobs:
           else
             if [ -n "$admission" ]; then
               mode="ROOT_ADMISSION"
-              root="$GITHUB_SHA"
+              root="$candidate"
             else
               echo "Gate Epoch 2 trust root has not been installed." >&2
               echo "refs/tags/i18n-gate-epoch-2-root is missing; only an explicit workflow_dispatch" >&2
@@ -147,7 +165,7 @@ jobs:
                     base="$before"
                   else
                     # Feature branch event.before is not trusted: it may be a previously failed verifier.
-                    fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                    fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
                     if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
                       echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
                       exit 1
@@ -169,11 +187,11 @@ jobs:
               esac
             fi
             if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "cannot determine a valid trusted base for $GITHUB_SHA (event $GITHUB_EVENT_NAME); fail closed" >&2
+              echo "cannot determine a valid trusted base for $candidate (event $GITHUB_EVENT_NAME); fail closed" >&2
               exit 1
             fi
-            if [ "$base" = "$GITHUB_SHA" ]; then
-              echo "trusted base $base equals the candidate $GITHUB_SHA; fail closed" >&2
+            if [ "$base" = "$candidate" ]; then
+              echo "trusted base $base equals the candidate $candidate; fail closed" >&2
               exit 1
             fi
             if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
@@ -184,8 +202,8 @@ jobs:
               echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
               exit 1
             fi
-            if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
-              echo "signature-guard trusted base $base is not an ancestor of candidate $GITHUB_SHA; fail closed" >&2
+            if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
+              echo "signature-guard trusted base $base is not an ancestor of candidate $candidate; fail closed" >&2
               exit 1
             fi
             default_branch="${{ github.event.repository.default_branch }}"
@@ -198,10 +216,10 @@ jobs:
               exit 1
             fi
             if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              if [ "$default_tip" = "$GITHUB_SHA" ]; then
-                protected_predecessor="$(git rev-parse --verify --quiet "$GITHUB_SHA^{commit}^" 2>/dev/null || printf '%s' '')"
+              if [ "$default_tip" = "$candidate" ]; then
+                protected_predecessor="$(git rev-parse --verify --quiet "$candidate^{commit}^" 2>/dev/null || printf '%s' '')"
               else
-                protected_predecessor="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                protected_predecessor="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
               fi
               if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
                 echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
@@ -292,6 +310,7 @@ jobs:
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
               --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
               --before "$helper_before" \
+              --pr-head "$pr_head" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \
@@ -302,8 +321,9 @@ jobs:
             printf '%s' "$helper" > "$gate/helper.json"
             helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
             helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
+            helper_candidate="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.candidate)' "$gate/helper.json")"
+            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ] || [ "$helper_candidate" != "$candidate" ]; then
+              echo "trusted helper resolved $helper_mode/$helper_base/$helper_candidate but the bootstrap resolved $mode/$base/$candidate; fail closed" >&2
               exit 1
             fi
           fi
@@ -336,18 +356,27 @@ jobs:
           echo "GATE_MODE=$mode" >> "$GITHUB_ENV"
           echo "ROOT_SHA=$root" >> "$GITHUB_ENV"
           echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CANDIDATE_SHA=$candidate" >> "$GITHUB_ENV"
           echo "GATE_DIR=$out" >> "$GITHUB_ENV"
-          echo "gate mode: $mode; trusted base: $base; root: $root"
+          echo "gate mode: $mode; candidate: $candidate; trusted base: $base; root: $root"
 
       # 签名守卫必须来自 trusted base（NORMAL）或 root 自身（ROOT_ADMISSION，唯一人工例外）：
       # 候选提交不能用自己的 guard 自我批准
       - name: Reject reverse-engineered Douyin signature code (trusted guard)
         run: |
           set -euo pipefail
+          event_candidate="${{ github.sha }}"
+          if [ "$CANDIDATE_SHA" != "$event_candidate" ] \
+              && { [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+                || [ "$GATE_MODE" != "ROOT_ADMISSION" ] \
+                || [ "$CANDIDATE_SHA" != "${{ github.event.pull_request.head.sha }}" ]; }; then
+            echo "resolved candidate differs from the event SHA outside exact root PR admission; fail closed" >&2
+            exit 1
+          fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
             echo "ROOT ADMISSION MODE: running the root guard (candidate == Epoch 2 root candidate)."
           fi
-          bash "$GATE_DIR/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "${{ github.sha }}"
+          bash "$GATE_DIR/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "$CANDIDATE_SHA"
 
   javascript-tests:
     runs-on: ubuntu-latest
@@ -400,6 +429,10 @@ jobs:
         run: |
           set -euo pipefail
           zero="0000000000000000000000000000000000000000"
+          candidate="$GITHUB_SHA"
+          pr_head="${{ github.event.pull_request.head.sha }}"
+          pr_base="${{ github.event.pull_request.base.sha }}"
+          default_branch="${{ github.event.repository.default_branch }}"
           root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" 2>/dev/null || printf '%s' '')"
           admission=""
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
@@ -413,9 +446,23 @@ jobs:
             fi
           fi
           if [ -n "$root" ]; then
-            if [ "$root" = "$GITHUB_SHA" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$pr_head" = "$root" ]; then
+              git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch"
+              default_tip="$(git rev-parse --verify "refs/remotes/origin/$default_branch^{commit}")"
+              root_line="$(git rev-list --parents -n 1 "$root")"
+              merge_line="$(git rev-list --parents -n 1 "$GITHUB_SHA")"
+              root_tree="$(git rev-parse --verify "$root^{tree}")"
+              merge_tree="$(git rev-parse --verify "$GITHUB_SHA^{tree}")"
+              if [ "$default_tip" != "$pr_base" ] || [ "$root_line" != "$root $pr_base" ] \
+                  || [ "$merge_line" != "$GITHUB_SHA $pr_base $root" ] || [ "$merge_tree" != "$root_tree" ]; then
+                echo "exact root pull request admission requires live base == root parent, merge parents == [base, root], and merge tree == root tree; fail closed" >&2
+                exit 1
+              fi
+              candidate="$root"
               mode="ROOT_ADMISSION"
-            elif git merge-base --is-ancestor "$root" "$GITHUB_SHA" >/dev/null 2>&1; then
+            elif [ "$root" = "$candidate" ]; then
+              mode="ROOT_ADMISSION"
+            elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
               mode="NORMAL"
             else
               echo "candidate does not descend from the Gate Epoch 2 trust root" >&2
@@ -424,7 +471,7 @@ jobs:
           else
             if [ -n "$admission" ]; then
               mode="ROOT_ADMISSION"
-              root="$GITHUB_SHA"
+              root="$candidate"
             else
               echo "Gate Epoch 2 trust root has not been installed." >&2
               echo "refs/tags/i18n-gate-epoch-2-root is missing; only an explicit workflow_dispatch" >&2
@@ -464,7 +511,7 @@ jobs:
                     base="$before"
                   else
                     # Feature branch event.before is not trusted: it may be a previously failed verifier.
-                    fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                    fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
                     if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
                       echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
                       exit 1
@@ -486,11 +533,11 @@ jobs:
               esac
             fi
             if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "cannot determine a valid trusted base for $GITHUB_SHA (event $GITHUB_EVENT_NAME); fail closed" >&2
+              echo "cannot determine a valid trusted base for $candidate (event $GITHUB_EVENT_NAME); fail closed" >&2
               exit 1
             fi
-            if [ "$base" = "$GITHUB_SHA" ]; then
-              echo "trusted base $base equals the candidate $GITHUB_SHA; fail closed" >&2
+            if [ "$base" = "$candidate" ]; then
+              echo "trusted base $base equals the candidate $candidate; fail closed" >&2
               exit 1
             fi
             if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
@@ -501,8 +548,8 @@ jobs:
               echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
               exit 1
             fi
-            if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
-              echo "trusted-gate-contract base $base is not an ancestor of candidate $GITHUB_SHA; fail closed" >&2
+            if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
+              echo "trusted-gate-contract base $base is not an ancestor of candidate $candidate; fail closed" >&2
               exit 1
             fi
             default_branch="${{ github.event.repository.default_branch }}"
@@ -515,10 +562,10 @@ jobs:
               exit 1
             fi
             if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              if [ "$default_tip" = "$GITHUB_SHA" ]; then
-                protected_predecessor="$(git rev-parse --verify --quiet "$GITHUB_SHA^{commit}^" 2>/dev/null || printf '%s' '')"
+              if [ "$default_tip" = "$candidate" ]; then
+                protected_predecessor="$(git rev-parse --verify --quiet "$candidate^{commit}^" 2>/dev/null || printf '%s' '')"
               else
-                protected_predecessor="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                protected_predecessor="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
               fi
               if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
                 echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
@@ -607,6 +654,7 @@ jobs:
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
               --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
               --before "$helper_before" \
+              --pr-head "$pr_head" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \
@@ -617,8 +665,9 @@ jobs:
             printf '%s' "$helper" > "$gate/helper.json"
             helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
             helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
+            helper_candidate="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.candidate)' "$gate/helper.json")"
+            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ] || [ "$helper_candidate" != "$candidate" ]; then
+              echo "trusted helper resolved $helper_mode/$helper_base/$helper_candidate but the bootstrap resolved $mode/$base/$candidate; fail closed" >&2
               exit 1
             fi
           fi
@@ -651,32 +700,41 @@ jobs:
           echo "GATE_MODE=$mode" >> "$GITHUB_ENV"
           echo "ROOT_SHA=$root" >> "$GITHUB_ENV"
           echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CANDIDATE_SHA=$candidate" >> "$GITHUB_ENV"
           echo "GATE_DIR=$out" >> "$GITHUB_ENV"
-          echo "gate mode: $mode; trusted base: $base; root: $root"
+          echo "gate mode: $mode; candidate: $candidate; trusted base: $base; root: $root"
 
       - name: Trusted base contract validates the candidate
         run: |
           set -euo pipefail
+          event_candidate="${{ github.sha }}"
+          if [ "$CANDIDATE_SHA" != "$event_candidate" ] \
+              && { [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+                || [ "$GATE_MODE" != "ROOT_ADMISSION" ] \
+                || [ "$CANDIDATE_SHA" != "${{ github.event.pull_request.head.sha }}" ]; }; then
+            echo "resolved candidate differs from the event SHA outside exact root PR admission; fail closed" >&2
+            exit 1
+          fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: candidate ${{ github.sha }} == Epoch 2 root; running the root gate with the full root self-protection suite."
+            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 2 root; running the root gate with the full root self-protection suite."
           fi
           node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
             --repo-root "$PWD" --report-root "$PWD" \
-            --candidate-ref "${{ github.sha }}" \
+            --candidate-ref "$CANDIDATE_SHA" \
             --force-self-protection
           echo "trusted base checker checks the candidate ref..."
           node "$GATE_DIR/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
-            --snapshot ref --ref "${{ github.sha }}"
+            --snapshot ref --ref "$CANDIDATE_SHA"
 
       - name: Gate parity audit (no gate may be weakened)
         run: |
           set -euo pipefail
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --candidate-ref "${{ github.sha }}" --invariants
+              --candidate-ref "$CANDIDATE_SHA" --invariants
           else
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --trusted-dir "$GATE_DIR" --candidate-ref "${{ github.sha }}"
+              --trusted-dir "$GATE_DIR" --candidate-ref "$CANDIDATE_SHA"
           fi
 
       - name: Upload gate contract report
@@ -740,6 +798,10 @@ jobs:
         run: |
           set -euo pipefail
           zero="0000000000000000000000000000000000000000"
+          candidate="$GITHUB_SHA"
+          pr_head="${{ github.event.pull_request.head.sha }}"
+          pr_base="${{ github.event.pull_request.base.sha }}"
+          default_branch="${{ github.event.repository.default_branch }}"
           root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" 2>/dev/null || printf '%s' '')"
           admission=""
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
@@ -753,9 +815,23 @@ jobs:
             fi
           fi
           if [ -n "$root" ]; then
-            if [ "$root" = "$GITHUB_SHA" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$pr_head" = "$root" ]; then
+              git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch"
+              default_tip="$(git rev-parse --verify "refs/remotes/origin/$default_branch^{commit}")"
+              root_line="$(git rev-list --parents -n 1 "$root")"
+              merge_line="$(git rev-list --parents -n 1 "$GITHUB_SHA")"
+              root_tree="$(git rev-parse --verify "$root^{tree}")"
+              merge_tree="$(git rev-parse --verify "$GITHUB_SHA^{tree}")"
+              if [ "$default_tip" != "$pr_base" ] || [ "$root_line" != "$root $pr_base" ] \
+                  || [ "$merge_line" != "$GITHUB_SHA $pr_base $root" ] || [ "$merge_tree" != "$root_tree" ]; then
+                echo "exact root pull request admission requires live base == root parent, merge parents == [base, root], and merge tree == root tree; fail closed" >&2
+                exit 1
+              fi
+              candidate="$root"
               mode="ROOT_ADMISSION"
-            elif git merge-base --is-ancestor "$root" "$GITHUB_SHA" >/dev/null 2>&1; then
+            elif [ "$root" = "$candidate" ]; then
+              mode="ROOT_ADMISSION"
+            elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
               mode="NORMAL"
             else
               echo "candidate does not descend from the Gate Epoch 2 trust root" >&2
@@ -764,7 +840,7 @@ jobs:
           else
             if [ -n "$admission" ]; then
               mode="ROOT_ADMISSION"
-              root="$GITHUB_SHA"
+              root="$candidate"
             else
               echo "Gate Epoch 2 trust root has not been installed." >&2
               echo "refs/tags/i18n-gate-epoch-2-root is missing; only an explicit workflow_dispatch" >&2
@@ -804,7 +880,7 @@ jobs:
                     base="$before"
                   else
                     # Feature branch event.before is not trusted: it may be a previously failed verifier.
-                    fork_base="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                    fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
                     if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
                       echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
                       exit 1
@@ -826,11 +902,11 @@ jobs:
               esac
             fi
             if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "cannot determine a valid trusted base for $GITHUB_SHA (event $GITHUB_EVENT_NAME); fail closed" >&2
+              echo "cannot determine a valid trusted base for $candidate (event $GITHUB_EVENT_NAME); fail closed" >&2
               exit 1
             fi
-            if [ "$base" = "$GITHUB_SHA" ]; then
-              echo "trusted base $base equals the candidate $GITHUB_SHA; fail closed" >&2
+            if [ "$base" = "$candidate" ]; then
+              echo "trusted base $base equals the candidate $candidate; fail closed" >&2
               exit 1
             fi
             if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
@@ -841,8 +917,8 @@ jobs:
               echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
               exit 1
             fi
-            if ! git merge-base --is-ancestor "$base" "$GITHUB_SHA" >/dev/null 2>&1; then
-              echo "trusted base $base is not an ancestor of the candidate $GITHUB_SHA; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
+            if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
+              echo "trusted base $base is not an ancestor of the candidate $candidate; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
               exit 1
             fi
             default_branch="${{ github.event.repository.default_branch }}"
@@ -855,10 +931,10 @@ jobs:
               exit 1
             fi
             if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              if [ "$default_tip" = "$GITHUB_SHA" ]; then
-                protected_predecessor="$(git rev-parse --verify --quiet "$GITHUB_SHA^{commit}^" 2>/dev/null || printf '%s' '')"
+              if [ "$default_tip" = "$candidate" ]; then
+                protected_predecessor="$(git rev-parse --verify --quiet "$candidate^{commit}^" 2>/dev/null || printf '%s' '')"
               else
-                protected_predecessor="$(git merge-base "$GITHUB_SHA" "$default_tip" 2>/dev/null || printf '%s' '')"
+                protected_predecessor="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
               fi
               if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
                 echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
@@ -947,6 +1023,7 @@ jobs:
             helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
               --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" \
               --before "$helper_before" \
+              --pr-head "$pr_head" \
               --pr-base "${{ github.event.pull_request.base.sha }}" \
               --merge-group-base "${{ github.event.merge_group.base_sha }}" \
               --input-base "${{ inputs.trusted_base_sha }}" \
@@ -957,8 +1034,9 @@ jobs:
             printf '%s' "$helper" > "$gate/helper.json"
             helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
             helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
+            helper_candidate="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.candidate)' "$gate/helper.json")"
+            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ] || [ "$helper_candidate" != "$candidate" ]; then
+              echo "trusted helper resolved $helper_mode/$helper_base/$helper_candidate but the bootstrap resolved $mode/$base/$candidate; fail closed" >&2
               exit 1
             fi
           fi
@@ -991,8 +1069,9 @@ jobs:
           echo "GATE_MODE=$mode" >> "$GITHUB_ENV"
           echo "ROOT_SHA=$root" >> "$GITHUB_ENV"
           echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CANDIDATE_SHA=$candidate" >> "$GITHUB_ENV"
           echo "GATE_DIR=$out" >> "$GITHUB_ENV"
-          echo "gate mode: $mode; trusted base: $base; root: $root"
+          echo "gate mode: $mode; candidate: $candidate; trusted base: $base; root: $root"
 
       # 各独立检查尽量都执行：某一项失败不跳过其余项（continue-on-error 收集 outcome，
       # 最后一步统一传播）。不得因为 tests 失败就跳过 trusted / ref / worktree / static。
@@ -1008,17 +1087,25 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          event_candidate="${{ github.sha }}"
+          if [ "$CANDIDATE_SHA" != "$event_candidate" ] \
+              && { [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+                || [ "$GATE_MODE" != "ROOT_ADMISSION" ] \
+                || [ "$CANDIDATE_SHA" != "${{ github.event.pull_request.head.sha }}" ]; }; then
+            echo "resolved candidate differs from the event SHA outside exact root PR admission; fail closed" >&2
+            exit 1
+          fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: candidate ${{ github.sha }} == Epoch 2 root; running the root gate."
+            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 2 root; running the root gate."
           fi
           node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
             --repo-root "$PWD" --report-root "$PWD" \
-            --candidate-ref "${{ github.sha }}"
+            --candidate-ref "$CANDIDATE_SHA"
 
       - name: Run i18n check on the tested commit (ref snapshot)
         id: ref
         continue-on-error: true
-        run: node scripts/i18n/check.mjs --snapshot ref --ref ${{ github.sha }}
+        run: node scripts/i18n/check.mjs --snapshot ref --ref "$CANDIDATE_SHA"
 
       - name: Run i18n worktree check
         id: worktree
@@ -1042,10 +1129,10 @@ jobs:
           set -euo pipefail
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --candidate-ref "${{ github.sha }}" --invariants
+              --candidate-ref "$CANDIDATE_SHA" --invariants
           else
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --trusted-dir "$GATE_DIR" --candidate-ref "${{ github.sha }}"
+              --trusted-dir "$GATE_DIR" --candidate-ref "$CANDIDATE_SHA"
           fi
 
       - name: Upload i18n report
