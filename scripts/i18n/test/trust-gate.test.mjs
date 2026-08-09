@@ -1,11 +1,11 @@
 'use strict';
 /**
- * trust-gate CLI 测试（Gate Epoch 2）：--show / --adopt-root / --advance。
+ * trust-gate CLI 测试（Gate Epoch 3）：--show / --adopt-root / --advance。
  * - adopt-root 是人工 TOFU / root admission：只接受完整 commit、干净状态、
  *   完整 i18n tests、ref snapshot check、signature guard、root contract self-test
  *   （--force-self-protection）、gate parity（--invariants）、required files，CI 禁止；
- *   全部通过才写 epoch == 2 + ref；
- * - advance 由 trusted Epoch 2 contract 审核候选：no-op checker / no-op contract /
+ *   全部通过才写 epoch == 3 + ref；
+ * - advance 由 trusted Epoch 3 contract 审核候选：no-op checker / no-op contract /
  *   删除 required file / 弱化 policy（含 epoch 改变）/ 门禁减少一律拒绝；不自动发生；
  * - 旧 epoch anchor 不迁移：advance 直接 OBSOLETE GATE EPOCH 拒绝。
  */
@@ -25,6 +25,7 @@ import { copyGateSurfaceFiles } from './lib/surface-fixture.mjs';
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 const CLI = path.join(SCRIPTS_DIR, 'trust-gate.mjs');
+const FIRST_ADMISSION_SPEC_REL = 'scripts/i18n/epoch-2-first-admission.json';
 
 // advance 的 trusted contract 使用 yaml 解析候选 workflow：fixture 仓库没有 node_modules，
 // 通过 NODE_PATH 指向真实仓库的 node_modules 完成解析（与 CI 的 npm ci 等价）。
@@ -65,8 +66,35 @@ function hasBash() {
     }
 }
 
+function materializeGateRef(ref) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv historical gate '));
+    const paths = git(['ls-tree', '-r', '--name-only', ref, '--',
+        ...trustedGate.GATE_PATHS], REPO_ROOT).stdout.trim().split(/\r?\n/).filter(Boolean);
+    for (const rel of paths) {
+        const target = path.join(dir, ...rel.split('/'));
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        const shown = git(['show', ref + ':' + rel], REPO_ROOT, { encoding: null });
+        fs.writeFileSync(target, shown.stdout);
+    }
+    return dir;
+}
+
+function findFirstAdmissionSource() {
+    for (const sha of git(['rev-list', 'HEAD'], REPO_ROOT).stdout.trim().split(/\r?\n/)) {
+        if (git(['cat-file', '-e', sha + ':' + FIRST_ADMISSION_SPEC_REL], REPO_ROOT,
+            { allowFailure: true }).status !== 0) {
+            continue;
+        }
+        const policy = JSON.parse(git(['show', sha + ':scripts/i18n/gate-policy.json'], REPO_ROOT).stdout);
+        if (policy.gateEpoch === 2) {
+            return sha;
+        }
+    }
+    throw new Error('cannot find the historical Epoch 2 first-admission source');
+}
+
 /** 与 hooks 测试同构的夹具；withAnchor=false 时不写 trusted anchor（供 CLI 自行建立）。 */
-function makeRepo(withAnchor = false, anchorEpoch = '2') {
+function makeRepo(withAnchor = false, anchorEpoch = '3', fixtureRef = null) {
     const dir = path.join(os.tmpdir(), 'pixiv trust repo ' + Date.now() + '-' + Math.random().toString(36).slice(2));
     fs.mkdirSync(dir, { recursive: true });
     git(['init', '-q'], dir);
@@ -75,18 +103,28 @@ function makeRepo(withAnchor = false, anchorEpoch = '2') {
     git(['config', 'core.autocrlf', 'false'], dir);
     // 与真实仓库一致：build/ 忽略（checker/contract 的报告目录）
     fs.writeFileSync(path.join(dir, '.gitignore'), 'build/\nnode_modules/\n', 'utf8');
-    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
-    fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
-    fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
-    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
-    // adopt-root 要求 policy 的 required paths 全部存在：夹具必须携带完整 gate bundle
-    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
-    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
-    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
-        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
-    copyGateSurfaceFiles(REPO_ROOT, dir);
-    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
-    fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));
+    const fixtureRoot = fixtureRef ? materializeGateRef(fixtureRef) : REPO_ROOT;
+    let policyTemplate;
+    try {
+        fs.cpSync(path.join(fixtureRoot, 'scripts', 'i18n'), path.join(dir, 'scripts', 'i18n'), { recursive: true });
+        policyTemplate = JSON.parse(fs.readFileSync(
+            path.join(fixtureRoot, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
+        fs.rmSync(path.join(dir, 'scripts', 'i18n', 'test'), { recursive: true, force: true });
+        fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
+        fs.cpSync(path.join(fixtureRoot, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
+        // adopt-root 要求 policy 的 required paths 全部存在：夹具必须携带完整 gate bundle
+        fs.cpSync(path.join(fixtureRoot, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
+        fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+        fs.copyFileSync(path.join(fixtureRoot, '.github', 'workflows', 'quality-gate.yml'),
+            path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+        copyGateSurfaceFiles(fixtureRoot, dir);
+        fs.copyFileSync(path.join(fixtureRoot, 'package.json'), path.join(dir, 'package.json'));
+        fs.copyFileSync(path.join(fixtureRoot, 'package-lock.json'), path.join(dir, 'package-lock.json'));
+    } finally {
+        if (fixtureRef) {
+            fs.rmSync(fixtureRoot, { recursive: true, force: true });
+        }
+    }
     const i18nDir = path.join(dir, APP_I18N);
     fs.mkdirSync(path.join(i18nDir, 'web'), { recursive: true });
     fs.writeFileSync(path.join(i18nDir, 'locales.json'), CATALOG, 'utf8');
@@ -101,7 +139,7 @@ function makeRepo(withAnchor = false, anchorEpoch = '2') {
     git(['add', '-A'], dir);
     git(['commit', '-q', '-m', 'init'], dir); // C1
     const start = git(['rev-parse', 'HEAD'], dir).stdout.trim();
-    const policy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'gate-policy.json'), 'utf8'));
+    const policy = policyTemplate;
     policy.i18nEnforcementStartCommit = start;
     fs.writeFileSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'),
         JSON.stringify(policy, null, 2) + '\n', 'utf8');
@@ -222,14 +260,8 @@ function setLiveMaster(root, sha) {
 }
 
 function rewriteFixtureForNextEpoch(root) {
-    const contextReplacements = new Map([
-        ['Quality Gate / java-tests', 'java-tests'],
-        ['Quality Gate / javascript-tests', 'javascript-tests'],
-        ['Quality Gate / signature-guard', 'signature-guard'],
-        ['Quality Gate / trusted-gate-contract', 'trusted-gate-contract'],
-        ['Quality Gate / i18n-check', 'i18n-check'],
-        ['Shared Snippet Drift Check / check-shared-snippets', 'check-shared-snippets'],
-    ]);
+    const spec = JSON.parse(fs.readFileSync(path.join(root, ...FIRST_ADMISSION_SPEC_REL.split('/')), 'utf8'));
+    const contextReplacements = new Map(Object.entries(spec.requiredContextReplacements));
     const roots = [path.join(root, 'scripts'), path.join(root, '.github', 'workflows')];
     for (const start of roots) {
         const pending = [start];
@@ -297,28 +329,28 @@ test('trust-gate：--show 未设置时提示 adopt-root', () => {
         const show = runCli(root, ['--show']);
         assert.equal(show.status, 0, show.stdout + show.stderr);
         assert.match(show.stdout, /<not set>/);
-        assert.match(show.stdout, /--adopt-root --ref HEAD --epoch 2/);
+        assert.match(show.stdout, /--adopt-root --ref HEAD --epoch 3/);
     } finally {
         cleanRepo(root);
     }
 });
 
-test('trust-gate：adopt-root 写入 epoch 2 + ref；--show 输出 SHA 与 contract version', () => {
+test('trust-gate：adopt-root 写入 epoch 3 + ref；--show 输出 SHA 与 contract version', () => {
     const root = makeRepo();
     try {
         const head = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
         assert.match(adopt.stdout + adopt.stderr, /ROOT ADMISSION/);
-        assert.match(adopt.stdout + adopt.stderr, /Gate Epoch 2 root adopted/);
+        assert.match(adopt.stdout + adopt.stderr, /Gate Epoch 3 root adopted/);
         const configured = git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim();
         assert.equal(configured, head, 'adopt-root 必须写入当前 HEAD 的完整 SHA');
-        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root).stdout.trim(), '2');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root).stdout.trim(), '3');
 
         const show = runCli(root, ['--show']);
         assert.equal(show.status, 0, show.stdout + show.stderr);
         assert.match(show.stdout, new RegExp('trustedGateRef: ' + head));
-        assert.match(show.stdout, /trustedGateEpoch: 2/);
+        assert.match(show.stdout, /trustedGateEpoch: 3/);
         assert.match(show.stdout, /contractVersion: 4/);
     } finally {
         cleanRepo(root);
@@ -328,7 +360,7 @@ test('trust-gate：adopt-root 写入 epoch 2 + ref；--show 输出 SHA 与 contr
 test('trust-gate：adopt-root 只写 local 配置（不写 global）', () => {
     const root = makeRepo();
     try {
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
         const origin = git(['config', '--show-origin', '--get', 'pixiv.i18n.trustedGateRef'], root, { allowFailure: true });
         assert.match(origin.stdout, /\.git[/\\]config/);
@@ -343,20 +375,20 @@ test('trust-gate：CI 环境禁止 prepare-root / seal-root / adopt-root / advan
     const root = makeRepo();
     try {
         const prepare = runCli(root,
-            ['--prepare-root', '--epoch', '2', '--trusted-source', '0'.repeat(40)], { CI: 'true' });
+            ['--prepare-root', '--epoch', '3', '--trusted-source', '0'.repeat(40)], { CI: 'true' });
         assert.notEqual(prepare.status, 0, 'CI=true 必须拒绝 prepare-root');
         assert.match(prepare.stderr, /forbidden in CI/);
         const seal = runCli(root, ['--seal-root', '--ref', 'HEAD', '--trusted-source', '0'.repeat(40)],
             { CI: 'true' });
         assert.notEqual(seal.status, 0, 'CI=true 必须拒绝 seal-root');
         assert.match(seal.stderr, /forbidden in CI/);
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { CI: 'true' });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { CI: 'true' });
         assert.notEqual(adopt.status, 0, 'CI=true 必须拒绝 adopt-root');
         assert.match(adopt.stderr, /forbidden in CI/);
         const configured = git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root, { allowFailure: true });
         assert.notEqual(configured.status, 0, 'CI 拒绝后不得写入配置');
 
-        const adoptOk = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adoptOk = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adoptOk.status, 0, adoptOk.stdout + adoptOk.stderr);
         const advance = runCli(root, ['--advance', '--ref', 'HEAD'], { CI: 'true' });
         assert.notEqual(advance.status, 0, 'CI=true 必须拒绝 advance');
@@ -366,18 +398,18 @@ test('trust-gate：CI 环境禁止 prepare-root / seal-root / adopt-root / advan
     }
 });
 
-test('trust-gate：adopt-root 只接受完整 commit + epoch 2（拒绝工作树路径 / 非 commit / 非 2 epoch）', () => {
+test('trust-gate：adopt-root 只接受完整 commit + epoch 3（拒绝工作树路径 / 非 commit / 非 3 epoch）', () => {
     const root = makeRepo();
     try {
         for (const bad of ['HEAD^{tree}', './scripts', 'README.md', 'not-a-ref']) {
-            const adopt = runCli(root, ['--adopt-root', '--ref', bad, '--epoch', '2'], { clearCI: true });
+            const adopt = runCli(root, ['--adopt-root', '--ref', bad, '--epoch', '3'], { clearCI: true });
             assert.notEqual(adopt.status, 0, '必须拒绝: ' + bad);
             assert.match(adopt.stderr, /must resolve to a full commit/);
         }
-        for (const badEpoch of ['1', '3', 'x']) {
+        for (const badEpoch of ['1', '2', '4', 'x']) {
             const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', badEpoch], { clearCI: true });
             assert.notEqual(adopt.status, 0, 'epoch ' + badEpoch + ' 必须拒绝');
-            assert.match(adopt.stderr, /--epoch must be exactly 2/);
+            assert.match(adopt.stderr, /--epoch must be exactly 3/);
         }
     } finally {
         cleanRepo(root);
@@ -388,14 +420,14 @@ test('trust-gate：adopt-root 脏工作树 / 已存在 anchor 拒绝', () => {
     const root = makeRepo();
     try {
         fs.writeFileSync(path.join(root, 'dirty.txt'), 'dirty\n', 'utf8');
-        const refused = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const refused = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.notEqual(refused.status, 0, '脏工作树必须拒绝');
         assert.match(refused.stderr, /worktree is not clean/);
         fs.rmSync(path.join(root, 'dirty.txt'));
 
-        const ok = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const ok = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(ok.status, 0, ok.stdout + ok.stderr);
-        const again = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const again = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.notEqual(again.status, 0, '已有 anchor 必须拒绝再次 adopt-root');
         assert.match(again.stderr, /already exists/);
     } finally {
@@ -408,10 +440,10 @@ test('trust-gate：trusted bridge 以实时 master tip 准备 tree、唯一封�
         test.skip('bash 不可用');
         return;
     }
-    const root = makeRepo(true);
+    const root = makeRepo(true, '2', findFirstAdmissionSource());
     try {
         const previousRoot = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', previousRoot], root);
+        git(['tag', trustedGate.rootTagNameForEpoch(2), previousRoot], root);
         rewriteFixtureForNextEpoch(root);
         git(['add', '-A'], root);
 
@@ -433,8 +465,9 @@ test('trust-gate：trusted bridge 以实时 master tip 准备 tree、唯一封�
 
         const policyFile = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
         const badPolicy = JSON.parse(fs.readFileSync(policyFile, 'utf8'));
+        const sourceSpec = JSON.parse(git(['show', previousRoot + ':' + FIRST_ADMISSION_SPEC_REL], root).stdout);
         badPolicy.requiredExternalCheckDefinitions[0].requiredContext =
-            'Shared Snippet Drift Check / check-shared-snippets';
+            Object.keys(sourceSpec.requiredContextReplacements).at(-1);
         fs.writeFileSync(policyFile, JSON.stringify(badPolicy, null, 2) + '\n', 'utf8');
         git(['add', 'scripts/i18n/gate-policy.json'], root);
         const dualContext = runTrustedCli(root, previousRoot,
@@ -543,10 +576,10 @@ test('trust-gate：adopt-root 在 ROOT_ADMISSION 后按 commit-point 重验 live
         test.skip('bash 不可用');
         return;
     }
-    const root = makeRepo(true);
+    const root = makeRepo(true, '2', findFirstAdmissionSource());
     try {
         const previousRoot = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        git(['tag', 'i18n-gate-epoch-2-root', previousRoot], root);
+        git(['tag', trustedGate.rootTagNameForEpoch(2), previousRoot], root);
         rewriteFixtureForNextEpoch(root);
         git(['add', '-A'], root);
         const prepare = runTrustedCli(root, previousRoot,
@@ -605,7 +638,7 @@ test('trust-gate：adopt-root 测试套件失败 → 拒绝', () => {
             "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('must fail', () => assert.equal(1, 2));\n", 'utf8');
         git(['add', '-A'], root);
         git(['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'add failing test'], root);
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.notEqual(adopt.status, 0, '测试套件失败时 adopt-root 必须拒绝\nSTDOUT: '
             + adopt.stdout + '\nSTDERR: ' + adopt.stderr);
         assert.match(adopt.stderr, /full i18n tests failed/);
@@ -622,7 +655,7 @@ test('trust-gate：advance 合法推进锚点；不自动发生；无 anchor 拒
     const root = makeRepo();
     try {
         const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
 
         // 正常提交 C3（经 pre-commit）→ 锚点不自动推进
@@ -642,7 +675,7 @@ test('trust-gate：advance 合法推进锚点；不自动发生；无 anchor 拒
         const afterAdvance = git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim();
         assert.equal(afterAdvance, head, 'advance 必须推进到候选 SHA');
         assert.notEqual(afterAdvance, c2);
-        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root).stdout.trim(), '2');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root).stdout.trim(), '3');
     } finally {
         cleanRepo(root);
     }
@@ -655,7 +688,7 @@ test('trust-gate：advance 无 anchor 拒绝；候选非 commit 拒绝', () => {
         assert.notEqual(noAnchor.status, 0, '无 anchor 必须提示 adopt-root');
         assert.match(noAnchor.stderr, /adopt-root/);
 
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
         const badRef = runCli(root, ['--advance', '--ref', 'HEAD^{tree}'], { clearCI: true });
         assert.notEqual(badRef.status, 0, '非 commit 候选必须拒绝');
@@ -689,9 +722,9 @@ test('trust-gate：旧 epoch anchor 不迁移 —— advance 直接 OBSOLETE GAT
         git(['config', '--local', '--unset', 'pixiv.i18n.trustedGateRef'], root);
         git(['config', '--local', '--unset', 'pixiv.i18n.trustedGateEpoch'], root);
         git(['reset', '-q', '--hard', 'HEAD~1'], root);
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
-        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root).stdout.trim(), '2');
+        assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateEpoch'], root).stdout.trim(), '3');
         assert.equal(git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim(), head);
     } finally {
         cleanRepo(root);
@@ -706,7 +739,7 @@ test('trust-gate：advance 单调推进 —— 向后 / sibling / 无共同历�
     const root = makeRepo();
     try {
         const c2 = git(['rev-parse', 'HEAD'], root).stdout.trim();
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
 
         // 正常提交 C3（走本地 pre-commit，锚点不自动推进）
@@ -777,7 +810,7 @@ test('trust-gate：advance 删除 required file → 拒绝；no-op checker → �
     }
     const root = makeRepo();
     try {
-        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '2'], { clearCI: true });
+        const adopt = runCli(root, ['--adopt-root', '--ref', 'HEAD', '--epoch', '3'], { clearCI: true });
         assert.equal(adopt.status, 0, adopt.stdout + adopt.stderr);
         const anchor = git(['config', '--local', '--get', 'pixiv.i18n.trustedGateRef'], root).stdout.trim();
 
@@ -826,9 +859,9 @@ test('trust-gate：advance 删除 required file → 拒绝；no-op checker → �
         assert.match(moved.stderr, /GATE CONTRACT FAILED|enforcement/);
         git(['reset', '-q', '--hard', 'HEAD~1'], root);
 
-        // 6) policy 弱化：gateEpoch 改变（2 → 3，未来 epoch）
+        // 6) policy 弱化：gateEpoch 改变（3 → 4，未来 epoch）
         const policy3 = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
-        policy3.gateEpoch = 3;
+        policy3.gateEpoch = 4;
         fs.writeFileSync(policyPath, JSON.stringify(policy3, null, 2) + '\n', 'utf8');
         commitBypass(root, 'change gate epoch');
         const epochChanged = runCli(root, ['--advance', '--ref', 'HEAD'], { clearCI: true });

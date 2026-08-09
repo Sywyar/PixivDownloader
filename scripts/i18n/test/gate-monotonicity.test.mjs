@@ -391,7 +391,7 @@ const MUTATIONS = [
         mutate: async (root) => {
             const policyPath = path.join(root, 'scripts', 'i18n', 'gate-policy.json');
             const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
-            policy.gateEpoch = 3;
+            policy.gateEpoch = 4;
             fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
         },
     },
@@ -535,7 +535,7 @@ const MUTATIONS = [
         mutate: async (root) => {
             const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
             const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
-            doc['i18n-gate-epoch-2-root'].allowBypass = true;
+            doc['i18n-gate-epoch-3-root'].allowBypass = true;
             fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
         },
     },
@@ -544,7 +544,7 @@ const MUTATIONS = [
         mutate: async (root) => {
             const file = path.join(root, 'scripts', 'ci', 'github-ruleset-invariants.json');
             const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
-            delete doc['i18n-gate-epoch-2-root'];
+            delete doc['i18n-gate-epoch-3-root'];
             fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
         },
     },

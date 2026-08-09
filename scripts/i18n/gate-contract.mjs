@@ -2,7 +2,7 @@
 'use strict';
 /**
  * 可信 Gate Contract：由 trusted anchor 物化并执行，黑盒验证候选 gate（index 或 ref）。
- * 本实现属于 Gate Epoch 2 单一标准；Epoch 1 及更早的兼容逻辑已整体移除。
+ * 本实现属于 Gate Epoch 3 单一标准；Epoch 2 及更早的兼容逻辑已整体移除。
  *
  * 用法：
  *   node gate-contract.mjs --repo-root <repo> --candidate-snapshot index
@@ -13,7 +13,7 @@
  * 信任模型：
  * - 本脚本自身必须运行在 trusted anchor 物化的 gate bundle 内（同目录 gate-policy.json 是
  *   可信事实）；候选快照只作为被检查对象，candidate 的 checker / contract / guard 不能自批准；
- * - Epoch 2 信任根是仓库外的受保护 annotated tag refs/tags/i18n-gate-epoch-2-root；
+ * - Epoch 3 信任根是仓库外的受保护 annotated tag refs/tags/i18n-gate-epoch-3-root；
  *   普通候选必须由 trusted predecessor 审核；root admission 是唯一显式人工例外
  *   （candidate == root 时运行 root 自身 gate + 全量 root self-protection suite，
  *   由 --force-self-protection 关闭归纳跳过）；
@@ -29,7 +29,7 @@
  *   report.json 的 issue type）：合法 fixture 必须通过，坏占位符 / 缺英文文件 / missing key /
  *   stale / translation-unaccepted / invalid lock / static 失步 / 硬编码语言必须失败；
  * - candidate hooks 实际运行验证（候选 hook 文件是执行对象）：pre-commit 必须找到 trusted
- *   anchor（epoch == 2）并由 trusted checker/contract 判定；no-op pre-commit / no-op pre-push /
+ *   anchor（epoch == 3）并由 trusted checker/contract 判定；no-op pre-commit / no-op pre-push /
  *   删除 trustedGateRef 读取 / pre-push 改回使用 candidate checker → 一律失败；
  * - candidate quality-gate.yml（真实 YAML 解析）与 package.json scripts 契约：触发器、
  *   必需 job、关键行为（经 shell 规范化：注释 / || true / if false 包裹全部拒绝）、
@@ -701,8 +701,8 @@ async function makeContractRepo(repoRoot, candidateRoot, trustedPolicy) {
     git(['commit', '-q', '--allow-empty', '-m', 'trust anchor'], repo); // C3
     const anchor = git(['rev-parse', 'HEAD'], repo);
     git(['config', '--local', 'core.hooksPath', 'scripts/hooks'], repo);
-    // Epoch 2 单一标准：hooks 要求 epoch == 2 才运行 trusted gate
-    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '2'], repo);
+    // Epoch 3 单一标准：hooks 要求 epoch == 3 才运行 trusted gate
+    git(['config', '--local', 'pixiv.i18n.trustedGateEpoch', '3'], repo);
     git(['config', '--local', 'pixiv.i18n.trustedGateRef', anchor], repo);
     // anchor 提交后：candidate hooks 重新写入工作树并提交（C4，bypass hooks）。
     // 执行对象 = candidate hooks；提交它们使场景的 git add -A 不再暂存 hook 差异
@@ -948,7 +948,7 @@ const APPROVED_ACTIONS = {
     'actions/download-artifact': '7',
     'actions/setup-java': '5',
 };
-/** Epoch 2 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
+/** Epoch 3 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
 const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'i18n:trust-gate',
     'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards', 'doctor:github-gate'];
 
@@ -1112,7 +1112,7 @@ function pushPackageCheck(checks, name, ok, diagnostic) {
  * 触发器 / 必需 job / job 级 continue-on-error 禁令 / 关键行为（shell 规范化）/
  * 关键命令不得改为 echo|true 或 || true / if false 包裹 / action 主版本 /
  * github.sha^ 回退禁令 / FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 清理 /
- * Epoch 2 root tag 与 ROOT_ADMISSION 机制 / reusable input 优先级 / trusted helper 交叉验证 /
+ * Epoch 3 root tag 与 ROOT_ADMISSION 机制 / reusable input 优先级 / trusted helper 交叉验证 /
  * gate parity 步骤。
  * 候选缺失 workflow 文件 = 删除 baseline 文件 → fail closed（无 predates 报告路径）。
  */
@@ -1172,7 +1172,7 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
             'cannot load trusted quality-gate push coverage: ' + e.message);
     }
 
-    // Epoch 2：workflow_dispatch 必须提供显式 root admission inputs（人工触发专用）
+    // Epoch 3：workflow_dispatch 必须提供显式 root admission inputs（人工触发专用）
     const dispatch = triggers.workflow_dispatch && typeof triggers.workflow_dispatch === 'object'
         ? triggers.workflow_dispatch : {};
     const dispatchInputs = dispatch.inputs && typeof dispatch.inputs === 'object' ? dispatch.inputs : {};
@@ -1215,7 +1215,7 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
     const resolver = path.join(candidateRoot, 'scripts', 'ci', 'resolve-trusted-base.mjs');
     if (fs.existsSync(resolver)) {
         const resText = fs.readFileSync(resolver, 'utf8');
-        const resOk = /i18n-gate-epoch-2-root/.test(resText)
+        const resOk = /i18n-gate-epoch-3-root/.test(resText)
             && /ROOT_ADMISSION/.test(resText)
             && /trusted_base_sha/.test(resText)
             && /minimumTrustedVerifier/.test(resText)
@@ -1227,7 +1227,7 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
             && /'merge-base', candidate/.test(resText)
             && !isNoopStep(resText);
         pushCheck(checks, 'resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
-            'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
+            'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 3 root tag /'
                 + ' ROOT_ADMISSION / trusted_base_sha input-precedence / minimumTrustedVerifier'
                 + ' / protected-default-history logic plus the full ancestry'
                 + ' provenance root <= base < candidate — root->candidate, root->base, base->candidate'
@@ -1304,11 +1304,11 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
     // 模式解析：root tag + ROOT_ADMISSION 机制必须在三个 gate job 中体现
     for (const jobId of ['signature-guard', 'trusted-gate-contract', 'i18n-check']) {
         const job = jobs[jobId];
-        const hasMode = jobSteps(job).some((s) => /i18n-gate-epoch-2-root/.test(stepRun(s))
+        const hasMode = jobSteps(job).some((s) => /i18n-gate-epoch-3-root/.test(stepRun(s))
             && /ROOT_ADMISSION/.test(stepRun(s)));
-        pushCheck(checks, jobId + ': Epoch 2 root tag + ROOT_ADMISSION mode machinery',
+        pushCheck(checks, jobId + ': Epoch 3 root tag + ROOT_ADMISSION mode machinery',
             hasMode,
-            jobId + ' must resolve refs/tags/i18n-gate-epoch-2-root and branch on ROOT_ADMISSION/NORMAL');
+            jobId + ' must resolve refs/tags/i18n-gate-epoch-3-root and branch on ROOT_ADMISSION/NORMAL');
         const hasInputFirst = jobSteps(job).some((s) => /inputs\.trusted_base_sha/.test(stepRun(s)));
         pushCheck(checks, jobId + ': trusted_base_sha input takes priority (reusable semantics)',
             hasInputFirst,
@@ -2237,7 +2237,7 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
             if (Array.isArray(pol.requiredExternalChecks)) {
                 pol.requiredExternalChecks = [];
             }
-            pol.gateEpoch = 3;
+            pol.gateEpoch = 4;
             pol.contractVersion = 0;
             fs.writeFileSync(policyPath, JSON.stringify(pol, null, 2) + '\n', 'utf8');
         }
@@ -2255,7 +2255,7 @@ async function runSelfProtection(repoRoot, candidateRoot, trustedPolicy, hasCont
                     allowDeletion: true,
                     allowNonFastForward: true,
                 },
-                'i18n-gate-epoch-2-root': {
+                'i18n-gate-epoch-3-root': {
                     allowDeletion: true,
                     allowNonFastForward: true,
                     allowBypass: true,
@@ -2383,7 +2383,7 @@ async function main() {
     try {
         trustedGate.assertSupportedTrustedVerifierDir(path.join(OWN_DIR, '..', '..'));
     } catch (e) {
-        fail('trusted verifier does not satisfy the current Gate Epoch 2 verifier baseline;'
+        fail('trusted verifier does not satisfy the current Gate Epoch 3 verifier baseline;'
             + ' fail closed: ' + e.message);
         return;
     }

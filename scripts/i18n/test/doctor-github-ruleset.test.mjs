@@ -24,13 +24,13 @@ const REQUIRED = invariants.master.requiredChecks;
 
 test('doctor：required contexts 与当前 trusted predecessor 声明一致', () => {
     assert.deepEqual(REQUIRED, [
-        'Quality Gate / java-tests', 'Quality Gate / javascript-tests',
-        'Quality Gate / signature-guard', 'Quality Gate / trusted-gate-contract',
-        'Quality Gate / i18n-check', 'Shared Snippet Drift Check / check-shared-snippets',
+        'java-tests', 'javascript-tests',
+        'signature-guard', 'trusted-gate-contract',
+        'i18n-check', 'check-shared-snippets',
     ]);
     const policy = JSON.parse(fs.readFileSync(path.join(SCRIPTS_DIR, 'gate-policy.json'), 'utf8'));
     assert.equal(policy.requiredExternalCheckDefinitions[0].requiredContext,
-        'Shared Snippet Drift Check / check-shared-snippets');
+        'check-shared-snippets');
 });
 
 function validMasterDetail() {
@@ -55,19 +55,23 @@ function validMasterDetail() {
     };
 }
 
-function validTagDetail() {
+function validTagDetail(epoch = 3) {
     return {
-        id: 202,
-        name: 'epoch2-root-protection',
+        id: 200 + epoch,
+        name: `epoch${epoch}-root-protection`,
         enforcement: 'active',
         target: 'tag',
-        conditions: { ref_name: { include: ['refs/tags/i18n-gate-epoch-2-root'] } },
+        conditions: { ref_name: { include: [`refs/tags/i18n-gate-epoch-${epoch}-root`] } },
         rules: [
             { type: 'deletion', parameters: {} },
             { type: 'non_fast_forward', parameters: {} },
         ],
         bypass_actors: [],
     };
+}
+
+function validTagDetails(epoch3 = validTagDetail()) {
+    return [validTagDetail(2), epoch3];
 }
 
 /** 摘要只含 id / name / target / enforcement；真实 API 的摘要 conditions 为 null（必须用 detail 分类）。 */
@@ -103,14 +107,14 @@ function makeFetch(listSummaries, detailsById) {
 
 async function doctorWith(masterDetail, tagDetail, overrides = {}) {
     const master = masterDetail === null ? null : (masterDetail || validMasterDetail());
-    const tag = tagDetail === null ? null : (tagDetail || validTagDetail());
+    const tags = tagDetail === null ? [] : validTagDetails(tagDetail || validTagDetail());
     const summaries = [];
     const details = {};
     if (master) {
         summaries.push(summaryOf(master));
         details[master.id] = master;
     }
-    if (tag) {
+    for (const tag of tags) {
         summaries.push(summaryOf(tag));
         details[tag.id] = tag;
     }
@@ -129,17 +133,19 @@ test('doctor：list endpoint 摘要 → 必须 follow detail endpoint（摘要�
     // 摘要故意携带错误 enforcement 且 conditions=null（列表对象不可作为检查依据）：
     // detail 完全正确 → 必须 exit 0，证明分类与检查全部来自 detail
     const master = validMasterDetail();
-    const tag = validTagDetail();
+    const tags = validTagDetails();
     const summaries = [
         { ...summaryOf(master), enforcement: 'disabled' },
-        { ...summaryOf(tag), enforcement: 'disabled' },
+        ...tags.map((tag) => ({ ...summaryOf(tag), enforcement: 'disabled' })),
     ];
-    const { fetchJson, calls } = makeFetch(summaries, { [master.id]: master, [tag.id]: tag });
+    const details = Object.fromEntries([master, ...tags].map((detail) => [detail.id, detail]));
+    const { fetchJson, calls } = makeFetch(summaries, details);
     const result = await runDoctor({ fetchJson, token: 't', repo: REPO, invariants });
     assert.equal(result.exitCode, 0, JSON.stringify(result.problems));
     assert.ok(calls.some((u) => /\/rulesets\/101$/.test(u)), '必须请求 master detail endpoint');
     assert.ok(calls.some((u) => /\/rulesets\/202$/.test(u)), '必须请求 tag detail endpoint');
-    assert.ok(calls.filter((u) => /\/rulesets\/\d+$/.test(u)).length >= 2,
+    assert.ok(calls.some((u) => /\/rulesets\/203$/.test(u)), '必须请求全部 tag detail endpoint');
+    assert.ok(calls.filter((u) => /\/rulesets\/\d+$/.test(u)).length >= 3,
         'list 之后必须逐个 follow detail（用 detail 的 conditions 分类）');
 });
 
@@ -149,29 +155,20 @@ test('doctor：master + root tag detail 完全正确 → success (exit 0)', asyn
 });
 
 test('doctor：声明多个 Epoch root 时逐个要求受保护 ruleset', async () => {
-    const nextInvariants = structuredClone(invariants);
-    nextInvariants['i18n-gate-epoch-3-root'] = structuredClone(
-        nextInvariants['i18n-gate-epoch-2-root']);
     const master = validMasterDetail();
-    const epoch2 = validTagDetail();
-    const epoch3 = {
-        ...validTagDetail(),
-        id: 203,
-        name: 'epoch3-root-protection',
-        conditions: { ref_name: { include: ['refs/tags/i18n-gate-epoch-3-root'] } },
-    };
+    const [epoch2, epoch3] = validTagDetails();
     const completeFetch = makeFetch(
         [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3)],
         { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3 });
     const complete = await runDoctor({
-        fetchJson: completeFetch.fetchJson, token: 't', repo: REPO, invariants: nextInvariants,
+        fetchJson: completeFetch.fetchJson, token: 't', repo: REPO, invariants,
     });
     assert.equal(complete.exitCode, 0, JSON.stringify(complete.problems));
 
     const missingFetch = makeFetch(
         [summaryOf(master), summaryOf(epoch2)], { [master.id]: master, [epoch2.id]: epoch2 });
     const missing = await runDoctor({
-        fetchJson: missingFetch.fetchJson, token: 't', repo: REPO, invariants: nextInvariants,
+        fetchJson: missingFetch.fetchJson, token: 't', repo: REPO, invariants,
     });
     assert.equal(missing.exitCode, 1);
     assert.ok(missing.problems.some((p) => /refs\/tags\/i18n-gate-epoch-3-root/.test(p)));

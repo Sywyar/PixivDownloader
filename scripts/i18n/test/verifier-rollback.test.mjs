@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Verifier rollback 禁止测试（Gate Epoch 2 新标准）：
+ * Verifier rollback 禁止测试（Gate Epoch 3 新标准）：
  * trusted base 必须同时满足 ancestry（root <= base < candidate）与当前 verifier capability
  * （contractVersion >= 4 / schemaVersion >= 3 / verifier 本体文件齐全）。
  * 旧 verifier（contract v3 root 等）即使满足 root <= base < candidate 也必须 FAIL CLOSED。
@@ -54,7 +54,7 @@ function git(args, cwd, opts = {}) {
 
 /**
  * 构造 DAG 夹具：
- * - R0：Epoch 2 历史 root（v3 时代：contractVersion 3 / schemaVersion 2，无 gate-surface.json，
+ * - R0：Epoch 3 历史 root（v3 时代：contractVersion 3 / schemaVersion 2，无 gate-surface.json，
  *   与真实 cb587e01 同构）——root tag 指向它（root 只是历史信任纪元起点，不要求当前能力）；
  * - V4：当前标准 verifier（contract 4 / schema 3 / 全部 verifier 本体文件）；
  * - C：candidate（V4 后代）。
@@ -74,20 +74,20 @@ function makeDagRepo({ v4Contract = 4, withSurface = true } = {}) {
     fs.mkdirSync(path.join(dir, 'scripts', 'ci'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'),
         JSON.stringify({
-            schemaVersion: 2, gateEpoch: 2, contractVersion: 3,
+            schemaVersion: 2, gateEpoch: 3, contractVersion: 3,
             i18nEnforcementStartCommit: '05f4ebed7ce00f0b923fe48ec2e0971610511547',
             requiredPaths: [], protectedBranches: ['refs/heads/master'],
             requiredWorkflowJobs: ['java-tests'], requiredWorkflowFiles: [],
             requiredPackageScripts: [], requiredExternalChecks: [],
         }, null, 2) + '\n', 'utf8');
     git(['add', '-A'], dir);
-    git(['commit', '-q', '-m', 'R0 (epoch 2 historical root, contract v3)'], dir);
+    git(['commit', '-q', '-m', 'R0 (epoch 3 historical root, contract v3)'], dir);
     const r0 = git(['rev-parse', 'HEAD'], dir).stdout.trim();
-    git(['tag', 'i18n-gate-epoch-2-root', r0], dir);
+    git(['tag', 'i18n-gate-epoch-3-root', r0], dir);
 
     // V4（或变异）：当前标准 verifier
     const policy = {
-        schemaVersion: 3, gateEpoch: 2, contractVersion: v4Contract,
+        schemaVersion: 3, gateEpoch: 3, contractVersion: v4Contract,
         i18nEnforcementStartCommit: r0,
         requiredPaths: [], protectedBranches: ['refs/heads/master'],
         requiredWorkflowJobs: ['java-tests'], requiredWorkflowFiles: [],
