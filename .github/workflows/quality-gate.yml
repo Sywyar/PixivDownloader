@@ -3,7 +3,7 @@ name: Quality Gate
 on:
   push:
     # 任意代码分支 push 都触发完整 Quality Gate（不再限定 master）；
-    # gh-pages 是纯文档分支，历史不包含 Epoch 2 root，触发只会确定性失败，因此排除
+    # gh-pages 是纯文档分支，历史不包含 Epoch 3 root，触发只会确定性失败，因此排除
     branches-ignore: [gh-pages]
   pull_request:
   merge_group:
@@ -14,7 +14,7 @@ on:
         required: false
         type: string
       root_admission:
-        description: 'ROOT ADMISSION mode (human-only): treat this dispatch as the Gate Epoch 2 root admission run'
+        description: 'ROOT ADMISSION mode (human-only): treat this dispatch as the Gate Epoch 3 root admission run'
         required: false
         type: boolean
         default: false
@@ -67,19 +67,19 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      # Gate Epoch 2 bootstrap（三个 gate job 共用同一份语义，镜像 scripts/ci/resolve-trusted-base.mjs）：
-      # - 解析 root tag refs/tags/i18n-gate-epoch-2-root：缺失 → 仅显式 workflow_dispatch
+      # Gate Epoch 3 bootstrap（三个 gate job 共用同一份语义，镜像 scripts/ci/resolve-trusted-base.mjs）：
+      # - 解析 root tag refs/tags/i18n-gate-epoch-3-root：缺失 → 仅显式 workflow_dispatch
       #   root_admission=true + root_candidate_sha == github.sha 可进入 ROOT_ADMISSION，否则 fail closed；
       # - candidate == root → ROOT_ADMISSION（root 自身 gate + 全量 root self-protection）；
       # - candidate 是 root 后代 → NORMAL：trusted base 优先级 = inputs.trusted_base_sha
       #   （reusable workflow 的 github.event_name 是调用方原始 event，不能依赖它）→
       #   pull_request base.sha / merge_group base_sha / protected push event.before /
       #   other push merge-base(candidate, protected default branch) /
-      #   workflow_dispatch 默认分支远端；base 必须 != candidate、必须包含 Epoch 2 root；
+      #   workflow_dispatch 默认分支远端；base 必须 != candidate、必须包含 Epoch 3 root；
       # - 其它 candidate（不包含 root）→ fail closed，不尝试任何 v1 / legacy / transition 路径；
       # - 物化路径含 package-lock.json；物化结果与 trusted helper
       #   （resolve-trusted-base.mjs --mode + materialize-trusted-gate.sh）交叉验证。
-      - name: Resolve Gate Epoch 2 root and trusted base
+      - name: Resolve Gate Epoch 3 root and trusted base
         run: |
           set -euo pipefail
           zero="0000000000000000000000000000000000000000"
@@ -87,7 +87,7 @@ jobs:
           pr_head="${{ github.event.pull_request.head.sha }}"
           pr_base="${{ github.event.pull_request.base.sha }}"
           default_branch="${{ github.event.repository.default_branch }}"
-          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" 2>/dev/null || printf '%s' '')"
+          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-3-root^{commit}" 2>/dev/null || printf '%s' '')"
           admission=""
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
             admission="1"
@@ -119,7 +119,7 @@ jobs:
             elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
               mode="NORMAL"
             else
-              echo "candidate does not descend from the Gate Epoch 2 trust root" >&2
+              echo "candidate does not descend from the Gate Epoch 3 trust root" >&2
               exit 1
             fi
           else
@@ -127,8 +127,8 @@ jobs:
               mode="ROOT_ADMISSION"
               root="$candidate"
             else
-              echo "Gate Epoch 2 trust root has not been installed." >&2
-              echo "refs/tags/i18n-gate-epoch-2-root is missing; only an explicit workflow_dispatch" >&2
+              echo "Gate Epoch 3 trust root has not been installed." >&2
+              echo "refs/tags/i18n-gate-epoch-3-root is missing; only an explicit workflow_dispatch" >&2
               echo "root_admission=true with root_candidate_sha may enter ROOT_ADMISSION; fail closed" >&2
               exit 1
             fi
@@ -199,7 +199,7 @@ jobs:
               exit 1
             fi
             if ! git merge-base --is-ancestor "$root" "$base" >/dev/null 2>&1; then
-              echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
+              echo "trusted base $base does not descend from the Gate Epoch 3 trust root $root; fail closed" >&2
               exit 1
             fi
             if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
@@ -228,7 +228,7 @@ jobs:
             fi
           else
             base="$root"
-            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
+            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 3 trust root candidate; running the root gate with the full root self-protection suite." >&2
           fi
           # Candidate policy proposes the next monotonic minimum. The protected predecessor must
           # satisfy it before any verifier code is materialized or executed.
@@ -296,7 +296,7 @@ jobs:
           # trusted base 必须满足当前 verifier baseline：gate-surface.json 是强制物化合同。
           # 旧 verifier（predates 清单 / 旧 contract）一律无资格审核新标准候选 → FAIL CLOSED
           test -f "$out/scripts/ci/gate-surface.json" || {
-            echo "trusted base $base does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+            echo "trusted base $base does not satisfy the current Gate Epoch 3 verifier baseline; fail closed" >&2
             exit 1
           }
           # 与 trusted helper 交叉验证（helper 来自 trusted base；候选不能自我批准）
@@ -372,7 +372,7 @@ jobs:
             exit 1
           fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: running the root guard (candidate == Epoch 2 root candidate)."
+            echo "ROOT ADMISSION MODE: running the root guard (candidate == Epoch 3 root candidate)."
           fi
           bash "$GATE_DIR/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "$CANDIDATE_SHA"
 
@@ -423,7 +423,7 @@ jobs:
       - name: Install dependencies (yaml parser for the workflow contract)
         run: npm ci
 
-      - name: Resolve Gate Epoch 2 root and trusted base
+      - name: Resolve Gate Epoch 3 root and trusted base
         run: |
           set -euo pipefail
           zero="0000000000000000000000000000000000000000"
@@ -431,7 +431,7 @@ jobs:
           pr_head="${{ github.event.pull_request.head.sha }}"
           pr_base="${{ github.event.pull_request.base.sha }}"
           default_branch="${{ github.event.repository.default_branch }}"
-          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" 2>/dev/null || printf '%s' '')"
+          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-3-root^{commit}" 2>/dev/null || printf '%s' '')"
           admission=""
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
             admission="1"
@@ -463,7 +463,7 @@ jobs:
             elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
               mode="NORMAL"
             else
-              echo "candidate does not descend from the Gate Epoch 2 trust root" >&2
+              echo "candidate does not descend from the Gate Epoch 3 trust root" >&2
               exit 1
             fi
           else
@@ -471,8 +471,8 @@ jobs:
               mode="ROOT_ADMISSION"
               root="$candidate"
             else
-              echo "Gate Epoch 2 trust root has not been installed." >&2
-              echo "refs/tags/i18n-gate-epoch-2-root is missing; only an explicit workflow_dispatch" >&2
+              echo "Gate Epoch 3 trust root has not been installed." >&2
+              echo "refs/tags/i18n-gate-epoch-3-root is missing; only an explicit workflow_dispatch" >&2
               echo "root_admission=true with root_candidate_sha may enter ROOT_ADMISSION; fail closed" >&2
               exit 1
             fi
@@ -543,7 +543,7 @@ jobs:
               exit 1
             fi
             if ! git merge-base --is-ancestor "$root" "$base" >/dev/null 2>&1; then
-              echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
+              echo "trusted base $base does not descend from the Gate Epoch 3 trust root $root; fail closed" >&2
               exit 1
             fi
             if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
@@ -572,7 +572,7 @@ jobs:
             fi
           else
             base="$root"
-            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
+            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 3 trust root candidate; running the root gate with the full root self-protection suite." >&2
           fi
           # Candidate policy proposes the next monotonic minimum. The protected predecessor must
           # satisfy it before any verifier code is materialized or executed.
@@ -639,7 +639,7 @@ jobs:
           # trusted base 必须满足当前 verifier baseline：gate-surface.json 是强制物化合同。
           # 旧 verifier（predates 清单 / 旧 contract）一律无资格审核新标准候选 → FAIL CLOSED
           test -f "$out/scripts/ci/gate-surface.json" || {
-            echo "trusted base $base does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+            echo "trusted base $base does not satisfy the current Gate Epoch 3 verifier baseline; fail closed" >&2
             exit 1
           }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
@@ -712,7 +712,7 @@ jobs:
             exit 1
           fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 2 root; running the root gate with the full root self-protection suite."
+            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 3 root; running the root gate with the full root self-protection suite."
           fi
           node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
             --repo-root "$PWD" --report-root "$PWD" \
@@ -752,7 +752,7 @@ jobs:
           echo "    trusted-gate-contract, i18n-check) as required checks."
           echo "  - Configure 'check-shared-snippets' as a required external check"
           echo "    (strict required status checks, no bypass actors)."
-          echo "  - Create the annotated tag i18n-gate-epoch-2-root at the reviewed Epoch 2 root"
+          echo "  - Create the annotated tag i18n-gate-epoch-3-root at the reviewed Epoch 3 root"
           echo "    commit and protect it with a Ruleset (no delete, no force update, no bypass)."
           echo "  - Gate surface (.github/workflows/quality-gate.yml, shared-snippets-check.yml,"
           echo "    release.yml, nightly.yml, publish-plugins.yml, scripts/i18n/**, scripts/hooks/**,"
@@ -790,7 +790,7 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Resolve Gate Epoch 2 root and trusted base
+      - name: Resolve Gate Epoch 3 root and trusted base
         run: |
           set -euo pipefail
           zero="0000000000000000000000000000000000000000"
@@ -798,7 +798,7 @@ jobs:
           pr_head="${{ github.event.pull_request.head.sha }}"
           pr_base="${{ github.event.pull_request.base.sha }}"
           default_branch="${{ github.event.repository.default_branch }}"
-          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-2-root^{commit}" 2>/dev/null || printf '%s' '')"
+          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-3-root^{commit}" 2>/dev/null || printf '%s' '')"
           admission=""
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
             admission="1"
@@ -830,7 +830,7 @@ jobs:
             elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
               mode="NORMAL"
             else
-              echo "candidate does not descend from the Gate Epoch 2 trust root" >&2
+              echo "candidate does not descend from the Gate Epoch 3 trust root" >&2
               exit 1
             fi
           else
@@ -838,8 +838,8 @@ jobs:
               mode="ROOT_ADMISSION"
               root="$candidate"
             else
-              echo "Gate Epoch 2 trust root has not been installed." >&2
-              echo "refs/tags/i18n-gate-epoch-2-root is missing; only an explicit workflow_dispatch" >&2
+              echo "Gate Epoch 3 trust root has not been installed." >&2
+              echo "refs/tags/i18n-gate-epoch-3-root is missing; only an explicit workflow_dispatch" >&2
               echo "root_admission=true with root_candidate_sha may enter ROOT_ADMISSION; fail closed" >&2
               exit 1
             fi
@@ -910,7 +910,7 @@ jobs:
               exit 1
             fi
             if ! git merge-base --is-ancestor "$root" "$base" >/dev/null 2>&1; then
-              echo "trusted base $base does not descend from the Gate Epoch 2 trust root $root; fail closed" >&2
+              echo "trusted base $base does not descend from the Gate Epoch 3 trust root $root; fail closed" >&2
               exit 1
             fi
             if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
@@ -939,7 +939,7 @@ jobs:
             fi
           else
             base="$root"
-            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 2 trust root candidate; running the root gate with the full root self-protection suite." >&2
+            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 3 trust root candidate; running the root gate with the full root self-protection suite." >&2
           fi
           # Candidate policy proposes the next monotonic minimum. The protected predecessor must
           # satisfy it before any verifier code is materialized or executed.
@@ -1006,7 +1006,7 @@ jobs:
           # trusted base 必须满足当前 verifier baseline：gate-surface.json 是强制物化合同。
           # 旧 verifier（predates 清单 / 旧 contract）一律无资格审核新标准候选 → FAIL CLOSED
           test -f "$out/scripts/ci/gate-surface.json" || {
-            echo "trusted base $base does not satisfy the current Gate Epoch 2 verifier baseline; fail closed" >&2
+            echo "trusted base $base does not satisfy the current Gate Epoch 3 verifier baseline; fail closed" >&2
             exit 1
           }
           if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
@@ -1090,7 +1090,7 @@ jobs:
             exit 1
           fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 2 root; running the root gate."
+            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 3 root; running the root gate."
           fi
           node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
             --repo-root "$PWD" --report-root "$PWD" \

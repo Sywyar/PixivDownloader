@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "gateEpoch": 2,
+  "gateEpoch": 3,
   "contractVersion": 4,
   "minimumTrustedVerifier": {
     "contractVersion": 4,
@@ -23,7 +23,6 @@
     "scripts/i18n/lib/repository-snapshot.mjs",
     "scripts/i18n/lib/trusted-gate.mjs",
     "scripts/i18n/trust-gate.mjs",
-    "scripts/i18n/epoch-2-first-admission.json",
     "scripts/hooks/pre-commit",
     "scripts/hooks/pre-push",
     "scripts/hooks/pre-push-guard.sh",
@@ -74,7 +73,7 @@
       "workflow": ".github/workflows/shared-snippets-check.yml",
       "workflowName": "Shared Snippet Drift Check",
       "jobId": "check-shared-snippets",
-      "requiredContext": "Shared Snippet Drift Check / check-shared-snippets"
+      "requiredContext": "check-shared-snippets"
     }
   ]
 }

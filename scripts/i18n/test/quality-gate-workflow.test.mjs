@@ -668,7 +668,7 @@ test('workflow 契约：删除 Epoch 2 root tag 解析 → 拒绝', () => {
         const doc = readWorkflow(root);
         const baseStep = doc.jobs['signature-guard'].steps.find((s) => /base_sha|event\.before/.test(s.run || ''));
         assert.ok(baseStep, '测试前提：必须存在 trusted base 解析 step');
-        baseStep.run = baseStep.run.replace(/i18n-gate-epoch-2-root/g, 'i18n-gate-epoch-1-root');
+        baseStep.run = baseStep.run.replace(/i18n-gate-epoch-3-root/g, 'i18n-gate-epoch-1-root');
         writeWorkflow(root, doc);
         commitBypass(root, 'swap root tag name');
         const sha = git(['rev-parse', 'HEAD'], root).stdout.trim();
@@ -943,7 +943,7 @@ test('ruleset 契约：恶意候选（requireStrict=false / allowBypass=true / a
                 allowDeletion: true,
                 allowNonFastForward: true,
             };
-            doc['i18n-gate-epoch-2-root'] = {
+            doc['i18n-gate-epoch-3-root'] = {
                 allowDeletion: true,
                 allowNonFastForward: true,
                 allowBypass: true,

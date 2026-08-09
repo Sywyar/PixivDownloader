@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Gate Parity / Monotonicity 审计（Gate Epoch 2 标准的一部分）。
+ * Gate Parity / Monotonicity 审计（Gate Epoch 3 标准的一部分）。
  *
  * 回答：候选提交是否删除、缩小、弱化了任何既有质量门禁？
  * 它不兼容旧 gate，也不是旧 contract 的替代品；它冻结「门禁不可减少」不变量：
@@ -14,7 +14,7 @@
  *   report upload / result propagation / root tag 与 ROOT_ADMISSION 机制 /
  *   input 优先级 / trusted helper 交叉验证 不减少（shell 规范化后检查实际命令）；
  * - package.json：必需 scripts 存在且指向真实入口（不得 = true / echo ok）；
- * - gate-invariants.json：候选 policy / workflow / package 必须满足 Epoch 2 最低合同
+ * - gate-invariants.json：候选 policy / workflow / package 必须满足 Epoch 3 最低合同
  *   （root admission 模式下没有 trusted predecessor，用 invariants 作为最低线）。
  *
  * 用法：
@@ -25,7 +25,7 @@
  *   --report-root <dir>（默认 repo root；报告写 build/reports/i18n/parity.json）
  *
  * 退出码：0 = 无减少；1 = 发现减少（fail closed）；2 = 用法 / 解析错误。
- * 本地 Git hooks / 仓库内 workflow 不能宣称绝对不可绕过；本审计只是 Epoch 2 门禁的
+ * 本地 Git hooks / 仓库内 workflow 不能宣称绝对不可绕过；本审计只是 Epoch 3 门禁的
  * 一部分，最终 required check / branch protection 由 GitHub Ruleset 提供。
  */
 import { execFileSync, spawnSync } from 'child_process';
@@ -69,7 +69,7 @@ const RULESET_INVARIANTS_REL = path.posix.join('scripts', 'ci', 'github-ruleset-
 
 const REQUIRED_TRIGGERS = ['push', 'pull_request', 'merge_group', 'workflow_dispatch', 'workflow_call'];
 const REQUIRED_WORKFLOW_JOBS = ['java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract', 'i18n-check'];
-/** Epoch 2 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
+/** Epoch 3 门禁的最低 package scripts 集合（policy.requiredPackageScripts 在此基础上只增不减）。 */
 const REQUIRED_SCRIPTS = ['test:i18n', 'i18n:check', 'i18n:generate-static', 'i18n:trust-gate',
     'i18n:gate-contract', 'i18n:gate-parity', 'test:js', 'test:web-standards', 'doctor:github-gate'];
 const TRUSTED_LOC = /\$GATE_DIR|\$RUNNER_TEMP|\bguard\/out\b|materialize-trusted-gate/;
@@ -466,7 +466,7 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
     const resFile = path.join(candidateRoot, 'scripts', 'ci', 'resolve-trusted-base.mjs');
     if (fs.existsSync(resFile)) {
         const resText = fs.readFileSync(resFile, 'utf8');
-        const resOk = /i18n-gate-epoch-2-root/.test(resText)
+        const resOk = /i18n-gate-epoch-3-root/.test(resText)
             && /ROOT_ADMISSION/.test(resText)
             && /trusted_base_sha/.test(resText)
             && /minimumTrustedVerifier/.test(resText)
@@ -481,7 +481,7 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
             && /exact root pull request admission/.test(resText)
             && !isNoopStep(resText);
         pushCheck('resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
-            'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 2 root tag /'
+            'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 3 root tag /'
                 + ' ROOT_ADMISSION / trusted_base_sha input-precedence logic plus the full ancestry'
                 + ' provenance root <= base < candidate; exit-0 stubs are refused)');
     }
@@ -505,12 +505,12 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
                 + ' detection, or reduced to a no-op stub)');
     }
 
-    // Epoch 2 机制
+    // Epoch 3 机制
     for (const jobId of ['signature-guard', 'trusted-gate-contract', 'i18n-check']) {
         const job = candidateJobs[jobId];
-        pushCheck(jobId + ': Epoch 2 root tag + ROOT_ADMISSION machinery',
-            jobSteps(job).some((s) => /i18n-gate-epoch-2-root/.test(stepRun(s)) && /ROOT_ADMISSION/.test(stepRun(s))),
-            jobId + ' must resolve the Epoch 2 root tag and branch on ROOT_ADMISSION/NORMAL');
+        pushCheck(jobId + ': Epoch 3 root tag + ROOT_ADMISSION machinery',
+            jobSteps(job).some((s) => /i18n-gate-epoch-3-root/.test(stepRun(s)) && /ROOT_ADMISSION/.test(stepRun(s))),
+            jobId + ' must resolve the Epoch 3 root tag and branch on ROOT_ADMISSION/NORMAL');
         pushCheck(jobId + ': trusted_base_sha input takes priority',
             jobSteps(job).some((s) => /inputs\.trusted_base_sha/.test(stepRun(s))),
             jobId + ' must prefer inputs.trusted_base_sha before event-based fallback');
