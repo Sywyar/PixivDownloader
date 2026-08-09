@@ -21,7 +21,8 @@
  *    - inputs.trusted_base_sha 非空 → 使用它（workflow_call 的 github.event_name 是调用方
  *      的原始 event，不能依赖 event 猜测；调用者只 propose，本脚本负责 prove）；
  *    - 否则按当前 event：pull_request → base.sha；merge_group → base_sha；
- *      push 到受保护默认分支 → event.before；其它分支 push（无论 before 是否非零）→
+ *      push 到受保护默认分支 → event.before；仅 exact root merge push（root parent == before、
+ *      merge parents == [before, root]、merge tree == root tree）使用 root；其它分支 push →
  *      merge-base(candidate, 受保护默认分支) 的 fork base；
  *      workflow_dispatch → 默认分支远端 ref；其它 → fail closed；
  *    - 每个来源的 base 都必须满足完整 provenance：base 是 commit、base != candidate、
@@ -276,6 +277,23 @@ function isExactRootPullRequest(repoRoot, args, mergeCandidate, root) {
     return true;
 }
 
+function isExactRootMergePush(repoRoot, args, mergeCandidate, root) {
+    if (args.eventName !== 'push'
+        || (args.gitRef && args.gitRef !== 'refs/heads/' + args.defaultBranch)
+        || !SHA_RE.test(args.before || '') || args.before === ZERO) {
+        return false;
+    }
+    const before = resolveCommit(repoRoot, args.before);
+    if (!before) {
+        return false;
+    }
+    const rootParents = commitParents(repoRoot, root);
+    const mergeParents = commitParents(repoRoot, mergeCandidate);
+    return rootParents.length === 1 && rootParents[0] === before
+        && mergeParents.length === 2 && mergeParents[0] === before && mergeParents[1] === root
+        && commitTree(repoRoot, mergeCandidate) === commitTree(repoRoot, root);
+}
+
 /** 新分支（before 全零）的 fork base：merge-base(candidate, 受保护默认分支)。 */
 function resolveForkBase(repoRoot, candidate, defaultBranch) {
     const tip = resolveDefaultBranch(repoRoot, defaultBranch);
@@ -308,7 +326,7 @@ function resolveProtectedPredecessor(repoRoot, candidate, defaultBranch) {
 }
 
 /** 根据 event / inputs 解析 NORMAL 模式 trusted base（input 优先级最高）。 */
-function resolveNormalBase(repoRoot, args) {
+function resolveNormalBase(repoRoot, args, candidate, root) {
     // 1. 显式 input 优先（reusable workflow 的 event_name 是调用方原始 event，不能依赖它）
     if (SHA_RE.test(args.inputBase || '')) {
         return args.inputBase;
@@ -331,6 +349,9 @@ function resolveNormalBase(repoRoot, args) {
             if (!before) {
                 fail('event.before ' + args.before + ' is not present in the local object database');
                 return null;
+            }
+            if (isExactRootMergePush(repoRoot, args, candidate, root)) {
+                return root;
             }
             return before;
         }
@@ -416,7 +437,7 @@ function main() {
             + ' (root tag missing or pointing at the candidate); the root gate runs with the full'
             + ' root self-protection suite.');
     } else {
-        base = resolveNormalBase(repoRoot, args);
+        base = resolveNormalBase(repoRoot, args, candidate, root);
         if (!base) {
             fail('cannot determine a trusted base for ' + candidate + ' (event ' + args.eventName
                 + ', no explicit trusted_base_sha input); fail closed');
@@ -460,7 +481,8 @@ function main() {
             }
         }
         if (args.eventName === 'push' && args.gitRef === 'refs/heads/' + args.defaultBranch
-            && args.before && SHA_RE.test(args.before) && args.before !== ZERO && base !== args.before) {
+            && args.before && SHA_RE.test(args.before) && args.before !== ZERO && base !== args.before
+            && !isExactRootMergePush(repoRoot, args, candidate, root)) {
             fail('trusted base ' + base + ' does not resolve to the protected push before commit '
                 + args.before);
             return;

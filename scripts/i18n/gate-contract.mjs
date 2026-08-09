@@ -1230,6 +1230,7 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
             && /--pr-head/.test(resText) && /resolveLiveDefaultBranch/.test(resText)
             && /commitParents/.test(resText) && /commitTree/.test(resText)
             && /exact root pull request admission/.test(resText)
+            && /isExactRootMergePush/.test(resText) && /exact root merge push/.test(resText)
             && !isNoopStep(resText);
         pushCheck(checks, 'resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
             'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 3 root tag /'
@@ -1342,6 +1343,16 @@ function runWorkflowContractChecks(repoRoot, candidateRoot) {
             exactRootPr,
             jobId + ' must audit the protected root head only after the PR merge ref matches the live'
                 + ' base, root parent, merge parents and root tree');
+        const exactRootMergePush = jobSteps(job).some((s) =>
+            /root_line=.*rev-list --parents/.test(stepRun(s))
+            && /candidate_line=.*rev-list --parents/.test(stepRun(s))
+            && /candidate_tree=.*\^\{tree\}/.test(stepRun(s))
+            && /candidate \$before \$root/.test(stepRun(s))
+            && /base="\$root"/.test(stepRun(s)));
+        pushCheck(checks, jobId + ': exact root merge push uses root only for sealed topology',
+            exactRootMergePush,
+            jobId + ' must use the Epoch 3 root as base only when root parent == before,'
+                + ' merge parents == [before, root], and merge tree == root tree');
     }
 
     const jGuard = jobs['signature-guard'];

@@ -479,6 +479,7 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
             && /--pr-head/.test(resText) && /resolveLiveDefaultBranch/.test(resText)
             && /commitParents/.test(resText) && /commitTree/.test(resText)
             && /exact root pull request admission/.test(resText)
+            && /isExactRootMergePush/.test(resText) && /exact root merge push/.test(resText)
             && !isNoopStep(resText);
         pushCheck('resolve-trusted-base.mjs keeps root/input-precedence/ancestry semantics', resOk,
             'candidate weakened scripts/ci/resolve-trusted-base.mjs (must keep the Epoch 3 root tag /'
@@ -532,6 +533,13 @@ function auditWorkflow(checks, trustedDoc, candidateDoc, candidateRoot) {
                 && /--candidate "\$candidate"/.test(stepRun(s)) && !/--pr-head/.test(stepRun(s))
                 && /CANDIDATE_SHA/.test(stepRun(s))),
             jobId + ' must bind root PR admission to the live base, root parent, merge parents and root tree');
+        pushCheck(jobId + ': exact root merge push uses root only for sealed topology',
+            jobSteps(job).some((s) => /root_line=.*rev-list --parents/.test(stepRun(s))
+                && /candidate_line=.*rev-list --parents/.test(stepRun(s))
+                && /candidate_tree=.*\^\{tree\}/.test(stepRun(s))
+                && /candidate \$before \$root/.test(stepRun(s))
+                && /base="\$root"/.test(stepRun(s))),
+            jobId + ' must bind root merge push to root parent, merge parents and root tree');
     }
 
     // 失败吞没 / 条件跳过禁令：只针对运行关键门禁命令的 step；纯 no-op step 一律拒绝

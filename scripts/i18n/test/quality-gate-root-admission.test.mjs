@@ -265,6 +265,40 @@ test('root admission：PR merge ref 仅在 live base、root 单一 parent 与 me
     }
 });
 
+test('protected push：精确 root merge 以 root 为 trusted base，tree 或 parent 变化均 fail closed', () => {
+    const repo = makeRepo();
+    try {
+        const root = git(['rev-parse', 'HEAD'], repo).stdout.trim();
+        const before = git(['rev-parse', 'HEAD^'], repo).stdout.trim();
+        const rootTree = git(['rev-parse', root + '^{tree}'], repo).stdout.trim();
+        git(['tag', 'i18n-gate-epoch-3-root', root], repo);
+
+        const merge = git(['commit-tree', rootTree, '-p', before, '-p', root], repo,
+            { input: 'Exact root merge push\n' }).stdout.trim();
+        const remote = path.join(repo, '.git', 'test-origin.git');
+        git(['--git-dir', remote, 'update-ref', 'refs/heads/master', before], repo);
+        git(['update-ref', 'refs/remotes/origin/master', before], repo);
+        git(['-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', merge + ':refs/heads/master'], repo);
+        const args = ['--event-name', 'push', '--candidate', merge, '--before', before,
+            '--default-branch', 'master', '--ref', 'refs/heads/master', '--mode'];
+        const accepted = runResolver(repo, args);
+        assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
+        assert.deepEqual(JSON.parse(accepted.stdout), { mode: 'NORMAL', base: root, root });
+
+        const badTree = git(['commit-tree', before + '^{tree}', '-p', before, '-p', root], repo,
+            { input: 'Wrong tree root merge push\n' }).stdout.trim();
+        const treeMismatch = runResolver(repo, args.map((arg) => arg === merge ? badTree : arg));
+        assert.notEqual(treeMismatch.status, 0, 'merge tree 变化必须 fail closed');
+
+        const wrongParents = git(['commit-tree', rootTree, '-p', root, '-p', before], repo,
+            { input: 'Wrong parents root merge push\n' }).stdout.trim();
+        const parentMismatch = runResolver(repo, args.map((arg) => arg === merge ? wrongParents : arg));
+        assert.notEqual(parentMismatch.status, 0, 'merge parent 身份或顺序变化必须 fail closed');
+    } finally {
+        cleanRepo(repo);
+    }
+});
+
 test('reusable input 优先级：显式 trusted_base_sha 优先于 event；input == candidate / 不含 root → 拒绝', () => {
     const root = makeRepo();
     try {
