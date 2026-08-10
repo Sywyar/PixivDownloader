@@ -43,12 +43,19 @@ jobs:
         id: vars
         shell: bash
         run: |
+          set -euo pipefail
           LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v0.0.0"
           fi
           LATEST_VERSION="${LATEST_TAG#v}"
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          if [[ "$PATCH" == *-* ]]; then
+            PATCH="${PATCH%%-*}"
+            if ! git rev-parse --verify --quiet "refs/tags/v${MAJOR}.${MINOR}.${PATCH}" >/dev/null; then
+              PATCH=$((PATCH - 1))
+            fi
+          fi
           NEXT_PATCH=$((PATCH + 1))
           NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
           NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
