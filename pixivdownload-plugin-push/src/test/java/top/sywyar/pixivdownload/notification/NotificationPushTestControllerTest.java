@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.TestMessageResolver;
+import top.sywyar.pixivdownload.push.TestNotificationTemplates;
 import top.sywyar.pixivdownload.push.controller.PushTestRequest;
 import top.sywyar.pixivdownload.push.controller.PushTestResponse;
 
@@ -35,7 +36,7 @@ class NotificationPushTestControllerTest {
 
     @BeforeEach
     void setUp() {
-        PushMessageFactory factory = new PushMessageFactory(TestMessageResolver.INSTANCE);
+        PushMessageFactory factory = new PushMessageFactory(TestNotificationTemplates.catalog());
         pushService = mock(PushDispatcher.class);
         controller = new NotificationPushTestController(pushService, factory, TestMessageResolver.INSTANCE);
     }

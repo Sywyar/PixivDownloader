@@ -2,8 +2,9 @@ package top.sywyar.pixivdownload.push;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContribution;
 
 import java.util.Locale;
 import java.util.Map;
@@ -14,7 +15,7 @@ import java.util.regex.Pattern;
 /**
  * 推送侧的<b>构建中心</b>：把一个通知 id + 级别 + 运行期占位符渲染成一条 {@link PushMessage}（Markdown 单源）。
  * <ul>
- *   <li>标题取 i18n {@code push.message.{id}.title}；正文取 {@code push.message.{id}.body}（Markdown 源）。</li>
+ *   <li>标题与 Markdown 正文取自场景插件经稳定契约贡献的已本地化模板。</li>
  *   <li>正文 / 标题中的 {@code {{key}}} 运行期占位符由传入的 {@code placeholders} 替换；缺失的 key 替换为空串，
  *       <b>绝不</b>外发裸 {@code {{key}}}（与 {@code MailTemplateRegistry} 的取值占位符语义一致，便于两侧复用同一套键）。</li>
  * </ul>
@@ -24,15 +25,14 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class PushMessageFactory {
 
-    private static final String KEY_PREFIX = "push.message.";
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([a-zA-Z0-9_.\\-]+)\\s*}}");
 
-    private final MessageResolver messages;
+    private final NotificationTemplateCatalog notificationTemplates;
 
     /**
      * 渲染一条推送消息。
      *
-     * @param id           canonical id（与邮件模板 id 一致），用于拼 {@code push.message.{id}.title/.body}
+     * @param id           canonical id（与邮件模板 id 一致），用于查询场景插件贡献的模板
      * @param level        中性严重程度（{@code null} 由 {@link PushMessage} 归一为
      *                     {@link NotificationSeverity#INFO}）
      * @param locale       目标语言
@@ -44,12 +44,16 @@ public class PushMessageFactory {
             Locale locale,
             Map<String, String> placeholders) {
         Map<String, String> values = placeholders == null ? Map.of() : placeholders;
+        Locale effective = locale == null ? Locale.getDefault() : locale;
+        NotificationTemplateContribution template = notificationTemplates
+                .find(id, "push", effective)
+                .orElseThrow(() -> new IllegalArgumentException("unknown push notification template: " + id));
         // 标题不做 Markdown 转义：标题在各通道的渲染并不统一为 Markdown（钉钉 / 企微按 Markdown 标题、
         // Telegram 以 HTML 加粗、飞书以 plain_text、Bark 纯文本），转义会在非 Markdown 渲染处留下可见反斜杠。
-        String title = applyPlaceholders(messages.get(locale, KEY_PREFIX + id + ".title"), values, false);
+        String title = applyPlaceholders(template.titleTemplate(), values, false);
         // 正文源格式恒为 Markdown：数据型占位符值先做 Markdown 字面转义，避免值里的 * / _ / [ ] 等与
         // Markdown 语法冲突被渲染器吞掉（如企业微信吞 Cron 的 *）；标记型占位符（*_md / *_html）保持原样。
-        String body = applyPlaceholders(messages.get(locale, KEY_PREFIX + id + ".body"), values, true);
+        String body = applyPlaceholders(template.bodyTemplate(), values, true);
         return PushMessage.markdown(title, body, level);
     }
 

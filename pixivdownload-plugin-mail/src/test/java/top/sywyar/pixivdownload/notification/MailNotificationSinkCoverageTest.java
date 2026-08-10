@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.mail.MailConfig;
 import top.sywyar.pixivdownload.mail.MailService;
 import top.sywyar.pixivdownload.mail.TestMessageResolver;
+import top.sywyar.pixivdownload.mail.TestNotificationTemplates;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 class MailNotificationSinkCoverageTest {
 
     private final MailNotificationSink sink = new MailNotificationSink(
-            new MailTemplateRegistry(TestMessageResolver.INSTANCE),
+            new MailTemplateRegistry(TestMessageResolver.INSTANCE, TestNotificationTemplates.catalog()),
             new MailService(new MailConfig(), TestMessageResolver.INSTANCE));
 
     @Test

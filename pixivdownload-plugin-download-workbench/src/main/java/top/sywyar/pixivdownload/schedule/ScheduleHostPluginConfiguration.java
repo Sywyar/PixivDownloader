@@ -15,15 +15,18 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContributor;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleNetworkRouteResolver;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleWorkConcurrencyLimiter;
+import top.sywyar.pixivdownload.schedule.notification.ScheduleNotificationTemplateContributor;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 /**
@@ -47,6 +50,13 @@ import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 @EnableAsync(proxyTargetClass = true)
 @EnableScheduling
 public class ScheduleHostPluginConfiguration {
+
+    @Bean
+    public NotificationTemplateContributor scheduleNotificationTemplateContributor(
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
+            LocaleBundlePolicy localeBundlePolicy) {
+        return new ScheduleNotificationTemplateContributor(messages, localeBundlePolicy.supportedLocales());
+    }
 
     @Bean
     @ConfigurationProperties(prefix = "schedule")

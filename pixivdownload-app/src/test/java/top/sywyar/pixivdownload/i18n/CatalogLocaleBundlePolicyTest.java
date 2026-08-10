@@ -44,6 +44,9 @@ class CatalogLocaleBundlePolicyTest {
     @DisplayName("normalize：alias / 大小写 / 未知语言统一落到 catalog 正式 tag")
     void normalizeResolvesAliasAndUnknownToCanonicalTags() {
         LocaleBundlePolicy policy = new CatalogLocaleBundlePolicy(fixture());
+        assertThat(policy.supportedLocales())
+                .extracting(Locale::toLanguageTag)
+                .containsExactly("zh-CN", "en-US");
         assertThat(policy.normalize(Locale.forLanguageTag("zh-Hans")).toLanguageTag())
                 .isEqualTo("zh-CN");
         assertThat(policy.normalize(Locale.forLanguageTag("ja")).toLanguageTag())

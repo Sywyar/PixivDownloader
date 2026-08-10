@@ -21,8 +21,8 @@ import java.util.Map;
  * {@link NotificationScenario#id()} / {@link NotificationScenario#level()}。
  *
  * <p>{@link #deliver} best-effort：渲染异常兜底（{@code PushDispatcher.push} 本身也不抛、各通道失败已隔离）；
- * {@link #verifyRenderable} 通过实际 {@link PushMessageFactory#render 渲染}（空占位符）静态校验
- * {@code push.message.{id}.title} 与 {@code .body} 在中、英 bundle 均存在（缺失时 i18n 回退为 key 本身，据此判定）。
+ * {@link #verifyRenderable} 通过实际 {@link PushMessageFactory#render 渲染}（空占位符）校验场景插件
+ * 已为中英文贡献可用的标题与 Markdown 正文。
  */
 @Component
 @RequiredArgsConstructor
@@ -82,24 +82,14 @@ public class PushNotificationSink implements NotificationSink {
 
     @Override
     public void verifyRenderable(NotificationScenario scenario) {
-        String titleKey = "push.message." + scenario.id() + ".title";
-        String bodyKey = "push.message." + scenario.id() + ".body";
         for (Locale locale : VERIFY_LOCALES) {
             PushMessage message = messageFactory.render(
                     scenario.id(), scenario.level(), locale, Map.of());
-            if (isMissing(message.title(), titleKey)) {
+            if (message.title() == null || message.title().isBlank()
+                    || message.content() == null || message.content().isBlank()) {
                 throw new IllegalStateException(
-                        "push title i18n missing: " + titleKey + " @ " + locale);
-            }
-            if (isMissing(message.content(), bodyKey)) {
-                throw new IllegalStateException(
-                        "push body i18n missing: " + bodyKey + " @ " + locale);
+                        "push template missing for scenario " + scenario.id() + " @ " + locale);
             }
         }
-    }
-
-    /** i18n 缺失时 {@code MessageResolver} 回退为 key 本身：空 / 等于 key 即视为缺失。 */
-    private static boolean isMissing(String value, String key) {
-        return value == null || value.isBlank() || value.equals(key);
     }
 }

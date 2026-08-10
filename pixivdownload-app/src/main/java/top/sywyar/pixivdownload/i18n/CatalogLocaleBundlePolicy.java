@@ -24,6 +24,11 @@ public final class CatalogLocaleBundlePolicy implements LocaleBundlePolicy {
     }
 
     @Override
+    public List<Locale> supportedLocales() {
+        return catalog.visibleLocales().stream().map(LocaleDescriptor::toLocale).toList();
+    }
+
+    @Override
     public Locale normalize(Locale requested) {
         return catalog.resolve(requested).toLocale();
     }

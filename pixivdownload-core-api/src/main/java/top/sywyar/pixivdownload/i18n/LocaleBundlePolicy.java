@@ -22,6 +22,13 @@ import java.util.Locale;
  */
 public interface LocaleBundlePolicy {
 
+    /**
+     * 本策略正式支持的语言。旧实现默认只声明当前归一化语言；host catalog 实现返回全部可见语言。
+     */
+    default List<Locale> supportedLocales() {
+        return List.of(normalize(Locale.getDefault()));
+    }
+
     /** 把请求的 locale 归一化为策略支持的正式 locale。 */
     Locale normalize(Locale requested);
 

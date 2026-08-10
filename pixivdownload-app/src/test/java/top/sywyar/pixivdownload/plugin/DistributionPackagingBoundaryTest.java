@@ -335,8 +335,10 @@ class DistributionPackagingBoundaryTest {
                     .containsAll(HOST_OWNED_NOVEL_MESSAGE_KEYS)
                     .containsAll(SHARED_NOVEL_MESSAGE_KEYS);
         }
-        assertThat(host.getResource("mail/templates/run-summary.html"))
-                .as("mail 模板资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("mail/templates/mail-config-success.html"))
+                .as("mail 配置测试模板资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("notification/templates/mail/run-summary.html"))
+                .as("download-workbench 通知模板资源不应在 boot jar 内").isNull();
     }
 
     @Test
@@ -406,7 +408,8 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/i18n/push/",
                 "BOOT-INF/classes/i18n/tts/",
                 "BOOT-INF/classes/i18n/ai/",
-                "BOOT-INF/classes/mail/templates/");
+                "BOOT-INF/classes/mail/templates/",
+                "BOOT-INF/classes/notification/templates/");
         for (String prefix : forbiddenPrefixes) {
             assertThat(entries)
                     .as("boot jar must not contain external plugin payload prefix " + prefix)

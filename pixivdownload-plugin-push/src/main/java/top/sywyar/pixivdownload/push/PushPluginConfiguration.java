@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationPushTestController;
 import top.sywyar.pixivdownload.notification.PushNotificationSink;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
 import top.sywyar.pixivdownload.push.channel.bark.BarkConfig;
 import top.sywyar.pixivdownload.push.channel.bark.BarkPushChannel;
 import top.sywyar.pixivdownload.push.channel.dingtalk.DingTalkConfig;
@@ -115,8 +116,8 @@ public class PushPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(PushPlugin.ID)
-    public PushMessageFactory pushMessageFactory(@Qualifier("pushPluginMessages") MessageResolver messages) {
-        return new PushMessageFactory(messages);
+    public PushMessageFactory pushMessageFactory(NotificationTemplateCatalog notificationTemplates) {
+        return new PushMessageFactory(notificationTemplates);
     }
 
     @Bean
