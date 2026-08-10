@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.douyin.download;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
@@ -67,18 +66,6 @@ public class DouyinDownloadService {
     private final ConcurrentMap<TaskIdentity, String> runningStatusIds = new ConcurrentHashMap<>();
     private final Object runningLock = new Object();
     private final QueueTaskTracker taskTracker = new QueueTaskTracker(QUEUE_TYPE);
-
-    public DouyinDownloadService(DouyinUrlParser parser,
-                                 DouyinClient client,
-                                 DouyinMediaDownloader mediaDownloader,
-                                 InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
-                                 RuntimePathProvider runtimePathProvider) {
-        this(parser, client, mediaDownloader, interactiveDownloadExecutionLane,
-                requireRuntimePathProvider(runtimePathProvider)
-                        .resolvePluginDataDirectory("douyin")
-                        .resolve("downloads")
-                        .normalize());
-    }
 
     public DouyinDownloadService(DouyinUrlParser parser,
                                  DouyinClient inheritClient,
@@ -808,13 +795,6 @@ public class DouyinDownloadService {
 
     private static int positiveLimit(int limit) {
         return limit > 0 ? Math.min(limit, 100) : DEFAULT_PAGE_SIZE;
-    }
-
-    private static RuntimePathProvider requireRuntimePathProvider(RuntimePathProvider runtimePathProvider) {
-        if (runtimePathProvider == null) {
-            throw new IllegalArgumentException("Runtime path provider must not be null");
-        }
-        return runtimePathProvider;
     }
 
     private static String safeTitle(String title, String fallbackId) {
