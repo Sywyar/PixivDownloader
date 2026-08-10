@@ -14,6 +14,11 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 public class ExampleDownloadConfiguration {
 
     @Bean
+    public ExampleDownloadPlugin exampleDownloadPlugin() {
+        return new ExampleDownloadPlugin();
+    }
+
+    @Bean
     public ExampleDownloadQueue exampleDownloadQueue() {
         return new ExampleDownloadQueue();
     }
