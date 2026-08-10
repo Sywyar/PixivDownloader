@@ -210,6 +210,33 @@ public class ExampleDownloadConfiguration {
 
 Do not rely on host root-package scanning, and do not scan arbitrary classes from the plugin package. A child context may inject Plugin API, Core API, JDK types, and specification dependencies explicitly exposed by the parent context, but it must not inject app implementation classes.
 
+## Contribute notification templates
+
+Notification templates belong to the plugin that owns the business scenario, not to the mail or push transport plugin. Expose a `top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContributor` Bean from that owner's child context. Each returned `NotificationTemplateContribution` is a pure value containing `scenarioId`, `medium`, `locale`, `titleTemplate`, and `bodyTemplate`:
+
+```java
+@Bean
+NotificationTemplateContributor notificationTemplates() {
+    return () -> List.of(new NotificationTemplateContribution(
+            "example.completed",
+            "mail",
+            Locale.US,
+            "Example completed",
+            """
+            <!doctype html>
+            <html><body><p>{{summary}}</p></body></html>
+            """));
+}
+```
+
+Publishing template data does not register a new notification scenario or trigger delivery. Use only scenario ids admitted by the corresponding stable scenario/dispatcher contract, and do not override another plugin's tuple. The mail and push plugins consume the host's read-only `NotificationTemplateCatalog`; each transport still owns its own configuration, render checks, delivery, and failure handling.
+
+The host calls contributors while preparing the plugin publication, copies the records into an immutable snapshot, and removes that exact publication on stop, reload, or unload. Duplicate `(scenarioId, medium, locale)` tuples fail fast. Lookup uses an exact locale first, then a deterministic same-language fallback.
+
+HTML does not cross a network or process boundary between plugins. It is passed in the same JVM as a bounded `String` value and measured in UTF-8 bytes: titles are limited to 16 KiB, bodies to 1 MiB, and one plugin publication to 256 templates and 8 MiB total contribution data. Do not pass an `InputStream`, `Path`, Spring `Resource`, `ClassLoader`, Bean, or deferred callback through this contract; those would retain plugin-owned lifetime or I/O state. Escape untrusted values before inserting them into an HTML placeholder.
+
+If a real use case exceeds these bounds or needs binary data, propose a separate host-owned streaming/blob-handle contract with explicit lifetime and quotas. Do not enlarge this template contract or exchange temporary files between plugins.
+
 ## Web routes, static resources, and i18n
 
 Every controller mapping, static directory, and top-level HTML file must be declared by its owning plugin in `routes()`. An undeclared `path + HTTP method` returns 404; hiding a frontend entry point is not authorization.

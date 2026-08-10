@@ -209,6 +209,33 @@ public class ExampleDownloadConfiguration {
 
 不要依赖宿主根包扫描，也不要从插件包扫描任意类。子上下文可以注入父上下文明确提供的 Plugin API、Core API、JDK 类型和规范依赖，但不能注入 app 实现类。
 
+## 贡献通知模板
+
+通知模板归拥有业务场景的插件所有，不归 mail 或 push 传输插件所有。场景所有者应在自己的子上下文中提供 `top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContributor` Bean；每个 `NotificationTemplateContribution` 都只是包含 `scenarioId`、`medium`、`locale`、`titleTemplate` 和 `bodyTemplate` 的纯值：
+
+```java
+@Bean
+NotificationTemplateContributor notificationTemplates() {
+    return () -> List.of(new NotificationTemplateContribution(
+            "example.completed",
+            "mail",
+            Locale.US,
+            "示例已完成",
+            """
+            <!doctype html>
+            <html><body><p>{{summary}}</p></body></html>
+            """));
+}
+```
+
+发布模板数据不会注册新的通知场景，也不会触发发送。只能使用对应稳定场景 / dispatcher 契约已经接纳的场景 id，且不能覆盖其它插件拥有的 tuple。mail 和 push 插件只消费宿主提供的只读 `NotificationTemplateCatalog`；配置、渲染检查、发送和失败处理仍由各自介质插件拥有。
+
+宿主在准备插件 publication 时调用 contributor，把 record 复制为不可变快照；插件 stop、reload 或 unload 时撤回对应的精确 publication。重复的 `(scenarioId, medium, locale)` 会立即失败。查找先匹配精确 locale，再按确定顺序回退到同语言模板。
+
+HTML 不会通过网络或进程边界在插件间传输。它在同一个 JVM 内作为有界 `String` 纯值传递，并按 UTF-8 字节计量：标题上限 16 KiB，正文上限 1 MiB；单个插件一次 publication 最多 256 份模板、贡献数据合计最多 8 MiB。不要通过本契约传递 `InputStream`、`Path`、Spring `Resource`、`ClassLoader`、Bean 或延迟回调，否则会把插件生命周期或 I/O 状态泄漏到边界外。把不可信值填入 HTML 占位符前必须转义。
+
+如果真实需求超过这些上限或需要二进制数据，应另行提出具有明确生命周期和配额的宿主所有 streaming/blob handle 契约；不要扩大模板契约，也不要让插件通过临时文件互相交换数据。
+
 ## Web 路由、静态资源和 i18n
 
 每个 controller 映射、静态目录和顶层 HTML 都必须由所属插件在 `routes()` 中声明。未声明的 `path + HTTP method` 会返回 404；前端隐藏入口不构成鉴权。
