@@ -17,4 +17,4 @@ Replace these values consistently before using the template:
 | `plugin.requires=1.0` | The compatible Plugin API major/minor requirement |
 | `plugin.provider=Example Developer` | Your provider name |
 
-After replacement, update both i18n bundles and run `mvn clean verify` again. Keep feature id, routes, static paths, namespace, schema owner, and tests aligned. Do not add dependencies on the host app/core/runtime, signature internals, installer code, official-plugin services, or root-context component scanning.
+After replacement, update both i18n bundles and run `mvn clean verify` again. Keep feature id, routes, static paths, namespace, plugin-owned table names, and tests aligned. Do not add dependencies on the host app/core/runtime, signature internals, installer code, official-plugin services, or root-context component scanning.

@@ -57,7 +57,7 @@ class ExampleDownloadPluginTest {
     }
 
     @Test
-    @DisplayName("子上下文只发布一个队列操作 bean 且可按 queueType 唯一注册")
+    @DisplayName("子上下文显式发布功能插件并只注册一个队列操作 bean")
     void childContextPublishesOneUniquelyRegisterableQueue() {
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
             child.registerBean(ObjectMapper.class, () -> new ObjectMapper());
@@ -66,6 +66,7 @@ class ExampleDownloadPluginTest {
             child.register(ExampleDownloadConfiguration.class);
             child.refresh();
 
+            assertNotNull(child.getBean(ExampleDownloadPlugin.class));
             var operations = child.getBeansOfType(QueueOperations.class);
             assertEquals(1, operations.size());
             assertTrue(operations.containsKey("exampleDownloadQueue"));

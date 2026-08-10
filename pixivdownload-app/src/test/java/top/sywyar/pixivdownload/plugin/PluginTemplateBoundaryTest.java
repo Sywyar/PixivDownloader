@@ -123,6 +123,21 @@ class PluginTemplateBoundaryTest {
     }
 
     @Test
+    @DisplayName("模板文档不宣传不存在的公共契约")
+    void templateDocumentationReferencesOnlyExistingPublicContracts() throws IOException {
+        Path templates = repositoryRoot().resolve("plugin-templates");
+        for (String templateName : TEMPLATE_NAMES) {
+            assertThat(read(templates.resolve(templateName).resolve("README.md")))
+                    .as(templateName + " README")
+                    .doesNotContain(
+                            "independentPage",
+                            "DownloadGalleryCapabilities",
+                            "QueueTypeContribution",
+                            "schema owner");
+        }
+    }
+
+    @Test
     @DisplayName("模板描述符必填项完整且模板不进入产品构建和分发")
     void descriptorsAreCompleteAndTemplatesStayOutsideDistribution() throws IOException {
         Path root = repositoryRoot();
