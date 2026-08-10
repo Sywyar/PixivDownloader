@@ -11,14 +11,18 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.Arrays;
 import java.util.List;
 
 /**
- * 中性的通知基础插件：只拥有 {@code notification.scenario.*} 配置字段与对应展示文案，
- * 不注册任何发送介质、Sink、控制器或静态资源。
+ * 通知基础插件：拥有 {@code notification.scenario.*} 配置与管理员站内信介质。
+ * 邮件和推送仍由各自插件提供，业务场景模板仍由场景所有者贡献。
  */
 public class NotificationPlugin implements PixivFeaturePlugin {
 
@@ -52,6 +56,34 @@ public class NotificationPlugin implements PixivFeaturePlugin {
     @Override
     public PluginKind kind() {
         return PluginKind.FEATURE;
+    }
+
+    @Override
+    public List<SchemaContribution> schema() {
+        return List.of(NotificationInboxSchema.CONTRIBUTION);
+    }
+
+    @Override
+    public List<WebRouteContribution> routes() {
+        return List.of(
+                WebRouteContribution.admin("/pixiv-notifications.html"),
+                WebRouteContribution.admin("/pixiv-notifications/**"),
+                WebRouteContribution.admin("/api/notifications"),
+                WebRouteContribution.admin("/api/notifications/**"));
+    }
+
+    @Override
+    public List<StaticResourceContribution> staticResources() {
+        return List.of(
+                new StaticResourceContribution("classpath:/static/", "/pixiv-notifications.html", true),
+                new StaticResourceContribution("classpath:/static/pixiv-notifications/", "/pixiv-notifications/"));
+    }
+
+    @Override
+    public List<WebUiSlotContribution> uiSlots() {
+        return List.of(new WebUiSlotContribution(
+                ID + ".batch-topbar", "topbar-actions",
+                "/pixiv-notifications/batch-inbox-slot.js", 10));
     }
 
     @Override

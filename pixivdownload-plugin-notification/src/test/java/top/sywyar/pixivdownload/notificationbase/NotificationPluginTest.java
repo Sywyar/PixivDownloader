@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 
 import java.util.List;
 import java.util.Set;
@@ -25,7 +26,7 @@ class NotificationPluginTest {
     private final NotificationPlugin plugin = new NotificationPlugin();
 
     @Test
-    @DisplayName("只贡献 notification.scenario.* GUI 字段，默认启用且可热重载")
+    @DisplayName("贡献 notification.scenario.* GUI 字段，默认启用且可热重载")
     void contributesScenarioFieldsWithDefaultEnabled() {
         List<GuiConfigFieldContribution> fields = plugin.guiConfigContributions().stream()
                 .flatMap(contribution -> contribution.fields().stream())
@@ -81,16 +82,39 @@ class NotificationPluginTest {
     }
 
     @Test
-    @DisplayName("基础插件不注册任何发送 Sink 或 Spring 配置")
-    void doesNotRegisterNotificationSink() {
+    @DisplayName("站内信页面、API 与下载页入口均为插件自有且仅管理员可达")
+    void contributesAdministratorInbox() {
         NotificationPf4jPlugin pf4j = new NotificationPf4jPlugin();
-        List<Class<?>> pluginClasses = List.of(NotificationPlugin.class, NotificationPf4jPlugin.class);
 
-        assertThat(plugin.routes()).isEmpty();
-        assertThat(plugin.staticResources()).isEmpty();
+        assertThat(plugin.routes()).extracting(route -> route.pathPattern())
+                .containsExactly(
+                        "/pixiv-notifications.html",
+                        "/pixiv-notifications/**",
+                        "/api/notifications",
+                        "/api/notifications/**");
+        assertThat(plugin.routes()).allSatisfy(route ->
+                assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
+        assertThat(plugin.staticResources()).hasSize(2);
+        assertThat(plugin.uiSlots()).singleElement().satisfies(slot -> {
+            assertThat(slot.target()).isEqualTo("topbar-actions");
+            assertThat(slot.moduleUrl()).isEqualTo("/pixiv-notifications/batch-inbox-slot.js");
+        });
+        assertThat(plugin.schema()).singleElement().satisfies(schema ->
+                assertThat(schema.tables()).singleElement().satisfies(table -> {
+                    assertThat(table.name()).isEqualTo("notification_messages");
+                    assertThat(table.columns()).extracting(column -> column.name())
+                            .containsExactly("id", "category", "severity", "scenario_id", "title", "body",
+                                    "action_url", "created_time", "read_time");
+                    assertThat(table.indexes()).extracting(index -> index.name())
+                            .containsExactly("idx_notification_messages_created_time",
+                                    "idx_notification_messages_unread_created");
+                    assertThat(table.checkExpression())
+                            .contains("category IN ('download','announcement','survey','system')")
+                            .contains("severity IN ('INFO','WARNING','ERROR')");
+                }));
         assertThat(plugin.navigation()).isEmpty();
-        assertThat(pf4j.configurationClasses()).isEmpty();
-        assertThat(pluginClasses).noneMatch(NotificationSink.class::isAssignableFrom);
+        assertThat(pf4j.configurationClasses()).containsExactly(NotificationPluginConfiguration.class);
+        assertThat(NotificationSink.class).isAssignableFrom(InboxNotificationSink.class);
     }
 
     @Test

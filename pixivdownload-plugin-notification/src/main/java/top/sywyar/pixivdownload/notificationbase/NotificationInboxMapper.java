@@ -1,0 +1,40 @@
+package top.sywyar.pixivdownload.notificationbase;
+
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+import java.util.List;
+
+public interface NotificationInboxMapper {
+
+    String SELECT_MESSAGE = "SELECT id, category, severity, scenario_id AS scenarioId, title, body,"
+            + " action_url AS actionUrl, created_time AS createdTime, read_time AS readTime"
+            + " FROM notification_messages";
+
+    @Insert("INSERT INTO notification_messages"
+            + " (id, category, severity, scenario_id, title, body, action_url, created_time, read_time)"
+            + " VALUES (#{id}, #{category}, #{severity}, #{scenarioId}, #{title}, #{body},"
+            + " #{actionUrl}, #{createdTime}, #{readTime})")
+    int insert(NotificationMessage message);
+
+    @Select({
+            "<script>",
+            SELECT_MESSAGE,
+            "<if test='category != null'>WHERE category = #{category}</if>",
+            "ORDER BY created_time DESC, id DESC LIMIT #{limit}",
+            "</script>"
+    })
+    List<NotificationMessage> findLatest(@Param("category") String category, @Param("limit") int limit);
+
+    @Select(SELECT_MESSAGE + " WHERE id = #{id}")
+    NotificationMessage findById(@Param("id") String id);
+
+    @Select("SELECT COUNT(*) FROM notification_messages WHERE read_time IS NULL")
+    long countUnread();
+
+    @Update("UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})"
+            + " WHERE id = #{id} AND read_time IS NULL")
+    int markRead(@Param("id") String id, @Param("readTime") long readTime);
+}

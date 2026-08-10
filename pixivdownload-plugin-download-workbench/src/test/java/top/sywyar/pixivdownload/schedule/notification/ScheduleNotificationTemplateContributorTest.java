@@ -16,8 +16,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ScheduleNotificationTemplateContributorTest {
 
     @Test
-    @DisplayName("每个场景一次性贡献中英文邮件与推送模板纯值")
-    void everyScenarioContributesBothMediaAndLocales() {
+    @DisplayName("每个场景一次性贡献中英文邮件、推送与站内信模板纯值")
+    void everyScenarioContributesAllMediaAndLocales() {
         ScheduleNotificationTemplateContributor contributor =
                 new ScheduleNotificationTemplateContributor(
                         WorkbenchTestMessages.messages(),
@@ -26,13 +26,15 @@ class ScheduleNotificationTemplateContributorTest {
         ImmutableNotificationTemplateCatalog catalog =
                 new ImmutableNotificationTemplateCatalog(templates);
 
-        assertThat(templates).hasSize(NotificationScenario.values().length * 4);
+        assertThat(templates).hasSize(NotificationScenario.values().length * 6);
         for (NotificationScenario scenario : NotificationScenario.values()) {
             for (Locale locale : List.of(Locale.SIMPLIFIED_CHINESE, Locale.US)) {
                 NotificationTemplateContribution mail = catalog
                         .find(scenario.id(), "mail", locale).orElseThrow();
                 NotificationTemplateContribution push = catalog
                         .find(scenario.id(), "push", locale).orElseThrow();
+                NotificationTemplateContribution inbox = catalog
+                        .find(scenario.id(), "inbox", locale).orElseThrow();
 
                 assertThat(mail.titleTemplate()).isNotBlank();
                 assertThat(mail.bodyTemplate())
@@ -41,6 +43,10 @@ class ScheduleNotificationTemplateContributorTest {
                 assertThat(push.titleTemplate()).isNotBlank();
                 assertThat(push.bodyTemplate())
                         .isNotBlank()
+                        .doesNotContain("PHPSESSID");
+                assertThat(inbox.titleTemplate()).isEqualTo(push.titleTemplate());
+                assertThat(inbox.bodyTemplate())
+                        .isEqualTo(push.bodyTemplate())
                         .doesNotContain("PHPSESSID");
             }
         }

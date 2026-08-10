@@ -49,7 +49,7 @@ public class DatabaseSchemaRegistry {
     public DatabaseSchemaRegistry(PluginRegistry pluginRegistry) {
         // 受管 schema 合并经 allRegisteredPlugins()（全部安装态插件，含被禁用的内置与外置插件）：
         // 禁用插件声明的表 / 列仍需创建，
-        // 已有数据保留，故 schema 不随插件启用开关变化（当前全部长期事实表归核心，亦为前向兼容守住此不变量）。
+        // 已有数据保留，故 schema 不随插件启用开关变化，亦为前向兼容守住此不变量。
         for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.allRegisteredPlugins()) {
             registered.plugin().schema().forEach(contribution -> register(registered.id(), contribution));
         }
