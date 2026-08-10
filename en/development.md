@@ -1,300 +1,136 @@
-﻿# Development Guide
+# Development Guide
 
-## Environment Setup
+This page is for contributors to the main repository. Third-party plugin documentation is currently maintained in the [Chinese SDK guide](/zh-cn/plugin-development), with plugin operations covered by [plugin management](/zh-cn/plugin-management).
 
-### Required Software
+## Prerequisites
 
-| Tool | Version | Notes |
-|------|---------|-------|
-| **JDK** | 17 | Compilation and runtime |
-| **Maven** | 3.9+ | Or use the bundled `mvnw` / `mvnw.cmd` |
-| **Git** | Any | Version control |
-| **PowerShell** | 5.1+ | Windows packaging scripts (installer builds only) |
-| **Inno Setup 6** | 6.x | Windows installer packaging (optional) |
+| Tool | Requirement | Purpose |
+| --- | --- | --- |
+| JDK | 17 | Build and runtime |
+| Maven | 3.9+, or the repository Maven Wrapper | Build and test |
+| Git | A currently supported version | Version control |
+| PowerShell | 5.1+ | Windows packaging scripts |
+| Inno Setup | 6.x, optional | Windows installer |
 
-### Optional Tools
-
-| Tool | Notes |
-|------|-------|
-| **IntelliJ IDEA** | Recommended IDE |
-| **VS Code** | Frontend resource editing |
-| **Docker** | Containerized deployment |
-
----
-
-## Project Structure
-
-```
-PixivDownloader/
-├── src/main/java/top/sywyar/pixivdownload/
-│   ├── ai/             # AI/LLM calls (translation, connectivity probe, multi-char narration, etc.)
-│   ├── author/         # Author metadata persistence
-│   ├── cli/            # Startup argument validation and CLI admin commands (--setup / --change-password / --reset-password / --help)
-│   ├── collection/     # Collection management
-│   ├── common/         # Common utilities
-│   ├── config/         # App configuration generation & binding
-│   ├── download/       # Core download logic
-│   │   └── db/         # SQLite database access (MyBatis)
-│   ├── duplicate/      # Duplicate image detection
-│   ├── ffmpeg/         # FFmpeg discovery & installation
-│   ├── gallery/        # Gallery API
-│   ├── gui/            # Swing GUI desktop manager
-│   ├── i18n/           # Internationalization
-│   ├── imageclassifier/# Image classification tool
-│   ├── logback/        # Custom log formatting
-│   ├── mail/           # Email notifications (SMTP)
-│   ├── maintenance/    # Maintenance task framework
-│   ├── migration/      # JSON → SQLite migration
-│   ├── novel/          # Novel download pipeline
-│   ├── onboarding/     # GUI setup wizard
-│   ├── push/           # Push notifications (multi-channel)
-│   ├── quota/          # Quota & rate limiting
-│   ├── schedule/       # Scheduled task automation
-│   ├── scripts/        # Userscript distribution
-│   ├── series/         # Series metadata
-│   ├── setup/          # Initial setup & authentication
-│   │   └── guest/      # Guest invite system
-│   ├── stats/          # Statistics dashboard
-│   ├── tts/            # Online TTS (speech synthesis)
-│   ├── tools/          # CLI tools
-│   └── update/         # Online update
-├── src/main/resources/
-│   ├── static/         # Web frontend resources (110+ files)
-│   ├── i18n/           # i18n resource files
-│   └── application.properties
-├── scripts/            # Build & packaging scripts
-├── packaging/windows/inno/  # Inno Setup installer config
-├── config/             # Default configuration
-├── collection_icons/   # Collection icons
-└── pom.xml             # Maven build configuration
-```
-
----
-
-## Fork & Branching
-
-1. **Fork the repo**: Visit [GitHub](https://github.com/Sywyar/PixivDownloader), click Fork
-2. **Clone your fork**:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
-   cd PixivDownloader
-   ```
-3. **Add upstream**:
-   ```bash
-   git remote add upstream https://github.com/Sywyar/PixivDownloader.git
-   git fetch upstream
-   ```
-4. **Create a feature branch**:
-   ```bash
-   git checkout -b feat/your-change upstream/master
-   ```
-
----
-
-## Local Development
-
-### Build
+Run Java commands with UTF-8 explicitly. In Windows PowerShell:
 
 ```powershell
-# Windows PowerShell
 $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
+```
+
+## Multi-module layout
+
+The root `pom.xml` is the Maven Reactor aggregator.
+
+| Directory | Responsibility |
+| --- | --- |
+| `pixivdownload-plugin-api/` | Stable third-party extension contracts |
+| `pixivdownload-core-api/` | Stable host semantic ports and value models |
+| `pixivdownload-plugin-signature/` | Artifact and repository-manifest signing tools |
+| `pixivdownload-plugin-runtime/` | PF4J, Spring child contexts, and install lifecycle |
+| `pixivdownload-plugin-*/` | Official external plugins |
+| `pixivdownload-plugin-douyin/` | Official Douyin download-type example |
+| `pixivdownload-app/` | Host adapters and executable Spring Boot JAR |
+| `pixivdownload-official-plugins/` | Official-plugin aggregator and development entry point |
+| `plugin-templates/` | Copyable third-party plugin templates |
+
+Dependencies must point toward the contracts: plugins depend on `plugin-api`, and may add `core-api` only for stable host capabilities. Third-party plugins must not depend on `pixivdownload-app` or host implementation classes.
+
+## Fork and branch
+
+```bash
+git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
+cd PixivDownloader
+git remote add upstream https://github.com/Sywyar/PixivDownloader.git
+git fetch upstream
+git switch -c feat/your-change upstream/master
+```
+
+Update the branch from `upstream/master` before submitting a pull request to the upstream `master` branch.
+
+## Build, test, and run
+
+```powershell
+# Build every module without tests
 .\mvnw.cmd package -DskipTests
-```
 
-```bash
-# macOS / Linux
-JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8' ./mvnw package -DskipTests
-```
-
-### Run
-
-```bash
-java -Dfile.encoding=UTF-8 -jar target/PixivDownload-*.jar
-```
-
-### Run Tests
-
-```powershell
-# Windows PowerShell
-$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
+# Run the full Maven test suite
 .\mvnw.cmd test
+
+# Test a module and its Reactor dependencies
+.\mvnw.cmd -pl pixivdownload-plugin-api -am test
+
+# Run JavaScript tests and the web-standards guard
+npm run test:js
+npm run test:web-standards
+
+# Run the packaged application
+java -Dfile.encoding=UTF-8 -jar pixivdownload-app/target/PixivDownload-*-boot.jar
 ```
 
-```bash
-# macOS / Linux
-JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8' ./mvnw test
+When using `-Dtest=...` with a Reactor build that includes `-am`, add `-Dsurefire.failIfNoSpecifiedTests=false` so upstream modules without that class do not fail spuriously.
 
-# Run a single test class
-./mvnw test -Dtest=PixivDownloadApplicationTests
-```
+## Official external-plugin development mode
 
-> [!IMPORTANT]
-> Always use `-Dfile.encoding=UTF-8`, otherwise tests may produce garbled output on Chinese Windows.
-
-### Userscript Development Notes
-
-The userscript install cards on `pixiv-batch.html` read the built-in script list via `/api/scripts`. Scripts are assembled from two sources:
-- Standalone `*.user.js` files in the repo root
-- `scripts/build-userscript-bundle.ps1` generates `build/generated-userscripts/Pixiv All-in-One.user.js`
-
-`pom.xml` copies both to `target/classes/static/userscripts` during the `generate-resources` phase. Therefore, after modifying userscripts, you must run at least one Maven lifecycle (recommend `package`) — do not rely solely on the IDE to run directly.
-
----
-
-## Local Windows Build
-
-> [!NOTE]
-> The release process no longer publishes portable zip packages. These commands are for local debugging or personal use only.
+Run from the repository root:
 
 ```powershell
-$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
-
-# Generate portable version only (with PixivDownload.exe), skip installer
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipInstaller
-
-# Generate full Windows artifacts
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local
-
-# Run tests before packaging
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -RunTests
+mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
-### Common Parameters
+For debugging, use the committed shared configuration for IntelliJ IDEA (`.run/Developer Mode.run.xml`), VS Code (`.vscode/launch.json`), or Eclipse (`eclipse/Developer Mode.launch`). Each configuration compiles the required Reactor modules before starting `GuiLauncher`.
 
-| Parameter | Description |
-|-----------|-------------|
-| `-Version` | Version number (e.g., `0.0.1-local`) |
-| `-SkipPortable` | Skip online portable version |
-| `-SkipOfflinePortable` | Skip offline portable with bundled FFmpeg |
-| `-SkipInstaller` | Skip Inno Setup installer, keep portable artifacts only |
-| `-RedownloadFfmpeg` | Re-download FFmpeg payload |
-| `-RunTests` | Run tests before packaging |
-| `-PrebuiltJar` | Use pre-built JAR (skip Maven build) |
+For the missing-required-plugin recovery scenario, use the matching `Missing Required Plugin` shared configuration or run:
 
-### Build Pipeline
+```powershell
+mvn -pl pixivdownload-app -am -Precovery-mode process-classes -Dexec.skip=true
+```
 
-1. Generate `Pixiv All-in-One.user.js` bundle
-2. Maven `package` (or use pre-built JAR)
-3. `jlink` generate trimmed JRE (21 modules)
-4. `jpackage` generate app-image (with `PixivDownload.exe`)
-5. Online portable zip
-6. Offline portable zip (with bundled FFmpeg)
-7. Inno Setup installer
+## Userscript resources
 
-Output goes to `build/out/`.
+`pixiv-batch.html` reads the materialized userscript catalog through `/api/scripts`. Standalone `*.user.js` files and the bundle generated by `scripts/build-userscript-bundle.ps1` are copied during Maven's `generate-resources` phase. Run at least one Maven lifecycle after changing a userscript; an IDE's old output directory is not sufficient.
 
-### Inno Setup Installation
+## Local Windows packaging
 
-Building installers requires [Inno Setup 6](https://jrsoftware.org/isdl.php). The script checks the default `Inno Setup 6\ISCC.exe` install directory first, then `PATH`.
+`scripts/package-local.ps1` builds the app shell, official plugin inputs, online/offline portable archives, and an optional Inno Setup installer. Formal artifacts require a verifiable signature for every official plugin: provide a `-PrebuiltPluginsDir` whose artifacts already have `.sig` sidecars, or supply `-OfficialKeyId`, a repository-external `-PrivateKeyFile`, and an optional `-SignatureToolJar` for locally built artifacts. Output is written to `build/out/` by default.
 
----
+```powershell
+# Local runtime acceptance: isolated unsigned test installer from current sources
+.\scripts\package-installer-with-plugins.ps1 -Version 0.0.1-local -PluginSource Local -AllowUnsignedLocalPlugins
 
-## Commit & PR Workflow
+# Recovery/development core-shell-only portable archives, with no plugins
+powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipPlugins -SkipInstaller
 
-### Pre-Commit Checklist
+# Formal artifacts from already signed and verified official-plugin inputs
+powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -PrebuiltPluginsDir C:\path\to\signed-plugin-inputs -SignatureToolJar C:\path\to\signature-tool.jar
+```
 
-1. **Sync upstream**:
-   ```bash
-   git fetch upstream
-   git rebase upstream/master
-   ```
+Common options include `-PrebuiltJar`, `-PrebuiltPluginsDir`, `-SkipPlugins`, `-RunTests`, `-SkipPortable`, `-SkipOfflinePortable`, `-SkipInstaller`, and `-RedownloadFfmpeg`. A `-SkipPlugins` artifact is recovery-only. The unsigned test installer is isolated under `build/out-local-unsigned/` and must not be distributed; private keys must never enter the repository, build output, or logs.
 
-2. **Run tests**:
-   ```bash
-   ./mvnw test
-   ```
+## Commits and pull requests
 
-3. **If userscripts or static resources are involved**, run `package` and verify script list and install links at `http://localhost:6999/pixiv-batch.html`.
+Run focused checks first, then expand validation in proportion to the affected boundary. At minimum, inspect:
 
-4. **Review changes**:
-   ```bash
-   git diff --staged
-   ```
+```bash
+git diff --check
+git diff --staged
+```
 
-### Commit Conventions
+The PR description should state motivation, scope, exact validation commands, and actual results. Include screenshots for UI work and identify verified artifacts for packaging work. Do not commit `target/`, `build/`, runtime configuration, credentials, or downloads.
 
-- Use clear commit messages
-- Do not commit build artifacts (`target/`, `build/`, etc.)
+## CI and releases
 
-### Submitting a PR
+- Quality-gate workflows check Java, JavaScript, i18n, dependencies, and distribution boundaries.
+- A `v*` tag publishes official plugins, builds the app shell, Java distributions, the Windows installer, and a GitHub Release.
+- `workflow_dispatch` creates a draft Release for the requested tag only after its quality gate succeeds.
+- The documentation site is maintained on the independent `gh-pages` branch; it is not a tag-deployed preview of application static resources.
 
-1. Push the branch to your fork
-2. Open a Pull Request against upstream `main` branch on GitHub
-3. PR description should include:
-   - Motivation for the change
-   - Key modifications
-   - Verification steps
-   - Screenshots or key output if UI/packaging is involved
+Workflows evolve. Before release operations, treat the current `.github/workflows/` and `scripts/` files as authoritative.
 
----
+## Code boundaries
 
-## CI/CD
-
-### Release Workflow
-
-Pushing a `v*` tag (e.g., `v1.8.3`) triggers automatic build and release:
-
-1. **build-jar** (Ubuntu): Maven package JAR + userscripts
-2. **build-windows-installer** (Windows): Build installer
-3. **release** (Ubuntu): Aggregate artifacts, generate update manifest, create GitHub Release
-
-### Manual Draft Release
-
-Trigger `create-draft-release` via `workflow_dispatch` in GitHub Actions, specifying the tag name to create a draft Release.
-
-### GitHub Pages
-
-Pushing a `v*` tag automatically deploys `src/main/resources/static/` to GitHub Pages for static preview.
-
----
-
-## Coding Standards
-
-### General
-
-- Follow existing Spring Boot patterns in the project
-- Prefer constructor injection
-- Use explicit DTO classes for public HTTP APIs
-- Centralize exception handling via `@RestControllerAdvice` / `@ExceptionHandler`
-- Use Lombok judiciously; plain Java preferred when it's clearer
-
-### Key Invariants
-
-When modifying backend behavior, the following must be preserved:
-
-- **Dynamic URL construction**: scheme derived from `server.ssl.enabled`, hostname from `ssl.domain`
-- `DownloadService.validatePixivUrl()` must reject non-Pixiv URLs
-- Solo vs. Multi mode behavior must be differentiated
-- Rate limiting applies only to Multi mode guests, not Solo users or logged-in admins
-- Login brute-force protection is the exception — applies to `/api/auth/login` in all modes
-- Post-download bookmarking is best-effort and must not cause completed downloads to fail
-- Ugoira conversion depends on ffmpeg in `PATH`
-
-### Web Page Standards
-
-- All user-facing strings go through the i18n pipeline
-- All new pages must support dark mode (use CSS variable approach)
-- HTML, CSS, JavaScript in separate files
-- Reuse existing CSS variables (`--bg`, `--surface`, `--line`, `--text`, `--muted`, `--brand`, etc.)
-
-### Database Schema
-
-Every time a Mapper's `CREATE TABLE` statement is modified, `ManagedDatabaseSchema.createSpec()` must be updated synchronously, otherwise the startup drift check will produce false alerts.
-
----
-
-## Technology Stack
-
-| Technology | Purpose |
-|------------|---------|
-| Spring Boot 3.5.7 | Backend framework |
-| MyBatis 3.0.4 | ORM |
-| SQLite 3.47.1 | Local database (WAL mode) |
-| Apache HttpClient5 | HTTP client |
-| Lombok | Reduce boilerplate |
-| FlatLaf 3.5.4 | Swing L&F |
-| Spring Security Crypto | Password security |
-| Maven Wrapper | Build tool |
-| jlink / jpackage | JRE trimming & native packaging |
-| Inno Setup 6 | Windows installer |
-| Bootstrap + Chart.js | Web frontend |
+- Route user-visible strings through i18n. Follow the existing dark-mode, CSS-variable, and separated HTML/CSS/JavaScript conventions.
+- Use explicit DTOs for public HTTP APIs and reuse existing authentication and exception mapping.
+- When changing database DDL, update the managed schema specification and migration tests together.
+- Plugin-private configuration, credentials, state, data, and dependencies remain owned by that plugin and must not move back into the app shell.
+- For third-party contract changes, update the `plugin-api`/`core-api` contract and guards first, then the templates, examples, and SDK documentation.
