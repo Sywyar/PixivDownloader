@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.TestMessageResolver;
+import top.sywyar.pixivdownload.push.TestNotificationTemplates;
 
 import java.util.List;
 import java.util.Locale;
@@ -24,7 +25,7 @@ class PushNotificationSinkCoverageTest {
 
     private final PushNotificationSink sink = new PushNotificationSink(
             new PushConfig(),
-            new PushMessageFactory(TestMessageResolver.INSTANCE),
+            new PushMessageFactory(TestNotificationTemplates.catalog()),
             new NoopPushDispatcher(),
             TestMessageResolver.INSTANCE);
 
@@ -47,7 +48,7 @@ class PushNotificationSinkCoverageTest {
         CapturingPushDispatcher dispatcher = new CapturingPushDispatcher();
         PushNotificationSink enabledSink = new PushNotificationSink(
                 config,
-                new PushMessageFactory(TestMessageResolver.INSTANCE),
+                new PushMessageFactory(TestNotificationTemplates.catalog()),
                 dispatcher,
                 TestMessageResolver.INSTANCE);
 
@@ -71,7 +72,7 @@ class PushNotificationSinkCoverageTest {
                 new ThrowingPushDispatcher())) {
             PushNotificationSink failingSink = new PushNotificationSink(
                     config,
-                    new PushMessageFactory(TestMessageResolver.INSTANCE),
+                    new PushMessageFactory(TestNotificationTemplates.catalog()),
                     dispatcher,
                     TestMessageResolver.INSTANCE);
 
@@ -88,12 +89,12 @@ class PushNotificationSinkCoverageTest {
         config.setEnabled(true);
         PushNotificationSink deliveryLoggingSink = new PushNotificationSink(
                 config,
-                new PushMessageFactory(TestMessageResolver.INSTANCE),
+                new PushMessageFactory(TestNotificationTemplates.catalog()),
                 new FailedPushDispatcher(),
                 TestMessageResolver.THROWING);
         PushNotificationSink renderLoggingSink = new PushNotificationSink(
                 config,
-                new PushMessageFactory(TestMessageResolver.THROWING),
+                new PushMessageFactory(TestNotificationTemplates.throwing()),
                 new NoopPushDispatcher(),
                 TestMessageResolver.THROWING);
 
@@ -112,7 +113,7 @@ class PushNotificationSinkCoverageTest {
         config.setEnabled(true);
         PushNotificationSink enabledSink = new PushNotificationSink(
                 config,
-                new PushMessageFactory(TestMessageResolver.INSTANCE),
+                new PushMessageFactory(TestNotificationTemplates.catalog()),
                 new NoopPushDispatcher(),
                 TestMessageResolver.INSTANCE);
 

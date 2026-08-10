@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.mail.controller.MailTestController;
 import top.sywyar.pixivdownload.mail.preset.MailPresetRegistry;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.notification.MailNotificationSink;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
@@ -47,8 +48,10 @@ public class MailPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(MailPlugin.ID)
-    public MailTemplateRegistry mailTemplateRegistry(@Qualifier("mailPluginMessages") MessageResolver messages) {
-        return new MailTemplateRegistry(messages);
+    public MailTemplateRegistry mailTemplateRegistry(
+            @Qualifier("mailPluginMessages") MessageResolver messages,
+            NotificationTemplateCatalog notificationTemplates) {
+        return new MailTemplateRegistry(messages, notificationTemplates);
     }
 
     @Bean

@@ -95,7 +95,8 @@ public class DownloadWorkbenchPluginConfiguration {
                 messages,
                 DownloadWorkbenchPlugin.class.getClassLoader(),
                 localeBundlePolicy,
-                "i18n.workbench.messages");
+                "i18n.workbench.messages",
+                "i18n.workbench.notification-templates");
     }
 
     @Bean

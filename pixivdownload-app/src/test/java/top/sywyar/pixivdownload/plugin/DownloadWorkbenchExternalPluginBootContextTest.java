@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
@@ -147,6 +148,8 @@ class DownloadWorkbenchExternalPluginBootContextTest {
     private ScheduleCapabilityRegistry scheduleCapabilityRegistry;
     @Autowired
     private QueueOperationRegistry queueOperationRegistry;
+    @Autowired
+    private NotificationTemplateCatalog notificationTemplateCatalog;
     @Autowired
     private PluginLifecycleService pluginLifecycleService;
     @Autowired
@@ -388,6 +391,9 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                     assertThat(type.owner().featurePluginId()).isEqualTo(PLUGIN_ID);
                     assertThat(type.descriptor().cancelSupported()).isTrue();
                 });
+        assertThat(notificationTemplateCatalog.find("run-summary", "mail", Locale.US))
+                .get()
+                .satisfies(template -> assertThat(template.bodyTemplate()).startsWith("<table"));
     }
 
     @Test
@@ -480,6 +486,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                         assertThat(owned.operations().getClass().getClassLoader())
                                 .isSameAs(expectedClassLoader));
         assertThat(downloadExtensionRegistry.resolveDownloadType("illust")).isPresent();
+        assertThat(notificationTemplateCatalog.find("run-summary", "mail", Locale.US)).isPresent();
         assertThat(pluginControllerRegistrar.registeredPluginIds()).contains(PLUGIN_ID);
         assertThat(anyHandlerLoadedBy(expectedClassLoader)).isTrue();
     }
@@ -502,6 +509,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                 .noneMatch(owner -> owner.owner().featurePluginId().equals(PLUGIN_ID));
         assertThat(queueOperationRegistry.operationsForOwner(PLUGIN_ID)).isEmpty();
         assertThat(downloadExtensionRegistry.resolveDownloadType("illust")).isEmpty();
+        assertThat(notificationTemplateCatalog.find("run-summary", "mail", Locale.US)).isEmpty();
         assertThat(pluginControllerRegistrar.registeredPluginIds())
                 .doesNotContain(PLUGIN_ID);
         assertThat(anyHandlerLoadedBy(previousClassLoader)).isFalse();

@@ -3,27 +3,25 @@ package top.sywyar.pixivdownload.mail.controller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.mail.MailSenderSettings;
 import top.sywyar.pixivdownload.mail.MailService;
 import top.sywyar.pixivdownload.mail.TestMessageResolver;
+import top.sywyar.pixivdownload.mail.TestNotificationTemplates;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 import top.sywyar.pixivdownload.mail.template.RenderedMail;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -38,7 +36,8 @@ class MailTestControllerTest {
 
     @BeforeEach
     void setUp() {
-        templateRegistry = new MailTemplateRegistry(TestMessageResolver.INSTANCE);
+        templateRegistry = new MailTemplateRegistry(
+                TestMessageResolver.INSTANCE, TestNotificationTemplates.catalog());
         mailService = mock(MailService.class);
         displayNameProvider = mock(UserDisplayNameProvider.class);
         controller = new MailTestController(mailService, templateRegistry,
@@ -90,13 +89,9 @@ class MailTestControllerTest {
     @Test
     @DisplayName("testAll 在某模板发信失败时继续遍历后续模板，并把失败记入 failures")
     void testAllContinuesAfterPerTemplateFailure() throws Exception {
-        String failingSubject = templateRegistry.render(
-                MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED,
-                LocaleContextHolder.getLocale(),
-                Map.of()).subject();
         doAnswer(invocation -> {
             String subject = invocation.getArgument(1);
-            if (failingSubject.equals(subject)) {
+            if (subject.contains("overuse-paused")) {
                 throw new MailService.MailSendException("smtp denied: 535");
             }
             return null;
@@ -112,7 +107,7 @@ class MailTestControllerTest {
         assertThat(body.succeeded()).isEqualTo(total - 1);
         assertThat(body.failures()).hasSize(1);
         MailTestAllResponse.Failure failure = body.failures().get(0);
-        assertThat(failure.templateId()).isEqualTo(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED);
+        assertThat(failure.templateId()).isEqualTo("overuse-paused");
         assertThat(failure.error()).contains("smtp denied");
         verify(mailService, times(total)).sendTest(any(MailSenderSettings.class), anyString(), anyString());
     }

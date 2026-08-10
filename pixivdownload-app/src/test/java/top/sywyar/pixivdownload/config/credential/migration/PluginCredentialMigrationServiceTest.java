@@ -35,6 +35,8 @@ import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
 import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClient;
 import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClientFactory;
+import top.sywyar.pixivdownload.plugin.api.notification.ImmutableNotificationTemplateCatalog;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
@@ -1233,6 +1235,9 @@ class PluginCredentialMigrationServiceTest {
         parent.registerBean(
                 LocaleBundlePolicy.class,
                 () -> new CatalogLocaleBundlePolicy(LocaleCatalog.defaultCatalog()));
+        parent.registerBean(
+                NotificationTemplateCatalog.class,
+                ImmutableNotificationTemplateCatalog::empty);
         parent.registerBean(
                 OutboundHttpClientFactory.class,
                 () -> profile -> mock(OutboundHttpClient.class));
