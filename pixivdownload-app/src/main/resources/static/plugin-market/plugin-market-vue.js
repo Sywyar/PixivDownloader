@@ -6,7 +6,7 @@
  *
  * 安全：模板只用 {{ }} 文本插值（Vue 自动转义）与 :class（取自 core 的受控 token 白名单），<b>不内联任意 HTML</b>
  * （无 HTML 注入指令）；主页外链已由后端净化为 http/https，再以 :href 绑定 + rel="noopener"。安装只按受控 repositoryId+pluginId+version
- * 发起，绝不传任意 URL；安装结果一律以后端响应为准（前端只有「安装中 / 待重启」本地态）。
+ * 发起，绝不传任意 URL；安装结果一律以后端响应为准（前端只投影「安装中 / 已激活 / 待重启 / 恢复阻断」状态）。
  */
 (function (global) {
     var PMK = global.PixivPluginMarket;
@@ -472,7 +472,7 @@
                 installKey: function (repositoryId, pluginId) {
                     return String(repositoryId) + '\u0000' + String(pluginId);
                 },
-                // 卡片安装控件的有效状态：本地安装中 / 安装成功待重启 / 否则后端安装状态（按卡片同源仓库键控）。
+                // 卡片安装控件的有效状态：本地安装中 / 后端安装终态 / 否则 catalog 安装状态（按卡片同源仓库键控）。
                 cardStatus: function (card) {
                     var key = this.installKey(card.repositoryId, card.pluginId);
                     if (this.installing[key]) return 'INSTALLING';

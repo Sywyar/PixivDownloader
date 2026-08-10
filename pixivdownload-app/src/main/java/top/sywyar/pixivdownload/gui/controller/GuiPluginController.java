@@ -27,8 +27,8 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
  *
  * <p><b>状态语义单一来源</b>：本控制器只委托核心 {@link PluginManagementService#list()} 投影，<b>不自行扫描插件目录、
  * 不复制状态判断逻辑</b>——GUI 与 Web 插件管理页共享同一份后端状态报告。本控制器只读，不暴露任何运行期生命周期动词
- * （load / start / quiesce / stop / unload / reload 仍只在 Web 管理页经 {@code /api/plugins/{id}/{verb}} 触发，
- * 受其 ADMIN 鉴权约束）。
+ * （load / start / quiesce / stop / unload / remove / restart / reload 仍只在 Web 管理页经
+ * {@code /api/plugins/{id}/{verb}} 触发，受其 ADMIN 鉴权约束）。
  *
  * <p><b>鉴权边界不放宽</b>：路径在 {@code /api/gui/**} 下，由 {@code AuthFilter} 的 GUI 分支强制「本机可信请求 + GUI
  * token」双重校验；本控制器内部再做一次本机可信请求校验（与其它 {@code /api/gui/**} 端点一致），失败即 403。它不碰

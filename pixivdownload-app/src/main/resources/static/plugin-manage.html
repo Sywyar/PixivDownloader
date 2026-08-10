@@ -97,8 +97,9 @@
 </div>
 
 <!-- 本地插件包安装弹窗（默认隐藏，由 installBtn 打开）：只做本地 .jar / .zip 文件选择 + 提交，消费
-     POST /api/plugins/install。安装仅校验并落盘、不热加载，新装 / 升级包重启后才生效（结果区会明确提示）。
-     不提供从 URL 安装 / 插件市场 / 更新检查 / 删除等动作。 -->
+     POST /api/plugins/install。安装经统一事务编排校验、卸下旧代、原子替换并按生命周期策略激活；只有
+     process-restart 插件延后到完整进程重启生效，失败时恢复旧版本。本弹窗不提供 URL 安装、插件市场或更新检查；
+     删除由插件卡片的 remove 生命周期动作处理。 -->
 <div class="pm-modal" id="pm-install-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pm-install-title">
     <div class="pm-modal-backdrop" data-pm-install-dismiss></div>
     <div class="pm-modal-card" role="document">

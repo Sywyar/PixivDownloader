@@ -34,7 +34,8 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
  * 管理员仍可查询状态并驱动修复。
  * <ul>
  *   <li>读：{@code GET /api/plugins/status} —— 全部插件的状态 + 运行期阶段 + 可用动词 + 是否处于恢复模式。</li>
- *   <li>写：{@code POST /api/plugins/{id}/{verb}}，verb ∈ load / start / quiesce / stop / unload / reload ——
+ *   <li>写：{@code POST /api/plugins/{id}/{verb}}，verb ∈ load / start / quiesce / stop / unload / remove /
+ *       restart / reload ——
  *       委托 {@link PluginManagementService}（含必选插件停用守卫、内置 / 未激活 / 未知 id 拒绝）。</li>
  *   <li>开关：{@code PUT /api/plugins/{id}/enabled} —— 持久化外置可选插件的期望启用态；
  *       {@code POST /api/plugins/backend-restart} —— 仅在桌面生命周期管理器持有 RUNNING 上下文时延迟重启后端。</li>

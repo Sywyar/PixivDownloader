@@ -18,8 +18,9 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
  *       不可安装状态，前端不渲染可点击但无响应的安装按钮。</li>
  * </ul>
  *
- * <p>「安装中」是<b>前端本地请求态</b>（安装 POST 在途），不在本枚举——安装结果一律以后端响应为准。安装只下载 + 校验 +
- * 落盘，<b>重启后</b>才被加载，故安装成功后该条目要到下次重启才会从未安装翻转为已安装（前端展示「待重启生效」、不伪造热加载）。
+ * <p>「安装中」是<b>前端本地请求态</b>（安装 POST 在途），不在本枚举——安装结果一律以后端响应为准。安装经统一事务编排
+ * 下载、校验、卸下旧代、原子替换并按生命周期策略激活：除 {@code process-restart} 外均在当前进程立即激活；前端依据后端
+ * 返回的 {@code activated} / {@code effectiveAfterRestart} 投影终态，不伪造安装结果。
  */
 public enum MarketInstallStatus {
 

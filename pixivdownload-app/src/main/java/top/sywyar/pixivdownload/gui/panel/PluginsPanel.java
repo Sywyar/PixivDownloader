@@ -20,8 +20,8 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
  *
  * <p><b>不自行扫描、不绕过后端</b>：状态全部来自 {@code GET /api/gui/plugins/status}（经 {@code GuiConfigTestClient} 的
  * 本机 + GUI token 通道），后端再委托核心 {@code PluginManagementService}——GUI 与 Web 管理页共享同一份状态语义。本页
- * <b>不</b>提供运行期生命周期动词按钮（load / start / quiesce / stop / unload / reload），那些经 Web 插件管理页的 ADMIN
- * 接口执行，本页不放宽任何鉴权 / 校验边界。
+ * <b>不</b>提供运行期生命周期动词按钮（load / start / quiesce / stop / unload / remove / restart / reload），那些经 Web
+ * 插件管理页的 ADMIN 接口执行，本页不放宽任何鉴权 / 校验边界。
  *
  * <p>纯展示模型与标签解析在 {@link GuiPluginStatusModel}（无 Swing、可 headless 测试）；本类只负责渲染与按需刷新。
  */
