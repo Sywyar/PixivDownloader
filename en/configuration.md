@@ -1,716 +1,203 @@
-﻿# Configuration Reference
+# Configuration Reference
+
+PixivDownloader separates configuration by owner. These stores are not interchangeable:
+
+| Configuration | Path | Owner |
+| --- | --- | --- |
+| Host settings and plugin enabled state | `config/config.yaml` | App shell |
+| Plugin business settings | `config/plugins/{pluginId}.properties` | That plugin |
+| Plugin credentials | `config/credentials/{pluginId}.properties` | That plugin; encrypted by the host |
+
+Prefer the desktop GUI's Configuration page. On first startup, the current default template creates `config/config.yaml`; upgrades append missing host keys without overwriting existing values. If editing manually, use UTF-8 and keep active `key: value` lines rather than commenting out empty values.
+
+## Host configuration
+
+### Service, debug, and downloads
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `server.port` | `6999` | HTTP/HTTPS service port |
+| `debug.enabled` | `false` | Debug mode |
+| `download.root-folder` | `pixiv-download` | Downloaded-work root |
+| `download.user-flat-folder` | `false` | Flat artist-directory layout |
+| `download.max-concurrent` | `10` | Host download concurrency |
+| `database.maximum-pool-size` | `28` | SQLite connection-pool limit |
+
+`download.root-folder` contains downloaded works only. Configuration, databases, plugin state, and caches are stored elsewhere. Private settings for novel, Douyin, and other download types belong to their plugins and are exposed after installation.
+
+### Plugin market
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `plugin-catalog.enabled` | `false` | Market master switch; no repository is contacted while off |
+| `plugin-catalog.official-repository-enabled` | `true` | Enable the embedded official repository |
+| `plugin-catalog.connect-timeout-ms` | `15000` | Global connection timeout |
+| `plugin-catalog.read-timeout-ms` | `60000` | Global read timeout |
+| `plugin-catalog.max-manifest-bytes` | `1048576` | Manifest size limit |
+| `plugin-catalog.max-package-bytes` | `104857600` | Plugin package size limit |
+| `plugin-catalog.repositories` | empty list | Custom repositories |
+
+The official repository URL and trust root are embedded. A custom repository must declare its own HTTPS manifest and Ed25519 public key; it does not inherit the official trust root. Prefer the GUI repository editor. Manual example:
+
+```yaml
+plugin-catalog.enabled: true
+plugin-catalog.repositories:
+  - id: example
+    display-name-key: plugin.market.repository.example.name
+    manifest-url: https://plugins.example.com/manifest.json
+    enabled: true
+    proxy-policy: direct-strict
+    trusted-keys:
+      - key-id: example-2026
+        algorithm: Ed25519
+        public-key: BASE64_X509_SUBJECT_PUBLIC_KEY_INFO
+        state: ACTIVE
+        publisher: Example Publisher
+        trust-label: Example repository release key
+```
+
+Repository ids must be unique and cannot be `official` or `configured`. Proxy policies are:
+
+- `direct-strict`: direct HTTPS only, with non-public addresses and redirects rejected.
+- `proxy-trusted`: use the app proxy and allow at most one redirect for built-in trusted hosts.
+- `custom`: use the entry's `allow-redirects`, `strict-https`, `allow-non-public-addresses`, and `use-proxy` flags.
+
+An entry may override `connect-timeout-ms`, `read-timeout-ms`, `max-manifest-bytes`, and `max-package-bytes`; omitted or zero values inherit the global setting.
+
+### Outbound proxy
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `proxy.enabled` | `true` | Enable the host outbound HTTP proxy |
+| `proxy.host` | `127.0.0.1` | Proxy host |
+| `proxy.port` | `7890` | Proxy port |
+
+Plugins that need proxy-aware networking should use the stable HTTP/WebSocket SDK or a `core-api` proxy semantic port, not the host's `ProxyConfig` implementation.
+
+### Multi-mode quotas and rate limits
+
+| Key | Default |
+| --- | --- |
+| `multi-mode.quota.enabled` | `true` |
+| `multi-mode.quota.max-artworks` | `50` |
+| `multi-mode.quota.reset-period-hours` | `24` |
+| `multi-mode.quota.archive-expire-minutes` | `60` |
+| `multi-mode.quota.limit-image` | `0` |
+| `multi-mode.quota.max-proxy-requests` | `200` |
+| `multi-mode.quota.archive-max-concurrent` | `10` |
+| `multi-mode.post-download-mode` | `pack-and-delete` |
+| `multi-mode.delete-after-hours` | `72` |
+| `multi-mode.request-limit-minute` | `300` |
+| `multi-mode.static-resource-request-limit-minute` | `1200` |
 
-`config.yaml` is the main runtime configuration file for PixivDownloader, located in the `config/` directory. Generated automatically on first launch; new options from later versions are automatically appended.
+`multi-mode.post-download-mode` accepts `pack-and-delete`, `never-delete`, or `timed-delete`. `multi-mode.limit-page=0` means unlimited; its current default is `3`.
 
-> [!NOTE]
-> You can edit visually via the GUI "Configuration" tab, or edit `config.yaml` directly. Most changes require a **service restart** to take effect — see individual option descriptions.
+Invited guests use separate limits in both solo and multi mode:
 
----
+| Key | Default |
+| --- | --- |
+| `guest-invite.request-limit-minute` | `300` |
+| `guest-invite.static-resource-request-limit-minute` | `1200` |
+| `guest-invite.tts-request-limit-minute` | `30` |
+| `setup.login-rate-limit-minute` | `10` |
 
-## Full Configuration Reference
+### Maintenance windows
 
-### Basic Service
+`maintenance.enabled` defaults to `true`. Daily defaults are:
 
-```yaml
-server.port: 6999
-```
-HTTP service port. **Requires restart** after change.
-
-```yaml
-download.root-folder: pixiv-download
-```
-Download file storage root directory. Supports relative paths (relative to working directory) or absolute paths. **Requires restart** after change.
-
-> To relocate already-downloaded files to a new directory: move the files to the new location manually first, then use the GUI helper ("Status page → Migrate download directory") to rewrite the recorded download/classified directories to the new paths (**updates database records only; it does NOT move files on disk**, leave blank to keep, the new directory must already exist). If you change the current download root, you will be asked whether to also update `download.root-folder` here (otherwise new downloads still go to the old directory; takes effect after a restart).
-
-```yaml
-download.user-flat-folder: false
-```
-Use flat directory structure. When `true`, all artwork is stored directly under the root without subdirectories. `false` creates a separate subdirectory per artwork. **Hot-reload supported**.
-
-```yaml
-download.max-concurrent: 10
-```
-Maximum concurrent artwork downloads. **Hot-reload supported**.
-
-```yaml
-download.novel-max-concurrent: 10
-```
-Maximum concurrent novel downloads. **Hot-reload supported**.
-
----
-
-### Proxy Configuration
-
-All of the backend's outbound traffic goes through this HTTP proxy: accessing Pixiv and downloading works, online updates (checking/downloading new versions), downloading the bundled FFmpeg, and online TTS (the Edge neural voices used by "Listen"). The first-run setup wizard (web `setup.html`, desktop GUI onboarding, CLI `--setup`) walks you through configuring the proxy.
-
-```yaml
-proxy.enabled: true
-```
-Enable HTTP proxy. **Hot-reload supported**.
-
-```yaml
-proxy.host: 127.0.0.1
-```
-Proxy server address. **Hot-reload supported**.
-
-```yaml
-proxy.port: 7890
-```
-Proxy server port. **Hot-reload supported**.
-
-> [!TIP]
-> The FFmpeg download button in the GUI also reuses this proxy configuration for fetching FFmpeg release packages from GitHub.
-
-#### Route web Pixiv through the same proxy (PAC, no system proxy)
-
-The backend reaches Pixiv through the proxy configured above and **does not rely on a system-wide proxy**. But if you also want to open `pixiv.net` directly in the browser (e.g. together with the userscripts), you would normally have to additionally enable the "system proxy" in Clash or similar — a disjointed experience.
-
-For this, a proxy auto-config (PAC) endpoint `/proxy.pac` is built in:
-
-- Set your OS or browser "Automatic proxy configuration script (PAC) URL" to `http://localhost:<port>/proxy.pac` (the port matches `server.port`; with HTTPS enabled it becomes `https://<domain>:<port>/proxy.pac`).
-- Only Pixiv-related domains (`pixiv.net`, `*.pixiv.net`, `*.pximg.net`, `*.pixiv.org`, `*.fanbox.cc`, `*.pixivision.net`) then go through the same proxy configured under `proxy.*`; everything else stays direct.
-- The endpoint is **local-only**; changes to `proxy.*` (including hot reload) are reflected in the PAC content automatically, with no restart needed.
-- When `proxy.enabled: false` or host/port is empty, the PAC returns direct for all domains (equivalent to disabling this feature).
-
-This lets you **keep the system proxy off for good**, letting this configuration decide whether web Pixiv goes through the proxy — no more toggling back and forth.
-
-##### Settings entry points per browser / OS
-
-> [!TIP]
-> The `chrome://`, `edge://`, and `about:` addresses below are browser-internal pages. For security reasons they **cannot be opened by clicking a link on a web page** — you have to **copy them into the browser's address bar and press Enter**. In the address bar they act as a one-tap shortcut to the matching settings page. `ms-settings:` works from the address bar or the `Win+R` Run box.
-
-| Browser / OS | Address to open settings | Where to enter the PAC URL |
-|---|---|---|
-| **Firefox** | `about:preferences#general` | Scroll to the bottom → "Network Settings → Settings…" → choose "Automatic proxy configuration URL (PAC)" → paste the URL → OK. Firefox uses an **independent** proxy setting that doesn't affect the system or other apps — the best fit for "browser-only, no system proxy". |
-| **Chrome (Windows)** | `chrome://settings/system` | Click "Open your computer's proxy settings" and fill it in via the Windows system proxy settings. On Windows, Chrome follows the system proxy and has no independent PAC entry. |
-| **Edge (Windows)** | `edge://settings/system` | Same as above — click "Open your computer's proxy settings" to jump to the Windows system proxy settings. |
-| **Windows system proxy** | `ms-settings:network-proxy` | Turn on "Automatic proxy setup → Use setup script", set "Script address" to `http://localhost:6999/proxy.pac`, and save. Applies to Chrome / Edge and every app that follows the system proxy. |
-| **macOS system proxy** | System Settings → Network → your network → "Details… → Proxies" | Enable "Automatic Proxy Configuration" and enter the PAC URL. Safari / Chrome etc. follow the system proxy. |
-
-> [!WARNING]
-> The "system proxy" toggle in Clash and similar tools **overrides** the Windows proxy settings (including the PAC script address you set here). When using this PAC approach, **keep Clash's system proxy toggle off**, otherwise the two will overwrite each other. Firefox is unaffected because it uses an independent setting.
-
-> The port in the URL must match your `server.port` (the example uses 6999); with HTTPS enabled, use `https://<domain>:<port>/proxy.pac`.
-
----
-
-### Multi-mode Configuration
-
-Takes effect only in Multi Mode; Solo mode is unaffected.
-
-#### Quota
-
-```yaml
-multi-mode.quota.enabled: true
-```
-Enable quotas. When `true`, each guest has a download quota limit. **Hot-reload supported**.
-
-```yaml
-multi-mode.quota.max-artworks: 50
-```
-Maximum artworks each guest can download within one reset cycle. **Hot-reload supported**.
-
-```yaml
-multi-mode.quota.reset-period-hours: 24
-```
-Quota reset cycle in hours. **Hot-reload supported**.
-
-```yaml
-multi-mode.quota.archive-expire-minutes: 60
-```
-Validity period (minutes) for download archive links generated after quota exceeded. Guests can save archive links to resume downloads within the validity period. **Hot-reload supported**.
-
-```yaml
-multi-mode.quota.limit-image: 0
-```
-Image count threshold per artwork. When an artwork's total image count exceeds this value, it counts as multiple quota units. `0` means no limit. **Hot-reload supported**.
-
-```yaml
-multi-mode.quota.max-proxy-requests: 200
-```
-Maximum Pixiv proxy requests a guest can make within one reset cycle. Controls the frequency of Pixiv access via the backend proxy API. **Hot-reload supported**.
-
-```yaml
-multi-mode.quota.archive-max-concurrent: 10
-```
-Maximum concurrent archive packaging tasks. **Hot-reload supported**.
-
-#### Post-Download Processing
-
-```yaml
-multi-mode.post-download-mode: pack-and-delete
-```
-Post-download processing mode in multi-user mode:
-- `pack-and-delete`: Pack then delete original files
-- `never-delete`: Never delete
-- `timed-delete`: Timed deletion (works with `delete-after-hours`) **Hot-reload supported**.
-
-```yaml
-multi-mode.delete-after-hours: 72
-```
-Hours before auto-deletion of downloaded artwork when `post-download-mode` is `timed-delete`. **Hot-reload supported**.
-
-#### Rate Limiting
-
-```yaml
-multi-mode.request-limit-minute: 300
-```
-Maximum API requests per guest per minute. **Hot-reload supported**.
-
-```yaml
-multi-mode.static-resource-request-limit-minute: 1200
-```
-Maximum static resource requests per guest per minute. TCP source IP-based limiting, up to 50000 unique IPs. Applies only to unauthenticated multi-mode guests (invited-guest static resource limiting is under `guest-invite.*` below). **Hot-reload supported**.
-
-```yaml
-multi-mode.limit-page: 3
-```
-Results per page limit in search mode. **Hot-reload supported**.
-
-#### Invited-guest rate limiting (`guest-invite.*`)
-
-> [!NOTE]
-> The limits below apply to **visitors holding an invite session**. Guest invites are independent of the solo/multi run mode (they work in both), so these limits apply in both modes and are **counted per invite code** (the same code shares one quota across browsers). Admins / the solo owner are never limited.
-
-```yaml
-guest-invite.request-limit-minute: 300
-```
-Maximum API requests per minute per invite code for invited guests. `0` = unlimited. **Hot-reload supported**.
-
-```yaml
-guest-invite.static-resource-request-limit-minute: 1200
-```
-Maximum static resource requests per minute per invite code for invited guests. `0` = unlimited. **Hot-reload supported**.
-
-```yaml
-guest-invite.tts-request-limit-minute: 30
-```
-Maximum online TTS (speech synthesis) requests per minute per invite code for invited guests. `0` = unlimited; admins and the browser built-in voice engine are not limited. **Hot-reload supported**.
-
-> [!WARNING]
-> **Rate Limiting Notes for Multi-mode Behind Reverse Proxy/CDN**
->
-> The above rate limits are based on TCP source IP (`request.getRemoteAddr()`). When deployed behind nginx, Caddy, Cloudflare, etc.:
-> - All users share the same rate limit counters
-> - One user hitting the limit can block all visitors
->
-> It is recommended to implement rate limiting at the reverse proxy layer based on `X-Forwarded-For` / `X-Real-IP`, and raise or disable (`0`) backend limits to avoid double-limiting.
-
----
-
-### Login Security
-
-```yaml
-setup.login-rate-limit-minute: 10
-```
-Maximum login attempts per IP per minute on the login endpoint. `0` means no limit. Effective in both Solo and Multi modes. **Hot-reload supported**.
-
----
-
-### Maintenance
-
-```yaml
-maintenance.enabled: true
-```
-Enable periodic maintenance tasks. Setting to `false` disables both scheduling and the manual trigger endpoint. **Hot-reload supported**.
-
-```yaml
-maintenance.monday.enabled: true
-maintenance.monday.time: "10:00"
-```
-Monday maintenance switch and start time (HH:mm 24-hour format, local time zone). Monday is enabled by default; other weekdays default to disabled. **Hot-reload supported**.
-
-```yaml
-maintenance.tuesday.enabled: false
-maintenance.tuesday.time: "10:00"
-maintenance.wednesday.enabled: false
-maintenance.wednesday.time: "10:00"
-maintenance.thursday.enabled: false
-maintenance.thursday.time: "10:00"
-maintenance.friday.enabled: false
-maintenance.friday.time: "10:00"
-maintenance.saturday.enabled: false
-maintenance.saturday.time: "10:00"
-maintenance.sunday.enabled: false
-maintenance.sunday.time: "10:00"
-```
-Per-weekday maintenance switch and start time. Multiple weekdays can be enabled with different start times. During maintenance all requests are intercepted: page requests redirect to a maintenance page, API requests return 503. **Hot-reload supported**.
-
-> ⚠️ Time values must be quoted in `config.yaml` (e.g. `"23:50"`), otherwise YAML parses them as sexagesimal integers, causing errors. Editing via the GUI handles quoting automatically.
-
----
-
-### SSL/HTTPS
+| Day | Enabled key/default | Time key/default |
+| --- | --- | --- |
+| Monday | `maintenance.monday.enabled=true` | `maintenance.monday.time=10:00` |
+| Tuesday | `maintenance.tuesday.enabled=false` | `maintenance.tuesday.time=10:00` |
+| Wednesday | `maintenance.wednesday.enabled=false` | `maintenance.wednesday.time=10:00` |
+| Thursday | `maintenance.thursday.enabled=false` | `maintenance.thursday.time=10:00` |
+| Friday | `maintenance.friday.enabled=false` | `maintenance.friday.time=10:00` |
+| Saturday | `maintenance.saturday.enabled=false` | `maintenance.saturday.time=10:00` |
+| Sunday | `maintenance.sunday.enabled=false` | `maintenance.sunday.time=10:00` |
 
-```yaml
-ssl.domain: localhost
-```
-SSL certificate domain, used for constructing external URLs. **Requires restart**.
-
-```yaml
-ssl.type: pem
-```
-Certificate type: `pem` (recommended) or `jks`. PEM takes priority when both are configured. **Requires restart**.
-
-```yaml
-server.ssl.enabled: false
-```
-Enable SSL. Certificate required when set to `true`. **Requires restart**.
-
-#### PEM Certificate (Recommended)
-
-```yaml
-server.ssl.certificate:
-server.ssl.certificate-private-key:
-```
-Absolute paths to PEM-format certificate and private key files. **Requires restart**.
-
-#### JKS Certificate
-
-```yaml
-server.ssl.key-store-type: JKS
-server.ssl.key-store:
-server.ssl.key-store-password:
-```
-JKS format keystore path and password. **Requires restart**.
-
-#### HTTP Redirect
-
-```yaml
-ssl.http-redirect: false
-```
-Redirect HTTP traffic to HTTPS when SSL is enabled. **Requires restart**.
-
-```yaml
-ssl.http-redirect-port: 80
-```
-HTTP redirect listening port. **Requires restart**.
-
----
-
-### Language
-
-```yaml
-app.language:
-```
-Application language setting. Auto-detects system language when empty. Available values:
-- Empty: Auto-detect
-- `zh-CN`: Chinese
-- `en-US`: English
-
-**Hot-reload supported**.
-
----
-
-### Online Updates
-
-```yaml
-update.enabled: true
-```
-Enable online update check. **Hot-reload supported**.
-
-```yaml
-update.manifest-url: https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json
-```
-Update manifest URL for checking new versions. **Hot-reload supported**.
-
-```yaml
-update.auto-check: true
-```
-Auto-check for updates after startup. **Hot-reload supported**.
-
-```yaml
-update.nightly-manifest-url: https://github.com/Sywyar/PixivDownloader/releases/download/nightly/update.json
-```
-Nightly build update manifest URL. **Hot-reload supported**.
-
-```yaml
-update.check-nightly: false
-```
-Check for nightly build updates. Default `false` for stable releases, `true` for nightly builds; auto-detected from the current version if left unset. **Hot-reload supported**.
-
-### Scheduled tasks (admin)
-
-```yaml
-schedule.enabled: true
-```
-Whether to enable scheduled-task dispatch. When off, the scheduler check is skipped and no scheduled task runs (created tasks are kept, not deleted). **Hot-reload supported**.
-
-```yaml
-schedule.tick-interval-ms: 60000
-```
-Interval (ms) for checking due tasks, default 60000 (60s). Resolved by the startup timer, so changing it **requires a restart** (not hot-reloadable).
-
-```yaml
-schedule.max-tasks: 100
-```
-Maximum number of scheduled tasks per database, to prevent abuse. Default 100. **Hot-reload supported**.
+### HTTPS
 
-```yaml
-schedule.inbox-check-every: 500
-```
-A cookie-bound task reads the Pixiv message inbox once per this many successfully downloaded works to detect "overuse" warnings (skipped / filtered works are not counted). Default 500. **Hot-reload supported**.
-
-```yaml
-schedule.auth-failure-circuit-breaker: 5
-```
-When per-work fetch failures reach this count consecutively within a single run, the login session is treated as expired and the task is suspended for re-authorization. Default 5. **Hot-reload supported**.
-
-```yaml
-schedule.pending-max-attempts: 5
-```
-Maximum number of automatic retries for an isolated failed work; once reached the work is marked as needing manual action and auto-retry stops. Default 5. **Hot-reload supported**.
-
-```yaml
-schedule.overuse-defer-default-minutes: 60
-```
-Default minutes to defer when resuming an account paused for overuse via "continue later". Minimum 60. Default 60. **Hot-reload supported**.
-
-> For how to use scheduled tasks (creation, source types, cookie authorization, overuse pause and resume, etc.), see the [Usage Guide](en-Usage-Guide#-scheduled-tasks-admin-only).
-
-### Mail / SMTP
-
-> Configure an SMTP mailbox so PixivDownloader can deliver operational notifications (e.g. when scheduled tasks hit a Pixiv overuse warning or the login cookie expires). All fields can be edited directly in the **GUI Settings page → Mail / SMTP**; after configuring you can click "Send test email" to receive a "Mail configuration successful" message and verify the setup. The same panel also exposes a "Send all email templates" button that uses sample data to deliver all four notification templates (configuration success / overuse-paused / auth-expired / circuit-breaker) in sequence, so you can preview every email style at once. **Passwords / authorization codes never appear in logs or email bodies.** All `mail.*` keys are **hot-reloadable**.
-
-```yaml
-mail.enabled: false
-```
-Master switch for outgoing mail; when off, every send is skipped. Off by default.
-
-```yaml
-mail.host: smtp.example.com
-mail.port: 587
-mail.security: starttls
-```
-SMTP host / port / encryption. `mail.security` accepts `none` / `ssl` / `starttls` (default `starttls`; `ssl` is SMTPS, usually 465; `starttls` usually 587). The GUI provides a "Provider preset" dropdown with one-click defaults for 163 / QQ / Gmail / Outlook / iCloud / NetEase business / Tencent business / Aliyun business / Microsoft 365 / Google Workspace and other mainstream providers.
-
-```yaml
-mail.username: you@example.com
-mail.password:
-```
-SMTP username (usually the full email address) and an **authorization code / app-specific password**. **Note**: most Chinese personal mailboxes (163 / 126 / QQ / NetEase business mail) reject the regular login password — generate an "Authorization Code" on the provider's web settings and use it as the SMTP password. Gmail / Outlook.com / iCloud / Yahoo require two-factor auth followed by an "App Password". Microsoft 365 / Google Workspace business tenants currently enforce OAuth, which **this release does not support yet** — ask your admin to enable SMTP AUTH explicitly or use a different mailbox.
-
-```yaml
-mail.from:
-mail.to: admin@example.com,ops@example.com
-```
-Sender address (falls back to `mail.username` when empty) and recipient address (multiple addresses comma-separated).
-
-```yaml
-mail.socks-proxy:
-```
-Optional SOCKS proxy in `host:port` form (e.g. `127.0.0.1:1080`). **The existing `proxy.*` HTTP proxy does not carry SMTP**, so this is configured independently. Leave empty for a direct connection.
-
-```yaml
-mail.subject-prefix: "[PixivDownloader]"
-```
-Subject prefix prepended to template titles for client-side filtering.
-
-> Mail and the "Push Notifications" below both live under the **GUI Settings page → "Notification"** group; use the dropdown to switch which service you edit — every enabled service takes effect.
-
----
-
-### Push Notifications (multi-channel)
+| Key | Default |
+| --- | --- |
+| `ssl.domain` | `localhost` |
+| `ssl.type` | `pem` |
+| `server.ssl.enabled` | `false` |
+| `server.ssl.certificate` | empty |
+| `server.ssl.certificate-private-key` | empty |
+| `server.ssl.key-store-type` | `JKS` |
+| `server.ssl.key-store` | empty |
+| `server.ssl.key-store-password` | empty |
+| `ssl.http-redirect` | `false` |
+| `ssl.http-redirect-port` | `80` |
 
-> Besides email, several "push" channels are supported, sharing the **GUI Settings page → "Notification"** group with mail. Any number of channels can be enabled at once; in the GUI each channel has its own "Enable" switch, configuration fields, and a "Test this channel" button (sends one test message using the current form values, so you can verify connectivity without saving first). **No key / token ever appears in logs or push bodies.** All `push.*` fields are **hot-reloadable**.
+Use certificate and private-key paths for `ssl.type=pem`, or a key store for `ssl.type=jks`. Never commit private keys or key-store passwords.
 
-```yaml
-push.enabled: false
-```
-Master push switch; when off, no channel sends. Off by default.
-
-> Each channel below has its own "Enable" switch (e.g. `push.bark.enabled`) and a "use proxy" switch (`push.<channel>.use-proxy` — when on, that channel's requests go through the HTTP proxy configured under `proxy.*`, independent of the global switch; Telegram defaults to on, the rest default to off).
+### Language and desktop UI
 
-#### Bark (iOS)
+| Key | Default | Description |
+| --- | --- | --- |
+| `app.language` | empty | Follow the system, or use a supported language code |
+| `app.theme` | `system` | GUI theme id |
+| `app.config-menu-expand-all` | `false` | Expand all configuration groups initially |
 
-```yaml
-push.bark.enabled: false
-push.bark.server: https://api.day.app
-push.bark.device-key:
-push.bark.sound:
-```
-Bark is a push app on iOS. `server` is the official public server or your self-hosted address; `device-key` is obtained in the Bark app; `sound` is an optional sound name, empty uses the app default.
+Available themes are contributed by installed theme plugins; the setting is not a host hard-coded list of concrete implementations.
 
-#### DingTalk
+### Updates
 
-```yaml
-push.dingtalk.enabled: false
-push.dingtalk.access-token:
-push.dingtalk.secret:
-```
-DingTalk group "custom robot". Create it under the group's "Settings → Group Assistant → Add Robot → Custom", and **tick "Sign" (加签) under "Security Settings"**. After creation you get a webhook URL like `https://oapi.dingtalk.com/robot/send?access_token=xxxx` — paste the part after `access_token=` into `access-token`, and paste the **`SEC`-prefixed secret** generated by ticking "Sign" into `secret` (it cannot be viewed again after the page closes, so copy it promptly). If you use "keyword" or "IP allowlist" instead, leave `secret` empty.
+| Key | Default |
+| --- | --- |
+| `update.enabled` | `true` |
+| `update.manifest-url` | official latest-release `update.json` |
+| `update.nightly-manifest-url` | official nightly `update.json` |
+| `update.auto-check` | `true` |
+| `update.check-nightly` | `true` for nightly builds, otherwise `false` |
 
-#### Telegram
+### Schedule host
 
-```yaml
-push.telegram.enabled: false
-push.telegram.bot-token:
-push.telegram.chat-id:
-push.telegram.use-proxy: true
-```
-Request a bot from [@BotFather](https://t.me/BotFather) to get `bot-token`; `chat-id` is the id of the target chat (user / group / channel). A proxy is usually required outside Telegram-reachable networks (`use-proxy` defaults to `true`).
+| Key | Default |
+| --- | --- |
+| `schedule.enabled` | `true` |
+| `schedule.tick-interval-ms` | `60000` |
+| `schedule.max-tasks` | `100` |
+| `schedule.inbox-check-every` | `500` |
+| `schedule.auth-failure-circuit-breaker` | `5` |
+| `schedule.pending-max-attempts` | `5` |
+| `schedule.overuse-defer-default-minutes` | `60` |
 
-#### Feishu (Lark)
+These keys configure the neutral schedule host. Download sources, authentication, and source-specific options remain owned by their plugins.
 
-```yaml
-push.feishu.enabled: false
-push.feishu.webhook-key:
-push.feishu.secret:
-```
-Feishu group "custom robot". `webhook-key` is the segment after `.../bot/v2/hook/` in the robot's webhook URL; if you enable "signature verification" under the robot's "Security Settings", put the secret in `secret`, otherwise leave it empty.
+### Plugin enabled state
 
-#### WeCom (WeChat Work)
+The host owns `plugins.{pluginId}.enabled`, for example:
 
 ```yaml
-push.wecom.enabled: false
-push.wecom.key:
+plugins.douyin.enabled: true
 ```
-WeCom group robot. `key` is the segment after `?key=` in the robot's webhook URL.
 
-#### PushPlus
+A required plugin cannot be disabled. Whether a change is immediate depends on the plugin's `pixiv.lifecycle-policy` and the requested lifecycle operation; see [plugin management](/zh-cn/plugin-management).
 
-```yaml
-push.pushplus.enabled: false
-push.pushplus.token:
-```
-Pushes to WeChat. `token` is your PushPlus user token, obtained on the [website](https://www.pushplus.plus) or by replying `token` to the "pushplus 推送加" WeChat official account.
+## Plugin business configuration
 
-#### ServerChan (Turbo / ³)
+Each plugin writes only `config/plugins/{pluginId}.properties`, using UTF-8 Java-properties syntax:
 
-```yaml
-push.serverchan.enabled: false
-push.serverchan.send-key:
+```properties
+example.timeout-ms=15000
+example.output-format=json
 ```
-Pushes to WeChat. `send-key` is the ServerChan SendKey; keys with the `sctp` prefix automatically use the ServerChan³ endpoint, others use the Turbo endpoint.
 
-#### Custom Webhook
+The host rejects attempts to override default host keys, `plugins.*.enabled`, or credential-like keys from these files. Keys should not collide across plugin files. A plugin child Spring context reads values through `Environment`, `@Value`, or `@ConfigurationProperties`; a third-party plugin should not read files directly or depend on app-shell configuration classes.
 
-```yaml
-push.webhook.enabled: false
-push.webhook.url:
-push.webhook.content-type: application/json
-push.webhook.body-template:
-```
-A universal channel: wraps the notification into your request-body template and POSTs it to `url`, so you can integrate Discord / Slack / ntfy / Gotify and any other webhook. The template supports `{{title}}` / `{{content}}` placeholders, falling back to `{"title":"{{title}}","content":"{{content}}"}` when empty; when `content-type` is a JSON type, placeholder values are automatically JSON-escaped so quotes / newlines in the body don't break the JSON structure.
-
----
+The plugin's GUI configuration contribution is the source of truth for fields and persistence. After save, the host refreshes plugin property sources and reports whether the result is immediate, requires a backend restart, or requires a process restart. After uncertain manual edits, a full restart is safest.
 
-### Notification types
+## Plugin credentials
 
-> Between "Enable push" and "Notification service" on the **GUI Settings page → "Notification"** group, each notification type can be toggled individually. These switches apply to **both email and push**: unchecking a type stops it from being sent through any medium. All types are **enabled by default**, and changes are **hot-reloadable**.
+Passwords, cookies, tokens, API keys, secrets, and webhook keys belong in `config/credentials/{pluginId}.properties`. The host owns encryption, permissions, migration, and owner-scoped injection. A plugin reads only its already-decrypted values from its child-context `Environment`.
 
-```yaml
-notification.scenario.overuse-paused.enabled: true
-notification.scenario.auth-expired.enabled: true
-notification.scenario.circuit-breaker.enabled: true
-notification.scenario.pending-exhausted.enabled: true
-notification.scenario.degraded-anonymous.enabled: true
-notification.scenario.run-failed.enabled: true
-notification.scenario.run-summary.enabled: true
-```
+Do not place credentials in `config.yaml` or `config/plugins/*.properties`, and do not let plugins read, parse, or decrypt credential files. A credential backup is useful only with the protected credential master key; encrypted values cannot be recovered in a different environment without the original key.
 
-Type meanings: `overuse-paused` overuse pause, `auth-expired` auth-expired suspension, `circuit-breaker` failure circuit-breaker suspension, `pending-exhausted` per-work retries exhausted, `degraded-anonymous` degraded anonymous run, `run-failed` whole run failed, `run-summary` successful run summary.
-
----
-
-## Hot Reload Reference
-
-The following settings can be changed via GUI and take effect **without restart**:
-
-| Setting | Hot Reload |
-|---------|:----------:|
-| `proxy.*` | ✅ |
-| `multi-mode.quota.*` | ✅ |
-| `multi-mode.request-limit-minute` | ✅ |
-| `multi-mode.static-resource-request-limit-minute` | ✅ |
-| `multi-mode.limit-page` | ✅ |
-| `guest-invite.request-limit-minute` | ✅ |
-| `guest-invite.static-resource-request-limit-minute` | ✅ |
-| `guest-invite.tts-request-limit-minute` | ✅ |
-| `multi-mode.post-download-mode` | ✅ |
-| `multi-mode.delete-after-hours` | ✅ |
-| `download.user-flat-folder` | ✅ |
-| `download.max-concurrent` | ✅ |
-| `download.novel-max-concurrent` | ✅ |
-| `setup.login-rate-limit-minute` | ✅ |
-| `maintenance.enabled` | ✅ |
-| `maintenance.monday.enabled` | ✅ |
-| `maintenance.monday.time` | ✅ |
-| `maintenance.tuesday.enabled` | ✅ |
-| `maintenance.tuesday.time` | ✅ |
-| `maintenance.wednesday.enabled` | ✅ |
-| `maintenance.wednesday.time` | ✅ |
-| `maintenance.thursday.enabled` | ✅ |
-| `maintenance.thursday.time` | ✅ |
-| `maintenance.friday.enabled` | ✅ |
-| `maintenance.friday.time` | ✅ |
-| `maintenance.saturday.enabled` | ✅ |
-| `maintenance.saturday.time` | ✅ |
-| `maintenance.sunday.enabled` | ✅ |
-| `maintenance.sunday.time` | ✅ |
-| `server.ssl.*` | ❌ Requires restart |
-| `ssl.*` | ❌ Requires restart |
-| `app.language` | ✅ |
-| `update.*` | ✅ |
-| `schedule.enabled` | ✅ |
-| `schedule.max-tasks` | ✅ |
-| `schedule.inbox-check-every` | ✅ |
-| `schedule.auth-failure-circuit-breaker` | ✅ |
-| `schedule.pending-max-attempts` | ✅ |
-| `schedule.overuse-defer-default-minutes` | ✅ |
-| `schedule.tick-interval-ms` | ❌ Requires restart |
-| `mail.*` | ✅ |
-| `push.*` | ✅ |
-| `notification.scenario.*` | ✅ |
-| `server.port` | ❌ Requires restart |
-| `download.root-folder` | ❌ Requires restart |
-
----
-
-## Configuration Example
+## Confirming the current contract
 
-```yaml
-# ========================================================
-# PixivDownloader Runtime Configuration
-# ========================================================
-
-server.port: 6999                          # HTTP service port
-
-download.root-folder: pixiv-download        # Download storage directory
-download.user-flat-folder: false            # Flat directory structure
-download.max-concurrent: 10                 # Max concurrent artwork downloads
-download.novel-max-concurrent: 10           # Max concurrent novel downloads
-
-# --- Proxy Configuration ---
-proxy.enabled: true
-proxy.host: 127.0.0.1
-proxy.port: 7890
-
-# --- Multi-mode Configuration ---
-multi-mode.quota.enabled: true
-multi-mode.quota.max-artworks: 50
-multi-mode.quota.reset-period-hours: 24
-multi-mode.quota.archive-expire-minutes: 60
-multi-mode.quota.limit-image: 0
-multi-mode.quota.max-proxy-requests: 200
-multi-mode.quota.archive-max-concurrent: 10
-
-multi-mode.post-download-mode: pack-and-delete
-multi-mode.delete-after-hours: 72
-
-multi-mode.request-limit-minute: 300
-multi-mode.static-resource-request-limit-minute: 1200
-multi-mode.limit-page: 3
-
-# --- Invited-guest rate limits (apply to invited guests in both solo and multi mode, counted per invite code) ---
-guest-invite.request-limit-minute: 300
-guest-invite.static-resource-request-limit-minute: 1200
-guest-invite.tts-request-limit-minute: 30
-
-# --- Login Security ---
-setup.login-rate-limit-minute: 10
-
-# --- Maintenance ---
-maintenance.enabled: true
-maintenance.monday.enabled: true
-maintenance.monday.time: 10:00
-maintenance.tuesday.enabled: false
-maintenance.tuesday.time: 10:00
-maintenance.wednesday.enabled: false
-maintenance.wednesday.time: 10:00
-maintenance.thursday.enabled: false
-maintenance.thursday.time: 10:00
-maintenance.friday.enabled: false
-maintenance.friday.time: 10:00
-maintenance.saturday.enabled: false
-maintenance.saturday.time: 10:00
-maintenance.sunday.enabled: false
-maintenance.sunday.time: 10:00
-
-# --- SSL/HTTPS ---
-ssl.domain: localhost
-ssl.type: pem
-server.ssl.enabled: false
-server.ssl.certificate:
-server.ssl.certificate-private-key:
-server.ssl.key-store-type: JKS
-server.ssl.key-store:
-server.ssl.key-store-password:
-ssl.http-redirect: false
-ssl.http-redirect-port: 80
-
-# --- Language ---
-app.language:
-
-# --- Online Updates ---
-update.enabled: true
-update.manifest-url: https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json
-update.auto-check: true
-update.nightly-manifest-url: https://github.com/Sywyar/PixivDownloader/releases/download/nightly/update.json
-update.check-nightly: false
-
-# --- Scheduled tasks (admin) ---
-schedule.enabled: true
-schedule.tick-interval-ms: 60000
-schedule.max-tasks: 100
-schedule.inbox-check-every: 500
-schedule.auth-failure-circuit-breaker: 5
-schedule.pending-max-attempts: 5
-schedule.overuse-defer-default-minutes: 60
-
-# --- Mail / SMTP (scheduled task notifications) ---
-mail.enabled: false
-mail.host:
-mail.port: 587
-mail.security: starttls
-mail.username:
-mail.password:
-mail.from:
-mail.to:
-mail.socks-proxy:
-mail.subject-prefix: "[PixivDownloader]"
-
-# --- Push notifications (multi-channel; shares the GUI "Notification" group with mail) ---
-push.enabled: false
-push.bark.enabled: false
-push.bark.server: https://api.day.app
-push.bark.device-key:
-push.bark.sound:
-push.bark.use-proxy: false
-push.dingtalk.enabled: false
-push.dingtalk.access-token:
-push.dingtalk.secret:
-push.dingtalk.use-proxy: false
-push.telegram.enabled: false
-push.telegram.bot-token:
-push.telegram.chat-id:
-push.telegram.use-proxy: true
-push.feishu.enabled: false
-push.feishu.webhook-key:
-push.feishu.secret:
-push.feishu.use-proxy: false
-push.wecom.enabled: false
-push.wecom.key:
-push.wecom.use-proxy: false
-push.pushplus.enabled: false
-push.pushplus.token:
-push.pushplus.use-proxy: false
-push.serverchan.enabled: false
-push.serverchan.send-key:
-push.serverchan.use-proxy: false
-push.webhook.enabled: false
-push.webhook.url:
-push.webhook.content-type: application/json
-push.webhook.body-template:
-push.webhook.use-proxy: false
-
-# --- Notification types (apply to both email and push; unchecked types are not sent) ---
-notification.scenario.overuse-paused.enabled: true
-notification.scenario.auth-expired.enabled: true
-notification.scenario.circuit-breaker.enabled: true
-notification.scenario.pending-exhausted.enabled: true
-notification.scenario.degraded-anonymous.enabled: true
-notification.scenario.run-failed.enabled: true
-notification.scenario.run-summary.enabled: true
-```
+1. Start with the GUI Configuration page; it combines host fields with contributions from currently installed plugins.
+2. Host defaults are defined by the current `DefaultConfigTemplate` output.
+3. Plugin fields are defined by that plugin's `GuiConfigContribution`, `@ConfigurationProperties`, or settings service.
+4. Do not copy old `mail.*`, `push.*`, `notification.*`, or `download.novel-*` examples into `config.yaml`; those settings are now plugin-owned.

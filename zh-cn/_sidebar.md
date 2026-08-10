@@ -16,6 +16,8 @@
 
 - **参考**
   - [⚙️ 配置参考](/zh-cn/configuration)
+  - [🔌 插件管理](/zh-cn/plugin-management)
+  - [🧰 第三方插件 SDK](/zh-cn/plugin-development)
   - [💾 存储原理](/zh-cn/storage)
   - [❓ 常见问题](/zh-cn/faq)
   - [🛠️ 开发指南](/zh-cn/development)
