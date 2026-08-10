@@ -46,7 +46,7 @@
 | <code>&lt;pixivdownload-plugin-api.version&gt;1.0.0&lt;/pixivdownload-plugin-api.version&gt;</code> | 构建环境提供的兼容 plugin-api 工件版本 |
 | <code>plugin.provider=Example Developer</code> | 你的 provider 名称 |
 
-最后修改两份 i18n 文件中的展示文案，并再次运行 <code>mvn verify</code>。不要只改 <code>plugin.properties</code>：feature id、route、static、namespace、schema owner 和测试必须保持一致。
+最后修改两份 i18n 文件中的展示文案，并再次运行 <code>mvn verify</code>。不要只改 <code>plugin.properties</code>：feature id、route、static、namespace、插件自有表名前缀和测试中的对应值必须同步替换。
 
 ## 运行时边界
 

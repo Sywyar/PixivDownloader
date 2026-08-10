@@ -132,7 +132,8 @@ class PluginTemplateBoundaryTest {
                     .doesNotContain(
                             "independentPage",
                             "DownloadGalleryCapabilities",
-                            "QueueTypeContribution");
+                            "QueueTypeContribution",
+                            "schema owner");
         }
     }
 
