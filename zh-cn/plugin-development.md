@@ -737,7 +737,7 @@ git switch -c feat/plugin-api/your-capability upstream/master
 2. 保持插件 id、descriptor、feature、route、静态资源、i18n 和测试一致；
 3. 不提交 `target/`、`build/`、运行配置、凭据、私钥或下载数据；
 4. PR 说明动机、稳定边界、失败/缺席行为以及实际执行的验证命令；
-5. 代码、模板和核心开发文档向 `master` 提交 PR；在线站点内容位于独立 `gh-pages` 分支，需要文档 PR 时按该分支当前结构修改。
+5. 代码、模板和核心开发文档向 `master` 提交 PR；在线站点内容位于独立 `gh-pages` 分支，通常从其专用 worktree 直接提交并推送。
 
 ## 发布前检查表
 

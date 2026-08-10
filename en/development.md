@@ -1,6 +1,6 @@
 # Development Guide
 
-This page is for contributors to the main repository. Third-party plugin documentation is currently maintained in the [Chinese SDK guide](/zh-cn/plugin-development), with plugin operations covered by [plugin management](/zh-cn/plugin-management).
+This page is for contributors to the main repository. Third-party plugin development is covered by the complete [Third-party Plugin SDK](/en/plugin-development); runtime operations are currently covered by [plugin management](/zh-cn/plugin-management).
 
 ## Prerequisites
 

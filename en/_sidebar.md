@@ -17,6 +17,7 @@
 - **Reference**
   - [⚙️ Configuration](/en/configuration)
   - [💾 Storage Principles](/en/storage)
+  - [🧰 Third-party Plugin SDK](/en/plugin-development)
   - [❓ FAQ](/en/faq)
   - [🛠️ Development](/en/development)
 
