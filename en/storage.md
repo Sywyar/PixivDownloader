@@ -1,136 +1,138 @@
 # Storage Principles
 
-This chapter explains in detail where PixivDownloader stores data, how the database records file locations, and what to do when relocating or backing up.
+PixivDownloader separates downloaded works, host runtime files, and installed external plugins. Paths are relative to the process **working directory**, not necessarily the JAR's directory. Distribution launch scripts and Windows shortcuts set the working directory to the distribution directory.
 
-PixivDownloader divides data into two categories, **managed separately**:
+## Top-level directories
 
-- **Artwork files**: the illustrations, manga, ugoira, novels, etc. you download, all stored in the download root directory (`download.root-folder`, default `pixiv-download/`).
-- **Runtime data**: configuration, database, cache, logs, etc., stored in four directories under the working directory: `config/`, `state/`, `data/`, `log/`.
+| Category | Default path | Contents |
+| --- | --- | --- |
+| Configuration | `config/` | Host settings, plugin business settings, and encrypted credentials |
+| State | `state/` | Setup state, queue checkpoints, GUI markers, and recoverable plugin state |
+| Data | `data/` | SQLite, user resources, caches, and persistent plugin data |
+| Plugins | `plugins/` | External plugin artifacts, provenance, and frozen runtime copies |
+| Logs | `log/` | GUI and backend logs |
+| Downloaded works | `{rootFolder}/` | Artifacts selected by `download.root-folder` |
 
-> [!NOTE]
-> The download root directory contains **only** artwork files. Auxiliary data like the database, thumbnail cache, etc. is never written there, so you can safely place the download root on a high-capacity disk, or sync / back it up independently.
+`download.root-folder` defaults to the relative path `pixiv-download`. It contains works, work metadata sidecars, and temporary export archives only. Configuration, databases, plugin packages, state, and caches do not belong there.
 
----
+## Working-directory layout
 
-## Working Directory Overview
+### Configuration
 
-With the program directory (working directory) as root, the complete layout is:
+| Path | Purpose |
+| --- | --- |
+| `config/config.yaml` | Host configuration and `plugins.{id}.enabled` state |
+| `config/plugins/{pluginId}.properties` | Non-sensitive business settings owned by that plugin |
+| `config/credentials/{pluginId}.properties` | Credential envelopes encrypted by the host and injected only into that plugin |
+| `config/image_classifier.properties` | Image-classifier target directories |
 
-| Path | Contents | Consequence of Deletion |
-|------|----------|--------------------------|
-| `config/config.yaml` | Main configuration file ([Configuration Reference](/en/configuration)) | Regenerated with defaults on restart; custom config lost |
-| `config/image_classifier.properties` | Image classifier directory config | Classifier directory settings lost |
-| `state/setup_config.json` | First-run setup wizard result: run mode (solo / multi), login state, etc. | Must re-run the setup wizard |
-| `state/batch_state.json` | Batch download queue breakpoint state | Unfinished batch queues lost |
-| `state/gui/` | GUI onboarding, proxy wizard, etc. one-time markers | Some onboarding guides reappear |
-| `state/download_root_marker.txt` | Last-resolved absolute path of the download root (see "Symbolic Root" below) | Loses one startup check for "config changed but files not moved" |
-| `data/pixiv_download.db` | **SQLite main database** (with `-wal` / `-shm` companion files) | All download history, gallery, collections, scheduled tasks, etc. records lost (artwork files unaffected) |
-| `data/collection_icons/` | Collection custom icons | Icons revert to default |
-| `data/gallery_thumbs/` | Gallery thumbnail cache | Auto-regenerated |
-| `data/tts/` | Listen (Edge TTS) version number cache | Auto-reset |
-| `data/narration-voice/` | Multi-character narration reference audio | Corresponding characters lose timbre cloning reference audio |
-| `data/backfill/` | Unreachable artwork list recorded by backfill tool | Re-detected on next backfill |
-| `log/` | GUI and backend runtime logs | Only affects troubleshooting |
-| `pixiv-download/` (i.e. `{download root}`) | **All artwork files** | Artworks themselves lost |
+See [Configuration Reference](/en/configuration) for ownership rules. Do not exchange, merge, or rename files between owners.
 
----
+### State
 
-## Download Root Internal Structure
+| Path | Purpose |
+| --- | --- |
+| `state/setup_config.json` | Initial setup, runtime mode, and login state |
+| `state/download-workbench/batch_state.json` | Download-workbench batch queue checkpoint |
+| `state/download-workbench/layout-feedback-state.json` | Download-workbench layout-feedback deduplication state |
+| `state/gui/` | GUI onboarding and proxy-step markers |
+| `state/download_root_marker.txt` | Previously resolved absolute download root |
+| `state/{pluginId}/` | Owner state root obtained through `RuntimePathProvider`; created on demand |
+
+Deleting state does not always mean harmless regeneration. It can require setup or login again, or lose queue checkpoints and plugin state. Identify the owner before cleanup.
+
+### Data
+
+| Path | Purpose |
+| --- | --- |
+| `data/pixiv_download.db` | Main SQLite database; `-wal` / `-shm` files may exist while running |
+| `data/collection_icons/{id}.{ext}` | Custom collection icons |
+| `data/gallery_thumbs/{artworkId}/p{n}.{ext}` | Rebuildable gallery thumbnail cache |
+| `data/tts/chromium-version.txt` | TTS plugin Edge TTS Chromium-version cache |
+| `data/novel/narration-voice/{castId}/{characterId}.{ext}` | Novel-plugin character reference audio |
+| `data/backfill/unreachable.json` | Backfill tool's unreachable-work record |
+| `data/install_identity.txt` | Installation UUID generated once and permanently reused |
+| `data/delete-staging/{operationId}/` | Atomic rollback staging for work deletion |
+| `data/{pluginId}/` | Owner data root obtained through `RuntimePathProvider`; created on demand |
+
+The main database stores work facts, path references, history, and domain data written by installed features. Plugin-private tables remain owned by their plugin's schema and lifecycle. Do not copy only the `.db` file while leaving an active WAL behind; shut the application down normally before backup.
+
+### External plugins
+
+| Path | Purpose |
+| --- | --- |
+| `plugins/*.jar`, `plugins/*.zip` | Installed original artifacts; management identity and offline-verification trust source |
+| `plugins/provenance/<artifact>.pixiv-plugin-provenance` | Origin, digest, signature, and last verification result |
+| `plugins/runtime/` | Random private frozen workspace for each live generation; not a shared cache or install source |
+| `plugins/.preparing/`, `plugins/.staging/`, `plugins/.transaction-cleanup/` | Managed install-transaction and crash-recovery directories |
+| `plugins/.pixivdownload-runtime.lock` | Runtime directory lease |
+
+The system property `pixivdownload.plugins-dir` can override the plugin root. The runtime does not create a missing directory automatically; it reports a diagnostic and lets the core shell enter recovery.
+
+Do not overwrite, move, or delete files under `plugins/` while the application is running. Installation, upgrade, removal, and rollback must use plugin management so the artifact and provenance move transactionally. `plugins/runtime/` can be rebuilt from a verified installed artifact, but it is not a download cache for another process to reuse.
+
+## Downloaded-work layout
+
+Common paths are below. A plugin may define a more detailed layout inside its own work directory.
 
 | Path | Contents |
-|------|----------|
-| `{root}/{artwork_id}/` | Work directories for single-work, URL batch, search downloads, etc. — one folder per artwork |
-| `{root}/{artist_name}/{artwork_id}/` | Works from **artist batch download**; R-18 / R-18G works nest an extra `R18/` or `R18G/` subdirectory. When `download.user-flat-folder: true`, no artist layer is created — same as above |
-| `{root}/{artwork_id}/{filename}_p0.webp` + `..._p0_thumb.jpg` | Ugoira animated WebP and first-frame thumbnail |
-| `{root}/novel-{novel_id}/` | Downloaded single novels (TXT / HTML / EPUB) and covers |
-| `{root}/artwork-series-{series_id}/cover.{ext}` | Manga series cover |
-| `{root}/novel-series-{series_id}/` | Novel series covers and compilation files |
-| `{root}/_archives/{token}.zip` | Multi-mode quota packaging and gallery batch export archives (have expiry; auto-cleaned when expired) |
+| --- | --- |
+| `{root}/{artworkId}/` | Pixiv single-work, URL batch, and search downloads |
+| `{root}/{artist}/{artworkId}/` | Artist downloads; omit the artist level when `download.user-flat-folder=true` |
+| `{root}/{artworkId}/{workId}.meta.json` | Structural metadata sidecar moved/deleted with the work |
+| `{root}/artwork-series-{seriesId}/cover.{ext}` | Pixiv manga-series cover |
+| `{root}/novel-{novelId}/` | Single-novel TXT/HTML/EPUB and related work files |
+| `{root}/novel-series-{seriesId}/` | Novel-series cover and optional compilation |
+| `{root}/douyin/{owner}/...` | Douyin plugin's default output |
+| `{root}/_archives/{token}.zip` | Short-lived multi-mode quota and gallery export archives |
 
-Image filenames in work directories default to `{artwork_id}_p{page}.{extension}` and can be customized via "Filename template" in batch download settings (e.g., adding author name, timestamp, etc.).
+Douyin derives its default root from `DownloadSettings.getRootFolder()` plus `douyin`, then isolates output by request owner. A non-empty `douyin.download.directory` plugin setting replaces that root. The obsolete `data/douyin/downloads` path is not used. A collection may also select a work root outside the default download root.
 
-Additionally, **collections can have their own download directories**: after assigning a dedicated download directory to a collection, works downloaded with that collection checked will land in that directory (which can be outside the download root), with the same directory structure as above.
+A third-party download type should likewise write works below a plugin-id directory under `download.root-folder`, or to a work directory explicitly chosen in that plugin's settings. `state/{pluginId}` and `data/{pluginId}` are for auxiliary state and data, not downloaded works.
 
----
+## Database path encoding
 
-## What the Database Records
+The database avoids repeating long absolute paths by storing prefix references:
 
-`data/pixiv_download.db` is an SQLite database (WAL mode) that stores all records except the artwork files themselves:
-
-- **Download history**: each artwork / novel's title, directory, page count, extension, download time, R-18 flag, author, filename template, etc. — the gallery, dedup ("already downloaded, skip"), and all of that rely on it;
-- **Gallery data**: tags, authors, series, collections and their members, statistics;
-- **Novel body**: the novel's original content is stored directly in the database (for full-text search, AI translation, re-export); TXT / EPUB on disk are just export artifacts; AI translations and Listen multi-character narration scripts are also in the database;
-- **Scheduled tasks**: task definitions, run watermarks, isolation retry queues (bound Pixiv cookies are also stored in the database — keep the database file safe);
-- **Suspected duplicates**: perceptual hash for each page image.
-
-> [!WARNING]
-> The database and artwork files are **two independent data sets**: deleting the database does not delete artwork files, but all history records, gallery, and dedup info are lost; conversely, deleting only the files without deleting records leaves gallery entries that can't be opened. When backing up, **both** (with `-wal` / `-shm` companion files) should be backed up together.
-
----
-
-## How Paths Are Recorded: Prefix Encoding & Symbolic Root
-
-The database needs to remember where each artwork is located. Storing tens of thousands of absolute paths directly wastes space, and all become invalid if the directory is moved. PixivDownloader uses **prefix encoding** to solve this:
-
-### `{N}` Prefix Reference
-
-All directory columns (work directory, moved directory, novel directory, series cover directory, collection download directory) are stored as:
-
-```
-{N}/relative_path        e.g. {3}/novel-12345
+```text
+{N}/relative/path
 ```
 
-`N` points to an absolute path prefix registered in the `path_prefixes` table (e.g. `D:\Pictures\pixiv-classified`). When reading, the prefix is prepended to get the full path. This way each root directory's absolute path is stored only once; using the GUI's "Migrate Download Directory" to rewrite that one entry simultaneously points all records referencing it to the new location.
+For `N>0`, `N` identifies an absolute prefix in `path_prefixes`. Updating that prefix redirects every reference that uses it.
 
-### `{0}` Symbolic Root: Follows the Software Directory
+### `{0}` symbolic root
 
-`{N}` is still pinned to a specific absolute path — copying the entire software folder to a new computer / drive letter would make all records with `D:\old_location\...` invalid. This is solved by the **symbolic root `{0}`**:
+When `download.root-folder` is relative, records under it can use `{0}/...`. `{0}` resolves on every startup to “current working directory + current relative download root.” Moving the whole distribution together with `pixiv-download/` therefore keeps history references valid.
 
-- When `download.root-folder` is configured as a **relative path** (the default `pixiv-download` is), records under the download root are encoded as `{0}/relative_path`;
-- `{0}` registers no absolute path — on each startup it **dynamically resolves** to "current software directory + configured relative path";
-- Therefore, **copying / moving the entire software folder (with the download root inside it) to any new location lets the gallery and download history locate files directly** — no repair actions needed at all. This is the recommended approach for the default installation;
-- Absolute-path records left over from older versions are automatically migrated to `{0}` format on first startup after upgrading — no manual action needed.
+When the download root is absolute, records use regular `{N}` prefixes. After moving that directory, use “Migrate Download Directory” on the GUI Status page to update references.
 
-If you configure `download.root-folder` as an **absolute path** (e.g., pointing to another disk), the symbolic root is not used, and records fall back to `{N}` mode — in that case, relocating the download directory requires the GUI's "Migrate Download Directory" tool.
+`state/download_root_marker.txt` records the previous resolution and detects a configuration change made without moving files. The migration tool updates configuration and database references; it **does not move files on disk**.
 
-### Safety Checks: What If You Changed Config but Didn't Move Files?
+## Relocation
 
-`state/download_root_marker.txt` records the absolute path the download root resolved to on the last run, supporting two layers of protection:
+### Move the whole distribution
 
-- **GUI config page interception**: when modifying the path under "Config → Download → Download Root" with old "follow software directory" records in the database, a dialog explains the consequences before saving — continuing will pin old artwork records to the current absolute path (losing the ability to relocate with the software). Click "OK" to auto-pin and save, or "Cancel" to discard the change.
-- **Startup check**: if you bypassed the GUI and manually edited `config.yaml` (or changed the launch directory), the resolved location at startup differs from last time:
-  - Download root changed to **absolute path** but database still has old "follow software directory" records → after startup the GUI helper shows a fix dialog, guiding you to confirm the old download root where those artworks actually are (pre-filled with the last recorded location); confirming auto-pins old records to that path;
-  - Still a relative path but old location has files and new location is empty → likely files weren't moved; startup log keeps warning and suggests using "Migrate Download Directory" to fix, until resolved;
-  - New location has full set of files → treated as normal whole-folder relocation, only a note is logged.
+Keep `download.root-folder` relative, shut down the application, and move the entire distribution directory. Start it through the launch script in the new location so the working directory, runtime files, and `{0}` move together.
 
-### How GUI "Migrate Download Directory" Handles Symbolic Root
+### Move only the download root
 
-The migration tool (GUI Helper → Status page → Migrate Download Directory) prominently shows the "current download root (follows software directory)" with its fully resolved path. After entering a new directory for it, it asks whether to also update `config.yaml` based on the new directory's location:
+1. Shut the application down normally.
+2. Move the work directory in the filesystem.
+3. Open “Migrate Download Directory” from the GUI Status page, select the actual new location, and choose whether to update `config.yaml` too.
+4. Restart when prompted and spot-check history, gallery entries, and a new download.
 
-| New Directory Location | Sync config? | Result |
-|------------------------|-------------|--------|
-| Still inside software directory | Yes (recommended) | Only changes `config.yaml` to the new **relative path**; database records unchanged, continue following software directory |
-| Still inside software directory | No | Database records pinned to new directory's absolute path; config unchanged (new downloads still go to old directory) |
-| Outside software directory | Yes | Config changed to new directory's absolute path; database records pinned along with it |
-| Outside software directory | No | Only database records pinned to new directory; config unchanged (new downloads still go to old directory) |
+Do not edit `download.root-folder` first and expect the application to move files; it does not.
 
-> [!NOTE]
-> The migration tool only changes database records — it does **not move files on disk**. Please manually move the files to the new directory first (the new directory must already exist), then run migration. After changing the download root, restart the service for it to take effect.
+## Backup and restore
 
----
+A complete backup should include:
 
-## Relocation & Backup Guide
+- `config/`, including plugin business settings and encrypted credentials;
+- `state/`, preserving setup, login, queue, and plugin state;
+- `data/`, copied after the application has stopped;
+- `plugins/`, preserving third-party/on-demand artifacts, signatures, and provenance;
+- `download.root-folder` and any other work directories selected by collections or plugin settings.
 
-**Whole-folder relocation (recommended)**
-Keep `download.root-folder` as a relative path (the default), then simply copy / move the entire software folder to a new location (new computer, new disk — both fine). Start and use — gallery and history records follow automatically, no extra steps needed.
+`log/` is usually needed only for troubleshooting. `data/gallery_thumbs/` and `plugins/runtime/` are rebuildable, but including them in a whole-directory backup is harmless.
 
-**Relocate only the download directory**
-1. Stop the service, move the download root files to the new location;
-2. Start GUI Helper → Status page → Migrate Download Directory, choose the appropriate branch per the table above;
-3. Restart the service as prompted.
-
-**Backup**
-At minimum: `config/` + `data/` (including `-wal` / `-shm`) + download root. `state/` is optional (losing it only means re-running the setup wizard / re-logging in).
-
-> [!WARNING]
-> Do not manually edit `download.root-folder` in `config.yaml` without moving the files first. In relative-path mode this would cause all historical records to resolve to a new empty directory (startup log will warn); the correct approach is always "move files first, then use the migration tool to update records / config."
+On restore, preserve the relative layout or use the migration tool for absolute roots. Encrypted credentials also depend on the credential master key that produced their envelopes. Confirm key compatibility before restoring across builds or deployments; otherwise re-enter credentials in the target environment.
