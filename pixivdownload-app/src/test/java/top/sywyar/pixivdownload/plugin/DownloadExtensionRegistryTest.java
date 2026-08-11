@@ -43,10 +43,10 @@ class DownloadExtensionRegistryTest {
         assertThat(plugin.uiSlotReads.get()).isEqualTo(1);
         assertThat(uiSlots.slots()).singleElement()
                 .extracting(slot -> slot.slot().slotId())
-                .isEqualTo("stateful-ui.settings");
+                .isEqualTo("stateful-ui.topbar");
         assertThat(downloads.snapshot().uiSlots()).singleElement()
                 .extracting(slot -> slot.slot().slotId())
-                .isEqualTo("stateful-ui.settings");
+                .isEqualTo("stateful-ui.topbar");
     }
 
     @Test
@@ -444,7 +444,7 @@ class DownloadExtensionRegistryTest {
         public List<WebUiSlotContribution> uiSlots() {
             return uiSlotReads.incrementAndGet() == 1
                     ? List.of(new WebUiSlotContribution(
-                            "stateful-ui.settings", "settings-card", MODULE_URL, 10))
+                            "stateful-ui.topbar", "topbar-actions", MODULE_URL, 10))
                     : List.of();
         }
 

@@ -28,6 +28,7 @@ public final class DownloadExtensionRegistry {
 
     /** 下载页实际声明的稳定挂载点；其它页面的通用 UI slot 不进入本快照。 */
     private static final Set<String> DOWNLOAD_SLOT_TARGETS = Set.of(
+            "topbar-actions",
             "cookie-tools",
             "quick-actions-bookmarks",
             "quick-actions-mine",
