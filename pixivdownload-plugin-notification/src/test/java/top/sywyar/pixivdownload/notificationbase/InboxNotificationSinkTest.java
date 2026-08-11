@@ -24,7 +24,7 @@ class InboxNotificationSinkTest {
     void rendersTemplateIntoPlainInboxMessage() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
         InboxNotificationSink sink = new InboxNotificationSink(
-                catalog(true), new NotificationInboxService(mapper), verifyLocales());
+                catalog(true), new NotificationInboxService(mapper), verifyLocales(), () -> true);
 
         sink.deliver(SCENARIO, Locale.US, Map.of(
                 "task_name", "Daily *Task*",
@@ -45,15 +45,27 @@ class InboxNotificationSinkTest {
     void verifiesLocalesAndNeverThrowsOnMissingTemplate() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
         InboxNotificationSink complete = new InboxNotificationSink(
-                catalog(true), new NotificationInboxService(mapper), verifyLocales());
+                catalog(true), new NotificationInboxService(mapper), verifyLocales(), () -> true);
         InboxNotificationSink incomplete = new InboxNotificationSink(
-                catalog(false), new NotificationInboxService(mapper), verifyLocales());
+                catalog(false), new NotificationInboxService(mapper), verifyLocales(), () -> true);
 
         assertThatCode(() -> complete.verifyRenderable(SCENARIO)).doesNotThrowAnyException();
         assertThatThrownBy(() -> incomplete.verifyRenderable(SCENARIO))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatCode(() -> incomplete.deliver(SCENARIO, Locale.SIMPLIFIED_CHINESE, Map.of()))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("关闭站内信服务后不再保存新消息")
+    void skipsDeliveryWhenDisabled() {
+        NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
+        InboxNotificationSink sink = new InboxNotificationSink(
+                catalog(true), new NotificationInboxService(mapper), verifyLocales(), () -> false);
+
+        sink.deliver(SCENARIO, Locale.US, Map.of());
+
+        assertThat(mapper.findLatest(null, 10)).isEmpty();
     }
 
     private static ImmutableNotificationTemplateCatalog catalog(boolean includeChinese) {

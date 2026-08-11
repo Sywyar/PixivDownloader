@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,13 +28,15 @@ public class InboxNotificationSink implements NotificationSink {
     private final NotificationTemplateCatalog templates;
     private final NotificationInboxService inbox;
     private final List<Locale> verifyLocales;
+    private final BooleanSupplier enabled;
     private final PushFormatConverter formatConverter = new PushFormatConverter();
 
     public InboxNotificationSink(NotificationTemplateCatalog templates, NotificationInboxService inbox,
-                                 List<Locale> verifyLocales) {
+                                 List<Locale> verifyLocales, BooleanSupplier enabled) {
         this.templates = Objects.requireNonNull(templates, "notification templates");
         this.inbox = Objects.requireNonNull(inbox, "notification inbox");
         this.verifyLocales = List.copyOf(Objects.requireNonNull(verifyLocales, "supported locales"));
+        this.enabled = Objects.requireNonNull(enabled, "inbox enabled supplier");
         if (this.verifyLocales.isEmpty()) {
             throw new IllegalArgumentException("supported locales must not be empty");
         }
@@ -47,16 +50,24 @@ public class InboxNotificationSink implements NotificationSink {
     @Override
     public void deliver(NotificationScenario scenario, Locale locale, Map<String, String> placeholders) {
         try {
-            NotificationTemplateContribution template = template(scenario, locale);
-            Map<String, String> values = placeholders == null ? Map.of() : placeholders;
-            String title = substitute(template.titleTemplate(), key -> values.getOrDefault(key, ""));
-            String markdownBody = substitute(template.bodyTemplate(), key -> markdownValue(key, values.get(key)));
-            String body = formatConverter.render(
-                    PushMessage.markdown("", markdownBody, scenario.level()), PushFormat.PLAIN_TEXT).body();
-            inbox.publish(NotificationCategory.DOWNLOAD, scenario.level(), scenario.id(), title, body, null);
+            if (!enabled.getAsBoolean()) {
+                return;
+            }
+            deliverForTest(scenario, locale, placeholders);
         } catch (Exception exception) {
             LOG.error("Inbox notification [{}] failed: {}", scenario.id(), exception.getMessage());
         }
+    }
+
+    NotificationMessage deliverForTest(NotificationScenario scenario, Locale locale,
+                                       Map<String, String> placeholders) {
+        NotificationTemplateContribution template = template(scenario, locale);
+        Map<String, String> values = placeholders == null ? Map.of() : placeholders;
+        String title = substitute(template.titleTemplate(), key -> values.getOrDefault(key, ""));
+        String markdownBody = substitute(template.bodyTemplate(), key -> markdownValue(key, values.get(key)));
+        String body = formatConverter.render(
+                PushMessage.markdown("", markdownBody, scenario.level()), PushFormat.PLAIN_TEXT).body();
+        return inbox.publish(NotificationCategory.DOWNLOAD, scenario.level(), scenario.id(), title, body, null);
     }
 
     @Override

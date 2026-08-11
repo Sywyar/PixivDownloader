@@ -2,6 +2,11 @@ package top.sywyar.pixivdownload.notificationbase;
 
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
@@ -27,6 +32,10 @@ import java.util.List;
 public class NotificationPlugin implements PixivFeaturePlugin {
 
     public static final String ID = "notification";
+    static final String INBOX_ENABLED_KEY = "notification.inbox.enabled";
+
+    private static final String NOTIFICATION_SERVICES_SECTION = "notification.services";
+    private static final String INBOX_CARD_ID = "inbox";
 
     @Override
     public String id() {
@@ -69,7 +78,9 @@ public class NotificationPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/pixiv-notifications.html"),
                 WebRouteContribution.admin("/pixiv-notifications/**"),
                 WebRouteContribution.admin("/api/notifications"),
-                WebRouteContribution.admin("/api/notifications/**"));
+                WebRouteContribution.admin("/api/notifications/**"),
+                WebRouteContribution.gui("/api/gui/notification-inbox-test"),
+                WebRouteContribution.gui("/api/gui/notification-inbox-test-all"));
     }
 
     @Override
@@ -93,9 +104,11 @@ public class NotificationPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {
-        List<GuiConfigFieldContribution> fields = Arrays.stream(NotificationScenario.values())
+        List<GuiConfigFieldContribution> fields = new java.util.ArrayList<>();
+        fields.add(inboxField());
+        fields.addAll(Arrays.stream(NotificationScenario.values())
                 .map(NotificationPlugin::scenarioField)
-                .toList();
+                .toList());
         List<GuiConfigFieldLayoutContribution> layouts = Arrays.stream(NotificationScenario.values())
                 .map(scenario -> new GuiConfigFieldLayoutContribution(
                         NotificationConfigKeys.scenarioEnabledKey(scenario.id()),
@@ -119,7 +132,128 @@ public class NotificationPlugin implements PixivFeaturePlugin {
                 List.of(),
                 false,
                 false);
-        return List.of(new GuiConfigContribution(List.of(), fields, List.of(section)));
+        GuiConfigSectionContribution services = new GuiConfigSectionContribution(
+                NOTIFICATION_SERVICES_SECTION,
+                GuiConfigGroups.NOTIFICATION,
+                "",
+                "",
+                ID,
+                "gui.config.notification.service.label",
+                "gui.config.notification.service.help",
+                "",
+                "",
+                List.of(),
+                GuiConfigSectionLayout.CARD_SWITCHER,
+                200,
+                List.of(new GuiConfigFieldLayoutContribution(
+                        INBOX_ENABLED_KEY,
+                        INBOX_CARD_ID,
+                        "gui.config.notification.service.inbox",
+                        ID,
+                        90)),
+                List.of(inboxTestAction(), inboxTestAllAction()),
+                List.of(),
+                true,
+                true);
+        return List.of(new GuiConfigContribution(List.of(), fields, List.of(section, services)));
+    }
+
+    private static GuiConfigFieldContribution inboxField() {
+        return new GuiConfigFieldContribution(
+                INBOX_ENABLED_KEY,
+                GuiConfigGroups.NOTIFICATION,
+                "gui.config.field.notification.inbox.enabled.label",
+                "gui.config.field.notification.inbox.enabled.help",
+                ID,
+                GuiConfigFieldType.BOOL,
+                "true",
+                90,
+                false,
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                null);
+    }
+
+    private static GuiConfigActionContribution inboxTestAction() {
+        return new GuiConfigActionContribution(
+                "notification.inbox.test",
+                "gui.config.notification.inbox.test-button.label",
+                "gui.config.notification.inbox.test-button.help",
+                ID,
+                INBOX_CARD_ID,
+                "notification-inbox-test",
+                30_000,
+                1090,
+                List.of(),
+                "gui.config.notification.inbox.test.notice.sending",
+                List.of(
+                        new GuiConfigActionResultRule(
+                                "gui.config.notification.inbox.test.notice.unreachable",
+                                10,
+                                List.of(GuiConfigActionResultCondition.reachable(false)),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.notification.inbox.test.notice.success",
+                                20,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonTrue("success")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.notification.inbox.test.notice.failed",
+                                30,
+                                List.of(GuiConfigActionResultCondition.reachable(true)),
+                                List.of())),
+                null);
+    }
+
+    private static GuiConfigActionContribution inboxTestAllAction() {
+        return new GuiConfigActionContribution(
+                "notification.inbox.test-all",
+                "gui.config.notification.inbox.test-all.button.label",
+                "gui.config.notification.inbox.test-all.button.help",
+                ID,
+                INBOX_CARD_ID,
+                "notification-inbox-test-all",
+                30_000,
+                1100,
+                List.of(),
+                "gui.config.notification.inbox.test-all.notice.sending",
+                List.of(
+                        new GuiConfigActionResultRule(
+                                "gui.config.notification.inbox.test.notice.unreachable",
+                                10,
+                                List.of(GuiConfigActionResultCondition.reachable(false)),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.notification.inbox.test-all.notice.success",
+                                20,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonTrue("success")),
+                                List.of(GuiConfigActionResultArgument.json("total"))),
+                        new GuiConfigActionResultRule(
+                                "gui.config.notification.inbox.test-all.notice.partial",
+                                30,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonGreaterThan("succeeded", 0)),
+                                List.of(
+                                        GuiConfigActionResultArgument.json("succeeded"),
+                                        GuiConfigActionResultArgument.json("total"),
+                                        GuiConfigActionResultArgument.summary())),
+                        new GuiConfigActionResultRule(
+                                "gui.config.notification.inbox.test.notice.failed",
+                                40,
+                                List.of(GuiConfigActionResultCondition.reachable(true)),
+                                List.of())),
+                GuiConfigActionResultSummary.allItems("failures", "scenarioId", ""));
     }
 
     private static GuiConfigFieldContribution scenarioField(NotificationScenario scenario) {

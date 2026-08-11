@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -30,6 +31,7 @@ class NotificationPluginTest {
     void contributesScenarioFieldsWithDefaultEnabled() {
         List<GuiConfigFieldContribution> fields = plugin.guiConfigContributions().stream()
                 .flatMap(contribution -> contribution.fields().stream())
+                .filter(field -> field.key().startsWith(NotificationConfigKeys.SCENARIO_PREFIX))
                 .toList();
         Set<String> expectedKeys = java.util.Arrays.stream(NotificationScenario.values())
                 .map(NotificationScenario::id)
@@ -54,6 +56,7 @@ class NotificationPluginTest {
     void contributesNeutralScenarioSection() {
         List<GuiConfigSectionContribution> sections = plugin.guiConfigContributions().stream()
                 .flatMap(contribution -> contribution.sections().stream())
+                .filter(section -> section.sectionId().equals("notification.scenarios"))
                 .toList();
         Set<String> expectedKeys = java.util.Arrays.stream(NotificationScenario.values())
                 .map(NotificationScenario::id)
@@ -82,6 +85,49 @@ class NotificationPluginTest {
     }
 
     @Test
+    @DisplayName("站内信作为默认启用的通知服务卡片")
+    void contributesInboxServiceCard() {
+        List<GuiConfigFieldContribution> fields = plugin.guiConfigContributions().stream()
+                .flatMap(contribution -> contribution.fields().stream())
+                .toList();
+        List<GuiConfigSectionContribution> sections = plugin.guiConfigContributions().stream()
+                .flatMap(contribution -> contribution.sections().stream())
+                .toList();
+
+        assertThat(fields).filteredOn(field -> field.key().equals(NotificationPlugin.INBOX_ENABLED_KEY))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.groupId()).isEqualTo(GuiConfigGroups.NOTIFICATION);
+                    assertThat(field.type()).isEqualTo(GuiConfigFieldType.BOOL);
+                    assertThat(field.defaultValue()).isEqualTo("true");
+                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.contributesGroupVisibility()).isTrue();
+                });
+        assertThat(sections).filteredOn(section -> section.sectionId().equals("notification.services"))
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.layout()).isEqualTo(GuiConfigSectionLayout.CARD_SWITCHER);
+                    assertThat(section.mergeable()).isTrue();
+                    assertThat(section.contributesGroupVisibility()).isTrue();
+                    assertThat(section.fieldLayouts()).singleElement().satisfies(layout -> {
+                        assertThat(layout.fieldKey()).isEqualTo(NotificationPlugin.INBOX_ENABLED_KEY);
+                        assertThat(layout.cardId()).isEqualTo("inbox");
+                        assertThat(layout.cardLabelKey()).isEqualTo("gui.config.notification.service.inbox");
+                        assertThat(layout.i18nNamespace()).isEqualTo(NotificationPlugin.ID);
+                    });
+                    assertThat(section.actions()).hasSize(2)
+                            .extracting(GuiConfigActionContribution::actionId)
+                            .containsExactly("notification.inbox.test", "notification.inbox.test-all");
+                    assertThat(section.actions()).allSatisfy(action -> {
+                        assertThat(action.cardId()).isEqualTo("inbox");
+                        assertThat(action.payloadFields()).isEmpty();
+                    });
+                    assertThat(section.actions()).extracting(GuiConfigActionContribution::endpoint)
+                            .containsExactly("notification-inbox-test", "notification-inbox-test-all");
+                });
+    }
+
+    @Test
     @DisplayName("站内信页面、API 与下载页入口均为插件自有且仅管理员可达")
     void contributesAdministratorInbox() {
         NotificationPf4jPlugin pf4j = new NotificationPf4jPlugin();
@@ -91,9 +137,13 @@ class NotificationPluginTest {
                         "/pixiv-notifications.html",
                         "/pixiv-notifications/**",
                         "/api/notifications",
-                        "/api/notifications/**");
-        assertThat(plugin.routes()).allSatisfy(route ->
-                assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
+                        "/api/notifications/**",
+                        "/api/gui/notification-inbox-test",
+                        "/api/gui/notification-inbox-test-all");
+        assertThat(plugin.routes()).filteredOn(route -> route.pathPattern().startsWith("/api/gui/"))
+                .allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.GUI));
+        assertThat(plugin.routes()).filteredOn(route -> !route.pathPattern().startsWith("/api/gui/"))
+                .allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
         assertThat(plugin.staticResources()).hasSize(2);
         assertThat(plugin.uiSlots()).singleElement().satisfies(slot -> {
             assertThat(slot.target()).isEqualTo("topbar-actions");

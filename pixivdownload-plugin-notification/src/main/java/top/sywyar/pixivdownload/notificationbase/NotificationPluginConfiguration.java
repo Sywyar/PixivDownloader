@@ -4,6 +4,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
@@ -35,13 +36,24 @@ public class NotificationPluginConfiguration {
     @ConditionalOnPluginEnabled(NotificationPlugin.ID)
     public InboxNotificationSink inboxNotificationSink(NotificationTemplateCatalog templates,
                                                        NotificationInboxService inbox,
-                                                       LocaleBundlePolicy localePolicy) {
-        return new InboxNotificationSink(templates, inbox, localePolicy.supportedLocales());
+                                                       LocaleBundlePolicy localePolicy,
+                                                       Environment environment) {
+        return new InboxNotificationSink(
+                templates,
+                inbox,
+                localePolicy.supportedLocales(),
+                () -> environment.getProperty(NotificationPlugin.INBOX_ENABLED_KEY, Boolean.class, true));
     }
 
     @Bean
     @ConditionalOnPluginEnabled(NotificationPlugin.ID)
     public NotificationInboxController notificationInboxController(NotificationInboxService inbox) {
         return new NotificationInboxController(inbox);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(NotificationPlugin.ID)
+    public NotificationInboxTestController notificationInboxTestController(InboxNotificationSink sink) {
+        return new NotificationInboxTestController(sink);
     }
 }
