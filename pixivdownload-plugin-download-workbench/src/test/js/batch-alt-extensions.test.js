@@ -19,10 +19,16 @@ const settingsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 
     'static', 'pixiv-batch-alt', 'alt-settings.js'), 'utf8');
 const queueSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-queue.js'), 'utf8');
+const engineSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt', 'alt-engine.js'), 'utf8');
+const filtersSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt', 'alt-filters.js'), 'utf8');
 const coreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-core.js'), 'utf8');
 const pageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt.html'), 'utf8');
+const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch.html'), 'utf8');
 const cssSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'pixiv-batch-alt.css'), 'utf8');
 
@@ -60,6 +66,18 @@ const contributions = [
 ];
 
 const noop = () => {};
+
+function slotTargets(...sources) {
+    const targets = new Set();
+    sources.forEach(text => {
+        for (const match of text.matchAll(/data-qt-slot=["']([^"']+)["']/g)) targets.add(match[1]);
+        for (const match of text.matchAll(/setAttribute\(["']data-qt-slot["'],\s*["']([^"']+)["']\)/g)) {
+            targets.add(match[1]);
+        }
+    });
+    return Array.from(targets).sort();
+}
+
 const sandbox = {
     window: {
         PixivBatch: {
@@ -201,6 +219,46 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(settingsSource.includes('refreshAltSlots();'));
     assert(/\[data-vue-slot\]\s*\{\s*display:\s*contents/.test(cssSource));
     assert(/\[data-vue-slot\]:empty\s*\{\s*display:\s*none/.test(cssSource));
+    const semanticAltSlots = [
+        'kind-option-quick', 'kind-option-search', 'kind-option-user',
+        'quick-actions-bookmarks', 'quick-actions-mine', 'search-filter'
+    ];
+    assert.deepStrictEqual(
+        Array.from(new Set([...slotTargets(pageSource, chromeSource, modesSource, settingsSource),
+            ...semanticAltSlots])).sort(),
+        slotTargets(classicPageSource),
+        '旧版每个插件槽位都必须在新版有直接宿主或声明过的语义适配');
+    assert(source.includes('runtime.dataSourcesForMode(mode)')
+        && source.includes('runtime.typesForDataSource(mode, sourceId)')
+        && source.includes("runtime.acquisitionList('quick')")
+        && filtersSource.includes('let extraFilters = defaultSearchFilters();'));
+    assert(classicPageSource.includes('/js/pixiv-vue.js')
+        && classicPageSource.includes('/pixiv-batch/batch-queue-types.js')
+        && pageSource.includes('/js/pixiv-vue.js')
+        && pageSource.includes('/pixiv-batch/batch-queue-types.js'));
+    [
+        ['quick-fetch', 'QUICK_FETCH_MODE'], ['single-import', 'SINGLE_IMPORT_MODE'],
+        ['user', "id: 'user'"], ['search', "id: 'search'"],
+        ['series', "id: 'series'"], ['schedule', "id: 'schedule'"]
+    ].forEach(([classicMode, altMode]) => {
+        assert(classicPageSource.includes(`switchMode('${classicMode}')`));
+        assert(modesSource.includes(altMode));
+    });
+    [
+        ['onclick="handleStart()"', "startBtn.addEventListener('click', handleStart)"],
+        ['onclick="handlePause()"', "pauseBtn.addEventListener('click', handlePause)"],
+        ['onclick="handleRetry()"', "retryBtn.addEventListener('click', handleRetry)"],
+        ['onclick="handleClear()"', "clearBtn.addEventListener('click', handleClear)"],
+        ['onclick="handleExport()"', "exportAllBtn.addEventListener('click', handleExport)"],
+        ['onclick="handleExportFailed()"', "exportUndlBtn.addEventListener('click', handleExportFailed)"],
+        ['onclick="triggerAdminPack()"', "packBtn.addEventListener('click', triggerAdminPack)"]
+    ].forEach(([classicAction, altAction]) => {
+        assert(classicPageSource.includes(classicAction));
+        assert(queueSource.includes(altAction));
+    });
+    assert(engineSource.includes('async function handleStart()')
+        && engineSource.includes('function handlePause()')
+        && engineSource.includes('async function triggerAdminPack()'));
     // —— 下载坞 Vue 岛门面（统计 / 当前卡 / 队列列表 reactive 主渲染，命令式回退）——
     assert(queueSource.includes('altQueueVueActive()'));
     assert(queueSource.includes('ensureDockVue();'));

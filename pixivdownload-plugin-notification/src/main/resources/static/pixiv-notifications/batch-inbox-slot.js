@@ -5,7 +5,7 @@
     if (!queueTypes || typeof queueTypes.registerUiModule !== 'function') return;
 
     queueTypes.registerUiModule(function (context) {
-        var snapshot = null;
+        var snapshot = {messages: [], unreadCount: 0};
         var root = null;
         var popover = null;
         var style = null;
@@ -189,6 +189,10 @@
         style.href = '/pixiv-notifications/pixiv-notifications.css';
         document.head.appendChild(style);
         createPopover();
+        if (global.PixivVue && typeof global.PixivVue.prepareSlotHosts === 'function') {
+            global.PixivVue.prepareSlotHosts(document);
+        }
+        render();
 
         function onSlotsRendered() { render(); }
         global.addEventListener('pixivbatch:slotsrendered', onSlotsRendered);
