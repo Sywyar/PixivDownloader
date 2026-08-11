@@ -23,7 +23,7 @@ class NotificationInboxMapperTest {
     Path tempDir;
 
     @Test
-    @DisplayName("按分类倒序查询、未读计数与幂等已读更新真实可执行")
+    @DisplayName("按分类和未读状态查询、计数及批量已读真实可执行")
     void persistsQueriesAndMarksRead() throws Exception {
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("notifications.db"));
@@ -40,15 +40,20 @@ class NotificationInboxMapperTest {
             mapper.insert(message("older", "download", 10));
             mapper.insert(message("newer", "announcement", 20));
 
-            assertThat(mapper.findLatest(null, 10)).extracting(NotificationMessage::id)
+            assertThat(mapper.findLatest(null, false, 10)).extracting(NotificationMessage::id)
                     .containsExactly("newer", "older");
-            assertThat(mapper.findLatest("download", 10)).extracting(NotificationMessage::id)
+            assertThat(mapper.findLatest("download", false, 10)).extracting(NotificationMessage::id)
                     .containsExactly("older");
-            assertThat(mapper.countUnread()).isEqualTo(2);
+            assertThat(mapper.countUnread(null)).isEqualTo(2);
+            assertThat(mapper.countUnread("download")).isEqualTo(1);
             assertThat(mapper.markRead("older", 30)).isEqualTo(1);
             assertThat(mapper.markRead("older", 40)).isZero();
             assertThat(mapper.findById("older").readTime()).isEqualTo(30);
-            assertThat(mapper.countUnread()).isEqualTo(1);
+            assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)
+                    .containsExactly("newer");
+            assertThat(mapper.markAllRead("announcement", 40)).isEqualTo(1);
+            assertThat(mapper.markAllRead("announcement", 50)).isZero();
+            assertThat(mapper.countUnread(null)).isZero();
         }
     }
 

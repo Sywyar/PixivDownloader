@@ -9,6 +9,7 @@
         var root = null;
         var popover = null;
         var style = null;
+        var refreshTimer = null;
 
         function t(key, fallback) {
             return typeof pageI18n !== 'undefined' && pageI18n
@@ -40,13 +41,12 @@
         }
 
         function openMessage(message) {
-            fetch('/api/notifications/' + encodeURIComponent(message.id) + '/read', {
-                method: 'POST', credentials: 'same-origin', signal: context.signal,
-                headers: { 'Accept': 'application/json' }
-            }).catch(function () { /* 详情页会再次标记，导航不依赖本请求 */ })
-                .finally(function () {
-                    location.href = '/pixiv-notifications.html?id=' + encodeURIComponent(message.id);
-                });
+            location.href = '/pixiv-notifications.html?id=' + encodeURIComponent(message.id);
+        }
+
+        function severityClass(message) {
+            var severity = message && String(message.severity || '').toLowerCase();
+            return severity === 'warning' || severity === 'error' ? ' severity-' + severity : '';
         }
 
         function renderMessages() {
@@ -65,7 +65,8 @@
             messages.forEach(function (message) {
                 var button = document.createElement('button');
                 button.type = 'button';
-                button.className = 'notification-popover-item' + (message.readTime ? '' : ' unread');
+                button.className = 'notification-popover-item' + (message.readTime ? '' : ' unread')
+                    + severityClass(message);
                 var meta = document.createElement('span');
                 meta.className = 'notification-item-meta';
                 var category = document.createElement('span');
@@ -176,12 +177,14 @@
 
         function removeRendered() {
             closePopover();
+            if (refreshTimer) global.clearInterval(refreshTimer);
             if (root) root.remove();
             if (popover) popover.remove();
             if (style) style.remove();
             root = null;
             popover = null;
             style = null;
+            refreshTimer = null;
         }
 
         style = document.createElement('link');
@@ -195,9 +198,17 @@
         render();
 
         function onSlotsRendered() { render(); }
+        function onVisibilityChange() {
+            if (root && document.visibilityState === 'visible') refresh();
+        }
         global.addEventListener('pixivbatch:slotsrendered', onSlotsRendered);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        refreshTimer = global.setInterval(function () {
+            if (document.visibilityState === 'visible') refresh();
+        }, 45000);
         context.onCleanup(function () {
             global.removeEventListener('pixivbatch:slotsrendered', onSlotsRendered);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
             removeRendered();
         });
         refresh();

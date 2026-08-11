@@ -41,12 +41,16 @@ public class NotificationInboxService {
         return message;
     }
 
-    public List<NotificationMessage> latest(NotificationCategory category, int limit) {
-        return List.copyOf(mapper.findLatest(category == null ? null : category.token(), Math.max(1, Math.min(100, limit))));
+    public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit) {
+        return List.copyOf(mapper.findLatest(categoryToken(category), unreadOnly, Math.max(1, Math.min(100, limit))));
     }
 
     public long unreadCount() {
-        return mapper.countUnread();
+        return mapper.countUnread(null);
+    }
+
+    public long unreadCount(NotificationCategory category) {
+        return mapper.countUnread(categoryToken(category));
     }
 
     public NotificationMessage find(String id) {
@@ -56,6 +60,14 @@ public class NotificationInboxService {
     public NotificationMessage markRead(String id) {
         mapper.markRead(Objects.requireNonNull(id, "notification id"), System.currentTimeMillis());
         return mapper.findById(id);
+    }
+
+    public int markAllRead(NotificationCategory category) {
+        return mapper.markAllRead(categoryToken(category), System.currentTimeMillis());
+    }
+
+    private static String categoryToken(NotificationCategory category) {
+        return category == null ? null : category.token();
     }
 
     private static String requiredText(String value, int maxBytes, String field) {

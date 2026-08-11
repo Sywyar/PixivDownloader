@@ -22,19 +22,38 @@ public interface NotificationInboxMapper {
     @Select({
             "<script>",
             SELECT_MESSAGE,
-            "<if test='category != null'>WHERE category = #{category}</if>",
+            "<where>",
+            "<if test='category != null'>category = #{category}</if>",
+            "<if test='unreadOnly'>AND read_time IS NULL</if>",
+            "</where>",
             "ORDER BY created_time DESC, id DESC LIMIT #{limit}",
             "</script>"
     })
-    List<NotificationMessage> findLatest(@Param("category") String category, @Param("limit") int limit);
+    List<NotificationMessage> findLatest(@Param("category") String category,
+                                         @Param("unreadOnly") boolean unreadOnly,
+                                         @Param("limit") int limit);
 
     @Select(SELECT_MESSAGE + " WHERE id = #{id}")
     NotificationMessage findById(@Param("id") String id);
 
-    @Select("SELECT COUNT(*) FROM notification_messages WHERE read_time IS NULL")
-    long countUnread();
+    @Select({
+            "<script>",
+            "SELECT COUNT(*) FROM notification_messages WHERE read_time IS NULL",
+            "<if test='category != null'>AND category = #{category}</if>",
+            "</script>"
+    })
+    long countUnread(@Param("category") String category);
 
     @Update("UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})"
             + " WHERE id = #{id} AND read_time IS NULL")
     int markRead(@Param("id") String id, @Param("readTime") long readTime);
+
+    @Update({
+            "<script>",
+            "UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})",
+            "WHERE read_time IS NULL",
+            "<if test='category != null'>AND category = #{category}</if>",
+            "</script>"
+    })
+    int markAllRead(@Param("category") String category, @Param("readTime") long readTime);
 }

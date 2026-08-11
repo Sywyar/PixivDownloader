@@ -46,6 +46,14 @@
                 <h2 id="notification-list-heading" data-i18n="inbox.latest">最新消息</h2>
                 <span id="notificationUnreadCount" class="notification-count" aria-live="polite"></span>
             </div>
+            <div class="notification-list-tools">
+                <label class="notification-unread-filter">
+                    <input type="checkbox" id="notificationUnreadOnly">
+                    <span data-i18n="inbox.unread-only">仅看未读</span>
+                </label>
+                <button type="button" id="notificationMarkCategoryRead"
+                        data-i18n="inbox.mark-category-read">当前分类全部已读</button>
+            </div>
             <div id="notificationStatus" class="notification-status" role="status" aria-live="polite"
                  data-i18n="inbox.loading">正在加载消息…</div>
             <div id="notificationList" class="notification-list"></div>

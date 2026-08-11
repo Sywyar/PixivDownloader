@@ -45,5 +45,23 @@ assert.ok(PAGE_SOURCE.includes('state.selectedMessage && !matchesCategory(state.
     '切换分类时必须清除不属于新分类的右侧详情');
 assert.ok(/if \(state\.selectedId !== id\) return;[\s\S]*if \(!matchesCategory\(message\)\) \{[\s\S]*clearSelection\(true\);/s.test(PAGE_SOURCE),
     '异步加载完成时必须拒绝过期或分类不匹配的详情');
+assert.ok(PAGE_SOURCE.includes('snapshot.categoryUnreadCount')
+    && PAGE_SOURCE.includes("query.set('unreadOnly', 'true')")
+    && PAGE_SOURCE.includes("api('/api/notifications/read-all' + query"),
+    '分类页必须使用当前分类未读数并支持仅看未读与当前分类全部已读');
+assert.ok(PAGE_SOURCE.includes('function markSelectedRead(event)')
+    && !SOURCE.includes("encodeURIComponent(message.id) + '/read'"),
+    '消息详情必须显式标记已读，弹窗点击不能等待冗余已读请求');
+assert.ok(PAGE_SOURCE.includes('requestSequence !== loadSequence')
+    && PAGE_SOURCE.includes('if (id) selectMessage(id, false); else clearSelection(false);'),
+    '列表必须拒绝过期分类响应，历史导航移除 id 时必须清空详情');
+assert.ok(PAGE_SOURCE.includes("window.matchMedia('(max-width: 760px)').matches")
+    && PAGE_SOURCE.includes("document.visibilityState === 'visible'")
+    && SOURCE.includes('global.clearInterval(refreshTimer)'),
+    '移动端打开详情应定位内容，可见页面定时刷新且插件卸载时清理计时器');
+assert.ok(PAGE_SOURCE.includes("severity === 'warning' || severity === 'error'")
+    && CSS.includes('.notification-list-item.severity-warning')
+    && CSS.includes('.notification-detail-panel.severity-error h2'),
+    '警告与错误消息必须有可辨识的严重程度样式');
 
-console.log('notification-inbox-slot.test.js: 12 assertions passed ✓');
+console.log('notification-inbox-slot.test.js: 17 assertions passed ✓');

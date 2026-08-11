@@ -28,8 +28,15 @@ public class NotificationInboxController {
 
     @GetMapping
     public ResponseEntity<InboxSnapshot> latest(@RequestParam(required = false) String category,
+                                                @RequestParam(defaultValue = "false") boolean unreadOnly,
                                                 @RequestParam(defaultValue = "20") int limit) {
-        return noStore(new InboxSnapshot(inbox.unreadCount(), inbox.latest(category(category), limit)));
+        NotificationCategory selectedCategory = category(category);
+        long globalUnreadCount = inbox.unreadCount();
+        long categoryUnreadCount = selectedCategory == null
+                ? globalUnreadCount
+                : inbox.unreadCount(selectedCategory);
+        return noStore(new InboxSnapshot(globalUnreadCount, categoryUnreadCount,
+                inbox.latest(selectedCategory, unreadOnly, limit)));
     }
 
     @GetMapping("/{id}")
@@ -40,6 +47,11 @@ public class NotificationInboxController {
     @PostMapping("/{id}/read")
     public ResponseEntity<NotificationMessage> markRead(@PathVariable String id) {
         return noStore(requireMessage(inbox.markRead(id)));
+    }
+
+    @PostMapping("/read-all")
+    public ResponseEntity<Integer> markAllRead(@RequestParam(required = false) String category) {
+        return noStore(inbox.markAllRead(category(category)));
     }
 
     private static NotificationCategory category(String value) {
@@ -66,7 +78,7 @@ public class NotificationInboxController {
                 .body(body);
     }
 
-    public record InboxSnapshot(long unreadCount, List<NotificationMessage> messages) {
+    public record InboxSnapshot(long unreadCount, long categoryUnreadCount, List<NotificationMessage> messages) {
         public InboxSnapshot {
             messages = List.copyOf(messages);
         }

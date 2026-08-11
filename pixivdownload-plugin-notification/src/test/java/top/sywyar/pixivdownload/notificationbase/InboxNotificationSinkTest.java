@@ -30,7 +30,7 @@ class InboxNotificationSinkTest {
                 "task_name", "Daily *Task*",
                 "tasks_list_md", "- **First**\n- Second"));
 
-        assertThat(mapper.findLatest(null, 10)).singleElement().satisfies(message -> {
+        assertThat(mapper.findLatest(null, false, 10)).singleElement().satisfies(message -> {
             assertThat(message.category()).isEqualTo("download");
             assertThat(message.scenarioId()).isEqualTo(SCENARIO.id());
             assertThat(message.title()).isEqualTo("Done: Daily *Task*");
@@ -65,7 +65,7 @@ class InboxNotificationSinkTest {
 
         sink.deliver(SCENARIO, Locale.US, Map.of());
 
-        assertThat(mapper.findLatest(null, 10)).isEmpty();
+        assertThat(mapper.findLatest(null, false, 10)).isEmpty();
     }
 
     private static ImmutableNotificationTemplateCatalog catalog(boolean includeChinese) {

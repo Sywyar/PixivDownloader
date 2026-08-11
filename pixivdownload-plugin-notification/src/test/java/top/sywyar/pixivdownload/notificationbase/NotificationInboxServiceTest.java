@@ -75,9 +75,10 @@ class NotificationInboxServiceTest {
         }
 
         @Override
-        public List<NotificationMessage> findLatest(String category, int limit) {
+        public List<NotificationMessage> findLatest(String category, boolean unreadOnly, int limit) {
             return messages.stream()
                     .filter(message -> category == null || category.equals(message.category()))
+                    .filter(message -> !unreadOnly || message.readTime() == null)
                     .sorted(Comparator.comparingLong(NotificationMessage::createdTime).reversed())
                     .limit(limit)
                     .toList();
@@ -89,8 +90,11 @@ class NotificationInboxServiceTest {
         }
 
         @Override
-        public long countUnread() {
-            return messages.stream().filter(message -> message.readTime() == null).count();
+        public long countUnread(String category) {
+            return messages.stream()
+                    .filter(message -> category == null || category.equals(message.category()))
+                    .filter(message -> message.readTime() == null)
+                    .count();
         }
 
         @Override
@@ -106,6 +110,17 @@ class NotificationInboxServiceTest {
                 }
             }
             return 0;
+        }
+
+        @Override
+        public int markAllRead(String category, long readTime) {
+            int updated = 0;
+            for (NotificationMessage message : List.copyOf(messages)) {
+                if ((category == null || category.equals(message.category())) && message.readTime() == null) {
+                    updated += markRead(message.id(), readTime);
+                }
+            }
+            return updated;
         }
     }
 }

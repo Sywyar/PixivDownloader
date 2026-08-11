@@ -3,7 +3,11 @@
 
     var pageI18n = null;
     var emptyDetail = null;
-    var state = { category: '', messages: [], unreadCount: 0, selectedId: '', selectedMessage: null };
+    var loadSequence = 0;
+    var state = {
+        category: '', unreadOnly: false, messages: [], unreadCount: 0,
+        selectedId: '', selectedMessage: null
+    };
 
     function el(id) { return document.getElementById(id); }
     function t(key, fallback, vars) { return pageI18n ? pageI18n.t(key, fallback, vars) : (fallback || key); }
@@ -49,10 +53,16 @@
         return !!message && (!state.category || message.category === state.category);
     }
 
+    function severityClass(message) {
+        var severity = message && String(message.severity || '').toLowerCase();
+        return severity === 'warning' || severity === 'error' ? ' severity-' + severity : '';
+    }
+
     function clearSelection(updateHistory) {
         state.selectedId = '';
         state.selectedMessage = null;
         var detail = el('notificationDetail');
+        detail.classList.remove('severity-warning', 'severity-error');
         if (emptyDetail) {
             detail.replaceChildren(emptyDetail);
             if (pageI18n) pageI18n.apply(detail);
@@ -70,7 +80,7 @@
         var button = document.createElement('button');
         button.type = 'button';
         button.className = 'notification-list-item' + (message.readTime ? '' : ' unread')
-            + (message.id === state.selectedId ? ' active' : '');
+            + (message.id === state.selectedId ? ' active' : '') + severityClass(message);
 
         var meta = document.createElement('span');
         meta.className = 'notification-item-meta';
@@ -99,6 +109,8 @@
         var status = el('notificationStatus');
         list.textContent = '';
         el('notificationUnreadCount').textContent = state.unreadCount > 0 ? String(state.unreadCount) : '';
+        el('notificationUnreadOnly').checked = state.unreadOnly;
+        el('notificationMarkCategoryRead').disabled = state.unreadCount === 0;
         if (!state.messages.length) {
             status.hidden = false;
             status.textContent = t('inbox.empty', '暂无消息');
@@ -121,6 +133,9 @@
     function renderDetail(message) {
         var detail = el('notificationDetail');
         detail.textContent = '';
+        detail.classList.remove('severity-warning', 'severity-error');
+        var severity = severityClass(message).trim();
+        if (severity) detail.classList.add(severity);
 
         var meta = document.createElement('div');
         meta.className = 'notification-detail-meta';
@@ -140,6 +155,23 @@
         body.textContent = message.body;
         detail.append(meta, title, body);
 
+        var toolbar = document.createElement('div');
+        toolbar.className = 'notification-detail-actions';
+        var markRead = document.createElement('button');
+        markRead.type = 'button';
+        markRead.className = 'notification-detail-action';
+        markRead.disabled = !!message.readTime;
+        markRead.setAttribute('data-i18n', message.readTime ? 'inbox.read' : 'inbox.mark-read');
+        markRead.textContent = message.readTime ? t('inbox.read', '已读') : t('inbox.mark-read', '标记已读');
+        if (!message.readTime) markRead.addEventListener('click', markSelectedRead);
+        var actionStatus = document.createElement('span');
+        actionStatus.id = 'notificationDetailActionStatus';
+        actionStatus.className = 'notification-detail-action-status';
+        actionStatus.setAttribute('role', 'status');
+        actionStatus.setAttribute('aria-live', 'polite');
+        toolbar.append(markRead, actionStatus);
+        detail.appendChild(toolbar);
+
         var actionUrl = safeActionHref(message.actionUrl);
         if (actionUrl) {
             var action = document.createElement('a');
@@ -154,11 +186,41 @@
         }
     }
 
+    async function markSelectedRead(event) {
+        var id = state.selectedId;
+        if (!id || !state.selectedMessage || state.selectedMessage.readTime) return;
+        var button = event && event.currentTarget;
+        if (button) button.disabled = true;
+        try {
+            var updated = await api('/api/notifications/' + encodeURIComponent(id) + '/read', { method: 'POST' });
+            if (state.selectedId !== id) return;
+            state.unreadCount = Math.max(0, state.unreadCount - 1);
+            if (state.unreadOnly) {
+                state.messages = state.messages.filter(function (item) { return item.id !== id; });
+                clearSelection(true);
+                return;
+            }
+            state.messages = state.messages.map(function (item) { return item.id === id ? updated : item; });
+            state.selectedMessage = updated;
+            renderList();
+            renderDetail(updated);
+        } catch (error) {
+            if (button) button.disabled = false;
+            var status = el('notificationDetailActionStatus');
+            if (status) status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+        }
+    }
+
     async function selectMessage(id, updateHistory) {
         state.selectedId = id;
         state.selectedMessage = state.messages.find(function (message) { return message.id === id; }) || null;
         renderList();
-        if (updateHistory) history.pushState({ id: id }, '', '?id=' + encodeURIComponent(id));
+        if (state.selectedMessage) renderDetail(state.selectedMessage);
+        if (updateHistory) {
+            var url = new URL(location.href);
+            url.searchParams.set('id', id);
+            history.pushState({ id: id }, '', url.pathname + url.search + url.hash);
+        }
         try {
             var message = await api('/api/notifications/' + encodeURIComponent(id));
             if (state.selectedId !== id) return;
@@ -168,12 +230,8 @@
             }
             state.selectedMessage = message;
             renderDetail(message);
-            if (!message.readTime) {
-                var updated = await api('/api/notifications/' + encodeURIComponent(id) + '/read', { method: 'POST' });
-                state.messages = state.messages.map(function (item) { return item.id === id ? updated : item; });
-                state.unreadCount = Math.max(0, state.unreadCount - 1);
-                if (state.selectedId === id) state.selectedMessage = updated;
-                renderList();
+            if (updateHistory && window.matchMedia('(max-width: 760px)').matches) {
+                el('notificationDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         } catch (error) {
             if (state.selectedId === id) {
@@ -182,20 +240,29 @@
         }
     }
 
-    async function loadMessages() {
+    async function loadMessages(quiet) {
+        var requestSequence = ++loadSequence;
         var status = el('notificationStatus');
-        status.hidden = false;
-        status.textContent = t('inbox.loading', '正在加载消息…');
+        if (!quiet) {
+            status.hidden = false;
+            status.textContent = t('inbox.loading', '正在加载消息…');
+        }
         var query = new URLSearchParams({ limit: '100' });
         if (state.category) query.set('category', state.category);
+        if (state.unreadOnly) query.set('unreadOnly', 'true');
         try {
             var snapshot = await api('/api/notifications?' + query.toString());
+            if (requestSequence !== loadSequence) return false;
             state.messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
-            state.unreadCount = Number(snapshot.unreadCount) || 0;
+            state.unreadCount = Math.max(0, Number(snapshot.categoryUnreadCount) || 0);
             renderList();
+            return true;
         } catch (error) {
-            status.hidden = false;
-            status.textContent = t('inbox.load-failed', '消息加载失败');
+            if (requestSequence === loadSequence && !quiet) {
+                status.hidden = false;
+                status.textContent = t('inbox.load-failed', '消息加载失败');
+            }
+            return false;
         }
     }
 
@@ -210,6 +277,28 @@
                 if (state.selectedMessage && !matchesCategory(state.selectedMessage)) clearSelection(true);
                 loadMessages();
             });
+        });
+    }
+
+    function bindListTools() {
+        el('notificationUnreadOnly').addEventListener('change', function (event) {
+            state.unreadOnly = event.target.checked;
+            if (state.unreadOnly && state.selectedMessage && state.selectedMessage.readTime) clearSelection(true);
+            loadMessages();
+        });
+        el('notificationMarkCategoryRead').addEventListener('click', async function () {
+            var category = state.category;
+            var query = category ? '?category=' + encodeURIComponent(category) : '';
+            try {
+                await api('/api/notifications/read-all' + query, { method: 'POST' });
+                if (state.category !== category || !await loadMessages()) return;
+                if (state.unreadOnly) clearSelection(true);
+                else if (state.selectedId) selectMessage(state.selectedId, false);
+            } catch (error) {
+                var status = el('notificationStatus');
+                status.hidden = false;
+                status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+            }
         });
     }
 
@@ -237,13 +326,20 @@
     document.addEventListener('DOMContentLoaded', async function () {
         emptyDetail = el('notificationDetail').firstElementChild;
         bindFilters();
+        bindListTools();
         await initI18n();
         await loadMessages();
         var requestedId = new URLSearchParams(location.search).get('id');
         if (requestedId) selectMessage(requestedId, false);
         window.addEventListener('popstate', function () {
             var id = new URLSearchParams(location.search).get('id');
-            if (id) selectMessage(id, false);
+            if (id) selectMessage(id, false); else clearSelection(false);
+        });
+        window.setInterval(function () {
+            if (document.visibilityState === 'visible') loadMessages(true);
+        }, 45000);
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') loadMessages(true);
         });
     });
 })();

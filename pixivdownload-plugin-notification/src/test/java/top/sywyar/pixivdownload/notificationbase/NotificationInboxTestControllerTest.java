@@ -44,7 +44,7 @@ class NotificationInboxTestControllerTest {
         assertThat(single.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(single.getBody()).isNotNull();
         assertThat(single.getBody().success()).isTrue();
-        assertThat(mapper.findLatest(null, 100)).singleElement()
+        assertThat(mapper.findLatest(null, false, 100)).singleElement()
                 .extracting(NotificationMessage::scenarioId)
                 .isEqualTo(NotificationScenario.RUN_SUMMARY.id());
 
@@ -54,7 +54,7 @@ class NotificationInboxTestControllerTest {
         assertThat(all.getBody()).isNotNull();
         assertThat(all.getBody().success()).isTrue();
         assertThat(all.getBody().total()).isEqualTo(NotificationScenario.values().length);
-        assertThat(mapper.findLatest(null, 100)).hasSize(NotificationScenario.values().length + 1);
+        assertThat(mapper.findLatest(null, false, 100)).hasSize(NotificationScenario.values().length + 1);
     }
 
     @Test
@@ -63,7 +63,7 @@ class NotificationInboxTestControllerTest {
         var response = controller.testAll(request("192.0.2.1"));
 
         assertThat(response.getStatusCode().value()).isEqualTo(403);
-        assertThat(mapper.findLatest(null, 100)).isEmpty();
+        assertThat(mapper.findLatest(null, false, 100)).isEmpty();
     }
 
     private static ImmutableNotificationTemplateCatalog catalog() {
