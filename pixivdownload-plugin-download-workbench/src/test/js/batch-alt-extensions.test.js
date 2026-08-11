@@ -191,6 +191,7 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     // —— 插件槽位同步（settings-card / cookie-tools / import-hint 与旧布局同契约）——
     assert(pageSource.includes('/js/pixiv-vue.js'));
     assert(pageSource.includes('/pixiv-batch-alt/alt-queue-vue.js'));
+    assert(pageSource.includes('data-qt-slot="topbar-actions"'));
     assert(chromeSource.includes("setAttribute('data-qt-slot', 'cookie-tools')"));
     assert(chromeSource.includes('refreshAltSlots();'));
     assert(modesSource.includes("setAttribute('data-qt-slot', 'import-hint')"));
