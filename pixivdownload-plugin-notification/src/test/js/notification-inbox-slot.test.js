@@ -6,6 +6,8 @@ const path = require('path');
 
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-notifications', 'batch-inbox-slot.js'), 'utf8');
+const PAGE_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
+    'pixiv-notifications', 'pixiv-notifications.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-notifications', 'pixiv-notifications.css'), 'utf8');
 
@@ -38,5 +40,10 @@ assert.strictEqual((CSS.match(/--notification-topbar-icon:\s*var\(--brand-text, 
 assert.ok(/\.ab-topbar \.notification-inbox-button\s*\{[^}]*border-radius:\s*var\(--r-sm\);[^}]*background:\s*transparent;/s.test(CSS)
     && /\.ab-topbar \.notification-inbox-button:hover\s*\{[^}]*background:\s*var\(--hover-bg\);/s.test(CSS),
     '新版顶栏站内信入口必须使用纯图标区的透明底与悬停样式');
+assert.ok(PAGE_SOURCE.includes('state.selectedMessage && !matchesCategory(state.selectedMessage)')
+    && PAGE_SOURCE.includes('clearSelection(true);'),
+    '切换分类时必须清除不属于新分类的右侧详情');
+assert.ok(/if \(state\.selectedId !== id\) return;[\s\S]*if \(!matchesCategory\(message\)\) \{[\s\S]*clearSelection\(true\);/s.test(PAGE_SOURCE),
+    '异步加载完成时必须拒绝过期或分类不匹配的详情');
 
-console.log('notification-inbox-slot.test.js: 10 assertions passed ✓');
+console.log('notification-inbox-slot.test.js: 12 assertions passed ✓');

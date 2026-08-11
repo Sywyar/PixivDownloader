@@ -2,7 +2,8 @@
     'use strict';
 
     var pageI18n = null;
-    var state = { category: '', messages: [], unreadCount: 0, selectedId: '' };
+    var emptyDetail = null;
+    var state = { category: '', messages: [], unreadCount: 0, selectedId: '', selectedMessage: null };
 
     function el(id) { return document.getElementById(id); }
     function t(key, fallback, vars) { return pageI18n ? pageI18n.t(key, fallback, vars) : (fallback || key); }
@@ -41,6 +42,27 @@
             }).format(new Date(epochMillis));
         } catch (e) {
             return new Date(epochMillis).toLocaleString();
+        }
+    }
+
+    function matchesCategory(message) {
+        return !!message && (!state.category || message.category === state.category);
+    }
+
+    function clearSelection(updateHistory) {
+        state.selectedId = '';
+        state.selectedMessage = null;
+        var detail = el('notificationDetail');
+        if (emptyDetail) {
+            detail.replaceChildren(emptyDetail);
+            if (pageI18n) pageI18n.apply(detail);
+        }
+        else detail.textContent = '';
+        renderList();
+        if (updateHistory) {
+            var url = new URL(location.href);
+            url.searchParams.delete('id');
+            history.replaceState({}, '', url.pathname + url.search + url.hash);
         }
     }
 
@@ -134,19 +156,29 @@
 
     async function selectMessage(id, updateHistory) {
         state.selectedId = id;
+        state.selectedMessage = state.messages.find(function (message) { return message.id === id; }) || null;
         renderList();
         if (updateHistory) history.pushState({ id: id }, '', '?id=' + encodeURIComponent(id));
         try {
             var message = await api('/api/notifications/' + encodeURIComponent(id));
+            if (state.selectedId !== id) return;
+            if (!matchesCategory(message)) {
+                clearSelection(true);
+                return;
+            }
+            state.selectedMessage = message;
             renderDetail(message);
             if (!message.readTime) {
                 var updated = await api('/api/notifications/' + encodeURIComponent(id) + '/read', { method: 'POST' });
                 state.messages = state.messages.map(function (item) { return item.id === id ? updated : item; });
                 state.unreadCount = Math.max(0, state.unreadCount - 1);
+                if (state.selectedId === id) state.selectedMessage = updated;
                 renderList();
             }
         } catch (error) {
-            el('notificationDetail').textContent = t('inbox.load-failed', '消息加载失败');
+            if (state.selectedId === id) {
+                el('notificationDetail').textContent = t('inbox.load-failed', '消息加载失败');
+            }
         }
     }
 
@@ -175,6 +207,7 @@
                     item.classList.toggle('active', item === button);
                     item.setAttribute('aria-pressed', item === button ? 'true' : 'false');
                 });
+                if (state.selectedMessage && !matchesCategory(state.selectedMessage)) clearSelection(true);
                 loadMessages();
             });
         });
@@ -184,8 +217,7 @@
         document.title = t('inbox.page-title', '站内信 · Pixiv Downloader');
         if (pageI18n) pageI18n.apply(document.body);
         renderList();
-        var selected = state.messages.find(function (message) { return message.id === state.selectedId; });
-        if (selected) renderDetail(selected);
+        if (matchesCategory(state.selectedMessage)) renderDetail(state.selectedMessage);
     }
 
     async function initI18n() {
@@ -203,6 +235,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', async function () {
+        emptyDetail = el('notificationDetail').firstElementChild;
         bindFilters();
         await initI18n();
         await loadMessages();
