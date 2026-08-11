@@ -29,6 +29,8 @@ const pageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'res
     'static', 'pixiv-batch-alt.html'), 'utf8');
 const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch.html'), 'utf8');
+const classicCoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch', 'batch-core.js'), 'utf8');
 const cssSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'pixiv-batch-alt.css'), 'utf8');
 
@@ -171,10 +173,18 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(!pageSource.includes('data-i18n="page.switch-to-old-layout"'));
     const topbarOrder = [
         'id="abCookieChip"', 'id="abLangAnchor"', 'id="abVersion"', 'id="abScriptsBtn"',
-        'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'id="abDockToggle"', 'id="abAuthBtn"'
+        'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'data-qt-slot="topbar-actions"',
+        'id="abDockToggle"', 'id="abAuthBtn"'
     ].map(marker => pageSource.indexOf(marker));
     assert(topbarOrder.every((position, index) => position >= 0
         && (index === 0 || position > topbarOrder[index - 1])));
+    const classicTopbarOrder = [
+        'id="batchLangAnchor"', 'id="batchThemeAnchor"', 'data-qt-slot="topbar-actions"'
+    ].map(marker => classicPageSource.indexOf(marker));
+    assert(classicTopbarOrder.every((position, index) => position >= 0
+        && (index === 0 || position > classicTopbarOrder[index - 1])));
+    assert(classicCoreSource.includes("mountPoint: document.getElementById('batchLangAnchor')"));
+    assert(classicCoreSource.includes("mountPoint: document.getElementById('batchThemeAnchor')"));
     assert(pageSource.includes('<span id="abVersionText">加载中…</span>'));
     assert(!pageSource.includes('id="abVersionText" data-i18n='));
     assert(chromeSource.includes("fetch('/api/app/info', {credentials: 'same-origin'})"));

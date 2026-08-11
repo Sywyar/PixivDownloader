@@ -261,7 +261,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         pageI18nNamespaces = await batchI18nNamespaces(true);
         installPageI18nClient(await PixivI18n.create({namespaces: pageI18nNamespaces}), pageI18nNamespaces);
         pageLangSwitcher = await PixivLangSwitcher.mount({
-            mountPoint: document.getElementById('langSwitcherAnchor'),
+            mountPoint: document.getElementById('batchLangAnchor'),
             i18n: pageI18n,
             variant: 'green',
             onChange: async function (nextClient) {
@@ -270,7 +270,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
             }
         });
         PixivTheme.mount({
-            mountPoint: document.getElementById('langSwitcherAnchor'),
+            mountPoint: document.getElementById('batchThemeAnchor'),
             variant: 'green'
         });
         applyStaticPageTranslations();

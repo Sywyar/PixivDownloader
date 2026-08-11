@@ -23,6 +23,9 @@ assert.ok(SOURCE.includes("popover.setAttribute('popover', 'auto')")
     '入口应使用原生 popover 并提供可访问名称');
 assert.ok(CSS.includes('.notification-page {') && !/(^|\n)body\s*\{/.test(CSS),
     '插件页面样式不得通过裸 body 选择器污染下载工作台');
+assert.ok(CSS.includes('--notification-brand: var(--brand, #0096fa);')
+    && /html\[data-theme="dark"\]\s*\{[^}]*--notification-brand:\s*var\(--brand, #4bb3ff\);/s.test(CSS),
+    '站内信独立页必须使用蓝白配色并保留宿主品牌色覆盖');
 assert.ok(SOURCE.includes("data-i18n-title', 'notification:inbox.open'")
     && SOURCE.includes("data-i18n', 'notification:inbox.latest'"),
     '动态顶栏入口与弹窗必须跟随下载页语言切换');
@@ -32,5 +35,8 @@ assert.ok(SOURCE.includes('var snapshot = {messages: [], unreadCount: 0};')
     '入口必须先建立共享槽位并渲染，不能依赖首次消息请求成功');
 assert.strictEqual((CSS.match(/--notification-topbar-icon:\s*var\(--brand-text, var\(--text,/g) || []).length, 2,
     '顶栏图标必须兼容旧版品牌色与新版明暗主题文本色');
+assert.ok(/\.ab-topbar \.notification-inbox-button\s*\{[^}]*border-radius:\s*var\(--r-sm\);[^}]*background:\s*transparent;/s.test(CSS)
+    && /\.ab-topbar \.notification-inbox-button:hover\s*\{[^}]*background:\s*var\(--hover-bg\);/s.test(CSS),
+    '新版顶栏站内信入口必须使用纯图标区的透明底与悬停样式');
 
-console.log('notification-inbox-slot.test.js: 8 assertions passed ✓');
+console.log('notification-inbox-slot.test.js: 10 assertions passed ✓');

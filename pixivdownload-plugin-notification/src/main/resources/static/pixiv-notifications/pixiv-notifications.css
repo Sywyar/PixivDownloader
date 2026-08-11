@@ -4,7 +4,7 @@
     --notification-text: var(--heading, #263238);
     --notification-muted: var(--muted, #65737e);
     --notification-line: var(--line, #dfe6ea);
-    --notification-brand: var(--brand, #28a745);
+    --notification-brand: var(--brand, #0096fa);
     --notification-brand-text: var(--brand-text, #fff);
     --notification-topbar-icon: var(--brand-text, var(--text, #263238));
     --notification-badge-bg: #e53935;
@@ -19,6 +19,7 @@ html[data-theme="dark"] {
     --notification-text: var(--heading, #eef3f8);
     --notification-muted: var(--muted, #a7b0bf);
     --notification-line: var(--line, #303746);
+    --notification-brand: var(--brand, #4bb3ff);
     --notification-brand-text: var(--brand-text, #f4f7fb);
     --notification-topbar-icon: var(--brand-text, var(--text, #f4f7fb));
 }
@@ -220,6 +221,15 @@ html[data-theme="dark"] {
 }
 .notification-inbox-button:hover { background: color-mix(in srgb, var(--notification-topbar-icon) 22%, transparent); }
 .notification-inbox-button svg { width: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.ab-topbar .notification-inbox-button {
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    background: transparent;
+}
+.ab-topbar .notification-inbox-button:hover {
+    color: var(--text);
+    background: var(--hover-bg);
+}
 .notification-inbox-badge {
     position: absolute;
     top: -4px;
