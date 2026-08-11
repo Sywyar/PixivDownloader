@@ -14,6 +14,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("管理员站内信服务")
 class NotificationInboxServiceTest {
 
+    private static final String CONTENT_URL =
+            "https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/2026-08-12.html";
+
     @Test
     @DisplayName("公告与调查共用受控分类和安全链接模型")
     void publishesAnnouncementAndSurveyWithSafeLinks() {
@@ -46,6 +49,52 @@ class NotificationInboxServiceTest {
                     .as(url)
                     .isInstanceOf(IllegalArgumentException.class);
         }
+    }
+
+    @Test
+    @DisplayName("远程正文只接受固定 GitHub Pages 项目内的规范 HTML 地址")
+    void acceptsOnlyControlledContentUrls() {
+        NotificationInboxService service = new NotificationInboxService(new MemoryMapper());
+
+        NotificationMessage message = service.publish(
+                NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
+                "Title", "Body", null, CONTENT_URL);
+
+        assertThat(message.contentUrl()).isEqualTo(CONTENT_URL);
+        for (String url : List.of(
+                "http://sywyar.github.io/PixivDownloader-Remote-Content/a.html",
+                "https://sywyar.github.io.evil.example/PixivDownloader-Remote-Content/a.html",
+                "https://evil.example/PixivDownloader-Remote-Content/a.html",
+                "https://sywyar.github.io/another-project/a.html",
+                "https://sywyar.github.io/PixivDownloader-Remote-Content/../a.html",
+                "https://sywyar.github.io/PixivDownloader-Remote-Content/%2e%2e/a.html",
+                "https://sywyar.github.io/PixivDownloader-Remote-Content/a.html?redirect=1",
+                "https://sywyar.github.io/PixivDownloader-Remote-Content/a.html#section",
+                "https://sywyar.github.io:443/PixivDownloader-Remote-Content/a.html",
+                "https://user@sywyar.github.io/PixivDownloader-Remote-Content/a.html",
+                "https://sywyar.github.io/PixivDownloader-Remote-Content/a.htm")) {
+            assertThatThrownBy(() -> service.publish(
+                    NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
+                    "Title", "Body", null, url))
+                    .as(url)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("读取时隐藏数据库中被篡改的远程正文地址")
+    void hidesTamperedStoredContentUrl() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper);
+        mapper.insert(new NotificationMessage(
+                "tampered", "announcement", "INFO", null, "Title", "Body",
+                "https://evil.example/a.html", null, 1, null));
+
+        assertThat(service.find("tampered").contentUrl()).isNull();
+        assertThat(service.latest(NotificationCategory.ANNOUNCEMENT, false, 10))
+                .singleElement()
+                .extracting(NotificationMessage::contentUrl)
+                .isNull();
     }
 
     @Test
@@ -104,8 +153,8 @@ class NotificationInboxServiceTest {
                 if (message.id().equals(id) && message.readTime() == null) {
                     messages.set(index, new NotificationMessage(
                             message.id(), message.category(), message.severity(), message.scenarioId(),
-                            message.title(), message.body(), message.actionUrl(), message.createdTime(),
-                            Math.max(message.createdTime(), readTime)));
+                            message.title(), message.body(), message.contentUrl(), message.actionUrl(),
+                            message.createdTime(), Math.max(message.createdTime(), readTime)));
                     return 1;
                 }
             }

@@ -4,6 +4,8 @@
     var pageI18n = null;
     var emptyDetail = null;
     var loadSequence = 0;
+    var CONTENT_ORIGIN = 'https://sywyar.github.io';
+    var CONTENT_PATH = /^\/PixivDownloader-Remote-Content\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.html$/;
     var state = {
         category: '', unreadOnly: false, messages: [], unreadCount: 0,
         selectedId: '', selectedMessage: null
@@ -130,6 +132,38 @@
         }
     }
 
+    function safeContentHref(value) {
+        if (typeof value !== 'string' || value.length > 2048 || value !== value.trim()
+                || /[\0-\x1F\x7F\\]/.test(value)) return null;
+        try {
+            var url = new URL(value);
+            return url.origin === CONTENT_ORIGIN
+                && url.protocol === 'https:'
+                && !url.username && !url.password && !url.port
+                && !url.search && !url.hash
+                && CONTENT_PATH.test(url.pathname)
+                && url.href === CONTENT_ORIGIN + url.pathname
+                ? url : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function contentFrame(message) {
+        var contentUrl = safeContentHref(message.contentUrl);
+        if (!contentUrl) return null;
+        var frame = document.createElement('iframe');
+        frame.className = 'notification-detail-content-frame';
+        frame.src = contentUrl.href;
+        frame.title = t('inbox.remote-content', '远程消息正文') + '：' + message.title;
+        frame.setAttribute('sandbox', '');
+        frame.setAttribute('referrerpolicy', 'no-referrer');
+        frame.setAttribute('credentialless', '');
+        frame.setAttribute('loading', 'lazy');
+        frame.setAttribute('allow', "camera 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'");
+        return frame;
+    }
+
     function renderDetail(message) {
         var detail = el('notificationDetail');
         detail.textContent = '';
@@ -154,6 +188,9 @@
         body.className = 'notification-detail-body';
         body.textContent = message.body;
         detail.append(meta, title, body);
+
+        var frame = contentFrame(message);
+        if (frame) detail.appendChild(frame);
 
         var toolbar = document.createElement('div');
         toolbar.className = 'notification-detail-actions';

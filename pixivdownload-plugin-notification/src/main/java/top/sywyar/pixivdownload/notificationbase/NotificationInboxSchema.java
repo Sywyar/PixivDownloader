@@ -21,6 +21,7 @@ public final class NotificationInboxSchema {
                             column("scenario_id", "TEXT", false, null, 0),
                             column("title", "TEXT", true, null, 0),
                             column("body", "TEXT", true, null, 0),
+                            column("content_url", "TEXT", false, null, 0),
                             column("action_url", "TEXT", false, null, 0),
                             column("created_time", "INTEGER", true, null, 0),
                             column("read_time", "INTEGER", false, null, 0)),

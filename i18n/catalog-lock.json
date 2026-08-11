@@ -42518,6 +42518,14 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-notification",
       "baseName": "web/notification",
+      "key": "inbox.remote-content",
+      "acceptedSourceHash": "a3e6e139c693c0d012a30504ca77b99eab2d3ddddcf763a80c9f349a56e7b069",
+      "acceptedTranslationHash": "ab4c77a56ee1203e8c72ec187354738b6eac5e3dc58862f54dee3710305ee2d1"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-notification",
+      "baseName": "web/notification",
       "key": "inbox.select-message",
       "acceptedSourceHash": "2da288a4336852bc9047887705865624a16b1e1738efec18a3a54cd05724355f",
       "acceptedTranslationHash": "47da0fa3da473c6fdfd2aa427a195a461d73f21811419504aa2d3e192d83f7eb"

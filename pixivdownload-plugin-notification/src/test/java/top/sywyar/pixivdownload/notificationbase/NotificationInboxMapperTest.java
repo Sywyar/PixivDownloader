@@ -49,6 +49,8 @@ class NotificationInboxMapperTest {
             assertThat(mapper.markRead("older", 30)).isEqualTo(1);
             assertThat(mapper.markRead("older", 40)).isZero();
             assertThat(mapper.findById("older").readTime()).isEqualTo(30);
+            assertThat(mapper.findById("older").contentUrl()).isEqualTo(
+                    "https://sywyar.github.io/PixivDownloader-Remote-Content/older.html");
             assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)
                     .containsExactly("newer");
             assertThat(mapper.markAllRead("announcement", 40)).isEqualTo(1);
@@ -59,7 +61,9 @@ class NotificationInboxMapperTest {
 
     private static NotificationMessage message(String id, String category, long createdTime) {
         return new NotificationMessage(id, category, "INFO", null,
-                "Title " + id, "Body " + id, null, createdTime, null);
+                "Title " + id, "Body " + id,
+                "https://sywyar.github.io/PixivDownloader-Remote-Content/" + id + ".html",
+                null, createdTime, null);
     }
 
     private static void createSchema(SQLiteDataSource dataSource) throws Exception {
@@ -72,6 +76,7 @@ class NotificationInboxMapperTest {
                         scenario_id TEXT,
                         title TEXT NOT NULL,
                         body TEXT NOT NULL,
+                        content_url TEXT,
                         action_url TEXT,
                         created_time INTEGER NOT NULL,
                         read_time INTEGER

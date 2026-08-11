@@ -9,10 +9,16 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public class NotificationInboxService {
 
     private static final int MAX_ACTION_URL_BYTES = 8 * 1_024;
+    private static final int MAX_CONTENT_URL_BYTES = 2 * 1_024;
+    private static final String CONTENT_HOST = "sywyar.github.io";
+    private static final Pattern CONTENT_PATH = Pattern.compile(
+            "/PixivDownloader-Remote-Content/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*"
+                    + "[A-Za-z0-9][A-Za-z0-9._-]*\\.html");
 
     private final NotificationInboxMapper mapper;
 
@@ -26,6 +32,16 @@ public class NotificationInboxService {
                                        String title,
                                        String body,
                                        String actionUrl) {
+        return publish(category, severity, scenarioId, title, body, actionUrl, null);
+    }
+
+    public NotificationMessage publish(NotificationCategory category,
+                                       NotificationSeverity severity,
+                                       String scenarioId,
+                                       String title,
+                                       String body,
+                                       String actionUrl,
+                                       String contentUrl) {
         long now = System.currentTimeMillis();
         NotificationMessage message = new NotificationMessage(
                 UUID.randomUUID().toString(),
@@ -34,6 +50,7 @@ public class NotificationInboxService {
                 optional(scenarioId),
                 requiredText(title, NotificationTemplateContribution.MAX_TITLE_BYTES, "notification title"),
                 requiredText(body, NotificationTemplateContribution.MAX_BODY_BYTES, "notification body"),
+                safeContentUrl(contentUrl),
                 safeActionUrl(actionUrl),
                 now,
                 null);
@@ -42,7 +59,9 @@ public class NotificationInboxService {
     }
 
     public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit) {
-        return List.copyOf(mapper.findLatest(categoryToken(category), unreadOnly, Math.max(1, Math.min(100, limit))));
+        return mapper.findLatest(categoryToken(category), unreadOnly, Math.max(1, Math.min(100, limit))).stream()
+                .map(NotificationInboxService::safeStoredMessage)
+                .toList();
     }
 
     public long unreadCount() {
@@ -54,12 +73,12 @@ public class NotificationInboxService {
     }
 
     public NotificationMessage find(String id) {
-        return mapper.findById(Objects.requireNonNull(id, "notification id"));
+        return safeStoredMessage(mapper.findById(Objects.requireNonNull(id, "notification id")));
     }
 
     public NotificationMessage markRead(String id) {
         mapper.markRead(Objects.requireNonNull(id, "notification id"), System.currentTimeMillis());
-        return mapper.findById(id);
+        return safeStoredMessage(mapper.findById(id));
     }
 
     public int markAllRead(NotificationCategory category) {
@@ -110,5 +129,64 @@ public class NotificationInboxService {
             // 统一在下方拒绝。
         }
         throw new IllegalArgumentException("notification action URL must be a safe path or HTTP(S) URL");
+    }
+
+    private static String safeContentUrl(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.getBytes(StandardCharsets.UTF_8).length > MAX_CONTENT_URL_BYTES
+                || hasForbiddenUrlCharacter(normalized)) {
+            throw new IllegalArgumentException("notification content URL is invalid");
+        }
+        try {
+            URI uri = new URI(normalized);
+            String rawPath = uri.getRawPath();
+            if ("https".equals(uri.getScheme())
+                    && CONTENT_HOST.equals(uri.getHost())
+                    && uri.getUserInfo() == null
+                    && uri.getPort() == -1
+                    && uri.getRawQuery() == null
+                    && uri.getRawFragment() == null
+                    && rawPath != null
+                    && CONTENT_PATH.matcher(rawPath).matches()
+                    && uri.normalize().equals(uri)
+                    && uri.toASCIIString().equals(normalized)) {
+                return normalized;
+            }
+        } catch (URISyntaxException ignored) {
+            // 统一在下方拒绝。
+        }
+        throw new IllegalArgumentException("notification content URL is outside the trusted content source");
+    }
+
+    private static boolean hasForbiddenUrlCharacter(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character == '\\' || Character.isISOControl(character)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static NotificationMessage safeStoredMessage(NotificationMessage message) {
+        if (message == null) {
+            return null;
+        }
+        String contentUrl;
+        try {
+            contentUrl = safeContentUrl(message.contentUrl());
+        } catch (IllegalArgumentException ignored) {
+            contentUrl = null;
+        }
+        if (Objects.equals(contentUrl, message.contentUrl())) {
+            return message;
+        }
+        return new NotificationMessage(
+                message.id(), message.category(), message.severity(), message.scenarioId(),
+                message.title(), message.body(), contentUrl, message.actionUrl(),
+                message.createdTime(), message.readTime());
     }
 }

@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self';
+                   img-src 'self' data:; connect-src 'self';
+                   frame-src https://sywyar.github.io/PixivDownloader-Remote-Content/;
+                   child-src https://sywyar.github.io/PixivDownloader-Remote-Content/;
+                   object-src 'none'; base-uri 'none'; form-action 'none'; media-src 'none'; worker-src 'none'">
     <title>站内信</title>
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>

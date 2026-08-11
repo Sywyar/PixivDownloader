@@ -10,13 +10,15 @@ import java.util.List;
 public interface NotificationInboxMapper {
 
     String SELECT_MESSAGE = "SELECT id, category, severity, scenario_id AS scenarioId, title, body,"
-            + " action_url AS actionUrl, created_time AS createdTime, read_time AS readTime"
+            + " content_url AS contentUrl, action_url AS actionUrl,"
+            + " created_time AS createdTime, read_time AS readTime"
             + " FROM notification_messages";
 
     @Insert("INSERT INTO notification_messages"
-            + " (id, category, severity, scenario_id, title, body, action_url, created_time, read_time)"
+            + " (id, category, severity, scenario_id, title, body, content_url, action_url,"
+            + " created_time, read_time)"
             + " VALUES (#{id}, #{category}, #{severity}, #{scenarioId}, #{title}, #{body},"
-            + " #{actionUrl}, #{createdTime}, #{readTime})")
+            + " #{contentUrl}, #{actionUrl}, #{createdTime}, #{readTime})")
     int insert(NotificationMessage message);
 
     @Select({

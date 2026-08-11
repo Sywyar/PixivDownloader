@@ -8,6 +8,7 @@ public record NotificationMessage(
         String scenarioId,
         String title,
         String body,
+        String contentUrl,
         String actionUrl,
         long createdTime,
         Long readTime

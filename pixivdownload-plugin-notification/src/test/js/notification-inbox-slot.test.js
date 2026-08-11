@@ -8,6 +8,8 @@ const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resourc
     'pixiv-notifications', 'batch-inbox-slot.js'), 'utf8');
 const PAGE_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-notifications', 'pixiv-notifications.js'), 'utf8');
+const PAGE_HTML = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
+    'pixiv-notifications.html'), 'utf8');
 const CSS = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-notifications', 'pixiv-notifications.css'), 'utf8');
 
@@ -63,5 +65,24 @@ assert.ok(PAGE_SOURCE.includes("severity === 'warning' || severity === 'error'")
     && CSS.includes('.notification-list-item.severity-warning')
     && CSS.includes('.notification-detail-panel.severity-error h2'),
     '警告与错误消息必须有可辨识的严重程度样式');
+assert.ok(PAGE_HTML.includes("frame-src https://sywyar.github.io/PixivDownloader-Remote-Content/")
+    && PAGE_HTML.includes("default-src 'self'; script-src 'self'; style-src 'self'")
+    && PAGE_HTML.includes("connect-src 'self'")
+    && PAGE_HTML.includes("object-src 'none'; base-uri 'none'; form-action 'none'"),
+    '详细页 CSP 必须限制自身资源、网络连接和 iframe，并禁止对象、表单与 base 改写');
+assert.ok(PAGE_SOURCE.includes("var CONTENT_ORIGIN = 'https://sywyar.github.io';")
+    && PAGE_SOURCE.includes('PixivDownloader-Remote-Content')
+    && PAGE_SOURCE.includes('url.href === CONTENT_ORIGIN + url.pathname'),
+    '浏览器端必须再次校验远程正文的来源、路径和规范 URL');
+assert.ok(PAGE_SOURCE.includes("frame.setAttribute('sandbox', '')")
+    && PAGE_SOURCE.includes("frame.setAttribute('referrerpolicy', 'no-referrer')")
+    && PAGE_SOURCE.includes("frame.setAttribute('credentialless', '')")
+    && PAGE_SOURCE.includes("camera 'none'; clipboard-read 'none'; clipboard-write 'none'")
+    && !PAGE_SOURCE.includes('allow-scripts')
+    && !PAGE_SOURCE.includes('allow-same-origin'),
+    '远程正文 iframe 必须无 sandbox 权限、无凭据、无 referrer 且拒绝敏感能力');
+assert.ok(PAGE_SOURCE.includes("frame.setAttribute('loading', 'lazy')")
+    && CSS.includes('.notification-detail-content-frame {'),
+    '远程正文应按需加载并限制在详情面板内');
 
-console.log('notification-inbox-slot.test.js: 17 assertions passed ✓');
+console.log('notification-inbox-slot.test.js: 21 assertions passed ✓');

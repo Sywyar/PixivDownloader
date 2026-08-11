@@ -154,7 +154,7 @@ class NotificationPluginTest {
                     assertThat(table.name()).isEqualTo("notification_messages");
                     assertThat(table.columns()).extracting(column -> column.name())
                             .containsExactly("id", "category", "severity", "scenario_id", "title", "body",
-                                    "action_url", "created_time", "read_time");
+                                    "content_url", "action_url", "created_time", "read_time");
                     assertThat(table.indexes()).extracting(index -> index.name())
                             .containsExactly("idx_notification_messages_created_time",
                                     "idx_notification_messages_unread_created");
