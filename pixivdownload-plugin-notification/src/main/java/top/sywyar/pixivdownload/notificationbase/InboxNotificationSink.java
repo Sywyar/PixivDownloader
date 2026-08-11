@@ -67,7 +67,8 @@ public class InboxNotificationSink implements NotificationSink {
         String markdownBody = substitute(template.bodyTemplate(), key -> markdownValue(key, values.get(key)));
         String body = formatConverter.render(
                 PushMessage.markdown("", markdownBody, scenario.level()), PushFormat.PLAIN_TEXT).body();
-        return inbox.publish(NotificationCategory.DOWNLOAD, scenario.level(), scenario.id(), title, body, null);
+        return inbox.publish(NotificationCategory.fromToken(scenario.categoryId()),
+                scenario.level(), scenario.id(), title, body, null);
     }
 
     @Override

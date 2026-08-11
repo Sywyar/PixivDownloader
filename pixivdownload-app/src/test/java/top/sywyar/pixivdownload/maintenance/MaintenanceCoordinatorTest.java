@@ -2,16 +2,27 @@ package top.sywyar.pixivdownload.maintenance;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @DisplayName("MaintenanceCoordinator 调度配置测试")
 class MaintenanceCoordinatorTest {
@@ -160,6 +171,40 @@ class MaintenanceCoordinatorTest {
 
         assertThat(coordinator.runManually()).isTrue();
         assertThat(coreRuns).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("维护任务失败时发送系统通知并继续后续任务")
+    void taskFailurePublishesSystemNotificationAndContinues() {
+        AtomicInteger laterRuns = new AtomicInteger();
+        MaintenanceTask failed = new MaintenanceTask() {
+            @Override
+            public String name() {
+                return "failed-maintenance";
+            }
+
+            @Override
+            public void execute(MaintenanceContext context) {
+                throw new IllegalStateException("sensitive detail must stay in logs");
+            }
+        };
+        NotificationDispatcher dispatcher = mock(NotificationDispatcher.class);
+        AppMessages messages = mock(AppMessages.class);
+        when(messages.normalizeLocale(any())).thenReturn(Locale.US);
+        when(messages.getOrDefault(eq(Locale.US), eq("notification.system.maintenance-trigger.manual"),
+                anyString())).thenReturn("Manual");
+        MaintenanceCoordinator coordinator = new MaintenanceCoordinator(
+                new MaintenanceTaskRegistry(List.of(failed, countingTask(laterRuns))),
+                new MaintenanceProperties(), dispatcher, messages);
+
+        assertThat(coordinator.runManually()).isTrue();
+
+        verify(dispatcher).notify(eq(NotificationScenario.MAINTENANCE_TASK_FAILED), eq(Locale.US),
+                argThat(values -> "failed-maintenance".equals(values.get("task_name"))
+                        && "Manual".equals(values.get("trigger"))
+                        && "IllegalStateException".equals(values.get("error_type"))
+                        && values.values().stream().noneMatch(value -> value.contains("sensitive detail"))));
+        assertThat(laterRuns).hasValue(1);
     }
 
     private static MaintenanceTask countingTask(AtomicInteger runs) {

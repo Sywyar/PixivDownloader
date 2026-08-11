@@ -26,8 +26,11 @@ class ScheduleNotificationTemplateContributorTest {
         ImmutableNotificationTemplateCatalog catalog =
                 new ImmutableNotificationTemplateCatalog(templates);
 
-        assertThat(templates).hasSize(NotificationScenario.values().length * 6);
-        for (NotificationScenario scenario : NotificationScenario.values()) {
+        List<NotificationScenario> scenarios = java.util.Arrays.stream(NotificationScenario.values())
+                .filter(scenario -> "download".equals(scenario.categoryId()))
+                .toList();
+        assertThat(templates).hasSize(scenarios.size() * 6);
+        for (NotificationScenario scenario : scenarios) {
             for (Locale locale : List.of(Locale.SIMPLIFIED_CHINESE, Locale.US)) {
                 NotificationTemplateContribution mail = catalog
                         .find(scenario.id(), "mail", locale).orElseThrow();

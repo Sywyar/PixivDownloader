@@ -35,6 +35,9 @@ public final class ScheduleNotificationTemplateContributor implements Notificati
             MessageResolver messages, List<Locale> locales) {
         List<NotificationTemplateContribution> result = new ArrayList<>();
         for (NotificationScenario scenario : NotificationScenario.values()) {
+            if (!"download".equals(scenario.categoryId())) {
+                continue;
+            }
             String id = scenario.id();
             String html = loadHtml(id);
             for (Locale locale : locales) {

@@ -64,7 +64,7 @@ class NotificationServiceTest {
             if (failMediumLookup) {
                 throw new AssertionError("service must use captured notification medium");
             }
-            return "recording";
+            return "inbox";
         }
 
         @Override
@@ -82,7 +82,7 @@ class NotificationServiceTest {
     }
 
     @Test
-    @DisplayName("默认全部启用：场景会扇出到所有介质")
+    @DisplayName("默认全部启用：场景会扇出到声明的介质")
     void enabledByDefaultDeliversToAllSinks() {
         RecordingSink sink = new RecordingSink();
         NotificationDispatcher service = new NotificationService(new NotificationSinkRegistry(List.of(sink)),

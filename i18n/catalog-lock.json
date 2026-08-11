@@ -11398,6 +11398,158 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "notification.system.mail.brand",
+      "acceptedSourceHash": "b969d58d3923a8eda50b503691e128608f1a40af624b3d3c0249b52f02cd3ea1",
+      "acceptedTranslationHash": "113153bffa547eaebc98fb08d0143309deac62747ad6c8ed56d185338d422c3a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.details",
+      "acceptedSourceHash": "723a738cb04dbe3fede8a581ce9180825348d2e032c3bf17e94056c506fc8ac5",
+      "acceptedTranslationHash": "45989de49fb7f66dfe17a8fc26f3a02c7abcd74f7e8e6cf9f39fa0e3775780df"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.error-type",
+      "acceptedSourceHash": "f7cddf811bd24c2f970bb252a516d5a44142764b11dee23a8003bd6c2c2cdc47",
+      "acceptedTranslationHash": "192386ec86cbf0f7a0fef1656781d025885dd7659724de06bfab060698f041eb"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.failed-at",
+      "acceptedSourceHash": "f7a1d73e9215656f782b7cb50a7f0f97108c224ed2975eb3526df6617dbf7008",
+      "acceptedTranslationHash": "99ca905b21ed4dc4539eb9014985fb003aabb9bc53e5c78d57cccda1e32c22b6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.footer.auto",
+      "acceptedSourceHash": "3f8e5ba9d71874084649a4e7aecd325ec43d451c4592e9fffd72bc65b5d20682",
+      "acceptedTranslationHash": "d2c29468aa1e8d5c0cf20382e975ba75952b6429ab46413ff1523884c60b8915"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.footer.copyright",
+      "acceptedSourceHash": "b01a5e2a2a59aae213aa62fb249244297dcaaeb3c79bbc9032be8fec480390b4",
+      "acceptedTranslationHash": "b01a5e2a2a59aae213aa62fb249244297dcaaeb3c79bbc9032be8fec480390b4"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.greeting",
+      "acceptedSourceHash": "2e1c08adf0d6f8e1a006dfa44c6c7716fe45225f52a2280750446edb595b5c22",
+      "acceptedTranslationHash": "5fc0731c2a11e3822bc432b44aa5b5ca03d48a77273a88c37e01a57c88723bed"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.maintenance-task-failed.body",
+      "acceptedSourceHash": "bcf5f01adae513f52ce62a833323edf637ef3e3e925631b908128b50e7472185",
+      "acceptedTranslationHash": "630206903f388de31d27909df1ebb1a7648dd6fcf9ee5a781291ac19979b3871"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.maintenance-task-failed.category",
+      "acceptedSourceHash": "fc91da8dc4e8e4b952cec381c09ec4950fc06804aad42aa899ff1cd1f8306be4",
+      "acceptedTranslationHash": "6f5618d08c6c68fd73e9796506816a9bcfe8fb3aaf7504af5b9ffe33741df310"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.maintenance-task-failed.eyebrow",
+      "acceptedSourceHash": "1a218836a0570b8414efc2a5f226f18ba49b035adcfb3519138ea3e32bc91b79",
+      "acceptedTranslationHash": "1a218836a0570b8414efc2a5f226f18ba49b035adcfb3519138ea3e32bc91b79"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.maintenance-task-failed.heading",
+      "acceptedSourceHash": "b84375147cdc9c0d7bb9ef9347886b9af04ff34cd130d51601192d465d2d301d",
+      "acceptedTranslationHash": "acaef0192828ac00df5d4c902cf51cfd196c6ffc73163fda1b39f1fb7d53b354"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.maintenance-task-failed.note",
+      "acceptedSourceHash": "d2ecc0b76d636667b07897f35f56454523dce9a686a2e13b720fd4b344513325",
+      "acceptedTranslationHash": "bdb15f94a965b2a234657933aa34afb82738fb47993e2c72ab8c894278e3d834"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.signature",
+      "acceptedSourceHash": "27b1e4a215175f2b58e03a667df4ef16db7c3ac25388a74f60794901949bf874",
+      "acceptedTranslationHash": "76c98f179fff51695a6a761fc4a53c7c757fe0ce5b30b28711e2b953ee1a972c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.task-name",
+      "acceptedSourceHash": "ef3d646b4bf6d25ca37098f73a66d6a18081c7edd6a72d7429243167b6b08be8",
+      "acceptedTranslationHash": "c3b7fafc9303cf023c665dcb965102b691f40747541aea64494d01e639f76744"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.mail.trigger",
+      "acceptedSourceHash": "3c7b79b734942877646c6d7c5c838d2484806855a3326284a3cf85c72cfb888f",
+      "acceptedTranslationHash": "8b9c643731c941195b61d1f3de78fda81ac490ee73f420bb7543df59d6a92206"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.maintenance-task-failed.body",
+      "acceptedSourceHash": "a1599becea32d8b5660381fc967e347fb8d3a78795d3b7ae81d9510b086f8d93",
+      "acceptedTranslationHash": "ddb5160d8064d22e2daadf5bf011c52c1c99237559dea023da289b827ed63131"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.maintenance-task-failed.title",
+      "acceptedSourceHash": "b84375147cdc9c0d7bb9ef9347886b9af04ff34cd130d51601192d465d2d301d",
+      "acceptedTranslationHash": "acaef0192828ac00df5d4c902cf51cfd196c6ffc73163fda1b39f1fb7d53b354"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.maintenance-trigger.manual",
+      "acceptedSourceHash": "43a88061a16f56a61910a108a27df4f5f42d7a6be0005e8eed6be03543259572",
+      "acceptedTranslationHash": "96148cc529ba4a8677b3829d6f01d54e9735c54155ac6816eaef70777e9d231c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "notification.system.maintenance-trigger.schedule",
+      "acceptedSourceHash": "d932c0556eb5b4227f80e1c690c19c6b2b21f26b981349ba257c61172f262e6d",
+      "acceptedTranslationHash": "f688c9625a699a82f8058c2fe7b671984f975eceeb9aa9ec2a6b54de6df2f123"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "novel.gallery.log.clean-directory-failed",
       "acceptedSourceHash": "a50070e906ee11a7eb543334b3e3a6af778916285f5ed807b344b4efb974dc88",
       "acceptedTranslationHash": "2ac58a4415fe0784590043aa4d36fe441f9d1275e8a0cae97c9baff491c28c99"
@@ -42001,6 +42153,22 @@
       "key": "gui.config.field.notification.scenario.degraded-anonymous.label",
       "acceptedSourceHash": "3d7c56c2c0dd94312ff0a05af10f717b6a5ba86d7032b31066590a008829faca",
       "acceptedTranslationHash": "c7ccc23e5029162c7034457d842c0440c91124799fd610c7fd0589d8c341e46e"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-notification",
+      "baseName": "web/notification",
+      "key": "gui.config.field.notification.scenario.maintenance-task-failed.help",
+      "acceptedSourceHash": "5f0d3051d1d4d8101f4ecaed02afdcd7d9a4dead2527be4cc3bffb683914df9d",
+      "acceptedTranslationHash": "cfe92373755f1adc05100dd1da8c01d6a9d0db1cb8c9574bc9f126e1cb17ea4b"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-notification",
+      "baseName": "web/notification",
+      "key": "gui.config.field.notification.scenario.maintenance-task-failed.label",
+      "acceptedSourceHash": "8b07729b86777b7411dff172792a5b90a525744c2741c25e36ee8e95f99998fb",
+      "acceptedTranslationHash": "f9a5c595aee90d368fa9c62d2f6a43e27ad018b601a03a2a9cb7629c5e9083b2"
     },
     {
       "locale": "en-US",

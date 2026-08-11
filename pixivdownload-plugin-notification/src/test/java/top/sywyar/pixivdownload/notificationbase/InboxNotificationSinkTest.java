@@ -68,6 +68,22 @@ class InboxNotificationSinkTest {
         assertThat(mapper.findLatest(null, false, 10)).isEmpty();
     }
 
+    @Test
+    @DisplayName("系统场景按其分类写入系统消息")
+    void persistsScenarioCategory() {
+        NotificationScenario systemScenario = NotificationScenario.MAINTENANCE_TASK_FAILED;
+        NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
+        InboxNotificationSink sink = new InboxNotificationSink(
+                systemCatalog(systemScenario), new NotificationInboxService(mapper), verifyLocales(), () -> true);
+
+        sink.deliver(systemScenario, Locale.US, Map.of());
+
+        assertThat(mapper.findLatest(null, false, 10)).singleElement().satisfies(message -> {
+            assertThat(message.category()).isEqualTo("system");
+            assertThat(message.scenarioId()).isEqualTo(systemScenario.id());
+        });
+    }
+
     private static ImmutableNotificationTemplateCatalog catalog(boolean includeChinese) {
         List<NotificationTemplateContribution> templates = new java.util.ArrayList<>();
         templates.add(new NotificationTemplateContribution(
@@ -83,5 +99,13 @@ class InboxNotificationSinkTest {
 
     private static List<Locale> verifyLocales() {
         return List.of(Locale.SIMPLIFIED_CHINESE, Locale.US);
+    }
+
+    private static ImmutableNotificationTemplateCatalog systemCatalog(NotificationScenario scenario) {
+        return new ImmutableNotificationTemplateCatalog(List.of(
+                new NotificationTemplateContribution(
+                        scenario.id(), "inbox", Locale.US, "System", "System body"),
+                new NotificationTemplateContribution(
+                        scenario.id(), "inbox", Locale.SIMPLIFIED_CHINESE, "系统", "系统正文")));
     }
 }

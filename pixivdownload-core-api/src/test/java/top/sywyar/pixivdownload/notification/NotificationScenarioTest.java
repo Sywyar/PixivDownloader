@@ -29,4 +29,11 @@ class NotificationScenarioTest {
         assertThat(NotificationScenario.findById("plugin-private-reason")).isEmpty();
         assertThat(NotificationScenario.findById(null)).isEmpty();
     }
+
+    @Test
+    @DisplayName("维护失败场景使用系统分类")
+    void maintenanceFailureUsesSystemCategory() {
+        assertThat(NotificationScenario.MAINTENANCE_TASK_FAILED.categoryId()).isEqualTo("system");
+        assertThat(NotificationScenario.RUN_SUMMARY.categoryId()).isEqualTo("download");
+    }
 }

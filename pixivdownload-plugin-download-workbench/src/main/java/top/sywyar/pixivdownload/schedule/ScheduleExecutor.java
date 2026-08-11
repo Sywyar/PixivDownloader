@@ -1157,7 +1157,7 @@ public class ScheduleExecutor {
     }
 
     /**
-     * 统一触发一个通知场景：扇出给所有介质（邮件 + 推送），全程 best-effort——
+     * 统一触发一个通知场景：扇出给所有活动介质，全程 best-effort——
      * {@link NotificationDispatcher} 的宿主实现对每个介质各自隔离，绝不影响调度。
      */
     private void sendNotification(NotificationScenario scenario, Map<String, String> placeholders) {
