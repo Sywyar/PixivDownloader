@@ -18,7 +18,8 @@ public interface NotificationInboxMapper {
             + " (id, category, severity, scenario_id, title, body, content_url, action_url,"
             + " created_time, read_time)"
             + " VALUES (#{id}, #{category}, #{severity}, #{scenarioId}, #{title}, #{body},"
-            + " #{contentUrl}, #{actionUrl}, #{createdTime}, #{readTime})")
+            + " #{contentUrl}, #{actionUrl}, #{createdTime}, #{readTime})"
+            + " ON CONFLICT(id) DO NOTHING")
     int insert(NotificationMessage message);
 
     @Select({

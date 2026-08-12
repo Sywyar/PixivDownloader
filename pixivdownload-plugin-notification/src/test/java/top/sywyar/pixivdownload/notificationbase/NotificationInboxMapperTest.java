@@ -49,6 +49,14 @@ class NotificationInboxMapperTest {
             assertThat(mapper.markRead("older", 30)).isEqualTo(1);
             assertThat(mapper.markRead("older", 40)).isZero();
             assertThat(mapper.findById("older").readTime()).isEqualTo(30);
+            assertThat(mapper.insert(new NotificationMessage(
+                    "older", "announcement", "ERROR", null,
+                    "Rewritten", "Rewritten", null, null, 100, null))).isZero();
+            assertThat(mapper.findById("older")).satisfies(message -> {
+                assertThat(message.title()).isEqualTo("Title older");
+                assertThat(message.category()).isEqualTo("download");
+                assertThat(message.readTime()).isEqualTo(30);
+            });
             assertThat(mapper.findById("older").contentUrl()).isEqualTo(
                     "https://sywyar.github.io/PixivDownloader-Remote-Content/older.html");
             assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)

@@ -119,6 +119,9 @@ class NotificationInboxServiceTest {
 
         @Override
         public int insert(NotificationMessage message) {
+            if (findById(message.id()) != null) {
+                return 0;
+            }
             messages.add(message);
             return 1;
         }

@@ -1,15 +1,29 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.mapper.MapperFactoryBean;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpCookiePolicy;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRedirectPolicy;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
 
+import java.time.Duration;
+import java.util.Locale;
+
 @Configuration
+@EnableScheduling
 public class NotificationPluginConfiguration {
 
     @Bean
@@ -30,6 +44,42 @@ public class NotificationPluginConfiguration {
     @ConditionalOnPluginEnabled(NotificationPlugin.ID)
     public NotificationInboxService notificationInboxService(NotificationInboxMapper mapper) {
         return new NotificationInboxService(mapper);
+    }
+
+    @Bean(name = "notificationAnnouncementTaskScheduler", destroyMethod = "shutdown")
+    @ConditionalOnPluginEnabled(NotificationPlugin.ID)
+    public ThreadPoolTaskScheduler notificationAnnouncementTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("notification-announcement-");
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return scheduler;
+    }
+
+    @Bean(name = "notificationAnnouncementHttpClient", destroyMethod = "close")
+    @ConditionalOnPluginEnabled(NotificationPlugin.ID)
+    public OutboundHttpClient notificationAnnouncementHttpClient(OutboundHttpClientFactory factory) {
+        return factory.open(new OutboundHttpClientProfile(
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(10),
+                OutboundHttpRoute.inherit(),
+                OutboundHttpRedirectPolicy.NEVER,
+                OutboundHttpCookiePolicy.DISABLED,
+                1,
+                1));
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(NotificationPlugin.ID)
+    public RemoteAnnouncementImporter remoteAnnouncementImporter(
+            @Qualifier("notificationAnnouncementHttpClient") OutboundHttpClient client,
+            ObjectMapper objectMapper,
+            NotificationInboxService inbox,
+            LocaleBundlePolicy localePolicy) {
+        return new RemoteAnnouncementImporter(
+                client, objectMapper, inbox, localePolicy, Locale::getDefault);
     }
 
     @Bean

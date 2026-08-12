@@ -16,6 +16,8 @@ public class NotificationInboxService {
     private static final int MAX_ACTION_URL_BYTES = 8 * 1_024;
     private static final int MAX_CONTENT_URL_BYTES = 2 * 1_024;
     private static final String CONTENT_HOST = "sywyar.github.io";
+    private static final String REMOTE_ANNOUNCEMENT_ID_PREFIX = "remote-announcement:";
+    private static final Pattern REMOTE_ANNOUNCEMENT_ID = Pattern.compile("[a-z0-9][a-z0-9-]{0,79}");
     private static final Pattern CONTENT_PATH = Pattern.compile(
             "/PixivDownloader-Remote-Content/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*"
                     + "[A-Za-z0-9][A-Za-z0-9._-]*\\.html");
@@ -56,6 +58,33 @@ public class NotificationInboxService {
                 null);
         mapper.insert(message);
         return message;
+    }
+
+    boolean insertRemoteAnnouncementIfAbsent(String remoteId,
+                                             NotificationSeverity severity,
+                                             String title,
+                                             String summary,
+                                             String contentUrl,
+                                             long publishedAt) {
+        String normalizedId = Objects.requireNonNull(remoteId, "remote announcement id");
+        if (!REMOTE_ANNOUNCEMENT_ID.matcher(normalizedId).matches()) {
+            throw new IllegalArgumentException("remote announcement id is invalid");
+        }
+        if (publishedAt < 0) {
+            throw new IllegalArgumentException("remote announcement published time is invalid");
+        }
+        NotificationMessage message = new NotificationMessage(
+                REMOTE_ANNOUNCEMENT_ID_PREFIX + normalizedId,
+                NotificationCategory.ANNOUNCEMENT.token(),
+                Objects.requireNonNull(severity, "notification severity").name(),
+                null,
+                requiredText(title, 160 * 4, "remote announcement title"),
+                requiredText(summary, 500 * 4, "remote announcement summary"),
+                safeContentUrl(contentUrl),
+                null,
+                publishedAt,
+                null);
+        return mapper.insert(message) == 1;
     }
 
     public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit) {
@@ -131,7 +160,7 @@ public class NotificationInboxService {
         throw new IllegalArgumentException("notification action URL must be a safe path or HTTP(S) URL");
     }
 
-    private static String safeContentUrl(String value) {
+    static String safeContentUrl(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
