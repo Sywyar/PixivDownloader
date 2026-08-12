@@ -1987,6 +1987,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         @Override
+        public String actionFieldValue(String key) throws IOException {
+            return delegate.actionFieldValue(key);
+        }
+
+        @Override
         public void setFieldValue(String key, String value) {
             delegate.setFieldValue(key, value);
         }
@@ -2105,6 +2110,23 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     public String currentFieldValue(String key) {
         FieldRenderer.RenderedField rf = renderedFields.get(key);
         return rf == null ? "" : rf.getValue().get();
+    }
+
+    @Override
+    public String actionFieldValue(String key) throws IOException {
+        FieldRenderer.RenderedField rf = renderedFields.get(key);
+        if (rf == null) {
+            return "";
+        }
+        String current = rf.getValue().get();
+        ConfigFieldSpec spec = findSpec(key);
+        if (!isPluginCredential(spec)
+                || (current != null && !current.isBlank())
+                || rf.credentialClearRequested()
+                || !rf.credentialStored()) {
+            return current == null ? "" : current;
+        }
+        return credentialStore.readAll(spec.ownerPluginId()).getOrDefault(key, "");
     }
 
     @Override

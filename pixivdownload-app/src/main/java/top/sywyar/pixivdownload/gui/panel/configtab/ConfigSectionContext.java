@@ -7,6 +7,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -32,6 +33,11 @@ public interface ConfigSectionContext {
 
     /** 取某字段当前控件值；不存在返回空串。 */
     String currentFieldValue(String key);
+
+    /** 取动作载荷字段值；宿主可为未回显的已保存凭证提供实际值。 */
+    default String actionFieldValue(String key) throws IOException {
+        return currentFieldValue(key);
+    }
 
     /** 设置某字段控件值（用于预设回填）。 */
     void setFieldValue(String key, String value);

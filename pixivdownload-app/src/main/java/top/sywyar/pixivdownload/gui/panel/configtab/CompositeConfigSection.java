@@ -162,6 +162,11 @@ final class CompositeConfigSection implements ConfigSection {
         }
 
         @Override
+        public String actionFieldValue(String key) throws IOException {
+            return delegate.actionFieldValue(key);
+        }
+
+        @Override
         public void setFieldValue(String key, String value) {
             delegate.setFieldValue(key, value);
         }
