@@ -22,10 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 下载工作台布局偏好调查（PostHog API Survey）的静态资源契约守卫：
- * 页面加载顺序 / 唯一性、i18n 键集合、资源归属、公开配置与 vendor SDK 的
- * 供应链一致性（精确版本单一声明、许可证 / integrity 元数据在场、无未固定 CDN）。
+ * 页面加载顺序 / 唯一性、i18n 键集合、资源归属、发行激活位与 PostHog 插件消费边界。
  * 运行态行为由 {@code src/test/js/pixiv-layout-feedback.test.js} 通过真实脚本执行验证，
- * 配置生成器行为由 {@code src/test/js/layout-survey-config-generator.test.js} 验证。
+ * PostHog SDK 由 {@code pixivdownload-plugin-posthog} 自身测试守护，四个调查参数由本插件持有。
  */
 @DisplayName("下载工作台布局偏好调查静态契约守卫")
 class LayoutSurveyContractTest {
@@ -35,11 +34,10 @@ class LayoutSurveyContractTest {
     private static final String BATCH_ALT_HTML = STATIC_ROOT + "pixiv-batch-alt.html";
     private static final String SURVEY_CSS = STATIC_ROOT + "pixiv-layout-feedback/pixiv-layout-feedback.css";
     private static final String SURVEY_JS = STATIC_ROOT + "pixiv-layout-feedback/pixiv-layout-feedback.js";
-    private static final String PUBLIC_CONFIG_JS = STATIC_ROOT + "pixiv-layout-feedback/public-config.js";
+    private static final String RELEASE_ACTIVATION = STATIC_ROOT
+            + "pixiv-layout-feedback/release-activation.js";
     private static final String I18N_ZH = "i18n/web/layout-feedback.properties";
     private static final String I18N_EN = "i18n/web/layout-feedback_en.properties";
-    private static final String VENDOR_DIR = STATIC_ROOT + "vendor/posthog-js/";
-    private static final String LICENSES_DIR = "META-INF/licenses/posthog-js/";
     private static final Pattern SCRIPT_SRC = Pattern.compile(
             "<script\\s+[^>]*src=\"([^\"]+)\"[^>]*>", Pattern.CASE_INSENSITIVE);
 
@@ -140,12 +138,14 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("调查脚本不再使用 distinct_id 初始化配置，改用 bootstrap.distinctID")
-    void sdkIdentityUsesBootstrapDistinctId() throws IOException {
+    @DisplayName("调查脚本把 scoped identity 交给 PostHog 插件并验证实际 SDK identity")
+    void surveyDelegatesAndVerifiesScopedIdentity() throws IOException {
         String js = read(SURVEY_JS);
-        assertThat(js).contains("bootstrap.distinctID");
-        assertThat(js).contains("isIdentifiedID: false");
-        assertThat(js).contains("get_distinct_id");
+        assertThat(js).contains("createSurveyClient")
+                .contains("ownerKey: POSTHOG_OWNER_KEY")
+                .contains("posthog: POSTHOG")
+                .contains("distinctId: serverIdentityAvailable && serverDistinctId ? serverDistinctId : ''")
+                .contains("get_distinct_id");
         assertThat(js).doesNotContain("sdkConfig.distinct_id =");
         assertThat(js).doesNotContain("posthog.identify(");
         assertThat(js).doesNotContain("posthog.reset(");
@@ -183,32 +183,55 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("新版工作台恰好加载一次调查 CSS / 公开配置 / 业务脚本，且配置先于业务脚本；经典下载页不再加载调查资源")
+    @DisplayName("新版工作台按发行激活位、PostHog 适配器、业务脚本的顺序各加载一次；经典页不加载")
     void pagesLoadSurveyAssetsExactlyOnceInOrder() throws IOException {
         // 调查只在 pixiv-batch-alt.html 以「首次下载完成」触发；经典下载页不参与。
         String alt = read(BATCH_ALT_HTML);
         String css = "/pixiv-layout-feedback/pixiv-layout-feedback.css";
-        String config = "/pixiv-layout-feedback/public-config.js";
+        String activation = "/pixiv-layout-feedback/release-activation.js";
+        String adapter = "/pixiv-posthog/pixiv-posthog.js";
         String script = "/pixiv-layout-feedback/pixiv-layout-feedback.js";
 
         assertThat(countOccurrences(alt, css)).as(BATCH_ALT_HTML + " 调查 CSS 恰好一次").isEqualTo(1);
-        assertThat(countOccurrences(alt, config)).as(BATCH_ALT_HTML + " 公开配置恰好一次").isEqualTo(1);
+        assertThat(countOccurrences(alt, activation)).as(BATCH_ALT_HTML + " 发行激活位恰好一次").isEqualTo(1);
+        assertThat(countOccurrences(alt, adapter)).as(BATCH_ALT_HTML + " PostHog 适配器恰好一次").isEqualTo(1);
         assertThat(countOccurrences(alt, script)).as(BATCH_ALT_HTML + " 调查业务脚本恰好一次").isEqualTo(1);
 
         List<String> scripts = scriptSources(alt);
-        assertThat(scripts.indexOf(config))
-                .as(BATCH_ALT_HTML + " 公开配置必须加载")
+        assertThat(scripts.indexOf(activation))
+                .as(BATCH_ALT_HTML + " 发行激活位必须加载")
                 .isGreaterThanOrEqualTo(0);
+        assertThat(scripts.indexOf(adapter))
+                .as(BATCH_ALT_HTML + " PostHog 适配器必须加载")
+                .isGreaterThan(scripts.indexOf(activation));
         assertThat(scripts.indexOf(script))
                 .as(BATCH_ALT_HTML + " 调查业务脚本必须加载")
-                .isGreaterThan(scripts.indexOf(config))
-                .describedAs("公开配置必须在调查业务脚本之前加载");
+                .isGreaterThan(scripts.indexOf(adapter))
+                .describedAs("PostHog 适配器必须在调查业务脚本之前加载");
 
         String batch = read(BATCH_HTML);
         assertThat(batch).as(BATCH_HTML + " 不再加载调查资源")
                 .doesNotContain(css)
-                .doesNotContain(config)
+                .doesNotContain(activation)
+                .doesNotContain(adapter)
                 .doesNotContain(script);
+    }
+
+    @Test
+    @DisplayName("普通源码构建默认关闭调查，发布者自持四个 PostHog 参数")
+    void sourceBuildIsDisabledAndPublisherOwnsPostHogParameters() throws IOException {
+        String js = read(SURVEY_JS);
+        assertThat(read(RELEASE_ACTIVATION))
+                .contains("global.PixivLayoutFeedbackOfficialRelease = false;");
+        assertThat(js)
+                .contains("var POSTHOG = Object.freeze({")
+                .contains("projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'")
+                .contains("surveyId: '019fce31-c9ce-0000-934a-375b3ddbbd6c'")
+                .contains("apiHost: 'https://layout-survey.sywyar.top'")
+                .contains("uiHost: 'https://us.posthog.com'")
+                .contains("ownerKey: POSTHOG_OWNER_KEY")
+                .contains("posthog: POSTHOG")
+                .contains("global.PixivLayoutFeedbackOfficialRelease !== true");
     }
 
     @Test
@@ -225,7 +248,6 @@ class LayoutSurveyContractTest {
         // 资源按模块归属：全部位于 download-workbench 插件的 src/main/resources 下
         Path resources = pluginResourcesRoot();
         assertThat(resources.resolve("static/pixiv-layout-feedback")).isDirectory();
-        assertThat(resources.resolve("static/vendor/posthog-js")).isDirectory();
         assertThat(resources.resolve("i18n/web/layout-feedback.properties")).isRegularFile();
         assertThat(resources.resolve("i18n/web/layout-feedback_en.properties")).isRegularFile();
     }
@@ -261,28 +283,6 @@ class LayoutSurveyContractTest {
                 .contains("layout-feedback.error-required")
                 .contains("layout-feedback.survey-unavailable")
                 .contains("layout-feedback.close");
-    }
-
-    @Test
-    @DisplayName("公开配置模板不含任何管理密钥字段，源码默认 enabled=false")
-    void publicConfigTemplateIsPublicAndDisabledByDefault() throws IOException {
-        // 读源码模板（target/classes 可能被本地 -D 注入覆盖，源码默认必须是 disabled）
-        String config = Files.readString(
-                pluginResourcesRoot().resolve("static/pixiv-layout-feedback/public-config.js"),
-                StandardCharsets.UTF_8);
-        assertThat(config)
-                .contains("window.PixivLayoutFeedbackPublicConfig = Object.freeze({")
-                .contains("enabled: false")
-                .contains("projectToken: \"\"")
-                .contains("surveyId: \"\"")
-                .contains("apiHost: \"\"")
-                .contains("uiHost: \"\"")
-                .doesNotContain("personalApiKey")
-                .doesNotContain("serviceAccountToken")
-                .doesNotContain("personal_api_key")
-                .doesNotContain("service_account_token")
-                .doesNotContain("apiKey:");
-        assertThat(config).as("必须注明公开配置不是 Secret").contains("PUBLIC client configuration");
     }
 
     @Test
@@ -350,52 +350,6 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("posthog-js 精确版本单一声明，vendor 路径 / 许可证 / integrity 一致")
-    void posthogJsVersionIsPinnedAndVendoredConsistently() throws IOException {
-        Path pom = pluginModuleRoot().resolve("pom.xml");
-        String pomText = Files.readString(pom, StandardCharsets.UTF_8);
-        Matcher versionMatcher = Pattern.compile(
-                "<posthog-js\\.version>([^<]+)</posthog-js\\.version>").matcher(pomText);
-        assertThat(versionMatcher.find()).as("pom 必须声明 posthog-js.version").isTrue();
-        String version = versionMatcher.group(1);
-        assertThat(version).as("版本必须是精确版本").matches("[0-9]+\\.[0-9]+\\.[0-9]+");
-        assertThat(version)
-                .as("禁止 ^ / ~ / latest")
-                .doesNotContain("^")
-                .doesNotContain("~")
-                .doesNotContain("latest");
-        assertThat(countOccurrences(pomText, "<posthog-js.version>"))
-                .as("Maven 中只能有一个精确版本来源")
-                .isEqualTo(1);
-
-        String surveyJs = read(SURVEY_JS);
-        Matcher constantMatcher = Pattern.compile(
-                "var POSTHOG_JS_VERSION = '([^']+)';").matcher(surveyJs);
-        assertThat(constantMatcher.find()).as("调查脚本必须声明精确版本常量").isTrue();
-        assertThat(constantMatcher.group(1)).as("脚本常量必须与 Maven 版本一致").isEqualTo(version);
-
-        String vendorFile = VENDOR_DIR + version + "/array.full.js";
-        assertThat(read(vendorFile)).as("vendor 文件必须存在且非空").isNotBlank();
-        assertThat(surveyJs)
-                .as("SDK 加载路径以固定 vendor 版本拼接（无 CDN）")
-                .contains("'/vendor/posthog-js/' + POSTHOG_JS_VERSION + '/array.full.js'")
-                .doesNotContain("unpkg")
-                .doesNotContain("jsdelivr")
-                .doesNotContain("cdn.")
-                .doesNotContain("i.posthog.com/static");
-
-        Path licenses = pluginResourcesRoot().resolve(LICENSES_DIR);
-        assertThat(licenses.resolve("LICENSE")).as("上游许可证文件必须存在").isRegularFile();
-        assertThat(licenses.resolve("SOURCE.txt")).as("来源信息必须存在").isRegularFile();
-        assertThat(licenses.resolve("INTEGRITY.txt")).as("integrity 元数据必须存在").isRegularFile();
-        String integrity = Files.readString(licenses.resolve("INTEGRITY.txt"), StandardCharsets.UTF_8);
-        assertThat(integrity).contains("posthog-js " + version)
-                .contains("dist.integrity")
-                .contains("SHA-256")
-                .contains("array.full.js");
-    }
-
-    @Test
     @DisplayName("原有双布局契约与调查资源互不干扰")
     void dualLayoutContractRemainsIntact() throws IOException {
         String html = read(BATCH_HTML);
@@ -423,7 +377,7 @@ class LayoutSurveyContractTest {
         assertThat(pluginSource)
                 .contains("new I18nContribution(\"layout-feedback\", \"i18n.web.layout-feedback\"")
                 .contains("\"/pixiv-layout-feedback/\"")
-                .contains("\"/vendor/posthog-js/\"");
+                .doesNotContain("\"/vendor/posthog-js/\"");
     }
 
     @Test

@@ -18,14 +18,19 @@ const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'stati
     'pixiv-layout-feedback', 'pixiv-layout-feedback.js');
 const CSS_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-layout-feedback', 'pixiv-layout-feedback.css');
+const POSTHOG_SOURCE_PATH = path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-posthog', 'src', 'main', 'resources', 'static',
+    'pixiv-posthog', 'pixiv-posthog.js');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 const CSS = fs.readFileSync(CSS_PATH, 'utf8');
+const POSTHOG_SOURCE = fs.readFileSync(POSTHOG_SOURCE_PATH, 'utf8');
 
 const LAYOUT_IDS = ['pixiv-batch-landscape', 'pixiv-batch-portrait', 'pixiv-batch-alt'];
 const STATE_KEY = 'pixiv:layout-feedback:state:v1';
 const SEEN_KEY = 'pixiv:layout-feedback:seen:v1';
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 const SUGGESTION_MAX = 1000;
+const SURVEY_ID = '019fce31-c9ce-0000-934a-375b3ddbbd6c';
 
 let passed = 0;
 function ok(label, condition) {
@@ -451,8 +456,8 @@ function createFakeAdapter(overrides) {
         emitFlags() {
             if (flagsListener) flagsListener();
         },
-        init(token, config) {
-            calls.init.push({token, config});
+        init(token, config, name) {
+            calls.init.push({token, config, name});
             sdkConfig = config;
             // 真实 1.409.5：bootstrap.distinctID（isIdentifiedID=false 时走匿名
             // register 分支）设置 SDK distinct ID；sdkConfig.distinct_id 不参与初始化。
@@ -461,6 +466,7 @@ function createFakeAdapter(overrides) {
                     && typeof config.bootstrap.distinctID === 'string') {
                 sdkDistinctId = config.bootstrap.distinctID;
             }
+            return adapter;
         },
         capture(name, properties) {
             calls.capture.push({name, properties});
@@ -632,14 +638,12 @@ function createHarness(options) {
     const serverStateHolder = {value: options.serverState};
     let getStateFetchCount = 0;
 
-    const defaultConfig = {
-        enabled: true,
-        projectToken: 'phc_test_project_token',
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-        apiHost: 'https://proxy.example.com',
-        uiHost: 'https://us.i.posthog.com'
+    const publicConfig = {
+        projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k',
+        surveyId: SURVEY_ID,
+        apiHost: 'https://layout-survey.sywyar.top',
+        uiHost: 'https://us.posthog.com'
     };
-    const publicConfig = Object.assign({}, defaultConfig, options.publicConfig || {});
 
     // 服务端模拟的「当前权威视图」：命令应用后携带到后续 POST / 视图响应
     //（record_seen 等命令的响应必须保留既有状态视图，与真实服务端一致）。
@@ -818,8 +822,12 @@ function createHarness(options) {
         JSON,
         Date,
         CustomEvent: MiniCustomEvent,
-        AbortController
+        AbortController,
+        URL,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
     };
+    sandbox.PixivLayoutFeedbackOfficialRelease = options.officialRelease !== false;
     sandbox.window = sandbox;
     sandbox.self = sandbox;
     sandbox.addEventListener = windowEvents.addEventListener.bind(windowEvents);
@@ -827,7 +835,9 @@ function createHarness(options) {
     sandbox.dispatchEvent = windowEvents.dispatchEvent.bind(windowEvents);
 
     vm.createContext(sandbox);
-    sandbox.PixivLayoutFeedbackPublicConfig = Object.freeze(publicConfig);
+    if (options.posthogAvailable !== false) {
+        vm.runInContext(POSTHOG_SOURCE, sandbox, {filename: 'pixiv-posthog.js'});
+    }
     vm.runInContext(SOURCE, sandbox, {filename: 'pixiv-layout-feedback.js'});
 
     const api = sandbox.PixivLayoutFeedback;
@@ -920,9 +930,9 @@ function initHarness(options) {
     const i18n = options.i18n === undefined
         ? createFakeI18n(options.i18nMessages || {})
         : options.i18n;
+    harness.sandbox.posthog = adapter;
     harness.api.init({
         page: options.page || 'batch',
-        adapter: adapter || null,
         i18n,
         storage: options.storageForInit !== undefined ? options.storageForInit : harness.storage,
         timers: harness.timers,
@@ -934,7 +944,7 @@ function initHarness(options) {
 
 function defaultSurvey() {
     return {
-        id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        id: SURVEY_ID,
         type: 'api',
         questions: [
             {
@@ -1546,7 +1556,7 @@ function testSuggestionNeverLogged() {
 ============================================================ */
 
 function testSubmittedNeverSnoozedGatesTrigger() {
-    const surveyId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const surveyId = SURVEY_ID;
     const state = (status, snoozedUntil) => JSON.stringify({
         surveyId, status, updatedAt: 100, snoozedUntil: snoozedUntil || 0
     });
@@ -1649,7 +1659,7 @@ function testCrossTabStorageSync() {
         storage: seenSeed()
     });
     const submitted = JSON.stringify({
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', status: 'submitted',
+        surveyId: SURVEY_ID, status: 'submitted',
         updatedAt: 999, snoozedUntil: 0
     });
     h2.storage.values.set(STATE_KEY, submitted);
@@ -1768,7 +1778,7 @@ function testPreloadLoadsSdkScriptEarly() {
 
 function testPreloadSkipsSdkInitWhenStateBlocks() {
     const state = JSON.stringify({
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        surveyId: SURVEY_ID,
         status: 'submitted', updatedAt: 100, snoozedUntil: 0
     });
     const h = initHarness({page: 'alt', storage: Object.assign(seenSeed(), {[STATE_KEY]: state})});
@@ -1792,26 +1802,22 @@ function testPreloadBeforeInitIsNoop() {
 }
 
 function testDisabledConfigDoesNothing() {
-    const h = initHarness({publicConfig: {
-        enabled: false, projectToken: '', surveyId: '', apiHost: '', uiHost: ''
-    }});
+    const h = initHarness({officialRelease: false});
     return h.api.open().then(() => waitForFlush()).then(() => {
-        eq('enabled=false 不展示调查', h.document.querySelectorAll('.plf-backdrop').length, 0);
-        eq('enabled=false 不加载 SDK', h.scriptElements().length, 0);
+        eq('非官方发行不展示调查', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('非官方发行不加载 SDK', h.scriptElements().length, 0);
         h.dispatchFirstDownload();
         return waitForFlush();
     }).then(() => {
-        eq('enabled=false 触发不动作', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('非官方发行触发不动作', h.document.querySelectorAll('.plf-backdrop').length, 0);
     });
 }
 
-function testPartialConfigTreatedAsDisabled() {
-    const h = initHarness({publicConfig: {
-        enabled: false, projectToken: 'only-token', surveyId: '', apiHost: '', uiHost: ''
-    }});
+function testMissingPostHogPluginTreatedAsDisabled() {
+    const h = initHarness({posthogAvailable: false});
     h.dispatchFirstDownload();
     return waitForFlush().then(() => {
-        eq('部分配置按 disabled 处理（构建期已拒绝半配置）', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('PostHog 插件缺失时静默关闭', h.document.querySelectorAll('.plf-backdrop').length, 0);
     });
 }
 
@@ -2186,7 +2192,7 @@ function testDestroyCancelsSurveyFetch() {
 
 function crossTabState(stateStatus, snoozedUntil) {
     return JSON.stringify({
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        surveyId: SURVEY_ID,
         status: stateStatus,
         updatedAt: 999,
         snoozedUntil: snoozedUntil || 0
@@ -2329,9 +2335,9 @@ function testDestroyDuringSdkLoad() {
         return waitForFlush().then(() => {
             ok('open Promise 在 destroy 后安全完成（不永久 pending）', resolved);
             const scripts = h.scriptElements();
-            eq('模块创建的未完成 script 被移除出 DOM', scripts[0].parentNode === null, true);
-            eq('load listener 已移除', (scripts[0].listeners.get('load') || []).length, 0);
-            eq('error listener 已移除', (scripts[0].listeners.get('error') || []).length, 0);
+            eq('共享 SDK script 不随单个消费者销毁', scripts[0].parentNode !== null, true);
+            eq('共享 loader 保留 load listener', (scripts[0].listeners.get('load') || []).length, 1);
+            eq('共享 loader 保留 error listener', (scripts[0].listeners.get('error') || []).length, 1);
             eq('destroy 后不显示弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
             eq('destroy 后不写反馈状态', h.storage.getItem(STATE_KEY) === null, true);
             eq('destroy 后无 Toast', h.toastCalls.length, 0);
@@ -2340,6 +2346,10 @@ function testDestroyDuringSdkLoad() {
         });
     }).then(() => {
         eq('SDK 加载取消后无任何后续动作', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        const scripts = h.scriptElements();
+        eq('共享 loader 超时后移除 script', scripts[0].parentNode === null, true);
+        eq('共享 loader 超时后移除 load listener', (scripts[0].listeners.get('load') || []).length, 0);
+        eq('共享 loader 超时后移除 error listener', (scripts[0].listeners.get('error') || []).length, 0);
         eq('destroy 后定时器无残留', h.timers.pending().length, 0);
         eq('destroy 后无监听残留', listenerCountFor(h, 'pixiv:batch-layout-changed') === 0
             && h.windowEvents.listenerCount('storage') === 0, true);
@@ -2401,7 +2411,7 @@ function testReuseLoadedSdk() {
     });
 }
 
-function testConfigMismatchFailsClosed() {
+function testIdentityMismatchFailsClosed() {
     const h = initHarness({batchLayout: 'landscape'});
     let surveysBefore = 0;
     let captureBefore = 0;
@@ -2410,24 +2420,16 @@ function testConfigMismatchFailsClosed() {
         surveysBefore = h.adapter.calls.getSurveys.length;
         captureBefore = h.adapter.calls.capture.length;
         h.api.destroy();
-        // 配置 B：projectToken / apiHost 变化
-        h.sandbox.PixivLayoutFeedbackPublicConfig = Object.freeze({
-            enabled: true,
-            projectToken: 'phc_second_project_token',
-            surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-            apiHost: 'https://proxy2.example.com',
-            uiHost: 'https://us.i.posthog.com'
-        });
+        h.setServerState(serverStateResponse({distinctId: 'plf_' + 'b'.repeat(64)}));
         h.api.init(reinitOptions(h));
         return h.api.open().then(() => waitForFlush());
     }).then(() => {
-        eq('配置签名变化 fail closed：不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
-        eq('配置签名变化不请求 Survey', h.adapter.calls.getSurveys.length, surveysBefore);
-        eq('配置签名变化不发送事件', h.adapter.calls.capture.length, captureBefore);
+        eq('身份变化 fail closed：不展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('身份变化不请求 Survey', h.adapter.calls.getSurveys.length, surveysBefore);
+        eq('身份变化不发送事件', h.adapter.calls.capture.length, captureBefore);
         const warnings = JSON.stringify(h.consoleWarn);
-        ok('记录安全 warning', warnings.indexOf('different public configuration') >= 0);
-        ok('warning 不含 Project token 实际值', warnings.indexOf('phc_second_project_token') < 0
-            && warnings.indexOf('phc_test_project_token') < 0);
+        ok('记录安全 warning', warnings.indexOf('different configuration') >= 0);
+        ok('warning 不含调查身份实际值', warnings.indexOf('plf_' + 'b'.repeat(64)) < 0);
     });
 }
 
@@ -2703,8 +2705,8 @@ function testFakeAdapterTimestampOverrides() {
 ============================================================ */
 
 function testSdkConfigHeatmapMigration() {
-    ok('生产源码不再包含 enable_heatmaps 配置字段', SOURCE.indexOf('enable_heatmaps') < 0);
-    ok('生产源码使用 capture_heatmaps', SOURCE.indexOf('capture_heatmaps') >= 0);
+    ok('PostHog 插件源码不再包含 enable_heatmaps 配置字段', POSTHOG_SOURCE.indexOf('enable_heatmaps') < 0);
+    ok('PostHog 插件源码使用 capture_heatmaps', POSTHOG_SOURCE.indexOf('capture_heatmaps') >= 0);
 }
 
 /* ============================================================
@@ -2806,7 +2808,7 @@ function testBootstrapIdentityMismatchFailsClosed() {
         const warnings = JSON.stringify(h.consoleWarn);
         ok('记录安全 warning', warnings.indexOf('does not match') >= 0);
         ok('warning 不含 scoped ID / token / survey', warnings.indexOf(SERVER_SCOPED_ID) < 0
-            && warnings.indexOf('phc_test_project_token') < 0
+            && warnings.indexOf(h.config.projectToken) < 0
             && warnings.indexOf(h.config.surveyId) < 0);
     });
 }
@@ -2985,7 +2987,7 @@ function testServerGetUrlCarriesEncodedSurveyId() {
         const url = h.fetchCalls.find(c => c.url.indexOf('/api/layout-feedback/state') >= 0
             && !(c.init && c.init.method === 'POST'));
         ok('GET 请求存在', !!url);
-        ok('GET 携带 surveyId 查询参数', url.url.indexOf('surveyId=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee') >= 0);
+        ok('GET 携带 surveyId 查询参数', url.url.indexOf('surveyId=' + encodeURIComponent(SURVEY_ID)) >= 0);
         ok('GET 使用 same-origin credentials', url.init.credentials === 'same-origin');
     });
 }
@@ -3136,7 +3138,7 @@ function testServerCommandNetworkFailureSafeDegrade() {
         ok('记录不含用户数据的 warning', h.consoleWarn.some(args => {
             const text = JSON.stringify(args);
             return text.indexOf('server state save failed') >= 0
-                && text.indexOf('phc_test_project_token') < 0
+                && text.indexOf(h.config.projectToken) < 0
                 && text.indexOf(h.config.surveyId) < 0;
         }));
     });
@@ -3200,7 +3202,7 @@ function testServerModeCrossTabCoordination() {
 function testLocalStateReconciliation() {
     // 服务端恢复返回空状态，本地曾提交 submitted → 有限回放 submitted 命令。
     const submitted = JSON.stringify({
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        surveyId: SURVEY_ID,
         status: 'submitted', updatedAt: 100, snoozedUntil: 0
     });
     const h = initHarness({
@@ -3219,7 +3221,7 @@ function testLocalStateReconciliation() {
 
 function testLocalStateReconciliationNeverOverSnoozed() {
     const localNever = JSON.stringify({
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        surveyId: SURVEY_ID,
         status: 'never', updatedAt: 100, snoozedUntil: 0
     });
     const h = initHarness({
@@ -3240,7 +3242,7 @@ function testLocalStateReconciliationNeverOverSnoozed() {
 
 function testLocalStateReconciliationNeverDowngrades() {
     const localSnoozed = JSON.stringify({
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        surveyId: SURVEY_ID,
         status: 'snoozed', updatedAt: 100, snoozedUntil: 2000000
     });
     const h = initHarness({
@@ -3265,7 +3267,7 @@ function testLocalStateReconciliationIgnoresInvalidOrOtherSurvey() {
         const h = initHarness({
             batchLayout: 'landscape',
             storage: {[STATE_KEY]: JSON.stringify({
-                surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                surveyId: SURVEY_ID,
                 status: 'weird', updatedAt: 100, snoozedUntil: 0
             })},
             serverState: serverStateResponse({})
@@ -3377,9 +3379,7 @@ function testServerSeenDebounceTimerClearedOnDestroy() {
 
 function testDisabledConfigDoesNotProbeServer() {
     const h = initHarness({
-        publicConfig: {
-            enabled: false, projectToken: '', surveyId: '', apiHost: '', uiHost: ''
-        },
+        posthogAvailable: false,
         batchLayout: 'landscape'
     });
     return h.api.open().then(() => waitForFlush()).then(() => {
@@ -3472,7 +3472,7 @@ function testServerModeReinitIdentityChangeFailsClosed() {
         eq('身份变化不静默复用旧 singleton（fail closed 不展示）',
             h.document.querySelectorAll('.plf-backdrop').length, 0);
         const warnings = JSON.stringify(h.consoleWarn);
-        ok('记录安全 warning', warnings.indexOf('different public configuration') >= 0);
+        ok('记录安全 warning', warnings.indexOf('different configuration') >= 0);
         ok('warning 不含 scoped ID', warnings.indexOf('plf_') < 0);
     });
 }
@@ -3484,7 +3484,7 @@ function testServerModeReinitIdentityChangeFailsClosed() {
 
 function localStateValue(status, snoozedUntil, surveyId) {
     return JSON.stringify({
-        surveyId: surveyId === undefined ? 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' : surveyId,
+        surveyId: surveyId === undefined ? SURVEY_ID : surveyId,
         status,
         updatedAt: 100,
         snoozedUntil: snoozedUntil === undefined ? 0 : snoozedUntil
@@ -3862,7 +3862,7 @@ function testApplyServerViewRejectsInvalidShapes() {
 
 function surveyState(status, snoozedUntil, updatedAt) {
     return {
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        surveyId: SURVEY_ID,
         status: status,
         updatedAt: updatedAt === undefined ? 999 : updatedAt,
         snoozedUntil: snoozedUntil === undefined ? 0 : snoozedUntil
@@ -3948,7 +3948,7 @@ function testSnapshotSameRevisionPersistentContent() {
         const newWarns = h.consoleWarn.slice(warnsBefore);
         ok('记录安全 warning', JSON.stringify(newWarns).indexOf('conflicting content for the same revision') >= 0);
         const warnText = JSON.stringify(newWarns);
-        ok('warning 不含 token', warnText.indexOf('phc_test_project_token') < 0);
+        ok('warning 不含 token', warnText.indexOf(h.config.projectToken) < 0);
         ok('warning 不含 Survey ID', warnText.indexOf(h.config.surveyId) < 0);
         ok('warning 不含 scoped ID', warnText.indexOf('plf_') < 0);
     }).then(() => {
@@ -4885,7 +4885,7 @@ function testSubmitPreflightFailClosed() {
             const warns = JSON.stringify(h.consoleWarn);
             ok('warning 不含 A/B 身份、token、Survey ID',
                 warns.indexOf('plf_') < 0
-                && warns.indexOf('phc_test_project_token') < 0
+                && warns.indexOf(h.config.projectToken) < 0
                 && warns.indexOf(h.config.surveyId) < 0);
         });
     }).then(() => {
@@ -4911,7 +4911,7 @@ function testSubmitPreflightFailClosed() {
             assertFailClosedInvariants(h, '同 revision 冲突');
             const warns = JSON.stringify(h.consoleWarn);
             ok('同 revision 冲突 warning 不含 token / Survey ID / scoped ID',
-                warns.indexOf('phc_test_project_token') < 0
+                warns.indexOf(h.config.projectToken) < 0
                 && warns.indexOf(h.config.surveyId) < 0
                 && warns.indexOf('plf_') < 0);
         });
@@ -5392,7 +5392,7 @@ function testServerViewToLocalState() {
     // 与客户端 / 服务端绝对时间差异无关；submitted / never 保留同业务状态旧对象。
     const internals = initHarness({}).api._internals;
     const localStateValue = (status, snoozedUntil) => ({
-        surveyId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        surveyId: SURVEY_ID,
         status,
         updatedAt: 100,
         snoozedUntil: snoozedUntil === undefined ? 0 : snoozedUntil
@@ -6584,7 +6584,7 @@ async function run() {
     await step('testPreloadSkipsSdkInitWhenStateBlocks', testPreloadSkipsSdkInitWhenStateBlocks);
     await step('testPreloadBeforeInitIsNoop', testPreloadBeforeInitIsNoop);
     await step('testDisabledConfigDoesNothing', testDisabledConfigDoesNothing);
-    await step('testPartialConfigTreatedAsDisabled', testPartialConfigTreatedAsDisabled);
+    await step('testMissingPostHogPluginTreatedAsDisabled', testMissingPostHogPluginTreatedAsDisabled);
     await step('testFirstDownloadTriggerConditions', testFirstDownloadTriggerConditions);
     await step('testTriggerBlockedOverlaySkipsThenAllows', testTriggerBlockedOverlaySkipsThenAllows);
     await step('testSeenRecording', testSeenRecording);
@@ -6610,7 +6610,7 @@ async function run() {
     await step('testLateScriptLoadAfterDestroy', testLateScriptLoadAfterDestroy);
     await step('testDestroyAndReInit', testDestroyAndReInit);
     await step('testReuseLoadedSdk', testReuseLoadedSdk);
-    await step('testConfigMismatchFailsClosed', testConfigMismatchFailsClosed);
+    await step('testIdentityMismatchFailsClosed', testIdentityMismatchFailsClosed);
     await step('testDestroyDuringAppVersionWait', testDestroyDuringAppVersionWait);
     await step('testDestroyDuringSurveyWait', testDestroyDuringSurveyWait);
     await step('testDestroyDuringSubmit', testDestroyDuringSubmit);

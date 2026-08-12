@@ -42,7 +42,6 @@ import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
 import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
-import top.sywyar.pixivdownload.download.controller.LayoutFeedbackDevConfigController;
 import top.sywyar.pixivdownload.download.controller.LayoutFeedbackStateController;
 import top.sywyar.pixivdownload.download.controller.PixivProxyController;
 import top.sywyar.pixivdownload.download.controller.SSEController;
@@ -333,11 +332,6 @@ public class DownloadWorkbenchPluginConfiguration {
             InstallIdentityProvider installIdentityProvider) {
         return new LayoutFeedbackStateController(
                 layoutFeedbackStateStore, applicationModeProvider, installIdentityProvider);
-    }
-
-    @Bean
-    public LayoutFeedbackDevConfigController layoutFeedbackDevConfigController() {
-        return new LayoutFeedbackDevConfigController();
     }
 
     @Bean

@@ -86,7 +86,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/pixiv-layout-feedback/**"),
                 new WebRouteContribution("/api/layout-feedback/state", AccessPolicy.VISITOR,
                         Set.of(HttpMethod.GET, HttpMethod.POST), false),
-                WebRouteContribution.visitor("/vendor/posthog-js/**"),
                 WebRouteContribution.admin("/api/schedule/**"),
                 WebRouteContribution.invitedGuest("/api/download/status/active"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
@@ -122,8 +121,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 new StaticResourceContribution("classpath:/static/pixiv-batch/", "/pixiv-batch/"),
                 new StaticResourceContribution("classpath:/static/", "/pixiv-batch-alt.html", true),
                 new StaticResourceContribution("classpath:/static/pixiv-batch-alt/", "/pixiv-batch-alt/"),
-                new StaticResourceContribution("classpath:/static/pixiv-layout-feedback/", "/pixiv-layout-feedback/"),
-                new StaticResourceContribution("classpath:/static/vendor/posthog-js/", "/vendor/posthog-js/"));
+                new StaticResourceContribution("classpath:/static/pixiv-layout-feedback/", "/pixiv-layout-feedback/"));
     }
 
     @Override

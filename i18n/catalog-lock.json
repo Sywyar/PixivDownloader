@@ -47556,6 +47556,22 @@
     },
     {
       "locale": "en-US",
+      "module": "pixivdownload-plugin-posthog",
+      "baseName": "web/posthog",
+      "key": "plugin.name",
+      "acceptedSourceHash": "65c4649bb51a08c48769efed8476bfe15074bf5215d58e9a379191c6231025e2",
+      "acceptedTranslationHash": "9f11297e5896d95a8532b2e05dc39c0fe13565b889b1be7538b91615a80b4ad3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-posthog",
+      "baseName": "web/posthog",
+      "key": "plugin.summary",
+      "acceptedSourceHash": "3cad64c6d67973098ce7f4e12feabe10e397ad599181b0986ad126c6b6b30b61",
+      "acceptedTranslationHash": "0e76f0efbf372f430f3785853168c17ddb5fbc9f11e50ae6cc431e8fc698e3f3"
+    },
+    {
+      "locale": "en-US",
       "module": "pixivdownload-plugin-push",
       "baseName": "push/messages",
       "key": "push.log.notification.delivery-failed",

@@ -7,16 +7,17 @@
  * 在事件到达时评估状态门禁（submitted / never / 未到期 snoozed 不展示）并启动
  * 展示流程；不再使用延迟定时器 / 布局体验数量阈值 / 页面可见性等自动展示门禁。
  *
- * 顶层加载无副作用；只有调用 init() 后才读取公开配置、加载 SDK 与操作 DOM。
+ * 顶层加载无副作用；只有官方发行激活位为 true 且调用 init() 后才创建客户端与操作 DOM。
  * 调查初始化不阻塞页面核心初始化；调查的任何异常都不得中断下载功能。
  *
  * 依赖顺序：
- *   1. /pixiv-layout-feedback/public-config.js   （构建生成的公开客户端配置，enabled 推导）
- *   2. 本文件
- * 页面按需懒加载 /vendor/posthog-js/<version>/array.full.js（固定 vendor 版本，无 CDN）。
+ *   1. /pixiv-layout-feedback/release-activation.js（构建生成的官方发行激活位）
+ *   2. /pixiv-posthog/pixiv-posthog.js          （PostHog SDK loader / adapter）
+ *   3. 本文件
+ * PostHog 插件按需加载固定版本的 vendored SDK（无 CDN）。
  *
  * 隐私约束：
- *   - Project token / Survey ID / apiHost / uiHost 都是公开客户端配置，不是 Secret；
+ *   - Project token / Survey ID / apiHost / uiHost 由本调查发布者持有，都是公开客户端参数，不是 Secret；
  *   - 不调用 identify() / reset() 建立命名身份；solo 模式下使用服务端下发的调查
  *     作用域匿名身份（plf_ 前缀，由随机安装身份与当前调查 ID 单向派生，经
  *     bootstrap.distinctID + isIdentifiedID=false 初始化匿名 distinct ID，绝不发送
@@ -82,12 +83,16 @@
     var SCOPED_ID_PATTERN = /^plf_[0-9a-f]{64}$/;
     var SUGGESTION_MAX_CODE_POINTS = 1000;
     var SURVEY_SCHEMA_VERSION = '1';
-    var SDK_LOAD_TIMEOUT_MS = 10 * 1000;
     var FLAGS_TIMEOUT_MS = 10 * 1000;
     var SURVEY_TOTAL_TIMEOUT_MS = 30 * 1000;
     var APP_VERSION_TIMEOUT_MS = 10 * 1000;
-    var POSTHOG_JS_VERSION = '1.409.5';
-    var SDK_URL = '/vendor/posthog-js/' + POSTHOG_JS_VERSION + '/array.full.js';
+    var POSTHOG_OWNER_KEY = 'download-workbench.layout-feedback';
+    var POSTHOG = Object.freeze({
+        projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k',
+        surveyId: '019fce31-c9ce-0000-934a-375b3ddbbd6c',
+        apiHost: 'https://layout-survey.sywyar.top',
+        uiHost: 'https://us.posthog.com'
+    });
     var I18N_NS = 'layout-feedback';
     var ALLOWED_SURVEY_EVENTS = ['survey shown', 'survey sent', 'survey dismissed'];
     var PROTOCOL_PROPERTIES = [
@@ -273,10 +278,8 @@
     var timers = null;
     var fetchImpl = null;
     var i18nClient = null;
-    var injectedAdapter = null;
     var runtimeGeneration = 0;
     var sdkLoadOperation = null;
-    var sdkInitSignature = null;
     // 首次下载完成触发的一次性标记：事件到达且全部门禁通过后置位，本页面会话
     // 不再发起第二次调查流程（destroy 时重置）。
     var firstDownloadTriggered = false;
@@ -447,15 +450,12 @@
        公开配置与本地状态
     ============================================================ */
 
-    function readPublicConfig() {
-        var raw = global.PixivLayoutFeedbackPublicConfig;
-        if (!raw || typeof raw !== 'object') return null;
+    function readSurveyConfig() {
+        var manager = global.PixivPostHog;
+        if (!manager || typeof manager.createSurveyClient !== 'function') return null;
         return {
-            enabled: raw.enabled === true,
-            projectToken: typeof raw.projectToken === 'string' ? raw.projectToken : '',
-            surveyId: typeof raw.surveyId === 'string' ? raw.surveyId : '',
-            apiHost: typeof raw.apiHost === 'string' ? raw.apiHost : '',
-            uiHost: typeof raw.uiHost === 'string' ? raw.uiHost : ''
+            enabled: true,
+            surveyId: POSTHOG.surveyId
         };
     }
 
@@ -2039,51 +2039,8 @@
     }
 
     /* ============================================================
-       SDK 加载与 PostHog 初始化
+       PostHog 插件客户端
     ============================================================ */
-
-    function buildSdkConfig() {
-        var sdkConfig = {
-            api_host: config.apiHost,
-            ui_host: config.uiHost,
-            autocapture: false,
-            capture_pageview: false,
-            capture_pageleave: false,
-            capture_performance: false,
-            capture_dead_clicks: false,
-            capture_exceptions: false,
-            capture_heatmaps: false,
-            disable_session_recording: true,
-            disable_surveys: false,
-            person_profiles: 'identified_only',
-            persistence: 'localStorage',
-            cross_subdomain_cookie: false,
-            respect_dnt: true,
-            save_campaign_params: false,
-            save_referrer: false,
-            rageclick: false,
-            disable_surveys_automatic_display: true,
-            advanced_only_evaluate_survey_feature_flags: true,
-            disable_external_dependency_loading: true,
-            feature_flag_request_timeout_ms: 5000,
-            surveys_request_timeout_ms: 15000,
-            mask_all_text: true,
-            mask_all_element_attributes: true,
-            before_send: beforeSendFilter
-        };
-        // solo 模式：用服务端下发的调查作用域身份初始化匿名 distinct ID。
-        // posthog-js 1.409.5 只通过 bootstrap.distinctID 初始化身份（isIdentifiedID=false
-        // 表示匿名安装作用域，不触发 identify 语义）；sdkConfig.distinct_id 不参与
-        // 初始化，一律不得使用。multi 模式 / 服务端不可用时不设置 bootstrap，
-        // 保持 SDK 生成的匿名浏览器 ID。
-        if (serverIdentityAvailable && serverDistinctId) {
-            sdkConfig.bootstrap = {
-                distinctID: serverDistinctId,
-                isIdentifiedID: false
-            };
-        }
-        return sdkConfig;
-    }
 
     /**
      * DNT / opt-out 门禁：在 PostHog 初始化完成后、请求 Survey 之前检查。
@@ -2113,136 +2070,45 @@
         return false;
     }
 
-    /**
-     * 可取消的 SDK 加载器。保存显式操作状态（generation / promise / script /
-     * timeoutId / settled / cancel），不依赖私有 API 判断加载状态：
-     * - 已存在公开可用的 global.posthog（含 init 函数）时直接复用，不插 script；
-     * - 同一 generation 已有未取消的加载操作时返回同一个 Promise，不插第二个 script；
-     * - load 成功：清理 timeout 与 listener，generation 已失效则 resolve(null)；
-     * - load 失败 / 超时：清理 listener 与 timeout，resolve(null)，不永久悬挂；
-     * - cancel()（destroy 调用）：幂等，清理 timeout 与 listener，尝试移除模块
-     *   创建的 script，Promise 必然安全完成；浏览器后续即使完成底层资源下载，
-     *   旧回调也因 listener 已移除 + settled 守卫不生效。
-     */
-    function loadSdkScript(generation) {
-        if (global.posthog && typeof global.posthog.init === 'function') {
-            return Promise.resolve(global.posthog);
-        }
+    /** 可取消的 consumer 等待层；SDK 脚本与命名实例的生命周期由 PostHog 插件统一拥有。 */
+    function resolveSdk(generation) {
         if (sdkLoadOperation && sdkLoadOperation.generation === generation) {
             return sdkLoadOperation.promise;
         }
         var operation = {
             generation: generation,
             promise: null,
-            script: null,
-            timeoutId: null,
             settled: false,
-            cancel: null,
-            onLoad: null,
-            onError: null
+            cancel: null
         };
         sdkLoadOperation = operation;
         operation.promise = new Promise(function (resolve) {
-            var script = null;
             var settled = false;
             function finish(sdk) {
                 if (settled) return;
                 settled = true;
                 operation.settled = true;
-                if (operation.timeoutId != null) {
-                    clearTimerSafe(operation.timeoutId);
-                    operation.timeoutId = null;
-                }
-                if (script) {
-                    try {
-                        script.removeEventListener('load', operation.onLoad);
-                        script.removeEventListener('error', operation.onError);
-                    } catch (_) {
-                        // 清理尽力而为
-                    }
-                }
                 resolve(sdk);
             }
             operation.cancel = function () {
-                if (settled) return;
-                finish(null);
-                if (script && script.parentNode) {
-                    try {
-                        script.parentNode.removeChild(script);
-                    } catch (_) {
-                        // 移除尽力而为
-                    }
-                }
-            };
-            operation.onLoad = function () {
-                var sdk = global.posthog && typeof global.posthog.init === 'function'
-                    ? global.posthog
-                    : null;
-                if (!isRuntimeGenerationActive(generation)) sdk = null;
-                finish(sdk);
-            };
-            operation.onError = function () {
                 finish(null);
             };
-            operation.timeoutId = setTimeoutSafe(function () {
-                operation.timeoutId = null;
-                if (settled) return;
-                finish(null);
-                if (script && script.parentNode) {
-                    try {
-                        script.parentNode.removeChild(script);
-                    } catch (_) {
-                        // 移除尽力而为
-                    }
-                }
-            }, SDK_LOAD_TIMEOUT_MS);
             try {
-                script = global.document.createElement('script');
-                script.src = SDK_URL;
-                script.async = true;
-                script.addEventListener('load', operation.onLoad);
-                script.addEventListener('error', operation.onError);
-                operation.script = script;
-                var head = global.document.head || documentElement();
-                (head || global.document.body || global.document.documentElement).appendChild(script);
+                global.PixivPostHog.createSurveyClient({
+                    ownerKey: POSTHOG_OWNER_KEY,
+                    posthog: POSTHOG,
+                    distinctId: serverIdentityAvailable && serverDistinctId ? serverDistinctId : '',
+                    beforeSend: beforeSendFilter
+                }).then(function (sdk) {
+                    finish(isRuntimeGenerationActive(generation) ? sdk : null);
+                }, function () {
+                    finish(null);
+                });
             } catch (_) {
                 finish(null);
             }
         });
         return operation.promise;
-    }
-
-    /**
-     * PostHog 初始化幂等（不访问 __loaded 等私有字段）：
-     * - 同一页面中本模块已用相同公开配置签名初始化过的 singleton 直接复用，
-     *   不再次调用 sdk.init；
-     * - 先前的 init 抛错时不记录成功签名，后续允许重新尝试；
-     * - 重新 init 时配置签名发生变化 → fail closed：不静默切换 Project、
-     *   不把事件发送到不确定项目，只记录不含 token / Survey ID / scoped ID /
-     *   查询参数的 safe warning，当前页面不显示调查。
-     * - 签名纳入 projectToken / apiHost / uiHost / posthog-js 版本 / identity 模式
-     *   （server-scoped 或 browser-anonymous）/ scoped distinct ID：同一页面中的
-     *   singleton 不会在身份变化时被静默复用。
-     */
-    function initPostHog(sdk) {
-        if (!sdk || typeof sdk.init !== 'function') return true;
-        var identityMode = serverIdentityAvailable ? 'server-scoped' : 'browser-anonymous';
-        var identity = serverIdentityAvailable && serverDistinctId ? serverDistinctId : '';
-        var signature = config.projectToken + '|' + config.apiHost + '|'
-            + config.uiHost + '|' + POSTHOG_JS_VERSION + '|' + identityMode + '|' + identity;
-        if (sdkInitSignature === signature) return true;
-        if (sdkInitSignature !== null) {
-            warn('layout survey: posthog already initialized with a different public configuration by this module; survey disabled for this page');
-            return false;
-        }
-        try {
-            sdk.init(config.projectToken, buildSdkConfig());
-        } catch (_) {
-            sdkInitSignature = null;
-            throw _;
-        }
-        sdkInitSignature = signature;
-        return true;
     }
 
     /**
@@ -2268,11 +2134,6 @@
             return false;
         }
         return true;
-    }
-
-    function resolveSdk(generation) {
-        if (injectedAdapter) return Promise.resolve(injectedAdapter);
-        return loadSdkScript(generation);
     }
 
     /* ============================================================
@@ -3164,8 +3025,7 @@
             }
             if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
             var sdk = step.sdk;
-            if (!sdk || typeof sdk.init !== 'function') return flowResult('started');
-            if (!initPostHog(sdk)) return flowResult('started');
+            if (!sdk) return flowResult('started');
             if (serverIdentityAvailable && serverDistinctId) {
                 if (!verifySdkDistinctId(sdk)) return flowResult('started');
             }
@@ -3440,11 +3300,11 @@
         storage = options.storage != null ? options.storage : safeLocalStorage();
         timers = options.timers || defaultTimers();
         fetchImpl = options.fetchImpl || defaultFetch();
-        injectedAdapter = options.adapter || null;
         i18nClient = options.i18n || null;
-        config = readPublicConfig();
+        if (global.PixivLayoutFeedbackOfficialRelease !== true) return;
+        config = readSurveyConfig();
         if (!config) {
-            warn('layout survey: public config missing; survey disabled');
+            warn('layout survey: posthog plugin unavailable; survey disabled');
             return;
         }
         if (typeof global.addEventListener !== 'function') {
@@ -3491,8 +3351,8 @@
 
     /**
      * 预加载（点击「开始下载」后异步预热，不弹窗、不发事件、不写状态）：
-     * 提前并行启动服务端状态装载与 SDK 脚本加载，并在本地状态当前允许展示时
-     * 完成 SDK 初始化（flags 请求随之提前），使首次下载完成事件到达时展示流程
+     * 提前装载服务端状态，并在本地状态当前允许展示时创建 PostHog 命名客户端
+     * （flags 请求随之提前），使首次下载完成事件到达时展示流程
      * 只剩 Survey 获取与弹窗，消除弹窗出现前的空白等待。
      * - 与展示流程共享按 generation 缓存的 operation：showSurveyFlow 直接复用，
      *   不会重复加载脚本或重复 GET；
@@ -3505,20 +3365,14 @@
     function preload() {
         if (!initialized || !config || !config.enabled) return Promise.resolve();
         var generation = currentRuntimeGeneration();
-        var contextReady = loadServerContext(generation);
-        var sdkReady = resolveSdk(generation);
-        return Promise.all([contextReady, sdkReady]).then(function (results) {
+        return loadServerContext(generation).then(function () {
             if (!isRuntimeGenerationActive(generation)) return;
-            var sdk = results[1];
-            if (!sdk || typeof sdk.init !== 'function') return;
             if (!stateAllowsShow(timers.now())) return;
-            try {
-                if (!initPostHog(sdk)) return;
+            return resolveSdk(generation).then(function (sdk) {
+                if (!isRuntimeGenerationActive(generation) || !sdk) return;
                 if (serverIdentityAvailable && serverDistinctId
                         && !verifySdkDistinctId(sdk)) return;
-            } catch (_) {
-                // 预加载初始化失败：正式展示流程仍可重新尝试
-            }
+            });
         }).catch(function () {
             // 预加载任何失败都不影响下载与正式展示流程
         });
@@ -3614,11 +3468,9 @@
         pendingSeenLayouts = {};
         serverSaveTimerId = null;
         reconciled = false;
-        // 注意：sdkInitSignature 故意保留 —— destroy 后重新 init 时用于同一
-        // singleton 的幂等复用（签名一致）与 fail closed（签名变化）。
-        // destroy 不删除已加载完成的 vendor script、不调用 reset() /
+        // PostHog 插件拥有已加载的 vendor script 与命名客户端；destroy 不调用 reset() /
         // opt-out 方法、不改变匿名 distinct ID、不清除 PostHog 本地
-        // 持久化；已加载的 singleton 只随本模块不再被驱动发送调查事件。
+        // 持久化；已加载的命名客户端只随本模块不再被驱动发送调查事件。
     }
 
     /**
@@ -3652,11 +3504,10 @@
             SNOOZE_MS: SNOOZE_MS,
             SUGGESTION_MAX_CODE_POINTS: SUGGESTION_MAX_CODE_POINTS,
             SURVEY_SCHEMA_VERSION: SURVEY_SCHEMA_VERSION,
-            SDK_LOAD_TIMEOUT_MS: SDK_LOAD_TIMEOUT_MS,
             FLAGS_TIMEOUT_MS: FLAGS_TIMEOUT_MS,
             SURVEY_TOTAL_TIMEOUT_MS: SURVEY_TOTAL_TIMEOUT_MS,
-            POSTHOG_JS_VERSION: POSTHOG_JS_VERSION,
-            SDK_URL: SDK_URL,
+            POSTHOG_OWNER_KEY: POSTHOG_OWNER_KEY,
+            POSTHOG: POSTHOG,
             VIEW_APPLIED: VIEW_APPLIED,
             VIEW_SAME: VIEW_SAME,
             VIEW_UPDATED: VIEW_UPDATED,

@@ -73,6 +73,7 @@ class DistributionPackagingBoundaryTest {
             "BOOT-INF/classes/plugin-credential-key.properties";
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
+    private static final String POSTHOG_CLASSES_PROPERTY = "posthog.plugin.classes";
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String GALLERY_CLASSES_PROPERTY = "gallery.plugin.classes";
     private static final String NOVEL_CLASSES_PROPERTY = "novel.plugin.classes";
@@ -468,6 +469,15 @@ class DistributionPackagingBoundaryTest {
     void downloadWorkbenchPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(DOWNLOAD_WORKBENCH_CLASSES_PROPERTY, "pixivdownload-plugin-download-workbench",
                 "top/sywyar/pixivdownload/download/DownloadWorkbenchPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("posthog 以 thin 外置插件形态打包并自持适配器与 vendored SDK")
+    void postHogPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(POSTHOG_CLASSES_PROPERTY, "pixivdownload-plugin-posthog",
+                "top/sywyar/pixivdownload/posthog/PostHogPf4jPlugin.class",
+                "static/pixiv-posthog/pixiv-posthog.js",
+                "static/vendor/posthog-js/1.409.5/array.full.js");
     }
 
     @Test

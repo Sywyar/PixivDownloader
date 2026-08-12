@@ -55,6 +55,8 @@
         <module>pixivdownload-plugin-recovery-sentinel</module>
         <!-- 官方必需下载工作台外置插件。app 不依赖本模块；默认发行包把该 jar 放入 plugins/ 由 PF4J 加载。 -->
         <module>pixivdownload-plugin-download-workbench</module>
+        <!-- 官方 PostHog 调查适配插件：提供 vendored SDK，并按调用方 owner key 与参数创建隔离命名客户端。 -->
+        <module>pixivdownload-plugin-posthog</module>
         <!-- 官方可选疑似重复检测外置插件。核心 Hash 写入与 schema 留 app，本模块只承载页面/API/扫描/回填入口。 -->
         <module>pixivdownload-plugin-duplicate</module>
         <!-- 官方可选本地画廊外置插件。核心下载事实 / 元数据 / 资产能力留 app，本模块只承载展示层。 -->
@@ -75,6 +77,8 @@
     <properties>
         <java.version>17</java.version>
         <app.release.version>${project.version}</app.release.version>
+        <!-- 源码与 fork 构建默认不启用官方布局调查；官方发布 profile 只翻转这个激活位。 -->
+        <layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>
         <powershell.executable>pwsh</powershell.executable>
         <jacoco.version>0.8.12</jacoco.version>
         <jna.version>5.17.0</jna.version>
@@ -129,6 +133,12 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>official-surveys</id>
+            <properties>
+                <layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>
+            </properties>
+        </profile>
         <profile>
             <id>windows-powershell</id>
             <activation>

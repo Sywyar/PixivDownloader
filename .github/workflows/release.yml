@@ -69,6 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      OFFICIAL_SURVEYS_MAVEN_PROFILE: ${{ github.repository == 'Sywyar/PixivDownloader' && '-Pofficial-surveys' || '' }}
 
     steps:
       - name: Fix Git UTF-8 filenames
@@ -110,17 +112,12 @@ jobs:
 
       - name: Build JAR
         run: >
-          mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
+          mvn package $OFFICIAL_SURVEYS_MAVEN_PROFILE -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
           "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
-          "-Dpixiv.layout-survey.project-token=${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}"
-          "-Dpixiv.layout-survey.survey-id=${{ vars.PIXIV_LAYOUT_SURVEY_ID }}"
-          "-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}"
-          "-Dpixiv.layout-survey.ui-host=${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}"
-          "-Dpixiv.layout-survey.require-config=${{ github.repository == 'Sywyar/PixivDownloader' }}"
 
       - name: Verify packaged distribution boundaries
         run: |
-          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Ddistribution.packaging.require-production-credential-key=true -Dexec.skip=true
+          mvn -B -ntp $OFFICIAL_SURVEYS_MAVEN_PROFILE -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Ddistribution.packaging.require-production-credential-key=true -Dexec.skip=true
           REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
           test -n "$REPORT"
           grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"

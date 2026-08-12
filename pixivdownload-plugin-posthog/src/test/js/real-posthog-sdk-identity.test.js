@@ -1,6 +1,6 @@
 'use strict';
 /*
- * 真实 vendored posthog-js 1.409.5 身份初始化验证（方案一：Node 最小 DOM + 真实 SDK）。
+ * 真实 vendored posthog-js 1.409.5 身份初始化验证（Node 最小 DOM + 真实 SDK）。
  *
  * 加载 static/vendor/posthog-js/1.409.5/array.full.js 的完整 bundle，在 Node 最小
  * DOM shim 环境中真实执行 posthog.init：
@@ -11,7 +11,7 @@
  *   3. capture 结果 properties.distinct_id 来自当前 SDK distinct ID；
  *   4. 所有外部网络请求被拦截（fetch / XHR 都被记录，不连接真实 PostHog）。
  *
- * 运行：node pixivdownload-plugin-download-workbench/src/test/js/real-posthog-sdk-identity.test.js
+ * 运行：node pixivdownload-plugin-posthog/src/test/js/real-posthog-sdk-identity.test.js
  */
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +20,9 @@ const vm = require('vm');
 const VENDOR_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'vendor', 'posthog-js', '1.409.5', 'array.full.js');
 const SDK = fs.readFileSync(VENDOR_PATH, 'utf8');
+const MANAGER_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
+    'pixiv-posthog', 'pixiv-posthog.js');
+const MANAGER = fs.readFileSync(MANAGER_PATH, 'utf8');
 
 let passed = 0;
 function ok(label, condition) {
@@ -190,7 +193,7 @@ function buildSandbox() {
    真实 SDK 验证
 ============================================================ */
 
-function main() {
+async function main() {
     const sandbox = buildSandbox();
     vm.createContext(sandbox);
     vm.runInContext(SDK, sandbox, {filename: 'array.full.js'});
@@ -265,6 +268,24 @@ function main() {
             && String(call.url).indexOf('us.posthog.com') < 0
             && String(call.url).indexOf('eu.posthog.com') < 0));
 
+    const managed = buildSandbox();
+    vm.createContext(managed);
+    vm.runInContext(SDK, managed, {filename: 'array.full.js'});
+    vm.runInContext(MANAGER, managed, {filename: 'pixiv-posthog.js'});
+    const client = await managed.PixivPostHog.createSurveyClient({
+        ownerKey: 'download-workbench.layout-feedback',
+        posthog: {
+            projectToken: 'phc_real_sdk_test_token',
+            surveyId: 's1',
+            apiHost: 'https://layout-survey.sywyar.top',
+            uiHost: 'https://us.posthog.com'
+        },
+        distinctId: scopedId,
+        beforeSend: event => event
+    });
+    ok('插件返回真实 PostHog 命名实例', client && client !== managed.posthog);
+    ok('插件命名实例使用 scoped ID', client.get_distinct_id() === scopedId);
+
     console.log(`\nreal-posthog-sdk-identity.test.js: ${passed} assertions passed ✓`);
     console.log(`  get_distinct_id() === scopedId: ${sandbox.posthog.get_distinct_id() === scopedId}`);
     console.log('  network intercepted: ' + netCalls.length + ' local calls (no real PostHog)');
@@ -278,7 +299,10 @@ try {
         process.exit(2);
     }, 15000);
     guard.unref();
-    main();
+    main().catch(error => {
+        console.error(error && error.stack ? error.stack : error);
+        process.exit(1);
+    });
 } catch (error) {
     console.error(error && error.stack ? error.stack : error);
     process.exit(1);

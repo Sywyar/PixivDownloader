@@ -267,7 +267,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
 
         assertThat(staticResourceRegistry.resources())
                 .filteredOn(resource -> resource.pluginId().equals(PLUGIN_ID))
-                .hasSize(6)
+                .hasSize(5)
                 .allSatisfy(resource ->
                         assertThat(resource.classLoader()).isSameAs(externalClassLoader))
                 .extracting(resource ->
@@ -275,7 +275,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                 .containsExactlyInAnyOrder(
                         "/pixiv-batch.html", "/pixiv-batch/",
                         "/pixiv-batch-alt.html", "/pixiv-batch-alt/",
-                        "/pixiv-layout-feedback/", "/vendor/posthog-js/");
+                        "/pixiv-layout-feedback/");
         assertThat(externalClassLoader.getResource("static/pixiv-batch.html")).isNotNull();
         assertThat(externalClassLoader.getResource(
                 "static/pixiv-batch/pixiv-queue-type.js")).isNotNull();
