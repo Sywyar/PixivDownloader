@@ -3,12 +3,14 @@ package top.sywyar.pixivdownload.notificationbase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -143,6 +145,80 @@ class NotificationInboxServiceTest {
     }
 
     @Test
+    @DisplayName("活动调查槽位只入库一次并按请求语言解析发布者文案")
+    void synchronizesPersistentSurveyOnceAndLocalizesAtReadTime() {
+        MemoryMapper mapper = new MemoryMapper();
+        AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(surveySlot()));
+        NotificationInboxService service = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, slots::get,
+                (namespace, locale, key) -> java.util.Optional.of(
+                        ("en".equals(locale.getLanguage()) ? "EN " : "ZH ") + key),
+                locale -> locale);
+
+        assertThat(service.latest(NotificationCategory.SURVEY, false, 10, "zh-CN"))
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.id()).isEqualTo("persistent-survey:download-workbench.layout-survey");
+                    assertThat(message.title()).isEqualTo("ZH layout-feedback.inbox-title");
+                    assertThat(message.embeddedContentUrl()).isEqualTo("/pixiv-layout-feedback/embed.html");
+                    assertThat(message.deletable()).isFalse();
+                });
+        assertThat(service.find("persistent-survey:download-workbench.layout-survey", "en-US").title())
+                .isEqualTo("EN layout-feedback.inbox-title");
+        assertThat(mapper.insertCalls).isEqualTo(1);
+        assertThat(mapper.deleteStaleCalls).isEqualTo(1);
+
+        service.synchronizePersistentSurveys();
+        assertThat(mapper.insertCalls).isEqualTo(1);
+        assertThat(mapper.deleteStaleCalls).isEqualTo(1);
+
+        slots.set(List.of());
+        service.synchronizePersistentSurveys();
+        assertThat(service.find("persistent-survey:download-workbench.layout-survey")).isNull();
+    }
+
+    @Test
+    @DisplayName("调查不可用写墓碑且普通删除和重复同步都不能使其复活")
+    void tombstonesUnavailablePersistentSurvey() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, () -> List.of(surveySlot()),
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        String id = "persistent-survey:download-workbench.layout-survey";
+
+        assertThat(service.delete(id)).isFalse();
+        assertThat(service.dismissUnavailableSurvey(id)).isTrue();
+        assertThat(service.find(id)).isNull();
+        service.synchronizePersistentSurveys();
+        assertThat(service.find(id)).isNull();
+
+        new NotificationInboxService(
+                mapper, () -> 500, () -> 90, () -> List.of(surveySlot()),
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        assertThat(mapper.findById(id)).isNull();
+    }
+
+    @Test
+    @DisplayName("站内信调查贡献拒绝外部嵌入地址")
+    void ignoresSurveyContributionWithExternalEmbedUrl() {
+        MemoryMapper mapper = new MemoryMapper();
+        WebUiSlotContribution unsafe = new WebUiSlotContribution(
+                "unsafe.survey", "notification.inbox", null, 10,
+                java.util.Map.of(
+                        "notification.category", "survey",
+                        "notification.embed-url", "https://evil.example/survey",
+                        "notification.i18n-namespace", "layout-feedback",
+                        "notification.title-key", "layout-feedback.inbox-title",
+                        "notification.body-key", "layout-feedback.inbox-body"));
+
+        new NotificationInboxService(
+                mapper, () -> 500, () -> 90, () -> List.of(unsafe),
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+
+        assertThat(mapper.messages).isEmpty();
+    }
+
+    @Test
     @DisplayName("写入下载或系统消息后立即限制共享保留池")
     void prunesSharedPoolAfterPublish() {
         MemoryMapper mapper = new MemoryMapper();
@@ -167,12 +243,26 @@ class NotificationInboxServiceTest {
                 .hasSize(2);
     }
 
+    private static WebUiSlotContribution surveySlot() {
+        return new WebUiSlotContribution(
+                "download-workbench.layout-survey", "notification.inbox", null, 10,
+                java.util.Map.of(
+                        "notification.category", "survey",
+                        "notification.embed-url", "/pixiv-layout-feedback/embed.html",
+                        "notification.i18n-namespace", "layout-feedback",
+                        "notification.title-key", "layout-feedback.inbox-title",
+                        "notification.body-key", "layout-feedback.inbox-body"));
+    }
+
     static final class MemoryMapper implements NotificationInboxMapper {
         private final List<NotificationMessage> messages = new ArrayList<>();
         private final Set<String> dismissedIds = new HashSet<>();
+        private int insertCalls;
+        private int deleteStaleCalls;
 
         @Override
         public int insert(NotificationMessage message) {
+            insertCalls++;
             if (dismissedIds.contains(message.id()) || findById(message.id()) != null) {
                 return 0;
             }
@@ -271,6 +361,29 @@ class NotificationInboxServiceTest {
             messages.remove(message);
             dismissedIds.add(id);
             return 1;
+        }
+
+        @Override
+        public int dismissPersistentSurvey(String id, long deletedTime) {
+            NotificationMessage message = findById(id);
+            if (message == null || !message.persistentSurvey()
+                    || !NotificationCategory.SURVEY.token().equals(message.category())) {
+                return 0;
+            }
+            messages.remove(message);
+            dismissedIds.add(id);
+            return 1;
+        }
+
+        @Override
+        public int deleteStalePersistentSurveys(List<String> activeIds) {
+            deleteStaleCalls++;
+            Set<String> active = Set.copyOf(activeIds);
+            int before = messages.size() + dismissedIds.size();
+            messages.removeIf(message -> message.persistentSurvey() && !active.contains(message.id()));
+            dismissedIds.removeIf(id -> id.startsWith(NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX)
+                    && !active.contains(id));
+            return before - messages.size() - dismissedIds.size();
         }
 
         @Override

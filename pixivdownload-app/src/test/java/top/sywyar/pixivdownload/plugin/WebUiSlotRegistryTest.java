@@ -181,14 +181,18 @@ class WebUiSlotRegistryTest {
     }
 
     @Test
-    @DisplayName("通用槽位 wire 继续保留 metadata 字段并固定投影空对象")
-    void controllerKeepsCompatibilityMetadataAsEmptyObject() {
+    @DisplayName("通用槽位 wire 投影贡献方 metadata 且保持不可变")
+    void controllerProjectsImmutableMetadata() {
         WebUiSlotRegistry registry = emptyRegistry();
-        registry.register("demo", List.of(slot("demo", "demo.a")));
+        registry.register("demo", List.of(new WebUiSlotContribution(
+                "demo.a", "anchor-demo.a", "/demo/slot.js", 10, Map.of("kind", "survey"))));
 
         assertThat(new WebUiSlotController(registry).uiSlots(null))
                 .singleElement()
-                .satisfies(view -> assertThat(view.metadata()).isEqualTo(Map.of()));
+                .satisfies(view -> assertThat(view.metadata()).containsEntry("kind", "survey"));
+        assertThat(registry.uiSlots()).extracting(WebUiSlotContribution::slotId).containsExactly("demo.a");
+        assertThatThrownBy(() -> registry.uiSlots().get(0).metadata().put("x", "y"))
+                .isInstanceOf(UnsupportedOperationException.class);
         assertThat(WebUiSlotController.UiSlotView.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("slotId", "target", "moduleUrl", "order", "metadata");

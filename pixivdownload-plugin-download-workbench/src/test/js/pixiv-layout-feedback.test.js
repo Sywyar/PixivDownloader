@@ -18,11 +18,14 @@ const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'stati
     'pixiv-layout-feedback', 'pixiv-layout-feedback.js');
 const CSS_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-layout-feedback', 'pixiv-layout-feedback.css');
+const EMBED_SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
+    'pixiv-layout-feedback', 'embed.js');
 const POSTHOG_SOURCE_PATH = path.join(__dirname, '..', '..', '..', '..',
     'pixivdownload-plugin-posthog', 'src', 'main', 'resources', 'static',
     'pixiv-posthog', 'pixiv-posthog.js');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 const CSS = fs.readFileSync(CSS_PATH, 'utf8');
+const EMBED_SOURCE = fs.readFileSync(EMBED_SOURCE_PATH, 'utf8');
 const POSTHOG_SOURCE = fs.readFileSync(POSTHOG_SOURCE_PATH, 'utf8');
 
 const LAYOUT_IDS = ['pixiv-batch-landscape', 'pixiv-batch-portrait', 'pixiv-batch-alt'];
@@ -440,7 +443,7 @@ function walkAll(root, fn) {
 
 function createFakeAdapter(overrides) {
     overrides = overrides || {};
-    const calls = {init: [], capture: [], onFeatureFlags: [], getSurveys: [], results: []};
+    const calls = {init: [], capture: [], onFeatureFlags: [], getSurveys: [], getAllSurveys: [], results: []};
     let flagsListener = null;
     let sdkConfig = null;
     let sdkDistinctId = null;
@@ -534,6 +537,17 @@ function createFakeAdapter(overrides) {
             calls.getSurveys.push({forceReload});
             adapter.lastSurveyCallback = cb;
             if (!overrides.stallSurveys) cb(adapter.surveys || []);
+        },
+        getSurveys(cb, forceReload) {
+            calls.getAllSurveys.push({forceReload});
+            if (overrides.stallPublishedSurveys) return;
+            if (overrides.surveyLoadFailed) {
+                cb([], {isLoaded: false, error: 'unavailable'});
+                return;
+            }
+            cb(overrides.publishedSurveys !== undefined
+                ? overrides.publishedSurveys
+                : (adapter.surveys || []), {isLoaded: true});
         }
     };
     return adapter;
@@ -936,7 +950,8 @@ function initHarness(options) {
         i18n,
         storage: options.storageForInit !== undefined ? options.storageForInit : harness.storage,
         timers: harness.timers,
-        fetchImpl: harness.sandbox.fetch.bind(harness.sandbox)
+        fetchImpl: harness.sandbox.fetch.bind(harness.sandbox),
+        currentLayoutId: options.currentLayoutId
     });
     harness.adapter = adapter;
     return harness;
@@ -946,6 +961,7 @@ function defaultSurvey() {
     return {
         id: SURVEY_ID,
         type: 'api',
+        start_date: '2026-08-01T00:00:00Z',
         questions: [
             {
                 type: 'single_choice',
@@ -964,6 +980,75 @@ function defaultSurvey() {
             }
         ]
     };
+}
+
+function testEmbeddedSurveyPublicationStates() {
+    const available = initHarness({
+        currentLayoutId: 'pixiv-batch-portrait',
+        adapter: createFakeAdapter({surveys: [defaultSurvey()]})
+    });
+    return available.api.openEmbedded().then(result => waitForFlush().then(() => {
+        eq('嵌入调查可打开', result.status, 'opened');
+        eq('嵌入调查强制读取完整发布列表', available.adapter.calls.getAllSurveys[0].forceReload, true);
+        eq('嵌入调查使用显式当前布局', available.api.currentLayoutId(), 'pixiv-batch-portrait');
+    }).then(() => {
+        const submitted = initHarness({
+            storage: {[STATE_KEY]: crossTabState('submitted')},
+            adapter: createFakeAdapter({surveys: [defaultSurvey()]})
+        });
+        return submitted.api.openEmbedded().then(result => {
+            eq('嵌入调查只阻断已提交状态', result.status, 'blocked');
+            eq('已提交时不请求发布列表', submitted.adapter.calls.getAllSurveys.length, 0);
+        });
+    }).then(() => {
+        const never = initHarness({
+            storage: {[STATE_KEY]: crossTabState('never')},
+            adapter: createFakeAdapter({surveys: [defaultSurvey()]})
+        });
+        return never.api.openEmbedded().then(result => {
+            eq('嵌入调查不受 never 阻断', result.status, 'opened');
+        });
+    }).then(() => {
+        const snoozed = initHarness({
+            storage: {[STATE_KEY]: crossTabState('snoozed', 2000000)},
+            adapter: createFakeAdapter({surveys: [defaultSurvey()]})
+        });
+        return snoozed.api.openEmbedded().then(result => {
+            eq('嵌入调查不受有效 snooze 阻断', result.status, 'opened');
+        });
+    })).then(() => {
+        const removed = initHarness({
+            adapter: createFakeAdapter({surveys: [defaultSurvey()], publishedSurveys: []})
+        });
+        return removed.api.openEmbedded().then(result => {
+            eq('完整发布列表确认目标不存在', result.status, 'removed');
+            eq('已删除调查不再请求 active matching', removed.adapter.calls.getSurveys.length, 0);
+        });
+    }).then(() => {
+        const closedSurvey = defaultSurvey();
+        closedSurvey.end_date = '2026-08-12T00:00:00Z';
+        const closed = initHarness({
+            adapter: createFakeAdapter({surveys: [closedSurvey]})
+        });
+        return closed.api.openEmbedded().then(result => {
+            eq('完整发布列表确认目标已关闭', result.status, 'removed');
+            eq('已关闭调查不再请求 active matching', closed.adapter.calls.getSurveys.length, 0);
+        });
+    }).then(() => {
+        const unavailable = initHarness({
+            adapter: createFakeAdapter({surveys: [defaultSurvey()], surveyLoadFailed: true})
+        });
+        return unavailable.api.openEmbedded().then(result => {
+            eq('完整发布列表网络失败不误判删除', result.status, 'unavailable');
+        });
+    }).then(() => {
+        const ineligible = initHarness({
+            adapter: createFakeAdapter({surveys: [], publishedSurveys: [defaultSurvey()]})
+        });
+        return ineligible.api.openEmbedded().then(result => {
+            eq('调查仍发布但当前身份不匹配时保留站内信', result.status, 'ineligible');
+        });
+    });
 }
 
 function captureEvents(harness) {
@@ -1912,6 +1997,13 @@ function testLanguageSwitchPreservesInput() {
 
 function testReducedMotionAndA11yBasics() {
     ok('CSS 遵循 prefers-reduced-motion', CSS.indexOf('@media (prefers-reduced-motion: reduce)') >= 0);
+    ok('嵌入调查使用下载工作台蓝色主题', /html\.plf-embedded-page\s*\{[^}]*--brand:\s*#0096fa;/s.test(CSS));
+    ok('嵌入调查为输入焦点框保留横向空间', /\.plf-embedded-page \.plf-backdrop\s*\{[^}]*padding:\s*0 3px;/s.test(CSS));
+    ok('建议输入框使用边框盒宽度', /\.plf-suggestion-input\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s.test(CSS));
+    ok('嵌入页按调查内容而非 iframe 视口测量高度',
+        EMBED_SOURCE.includes("document.querySelector('.plf-backdrop') || statusElement")
+        && !EMBED_SOURCE.includes('document.body.getBoundingClientRect().height'));
+    ok('嵌入页不重复回报相同高度', EMBED_SOURCE.includes('height === lastReportedHeight'));
     ok('模块使用 aria-modal', SOURCE.indexOf("'aria-modal'") >= 0);
     ok('模块使用 aria-labelledby', SOURCE.indexOf("'aria-labelledby'") >= 0);
     ok('模块使用 aria-describedby', SOURCE.indexOf("'aria-describedby'") >= 0);
@@ -2215,7 +2307,7 @@ function testCrossTabSubmittedClosesOtherTab() {
     });
 }
 
-function testCrossTabNeverAndSnoozeClosesOtherTab() {
+function testCrossTabNeverAndSnoozeKeepOpenForm() {
     return Promise.resolve().then(() => {
         const h2 = initHarness({batchLayout: 'landscape'});
         return h2.api.open().then(() => waitForFlush()).then(() => {
@@ -2224,7 +2316,8 @@ function testCrossTabNeverAndSnoozeClosesOtherTab() {
             h2.dispatchStorage(STATE_KEY, never);
             return waitForFlush();
         }).then(() => {
-            eq('never 关闭另一标签页', h2.document.querySelectorAll('.plf-backdrop').length, 0);
+            eq('never 不关闭已打开表单', h2.document.querySelectorAll('.plf-backdrop').length, 1);
+            eq('never 不显示已处理提示', h2.toastCalls.length, 0);
         });
     }).then(() => {
         const h3 = initHarness({batchLayout: 'landscape'});
@@ -2234,7 +2327,8 @@ function testCrossTabNeverAndSnoozeClosesOtherTab() {
             h3.dispatchStorage(STATE_KEY, snoozed);
             return waitForFlush();
         }).then(() => {
-            eq('有效 snooze 关闭另一标签页', h3.document.querySelectorAll('.plf-backdrop').length, 0);
+            eq('有效 snooze 不关闭已打开表单', h3.document.querySelectorAll('.plf-backdrop').length, 1);
+            eq('有效 snooze 不显示已处理提示', h3.toastCalls.length, 0);
         });
     });
 }
@@ -3049,7 +3143,7 @@ function testServerModeSubmitPreflightBlocksOnFreshServerState() {
     });
 }
 
-function testServerModeSubmitPreflightNeverAndSnooze() {
+function testServerModeSubmitPreflightAllowsNeverAndSnooze() {
     return Promise.resolve().then(() => {
         const h = initHarness({
             page: 'alt',
@@ -3070,8 +3164,9 @@ function testServerModeSubmitPreflightNeverAndSnooze() {
             h.submitButton().click();
             return waitForFlush();
         }).then(() => {
-            eq('preflight 发现 never：不发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 0);
-            eq('preflight never 拦截后关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+            eq('preflight 发现 never：仍发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 1);
+            eq('never 后提交升级为 submitted', JSON.parse(h.storage.getItem(STATE_KEY)).status, 'submitted');
+            eq('never 后发送 submitted 命令', h.serverPosts.filter(p => p.body.command === 'submitted').length, 1);
         });
     }).then(() => {
         const h = initHarness({
@@ -3093,8 +3188,9 @@ function testServerModeSubmitPreflightNeverAndSnooze() {
             h.submitButton().click();
             return waitForFlush();
         }).then(() => {
-            eq('preflight 发现有效 snooze：不发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 0);
-            eq('preflight snooze 拦截后关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+            eq('preflight 发现有效 snooze：仍发送 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 1);
+            eq('snooze 后提交升级为 submitted', JSON.parse(h.storage.getItem(STATE_KEY)).status, 'submitted');
+            eq('snooze 后发送 submitted 命令', h.serverPosts.filter(p => p.body.command === 'submitted').length, 1);
         });
     });
 }
@@ -4213,16 +4309,19 @@ function crossTabFallbackMatrix(stateStatus, snoozedUntil, label) {
         h.dispatchStorage(STATE_KEY, incoming);
         return waitForFlush();
     }).then(() => {
-        eq(label + '：弹窗关闭', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        const submitted = stateStatus === 'submitted';
+        eq(label + '：仅 submitted 关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length,
+            submitted ? 0 : 1);
         eq(label + '：不发送 dismissed', captureEvents(h).indexOf('survey dismissed'), -1);
         eq(label + '：localStorage 保留 fallback', JSON.parse(h.storage.getItem(STATE_KEY)).status, stateStatus);
         eq(label + '：pendingLocalState 已合并', h.api._internals.effectiveState().status, stateStatus);
-        eq(label + '：显示已在其他标签页处理', h.toastCalls.length, 1);
+        eq(label + '：仅 submitted 显示已处理提示', h.toastCalls.length, submitted ? 1 : 0);
         // 服务器 refresh 返回旧空状态（SAME / 无变化）：fallback 保留，调查不重新展示。
         h.dispatchFirstDownload();
         return waitForFlush();
     }).then(() => {
-        eq(label + '：触发不重新展示', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq(label + '：触发不重复展示', h.document.querySelectorAll('.plf-backdrop').length,
+            stateStatus === 'submitted' ? 0 : 1);
         eq(label + '：触发不补发 shown', captureEvents(h).filter(e => e === 'survey shown').length, shownBefore);
     });
 }
@@ -6548,6 +6647,7 @@ async function run() {
         process.stderr.write('STEP-DONE: ' + name + '\n');
     };
     await step('testLayoutMapping', testLayoutMapping);
+    await step('testEmbeddedSurveyPublicationStates', testEmbeddedSurveyPublicationStates);
     await step('testInitDestroy', testInitDestroy);
     await step('testSingleDialogAtMostOne', testSingleDialogAtMostOne);
     await step('testChoiceSchemaVariants', testChoiceSchemaVariants);
@@ -6603,7 +6703,7 @@ async function run() {
     await step('testSyncFlagsCallbackWithStalledSurveys', testSyncFlagsCallbackWithStalledSurveys);
     await step('testDestroyCancelsSurveyFetch', testDestroyCancelsSurveyFetch);
     await step('testCrossTabSubmittedClosesOtherTab', testCrossTabSubmittedClosesOtherTab);
-    await step('testCrossTabNeverAndSnoozeClosesOtherTab', testCrossTabNeverAndSnoozeClosesOtherTab);
+    await step('testCrossTabNeverAndSnoozeKeepOpenForm', testCrossTabNeverAndSnoozeKeepOpenForm);
     await step('testFreshCheckPreventsDuplicateSubmit', testFreshCheckPreventsDuplicateSubmit);
     await step('testUnicodeLengthMatrix', testUnicodeLengthMatrix);
     await step('testDestroyDuringSdkLoad', testDestroyDuringSdkLoad);
@@ -6637,7 +6737,7 @@ async function run() {
     await step('testServerGetUrlCarriesEncodedSurveyId', testServerGetUrlCarriesEncodedSurveyId);
     await step('testServerBackedStateAndSeenFromAuthoritativeSnapshot', testServerBackedStateAndSeenFromAuthoritativeSnapshot);
     await step('testServerModeSubmitPreflightBlocksOnFreshServerState', testServerModeSubmitPreflightBlocksOnFreshServerState);
-    await step('testServerModeSubmitPreflightNeverAndSnooze', testServerModeSubmitPreflightNeverAndSnooze);
+    await step('testServerModeSubmitPreflightAllowsNeverAndSnooze', testServerModeSubmitPreflightAllowsNeverAndSnooze);
     await step('testServerModePreflightAllowsCaptureThenSendsSubmitted', testServerModePreflightAllowsCaptureThenSendsSubmitted);
     await step('testServerCommandNetworkFailureSafeDegrade', testServerCommandNetworkFailureSafeDegrade);
     await step('testServerModeCrossTabCoordination', testServerModeCrossTabCoordination);

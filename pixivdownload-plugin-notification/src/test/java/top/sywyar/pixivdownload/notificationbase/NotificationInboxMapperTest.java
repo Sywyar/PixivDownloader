@@ -13,6 +13,7 @@ import org.sqlite.SQLiteDataSource;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -116,6 +117,16 @@ class NotificationInboxMapperTest {
             assertThat(mapper.insert(message("announcement", "announcement", 120))).isZero();
             assertThat(mapper.deleteNonAnnouncement("survey")).isEqualTo(1);
             assertThat(mapper.findById("survey")).isNull();
+
+            NotificationMessage persistent = new NotificationMessage(
+                    "persistent-survey:layout", "survey", "INFO", "layout",
+                    "title.key", "body.key", null, null, "/survey/embed.html", 130, null);
+            assertThat(mapper.insert(persistent)).isEqualTo(1);
+            assertThat(mapper.deleteStalePersistentSurveys(List.of(persistent.id()))).isZero();
+            assertThat(mapper.dismissPersistentSurvey(persistent.id(), 140)).isEqualTo(1);
+            assertThat(mapper.insert(persistent)).isZero();
+            assertThat(mapper.deleteStalePersistentSurveys(List.of())).isEqualTo(1);
+            assertThat(mapper.insert(persistent)).isEqualTo(1);
         }
     }
 

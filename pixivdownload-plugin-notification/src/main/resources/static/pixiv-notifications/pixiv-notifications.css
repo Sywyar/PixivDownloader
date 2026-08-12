@@ -273,6 +273,7 @@ html[data-theme="dark"] .notification-page { color-scheme: dark; }
     background: transparent;
     overflow: hidden;
 }
+.notification-detail-content-frame[hidden] { display: none; }
 .notification-detail-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .notification-detail-action-status { color: var(--notification-danger); font-size: 12px; }
 .notification-detail-panel.severity-warning h2 { color: var(--notification-warning); }

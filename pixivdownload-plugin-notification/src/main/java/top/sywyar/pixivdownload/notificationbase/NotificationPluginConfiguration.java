@@ -11,6 +11,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
@@ -20,6 +21,7 @@ import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRedirectPolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotCatalog;
 
 import java.time.Duration;
 import java.util.Locale;
@@ -45,7 +47,10 @@ public class NotificationPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled(NotificationPlugin.ID)
     public NotificationInboxService notificationInboxService(NotificationInboxMapper mapper,
-                                                              Environment environment) {
+                                                              Environment environment,
+                                                              WebUiSlotCatalog uiSlots,
+                                                              NamespaceMessageResolver messages,
+                                                              LocaleBundlePolicy localePolicy) {
         return new NotificationInboxService(
                 mapper,
                 () -> environment.getProperty(
@@ -55,7 +60,10 @@ public class NotificationPluginConfiguration {
                 () -> environment.getProperty(
                         NotificationPlugin.INBOX_RETENTION_DAYS_KEY,
                         Integer.class,
-                        NotificationPlugin.DEFAULT_INBOX_RETENTION_DAYS));
+                        NotificationPlugin.DEFAULT_INBOX_RETENTION_DAYS),
+                uiSlots,
+                messages,
+                localePolicy::normalize);
     }
 
     @Bean

@@ -70,7 +70,7 @@ assert.ok(PAGE_HTML.includes("frame-src 'self'; child-src 'self'")
     && PAGE_HTML.includes("connect-src 'self'")
     && PAGE_HTML.includes("object-src 'none'; base-uri 'none'; form-action 'none'"),
     '详细页 CSP 必须限制自身资源、网络连接和 iframe，并禁止对象、表单与 base 改写');
-assert.ok(PAGE_SOURCE.includes('if (!message || !message.id || !message.hasHtmlContent) return null;')
+assert.ok(PAGE_SOURCE.includes('(!message.hasHtmlContent && !message.embeddedContentUrl)')
     && PAGE_SOURCE.includes("'/api/notifications/' + encodeURIComponent(message.id) + '/content'")
     && !PAGE_SOURCE.includes('sywyar.github.io')
     && !PAGE_SOURCE.includes('PixivDownloader-Remote-Content'),
@@ -88,11 +88,29 @@ assert.ok(PAGE_SOURCE.includes("data.type !== 'pixiv-external-link'")
     'HTML 正文链接只能由当前 iframe 消息桥接到全站外链确认');
 assert.ok(PAGE_SOURCE.includes("data.type === 'pixiv-content-height'")
     && PAGE_SOURCE.includes("typeof data.height !== 'number' || !Number.isFinite(data.height) || data.height <= 0")
-    && PAGE_SOURCE.includes("frame.style.height = Math.ceil(data.height + 2) + 'px'")
+    && PAGE_SOURCE.includes("var frameHeight = Math.ceil(data.height + 2) + 'px'")
+    && PAGE_SOURCE.includes('if (frame.style.height !== frameHeight) frame.style.height = frameHeight;')
     && PAGE_SOURCE.includes("frame.setAttribute('scrolling', 'no')")
     && /\.notification-detail-content-frame\s*\{[^}]*width:\s*100%;[^}]*height:\s*1px;[^}]*border:\s*0;[^}]*overflow:\s*hidden;/s.test(CSS)
     && !/\.notification-detail-content-frame\s*\{[^}]*min-height:/s.test(CSS),
     'HTML 正文必须按可信消息自适应高度且不显示独立滚动框');
+assert.ok(PAGE_SOURCE.includes("frame.setAttribute('data-embedded-survey', 'true')")
+    && PAGE_SOURCE.includes("data.type === 'pixiv-survey-unavailable'")
+    && PAGE_SOURCE.includes("event.origin !== location.origin")
+    && PAGE_SOURCE.includes("'/survey-unavailable'")
+    && PAGE_SOURCE.includes('message.deletable !== false')
+    && PAGE_SOURCE.includes("query.set('lang', pageI18n.lang)")
+    && SOURCE.includes("query.set('lang', pageI18n.lang)"),
+    '插件调查应以内嵌同源页面展示、校验消息来源、隐藏删除入口并跟随当前语言');
+assert.ok(PAGE_HTML.includes('id="notificationContentFrames"')
+    && PAGE_SOURCE.includes('var contentFrames = new Map();')
+    && PAGE_SOURCE.includes("frame.setAttribute('loading', 'eager')")
+    && PAGE_SOURCE.includes('preloadEmbeddedFrames(state.messages);')
+    && PAGE_SOURCE.includes("frame.getAttribute('data-content-source') === source")
+    && /if \(state\.selectedMessage\) \{[\s\S]*?return;\s*\}\s*try \{/s.test(PAGE_SOURCE),
+    '调查 iframe 必须随列表预热并按消息与语言复用，重复选择不得重新请求详情或重建正文');
+assert.ok(/\.notification-detail-content-frame\[hidden\]\s*\{\s*display:\s*none;\s*\}/s.test(CSS),
+    '缓存多封 HTML 正文时必须显式隐藏非当前 iframe，避免正文拼接显示');
 assert.ok(/\.notification-page\s*\{[^}]*height:\s*100dvh;[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s.test(CSS)
     && /\.notification-page-grid\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;/s.test(CSS)
     && /\.notification-list\s*\{[^}]*flex:\s*1;[^}]*overflow-y:\s*auto;/s.test(CSS)
@@ -100,4 +118,4 @@ assert.ok(/\.notification-page\s*\{[^}]*height:\s*100dvh;[^}]*display:\s*flex;[^
     && /@media \(max-width:\s*760px\)[\s\S]*\.notification-page\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s.test(CSS),
     '桌面端消息列表与详情必须独立滚动，移动端恢复自然页面滚动');
 
-console.log('notification-inbox-slot.test.js: 23 assertions passed ✓');
+console.log('notification-inbox-slot.test.js: 25 assertions passed ✓');

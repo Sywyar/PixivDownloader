@@ -89,19 +89,23 @@ public class NotificationInboxController {
     @GetMapping
     public ResponseEntity<InboxSnapshot> latest(@RequestParam(required = false) String category,
                                                 @RequestParam(defaultValue = "false") boolean unreadOnly,
-                                                @RequestParam(defaultValue = "20") int limit) {
+                                                @RequestParam(defaultValue = "20") int limit,
+                                                @RequestParam(required = false) String lang) {
+        inbox.synchronizePersistentSurveys();
         NotificationCategory selectedCategory = category(category);
         long globalUnreadCount = inbox.unreadCount();
         long categoryUnreadCount = selectedCategory == null
                 ? globalUnreadCount
                 : inbox.unreadCount(selectedCategory);
         return noStore(new InboxSnapshot(globalUnreadCount, categoryUnreadCount,
-                inbox.latest(selectedCategory, unreadOnly, limit)));
+                inbox.latest(selectedCategory, unreadOnly, limit, lang)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<NotificationMessage> detail(@PathVariable String id) {
-        return noStore(requireMessage(inbox.find(id)));
+    public ResponseEntity<NotificationMessage> detail(@PathVariable String id,
+                                                      @RequestParam(required = false) String lang) {
+        inbox.synchronizePersistentSurveys();
+        return noStore(requireMessage(inbox.find(id, lang)));
     }
 
     @GetMapping(value = "/{id}/content", produces = MediaType.TEXT_HTML_VALUE)
@@ -121,17 +125,32 @@ public class NotificationInboxController {
     }
 
     @PostMapping("/{id}/read")
-    public ResponseEntity<NotificationMessage> markRead(@PathVariable String id) {
-        return noStore(requireMessage(inbox.markRead(id)));
+    public ResponseEntity<NotificationMessage> markRead(@PathVariable String id,
+                                                        @RequestParam(required = false) String lang) {
+        inbox.synchronizePersistentSurveys();
+        return noStore(requireMessage(inbox.markRead(id, lang)));
     }
 
     @PostMapping("/read-all")
     public ResponseEntity<Integer> markAllRead(@RequestParam(required = false) String category) {
+        inbox.synchronizePersistentSurveys();
         return noStore(inbox.markAllRead(category(category)));
+    }
+
+    @PostMapping("/{id}/survey-unavailable")
+    public ResponseEntity<Void> surveyUnavailable(@PathVariable String id) {
+        inbox.synchronizePersistentSurveys();
+        if (!inbox.dismissUnavailableSurvey(id)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        return ResponseEntity.noContent()
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .build();
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
+        inbox.synchronizePersistentSurveys();
         if (!inbox.delete(id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }

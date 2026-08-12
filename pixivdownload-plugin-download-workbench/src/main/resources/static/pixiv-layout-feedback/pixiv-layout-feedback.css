@@ -68,6 +68,11 @@ html[data-theme="dark"] .plf-backdrop {
     outline: none;
 }
 
+.plf-dialog,
+.plf-dialog * {
+    box-sizing: border-box;
+}
+
 .plf-close {
     position: absolute;
     top: 10px;
@@ -170,6 +175,8 @@ html[data-theme="dark"] .plf-backdrop {
 }
 
 .plf-suggestion-input {
+    width: 100%;
+    min-width: 0;
     resize: vertical;
     min-height: 64px;
     padding: 8px 10px;
@@ -270,6 +277,76 @@ html[data-theme="dark"] .plf-backdrop {
 .plf-github:focus-visible {
     outline: 2px solid var(--brand, var(--plf-brand));
     outline-offset: 1px;
+}
+
+html.plf-embedded-page,
+body.plf-embedded-page {
+    margin: 0;
+    min-height: 0;
+    background: transparent;
+}
+
+html.plf-embedded-page {
+    --surface: #ffffff;
+    --text: #1a2331;
+    --heading: #1a2331;
+    --line: #e2e8f0;
+    --brand: #0096fa;
+    --brand-soft: #e3f2fe;
+    --on-brand: #ffffff;
+    --control-bg: #ffffff;
+    --control-muted-bg: #eef2f7;
+    --hover-bg: #eef3f9;
+    --muted: #67748c;
+    --danger-text: #d84a42;
+}
+
+html[data-theme="dark"].plf-embedded-page {
+    --surface: #151c26;
+    --text: #e3eaf3;
+    --heading: #e3eaf3;
+    --line: #26303f;
+    --brand: #3aa7ff;
+    --brand-soft: #12283c;
+    --on-brand: #ffffff;
+    --control-bg: #1c2534;
+    --control-muted-bg: #1c2534;
+    --hover-bg: #1e2938;
+    --muted: #8d99ad;
+    --danger-text: #e06a61;
+}
+
+.plf-embedded-page .plf-backdrop {
+    position: static;
+    inset: auto;
+    padding: 0 3px;
+    background: transparent;
+}
+
+.plf-embedded-page .plf-dialog {
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    padding: 4px 0;
+    box-shadow: none;
+}
+
+.plf-embedded-page .plf-close,
+.plf-embedded-page [data-plf-action="snooze"],
+.plf-embedded-page [data-plf-action="never"] {
+    display: none;
+}
+
+.plf-embed-status {
+    margin: 0;
+    padding: 12px 0;
+    color: var(--text, var(--plf-text));
+    font: 14px/1.6 system-ui, sans-serif;
+}
+
+html[data-theme="dark"] .plf-embed-status {
+    color: var(--text, var(--plf-text));
 }
 
 @media (max-width: 380px) {

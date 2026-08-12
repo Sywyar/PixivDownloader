@@ -27,7 +27,7 @@ class NotificationInboxControllerTest {
                 "Maintenance", "Tonight at 22:00", "/pixiv-batch.html");
         NotificationInboxController controller = new NotificationInboxController(service);
 
-        ResponseEntity<NotificationInboxController.InboxSnapshot> response = controller.latest(null, false, 20);
+        ResponseEntity<NotificationInboxController.InboxSnapshot> response = controller.latest(null, false, 20, null);
 
         assertThat(response.getHeaders().getCacheControl()).contains("no-store", "private");
         assertThat(response.getBody()).isNotNull();
@@ -45,7 +45,7 @@ class NotificationInboxControllerTest {
         NotificationInboxController controller = new NotificationInboxController(service);
 
         ResponseEntity<Integer> marked = controller.markAllRead("download");
-        NotificationInboxController.InboxSnapshot snapshot = controller.latest("download", true, 20).getBody();
+        NotificationInboxController.InboxSnapshot snapshot = controller.latest("download", true, 20, null).getBody();
 
         assertThat(marked.getBody()).isEqualTo(1);
         assertThat(snapshot).isNotNull();

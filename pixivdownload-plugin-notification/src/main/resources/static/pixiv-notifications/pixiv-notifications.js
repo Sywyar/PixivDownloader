@@ -3,6 +3,8 @@
 
     var pageI18n = null;
     var emptyDetail = null;
+    var contentFrameHost = null;
+    var contentFrames = new Map();
     var loadSequence = 0;
     var state = {
         category: '', unreadOnly: false, messages: [], unreadCount: 0,
@@ -58,16 +60,25 @@
         return severity === 'warning' || severity === 'error' ? ' severity-' + severity : '';
     }
 
+    function resetDetail() {
+        var detail = el('notificationDetail');
+        Array.prototype.slice.call(detail.children).forEach(function (child) {
+            if (child !== contentFrameHost) child.remove();
+        });
+        contentFrames.forEach(function (frame) { frame.hidden = true; });
+        contentFrameHost.hidden = true;
+        detail.classList.remove('severity-warning', 'severity-error');
+        return detail;
+    }
+
     function clearSelection(updateHistory) {
         state.selectedId = '';
         state.selectedMessage = null;
-        var detail = el('notificationDetail');
-        detail.classList.remove('severity-warning', 'severity-error');
+        var detail = resetDetail();
         if (emptyDetail) {
-            detail.replaceChildren(emptyDetail);
+            detail.insertBefore(emptyDetail, contentFrameHost);
             if (pageI18n) pageI18n.apply(detail);
         }
-        else detail.textContent = '';
         renderList();
         if (updateHistory) {
             var url = new URL(location.href);
@@ -130,21 +141,67 @@
         }
     }
 
+    function withLanguage(url) {
+        if (!pageI18n || !pageI18n.lang) return url;
+        var localized = new URL(url, location.origin);
+        localized.searchParams.set('lang', pageI18n.lang);
+        return localized.pathname + localized.search;
+    }
+
+    function contentFrameSource(message) {
+        if (message.embeddedContentUrl) {
+            var embeddedUrl = new URL(message.embeddedContentUrl, location.origin);
+            embeddedUrl.searchParams.set('notificationId', message.id);
+            if (pageI18n && pageI18n.lang) embeddedUrl.searchParams.set('lang', pageI18n.lang);
+            return embeddedUrl.pathname + embeddedUrl.search;
+        }
+        return '/api/notifications/' + encodeURIComponent(message.id) + '/content';
+    }
+
+    function discardContentFrame(id) {
+        var frame = contentFrames.get(id);
+        if (frame) frame.remove();
+        contentFrames.delete(id);
+    }
+
     function contentFrame(message) {
-        if (!message || !message.id || !message.hasHtmlContent) return null;
-        var frame = document.createElement('iframe');
+        if (!message || !message.id || (!message.hasHtmlContent && !message.embeddedContentUrl)) return null;
+        var source = contentFrameSource(message);
+        var frame = contentFrames.get(message.id);
+        if (frame && frame.getAttribute('data-content-source') === source) {
+            frame.title = t('inbox.html-content', '消息 HTML 正文') + '：' + message.title;
+            return frame;
+        }
+        discardContentFrame(message.id);
+        frame = document.createElement('iframe');
         frame.className = 'notification-detail-content-frame';
-        frame.src = '/api/notifications/' + encodeURIComponent(message.id) + '/content';
+        frame.hidden = true;
+        frame.src = source;
+        frame.setAttribute('data-content-source', source);
+        frame.setAttribute('data-notification-id', message.id);
+        if (message.embeddedContentUrl) {
+            frame.setAttribute('data-embedded-survey', 'true');
+            frame.setAttribute('loading', 'eager');
+        } else {
+            frame.setAttribute('sandbox', 'allow-scripts');
+            frame.setAttribute('loading', 'lazy');
+        }
         frame.title = t('inbox.html-content', '消息 HTML 正文') + '：' + message.title;
-        frame.setAttribute('sandbox', 'allow-scripts');
         frame.setAttribute('referrerpolicy', 'no-referrer');
-        frame.setAttribute('loading', 'lazy');
         frame.setAttribute('scrolling', 'no');
         frame.setAttribute('allow', "camera 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'");
+        contentFrames.set(message.id, frame);
+        contentFrameHost.appendChild(frame);
         return frame;
     }
 
-    function handleContentMessage(event) {
+    function preloadEmbeddedFrames(messages) {
+        messages.forEach(function (message) {
+            if (message.embeddedContentUrl) contentFrame(message);
+        });
+    }
+
+    async function handleContentMessage(event) {
         var data = event.data;
         if (!data) return;
         var frames = document.querySelectorAll('.notification-detail-content-frame');
@@ -154,7 +211,25 @@
         if (!frame) return;
         if (data.type === 'pixiv-content-height') {
             if (typeof data.height !== 'number' || !Number.isFinite(data.height) || data.height <= 0) return;
-            frame.style.height = Math.ceil(data.height + 2) + 'px';
+            var frameHeight = Math.ceil(data.height + 2) + 'px';
+            if (frame.style.height !== frameHeight) frame.style.height = frameHeight;
+            return;
+        }
+        if (data.type === 'pixiv-survey-unavailable') {
+            var notificationId = frame.getAttribute('data-notification-id');
+            if (event.origin !== location.origin
+                    || frame.getAttribute('data-embedded-survey') !== 'true'
+                    || typeof data.notificationId !== 'string'
+                    || data.notificationId !== notificationId) return;
+            try {
+                await api('/api/notifications/' + encodeURIComponent(notificationId)
+                    + '/survey-unavailable', {method: 'POST'});
+                discardContentFrame(notificationId);
+                if (state.selectedId === notificationId) clearSelection(true);
+                await loadMessages(true);
+            } catch (error) {
+                // 临时错误保留站内信，稍后重新验证调查发布状态。
+            }
             return;
         }
         if (data.type !== 'pixiv-external-link' || typeof data.href !== 'string'
@@ -164,9 +239,7 @@
     }
 
     function renderDetail(message) {
-        var detail = el('notificationDetail');
-        detail.textContent = '';
-        detail.classList.remove('severity-warning', 'severity-error');
+        var detail = resetDetail();
         var severity = severityClass(message).trim();
         if (severity) detail.classList.add(severity);
 
@@ -186,10 +259,15 @@
         var body = document.createElement('div');
         body.className = 'notification-detail-body';
         body.textContent = message.body;
-        detail.append(meta, title, body);
+        detail.insertBefore(meta, contentFrameHost);
+        detail.insertBefore(title, contentFrameHost);
+        detail.insertBefore(body, contentFrameHost);
 
         var frame = contentFrame(message);
-        if (frame) detail.appendChild(frame);
+        if (frame) {
+            frame.hidden = false;
+            contentFrameHost.hidden = false;
+        }
 
         var toolbar = document.createElement('div');
         toolbar.className = 'notification-detail-actions';
@@ -211,11 +289,13 @@
         actionStatus.className = 'notification-detail-action-status';
         actionStatus.setAttribute('role', 'status');
         actionStatus.setAttribute('aria-live', 'polite');
-        toolbar.append(markRead, remove, actionStatus);
+        toolbar.appendChild(markRead);
+        if (message.deletable !== false) toolbar.appendChild(remove);
+        toolbar.appendChild(actionStatus);
         detail.appendChild(toolbar);
 
         var actionUrl = safeActionHref(message.actionUrl);
-        if (actionUrl) {
+        if (actionUrl && !message.embeddedContentUrl) {
             var action = document.createElement('a');
             action.className = 'notification-action-link';
             action.href = actionUrl.href;
@@ -234,7 +314,8 @@
         var button = event && event.currentTarget;
         if (button) button.disabled = true;
         try {
-            var updated = await api('/api/notifications/' + encodeURIComponent(id) + '/read', { method: 'POST' });
+            var updated = await api(withLanguage('/api/notifications/' + encodeURIComponent(id) + '/read'),
+                { method: 'POST' });
             if (state.selectedId !== id) return;
             state.unreadCount = Math.max(0, state.unreadCount - 1);
             if (state.unreadOnly) {
@@ -272,6 +353,7 @@
         try {
             await api('/api/notifications/' + encodeURIComponent(id), { method: 'DELETE' });
             if (state.selectedId !== id) return;
+            discardContentFrame(id);
             if (!message.readTime) state.unreadCount = Math.max(0, state.unreadCount - 1);
             state.messages = state.messages.filter(function (item) { return item.id !== id; });
             clearSelection(true);
@@ -292,8 +374,14 @@
             url.searchParams.set('id', id);
             history.pushState({ id: id }, '', url.pathname + url.search + url.hash);
         }
+        if (state.selectedMessage) {
+            if (updateHistory && window.matchMedia('(max-width: 760px)').matches) {
+                el('notificationDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            return;
+        }
         try {
-            var message = await api('/api/notifications/' + encodeURIComponent(id));
+            var message = await api(withLanguage('/api/notifications/' + encodeURIComponent(id)));
             if (state.selectedId !== id) return;
             if (!matchesCategory(message)) {
                 clearSelection(true);
@@ -306,7 +394,10 @@
             }
         } catch (error) {
             if (state.selectedId === id) {
-                el('notificationDetail').textContent = t('inbox.load-failed', '消息加载失败');
+                var detail = resetDetail();
+                var failure = document.createElement('p');
+                failure.textContent = t('inbox.load-failed', '消息加载失败');
+                detail.insertBefore(failure, contentFrameHost);
             }
         }
     }
@@ -319,6 +410,7 @@
             status.textContent = t('inbox.loading', '正在加载消息…');
         }
         var query = new URLSearchParams({ limit: '100' });
+        if (pageI18n && pageI18n.lang) query.set('lang', pageI18n.lang);
         if (state.category) query.set('category', state.category);
         if (state.unreadOnly) query.set('unreadOnly', 'true');
         try {
@@ -326,6 +418,7 @@
             if (requestSequence !== loadSequence) return false;
             state.messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
             state.unreadCount = Math.max(0, Number(snapshot.categoryUnreadCount) || 0);
+            preloadEmbeddedFrames(state.messages);
             renderList();
             return true;
         } catch (error) {
@@ -388,6 +481,9 @@
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 applyTranslations();
+                loadMessages().then(function (loaded) {
+                    if (loaded && state.selectedId) selectMessage(state.selectedId, false);
+                });
             }
         });
         PixivTheme.mount({ mountPoint: el('langSwitcherAnchor') });
@@ -396,6 +492,7 @@
 
     document.addEventListener('DOMContentLoaded', async function () {
         emptyDetail = el('notificationDetail').firstElementChild;
+        contentFrameHost = el('notificationContentFrames');
         window.addEventListener('message', handleContentMessage);
         bindFilters();
         bindListTools();

@@ -609,6 +609,16 @@ class RemoteAnnouncementImporterTest {
         }
 
         @Override
+        public int dismissPersistentSurvey(String id, long deletedTime) {
+            return 0;
+        }
+
+        @Override
+        public int deleteStalePersistentSurveys(List<String> activeIds) {
+            return 0;
+        }
+
+        @Override
         public int deleteNonAnnouncement(String id) {
             NotificationMessage message = findById(id);
             if (message == null || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())) {

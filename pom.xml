@@ -78,7 +78,7 @@
         <java.version>17</java.version>
         <app.release.version>${project.version}</app.release.version>
         <!-- 源码与 fork 构建默认不启用官方布局调查；官方发布 profile 只翻转这个激活位。 -->
-        <layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>
+        <layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>
         <powershell.executable>pwsh</powershell.executable>
         <jacoco.version>0.8.12</jacoco.version>
         <jna.version>5.17.0</jna.version>

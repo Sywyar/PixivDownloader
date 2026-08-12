@@ -31,7 +31,7 @@ public class WebUiSlotController {
                 .sorted(Comparator.comparingInt(WebUiSlotContribution::order)
                         .thenComparing(WebUiSlotContribution::slotId))
                 .map(slot -> new UiSlotView(
-                        slot.slotId(), slot.target(), slot.moduleUrl(), slot.order(), Map.of()))
+                        slot.slotId(), slot.target(), slot.moduleUrl(), slot.order(), slot.metadata()))
                 .toList();
     }
 

@@ -87,6 +87,24 @@ public interface NotificationInboxMapper {
             + " WHERE id = #{id} AND category = 'announcement' AND deleted_time IS NULL")
     int dismissAnnouncement(@Param("id") String id, @Param("deletedTime") long deletedTime);
 
+    @Update("UPDATE notification_messages"
+            + " SET deleted_time = MAX(created_time, #{deletedTime}),"
+            + " content_url = NULL, content_html = NULL, action_url = NULL"
+            + " WHERE id = #{id} AND category = 'survey'"
+            + " AND id LIKE 'persistent-survey:%' AND deleted_time IS NULL")
+    int dismissPersistentSurvey(@Param("id") String id, @Param("deletedTime") long deletedTime);
+
+    @Delete({
+            "<script>",
+            "DELETE FROM notification_messages WHERE id LIKE 'persistent-survey:%'",
+            "<if test='activeIds != null and !activeIds.isEmpty()'>",
+            "AND id NOT IN",
+            "<foreach collection='activeIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</if>",
+            "</script>"
+    })
+    int deleteStalePersistentSurveys(@Param("activeIds") List<String> activeIds);
+
     @Delete("DELETE FROM notification_messages"
             + " WHERE id = #{id} AND category <> 'announcement' AND deleted_time IS NULL")
     int deleteNonAnnouncement(@Param("id") String id);

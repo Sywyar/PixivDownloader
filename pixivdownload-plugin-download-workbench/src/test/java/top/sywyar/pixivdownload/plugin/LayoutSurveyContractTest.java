@@ -36,6 +36,10 @@ class LayoutSurveyContractTest {
     private static final String SURVEY_JS = STATIC_ROOT + "pixiv-layout-feedback/pixiv-layout-feedback.js";
     private static final String RELEASE_ACTIVATION = STATIC_ROOT
             + "pixiv-layout-feedback/release-activation.js";
+    private static final String RELEASE_PUBLICATION = STATIC_ROOT
+            + "pixiv-layout-feedback/release-publication.properties";
+    private static final String EMBED_HTML = STATIC_ROOT + "pixiv-layout-feedback/embed.html";
+    private static final String EMBED_JS = STATIC_ROOT + "pixiv-layout-feedback/embed.js";
     private static final String I18N_ZH = "i18n/web/layout-feedback.properties";
     private static final String I18N_EN = "i18n/web/layout-feedback_en.properties";
     private static final Pattern SCRIPT_SRC = Pattern.compile(
@@ -218,11 +222,17 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("普通源码构建默认关闭调查，发布者自持四个 PostHog 参数")
+    @DisplayName("源码默认关闭调查，生成激活位与发布槽位一致，发布者自持四个 PostHog 参数")
     void sourceBuildIsDisabledAndPublisherOwnsPostHogParameters() throws IOException {
         String js = read(SURVEY_JS);
-        assertThat(read(RELEASE_ACTIVATION))
-                .contains("global.PixivLayoutFeedbackOfficialRelease = false;");
+        String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
+        assertThat(rootPom)
+                .contains("<layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>")
+                .contains("<id>official-surveys</id>")
+                .contains("<layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>");
+        boolean officialRelease = read(RELEASE_PUBLICATION).contains("officialReleaseEnabled=true");
+        assertThat(read(RELEASE_ACTIVATION)).contains(
+                "global.PixivLayoutFeedbackOfficialRelease = " + officialRelease + ";");
         assertThat(js)
                 .contains("var POSTHOG = Object.freeze({")
                 .contains("projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'")
@@ -232,6 +242,41 @@ class LayoutSurveyContractTest {
                 .contains("ownerKey: POSTHOG_OWNER_KEY")
                 .contains("posthog: POSTHOG")
                 .contains("global.PixivLayoutFeedbackOfficialRelease !== true");
+        assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().uiSlots())
+                .hasSize(officialRelease ? 1 : 0);
+    }
+
+    @Test
+    @DisplayName("站内信嵌入页受管理员路由保护并复用发布者自有调查资源")
+    void inboxEmbedUsesPublisherOwnedSurveyResources() throws IOException {
+        String html = read(EMBED_HTML);
+        String embedJs = read(EMBED_JS);
+        String pluginSource = Files.readString(pluginModuleRoot().resolve(
+                "src/main/java/top/sywyar/pixivdownload/download/DownloadWorkbenchPlugin.java"),
+                StandardCharsets.UTF_8);
+
+        assertThat(html)
+                .contains("frame-ancestors 'self'")
+                .contains("connect-src 'self' https://layout-survey.sywyar.top")
+                .contains("/pixiv-layout-feedback/release-activation.js")
+                .contains("/pixiv-posthog/pixiv-posthog.js")
+                .contains("/pixiv-layout-feedback/pixiv-layout-feedback.js")
+                .contains("/pixiv-layout-feedback/embed.js");
+        assertThat(embedJs)
+                .contains("openEmbedded()")
+                .contains("type: 'pixiv-survey-unavailable'")
+                .contains("notificationId: notificationId")
+                .contains("pixiv:batch-layout:v1");
+        assertThat(pluginSource)
+                .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
+                .contains("\"notification.inbox\"")
+                .contains("\"notification.embed-url\", \"/pixiv-layout-feedback/embed.html\"")
+                .contains("\"notification.i18n-namespace\", \"layout-feedback\"");
+        assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
+                .filteredOn(route -> "/pixiv-layout-feedback/embed.html".equals(route.pathPattern()))
+                .singleElement()
+                .extracting(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution::accessPolicy)
+                .isEqualTo(top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.ADMIN);
     }
 
     @Test
@@ -282,7 +327,13 @@ class LayoutSurveyContractTest {
                 .contains("layout-feedback.submit-failed")
                 .contains("layout-feedback.error-required")
                 .contains("layout-feedback.survey-unavailable")
-                .contains("layout-feedback.close");
+                .contains("layout-feedback.close")
+                .contains("layout-feedback.inbox-title")
+                .contains("layout-feedback.inbox-body")
+                .contains("layout-feedback.embed-loading")
+                .contains("layout-feedback.embed-completed")
+                .contains("layout-feedback.embed-unavailable")
+                .contains("layout-feedback.embed-temporarily-unavailable");
     }
 
     @Test
@@ -388,6 +439,7 @@ class LayoutSurveyContractTest {
                 .contains("global.PixivLayoutFeedback = Object.freeze({")
                 .contains("init: init")
                 .contains("open: open")
+                .contains("openEmbedded: openEmbedded")
                 .contains("destroy: destroy")
                 .contains("currentLayoutId: currentLayoutId")
                 .doesNotContain("innerHTML")

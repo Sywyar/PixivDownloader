@@ -273,6 +273,7 @@
 
     var initialized = false;
     var pageType = 'batch';
+    var configuredLayoutId = null;
     var config = null;
     var storage = null;
     var timers = null;
@@ -1344,8 +1345,7 @@
     }
 
     /**
-     * 状态是否为阻断调查展示 / 提交的决策（客户端时钟域）：submitted / never /
-     * 未到期的 snoozed。
+     * 状态是否阻断调查主动展示（客户端时钟域）：submitted / never / 未到期的 snoozed。
      */
     function isBlockingDecision(state, now) {
         if (!state) return false;
@@ -1354,17 +1354,25 @@
     }
 
     /**
-     * 提交前（refresh 不可用时）重新读取本地阻断状态：effectiveState（serverBacked 为
+     * 已显示的表单只用 submitted 去重；never / snoozed 是提醒决策，不能覆盖用户随后
+     * 主动填写并提交的反馈。
+     */
+    function isSubmittedDecision(state) {
+        return !!state && state.status === 'submitted';
+    }
+
+    /**
+     * 提交前（refresh 不可用时）重新读取本地 submitted：effectiveState（serverBacked 为
      * 服务端权威视图 + 未确认 pending）与 localStorage STATE_KEY 协调缓存（另一标签页刚写入
      * 但 storage 事件尚未送达时同样必须阻止提交）。
      */
-    function hasBlockingLocalDecision(now) {
+    function hasSubmittedLocalDecision() {
         var state = readStateFresh();
-        if (state && state.surveyId === dialogSurveyId && isBlockingDecision(state, now)) {
+        if (state && state.surveyId === dialogSurveyId && isSubmittedDecision(state)) {
             return true;
         }
         var raw = readLocalStateRaw();
-        if (raw && raw.surveyId === dialogSurveyId && isBlockingDecision(raw, now)) {
+        if (raw && raw.surveyId === dialogSurveyId && isSubmittedDecision(raw)) {
             return true;
         }
         return false;
@@ -1968,6 +1976,7 @@
     }
 
     function currentLayoutId() {
+        if (configuredLayoutId) return configuredLayoutId;
         if (pageType === 'alt') return 'pixiv-batch-alt';
         var token = null;
         if (global.PixivBatch && global.PixivBatch.layout
@@ -2720,13 +2729,13 @@
         setSubmittingState(true);
         hideError();
 
-        // 发送前执行一次不走缓存的持久化状态读取：另一标签页可能已提交 /
-        // 永久关闭 / 进入有效 snooze，此时取消本次提交并关闭弹窗，不发送
+        // 发送前执行一次不走缓存的持久化状态读取：另一标签页可能已经提交，
+        // 此时取消本次提交并关闭弹窗，不发送
         // 第二条 survey sent（弱去重，无法消除完全同时点击的竞态；
-        // 过期判断全部在客户端时钟域，服务端视图已转换为本地截止时间）。
+        // never / snoozed 只控制主动展示，不覆盖当前表单里的主动提交）。
         var freshState = readStateFresh();
         if (freshState && freshState.surveyId === dialogSurveyId
-                && isBlockingDecision(freshState, timers.now())) {
+                && isSubmittedDecision(freshState)) {
             submitting = false;
             closeDialog(true);
             showHandledElsewhereNote();
@@ -2770,11 +2779,11 @@
 
         // serverBacked：提交前强制 GET 最新服务端状态（跨设备 preflight）。
         // refresh 结果按明确契约分类：
-        // - FRESH：重新读取当前 effective state；已 submitted / never / 未到期 snoozed
-        //   → 取消本次 capture、关闭弹窗、显示「已在其他页面处理」、不发送 dismissed；
+        // - FRESH：重新读取当前 effective state；已 submitted → 取消本次 capture、关闭
+        //   弹窗、显示「已在其他页面处理」、不发送 dismissed；never / snoozed 仍允许提交；
         // - UNAVAILABLE：按明确产品策略 fail-open（网络暂时不可用时允许提交），但
-        //   capture 前重新读取一次本地 effective / localStorage 状态，本地已出现
-        //   阻断状态时仍然阻止；记录不含 token / Survey ID / 身份 / 用户输入的
+        //   capture 前重新读取一次本地 effective / localStorage 状态，本地已 submitted
+        //   时仍然阻止；记录不含 token / Survey ID / 身份 / 用户输入的
         //   安全 warning；不向用户显示网络错误；
         // - INVALID：协议 / 身份 / 快照一致性异常，fail-closed——不发送 survey sent /
         //   dismissed、不关闭弹窗、保留布局选择 / 建议 / 字数 / 焦点、恢复控件、
@@ -2807,11 +2816,10 @@
                 showError('error-state-verification');
                 return;
             }
-            var now = timers.now();
             if (result.status === REFRESH_UNAVAILABLE) {
                 // 暂时不可用：按明确产品策略 fail-open，但提交前重新读取一次本地
-                // effective / localStorage 状态；本地已出现阻断状态时仍然阻止。
-                if (hasBlockingLocalDecision(now)) {
+                // effective / localStorage 状态；本地已 submitted 时仍然阻止。
+                if (hasSubmittedLocalDecision()) {
                     submitting = false;
                     closeDialog(true);
                     showHandledElsewhereNote();
@@ -2820,11 +2828,10 @@
                 warn('layout survey: preflight state refresh unavailable; proceeding with local decision only');
                 return sendCapture();
             }
-            // REFRESH_FRESH：以当前 effective state 判断（STALE 同样基于当前更高
-            // revision 的权威状态，不会因迟到低 revision 响应放宽或收紧门禁；
-            // 过期判断全部在客户端时钟域）。
+            // REFRESH_FRESH：只以当前 effective submitted 去重（STALE 同样基于当前
+            // 更高 revision 的权威状态，不会因迟到低 revision 响应放宽或收紧门禁）。
             var state = readState();
-            if (state && isBlockingDecision(state, now)) {
+            if (isSubmittedDecision(state)) {
                 submitting = false;
                 closeDialog(true);
                 showHandledElsewhereNote();
@@ -2876,6 +2883,51 @@
             found = survey;
         });
         return found;
+    }
+
+    function findSurveyById(surveys) {
+        if (!Array.isArray(surveys)) return null;
+        return surveys.find(function (survey) {
+            return survey && typeof survey === 'object' && survey.id === config.surveyId;
+        }) || null;
+    }
+
+    function fetchPublishedSurvey(sdk, generation) {
+        return new Promise(function (resolve) {
+            var settled = false;
+            var timer = setTimeoutSafe(function () { finish('unavailable'); }, SURVEY_TOTAL_TIMEOUT_MS);
+            function finish(status, survey) {
+                if (settled) return;
+                settled = true;
+                clearTimerSafe(timer);
+                if (pendingSurveyCancel === cancel) pendingSurveyCancel = null;
+                resolve({status: status, survey: survey || null});
+            }
+            function cancel() {
+                finish('cancelled');
+            }
+            pendingSurveyCancel = cancel;
+            if (!isRuntimeGenerationActive(generation) || typeof sdk.getSurveys !== 'function') {
+                finish('unavailable');
+                return;
+            }
+            try {
+                sdk.getSurveys(function (surveys, context) {
+                    if (!isRuntimeGenerationActive(generation)) {
+                        finish('cancelled');
+                        return;
+                    }
+                    if (context && context.isLoaded === false) {
+                        finish('unavailable');
+                        return;
+                    }
+                    var survey = findSurveyById(surveys);
+                    finish(survey && survey.start_date && !survey.end_date ? 'available' : 'removed', survey);
+                }, true);
+            } catch (_) {
+                finish('unavailable');
+            }
+        });
     }
 
     function fetchMatchingSurvey(sdk, generation) {
@@ -2941,7 +2993,7 @@
      * 调查展示流程。必须先等待服务端身份上下文（loadServerContext）确定，再加载 /
      * 初始化 SDK：不允许先用浏览器 ID init、稍后再收到安装 scoped ID。
      * - 身份确定后重新检查 generation / 状态门禁（自动流程；手动 open 经
-     *   skipStateGate 保留调试绕过语义）/ DNT / config；
+     *   skipStateGate 保留调试绕过语义；嵌入入口只阻断 submitted）/ DNT / config；
      * - solo scoped 身份存在时验证 get_distinct_id() 一致，不一致 fail closed；
      * - 自动流程（首次下载完成触发）在服务端 status = submitted / never / 有效
      *   snooze 时不加载 SDK、不请求 Survey、不显示；
@@ -2984,6 +3036,11 @@
             if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
             if (!config || !config.enabled) return flowResult('cancelled');
             if (options.skipStateGate) return proceedToSdk();
+            if (options.ignoreReminderGate) {
+                return isSubmittedDecision(readStateFresh())
+                    ? flowResult('blocked')
+                    : proceedToSdk();
+            }
             if (!stateAllowsShow(timers.now())) {
                 // 服务端 snooze 未到期（canShow=false）：不加载 SDK、不请求 Survey，
                 // 只在自己的本地截止时间（serverLocalBlockUntil）对齐安排自动检查。
@@ -3025,26 +3082,39 @@
             }
             if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
             var sdk = step.sdk;
-            if (!sdk) return flowResult('started');
+            if (!sdk) return flowResult(options.verifyPublication ? 'unavailable' : 'started');
             if (serverIdentityAvailable && serverDistinctId) {
-                if (!verifySdkDistinctId(sdk)) return flowResult('started');
+                if (!verifySdkDistinctId(sdk)) {
+                    return flowResult(options.verifyPublication ? 'unavailable' : 'started');
+                }
             }
             // DNT / opt-out：不请求 Survey、不显示、不发 shown、不写状态、不报错。
-            if (isCapturingDisabled(sdk)) return flowResult('started');
-            return fetchMatchingSurvey(sdk, generation).then(function (survey) {
-                if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
-                if (!survey) return flowResult('no-survey');
-                var choiceQuestion = resolveChoiceQuestion(survey);
-                if (!choiceQuestion) {
-                    warn('layout survey: layout choice question schema invalid; survey hidden');
-                    return flowResult('no-survey');
+            if (isCapturingDisabled(sdk)) {
+                return flowResult(options.verifyPublication ? 'ineligible' : 'started');
+            }
+            var publication = options.verifyPublication
+                ? fetchPublishedSurvey(sdk, generation)
+                : Promise.resolve({status: 'available', survey: null});
+            return publication.then(function (published) {
+                if (!isRuntimeGenerationActive(generation) || published.status === 'cancelled') {
+                    return flowResult('cancelled');
                 }
-                var suggestionQuestion = resolveSuggestionQuestion(survey);
-                if (!openDialog(survey, choiceQuestion, suggestionQuestion)) {
-                    return flowResult('no-survey');
-                }
-                sendShown();
-                return flowResult('opened', survey);
+                if (published.status !== 'available') return flowResult(published.status);
+                return fetchMatchingSurvey(sdk, generation).then(function (survey) {
+                    if (!isRuntimeGenerationActive(generation)) return flowResult('cancelled');
+                    if (!survey) return flowResult(options.verifyPublication ? 'ineligible' : 'no-survey');
+                    var choiceQuestion = resolveChoiceQuestion(survey);
+                    if (!choiceQuestion) {
+                        warn('layout survey: layout choice question schema invalid; survey hidden');
+                        return flowResult(options.verifyPublication ? 'ineligible' : 'no-survey');
+                    }
+                    var suggestionQuestion = resolveSuggestionQuestion(survey);
+                    if (!openDialog(survey, choiceQuestion, suggestionQuestion)) {
+                        return flowResult('no-survey');
+                    }
+                    sendShown();
+                    return flowResult('opened', survey);
+                });
             });
         }).then(finishFlow, function () {
             return finishFlow(flowResult('cancelled'));
@@ -3079,8 +3149,7 @@
         if (!dialogOpen || !dialogSurveyId) return;
         var state = readState();
         if (!state) return;
-        var now = timers.now();
-        var handledElsewhere = isBlockingDecision(state, now);
+        var handledElsewhere = isSubmittedDecision(state);
         if (!handledElsewhere) return;
         // 另一标签页已处理该调查：关闭当前弹窗；不重复发送 dismissed；
         // 不改写另一标签页的状态；不显示提交失败；只显示非阻塞提示。
@@ -3134,7 +3203,7 @@
         // 立即同步：确保另一个标签页刚写入的 fallback 不会被当前标签页删除。
         syncServerViewToLocalCache();
         var effective = effectiveState();
-        if (effective && isBlockingDecision(effective, now)) {
+        if (isSubmittedDecision(effective)) {
             if (dialogOpen) {
                 closeDialog(true);
                 showHandledElsewhereNote();
@@ -3297,6 +3366,8 @@
         runtimeGeneration = nextRuntimeGeneration();
         options = options || {};
         pageType = options.page || detectPageType();
+        configuredLayoutId = LAYOUT_IDS.indexOf(options.currentLayoutId) >= 0
+            ? options.currentLayoutId : null;
         storage = options.storage != null ? options.storage : safeLocalStorage();
         timers = options.timers || defaultTimers();
         fetchImpl = options.fetchImpl || defaultFetch();
@@ -3347,6 +3418,13 @@
         return showSurveyFlow({skipStateGate: true}).then(function (result) {
             return result && result.survey ? result.survey : null;
         });
+    }
+
+    function openEmbedded() {
+        if (!initialized || !config || !config.enabled) {
+            return Promise.resolve({status: 'unavailable', survey: null, retryAt: 0});
+        }
+        return showSurveyFlow({ignoreReminderGate: true, verifyPublication: true});
     }
 
     /**
@@ -3437,6 +3515,7 @@
         });
         pendingTimers = [];
         initialized = false;
+        configuredLayoutId = null;
         // 使当前 generation 失效：后续（destroy 后重新 init 之前的）异步
         // continuation 全部被 isRuntimeGenerationActive 拦截。
         runtimeGeneration += 1;
@@ -3489,6 +3568,7 @@
     global.PixivLayoutFeedback = Object.freeze({
         init: init,
         open: open,
+        openEmbedded: openEmbedded,
         preload: preload,
         destroy: destroy,
         currentLayoutId: currentLayoutId,
@@ -3543,7 +3623,7 @@
             setStorageIfChanged: setStorageIfChanged,
             removeStorageIfPresent: removeStorageIfPresent,
             isBlockingDecision: isBlockingDecision,
-            hasBlockingLocalDecision: hasBlockingLocalDecision,
+            hasSubmittedLocalDecision: hasSubmittedLocalDecision,
             serverViewToLocalState: serverViewToLocalState,
             serverViewAsState: serverViewAsState,
             serverCommandOperations: serverCommandOperations,

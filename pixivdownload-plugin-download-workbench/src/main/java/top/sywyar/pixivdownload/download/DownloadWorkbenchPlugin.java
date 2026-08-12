@@ -15,9 +15,14 @@ import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 /**
@@ -35,6 +40,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     /** 下载工作台插件 id：下载进度 SSE 推流随该插件运行期归属（停用 / 卸载时其推流被统一关闭）。 */
     public static final String ID = "download-workbench";
+    private static final String SURVEY_PUBLICATION_RESOURCE =
+            "static/pixiv-layout-feedback/release-publication.properties";
 
     @Override
     public String id() {
@@ -83,6 +90,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/pixiv-batch/**"),
                 WebRouteContribution.visitor("/pixiv-batch-alt.html"),
                 WebRouteContribution.visitor("/pixiv-batch-alt/**"),
+                WebRouteContribution.admin("/pixiv-layout-feedback/embed.html"),
                 WebRouteContribution.visitor("/pixiv-layout-feedback/**"),
                 new WebRouteContribution("/api/layout-feedback/state", AccessPolicy.VISITOR,
                         Set.of(HttpMethod.GET, HttpMethod.POST), false),
@@ -155,6 +163,24 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     }
 
     @Override
+    public List<WebUiSlotContribution> uiSlots() {
+        if (!officialSurveyRelease()) {
+            return List.of();
+        }
+        return List.of(new WebUiSlotContribution(
+                "download-workbench.layout-survey",
+                "notification.inbox",
+                null,
+                10,
+                Map.of(
+                        "notification.category", "survey",
+                        "notification.embed-url", "/pixiv-layout-feedback/embed.html",
+                        "notification.i18n-namespace", "layout-feedback",
+                        "notification.title-key", "layout-feedback.inbox-title",
+                        "notification.body-key", "layout-feedback.inbox-body")));
+    }
+
+    @Override
     public List<UserscriptContribution> userscripts() {
         // 稳定安装 id 与精确资源均归下载工作台声明；宿主只经本插件 ClassLoader 物化目录，
         // 不按这些私有文件名写分支。
@@ -170,6 +196,20 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     private static UserscriptContribution userscript(String id, String fileName) {
         return new UserscriptContribution(id, "classpath:/static/userscripts/" + fileName);
+    }
+
+    private static boolean officialSurveyRelease() {
+        Properties properties = new Properties();
+        try (InputStream input = DownloadWorkbenchPlugin.class.getClassLoader()
+                .getResourceAsStream(SURVEY_PUBLICATION_RESOURCE)) {
+            if (input == null) {
+                return false;
+            }
+            properties.load(input);
+            return "true".equalsIgnoreCase(properties.getProperty("officialReleaseEnabled"));
+        } catch (IOException ignored) {
+            return false;
+        }
     }
 
     @Override

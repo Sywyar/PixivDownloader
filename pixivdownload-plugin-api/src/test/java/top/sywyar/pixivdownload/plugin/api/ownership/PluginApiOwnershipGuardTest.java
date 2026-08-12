@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.io.IOException;
@@ -158,7 +159,7 @@ class PluginApiOwnershipGuardTest {
                     "PageSectionContribution", "RequestOwnerIdentity",
                     "RequestOwnerIdentityResolver", "StartupRouteContext", "StartupRouteContribution",
                     "StaticResourceContribution", "UserscriptContribution",
-                    "WebRouteContribution", "WebUiSlotContribution")),
+                    "WebRouteContribution", "WebUiSlotCatalog", "WebUiSlotContribution")),
             Map.entry("油猴脚本宿主目录协议", types(API_PREFIX + "userscript",
                     "UserscriptArtifact", "UserscriptCatalog")),
             Map.entry("下载类型描述协议", types(API_PREFIX + "download.type",
@@ -233,7 +234,7 @@ class PluginApiOwnershipGuardTest {
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口、版本与生命周期", 5),
             Map.entry("GUI 纯数据 contribution", 30),
-            Map.entry("Web 与请求身份协议", 19),
+            Map.entry("Web 与请求身份协议", 20),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
             Map.entry("下载宿主控制协议", 7),
@@ -421,7 +422,10 @@ class PluginApiOwnershipGuardTest {
                 .doesNotContain("pluginId", "ownerPluginId", "packageId", "generation", "publicationId"));
         assertThat(Arrays.stream(WebUiSlotContribution.class.getRecordComponents())
                 .map(component -> component.getName()).toList())
-                .containsExactly("slotId", "target", "moduleUrl", "order");
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata");
+        assertThat(WebUiSlotCatalog.class.getDeclaredMethods())
+                .singleElement()
+                .satisfies(method -> assertThat(method.getName()).isEqualTo("uiSlots"));
     }
 
     @Test

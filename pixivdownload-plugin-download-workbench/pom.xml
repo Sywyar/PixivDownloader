@@ -171,6 +171,7 @@
                                     <directory>${project.basedir}/src/main/release-resources</directory>
                                     <includes>
                                         <include>release-activation.js</include>
+                                        <include>release-publication.properties</include>
                                     </includes>
                                     <filtering>true</filtering>
                                 </resource>
