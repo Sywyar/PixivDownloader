@@ -10,7 +10,7 @@
 - 在线更新和自动检查均启用时，应用宿主会在启动就绪后检查 GitHub Releases；检查频率受缓存间隔限制。
 - 访问应用介绍页时，浏览器会加载 Google Fonts。该请求不由后端发起，也不经过 PixivDownloader 的出站代理。
 - `plugin-catalog.enabled` 默认为 `false`，因此插件市场默认不会访问官方插件仓库。
-- 布局反馈调查的 PostHog 公开配置在当前源码中为 `enabled: false`，默认不会连接 PostHog。
+- 布局反馈调查的四个 PostHog 参数由 `download-workbench` 持有，但源码 / fork 构建的发行激活位默认为 `false`，默认不会连接 PostHog。
 - Pixiv、Douyin、AI、TTS、推送和邮件请求可能包含用户内容或访问凭据，具体范围见后续各节。
 
 ## 核心功能及默认网络请求
@@ -141,12 +141,12 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 
 ## `download-workbench` 可选布局调查（PostHog）
 
-布局反馈逻辑属于 `download-workbench` 插件。PostHog JavaScript SDK 已随插件静态资源打包，不会从 CDN 加载 SDK。
+布局反馈逻辑与四个公开客户端参数属于 `download-workbench` 插件；独立的 `posthog` 插件提供 PostHog JavaScript SDK 和调用方配置的隔离客户端。SDK 已随插件静态资源打包，不会从 CDN 加载。
 
-- 当前源码公开配置为 `enabled: false`，`apiHost` 和 `uiHost` 均为空，因此默认构建不会访问 PostHog。
-- 只有发行构建显式注入完整的 Project Token、Survey ID、`apiHost` 和 `uiHost` 并启用调查后，相关页面才会初始化调查。
-- 启用后，浏览器会直接访问构建配置指定的 PostHog API/UI 主机，可能发送调查展示状态、回答、身份模式和页面交互信息；不经过宿主出站代理。
-- 目标主机不能根据常规运行时配置推断；应以发行包实际携带的 `pixiv-layout-feedback/public-config.js` 为准。
+- Project Token、Survey ID、`apiHost=https://layout-survey.sywyar.top` 与 `uiHost=https://us.posthog.com` 固定在调查发布插件中；它们是浏览器可见参数，不是 Secret，也不通过 GitHub Actions、脚本或 properties 文件注入。
+- 普通源码 / fork 构建生成的发行激活位为 `false`；官方 Release、Nightly 与官方插件发布使用仓库内的 Maven `official-surveys` profile 把这一位设为 `true`。四个参数不随 profile 改写。
+- 激活后，浏览器会直接访问上述 PostHog API/UI 主机，发送范围仍受调查发布插件的 `beforeSend` 允许列表约束；不经过宿主出站代理。
+- `posthog` 插件缺失或停用时调查静默关闭。已打开页面中的脚本不会被热撤销，停用后刷新页面才完全生效。
 
 ## 不包含固定公网目标的官方插件
 

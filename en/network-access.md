@@ -10,7 +10,7 @@ This page lists the external network destinations that the current PixivDownload
 - When online updates and automatic checking are enabled, the application host checks GitHub Releases after startup readiness. The check frequency is limited by a cache interval.
 - When the application intro page is opened, the browser loads Google Fonts. This request is not initiated by the backend and does not use PixivDownloader's outbound proxy.
 - `plugin-catalog.enabled` defaults to `false`, so the plugin market does not contact the official plugin repository by default.
-- The PostHog public configuration for the layout feedback survey is `enabled: false` in the tracked source, so it does not contact PostHog by default.
+- The four PostHog parameters for layout feedback are owned by `download-workbench`, but the release activation bit defaults to `false` for source and fork builds, so they do not contact PostHog by default.
 - Pixiv, Douyin, AI, TTS, push, and mail requests may contain user content or access credentials, as specified in the following sections.
 
 ## Core and default network requests
@@ -141,12 +141,12 @@ An administrator may enter any SMTP host and port and may configure a separate S
 
 ## Optional layout survey in `download-workbench` (PostHog)
 
-The layout feedback code belongs to the `download-workbench` plugin. The PostHog JavaScript SDK is bundled as a static plugin resource and is not downloaded from a CDN.
+The layout feedback code and its four public client parameters belong to the `download-workbench` plugin. A separate `posthog` plugin provides the PostHog JavaScript SDK and caller-configured isolated clients. The SDK is bundled as a static plugin resource and is not downloaded from a CDN.
 
-- The tracked public configuration currently has `enabled: false` with empty `apiHost` and `uiHost`, so the default source build does not contact PostHog.
-- The survey is initialized only when a distribution build explicitly injects a complete project token, survey ID, `apiHost`, and `uiHost` and enables it.
-- When enabled, the browser contacts the configured PostHog API/UI hosts directly and may send survey display state, responses, identity mode, and page interaction information. It bypasses the host outbound proxy.
-- The `pixiv-layout-feedback/public-config.js` included in the distribution is authoritative for the destination; it cannot be inferred from standard runtime settings.
+- The project token, survey ID, `apiHost=https://layout-survey.sywyar.top`, and `uiHost=https://us.posthog.com` are fixed in the survey-publishing plugin. They are browser-visible parameters, not secrets, and are not injected through GitHub Actions, scripts, or properties files.
+- A normal source or fork build generates a `false` release activation bit. Official Release, Nightly, and official plugin publication use the tracked Maven `official-surveys` profile to set that bit to `true`; the profile does not rewrite the four parameters.
+- Once activated, the browser contacts those PostHog API/UI hosts directly. The publishing plugin's `beforeSend` allowlist still constrains what is sent, and these requests bypass the host outbound proxy.
+- The survey degrades silently when the `posthog` plugin is missing or disabled. JavaScript already loaded in an open page cannot be hot-withdrawn, so disabling takes full effect after refresh.
 
 ## Official plugins without fixed public network destinations
 

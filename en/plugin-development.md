@@ -170,6 +170,35 @@ Field rules:
 
 Plugin API currently uses `1.0.0` as its initial contract baseline. Compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH does not affect admission. After the first public release, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
 
+### Reusing the PostHog browser client
+
+A Web plugin that publishes a PostHog survey can depend on the official `posthog` plugin and load `/pixiv-posthog/pixiv-posthog.js` before its own page script. This is not a neutral survey abstraction: the publishing plugin still owns the survey ID, question schema, trigger, state, copy, privacy filter, and all four PostHog project parameters.
+
+```properties
+plugin.dependencies=posthog?@1.0
+```
+
+```js
+const posthog = Object.freeze({
+  projectToken: 'phc_...',
+  surveyId: '...',
+  apiHost: 'https://example.invalid',
+  uiHost: 'https://us.posthog.com'
+});
+
+const client = await window.PixivPostHog?.createSurveyClient({
+  ownerKey: 'example-plugin.feedback',
+  posthog,
+  distinctId: '',
+  beforeSend(event) {
+    return allowedSurveyEvent(event) ? event : null;
+  }
+});
+if (!client) return; // dependency missing, invalid parameters, SDK failure, or conflict
+```
+
+`ownerKey` must be globally stable. Repeating a call for the same owner on one page reuses the client only when the four parameters, `distinctId`, and the `beforeSend` function object are unchanged; any mismatch fails closed. Different owners may use different project parameters. The adapter pins and loads the vendored SDK, disables default collection, and creates isolated named instances, but it does not select surveys or send events for a plugin. If `posthog` is disabled at runtime, JavaScript already loaded in an open page cannot be withdrawn; after refresh the resource is absent and the caller must degrade as if the client were unavailable.
+
 ### PF4J provider and Spring child context
 
 ```java

@@ -169,6 +169,35 @@ pixiv.lifecycle-policy=hot-reload
 
 Plugin API 当前以 `1.0.0` 为初始契约基线。兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 不参与准入判断。首次公开发布后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
 
+### 复用 PostHog 浏览器客户端
+
+需要发布 PostHog 调查的 Web 插件可以依赖官方 `posthog` 插件，并在自己的页面先加载 `/pixiv-posthog/pixiv-posthog.js`。这不是中性调查抽象：调查发布插件仍拥有 Survey ID、问题结构、触发、状态、文案、隐私过滤以及全部四个 PostHog 项目参数。
+
+```properties
+plugin.dependencies=posthog?@1.0
+```
+
+```js
+const posthog = Object.freeze({
+  projectToken: 'phc_...',
+  surveyId: '...',
+  apiHost: 'https://example.invalid',
+  uiHost: 'https://us.posthog.com'
+});
+
+const client = await window.PixivPostHog?.createSurveyClient({
+  ownerKey: 'example-plugin.feedback',
+  posthog,
+  distinctId: '',
+  beforeSend(event) {
+    return allowedSurveyEvent(event) ? event : null;
+  }
+});
+if (!client) return; // 依赖缺失、参数非法、SDK 加载失败或配置冲突时静默关闭
+```
+
+`ownerKey` 必须全局稳定；同一页面内同一 owner 以相同四参数、`distinctId` 和同一个 `beforeSend` 函数重复调用会复用客户端，任一项变化则 fail-closed。不同 owner 可以使用不同项目参数。适配器固定并加载 vendored SDK、关闭默认采集并创建隔离的命名实例，但不会替插件选择调查或发送事件。若运行时停用 `posthog`，已打开页面中已经加载的 JavaScript 不会被撤销；刷新后资源缺席，调用方必须按客户端不可用降级。
+
 ### PF4J provider 与 Spring 子上下文
 
 ```java
