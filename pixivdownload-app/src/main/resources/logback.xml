@@ -41,13 +41,13 @@
 
     <!--
         ── HTML 日志（log/html/） ──────────────────────────────────────────────────
-        append=false：每次 logback 初始化都重新写完整 HTML 文件（含 <head> 和 CSS）。
-        Spring Boot 已通过 LoggingSystem=none 被禁止接管日志（见 GuiLauncher），
-        所以本次运行期间 logback 只会初始化一次，不会发生中途截断、丢失日志的问题。
+        append=true：与纯文本日志保持相同的追加语义。GuiLauncher 正常启动时会先删除 latest，
+        会话文件则使用唯一时间戳；即使 latest 因外部占用无法删除，两种格式也会保留相同历史，
+        不再出现文本追加而 HTML 单独截断的问题。
     -->
     <appender name="HTML_LATEST" class="ch.qos.logback.core.FileAppender">
         <file>log/html/latest.html</file>
-        <append>false</append>
+        <append>true</append>
         <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
             <layout class="top.sywyar.pixivdownload.logback.HtmlLogLayout"/>
             <charset>UTF-8</charset>
@@ -56,7 +56,7 @@
 
     <appender name="HTML_SESSION" class="ch.qos.logback.core.FileAppender">
         <file>log/html/pixiv-download_${LOG_TIMESTAMP:-startup}.html</file>
-        <append>false</append>
+        <append>true</append>
         <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
             <layout class="top.sywyar.pixivdownload.logback.HtmlLogLayout"/>
             <charset>UTF-8</charset>

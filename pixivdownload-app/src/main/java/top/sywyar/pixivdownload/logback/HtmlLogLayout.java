@@ -1,9 +1,10 @@
 package top.sywyar.pixivdownload.logback;
 
 import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.pattern.TargetLengthBasedClassNameAbbreviator;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
-import ch.qos.logback.classic.spi.StackTraceElementProxy;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.LayoutBase;
 import top.sywyar.pixivdownload.common.AppInfo;
 
@@ -31,6 +32,8 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    private static final TargetLengthBasedClassNameAbbreviator LOGGER_ABBREVIATOR =
+            new TargetLengthBasedClassNameAbbreviator(36);
 
     // ── 颜色定义（与 MdcColorConverter ANSI 色调对应） ──────────────────────────
     private static final String COLOR_INFO    = "#4ade80"; // ANSI 32 GREEN
@@ -117,7 +120,7 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
         String levelName = event.getLevel().toString();
         String timestamp = formatTimestamp(event.getTimeStamp());
         String msg       = escapeHtml(event.getFormattedMessage());
-        String logger    = escapeHtml(abbreviateLogger(event.getLoggerName(), 36));
+        String logger    = escapeHtml(abbreviateLogger(event.getLoggerName()));
         String thread    = escapeHtml(event.getThreadName());
 
         StringBuilder sb = new StringBuilder(256);
@@ -136,7 +139,7 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
                 sb.append(": ").append(escapeHtml(tp.getMessage()));
             }
             sb.append("</summary><code class=\"stack\">");
-            appendThrowable(sb, tp, 0);
+            sb.append(escapeHtml(ThrowableProxyUtil.asString(tp)));
             sb.append("</code></details>");
         }
 
@@ -160,46 +163,8 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
                 .replace("\"", "&quot;");
     }
 
-    /**
-     * 缩写包名：{@code top.sywyar.pixivdownload.gui.GuiLauncher} →
-     * {@code t.s.p.g.GuiLauncher}（当长度超过 maxLen 时）。
-     */
-    private static String abbreviateLogger(String name, int maxLen) {
-        if (name == null || name.length() <= maxLen) return name;
-        String[] parts = name.split("\\.");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parts.length - 1; i++) {
-            if (!parts[i].isEmpty()) {
-                sb.append(parts[i].charAt(0)).append('.');
-            }
-        }
-        sb.append(parts[parts.length - 1]);
-        return sb.toString();
-    }
-
-    /** 递归追加异常链（cause / suppressed）。 */
-    private static void appendThrowable(StringBuilder sb, IThrowableProxy tp, int depth) {
-        String indent = "  ".repeat(depth);
-        sb.append(indent)
-          .append(escapeHtml(tp.getClassName()))
-          .append(": ")
-          .append(escapeHtml(tp.getMessage() == null ? "" : tp.getMessage()))
-          .append("\n");
-
-        for (StackTraceElementProxy step : tp.getStackTraceElementProxyArray()) {
-            sb.append(indent).append("\tat ")
-              .append(escapeHtml(step.getStackTraceElement().toString()))
-              .append("\n");
-        }
-
-        if (tp.getCause() != null) {
-            sb.append(indent).append("Caused by: ");
-            appendThrowable(sb, tp.getCause(), depth);
-        }
-        for (IThrowableProxy sup : tp.getSuppressed()) {
-            sb.append(indent).append("Suppressed: ");
-            appendThrowable(sb, sup, depth + 1);
-        }
+    private static String abbreviateLogger(String name) {
+        return name == null ? "" : LOGGER_ABBREVIATOR.abbreviate(name);
     }
 
     /** 根据日志级别返回对应的 CSS 颜色（与 MdcColorConverter 一致）。 */

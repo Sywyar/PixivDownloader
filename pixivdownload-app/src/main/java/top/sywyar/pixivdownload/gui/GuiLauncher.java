@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.bridge.SLF4JBridgeHandler;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
@@ -82,9 +83,8 @@ import java.util.stream.Collectors;
  * 再获取 logger，让 logback 的初始化晚于 {@code System.setProperty()} 调用。
  *
  * <p>同时设置 {@code org.springframework.boot.logging.LoggingSystem=none}，禁止
- * Spring Boot 接管日志系统。否则 Spring Boot 启动时会重新初始化 logback，导致
- * {@code append=false} 的 HTML appender 截断文件，丢失 Spring Boot 启动前
- * （包括 {@code PixivDownloader 启动中}）的日志行。本项目所有日志配置都在
+ * Spring Boot 接管日志系统。否则 Spring Boot 启动时会重新初始化 logback，令
+ * HTML 文档重复写入头部，并打乱 Spring Boot 启动前后的单一日志会话。本项目所有日志配置都在
  * {@code logback.xml} 中，未使用任何 {@code logging.*} 属性，因此禁用 Spring Boot
  * 日志接管是安全的。
  */
@@ -96,7 +96,6 @@ public class GuiLauncher {
     private static final String LOG_DIR = "log";
     private static final String LOG_HTML_DIR = LOG_DIR + "/html";
     private static final String LOG_LATEST = LOG_DIR + "/latest.log";
-    private static final String LOG_HTML_LATEST = LOG_HTML_DIR + "/latest.html";
     private static final String LOG_SESSION_PREFIX = "pixiv-download_";
     /**
      * 保留最近的会话日志数量（不含 latest.log / latest.html）
@@ -144,10 +143,14 @@ public class GuiLauncher {
 
         // ── 0b. 在 logback 初始化前完成日志目录/属性准备 ─────────────────────────
         //    顺序不可颠倒：必须先于任何 getLogger() / log.xxx() 调用
-        prepareLogging();
+        String loggingPreparationWarning = prepareLogging();
 
         // ── 触发 logback 初始化（此时 LOG_TIMESTAMP 已就绪）─────────────────────
         log = LoggerFactory.getLogger(GuiLauncher.class);
+        installJulBridge();
+        if (loggingPreparationWarning != null) {
+            log.warn(loggingPreparationWarning);
+        }
         log.info(logMessage("gui.launcher.log.version",
                 AppVersion.getDisplayVersionOrDefault(logMessage("app.version.unknown"))));
         log.info(logMessage("gui.launcher.log.starting", Arrays.toString(args)));
@@ -351,40 +354,48 @@ public class GuiLauncher {
     /**
      * 在 logback 读取 {@code logback.xml} 之前完成以下操作：
      * <ol>
+     *   <li>将 {@code LOG_TIMESTAMP} 写入系统属性，确保后续文件清理即使失败也有独立会话文件</li>
      *   <li>创建 {@code log/} 目录</li>
      *   <li>删除上次遗留的 {@code latest.log}，使本次运行重新创建</li>
      *   <li>清理多余的历史时间戳文件，只保留最近 {@value #LOG_HISTORY_COUNT} - 1 份，
      *       为本次新文件留出位置</li>
-     *   <li>将 {@code LOG_TIMESTAMP} 写入系统属性，供 {@code logback.xml} 中的
-     *       {@code ${LOG_TIMESTAMP}} 占位符使用</li>
      * </ol>
+     *
+     * @return 清理失败时待 logback 初始化后回灌的告警；成功时返回 {@code null}
      */
-    private static void prepareLogging() {
-        // 禁止 Spring Boot 接管日志系统，避免其重新初始化 logback 导致
-        // append=false 的 HTML appender 截断文件、丢失 Spring Boot 启动前的日志。
+    private static String prepareLogging() {
+        return prepareLogging(Path.of(LOG_DIR), Path.of(LOG_HTML_DIR));
+    }
+
+    static String prepareLogging(Path logDir, Path htmlLogDir) {
+        // 禁止 Spring Boot 接管日志系统，避免其重新初始化 logback、重复写入 HTML 文档头部。
         System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
+        String timestamp = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss"));
+        System.setProperty("LOG_TIMESTAMP", timestamp);
 
         try {
             // 创建目录
-            Files.createDirectories(Path.of(LOG_DIR));
-            Files.createDirectories(Path.of(LOG_HTML_DIR));
+            Files.createDirectories(logDir);
+            Files.createDirectories(htmlLogDir);
 
             // 删除旧 latest 文件，使 logback 以 append=true 创建新文件（等效覆盖）
-            Files.deleteIfExists(Path.of(LOG_LATEST));
-            // HTML latest 使用 append=false，logback 会自行覆盖；
-            // 此处同步删除以保证目录整洁（防止空文件遗留等边界情况）
-            Files.deleteIfExists(Path.of(LOG_HTML_LATEST));
+            Files.deleteIfExists(logDir.resolve("latest.log"));
+            // HTML 与文本 latest 使用相同的 append=true 语义，必须同步删除。
+            Files.deleteIfExists(htmlLogDir.resolve("latest.html"));
 
             // 清理超量的历史会话文件
-            cleanOldSessionLogs(Path.of(LOG_DIR), ".log");
-            cleanOldSessionLogs(Path.of(LOG_HTML_DIR), ".html");
-
-            String timestamp = LocalDateTime.now()
-                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss"));
-            System.setProperty("LOG_TIMESTAMP", timestamp);
+            cleanOldSessionLogs(logDir, ".log");
+            cleanOldSessionLogs(htmlLogDir, ".html");
         } catch (Exception e) {
-            System.err.println(logMessage("gui.launcher.log.prepare-logging.failed", e.getMessage()));
+            return logMessage("gui.launcher.log.prepare-logging.failed", e.getMessage());
         }
+        return null;
+    }
+
+    static void installJulBridge() {
+        SLF4JBridgeHandler.removeHandlersForRootLogger();
+        SLF4JBridgeHandler.install();
     }
 
     /**
