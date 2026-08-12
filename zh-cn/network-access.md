@@ -21,8 +21,7 @@
 | 应用宿主 | 更新清单中当前平台对应的安装包 URL，默认来自 GitHub Release | 下载更新安装包，并按清单校验 SHA-256 和大小 | 检查到更新且明确启动下载和安装后触发；更新检查本身不会自动安装 | 目标由更新清单决定；关闭在线更新可完全停用该链路 |
 | 应用宿主的介绍页 | `https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | 获取 Noto Sans SC 样式和字体文件；浏览器会正常暴露 IP 地址、User-Agent 等连接元数据 | 访问介绍页时由浏览器触发 | 不经过宿主代理；域名被阻止时使用后备字体，下载功能不受影响 |
 | 应用宿主 | `https://www.pixiv.net/` | Pixiv 连通性探测，不携带 Pixiv Cookie | 首次配置或执行 Pixiv 连通性检查时触发，不是持续心跳 | 使用宿主的 Pixiv 出站路由；未执行探测时不发起该请求 |
-| `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json` | 读取公开公告的 ID、发布时间、级别、各语言标题/摘要和受控正文地址；只发送标准 HTTP 连接元数据，不发送 Cookie、账号、作品、本地路径或其它凭据 | 插件每次启动后异步检查一次，之后约每 6 小时检查；官方默认插件集合包含 `notification`，启用并成功启动时会自动访问 | 使用宿主继承出站路由，可使用已启用的全局代理；禁用/卸载 `notification` 会停止检查，插件停止或重载时立即取消后续轮询 |
-| 站内信公告详情页 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/<message-id>/<locale>.html` | 在隔离 iframe 中显示管理员打开的公开公告正文；浏览器仍会向目标公开正常 IP/User-Agent 等连接元数据，但 iframe 使用 `credentialless`、`no-referrer` 和 sandbox，不携带 PixivDownloader 会话或第三方凭据 | 仅在管理员打开带远程正文的公告详情时由浏览器触发；后台索引检查不会预取 HTML | 浏览器直连，不经过 Java 后端代理；阻止该主机时仍可阅读已保存的标题与摘要，禁用 `notification` 可撤回整个站内信功能 |
+| `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json` 与 `.../announcements/<message-id>/<locale>.html` | 读取公开公告索引，并仅为未知稳定 ID 下载当前语言的受控 HTML 正文；请求禁用 Cookie，只发送 IP、User-Agent 等标准连接元数据，不发送账号、作品、本地路径或其它凭据。HTML 快照保存在本地，管理员浏览器只读取本地鉴权端点，不再直连外部正文 | 插件每次启动后异步检查索引一次，之后约每 6 小时检查；只有首次发现未知 ID 时才有界下载一次对应 HTML。同一 ID 已保存或已显式删除时不再请求正文。官方默认插件集合包含 `notification`，启用并成功启动时会自动访问 | 使用宿主继承出站路由，可使用已启用的全局代理；禁用/卸载 `notification` 会停止检查，插件停止或重载时立即取消后续轮询 |
 
 ## Pixiv 下载与浏览
 
@@ -198,3 +197,5 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 ## 链接及非请求型 URL
 
 应用和文档中还包含指向 GitHub、Releases、在线文档、Tampermonkey 和许可证站点的链接。此类链接仅在被访问或由浏览器实际加载资源时产生请求。XML 命名空间、POM Schema、许可证正文中的 URL 和示例域名不属于自动网络请求目标。
+
+在应用 Web UI 中点击外部 HTTP(S) 链接（包括本地公告/调查 HTML 快照内的链接）时，全站确认弹窗会先展示目标地址；只有明确确认后，浏览器才会直接连接该地址，取消则不会产生请求。该浏览器导航不经过 Java 后端或全局代理，实际目标由所点击的链接决定；站内同源链接保持直接跳转。
