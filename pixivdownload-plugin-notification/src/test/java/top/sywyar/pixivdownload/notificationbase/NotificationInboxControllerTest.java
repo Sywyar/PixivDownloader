@@ -102,7 +102,9 @@ class NotificationInboxControllerTest {
                 .doesNotContain("allow-same-origin", "script-src 'none'");
         assertThat(response.getBody())
                 .startsWith("<!doctype html><script nonce=\"" + nonce + "\" data-source=\"" + CONTENT_URL + "\">")
-                .contains("parent.postMessage({", "type: 'pixiv-external-link'", "<p>Survey body</p>")
+                .contains("parent.postMessage({", "type: 'pixiv-external-link'",
+                        "type: 'pixiv-content-height'", "heightObserver = new ResizeObserver(reportHeight)",
+                        "<p>Survey body</p>")
                 .endsWith("<p>Survey body</p>");
         assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
     }

@@ -32,9 +32,25 @@ public class NotificationInboxController {
             + " media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none';"
             + " worker-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self';"
             + " sandbox allow-scripts";
-    private static final String LINK_BRIDGE_SCRIPT = String.join("\n",
+    private static final String CONTENT_BRIDGE_SCRIPT = String.join("\n",
             "(function () {",
             "    var source = document.currentScript.getAttribute('data-source') || document.baseURI;",
+            "    var heightObserver = null;",
+            "    function reportHeight() {",
+            "        var body = document.body;",
+            "        if (!body) return;",
+            "        var style = getComputedStyle(body);",
+            "        var height = Math.ceil(Math.max(body.scrollHeight, body.offsetHeight,",
+            "            body.getBoundingClientRect().height)",
+            "            + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0));",
+            "        if (height > 0) parent.postMessage({type: 'pixiv-content-height', height: height}, '*');",
+            "    }",
+            "    function observeHeight() {",
+            "        reportHeight();",
+            "        if (typeof ResizeObserver !== 'function') return;",
+            "        heightObserver = new ResizeObserver(reportHeight);",
+            "        heightObserver.observe(document.body);",
+            "    }",
             "    function forwardLink(event) {",
             "        if (event.defaultPrevented || (event.button != null && event.button !== 0 && event.button !== 1)) return;",
             "        var link = event.target;",
@@ -56,6 +72,10 @@ public class NotificationInboxController {
             "            // 非 URL 链接交给正文自身处理。",
             "        }",
             "    }",
+            "    if (document.readyState === 'loading')",
+            "        document.addEventListener('DOMContentLoaded', observeHeight, {once: true});",
+            "    else observeHeight();",
+            "    window.addEventListener('load', reportHeight, {once: true});",
             "    document.addEventListener('click', forwardLink, true);",
             "    document.addEventListener('auxclick', forwardLink, true);",
             "})();");
@@ -97,7 +117,7 @@ public class NotificationInboxController {
                 .header("Content-Security-Policy", HTML_CONTENT_SECURITY_POLICY.formatted(nonce))
                 .header("Referrer-Policy", "no-referrer")
                 .header("X-Content-Type-Options", "nosniff")
-                .body(withLinkBridge(content, nonce));
+                .body(withContentBridge(content, nonce));
     }
 
     @PostMapping("/{id}/read")
@@ -144,10 +164,10 @@ public class NotificationInboxController {
                 .body(body);
     }
 
-    private static String withLinkBridge(NotificationHtmlContent content, String nonce) {
+    private static String withContentBridge(NotificationHtmlContent content, String nonce) {
         String sourceUrl = content.sourceUrl() == null ? "" : escapeHtmlAttribute(content.sourceUrl());
         String bridge = "<script nonce=\"" + nonce + "\" data-source=\"" + sourceUrl + "\">"
-                + LINK_BRIDGE_SCRIPT + "</script>";
+                + CONTENT_BRIDGE_SCRIPT + "</script>";
         Matcher doctype = DOCTYPE_PREFIX.matcher(content.html());
         if (!doctype.find()) {
             return bridge + content.html();

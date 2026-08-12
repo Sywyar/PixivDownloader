@@ -84,10 +84,20 @@ assert.ok(PAGE_SOURCE.includes("frame.setAttribute('sandbox', 'allow-scripts')")
 assert.ok(PAGE_SOURCE.includes("data.type !== 'pixiv-external-link'")
     && PAGE_SOURCE.includes("frame.contentWindow === event.source")
     && PAGE_SOURCE.includes("window.PixivFeedback.followLink(data.href")
-    && PAGE_SOURCE.includes("window.addEventListener('message', openContentLink)"),
+    && PAGE_SOURCE.includes("window.addEventListener('message', handleContentMessage)"),
     'HTML 正文链接只能由当前 iframe 消息桥接到全站外链确认');
-assert.ok(PAGE_SOURCE.includes("frame.setAttribute('loading', 'lazy')")
-    && CSS.includes('.notification-detail-content-frame {'),
-    'HTML 正文应按需加载并限制在详情面板内');
+assert.ok(PAGE_SOURCE.includes("data.type === 'pixiv-content-height'")
+    && PAGE_SOURCE.includes("typeof data.height !== 'number' || !Number.isFinite(data.height) || data.height <= 0")
+    && PAGE_SOURCE.includes("frame.style.height = Math.ceil(data.height + 2) + 'px'")
+    && PAGE_SOURCE.includes("frame.setAttribute('scrolling', 'no')")
+    && /\.notification-detail-content-frame\s*\{[^}]*width:\s*100%;[^}]*height:\s*1px;[^}]*border:\s*0;[^}]*overflow:\s*hidden;/s.test(CSS)
+    && !/\.notification-detail-content-frame\s*\{[^}]*min-height:/s.test(CSS),
+    'HTML 正文必须按可信消息自适应高度且不显示独立滚动框');
+assert.ok(/\.notification-page\s*\{[^}]*height:\s*100dvh;[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s.test(CSS)
+    && /\.notification-page-grid\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;/s.test(CSS)
+    && /\.notification-list\s*\{[^}]*flex:\s*1;[^}]*overflow-y:\s*auto;/s.test(CSS)
+    && /\.notification-detail-panel\s*\{[^}]*overflow-y:\s*auto;/s.test(CSS)
+    && /@media \(max-width:\s*760px\)[\s\S]*\.notification-page\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s.test(CSS),
+    '桌面端消息列表与详情必须独立滚动，移动端恢复自然页面滚动');
 
-console.log('notification-inbox-slot.test.js: 22 assertions passed ✓');
+console.log('notification-inbox-slot.test.js: 23 assertions passed ✓');

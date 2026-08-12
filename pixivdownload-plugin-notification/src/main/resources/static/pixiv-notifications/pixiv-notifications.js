@@ -139,20 +139,28 @@
         frame.setAttribute('sandbox', 'allow-scripts');
         frame.setAttribute('referrerpolicy', 'no-referrer');
         frame.setAttribute('loading', 'lazy');
+        frame.setAttribute('scrolling', 'no');
         frame.setAttribute('allow', "camera 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'");
         return frame;
     }
 
-    function openContentLink(event) {
+    function handleContentMessage(event) {
         var data = event.data;
-        if (!data || data.type !== 'pixiv-external-link' || typeof data.href !== 'string'
-                || !data.href || data.href.length > 8192 || typeof data.newTab !== 'boolean'
-                || !window.PixivFeedback) return;
+        if (!data) return;
         var frames = document.querySelectorAll('.notification-detail-content-frame');
-        var trustedFrame = Array.prototype.some.call(frames, function (frame) {
+        var frame = Array.prototype.find.call(frames, function (frame) {
             return frame.contentWindow === event.source;
         });
-        if (trustedFrame) window.PixivFeedback.followLink(data.href, {newTab: data.newTab});
+        if (!frame) return;
+        if (data.type === 'pixiv-content-height') {
+            if (typeof data.height !== 'number' || !Number.isFinite(data.height) || data.height <= 0) return;
+            frame.style.height = Math.ceil(data.height + 2) + 'px';
+            return;
+        }
+        if (data.type !== 'pixiv-external-link' || typeof data.href !== 'string'
+                || !data.href || data.href.length > 8192 || typeof data.newTab !== 'boolean'
+                || !window.PixivFeedback) return;
+        window.PixivFeedback.followLink(data.href, {newTab: data.newTab});
     }
 
     function renderDetail(message) {
@@ -388,7 +396,7 @@
 
     document.addEventListener('DOMContentLoaded', async function () {
         emptyDetail = el('notificationDetail').firstElementChild;
-        window.addEventListener('message', openContentLink);
+        window.addEventListener('message', handleContentMessage);
         bindFilters();
         bindListTools();
         await initI18n();
