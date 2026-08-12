@@ -994,6 +994,6 @@ window.PixivBatchAlt.queue = Object.assign(window.PixivBatchAlt.queue, {
     handleExport, handleExportFailed, saveQueue, loadQueueForMode, clearSavedQueue,
     setDockStatus, updateStats, renderDownloadSpeed, updateButtonsState,
     renderDock, renderQueue, renderCurrent, progressExtras, miniProgress,
-    renderQuotaBar, renderArchiveCard, updateArchiveCountdown, queueItemCard,
+    renderQuotaBar, renderArchiveCard, updateArchiveCountdown, queueItemCard: queueItemRow,
     novelTranslateMessage, ensureDockVue, altQueueVueActive
 });

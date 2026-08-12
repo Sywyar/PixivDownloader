@@ -10,7 +10,7 @@ import java.util.Map;
  * <ul>
  *   <li>{@link #deliver} 必须 <b>best-effort、绝不抛</b>：内部 {@code try/catch} 兜住一切异常并记日志，
  *       单介质失败绝不拖累其它介质，也绝不向业务调用方抛出。</li>
- *   <li>{@link #verifyRenderable} 在本介质缺少某场景的渲染资源时<b>抛异常</b>，供「成对 / 齐全维护」守护测试
+ *   <li>{@link #verifyRenderable} 在本介质缺少某场景的渲染资源时<b>抛异常</b>，供齐全性守护测试
  *       做<b>静态</b>校验——只检查资源是否齐备，<b>不</b>发送任何网络请求。</li>
  * </ul>
  * 渲染产物与日志<b>绝不含</b> cookie / PHPSESSID / 任何凭证。

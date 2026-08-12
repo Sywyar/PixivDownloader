@@ -12,7 +12,7 @@ import java.util.Map;
 
 /**
  * 统一通知协调器——业务侧的<b>唯一入口</b>。业务只需描述「发生了哪个 {@link NotificationScenario 场景}」，
- * 由本类按场景一次触发，扇出给每个 {@link NotificationSink 介质}（邮件 / 推送 / 未来新增）各自渲染并下发。
+ * 由本类按场景一次触发，扇出给每个 {@link NotificationSink 介质}各自渲染并下发。
  *
  * <p>通过 {@link NotificationSinkRegistry} 读取活动插件贡献的介质，本类<b>不感知</b>
  * 任何具体介质——<b>绝不</b>出现 {@code if mail} / {@code if push} 之类分支。
@@ -21,7 +21,7 @@ import java.util.Map;
  * {@link RuntimeException}，确保单介质的意外异常绝不中断扇出，也绝不向业务调用方抛出。
  *
  * <p>场景级开关：{@link NotificationConfig} 关闭某场景后，本类直接跳过该场景的<b>全部</b>介质
- * （邮件与推送都不发）。未配置的场景默认启用。
+ * （邮件、推送与站内信都不发）。未配置的场景默认启用。
  */
 @Service
 @Slf4j

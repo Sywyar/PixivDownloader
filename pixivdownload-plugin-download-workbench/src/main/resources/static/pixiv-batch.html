@@ -56,6 +56,10 @@
             <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
             <span class="batch-layout-toggle-label"></span>
         </button>
+        <span id="batchLangAnchor"></span>
+        <span id="batchThemeAnchor"></span>
+        <!-- 顶栏右侧纯图标槽位：紧随主题按钮，可信插件入口随插件生命周期注入。 -->
+        <template data-qt-slot="topbar-actions"></template>
     </div>
     <button id="login-btn" style="display:none;" class="app-nav-login"
             onclick="location.href='/login.html?redirect=/pixiv-batch.html'" data-i18n="auth.login">Login</button>

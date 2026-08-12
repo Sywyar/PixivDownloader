@@ -507,10 +507,11 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("九个插件 UI 槽位各保留唯一锚点")
-    void allNineUiSlotsRemainUnique() throws IOException {
+    @DisplayName("十个插件 UI 槽位各保留唯一锚点")
+    void allTenUiSlotsRemainUnique() throws IOException {
         String html = read(BATCH_HTML);
         List<String> targets = List.of(
+                "topbar-actions",
                 "cookie-tools",
                 "quick-actions-bookmarks",
                 "quick-actions-mine",
@@ -521,7 +522,7 @@ class BatchLayoutContractTest {
                 "search-filter",
                 "settings-card");
 
-        assertThat(countOccurrences(html, "data-qt-slot=\"")).as("下载页应恰有九个 UI 槽位").isEqualTo(9);
+        assertThat(countOccurrences(html, "data-qt-slot=\"")).as("下载页应恰有十个 UI 槽位").isEqualTo(10);
         for (String target : targets) {
             assertThat(countOccurrences(html, "data-qt-slot=\"" + target + "\""))
                     .as("槽位 " + target + " 必须且只能出现一次")

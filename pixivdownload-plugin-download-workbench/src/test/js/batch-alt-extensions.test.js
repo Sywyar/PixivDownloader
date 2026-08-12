@@ -19,10 +19,18 @@ const settingsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 
     'static', 'pixiv-batch-alt', 'alt-settings.js'), 'utf8');
 const queueSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-queue.js'), 'utf8');
+const engineSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt', 'alt-engine.js'), 'utf8');
+const filtersSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt', 'alt-filters.js'), 'utf8');
 const coreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-core.js'), 'utf8');
 const pageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt.html'), 'utf8');
+const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch.html'), 'utf8');
+const classicCoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch', 'batch-core.js'), 'utf8');
 const cssSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'pixiv-batch-alt.css'), 'utf8');
 
@@ -60,6 +68,18 @@ const contributions = [
 ];
 
 const noop = () => {};
+
+function slotTargets(...sources) {
+    const targets = new Set();
+    sources.forEach(text => {
+        for (const match of text.matchAll(/data-qt-slot=["']([^"']+)["']/g)) targets.add(match[1]);
+        for (const match of text.matchAll(/setAttribute\(["']data-qt-slot["'],\s*["']([^"']+)["']\)/g)) {
+            targets.add(match[1]);
+        }
+    });
+    return Array.from(targets).sort();
+}
+
 const sandbox = {
     window: {
         PixivBatch: {
@@ -153,10 +173,18 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(!pageSource.includes('data-i18n="page.switch-to-old-layout"'));
     const topbarOrder = [
         'id="abCookieChip"', 'id="abLangAnchor"', 'id="abVersion"', 'id="abScriptsBtn"',
-        'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'id="abDockToggle"', 'id="abAuthBtn"'
+        'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'data-qt-slot="topbar-actions"',
+        'id="abDockToggle"', 'id="abAuthBtn"'
     ].map(marker => pageSource.indexOf(marker));
     assert(topbarOrder.every((position, index) => position >= 0
         && (index === 0 || position > topbarOrder[index - 1])));
+    const classicTopbarOrder = [
+        'id="batchLangAnchor"', 'id="batchThemeAnchor"', 'data-qt-slot="topbar-actions"'
+    ].map(marker => classicPageSource.indexOf(marker));
+    assert(classicTopbarOrder.every((position, index) => position >= 0
+        && (index === 0 || position > classicTopbarOrder[index - 1])));
+    assert(classicCoreSource.includes("mountPoint: document.getElementById('batchLangAnchor')"));
+    assert(classicCoreSource.includes("mountPoint: document.getElementById('batchThemeAnchor')"));
     assert(pageSource.includes('<span id="abVersionText">加载中…</span>'));
     assert(!pageSource.includes('id="abVersionText" data-i18n='));
     assert(chromeSource.includes("fetch('/api/app/info', {credentials: 'same-origin'})"));
@@ -191,6 +219,7 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     // —— 插件槽位同步（settings-card / cookie-tools / import-hint 与旧布局同契约）——
     assert(pageSource.includes('/js/pixiv-vue.js'));
     assert(pageSource.includes('/pixiv-batch-alt/alt-queue-vue.js'));
+    assert(pageSource.includes('data-qt-slot="topbar-actions"'));
     assert(chromeSource.includes("setAttribute('data-qt-slot', 'cookie-tools')"));
     assert(chromeSource.includes('refreshAltSlots();'));
     assert(modesSource.includes("setAttribute('data-qt-slot', 'import-hint')"));
@@ -200,6 +229,48 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(settingsSource.includes('refreshAltSlots();'));
     assert(/\[data-vue-slot\]\s*\{\s*display:\s*contents/.test(cssSource));
     assert(/\[data-vue-slot\]:empty\s*\{\s*display:\s*none/.test(cssSource));
+    const semanticAltSlots = [
+        'kind-option-quick', 'kind-option-search', 'kind-option-user',
+        'quick-actions-bookmarks', 'quick-actions-mine', 'search-filter'
+    ];
+    assert.deepStrictEqual(
+        Array.from(new Set([...slotTargets(pageSource, chromeSource, modesSource, settingsSource),
+            ...semanticAltSlots])).sort(),
+        slotTargets(classicPageSource),
+        '旧版每个插件槽位都必须在新版有直接宿主或声明过的语义适配');
+    assert(source.includes('runtime.dataSourcesForMode(mode)')
+        && source.includes('runtime.typesForDataSource(mode, sourceId)')
+        && source.includes("runtime.acquisitionList('quick')")
+        && filtersSource.includes('let extraFilters = defaultSearchFilters();'));
+    assert(classicPageSource.includes('/js/pixiv-vue.js')
+        && classicPageSource.includes('/pixiv-batch/batch-queue-types.js')
+        && pageSource.includes('/js/pixiv-vue.js')
+        && pageSource.includes('/pixiv-batch/batch-queue-types.js'));
+    [
+        ['quick-fetch', 'QUICK_FETCH_MODE'], ['single-import', 'SINGLE_IMPORT_MODE'],
+        ['user', "id: 'user'"], ['search', "id: 'search'"],
+        ['series', "id: 'series'"], ['schedule', "id: 'schedule'"]
+    ].forEach(([classicMode, altMode]) => {
+        assert(classicPageSource.includes(`switchMode('${classicMode}')`));
+        assert(modesSource.includes(altMode));
+    });
+    [
+        ['onclick="handleStart()"', "startBtn.addEventListener('click', handleStart)"],
+        ['onclick="handlePause()"', "pauseBtn.addEventListener('click', handlePause)"],
+        ['onclick="handleRetry()"', "retryBtn.addEventListener('click', handleRetry)"],
+        ['onclick="handleClear()"', "clearBtn.addEventListener('click', handleClear)"],
+        ['onclick="handleExport()"', "exportAllBtn.addEventListener('click', handleExport)"],
+        ['onclick="handleExportFailed()"', "exportUndlBtn.addEventListener('click', handleExportFailed)"],
+        ['onclick="triggerAdminPack()"', "packBtn.addEventListener('click', triggerAdminPack)"]
+    ].forEach(([classicAction, altAction]) => {
+        assert(classicPageSource.includes(classicAction));
+        assert(queueSource.includes(altAction));
+    });
+    assert(engineSource.includes('async function handleStart()')
+        && engineSource.includes('function handlePause()')
+        && engineSource.includes('async function triggerAdminPack()'));
+    assert(queueSource.includes('queueItemCard: queueItemRow'),
+        '新版队列命名空间必须导出已定义的队列卡片函数');
     // —— 下载坞 Vue 岛门面（统计 / 当前卡 / 队列列表 reactive 主渲染，命令式回退）——
     assert(queueSource.includes('altQueueVueActive()'));
     assert(queueSource.includes('ensureDockVue();'));

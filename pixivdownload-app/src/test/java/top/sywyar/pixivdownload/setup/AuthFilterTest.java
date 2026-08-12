@@ -354,6 +354,8 @@ class AuthFilterTest {
                 "/intro.html",
                 "/intro-canary.html",
                 "/favicon.ico",
+                "/css/pixiv-feedback.css",
+                "/js/pixiv-feedback.js",
                 "/js/pixiv-i18n.js",
                 "/index/index.js",
                 "/intro/intro.css",

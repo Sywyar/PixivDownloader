@@ -1,9 +1,11 @@
 package top.sywyar.pixivdownload.core.notification;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.notification.ImmutableNotificationTemplateCatalog;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContribution;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContributor;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -24,6 +26,26 @@ public class NotificationTemplateRegistry implements NotificationTemplateCatalog
     private Map<Owner, List<NotificationTemplateContribution>> publications = Map.of();
     private volatile ImmutableNotificationTemplateCatalog snapshot =
             ImmutableNotificationTemplateCatalog.empty();
+
+    public NotificationTemplateRegistry() {
+        this(List.of());
+    }
+
+    /** 根上下文场景 owner 在宿主启动时贡献模板；外置插件仍经 publication adapter 动态注册。 */
+    @Autowired
+    public NotificationTemplateRegistry(List<NotificationTemplateContributor> initialContributors) {
+        List<NotificationTemplateContribution> templates = new ArrayList<>();
+        if (initialContributors != null) {
+            for (NotificationTemplateContributor contributor : initialContributors) {
+                if (contributor != null) {
+                    templates.addAll(contributor.notificationTemplates());
+                }
+            }
+        }
+        if (!templates.isEmpty()) {
+            registerPrepared("core", 1L, templates);
+        }
+    }
 
     public void registerPrepared(
             String pluginId,

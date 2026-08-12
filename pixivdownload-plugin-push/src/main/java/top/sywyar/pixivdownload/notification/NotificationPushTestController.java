@@ -70,7 +70,7 @@ public class NotificationPushTestController {
         Locale locale = LocaleContextHolder.getLocale();
         Map<String, String> sample = buildSamplePlaceholders(locale);
 
-        // 遍历全部场景 → 每个场景一条推送；自动覆盖未来新增场景（无需在此枚举类型）。
+        // 遍历全部场景 → 每个场景一条推送；自动覆盖未来新增场景。
         List<PushResult> all = new ArrayList<>();
         for (NotificationScenario scenario : NotificationScenario.values()) {
             PushMessage message = messageFactory.render(

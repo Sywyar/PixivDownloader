@@ -4,7 +4,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 
@@ -15,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,9 +39,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MaintenanceCoordinator {
 
     private static final DateTimeFormatter SLOT_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
+    private static final DateTimeFormatter FAILURE_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT);
+    private static final NotificationDispatcher NOOP_NOTIFICATION = (scenario, locale, placeholders) -> { };
 
     private final MaintenanceTaskRegistry taskRegistry;
     private final MaintenanceProperties properties;
+    private final NotificationDispatcher notificationDispatcher;
+    private final AppMessages messages;
     private final AtomicBoolean paused = new AtomicBoolean(false);
     private volatile Long lastStartedAt;
     private volatile Long lastFinishedAt;
@@ -46,14 +56,24 @@ public class MaintenanceCoordinator {
 
     /** Spring 上下文外 / 单元测试构造：全部传入任务视为始终保留的核心任务。 */
     public MaintenanceCoordinator(List<MaintenanceTask> tasks, MaintenanceProperties properties) {
-        this(new MaintenanceTaskRegistry(tasks), properties);
+        this(new MaintenanceTaskRegistry(tasks), properties, NOOP_NOTIFICATION, null);
+    }
+
+    /** 测试构造：不对外发送通知。 */
+    public MaintenanceCoordinator(MaintenanceTaskRegistry taskRegistry, MaintenanceProperties properties) {
+        this(taskRegistry, properties, NOOP_NOTIFICATION, null);
     }
 
     /** Spring 构造：每个维护窗口从 owner/publication-aware 注册中心取得一次稳定快照。 */
     @Autowired
-    public MaintenanceCoordinator(MaintenanceTaskRegistry taskRegistry, MaintenanceProperties properties) {
+    public MaintenanceCoordinator(MaintenanceTaskRegistry taskRegistry,
+                                  MaintenanceProperties properties,
+                                  NotificationDispatcher notificationDispatcher,
+                                  AppMessages messages) {
         this.taskRegistry = Objects.requireNonNull(taskRegistry, "maintenance task registry");
         this.properties = properties;
+        this.notificationDispatcher = Objects.requireNonNull(notificationDispatcher, "notification dispatcher");
+        this.messages = messages;
     }
 
     public boolean isEnabled() {
@@ -161,6 +181,7 @@ public class MaintenanceCoordinator {
                     }
                     log.error(MessageBundles.get("maintenance.log.task.failed",
                             name, System.currentTimeMillis() - taskStart, t.getMessage()), t);
+                    notifyTaskFailure(name, trigger, t);
                 }
             }
         } finally {
@@ -170,6 +191,35 @@ public class MaintenanceCoordinator {
             MaintenanceStatusHolder.clear();
             log.info(MessageBundles.get("maintenance.log.window.closed", finished - started));
         }
+    }
+
+    private void notifyTaskFailure(String taskName, String trigger, Throwable failure) {
+        Locale locale = messages == null
+                ? Locale.getDefault()
+                : messages.normalizeLocale(Locale.getDefault());
+        String safeTaskName = bounded(taskName);
+        String safeTrigger = messages == null
+                ? bounded(trigger)
+                : messages.getOrDefault(locale, "notification.system.maintenance-trigger." + trigger,
+                bounded(trigger));
+        String failedAt = LocalDateTime.now().format(FAILURE_TIME_FORMATTER);
+        String errorType = bounded(failure == null ? null : failure.getClass().getSimpleName());
+        notificationDispatcher.notify(NotificationScenario.MAINTENANCE_TASK_FAILED, locale, Map.of(
+                "task_name", safeTaskName,
+                "task_name_html", HtmlUtils.htmlEscape(safeTaskName),
+                "trigger", safeTrigger,
+                "trigger_html", HtmlUtils.htmlEscape(safeTrigger),
+                "failed_at", failedAt,
+                "failed_at_html", HtmlUtils.htmlEscape(failedAt),
+                "error_type", errorType,
+                "error_type_html", HtmlUtils.htmlEscape(errorType)));
+    }
+
+    private static String bounded(String value) {
+        String normalized = value == null || value.isBlank()
+                ? "unknown"
+                : value.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ').trim();
+        return normalized.length() <= 160 ? normalized : normalized.substring(0, 160);
     }
 
     private void warnInvalidScheduleOnce(DayOfWeek day, String value) {
