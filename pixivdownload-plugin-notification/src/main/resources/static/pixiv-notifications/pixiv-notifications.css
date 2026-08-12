@@ -163,6 +163,10 @@ html[data-theme="dark"] .notification-page { color-scheme: dark; }
 }
 .notification-list-tools button:disabled,
 .notification-detail-action:disabled { opacity: .55; cursor: default; }
+.notification-detail-action--danger {
+    border-color: var(--notification-danger);
+    color: var(--notification-danger);
+}
 
 .notification-status { padding: 32px 18px; color: var(--notification-muted); text-align: center; }
 .notification-status[hidden] { display: none; }

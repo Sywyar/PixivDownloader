@@ -56,6 +56,10 @@ class FakeElement {
         this.attributes[name] = String(value);
     }
 
+    getAttribute(name) {
+        return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+    }
+
     addEventListener(type, listener) {
         (this.listeners[type] || (this.listeners[type] = [])).push(listener);
     }
@@ -117,6 +121,7 @@ function createDocument() {
             (listeners[type] || []).slice().forEach(listener => listener(event));
         }
     };
+    document.documentElement = {lang: 'zh-CN'};
     document.body = new FakeElement(document, 'body');
     document.activeElement = document.body;
     return document;
@@ -124,10 +129,33 @@ function createDocument() {
 
 function loadFeedback() {
     const document = createDocument();
-    const window = {setTimeout, clearTimeout};
-    const context = vm.createContext({window, document, console, Date, Promise, Array, Object, String, Number, Math, Set});
+    const assigned = [];
+    const opened = [];
+    const window = {
+        setTimeout,
+        clearTimeout,
+        location: {
+            href: 'http://localhost:8080/page',
+            origin: 'http://localhost:8080',
+            assign(value) { assigned.push(value); }
+        },
+        open(value, target, features) { opened.push({value, target, features}); },
+        PixivI18n: {
+            create() {
+                return Promise.resolve({
+                    t(key, fallback, vars) {
+                        return Object.keys(vars || {}).reduce((text, name) =>
+                            text.split('{' + name + '}').join(String(vars[name])), fallback);
+                    }
+                });
+            }
+        }
+    };
+    const context = vm.createContext({
+        window, document, console, Date, Promise, Array, Object, String, Number, Math, Set, URL
+    });
     vm.runInContext(source, context, {filename: 'pixiv-feedback.js'});
-    return {document, feedback: window.PixivFeedback};
+    return {document, window, assigned, opened, feedback: window.PixivFeedback};
 }
 
 function nextTurn() {
@@ -140,6 +168,16 @@ function actionButton(document, action) {
 
 function actionContainer(button) {
     return button.parentNode;
+}
+
+function clickEvent(target, values) {
+    return Object.assign({
+        target,
+        button: 0,
+        defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; },
+        stopImmediatePropagation() { this.propagationStopped = true; }
+    }, values || {});
 }
 
 (async function run() {
@@ -236,6 +274,59 @@ function actionContainer(button) {
         actionContainer(cancel).emit('click', {target: cancel});
         await pending;
         ok(document.activeElement === trigger, 'dialog restores focus to the invoking control');
+    }
+
+    {
+        const {document} = loadFeedback();
+        const link = document.createElement('a');
+        link.setAttribute('href', '/pixiv-gallery.html');
+        const event = clickEvent(link);
+        document.emit('click', event);
+        ok(!event.defaultPrevented && document.body.children.length === 0,
+            'same-origin links retain native navigation without a dialog');
+    }
+
+    {
+        const {document, opened} = loadFeedback();
+        const link = document.createElement('a');
+        link.setAttribute('href', 'https://example.com/path');
+        link.setAttribute('target', '_blank');
+        const event = clickEvent(link);
+        document.emit('click', event);
+        await nextTurn();
+        const message = find(document.body, node => node.className === 'pixiv-feedback-message');
+        ok(event.defaultPrevented && event.propagationStopped,
+            'external links are stopped before browser navigation');
+        ok(message && message.textContent.includes('https://example.com/path'),
+            'external-link confirmation displays the normalized destination');
+        ok(document.activeElement.dataset.feedbackAction === 'cancel',
+            'external-link confirmation initially focuses cancel');
+        const accept = actionButton(document, 'accept');
+        actionContainer(accept).emit('click', {target: accept});
+        await nextTurn();
+        ok(opened.length === 1 && opened[0].target === '_blank'
+            && opened[0].features === 'noopener,noreferrer',
+            'confirmed target-blank links open with opener isolation');
+    }
+
+    {
+        const repoRoot = path.resolve(__dirname, '../../../..');
+        const missing = [];
+        fs.readdirSync(repoRoot, {withFileTypes: true})
+            .filter(entry => entry.isDirectory() && /^pixivdownload-(app|plugin-)/.test(entry.name))
+            .forEach(entry => {
+                const staticRoot = path.join(repoRoot, entry.name, 'src', 'main', 'resources', 'static');
+                if (!fs.existsSync(staticRoot)) return;
+                fs.readdirSync(staticRoot)
+                    .filter(name => name.endsWith('.html') && name !== 'index.html')
+                    .forEach(name => {
+                        const html = fs.readFileSync(path.join(staticRoot, name), 'utf8');
+                        if (!html.includes('/js/pixiv-feedback.js') || !html.includes('/css/pixiv-feedback.css')) {
+                            missing.push(entry.name + '/' + name);
+                        }
+                    });
+            });
+        ok(missing.length === 0, 'all site pages load the external-link guard: ' + missing.join(', '));
     }
 
     console.log(`pixiv-feedback.test.js: ${passed} assertions passed`);

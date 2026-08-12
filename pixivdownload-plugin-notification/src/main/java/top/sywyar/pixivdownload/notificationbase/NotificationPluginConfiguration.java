@@ -6,6 +6,7 @@ import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
@@ -17,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpCookiePolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRedirectPolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
 
 import java.time.Duration;
@@ -42,8 +44,25 @@ public class NotificationPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(NotificationPlugin.ID)
-    public NotificationInboxService notificationInboxService(NotificationInboxMapper mapper) {
-        return new NotificationInboxService(mapper);
+    public NotificationInboxService notificationInboxService(NotificationInboxMapper mapper,
+                                                              Environment environment) {
+        return new NotificationInboxService(
+                mapper,
+                () -> environment.getProperty(
+                        NotificationPlugin.INBOX_MAX_MESSAGES_KEY,
+                        Integer.class,
+                        NotificationPlugin.DEFAULT_INBOX_MAX_MESSAGES),
+                () -> environment.getProperty(
+                        NotificationPlugin.INBOX_RETENTION_DAYS_KEY,
+                        Integer.class,
+                        NotificationPlugin.DEFAULT_INBOX_RETENTION_DAYS));
+    }
+
+    @Bean
+    @Order(110)
+    @ConditionalOnPluginEnabled(NotificationPlugin.ID)
+    public MaintenanceTask notificationInboxRetentionTask(NotificationInboxService inbox) {
+        return new NotificationInboxRetentionTask(inbox);
     }
 
     @Bean(name = "notificationAnnouncementTaskScheduler", destroyMethod = "shutdown")

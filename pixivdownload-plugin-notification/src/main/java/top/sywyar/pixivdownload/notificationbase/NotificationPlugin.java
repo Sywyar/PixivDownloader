@@ -33,6 +33,10 @@ public class NotificationPlugin implements PixivFeaturePlugin {
 
     public static final String ID = "notification";
     static final String INBOX_ENABLED_KEY = "notification.inbox.enabled";
+    static final String INBOX_MAX_MESSAGES_KEY = "notification.inbox.max-messages";
+    static final String INBOX_RETENTION_DAYS_KEY = "notification.inbox.retention-days";
+    static final int DEFAULT_INBOX_MAX_MESSAGES = 500;
+    static final int DEFAULT_INBOX_RETENTION_DAYS = 90;
 
     private static final String NOTIFICATION_SERVICES_SECTION = "notification.services";
     private static final String INBOX_CARD_ID = "inbox";
@@ -106,6 +110,10 @@ public class NotificationPlugin implements PixivFeaturePlugin {
     public List<GuiConfigContribution> guiConfigContributions() {
         List<GuiConfigFieldContribution> fields = new java.util.ArrayList<>();
         fields.add(inboxField());
+        fields.add(inboxRetentionField(
+                INBOX_MAX_MESSAGES_KEY, DEFAULT_INBOX_MAX_MESSAGES, 100));
+        fields.add(inboxRetentionField(
+                INBOX_RETENTION_DAYS_KEY, DEFAULT_INBOX_RETENTION_DAYS, 110));
         fields.addAll(Arrays.stream(NotificationScenario.values())
                 .map(NotificationPlugin::scenarioField)
                 .toList());
@@ -145,12 +153,10 @@ public class NotificationPlugin implements PixivFeaturePlugin {
                 List.of(),
                 GuiConfigSectionLayout.CARD_SWITCHER,
                 200,
-                List.of(new GuiConfigFieldLayoutContribution(
-                        INBOX_ENABLED_KEY,
-                        INBOX_CARD_ID,
-                        "gui.config.notification.service.inbox",
-                        ID,
-                        90)),
+                List.of(
+                        inboxLayout(INBOX_ENABLED_KEY, 90),
+                        inboxLayout(INBOX_MAX_MESSAGES_KEY, 100),
+                        inboxLayout(INBOX_RETENTION_DAYS_KEY, 110)),
                 List.of(inboxTestAction(), inboxTestAllAction()),
                 List.of(),
                 true,
@@ -175,6 +181,35 @@ public class NotificationPlugin implements PixivFeaturePlugin {
                 List.of(),
                 null,
                 null);
+    }
+
+    private static GuiConfigFieldContribution inboxRetentionField(String key, int defaultValue, int order) {
+        return new GuiConfigFieldContribution(
+                key,
+                GuiConfigGroups.NOTIFICATION,
+                "gui.config.field." + key + ".label",
+                "gui.config.field." + key + ".help",
+                ID,
+                GuiConfigFieldType.INT,
+                Integer.toString(defaultValue),
+                order,
+                false,
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                1,
+                null,
+                false);
+    }
+
+    private static GuiConfigFieldLayoutContribution inboxLayout(String fieldKey, int order) {
+        return new GuiConfigFieldLayoutContribution(
+                fieldKey,
+                INBOX_CARD_ID,
+                "gui.config.notification.service.inbox",
+                ID,
+                order);
     }
 
     private static GuiConfigActionContribution inboxTestAction() {

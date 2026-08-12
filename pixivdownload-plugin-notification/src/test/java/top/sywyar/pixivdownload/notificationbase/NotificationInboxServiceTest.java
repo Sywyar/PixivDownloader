@@ -6,7 +6,9 @@ import top.sywyar.pixivdownload.notification.NotificationSeverity;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -52,15 +54,19 @@ class NotificationInboxServiceTest {
     }
 
     @Test
-    @DisplayName("远程正文只接受固定 GitHub Pages 项目内的规范 HTML 地址")
-    void acceptsOnlyControlledContentUrls() {
+    @DisplayName("公告与调查复用本地 HTML 对象且远程来源受固定项目约束")
+    void storesReusableHtmlContentFromControlledSources() {
         NotificationInboxService service = new NotificationInboxService(new MemoryMapper());
 
-        NotificationMessage message = service.publish(
-                NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
-                "Title", "Body", null, CONTENT_URL);
+        NotificationMessage message = service.publishHtml(
+                NotificationCategory.SURVEY, NotificationSeverity.INFO, null,
+                "Title", "Body", null,
+                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>Survey</p>"));
 
         assertThat(message.contentUrl()).isEqualTo(CONTENT_URL);
+        assertThat(message.hasHtmlContent()).isTrue();
+        assertThat(service.htmlContent(message.id())).isEqualTo(
+                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>Survey</p>"));
         for (String url : List.of(
                 "http://sywyar.github.io/PixivDownloader-Remote-Content/a.html",
                 "https://sywyar.github.io.evil.example/PixivDownloader-Remote-Content/a.html",
@@ -73,9 +79,10 @@ class NotificationInboxServiceTest {
                 "https://sywyar.github.io:443/PixivDownloader-Remote-Content/a.html",
                 "https://user@sywyar.github.io/PixivDownloader-Remote-Content/a.html",
                 "https://sywyar.github.io/PixivDownloader-Remote-Content/a.htm")) {
-            assertThatThrownBy(() -> service.publish(
-                    NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
-                    "Title", "Body", null, url))
+            assertThatThrownBy(() -> service.publishHtml(
+                    NotificationCategory.SURVEY, NotificationSeverity.INFO, null,
+                    "Title", "Body", null,
+                    new NotificationHtmlContent(url, "<!doctype html><p>Survey</p>")))
                     .as(url)
                     .isInstanceOf(IllegalArgumentException.class);
         }
@@ -88,9 +95,11 @@ class NotificationInboxServiceTest {
         NotificationInboxService service = new NotificationInboxService(mapper);
         mapper.insert(new NotificationMessage(
                 "tampered", "announcement", "INFO", null, "Title", "Body",
-                "https://evil.example/a.html", null, 1, null));
+                "https://evil.example/a.html", "<!doctype html><p>Tampered</p>", null, 1, null));
 
         assertThat(service.find("tampered").contentUrl()).isNull();
+        assertThat(service.find("tampered").hasHtmlContent()).isFalse();
+        assertThat(service.htmlContent("tampered")).isNull();
         assertThat(service.latest(NotificationCategory.ANNOUNCEMENT, false, 10))
                 .singleElement()
                 .extracting(NotificationMessage::contentUrl)
@@ -114,12 +123,57 @@ class NotificationInboxServiceTest {
         assertThat(service.unreadCount()).isZero();
     }
 
+    @Test
+    @DisplayName("显式删除远程公告后同一稳定编号不会被重新拉取复活")
+    void keepsRemoteAnnouncementDismissedAcrossRefetch() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper);
+
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.INFO, "Title", "Body",
+                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>First</p>"), 1)).isTrue();
+        assertThat(service.delete("remote-announcement:stable")).isTrue();
+
+        assertThat(service.find("remote-announcement:stable")).isNull();
+        assertThat(service.htmlContent("remote-announcement:stable")).isNull();
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.WARNING, "Changed", "Changed",
+                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>Changed</p>"), 2)).isFalse();
+        assertThat(service.needsRemoteAnnouncementImport("stable")).isFalse();
+    }
+
+    @Test
+    @DisplayName("写入下载或系统消息后立即限制共享保留池")
+    void prunesSharedPoolAfterPublish() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> 2, () -> 90);
+
+        service.publish(NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
+                "Announcement", "Body", null);
+        service.publish(NotificationCategory.DOWNLOAD, NotificationSeverity.INFO, null,
+                "Download 1", "Body", null);
+        service.publish(NotificationCategory.SYSTEM, NotificationSeverity.INFO, null,
+                "System", "Body", null);
+        service.publish(NotificationCategory.DOWNLOAD, NotificationSeverity.INFO, null,
+                "Download 2", "Body", null);
+
+        List<NotificationMessage> messages = service.latest(null, false, 100);
+        assertThat(messages).filteredOn(message ->
+                        NotificationCategory.ANNOUNCEMENT.token().equals(message.category()))
+                .hasSize(1);
+        assertThat(messages).filteredOn(message ->
+                        NotificationCategory.DOWNLOAD.token().equals(message.category())
+                                || NotificationCategory.SYSTEM.token().equals(message.category()))
+                .hasSize(2);
+    }
+
     static final class MemoryMapper implements NotificationInboxMapper {
         private final List<NotificationMessage> messages = new ArrayList<>();
+        private final Set<String> dismissedIds = new HashSet<>();
 
         @Override
         public int insert(NotificationMessage message) {
-            if (findById(message.id()) != null) {
+            if (dismissedIds.contains(message.id()) || findById(message.id()) != null) {
                 return 0;
             }
             messages.add(message);
@@ -142,6 +196,38 @@ class NotificationInboxServiceTest {
         }
 
         @Override
+        public NotificationHtmlContent findHtmlContent(String id) {
+            NotificationMessage message = findById(id);
+            return message == null || message.contentHtml() == null
+                    ? null
+                    : new NotificationHtmlContent(message.contentUrl(), message.contentHtml());
+        }
+
+        @Override
+        public boolean needsRemoteAnnouncementImport(String id) {
+            NotificationMessage message = findById(id);
+            return !dismissedIds.contains(id)
+                    && (message == null
+                    || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())
+                    && message.contentHtml() == null);
+        }
+
+        @Override
+        public int restoreRemoteAnnouncementHtml(String id, String contentUrl, String contentHtml) {
+            NotificationMessage current = findById(id);
+            if (current == null || current.contentHtml() != null
+                    || !NotificationCategory.ANNOUNCEMENT.token().equals(current.category())) {
+                return 0;
+            }
+            messages.remove(current);
+            messages.add(new NotificationMessage(
+                    current.id(), current.category(), current.severity(), current.scenarioId(),
+                    current.title(), current.body(), contentUrl, contentHtml, current.actionUrl(),
+                    current.createdTime(), current.readTime()));
+            return 1;
+        }
+
+        @Override
         public long countUnread(String category) {
             return messages.stream()
                     .filter(message -> category == null || category.equals(message.category()))
@@ -156,7 +242,8 @@ class NotificationInboxServiceTest {
                 if (message.id().equals(id) && message.readTime() == null) {
                     messages.set(index, new NotificationMessage(
                             message.id(), message.category(), message.severity(), message.scenarioId(),
-                            message.title(), message.body(), message.contentUrl(), message.actionUrl(),
+                            message.title(), message.body(), message.contentUrl(), message.contentHtml(),
+                            message.actionUrl(),
                             message.createdTime(), Math.max(message.createdTime(), readTime)));
                     return 1;
                 }
@@ -173,6 +260,45 @@ class NotificationInboxServiceTest {
                 }
             }
             return updated;
+        }
+
+        @Override
+        public int dismissAnnouncement(String id, long deletedTime) {
+            NotificationMessage message = findById(id);
+            if (message == null || !NotificationCategory.ANNOUNCEMENT.token().equals(message.category())) {
+                return 0;
+            }
+            messages.remove(message);
+            dismissedIds.add(id);
+            return 1;
+        }
+
+        @Override
+        public int deleteNonAnnouncement(String id) {
+            NotificationMessage message = findById(id);
+            if (message == null || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())) {
+                return 0;
+            }
+            messages.remove(message);
+            return 1;
+        }
+
+        @Override
+        public int pruneRetentionPool(long cutoffTime, int maxMessages) {
+            Set<String> retainedIds = messages.stream()
+                    .filter(message -> message.category().equals(NotificationCategory.DOWNLOAD.token())
+                            || message.category().equals(NotificationCategory.SYSTEM.token()))
+                    .filter(message -> message.createdTime() >= cutoffTime)
+                    .sorted(Comparator.comparingLong(NotificationMessage::createdTime).reversed()
+                            .thenComparing(NotificationMessage::id, Comparator.reverseOrder()))
+                    .limit(maxMessages)
+                    .map(NotificationMessage::id)
+                    .collect(java.util.stream.Collectors.toSet());
+            int before = messages.size();
+            messages.removeIf(message -> (message.category().equals(NotificationCategory.DOWNLOAD.token())
+                    || message.category().equals(NotificationCategory.SYSTEM.token()))
+                    && !retainedIds.contains(message.id()));
+            return before - messages.size();
         }
     }
 }

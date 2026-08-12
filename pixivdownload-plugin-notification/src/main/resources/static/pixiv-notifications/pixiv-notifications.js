@@ -4,8 +4,6 @@
     var pageI18n = null;
     var emptyDetail = null;
     var loadSequence = 0;
-    var CONTENT_ORIGIN = 'https://sywyar.github.io';
-    var CONTENT_PATH = /^\/PixivDownloader-Remote-Content\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.html$/;
     var state = {
         category: '', unreadOnly: false, messages: [], unreadCount: 0,
         selectedId: '', selectedMessage: null
@@ -132,36 +130,29 @@
         }
     }
 
-    function safeContentHref(value) {
-        if (typeof value !== 'string' || value.length > 2048 || value !== value.trim()
-                || /[\0-\x1F\x7F\\]/.test(value)) return null;
-        try {
-            var url = new URL(value);
-            return url.origin === CONTENT_ORIGIN
-                && url.protocol === 'https:'
-                && !url.username && !url.password && !url.port
-                && !url.search && !url.hash
-                && CONTENT_PATH.test(url.pathname)
-                && url.href === CONTENT_ORIGIN + url.pathname
-                ? url : null;
-        } catch (e) {
-            return null;
-        }
-    }
-
     function contentFrame(message) {
-        var contentUrl = safeContentHref(message.contentUrl);
-        if (!contentUrl) return null;
+        if (!message || !message.id || !message.hasHtmlContent) return null;
         var frame = document.createElement('iframe');
         frame.className = 'notification-detail-content-frame';
-        frame.src = contentUrl.href;
-        frame.title = t('inbox.remote-content', '远程消息正文') + '：' + message.title;
-        frame.setAttribute('sandbox', '');
+        frame.src = '/api/notifications/' + encodeURIComponent(message.id) + '/content';
+        frame.title = t('inbox.html-content', '消息 HTML 正文') + '：' + message.title;
+        frame.setAttribute('sandbox', 'allow-scripts');
         frame.setAttribute('referrerpolicy', 'no-referrer');
-        frame.setAttribute('credentialless', '');
         frame.setAttribute('loading', 'lazy');
         frame.setAttribute('allow', "camera 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'");
         return frame;
+    }
+
+    function openContentLink(event) {
+        var data = event.data;
+        if (!data || data.type !== 'pixiv-external-link' || typeof data.href !== 'string'
+                || !data.href || data.href.length > 8192 || typeof data.newTab !== 'boolean'
+                || !window.PixivFeedback) return;
+        var frames = document.querySelectorAll('.notification-detail-content-frame');
+        var trustedFrame = Array.prototype.some.call(frames, function (frame) {
+            return frame.contentWindow === event.source;
+        });
+        if (trustedFrame) window.PixivFeedback.followLink(data.href, {newTab: data.newTab});
     }
 
     function renderDetail(message) {
@@ -201,12 +192,18 @@
         markRead.setAttribute('data-i18n', message.readTime ? 'inbox.read' : 'inbox.mark-read');
         markRead.textContent = message.readTime ? t('inbox.read', '已读') : t('inbox.mark-read', '标记已读');
         if (!message.readTime) markRead.addEventListener('click', markSelectedRead);
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'notification-detail-action notification-detail-action--danger';
+        remove.setAttribute('data-i18n', 'inbox.delete');
+        remove.textContent = t('inbox.delete', '删除');
+        remove.addEventListener('click', deleteSelected);
         var actionStatus = document.createElement('span');
         actionStatus.id = 'notificationDetailActionStatus';
         actionStatus.className = 'notification-detail-action-status';
         actionStatus.setAttribute('role', 'status');
         actionStatus.setAttribute('aria-live', 'polite');
-        toolbar.append(markRead, actionStatus);
+        toolbar.append(markRead, remove, actionStatus);
         detail.appendChild(toolbar);
 
         var actionUrl = safeActionHref(message.actionUrl);
@@ -245,6 +242,35 @@
             if (button) button.disabled = false;
             var status = el('notificationDetailActionStatus');
             if (status) status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+        }
+    }
+
+    async function deleteSelected(event) {
+        var id = state.selectedId;
+        var message = state.selectedMessage;
+        if (!id || !message || !window.PixivFeedback) return;
+        var confirmed = await window.PixivFeedback.confirm({
+            title: t('inbox.delete-confirm-title', '删除消息'),
+            message: message.category === 'announcement'
+                ? t('inbox.delete-confirm-announcement', '删除后，即使重新拉取也不会再次显示同一公告。')
+                : t('inbox.delete-confirm', '删除后将无法恢复这条消息。'),
+            confirmLabel: t('inbox.delete-confirm-button', '删除'),
+            cancelLabel: t('inbox.delete-cancel', '取消'),
+            danger: true
+        });
+        if (!confirmed || state.selectedId !== id) return;
+        var button = event && event.currentTarget;
+        if (button) button.disabled = true;
+        try {
+            await api('/api/notifications/' + encodeURIComponent(id), { method: 'DELETE' });
+            if (state.selectedId !== id) return;
+            if (!message.readTime) state.unreadCount = Math.max(0, state.unreadCount - 1);
+            state.messages = state.messages.filter(function (item) { return item.id !== id; });
+            clearSelection(true);
+        } catch (error) {
+            if (button) button.disabled = false;
+            var status = el('notificationDetailActionStatus');
+            if (status) status.textContent = t('inbox.delete-failed', '删除消息失败');
         }
     }
 
@@ -362,6 +388,7 @@
 
     document.addEventListener('DOMContentLoaded', async function () {
         emptyDetail = el('notificationDetail').firstElementChild;
+        window.addEventListener('message', openContentLink);
         bindFilters();
         bindListTools();
         await initI18n();

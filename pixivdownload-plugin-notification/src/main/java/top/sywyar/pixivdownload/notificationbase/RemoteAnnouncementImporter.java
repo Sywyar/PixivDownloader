@@ -111,10 +111,15 @@ public final class RemoteAnnouncementImporter {
             try {
                 Announcement announcement = announcement(
                         announcements.get(position), requiredLocales, seenIds);
-                if (inbox.insertRemoteAnnouncementIfAbsent(
+                if (!inbox.needsRemoteAnnouncementImport(announcement.id())) {
+                    continue;
+                }
+                NotificationHtmlContent htmlContent = fetchHtml(
+                        announcement.translation().contentUrl());
+                if (inbox.storeRemoteAnnouncement(
                         announcement.id(), announcement.severity(),
                         announcement.translation().title(), announcement.translation().summary(),
-                        announcement.translation().contentUrl(), announcement.publishedAt())) {
+                        htmlContent, announcement.publishedAt())) {
                     imported++;
                 }
             } catch (RejectedIndex | IllegalArgumentException exception) {
@@ -136,7 +141,7 @@ public final class RemoteAnnouncementImporter {
                 throw rejected("http-status");
             }
             requireJsonContentType(response.headers().get("Content-Type"));
-            rejectOversizeContentLength(response.headers().get("Content-Length"));
+            rejectOversizeContentLength(response.headers().get("Content-Length"), MAX_INDEX_BYTES);
             byte[] bytes = response.body().readNBytes(MAX_INDEX_BYTES + 1);
             if (bytes.length > MAX_INDEX_BYTES) {
                 throw rejected("response-size");
@@ -148,23 +153,54 @@ public final class RemoteAnnouncementImporter {
         }
     }
 
+    private NotificationHtmlContent fetchHtml(String contentUrl) {
+        OutboundHttpRequest request = new OutboundHttpRequest(
+                URI.create(contentUrl),
+                "GET",
+                Map.of("Accept", List.of("text/html")),
+                new byte[0]);
+        try (OutboundHttpStreamResponse response = client.exchangeStream(request)) {
+            if (response.statusCode() != 200) {
+                throw rejected("content-http-status");
+            }
+            requireHtmlContentType(response.headers().get("Content-Type"));
+            rejectOversizeContentLength(
+                    response.headers().get("Content-Length"), NotificationHtmlContent.MAX_HTML_BYTES);
+            byte[] bytes = response.body().readNBytes(NotificationHtmlContent.MAX_HTML_BYTES + 1);
+            if (bytes.length > NotificationHtmlContent.MAX_HTML_BYTES) {
+                throw rejected("content-response-size");
+            }
+            return new NotificationHtmlContent(contentUrl, decodeUtf8(bytes, "invalid-html"));
+        } catch (IOException | OutboundHttpTransportException exception) {
+            throw rejected("content-transport");
+        }
+    }
+
     private JsonNode parse(byte[] bytes) {
         if (bytes == null || bytes.length == 0 || bytes.length > MAX_INDEX_BYTES) {
             throw rejected("response-size");
         }
         try {
-            String json = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(bytes))
-                    .toString();
+            String json = decodeUtf8(bytes, "invalid-json");
             JsonNode root = objectMapper.readTree(json);
             if (root == null) {
                 throw rejected("invalid-json");
             }
             return root;
-        } catch (CharacterCodingException | JsonProcessingException exception) {
+        } catch (JsonProcessingException exception) {
             throw rejected("invalid-json");
+        }
+    }
+
+    private static String decodeUtf8(byte[] bytes, String code) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException exception) {
+            throw rejected(code);
         }
     }
 
@@ -317,14 +353,24 @@ public final class RemoteAnnouncementImporter {
         }
     }
 
-    private static void rejectOversizeContentLength(List<String> values) {
+    private static void requireHtmlContentType(List<String> values) {
+        if (values == null || values.size() != 1) {
+            throw rejected("content-type");
+        }
+        String mediaType = values.get(0).split(";", 2)[0].trim();
+        if (!"text/html".equalsIgnoreCase(mediaType)) {
+            throw rejected("content-type");
+        }
+    }
+
+    private static void rejectOversizeContentLength(List<String> values, int maximumBytes) {
         if (values == null) {
             return;
         }
         for (String value : values) {
             try {
                 long length = Long.parseLong(value.trim());
-                if (length < 0 || length > MAX_INDEX_BYTES) {
+                if (length < 0 || length > maximumBytes) {
                     throw rejected("response-size");
                 }
             } catch (NumberFormatException exception) {

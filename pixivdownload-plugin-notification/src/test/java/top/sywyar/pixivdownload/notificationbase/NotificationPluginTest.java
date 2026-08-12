@@ -103,18 +103,37 @@ class NotificationPluginTest {
                     assertThat(field.requiresRestart()).isFalse();
                     assertThat(field.contributesGroupVisibility()).isTrue();
                 });
+        assertThat(fields).filteredOn(field -> field.key().equals(NotificationPlugin.INBOX_MAX_MESSAGES_KEY))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
+                    assertThat(field.defaultValue()).isEqualTo("500");
+                    assertThat(field.minValue()).isEqualTo(1);
+                    assertThat(field.requiresRestart()).isFalse();
+                });
+        assertThat(fields).filteredOn(field -> field.key().equals(NotificationPlugin.INBOX_RETENTION_DAYS_KEY))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
+                    assertThat(field.defaultValue()).isEqualTo("90");
+                    assertThat(field.minValue()).isEqualTo(1);
+                    assertThat(field.requiresRestart()).isFalse();
+                });
         assertThat(sections).filteredOn(section -> section.sectionId().equals("notification.services"))
                 .singleElement()
                 .satisfies(section -> {
                     assertThat(section.layout()).isEqualTo(GuiConfigSectionLayout.CARD_SWITCHER);
                     assertThat(section.mergeable()).isTrue();
                     assertThat(section.contributesGroupVisibility()).isTrue();
-                    assertThat(section.fieldLayouts()).singleElement().satisfies(layout -> {
-                        assertThat(layout.fieldKey()).isEqualTo(NotificationPlugin.INBOX_ENABLED_KEY);
+                    assertThat(section.fieldLayouts()).hasSize(3).allSatisfy(layout -> {
                         assertThat(layout.cardId()).isEqualTo("inbox");
                         assertThat(layout.cardLabelKey()).isEqualTo("gui.config.notification.service.inbox");
                         assertThat(layout.i18nNamespace()).isEqualTo(NotificationPlugin.ID);
                     });
+                    assertThat(section.fieldLayouts()).extracting(GuiConfigFieldLayoutContribution::fieldKey)
+                            .containsExactly(NotificationPlugin.INBOX_ENABLED_KEY,
+                                    NotificationPlugin.INBOX_MAX_MESSAGES_KEY,
+                                    NotificationPlugin.INBOX_RETENTION_DAYS_KEY);
                     assertThat(section.actions()).hasSize(2)
                             .extracting(GuiConfigActionContribution::actionId)
                             .containsExactly("notification.inbox.test", "notification.inbox.test-all");
@@ -154,13 +173,16 @@ class NotificationPluginTest {
                     assertThat(table.name()).isEqualTo("notification_messages");
                     assertThat(table.columns()).extracting(column -> column.name())
                             .containsExactly("id", "category", "severity", "scenario_id", "title", "body",
-                                    "content_url", "action_url", "created_time", "read_time");
+                                    "content_url", "content_html", "action_url", "created_time", "read_time",
+                                    "deleted_time");
                     assertThat(table.indexes()).extracting(index -> index.name())
                             .containsExactly("idx_notification_messages_created_time",
                                     "idx_notification_messages_unread_created");
                     assertThat(table.checkExpression())
                             .contains("category IN ('download','announcement','survey','system')")
-                            .contains("severity IN ('INFO','WARNING','ERROR')");
+                            .contains("severity IN ('INFO','WARNING','ERROR')")
+                            .contains("content_html IS NULL OR length(content_html) > 0")
+                            .contains("deleted_time IS NULL OR deleted_time >= created_time");
                 }));
         assertThat(plugin.navigation()).isEmpty();
         assertThat(pf4j.configurationClasses()).containsExactly(NotificationPluginConfiguration.class);

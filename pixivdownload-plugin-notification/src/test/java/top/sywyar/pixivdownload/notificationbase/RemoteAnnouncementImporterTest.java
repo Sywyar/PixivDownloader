@@ -82,20 +82,29 @@ class RemoteAnnouncementImporterTest {
             assertThat(message.severity()).isEqualTo("ERROR");
             assertThat(message.title()).isEqualTo("English newer");
             assertThat(message.body()).isEqualTo("English summary newer");
+            assertThat(message.hasHtmlContent()).isTrue();
             assertThat(message.actionUrl()).isNull();
             assertThat(message.readTime()).isNull();
             assertThat(message.createdTime()).isEqualTo(Instant.parse("2026-08-12T00:00:00Z").toEpochMilli());
         });
         assertThat(harness.inbox.find("remote-announcement:older").severity()).isEqualTo("WARNING");
-        assertThat(harness.client.lastRequest).satisfies(request -> {
+        assertThat(harness.inbox.htmlContent("remote-announcement:newer")).satisfies(content -> {
+            assertThat(content.sourceUrl()).endsWith("/newer/en-US.html");
+            assertThat(content.html()).isEqualTo(htmlBody());
+        });
+        assertThat(harness.client.lastIndexRequest).satisfies(request -> {
             assertThat(request.uri()).isEqualTo(RemoteAnnouncementImporter.INDEX_URI);
             assertThat(request.method()).isEqualTo("GET");
             assertThat(request.headers()).containsEntry("Accept", List.of("application/json"));
         });
+        assertThat(harness.client.lastContentRequest).satisfies(request -> {
+            assertThat(request.uri().toString()).endsWith("/newer/en-US.html");
+            assertThat(request.headers()).containsEntry("Accept", List.of("text/html"));
+        });
     }
 
     @Test
-    @DisplayName("重复轮询不复制公告、不改写已读状态或首次选择的语言")
+    @DisplayName("重复轮询不改写首次内容，显式删除后也不重新拉取复活")
     void repeatedPollKeepsFirstLocalizedHistoryAndReadState() {
         AtomicReference<Locale> locale = new AtomicReference<>(Locale.SIMPLIFIED_CHINESE);
         Harness harness = harness(locale);
@@ -103,8 +112,11 @@ class RemoteAnnouncementImporterTest {
 
         assertThat(harness.importer.importIndex(index)).isEqualTo(1);
         NotificationMessage first = harness.inbox.find("remote-announcement:stable");
+        NotificationHtmlContent firstContent = harness.inbox.htmlContent(first.id());
         NotificationMessage read = harness.inbox.markRead(first.id());
         locale.set(Locale.US);
+        harness.client.contentPlan = new ResponsePlan(
+                200, htmlHeaders(), bytes("<!doctype html><p>Changed</p>"), null);
 
         assertThat(harness.importer.importIndex(index)).isZero();
         assertThat(harness.inbox.find(first.id())).satisfies(message -> {
@@ -113,7 +125,36 @@ class RemoteAnnouncementImporterTest {
             assertThat(message.contentUrl()).endsWith("/stable/zh-CN.html");
             assertThat(message.readTime()).isEqualTo(read.readTime());
         });
+        assertThat(harness.inbox.htmlContent(first.id())).isEqualTo(firstContent);
+        assertThat(harness.client.contentRequests).hasValue(1);
         assertThat(harness.inbox.unreadCount()).isZero();
+
+        assertThat(harness.inbox.delete(first.id())).isTrue();
+        assertThat(harness.importer.importIndex(index)).isZero();
+        assertThat(harness.inbox.find(first.id())).isNull();
+        assertThat(harness.client.contentRequests).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("旧记录缺少本地正文时补拉 HTML 并保留历史状态")
+    void backfillsHtmlForExistingAnnouncementWithoutLocalContent() {
+        Harness harness = harness(Locale.SIMPLIFIED_CHINESE);
+        long publishedAt = Instant.parse(PUBLISHED).toEpochMilli();
+        harness.mapper.insert(new NotificationMessage(
+                "remote-announcement:legacy", "announcement", "INFO", null,
+                "既有标题", "既有摘要", contentBase() + "legacy/zh-CN.html", null, null,
+                publishedAt, publishedAt + 1));
+
+        assertThat(harness.importer.importIndex(bytes(index(item("legacy", PUBLISHED, "info")))))
+                .isEqualTo(1);
+        assertThat(harness.inbox.find("remote-announcement:legacy")).satisfies(message -> {
+            assertThat(message.title()).isEqualTo("既有标题");
+            assertThat(message.body()).isEqualTo("既有摘要");
+            assertThat(message.readTime()).isEqualTo(publishedAt + 1);
+            assertThat(message.hasHtmlContent()).isTrue();
+        });
+        assertThat(harness.inbox.htmlContent("remote-announcement:legacy").html()).isEqualTo(htmlBody());
+        assertThat(harness.client.contentRequests).hasValue(1);
     }
 
     @Test
@@ -216,6 +257,26 @@ class RemoteAnnouncementImporterTest {
     }
 
     @Test
+    @DisplayName("正文超时、错误媒体类型、非法 UTF-8 与超大响应只拒绝对应公告")
+    void rejectsInvalidHtmlSnapshots() {
+        List<ResponsePlan> failures = List.of(
+                ResponsePlan.failure(new OutboundHttpTransportException("timeout")),
+                new ResponsePlan(200, jsonHeaders(), bytes(htmlBody()), null),
+                new ResponsePlan(200, htmlHeaders(), new byte[]{(byte) 0xC3, (byte) 0x28}, null),
+                new ResponsePlan(200, htmlHeaders(),
+                        new byte[NotificationHtmlContent.MAX_HTML_BYTES + 1], null));
+
+        for (ResponsePlan failure : failures) {
+            Harness harness = harness(Locale.US);
+            harness.client.contentPlan = failure;
+
+            assertThat(harness.importer.importIndex(bytes(index(item("invalid-html", PUBLISHED, "info")))))
+                    .isZero();
+            assertThat(harness.inbox.find("remote-announcement:invalid-html")).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("单条坏公告不会阻止同一索引内的合法公告")
     void partialInvalidIndexImportsOnlyValidItems() {
         Harness harness = harness(Locale.US);
@@ -275,7 +336,8 @@ class RemoteAnnouncementImporterTest {
 
         try {
             assertThat(client.requested.await(3, TimeUnit.SECONDS)).isTrue();
-            assertThat(client.requests).hasValue(1);
+            assertThat(client.contentRequested.await(3, TimeUnit.SECONDS)).isTrue();
+            assertThat(client.requests).hasValue(2);
         } finally {
             context.close();
         }
@@ -305,13 +367,21 @@ class RemoteAnnouncementImporterTest {
         RecordingMapper mapper = new RecordingMapper();
         NotificationInboxService inbox = new NotificationInboxService(mapper);
         StubClient client = new StubClient();
-        return new Harness(inbox, client,
+        return new Harness(mapper, inbox, client,
                 new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox,
                         LOCALE_POLICY, locale::get));
     }
 
     private static Map<String, List<String>> jsonHeaders() {
         return Map.of("Content-Type", List.of("application/json; charset=utf-8"));
+    }
+
+    private static Map<String, List<String>> htmlHeaders() {
+        return Map.of("Content-Type", List.of("text/html; charset=utf-8"));
+    }
+
+    private static String htmlBody() {
+        return "<!doctype html><html><body><p>Stored locally</p></body></html>";
     }
 
     private static String index(String... announcements) {
@@ -364,6 +434,7 @@ class RemoteAnnouncementImporterTest {
     }
 
     private record Harness(
+            RecordingMapper mapper,
             NotificationInboxService inbox,
             StubClient client,
             RemoteAnnouncementImporter importer) {
@@ -382,10 +453,15 @@ class RemoteAnnouncementImporterTest {
 
     private static final class StubClient implements OutboundHttpClient {
         private final CountDownLatch requested = new CountDownLatch(1);
+        private final CountDownLatch contentRequested = new CountDownLatch(1);
         private final AtomicInteger requests = new AtomicInteger();
+        private final AtomicInteger contentRequests = new AtomicInteger();
         private volatile ResponsePlan plan = new ResponsePlan(
                 200, jsonHeaders(), bytes(index(item("scheduled", PUBLISHED, "info"))), null);
-        private volatile OutboundHttpRequest lastRequest;
+        private volatile ResponsePlan contentPlan = new ResponsePlan(
+                200, htmlHeaders(), bytes(htmlBody()), null);
+        private volatile OutboundHttpRequest lastIndexRequest;
+        private volatile OutboundHttpRequest lastContentRequest;
         private volatile boolean closed;
 
         private void respond(int status, Map<String, List<String>> headers, String body) {
@@ -394,10 +470,17 @@ class RemoteAnnouncementImporterTest {
 
         @Override
         public OutboundHttpStreamResponse exchangeStream(OutboundHttpRequest request) {
-            lastRequest = request;
             requests.incrementAndGet();
             requested.countDown();
-            ResponsePlan current = plan;
+            boolean indexRequest = RemoteAnnouncementImporter.INDEX_URI.equals(request.uri());
+            if (indexRequest) {
+                lastIndexRequest = request;
+            } else {
+                lastContentRequest = request;
+                contentRequests.incrementAndGet();
+                contentRequested.countDown();
+            }
+            ResponsePlan current = indexRequest ? plan : contentPlan;
             if (current.failure() != null) {
                 throw current.failure();
             }
@@ -414,10 +497,11 @@ class RemoteAnnouncementImporterTest {
 
     private static final class RecordingMapper implements NotificationInboxMapper {
         private final List<NotificationMessage> messages = new CopyOnWriteArrayList<>();
+        private final java.util.Set<String> dismissedIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
         @Override
         public int insert(NotificationMessage message) {
-            if (findById(message.id()) != null) {
+            if (dismissedIds.contains(message.id()) || findById(message.id()) != null) {
                 return 0;
             }
             messages.add(message);
@@ -444,6 +528,40 @@ class RemoteAnnouncementImporterTest {
         }
 
         @Override
+        public NotificationHtmlContent findHtmlContent(String id) {
+            NotificationMessage message = findById(id);
+            return message == null || message.contentHtml() == null
+                    ? null
+                    : new NotificationHtmlContent(message.contentUrl(), message.contentHtml());
+        }
+
+        @Override
+        public boolean needsRemoteAnnouncementImport(String id) {
+            NotificationMessage message = findById(id);
+            return !dismissedIds.contains(id)
+                    && (message == null
+                    || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())
+                    && message.contentHtml() == null);
+        }
+
+        @Override
+        public int restoreRemoteAnnouncementHtml(String id, String contentUrl, String contentHtml) {
+            synchronized (messages) {
+                NotificationMessage current = findById(id);
+                if (current == null || current.contentHtml() != null
+                        || !NotificationCategory.ANNOUNCEMENT.token().equals(current.category())) {
+                    return 0;
+                }
+                messages.remove(current);
+                messages.add(new NotificationMessage(
+                        current.id(), current.category(), current.severity(), current.scenarioId(),
+                        current.title(), current.body(), contentUrl, contentHtml, current.actionUrl(),
+                        current.createdTime(), current.readTime()));
+                return 1;
+            }
+        }
+
+        @Override
         public long countUnread(String category) {
             return messages.stream()
                     .filter(message -> category == null || category.equals(message.category()))
@@ -461,7 +579,8 @@ class RemoteAnnouncementImporterTest {
                 messages.remove(current);
                 messages.add(new NotificationMessage(
                         current.id(), current.category(), current.severity(), current.scenarioId(),
-                        current.title(), current.body(), current.contentUrl(), current.actionUrl(),
+                        current.title(), current.body(), current.contentUrl(), current.contentHtml(),
+                        current.actionUrl(),
                         current.createdTime(), Math.max(current.createdTime(), readTime)));
                 return 1;
             }
@@ -476,6 +595,31 @@ class RemoteAnnouncementImporterTest {
                 }
             }
             return updated;
+        }
+
+        @Override
+        public int dismissAnnouncement(String id, long deletedTime) {
+            NotificationMessage message = findById(id);
+            if (message == null || !NotificationCategory.ANNOUNCEMENT.token().equals(message.category())) {
+                return 0;
+            }
+            messages.remove(message);
+            dismissedIds.add(id);
+            return 1;
+        }
+
+        @Override
+        public int deleteNonAnnouncement(String id) {
+            NotificationMessage message = findById(id);
+            if (message == null || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())) {
+                return 0;
+            }
+            return messages.remove(message) ? 1 : 0;
+        }
+
+        @Override
+        public int pruneRetentionPool(long cutoffTime, int maxMessages) {
+            return 0;
         }
     }
 

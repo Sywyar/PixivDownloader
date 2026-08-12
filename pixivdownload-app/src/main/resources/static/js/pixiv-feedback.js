@@ -4,6 +4,8 @@
     let dialogQueue = Promise.resolve();
     let dialogSequence = 0;
     let toastHost = null;
+    let commonI18n = null;
+    let commonI18nLang = '';
 
     function requiredText(value, name) {
         const text = value == null ? '' : String(value).trim();
@@ -191,10 +193,91 @@
         }, Math.max(1000, Number(options.durationMs) || 3500));
     }
 
+    function httpUrl(value) {
+        try {
+            const url = new URL(value, global.location.href);
+            return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function commonMessages() {
+        const lang = document.documentElement.lang || '';
+        if (!commonI18n || lang !== commonI18nLang) {
+            commonI18nLang = lang;
+            commonI18n = global.PixivI18n
+                ? global.PixivI18n.create({lang: lang || undefined, namespaces: ['common']})
+                    .catch(function () { return null; })
+                : Promise.resolve(null);
+        }
+        return commonI18n;
+    }
+
+    function confirmExternalLink(value) {
+        const url = httpUrl(value);
+        if (!url) return Promise.resolve(false);
+        return commonMessages().then(function (i18n) {
+            const t = i18n
+                ? function (key, fallback, vars) { return i18n.t(key, fallback, vars); }
+                : function (key, fallback, vars) {
+                    return Object.keys(vars || {}).reduce(function (text, name) {
+                        return text.split('{' + name + '}').join(String(vars[name]));
+                    }, fallback);
+                };
+            return openDialog('confirm', {
+                title: t('external-link.confirm.title', '即将离开 PixivDownloader'),
+                message: t('external-link.confirm.message', '即将打开外部链接：\n{url}\n是否继续？', {url: url.href}),
+                confirmLabel: t('external-link.confirm.open', '继续访问'),
+                cancelLabel: t('external-link.confirm.cancel', '取消')
+            });
+        });
+    }
+
+    function openUrl(url, newTab) {
+        if (newTab) global.open(url.href, '_blank', 'noopener,noreferrer');
+        else global.location.assign(url.href);
+    }
+
+    function followLink(value, options) {
+        const url = httpUrl(value);
+        if (!url) return Promise.resolve(false);
+        const newTab = !!(options && options.newTab);
+        if (url.origin === global.location.origin) {
+            openUrl(url, newTab);
+            return Promise.resolve(true);
+        }
+        return confirmExternalLink(url.href).then(function (confirmed) {
+            if (confirmed) openUrl(url, newTab);
+            return confirmed;
+        });
+    }
+
+    function clickedLink(event) {
+        if (event.defaultPrevented || (event.button != null && event.button !== 0 && event.button !== 1)) return;
+        let link = event.target;
+        while (link && link.tagName !== 'A') link = link.parentNode;
+        if (!link || typeof link.getAttribute !== 'function') return;
+        const url = httpUrl(link.getAttribute('href'));
+        if (!url || url.origin === global.location.origin) return;
+        event.preventDefault();
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+        else if (typeof event.stopPropagation === 'function') event.stopPropagation();
+        followLink(url.href, {
+            newTab: event.button === 1 || event.ctrlKey || event.metaKey || event.shiftKey
+                || String(link.getAttribute('target') || '').toLowerCase() === '_blank'
+        });
+    }
+
+    document.addEventListener('click', clickedLink, true);
+    document.addEventListener('auxclick', clickedLink, true);
+
     global.PixivFeedback = Object.freeze({
         alert: function (options) { return openDialog('alert', options || {}); },
         confirm: function (options) { return openDialog('confirm', options || {}); },
         prompt: function (options) { return openDialog('prompt', options || {}); },
-        toast: toast
+        toast: toast,
+        confirmExternalLink: confirmExternalLink,
+        followLink: followLink
     });
 })(window);

@@ -65,24 +65,29 @@ assert.ok(PAGE_SOURCE.includes("severity === 'warning' || severity === 'error'")
     && CSS.includes('.notification-list-item.severity-warning')
     && CSS.includes('.notification-detail-panel.severity-error h2'),
     '警告与错误消息必须有可辨识的严重程度样式');
-assert.ok(PAGE_HTML.includes("frame-src https://sywyar.github.io/PixivDownloader-Remote-Content/")
+assert.ok(PAGE_HTML.includes("frame-src 'self'; child-src 'self'")
     && PAGE_HTML.includes("default-src 'self'; script-src 'self'; style-src 'self'")
     && PAGE_HTML.includes("connect-src 'self'")
     && PAGE_HTML.includes("object-src 'none'; base-uri 'none'; form-action 'none'"),
     '详细页 CSP 必须限制自身资源、网络连接和 iframe，并禁止对象、表单与 base 改写');
-assert.ok(PAGE_SOURCE.includes("var CONTENT_ORIGIN = 'https://sywyar.github.io';")
-    && PAGE_SOURCE.includes('PixivDownloader-Remote-Content')
-    && PAGE_SOURCE.includes('url.href === CONTENT_ORIGIN + url.pathname'),
-    '浏览器端必须再次校验远程正文的来源、路径和规范 URL');
-assert.ok(PAGE_SOURCE.includes("frame.setAttribute('sandbox', '')")
+assert.ok(PAGE_SOURCE.includes('if (!message || !message.id || !message.hasHtmlContent) return null;')
+    && PAGE_SOURCE.includes("'/api/notifications/' + encodeURIComponent(message.id) + '/content'")
+    && !PAGE_SOURCE.includes('sywyar.github.io')
+    && !PAGE_SOURCE.includes('PixivDownloader-Remote-Content'),
+    '任意分类的 HTML 正文必须只从本地鉴权端点加载');
+assert.ok(PAGE_SOURCE.includes("frame.setAttribute('sandbox', 'allow-scripts')")
     && PAGE_SOURCE.includes("frame.setAttribute('referrerpolicy', 'no-referrer')")
-    && PAGE_SOURCE.includes("frame.setAttribute('credentialless', '')")
     && PAGE_SOURCE.includes("camera 'none'; clipboard-read 'none'; clipboard-write 'none'")
-    && !PAGE_SOURCE.includes('allow-scripts')
+    && !PAGE_SOURCE.includes("frame.setAttribute('credentialless', '')")
     && !PAGE_SOURCE.includes('allow-same-origin'),
-    '远程正文 iframe 必须无 sandbox 权限、无凭据、无 referrer 且拒绝敏感能力');
+    '本地正文 iframe 必须只允许受 nonce 保护的桥接脚本、保持不同源隔离和敏感能力禁用');
+assert.ok(PAGE_SOURCE.includes("data.type !== 'pixiv-external-link'")
+    && PAGE_SOURCE.includes("frame.contentWindow === event.source")
+    && PAGE_SOURCE.includes("window.PixivFeedback.followLink(data.href")
+    && PAGE_SOURCE.includes("window.addEventListener('message', openContentLink)"),
+    'HTML 正文链接只能由当前 iframe 消息桥接到全站外链确认');
 assert.ok(PAGE_SOURCE.includes("frame.setAttribute('loading', 'lazy')")
     && CSS.includes('.notification-detail-content-frame {'),
-    '远程正文应按需加载并限制在详情面板内');
+    'HTML 正文应按需加载并限制在详情面板内');
 
-console.log('notification-inbox-slot.test.js: 21 assertions passed ✓');
+console.log('notification-inbox-slot.test.js: 22 assertions passed ✓');

@@ -59,6 +59,23 @@ class NotificationInboxMapperTest {
             });
             assertThat(mapper.findById("older").contentUrl()).isEqualTo(
                     "https://sywyar.github.io/PixivDownloader-Remote-Content/older.html");
+            assertThat(mapper.findById("older").hasHtmlContent()).isTrue();
+            assertThat(mapper.findHtmlContent("older")).satisfies(content -> {
+                assertThat(content.sourceUrl()).endsWith("/older.html");
+                assertThat(content.html()).isEqualTo("<!doctype html><p>older</p>");
+            });
+            NotificationMessage legacy = new NotificationMessage(
+                    "legacy", "announcement", "INFO", null,
+                    "Legacy", "Legacy body",
+                    "https://sywyar.github.io/PixivDownloader-Remote-Content/legacy.html",
+                    null, null, 25, 30L);
+            assertThat(mapper.insert(legacy)).isEqualTo(1);
+            assertThat(mapper.needsRemoteAnnouncementImport("legacy")).isTrue();
+            assertThat(mapper.restoreRemoteAnnouncementHtml(
+                    "legacy", legacy.contentUrl(), "<!doctype html><p>legacy</p>"))
+                    .isEqualTo(1);
+            assertThat(mapper.needsRemoteAnnouncementImport("legacy")).isFalse();
+            assertThat(mapper.findById("legacy").readTime()).isEqualTo(30);
             assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)
                     .containsExactly("newer");
             assertThat(mapper.markAllRead("announcement", 40)).isEqualTo(1);
@@ -67,11 +84,46 @@ class NotificationInboxMapperTest {
         }
     }
 
+    @Test
+    @DisplayName("下载通知与系统共用保留池且公告删除后不会因重复入库复活")
+    void prunesSharedRetentionPoolAndKeepsAnnouncementTombstones() throws Exception {
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("retention.db"));
+        createSchema(dataSource);
+
+        org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration(
+                new Environment("test", new JdbcTransactionFactory(), dataSource));
+        configuration.setMapUnderscoreToCamelCase(true);
+        configuration.addMapper(NotificationInboxMapper.class);
+
+        try (SqlSession session = new SqlSessionFactoryBuilder().build(configuration).openSession(true)) {
+            NotificationInboxMapper mapper = session.getMapper(NotificationInboxMapper.class);
+            mapper.insert(message("old-download", "download", 10));
+            mapper.insert(message("kept-download", "download", 100));
+            mapper.insert(message("kept-system", "system", 90));
+            mapper.insert(message("overflow-system", "system", 80));
+            mapper.insert(message("announcement", "announcement", 5));
+            mapper.insert(message("survey", "survey", 5));
+
+            assertThat(mapper.pruneRetentionPool(50, 2)).isEqualTo(2);
+            assertThat(mapper.findLatest(null, false, 10)).extracting(NotificationMessage::id)
+                    .containsExactlyInAnyOrder("kept-download", "kept-system", "announcement", "survey");
+
+            assertThat(mapper.dismissAnnouncement("announcement", 110)).isEqualTo(1);
+            assertThat(mapper.findById("announcement")).isNull();
+            assertThat(mapper.findHtmlContent("announcement")).isNull();
+            assertThat(mapper.needsRemoteAnnouncementImport("announcement")).isFalse();
+            assertThat(mapper.insert(message("announcement", "announcement", 120))).isZero();
+            assertThat(mapper.deleteNonAnnouncement("survey")).isEqualTo(1);
+            assertThat(mapper.findById("survey")).isNull();
+        }
+    }
+
     private static NotificationMessage message(String id, String category, long createdTime) {
         return new NotificationMessage(id, category, "INFO", null,
                 "Title " + id, "Body " + id,
                 "https://sywyar.github.io/PixivDownloader-Remote-Content/" + id + ".html",
-                null, createdTime, null);
+                "<!doctype html><p>" + id + "</p>", null, createdTime, null);
     }
 
     private static void createSchema(SQLiteDataSource dataSource) throws Exception {
@@ -85,9 +137,11 @@ class NotificationInboxMapperTest {
                         title TEXT NOT NULL,
                         body TEXT NOT NULL,
                         content_url TEXT,
+                        content_html TEXT,
                         action_url TEXT,
                         created_time INTEGER NOT NULL,
-                        read_time INTEGER
+                        read_time INTEGER,
+                        deleted_time INTEGER
                     )
                     """);
         }
