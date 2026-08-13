@@ -1212,7 +1212,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("调查发布者自持四个 PostHog 参数，源码构建默认关闭且官方发布 profile 启用")
+    @DisplayName("调查发布者自持四个 PostHog 参数，官方发布兼容可信门禁命令并启用 profile")
     void surveyPublisherOwnsPostHogConfigurationAndOfficialProfileActivatesIt() throws Exception {
         String adapter = Files.readString(repoRoot().resolve("pixivdownload-plugin-posthog")
                 .resolve("src/main/resources/static/pixiv-posthog/pixiv-posthog.js"),
@@ -1272,14 +1272,17 @@ class PluginReleaseScriptsTest {
                 .contains("/pixiv-layout-feedback/posthog-config.js")
                 .doesNotContain("/pixiv-layout-feedback/public-config.js");
 
-        for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
-            assertThat(workflow(name)).as(name)
-                    .doesNotContain("PIXIV_LAYOUT_SURVEY", "pixiv.layout-survey", "Repository Variables");
-        }
+        assertThat(workflow("publish-plugins.yml"))
+                .doesNotContain("PIXIV_LAYOUT_SURVEY", "pixiv.layout-survey", "Repository Variables");
         for (String name : List.of("release.yml", "nightly.yml")) {
-            assertThat(workflow(name)).as(name).contains(
-                    "OFFICIAL_SURVEYS_MAVEN_PROFILE: ${{ github.repository == 'Sywyar/PixivDownloader' && '-Pofficial-surveys' || '' }}",
-                    "mvn package $OFFICIAL_SURVEYS_MAVEN_PROFILE");
+            assertThat(workflow(name)).as(name)
+                    .contains(
+                            "\"-Dpixiv.layout-survey.project-token=${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}\"",
+                            "\"-Dpixiv.layout-survey.survey-id=${{ vars.PIXIV_LAYOUT_SURVEY_ID }}\"",
+                            "\"-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}\"",
+                            "\"-Dpixiv.layout-survey.ui-host=${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}\"",
+                            "\"-Dpixiv.layout-survey.require-config=${{ github.repository == 'Sywyar/PixivDownloader' }}\"")
+                    .doesNotContain("OFFICIAL_SURVEYS_MAVEN_PROFILE");
         }
         assertThat(workflow("publish-plugins.yml"))
                 .contains("github.repository == 'Sywyar/PixivDownloader'");
@@ -1290,6 +1293,8 @@ class PluginReleaseScriptsTest {
                 .contains("<layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>")
                 .contains("<multi-mode-decision-survey.official-release-enabled>false</multi-mode-decision-survey.official-release-enabled>")
                 .contains("<id>official-surveys</id>")
+                .contains("<name>pixiv.layout-survey.require-config</name>")
+                .contains("<value>true</value>")
                 .contains("<layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>")
                 .contains("<multi-mode-decision-survey.official-release-enabled>true</multi-mode-decision-survey.official-release-enabled>");
         for (String name : List.of(
