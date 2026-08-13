@@ -37,7 +37,7 @@ Click "Complete Setup" to proceed to the next step.
 
 ### Step 3: Configure HTTP Proxy
 
-All of the PixivDownloader backend's outbound requests (downloading images, update checks, TTS speech) go through this proxy.
+Pixiv downloads, update checks, FFmpeg downloads, and some plugin requests use this proxy according to the host or task route. Browser requests, SMTP, and requests explicitly configured for direct access may bypass it; see [Network Access and Third-Party Services](/en/network-access) for the complete boundary.
 
 - **With a proxy tool** (Clash, V2Ray, etc.): enter the proxy address. Common config:
   - Host: `127.0.0.1`

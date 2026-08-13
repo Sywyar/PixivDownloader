@@ -198,6 +198,24 @@ if (!client) return; // 依赖缺失、参数非法、SDK 加载失败或配置�
 
 `ownerKey` 必须全局稳定；同一页面内同一 owner 以相同四参数、`distinctId` 和同一个 `beforeSend` 函数重复调用会复用客户端，任一项变化则 fail-closed。不同 owner 可以使用不同项目参数。适配器固定并加载 vendored SDK、关闭默认采集并创建隔离的命名实例，但不会替插件选择调查或发送事件。若运行时停用 `posthog`，已打开页面中已经加载的 JavaScript 不会被撤销；刷新后资源缺席，调用方必须按客户端不可用降级。
 
+若调查需要长期出现在站内信并直接填写，发布插件可以额外贡献一个不加载槽位模块的 `notification.inbox` 槽位：
+
+```java
+new WebUiSlotContribution(
+        "example-plugin.feedback-survey",
+        "notification.inbox",
+        null,
+        100,
+        Map.of(
+                "notification.category", "survey",
+                "notification.embed-url", "/example-plugin/survey.html",
+                "notification.i18n-namespace", "example-plugin",
+                "notification.title-key", "survey.inbox-title",
+                "notification.body-key", "survey.inbox-body"))
+```
+
+`slotId` 必须稳定且全局唯一，内嵌 URL 必须是同源绝对路径，namespace 与两个 key 必须由该插件发布。宿主在启动同步或槽位变化后的下一次站内信请求中幂等写入；槽位持续存在时不重复写库且消息不可手动删除，槽位撤销时消息随插件生命周期删除。宿主会给内嵌 URL 附加 `notificationId` 与 `lang` 查询参数；页面可用 `pixiv-content-height` 消息报告高度。只有在已确认远端调查永久关闭 / 删除后，页面才应向同源父页面发送 `{type: 'pixiv-survey-unavailable', notificationId}`；暂时网络失败不能发送，否则会留下关闭标记，并在该槽位持续发布期间保持关闭。
+
 ### PF4J provider 与 Spring 子上下文
 
 ```java

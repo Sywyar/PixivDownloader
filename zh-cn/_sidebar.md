@@ -16,6 +16,7 @@
 
 - **参考**
   - [⚙️ 配置参考](/zh-cn/configuration)
+  - [🌐 网络访问与第三方服务](/zh-cn/network-access)
   - [🔌 插件管理](/zh-cn/plugin-management)
   - [🧰 第三方插件 SDK](/zh-cn/plugin-development)
   - [💾 存储原理](/zh-cn/storage)

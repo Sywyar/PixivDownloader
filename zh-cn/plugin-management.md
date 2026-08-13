@@ -29,7 +29,7 @@
 
 ### 插件市场
 
-市场默认关闭，需在配置中启用 `plugin-catalog.enabled`。官方仓库使用程序内嵌的地址和信任根；自定义仓库必须在 `config.yaml` 中配置自己的 HTTPS manifest 和 Ed25519 公钥，详见[配置参考](/zh-cn/configuration)。
+市场与内嵌官方仓库默认启用；启动本身不访问仓库，打开或刷新市场、执行安装时才发起请求。可在配置中关闭 `plugin-catalog.enabled`。官方仓库使用程序内嵌的地址和信任根；自定义仓库必须在 `config.yaml` 中配置自己的 HTTPS manifest 和 Ed25519 公钥，详见[配置参考](/zh-cn/configuration)。
 
 市场状态码含义：
 
@@ -93,7 +93,7 @@
 
 启用状态保存在 `config/config.yaml` 的 `plugins.{pluginId}.enabled`。`hot-reload` 插件的开关直接执行 start/stop；其它策略保存状态后给出相应重启提示。
 
-required 插件不能被禁用或移除到不满足状态。required 包缺失、损坏、不兼容或离线复验失败时，核心壳进入恢复/补齐流程，不开放依赖该插件的业务路由。
+required 插件不能被禁用或移除到不满足状态。required 包缺失、损坏、不兼容或离线复验失败，或者任意插件在启动时崩溃，核心壳都会进入恢复模式，不开放依赖插件的业务路由。插件市场会在横幅中列出缺失的必装插件，或指出启动失败的插件及其诊断原因，并自动显示默认安装插件以便修复。
 
 ## 依赖与版本
 

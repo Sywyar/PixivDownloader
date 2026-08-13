@@ -72,7 +72,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 >     --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
 > ```
 >
-> The proxy is used for all of the backend's outbound access (reaching Pixiv and downloading works, online updates, downloading the bundled FFmpeg, online TTS); when the `--proxy-*` flags are omitted it prompts interactively, and you can pass `--proxy-enabled=false` if no proxy is needed. Use `--change-password` to change the password later, or `--reset-password` if it was forgotten. See [Usage Guide → Launch Parameters](en-Usage-Guide).
+> The proxy is used for backend access whose host or task route selects it, such as Pixiv downloads, online updates, FFmpeg downloads, and some online TTS. Browser requests, SMTP, and explicitly direct routes may bypass it; see [Network Access and Third-Party Services](/en/network-access) for the complete boundary. When the `--proxy-*` flags are omitted it prompts interactively, and you can pass `--proxy-enabled=false` if no proxy is needed. Use `--change-password` to change the password later, or `--reset-password` if it was forgotten. See [Usage Guide → Launch Parameters](en-Usage-Guide).
 
 ---
 
@@ -143,7 +143,7 @@ Then open `http://<host-ip>:6999/` in a browser. Login, monitor, and pages contr
 
 ### 4. Proxy Configuration (important)
 
-All of the app's outbound access goes through this proxy: reaching Pixiv and downloading works, online updates, downloading the bundled FFmpeg, and online TTS. `config.yaml` defaults to `proxy.host: 127.0.0.1`, which inside the container points at the container itself and is unreachable. `docker-compose.yml` already declares `host.docker.internal -> host gateway`.
+Backend access whose host or task route selects a proxy uses this endpoint, including Pixiv downloads, online updates, FFmpeg downloads, and some online TTS. Browser requests, SMTP, and explicitly direct routes may bypass it; see [Network Access and Third-Party Services](/en/network-access) for the complete boundary. `config.yaml` defaults to `proxy.host: 127.0.0.1`, which inside the container points at the container itself and is unreachable. `docker-compose.yml` already declares `host.docker.internal -> host gateway`.
 
 The recommended approach is to configure the proxy right in step 2's `--setup` (no need to edit files afterwards):
 

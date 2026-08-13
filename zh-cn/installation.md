@@ -71,7 +71,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 >     --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
 > ```
 >
-> 代理用于后端的全部对外访问（访问 Pixiv 与下载作品、在线更新、下载内置 FFmpeg、在线 TTS）；省略 `--proxy-*` 时会交互式询问，无需代理可加 `--proxy-enabled=false`。后续可用 `--change-password` 修改密码、`--reset-password` 在忘记密码时重置密码。详见 [使用指南 → 启动参数](zh-Usage-Guide)。
+> 代理用于按宿主或任务路由选择代理的后端访问，例如 Pixiv 下载、在线更新、FFmpeg 下载和部分在线 TTS；浏览器请求、SMTP 和显式直连策略可能绕过它，完整边界见[网络访问与第三方服务](/zh-cn/network-access)。省略 `--proxy-*` 时会交互式询问，无需代理可加 `--proxy-enabled=false`。后续可用 `--change-password` 修改密码、`--reset-password` 在忘记密码时重置密码。详见 [使用指南 → 启动参数](zh-Usage-Guide)。
 
 ---
 
@@ -142,7 +142,7 @@ docker compose down          # 停止
 
 ### 4. 代理配置（关键）
 
-本应用的全部对外访问都经此代理：访问 Pixiv 与下载作品、在线更新、下载内置 FFmpeg、在线 TTS。`config.yaml` 默认 `proxy.host: 127.0.0.1`，在容器内指向容器自身、不可达。`docker-compose.yml` 已声明 `host.docker.internal -> 宿主网关`。
+按宿主或任务路由选择代理的后端访问会使用此代理，例如 Pixiv 下载、在线更新、FFmpeg 下载和部分在线 TTS；浏览器请求、SMTP 和显式直连策略可能绕过它，完整边界见[网络访问与第三方服务](/zh-cn/network-access)。`config.yaml` 默认 `proxy.host: 127.0.0.1`，在容器内指向容器自身、不可达。`docker-compose.yml` 已声明 `host.docker.internal -> 宿主网关`。
 
 推荐在上面第 2 步 `--setup` 时直接配置代理（无需事后编辑文件）：
 

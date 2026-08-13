@@ -199,6 +199,24 @@ if (!client) return; // dependency missing, invalid parameters, SDK failure, or 
 
 `ownerKey` must be globally stable. Repeating a call for the same owner on one page reuses the client only when the four parameters, `distinctId`, and the `beforeSend` function object are unchanged; any mismatch fails closed. Different owners may use different project parameters. The adapter pins and loads the vendored SDK, disables default collection, and creates isolated named instances, but it does not select surveys or send events for a plugin. If `posthog` is disabled at runtime, JavaScript already loaded in an open page cannot be withdrawn; after refresh the resource is absent and the caller must degrade as if the client were unavailable.
 
+To keep a survey in the inbox and let users complete it there, the publishing plugin may additionally contribute a `notification.inbox` slot with no slot module:
+
+```java
+new WebUiSlotContribution(
+        "example-plugin.feedback-survey",
+        "notification.inbox",
+        null,
+        100,
+        Map.of(
+                "notification.category", "survey",
+                "notification.embed-url", "/example-plugin/survey.html",
+                "notification.i18n-namespace", "example-plugin",
+                "notification.title-key", "survey.inbox-title",
+                "notification.body-key", "survey.inbox-body"))
+```
+
+The `slotId` must be stable and globally unique, the embed URL must be an absolute same-origin path, and the namespace and both keys must be published by that plugin. The host writes the message idempotently during startup synchronization or on the next inbox request after a slot change. While the slot remains, it performs no repeated database write and the message cannot be deleted manually. Withdrawing the slot removes the message with the plugin lifecycle. The host appends `notificationId` and `lang` query parameters to the embed URL, and the page may report its height with a `pixiv-content-height` message. Only after confirming that the remote survey is permanently closed or deleted should the page send `{type: 'pixiv-survey-unavailable', notificationId}` to its same-origin parent. Do not send it for a temporary network failure: it creates a local dismissal marker that remains closed while the slot is continuously published.
+
 ### PF4J provider and Spring child context
 
 ```java

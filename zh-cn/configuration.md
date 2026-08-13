@@ -29,7 +29,7 @@ PixivDownloader 的配置按所有权分为三类，不能混用：
 
 | 键 | 默认值 | 说明 |
 | --- | --- | --- |
-| `plugin-catalog.enabled` | `false` | 插件市场主开关；关闭时不访问任何仓库 |
+| `plugin-catalog.enabled` | `true` | 插件市场主开关；打开 / 刷新市场或安装插件时访问仓库，关闭后不访问任何仓库 |
 | `plugin-catalog.official-repository-enabled` | `true` | 是否启用内嵌官方仓库 |
 | `plugin-catalog.connect-timeout-ms` | `15000` | 全局连接超时 |
 | `plugin-catalog.read-timeout-ms` | `60000` | 全局读取超时 |
@@ -59,7 +59,7 @@ plugin-catalog.repositories:
 仓库 id 必须唯一，且不能使用保留值 `official` 或 `configured`。代理策略为：
 
 - `direct-strict`：直连、仅 HTTPS、拒绝非公网地址和重定向。
-- `proxy-trusted`：使用应用代理，只对内置信任主机允许最多一次重定向。
+- `proxy-trusted`：使用应用代理，只对内置信任主机允许最多五次重定向；每一跳都会重新校验。
 - `custom`：使用条目中的 `allow-redirects`、`strict-https`、`allow-non-public-addresses` 和 `use-proxy`。
 
 仓库条目还可覆盖 `connect-timeout-ms`、`read-timeout-ms`、`max-manifest-bytes`、`max-package-bytes`；省略或设为 `0` 表示继承全局值。

@@ -9,16 +9,16 @@
 - AI、TTS、推送、邮件和 Douyin 仅在相应功能完成配置并被调用时访问外部服务；`notification` 是例外，它会在启用并启动后自动检查固定公告索引。
 - 在线更新和自动检查均启用时，应用宿主会在启动就绪后检查 GitHub Releases；检查频率受缓存间隔限制。
 - 访问应用介绍页时，浏览器会加载 Google Fonts。该请求不由后端发起，也不经过 PixivDownloader 的出站代理。
-- `plugin-catalog.enabled` 默认为 `false`，因此插件市场默认不会访问官方插件仓库。
-- 布局反馈调查的四个 PostHog 参数由 `download-workbench` 持有，但源码 / fork 构建的发行激活位默认为 `false`，默认不会连接 PostHog。
+- `plugin-catalog.enabled` 默认为 `true`，内嵌官方仓库也默认启用；启动本身不拉取清单，管理员打开或刷新插件市场、执行安装时才会访问仓库。
+- 两个官方 PostHog 调查的四个参数分别由发布调查的插件持有，但源码 / fork 构建的发行激活位默认为 `false`，默认不会连接 PostHog。
 - Pixiv、Douyin、AI、TTS、推送和邮件请求可能包含用户内容或访问凭据，具体范围见后续各节。
 
 ## 核心功能及默认网络请求
 
 | 请求所有者 | 目标地址 | 用途与主要发送内容 | 触发场景与默认状态 | 代理与关闭方式 |
 | --- | --- | --- | --- | --- |
-| 应用宿主 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json`；nightly 使用 `/releases/download/nightly/update.json`；重定向后可能进入 GitHub Release 资产 CDN | 检查正式版或 nightly 更新；发送当前版本、平台和标准 HTTP 请求信息，不发送 Pixiv Cookie | 应用就绪后自动检查；`update.enabled=true`、`update.auto-check=true` 时启用，默认均开启；手动检查也会访问 | 使用宿主出站 HTTP 路由；可关闭在线更新或自动检查，也可修改 manifest URL |
-| 应用宿主 | 更新清单中当前平台对应的安装包 URL，默认来自 GitHub Release | 下载更新安装包，并按清单校验 SHA-256 和大小 | 检查到更新且明确启动下载和安装后触发；更新检查本身不会自动安装 | 目标由更新清单决定；关闭在线更新可完全停用该链路 |
+| 应用宿主 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 与相邻的 `update.json.sig`；nightly 使用 `/releases/download/nightly/` 下的同名文件；重定向后可能进入 GitHub Release 资产 CDN | 获取正式版或 nightly 更新清单及 Ed25519 detached 签名；只发送 User-Agent、IP 等标准连接元数据，不发送当前版本、平台、Pixiv Cookie 或其它凭据。响应分别受 1 MiB / 16 KiB 上限约束，清单会在解析前使用应用内置官方公钥验签 | 应用就绪后自动检查；`update.enabled=true`、`update.auto-check=true` 时启用，默认均开启；手动检查也会访问 | 使用宿主出站代理配置；仅允许 HTTPS 和默认公网地址，最多跟随五跳重定向且每一跳都重新校验。可关闭在线更新或自动检查；自定义 manifest 必须是持有有效官方签名的公网 HTTPS 镜像 |
+| 应用宿主 | 已验签更新清单中当前平台对应的安装包 URL，默认来自 GitHub Release | 下载更新安装包，并强制匹配签名清单中的 SHA-256 和精确大小；请求不携带 Cookie 或其它凭据 | 检查到更新且明确启动下载和安装后触发；更新检查本身不会自动安装 | 目标由已验签清单决定，仍只允许 HTTPS 和默认公网地址，最多跟随五跳重定向且每一跳都重新校验，总响应不超过 500 MiB；关闭在线更新可完全停用该链路 |
 | 应用宿主的介绍页 | `https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | 获取 Noto Sans SC 样式和字体文件；浏览器会正常暴露 IP 地址、User-Agent 等连接元数据 | 访问介绍页时由浏览器触发 | 不经过宿主代理；域名被阻止时使用后备字体，下载功能不受影响 |
 | 应用宿主 | `https://www.pixiv.net/` | Pixiv 连通性探测，不携带 Pixiv Cookie | 首次配置或执行 Pixiv 连通性检查时触发，不是持续心跳 | 使用宿主的 Pixiv 出站路由；未执行探测时不发起该请求 |
 | `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json` 与 `.../announcements/<message-id>/<locale>.html` | 读取公开公告索引，并仅为未知稳定 ID 下载当前语言的受控 HTML 正文；请求禁用 Cookie，只发送 IP、User-Agent 等标准连接元数据，不发送账号、作品、本地路径或其它凭据。HTML 快照保存在本地，管理员浏览器只读取本地鉴权端点，不再直连外部正文 | 插件每次启动后异步检查索引一次，之后约每 6 小时检查；只有首次发现未知 ID 时才有界下载一次对应 HTML。同一 ID 已保存或已显式删除时不再请求正文。官方默认插件集合包含 `notification`，启用并成功启动时会自动访问 | 使用宿主继承出站路由，可使用已启用的全局代理；禁用/卸载 `notification` 会停止检查，插件停止或重载时立即取消后续轮询 |
@@ -73,7 +73,7 @@ AI 插件使用 OpenAI 兼容协议，向所选基础地址的 `/chat/completion
 | Ollama | `http://localhost:11434/v1` |
 | LM Studio | `http://localhost:1234/v1` |
 
-AI 基础地址可配置为其他兼容服务，因此完整目标范围取决于实际配置。代理行为由 AI 配置决定；删除 API Key、停用或清空配置，或者禁用 `ai` 插件，可停止相关请求。
+AI 基础地址可配置为其他兼容服务，因此完整目标范围取决于实际配置。自定义目标会收到待处理文本、请求参数和 API Key，也可能访问本机或内网；只应配置为管理员信任的本地、自建或第三方服务。携带凭据的 AI 请求不保存 Cookie，也不跟随 HTTP 重定向，避免把凭据转发到跳转目标。代理行为由 AI 配置决定；删除 API Key、停用或清空配置，或者禁用 `ai` 插件，可停止相关请求。
 
 ## `tts` 插件
 
@@ -91,7 +91,7 @@ TTS 请求会把需要朗读的文本、音色/模型参数和相应服务凭据
 | 豆包/Seed-TTS | `https://openspeech.bytedance.com/api/v1/tts` | 使用豆包引擎合成时触发 |
 | VoxCPM、CosyVoice | 管理员配置的自建 OpenAI 兼容地址，通常为 `{base-url}/audio/speech`；VoxCPM 还会访问 `{base-url}/models` | 默认基础地址为空；未配置时不发起请求 |
 
-具体引擎可配置独立基础地址，代理行为取决于出站路由和引擎配置。禁用 `tts`、停用对应引擎或清空其配置即可停止请求。
+具体引擎可配置独立基础地址；自定义目标会收到朗读文本、模型参数和服务凭据，也可能访问本机或内网，只应使用管理员信任的服务。携带凭据的 HTTP 请求不保存 Cookie，也不跟随重定向；不含调用凭据的 Edge 版本元数据探测继续使用普通客户端。代理行为取决于出站路由和引擎配置。禁用 `tts`、停用对应引擎或清空其配置即可停止请求。
 
 ## `push` 插件
 
@@ -109,7 +109,7 @@ Push 插件仅在通知通道启用后，由通知事件或“发送测试消息
 | Server 酱³ | `https://{uid}.push.ft07.com/send/{key}.send` |
 | 自定义 Webhook | 管理员配置的任意 `http://` 或 `https://` URL |
 
-关闭通道、删除凭据或禁用 `push` 插件可停止请求。自定义 Webhook 的安全性和数据接收方由填写该 URL 的管理员负责。
+关闭通道、删除凭据或禁用 `push` 插件可停止请求。自定义目标会收到通知正文与通道凭据，也可能访问本机或内网；`http://` 还会明文传输这些数据，只应使用管理员信任的目标。推送请求不保存 Cookie，也不跟随 HTTP 重定向，避免把凭据转发到跳转目标。
 
 ## `mail` 插件
 
@@ -133,19 +133,21 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 
 | 请求所有者 | 目标地址 | 用途 | 触发场景与默认状态 |
 | --- | --- | --- | --- |
-| 应用宿主的插件市场 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`；包地址通常为 GitHub Release，并可能重定向到 `*.githubusercontent.com` | 获取官方插件清单、下载用户选择的插件包并做签名、SHA-256 和大小校验 | `plugin-catalog.enabled` 默认为 `false`；管理员开启市场并刷新清单或安装插件时才触发 |
-| 应用宿主的插件市场 | 管理员配置的自定义 HTTPS manifest 和其中声明的包 URL | 使用第三方/自建插件仓库 | 只有配置并启用对应仓库后触发；直连严格策略可能明确不使用全局代理，具体以仓库策略为准 |
+| 应用宿主的插件市场 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`；包地址通常为 GitHub Release，并可能重定向到 `*.githubusercontent.com` | 获取官方插件清单、下载用户选择的插件包并做签名、SHA-256 和大小校验 | `plugin-catalog.enabled` 与内嵌官方仓库默认启用；管理员打开或刷新市场时拉取清单，明确安装插件时下载包；应用启动本身不访问仓库；最多跟随五跳重定向且每一跳都重新校验，关闭主开关可完全停用该链路 |
+| 应用宿主的插件市场 | 管理员配置的自定义 HTTPS manifest 和其中声明的包 URL | 使用第三方/自建插件仓库 | 只有配置并启用对应仓库后触发；直连严格策略可能明确不使用全局代理；最多跟随五跳重定向且每一跳都重新校验，具体以仓库策略为准 |
 | 应用宿主 FFmpeg 安装器 | `https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip`，以及其 Release CDN 重定向 | 下载 Windows FFmpeg LGPL 构建 | 仅在 GUI 中明确选择自动安装 FFmpeg 时触发；应用启动本身不会下载 |
 | 油猴脚本管理器，不属于插件 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 检查和下载六个独立油猴脚本更新 | 由 Tampermonkey 等脚本管理器按其更新策略触发；禁用脚本自动更新或卸载脚本即可停止 |
 | All-in-One 油猴脚本管理器，不属于插件 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 检查或下载构建生成的合并脚本 | 仅安装该发行脚本后由脚本管理器触发 |
 
-## `download-workbench` 可选布局调查（PostHog）
+## 官方插件的可选调查（PostHog）
 
-布局反馈逻辑与四个公开客户端参数属于 `download-workbench` 插件；独立的 `posthog` 插件提供 PostHog JavaScript SDK 和调用方配置的隔离客户端。SDK 已随插件静态资源打包，不会从 CDN 加载。
+布局反馈调查属于 `download-workbench` 插件；多人模式保留意愿调查属于 `multi-mode-decision-survey` 插件，并且只在管理员站内信中显示。独立的 `posthog` 插件提供 PostHog JavaScript SDK 和调用方配置的隔离客户端。SDK 已随插件静态资源打包，不会从 CDN 加载。
 
-- Project Token、Survey ID、`apiHost=https://layout-survey.sywyar.top` 与 `uiHost=https://us.posthog.com` 固定在调查发布插件中；它们是浏览器可见参数，不是 Secret，也不通过 GitHub Actions、脚本或 properties 文件注入。
+- 每个发布调查的插件都固定持有自己的 Project Token、Survey ID、`apiHost=https://layout-survey.sywyar.top` 与 `uiHost=https://us.posthog.com`；它们是浏览器可见参数，不是 Secret，也不通过 GitHub Actions、脚本或 properties 文件注入。
 - 普通源码 / fork 构建生成的发行激活位为 `false`；官方 Release、Nightly 与官方插件发布使用仓库内的 Maven `official-surveys` profile 把这一位设为 `true`。四个参数不随 profile 改写。
-- 激活后，浏览器会直接访问上述 PostHog API/UI 主机，发送范围仍受调查发布插件的 `beforeSend` 允许列表约束；不经过宿主出站代理。
+- 启动时的调查站内信注册与幂等写入只读取本地插件声明，不访问 PostHog。用户打开含有效调查的站内信页面（页面会预热内嵌调查），或下载工作台预加载 / 触发布局调查流程时，浏览器才会直接访问上述 PostHog API/UI 主机；发送范围仍受调查发布插件的 `beforeSend` 允许列表约束，且不经过宿主出站代理。
+- 多人模式保留意愿调查提交时会发送用户选择或填写的答案，以及由安装身份单向派生、按调查隔离的匿名标识；布局调查沿用其既有的单人 / 多人模式匿名身份规则。两者都不会把原始安装 UUID 发送给浏览器或 PostHog。
+- 调查站内信会在发布插件持续提供时保留；发布插件停止提供后由本地生命周期同步撤下。内嵌页确认 Survey 已从 PostHog 发布列表删除 / 关闭后会留下本地关闭标记，不再显示该站内信；临时网络错误不会误删，之后打开时会重新验证。
 - `posthog` 插件缺失或停用时调查静默关闭。已打开页面中的脚本不会被热撤销，停用后刷新页面才完全生效。
 
 ## 不包含固定公网目标的官方插件
@@ -165,7 +167,7 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 - GUI、Web 页面和插件前端会访问当前 PixivDownloader 实例的 `/api/**`、静态资源和 SSE。桌面 GUI 默认连接 `http://localhost:{port}` 或 `https://localhost:{port}`。
 - Ollama、LM Studio、VoxCPM、CosyVoice 和油猴脚本后端可配置为本机服务；基础地址指向远端后，该远端即成为新的数据接收方。
 - 图片分类器的 `server.url` 默认为 `http://localhost:6999`，也可指向管理员配置的其他 PixivDownloader 实例。
-- 自定义 Webhook、AI/TTS 基础地址、更新清单、插件仓库、Bark、SMTP、SOCKS 和代理端点都由管理员配置，无法形成封闭的固定域名白名单。
+- 自定义 Webhook、AI/TTS 基础地址、插件仓库、Bark、SMTP、SOCKS 和代理端点都由管理员配置，无法形成封闭的固定域名白名单。更新清单 URL 也可由管理员配置，但只接受带有效官方签名的公网 HTTPS 目标。
 - 根目录 `cors-js-runner.html` 是开发调试工具，会请求操作者输入的任意 URL；它不属于常规用户运行链路。
 
 ## 代理适用范围

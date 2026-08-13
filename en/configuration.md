@@ -29,7 +29,7 @@ Prefer the desktop GUI's Configuration page. On first startup, the current defau
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `plugin-catalog.enabled` | `false` | Market master switch; no repository is contacted while off |
+| `plugin-catalog.enabled` | `true` | Market master switch; repositories are contacted when the market is opened/refreshed or a plugin is installed, and never while this switch is off |
 | `plugin-catalog.official-repository-enabled` | `true` | Enable the embedded official repository |
 | `plugin-catalog.connect-timeout-ms` | `15000` | Global connection timeout |
 | `plugin-catalog.read-timeout-ms` | `60000` | Global read timeout |
@@ -59,7 +59,7 @@ plugin-catalog.repositories:
 Repository ids must be unique and cannot be `official` or `configured`. Proxy policies are:
 
 - `direct-strict`: direct HTTPS only, with non-public addresses and redirects rejected.
-- `proxy-trusted`: use the app proxy and allow at most one redirect for built-in trusted hosts.
+- `proxy-trusted`: use the application proxy and allow at most five redirects to built-in trusted hosts; every hop is revalidated.
 - `custom`: use the entry's `allow-redirects`, `strict-https`, `allow-non-public-addresses`, and `use-proxy` flags.
 
 An entry may override `connect-timeout-ms`, `read-timeout-ms`, `max-manifest-bytes`, and `max-package-bytes`; omitted or zero values inherit the global setting.
