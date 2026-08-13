@@ -42279,8 +42279,8 @@
       "module": "pixivdownload-plugin-multi-mode-decision-survey",
       "baseName": "web/multi-mode-decision-survey",
       "key": "description",
-      "acceptedSourceHash": "46ebff185d2de46d1cbe28d6a49ff693eb380279227db85c85e9a6085ad73545",
-      "acceptedTranslationHash": "edd1d5a3e440b6b9f8441687bb734307d876ccec7a031a6065b3a0fbbe927acc"
+      "acceptedSourceHash": "57d1560396acf9332822c29e63f7199665f7694b74b858d208c7489f1be8b7c7",
+      "acceptedTranslationHash": "e4342a525349adb7e497c5a8dae5b990595db4eb6413d0f59819ecd00fc73768"
     },
     {
       "locale": "en-US",
@@ -42295,8 +42295,8 @@
       "module": "pixivdownload-plugin-multi-mode-decision-survey",
       "baseName": "web/multi-mode-decision-survey",
       "key": "inbox-body",
-      "acceptedSourceHash": "31ab04812159a93ef812bc02a7ba23c7deb0d99cd9d4a5304b95df6d699cec8e",
-      "acceptedTranslationHash": "3685650dc7f10ca96561226088ff37c20a83990254bd542a719d0b813138c231"
+      "acceptedSourceHash": "856341d10c7bf8ddea1f9f1f1b5a91fc55431f89a53739938f6eed488072d698",
+      "acceptedTranslationHash": "80493f6963e989a9824a395208b936fc68dcd815a61e67a7594b36549116321c"
     },
     {
       "locale": "en-US",

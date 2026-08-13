@@ -822,7 +822,7 @@ class AuthFilterTest {
             request.setMethod("GET");
             request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
-            request.setCookies(new Cookie("pixiv_user_id", "existing-uuid-value"));
+            request.setCookies(new Cookie("pixiv_user_id", "11111111-2222-4333-8444-555555555555"));
 
             authFilter.doFilterInternal(request, response, filterChain);
 
@@ -837,13 +837,13 @@ class AuthFilterTest {
             request.setMethod("GET");
             request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
-            request.addHeader("X-User-UUID", "12345678-1234-1234-1234-123456789abc");
+            request.addHeader("X-User-UUID", "12345678-1234-4234-9234-123456789abc");
 
             authFilter.doFilterInternal(request, response, filterChain);
 
             verify(filterChain).doFilter(request, response);
             assertThat(response.getHeader("Set-Cookie"))
-                    .contains("12345678-1234-1234-1234-123456789abc");
+                    .contains("12345678-1234-4234-9234-123456789abc");
         }
 
         @Test
@@ -860,6 +860,19 @@ class AuthFilterTest {
             String cookie = response.getHeader("Set-Cookie");
             assertThat(cookie).contains("pixiv_user_id=");
             assertThat(cookie).doesNotContain("invalid-uuid");
+        }
+
+        @Test
+        @DisplayName("无效 UUID Cookie 应被替换为随机 v4")
+        void shouldReplaceInvalidUuidCookie() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/api/app/info");
+            request.setCookies(new Cookie("pixiv_user_id", "existing-invalid-value"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            String cookie = response.getHeader("Set-Cookie");
+            assertThat(cookie).contains("pixiv_user_id=").doesNotContain("existing-invalid-value");
         }
 
         @Test
@@ -1044,7 +1057,7 @@ class AuthFilterTest {
     class UserscriptAccessTests {
 
         private static final String VISITOR_UUID =
-                "11111111-1111-1111-1111-111111111111";
+                "11111111-2222-4333-8444-555555555555";
 
         @BeforeEach
         void setupUserscriptRoute() {

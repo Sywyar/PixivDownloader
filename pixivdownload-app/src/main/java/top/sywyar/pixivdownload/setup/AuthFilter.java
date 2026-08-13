@@ -828,8 +828,8 @@ public class AuthFilter extends OncePerRequestFilter {
         Cookie[] cookies = req.getCookies();
         if (cookies != null) {
             for (Cookie c : cookies) {
-                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
-                        && !c.getValue().isBlank()) {
+                if ("pixiv_user_id".equals(c.getName())
+                        && UuidUtils.parseUuidV4(c.getValue()) != null) {
                     return;
                 }
             }

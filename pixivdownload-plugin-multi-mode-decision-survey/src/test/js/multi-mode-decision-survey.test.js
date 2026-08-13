@@ -18,6 +18,15 @@ function internals() {
     return window.PixivMultiModeDecisionSurvey._internals;
 }
 
+test('explains security risks without presenting the survey as deletion consent', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../../main/resources/i18n/web',
+        'multi-mode-decision-survey.properties'), 'utf8');
+
+    assert.match(source, /身份伪造、越权访问和资源滥用风险/);
+    assert.match(source, /如果后续决定不删除，我们将加固多人模式的安全边界/);
+    assert.doesNotMatch(source, /填写前请阅读风险说明/);
+});
+
 test('validates the fixed PostHog schema and open-choice response', () => {
     const api = internals();
     const survey = {

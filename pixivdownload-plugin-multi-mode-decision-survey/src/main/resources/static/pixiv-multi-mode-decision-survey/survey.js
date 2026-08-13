@@ -170,7 +170,7 @@
             title.textContent = t('inbox-title', '多人模式去留调查');
             var description = global.document.createElement('p');
             description.className = 'survey-description';
-            description.textContent = t('description', '近期维护计划打算移除多人模式的支持。如果您正在使用或者未来会使用多人模式，请务必填写此问卷，让我们了解到您的需要。');
+            description.textContent = t('description', '本问卷用于调查多人模式的实际使用情况。当前实现存在身份伪造、越权访问和资源滥用风险，因此维护计划拟删除多人模式。如果您正在使用，诚邀填写；如果后续决定不删除，我们将加固相关安全边界。感谢您的填写。');
             var fieldset = global.document.createElement('fieldset');
             fieldset.className = 'survey-options';
             var legend = global.document.createElement('legend');
