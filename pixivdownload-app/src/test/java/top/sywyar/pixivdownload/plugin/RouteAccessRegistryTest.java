@@ -132,7 +132,7 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("（模式, 方法集, 访问级别）三元组完全重复立即抛出；同模式不同三元组允许")
+    @DisplayName("同模式的重复声明或重叠方法访问策略冲突立即抛出")
     void duplicateRouteTripleRejected() {
         RouteAccessRegistry registry = emptyRegistry();
         registry.register("a", List.of(route("/shared/**")));
@@ -140,11 +140,17 @@ class RouteAccessRegistryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/shared/**");
 
-        RouteAccessRegistry other = emptyRegistry();
-        other.register("a", List.of(route("/shared/**")));
-        other.register("b", List.of(new WebRouteContribution(
-                "/shared/**", AccessPolicy.INVITED_GUEST, Set.of(HttpMethod.GET), false)));
-        assertThat(other.routes()).hasSize(2);
+        RouteAccessRegistry conflicting = emptyRegistry();
+        conflicting.register("a", List.of(route("/shared/**")));
+        assertThatThrownBy(() -> conflicting.register("b", List.of(new WebRouteContribution(
+                "/shared/**", AccessPolicy.INVITED_GUEST, Set.of(HttpMethod.GET), false))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("conflicting route access policy");
+
+        RouteAccessRegistry disjoint = emptyRegistry();
+        disjoint.register("a", List.of(route("/shared/**", AccessPolicy.ADMIN, HttpMethod.GET)));
+        disjoint.register("b", List.of(route("/shared/**", AccessPolicy.INVITED_GUEST, HttpMethod.POST)));
+        assertThat(disjoint.routes()).hasSize(2);
     }
 
     @Test
@@ -240,25 +246,26 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("resolve：同等特异性多候选含 PUBLIC 时 PUBLIC 胜出（无条件公开，可达面是全集）")
-    void resolvePublicWinsOnEqualSpecificityTie() {
+    @DisplayName("register：同模式 PUBLIC 与受保护策略冲突时立即拒绝")
+    void rejectPublicPolicyConflict() {
         RouteAccessRegistry registry = emptyRegistry();
         registry.register("a", List.of(route("/js/x.js", AccessPolicy.PUBLIC)));
-        registry.register("b", List.of(route("/js/x.js", AccessPolicy.VISITOR_AND_INVITED_GUEST)));
-        assertThat(registry.resolve("/js/x.js", HttpMethod.GET))
-                .get().extracting(r -> r.route().accessPolicy())
-                .isEqualTo(AccessPolicy.PUBLIC);
+        assertThatThrownBy(() -> registry.register("b", List.of(
+                route("/js/x.js", AccessPolicy.VISITOR_AND_INVITED_GUEST))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("conflicting route access policy");
     }
 
     @Test
-    @DisplayName("resolve：同等特异性不同策略且都非 PUBLIC → 声明歧义立即抛出（不静默依赖注册顺序）")
-    void resolveAmbiguousNonPublicFailsFast() {
-        RouteAccessRegistry registry = emptyRegistry();
-        registry.register("a", List.of(route("/api/x", AccessPolicy.ADMIN)));
-        registry.register("b", List.of(route("/api/x", AccessPolicy.INVITED_GUEST)));
-        assertThatThrownBy(() -> registry.resolve("/api/x", HttpMethod.GET))
+    @DisplayName("外置插件不能用更具体的宽松策略覆盖核心高信任前缀")
+    void externalRouteCannotWeakenCoreBoundary() {
+        RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+
+        assertThatThrownBy(() -> registry.register("external", List.of(
+                route("/api/admin/open", AccessPolicy.PUBLIC))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("/api/x");
+                .hasMessageContaining("/api/admin/open")
+                .hasMessageContaining("/api/admin/**");
     }
 
     @Test

@@ -20,9 +20,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -34,6 +36,9 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     private final AppMessages messages;
 
     private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
+    private static final SecureRandom SESSION_RANDOM = new SecureRandom();
+    private static final int MAX_TOKEN_LENGTH = 128;
+    public static final int MIN_PASSWORD_LENGTH = 12;
 
     @Getter
     private volatile boolean setupComplete = false;
@@ -46,8 +51,11 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     private volatile String displayName = null;  // 用户自定义称呼（个性化问候），独立于登录用 username
     private volatile String passwordHash = null;
     private volatile String salt     = null;  // 仅旧 SHA-256 哈希需要（向后兼容用）
+    @Getter
+    private volatile boolean configurationCorrupted = false;
+    private volatile boolean sessionStorageMigrationNeeded = false;
 
-    /** token → expiry timestamp (ms)，内存中同时保存短期和长期 session */
+    /** SHA-256(token) → expiry timestamp (ms)，内存中同时保存短期和长期 session */
     private final ConcurrentHashMap<String, Long> sessions = new ConcurrentHashMap<>();
 
     /** 需要持久化的长期 session token 集合 */
@@ -65,7 +73,16 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         this.messages = messages;
         this.introMode = Arrays.asList(args.getSourceArgs()).contains("--intro");
         load();
-        if (passwordHash != null && !passwordHash.startsWith("$2") && !persistentSessions.isEmpty()) {
+        if (sessionStorageMigrationNeeded) {
+            try {
+                save(false);
+            } catch (IOException e) {
+                log.error(message("setup.log.config.load.failed", e.getMessage()), e);
+            }
+        }
+        if (!configurationCorrupted
+                && passwordHash != null && !passwordHash.startsWith("$2")
+                && !persistentSessions.isEmpty()) {
             sessions.clear();
             persistentSessions.clear();
             log.info(message("setup.log.password-hash.legacy-detected"));
@@ -82,7 +99,7 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     private void load() {
         if (!Files.exists(configFile)) return;
         try {
-            SetupConfig config = objectMapper.readValue(configFile.toFile(), SetupConfig.class);
+            SetupConfig config = SetupConfigFile.read(configFile, objectMapper);
             this.setupComplete = config.isSetupComplete();
             this.mode          = config.getMode();
             this.username      = config.getUsername();
@@ -93,10 +110,15 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
             // 还原持久化 session，过滤已过期的
             if (config.getSessions() != null) {
                 long now = System.currentTimeMillis();
-                config.getSessions().forEach((token, expiry) -> {
-                    if (expiry > now) {
-                        sessions.put(token, expiry);
-                        persistentSessions.put(token, expiry);
+                config.getSessions().forEach((storedToken, expiry) -> {
+                    boolean digestFormat = isTokenDigest(storedToken);
+                    sessionStorageMigrationNeeded |= !digestFormat || expiry == null || expiry <= now;
+                    if (storedToken != null && expiry != null && expiry > now) {
+                        String digest = digestFormat
+                                ? storedToken.toLowerCase()
+                                : tokenDigest(storedToken);
+                        sessions.put(digest, expiry);
+                        persistentSessions.put(digest, expiry);
                     }
                 });
                 log.info(message(
@@ -108,11 +130,16 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
                 log.info(message("setup.log.config.loaded", this.mode));
             }
         } catch (IOException e) {
-            log.warn(message("setup.log.config.load.failed", e.getMessage()));
+            this.configurationCorrupted = true;
+            log.error(message("setup.log.config.load.failed", e.getMessage()), e);
         }
     }
 
-    private void save() throws IOException {
+    private synchronized void save() throws IOException {
+        save(true);
+    }
+
+    private synchronized void save(boolean backupCurrent) throws IOException {
         SetupConfig config = new SetupConfig();
         config.setSetupComplete(setupComplete);
         config.setMode(mode);
@@ -129,19 +156,37 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         });
         config.setSessions(toSave);
 
-        Files.createDirectories(configFile.getParent());
-        objectMapper.writeValue(configFile.toFile(), config);
+        SetupConfigFile.write(configFile, config, objectMapper,
+                backupCurrent && !sessionStorageMigrationNeeded);
+        sessionStorageMigrationNeeded = false;
     }
 
     // ---- 初始化配置 -----------------------------------------------------
 
-    public void init(String uname, String pwd, String usageMode) throws IOException {
-        this.salt         = null;  // BCrypt 不需要单独的 salt 字段
+    public synchronized void init(String uname, String pwd, String usageMode) throws IOException {
+        if (configurationCorrupted) {
+            throw new IllegalStateException("setup configuration is corrupted; restore it before initialization");
+        }
+        if (setupComplete) {
+            throw new IllegalStateException("setup is already complete");
+        }
+        if (pwd == null || pwd.length() < MIN_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException("Password must be at least " + MIN_PASSWORD_LENGTH + " characters");
+        }
+        this.salt = null;  // BCrypt 不需要单独的 salt 字段
         this.passwordHash = BCRYPT.encode(pwd);
-        this.username     = uname;
-        this.mode         = usageMode;
+        this.username = uname;
+        this.mode = usageMode;
         this.setupComplete = true;
-        save();
+        try {
+            save();
+        } catch (IOException e) {
+            this.setupComplete = false;
+            this.mode = null;
+            this.username = null;
+            this.passwordHash = null;
+            throw e;
+        }
         log.info(message("setup.log.completed", usageMode));
     }
 
@@ -159,8 +204,9 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         if (!checkLogin(username, oldPwd)) {
             throw new IllegalArgumentException("Invalid current password");
         }
-        if (newPwd == null || newPwd.length() < 6) {
-            throw new IllegalArgumentException("New password must be at least 6 characters");
+        if (newPwd == null || newPwd.length() < MIN_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException(
+                    "New password must be at least " + MIN_PASSWORD_LENGTH + " characters");
         }
         this.salt = null;
         this.passwordHash = BCRYPT.encode(newPwd);
@@ -208,11 +254,15 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     // ---- Session 管理 --------------------------------------------------
 
     public String createSession(boolean remember) {
-        String token = UUID.randomUUID().toString();
+        byte[] tokenBytes = new byte[32];
+        SESSION_RANDOM.nextBytes(tokenBytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+        Arrays.fill(tokenBytes, (byte) 0);
+        String digest = tokenDigest(token);
         long expiry = System.currentTimeMillis() + (remember ? SESSION_LONG : SESSION_SHORT);
-        sessions.put(token, expiry);
+        sessions.put(digest, expiry);
         if (remember) {
-            persistentSessions.put(token, expiry);
+            persistentSessions.put(digest, expiry);
             try {
                 save();
             } catch (IOException e) {
@@ -223,12 +273,13 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     }
 
     public boolean isValidSession(String token) {
-        if (token == null || token.isBlank()) return false;
-        Long exp = sessions.get(token);
+        if (token == null || token.isBlank() || token.length() > MAX_TOKEN_LENGTH) return false;
+        String digest = tokenDigest(token);
+        Long exp = sessions.get(digest);
         if (exp == null) return false;
         if (System.currentTimeMillis() > exp) {
-            sessions.remove(token);
-            if (persistentSessions.remove(token) != null) {
+            sessions.remove(digest);
+            if (persistentSessions.remove(digest) != null) {
                 try {
                     save();
                 } catch (IOException e) {
@@ -254,9 +305,10 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     }
 
     public void removeSession(String token) {
-        if (token == null) return;
-        sessions.remove(token);
-        if (persistentSessions.remove(token) != null) {
+        if (token == null || token.length() > MAX_TOKEN_LENGTH) return;
+        String digest = tokenDigest(token);
+        sessions.remove(digest);
+        if (persistentSessions.remove(digest) != null) {
             try {
                 save();
             } catch (IOException e) {
@@ -278,6 +330,20 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static String tokenDigest(String token) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    private static boolean isTokenDigest(String value) {
+        return value != null && value.length() == 64
+                && value.chars().allMatch(ch -> Character.digit(ch, 16) >= 0);
     }
 
     private String message(String code, Object... args) {

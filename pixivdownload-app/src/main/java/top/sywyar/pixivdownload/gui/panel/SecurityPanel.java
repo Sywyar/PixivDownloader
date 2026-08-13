@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -163,7 +164,7 @@ public class SecurityPanel extends JPanel {
             newPasswordField.requestFocusInWindow();
             return;
         }
-        if (next.length() < 6) {
+        if (next.length() < SetupService.MIN_PASSWORD_LENGTH) {
             setStatus(message("gui.security.validation.weak-password"));
             newPasswordField.requestFocusInWindow();
             return;

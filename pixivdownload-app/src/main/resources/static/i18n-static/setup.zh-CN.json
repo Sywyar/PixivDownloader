@@ -7,7 +7,7 @@
     "button.submit": "完成配置",
     "field.confirm-password": "确认密码",
     "field.confirm-password.placeholder": "再次输入密码",
-    "field.password": "密码（至少 6 位）",
+    "field.password": "密码（至少 12 位）",
     "field.password.placeholder": "设置密码",
     "field.username": "用户名",
     "field.username.placeholder": "设置管理员用户名",
@@ -28,7 +28,7 @@
     "status.redirecting": "正在跳转...",
     "status.saving": "正在保存配置...",
     "validation.password-mismatch": "两次密码输入不一致",
-    "validation.password-short": "密码长度至少 6 位",
+    "validation.password-short": "密码长度至少 12 位",
     "validation.username-required": "请填写用户名",
     "welcome.body": "检测到这是首次运行，请完成以下初始配置。<br>配置完成后将不会再次显示此页面。",
     "welcome.title": "欢迎使用"

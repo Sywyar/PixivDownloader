@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot;
 import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingStepSpec;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -580,7 +581,7 @@ public class WelcomePanel extends JPanel {
             showConfigError(GuiMessages.get("gui.welcome.config.invalid.username"));
             return;
         }
-        if (password.length() < 6) {
+        if (password.length() < SetupService.MIN_PASSWORD_LENGTH) {
             showConfigError(GuiMessages.get("gui.welcome.config.invalid.password"));
             return;
         }

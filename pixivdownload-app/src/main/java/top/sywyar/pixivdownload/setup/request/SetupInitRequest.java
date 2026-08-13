@@ -4,14 +4,17 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 @Data
 public class SetupInitRequest {
     @NotBlank(message = "{validation.setup.username.required}")
+    @Size(max = 128, message = "{validation.setup.username.size}")
     private String username;
 
     @NotBlank(message = "{validation.setup.password.required}")
-    @Size(min = 6, message = "{validation.setup.password.size}")
+    @Size(min = SetupService.MIN_PASSWORD_LENGTH, max = 1024,
+            message = "{validation.setup.password.size}")
     private String password;
 
     @NotBlank(message = "{validation.setup.mode.required}")

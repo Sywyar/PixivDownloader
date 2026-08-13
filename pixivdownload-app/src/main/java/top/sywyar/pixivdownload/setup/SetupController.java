@@ -62,6 +62,13 @@ public class SetupController {
                     "Forbidden: local access only"
             );
         }
+        if (setupService.isConfigurationCorrupted()) {
+            throw new LocalizedException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "setup.init.config-corrupted",
+                    "Setup configuration is corrupted; restore the backup before continuing"
+            );
+        }
         if (setupService.isSetupComplete()) {
             throw new LocalizedException(
                     HttpStatus.FORBIDDEN,
@@ -123,7 +130,8 @@ public class SetupController {
     }
 
     @PostMapping("/api/auth/login")
-    public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
+                                               HttpServletRequest httpRequest) {
         String clientIp = getClientIp(httpRequest);
         if (!loginRateLimitService.isAllowed(clientIp)) {
             throw new LocalizedException(

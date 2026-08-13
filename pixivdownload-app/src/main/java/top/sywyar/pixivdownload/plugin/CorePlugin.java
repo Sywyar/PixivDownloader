@@ -150,16 +150,12 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.invitedGuest("/api/series**"),
                 WebRouteContribution.invitedGuest("/api/collections**"),
                 // ── 访客可达、不入 monitor：共享只读静态依赖（multi 普通访客 GET 亦可达）──────────
-                // 跨页共享只读静态依赖（访客可读、不入 monitor）。其中 i18n / 语言切换 / 主题三件
-                // 同时也是 PUBLIC（见下），按现状两个清单都登记。
+                // 跨页共享只读静态依赖（访客可读、不入 monitor）。公开资源只在下方 PUBLIC 清单登记，
+                // 避免同一路径出现互相冲突的访问策略。
                 WebRouteContribution.visitorAndInvitedGuest("/css/admin-visibility.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/lang-theme-switcher.css"),
-                WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-feedback.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-side-modules.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/invite-modals.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-feedback.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-i18n.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-lang-switcher.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-navigation.js"),
                 // 通用页面区块渲染器：与 /api/page-sections（VISITOR_AND_INVITED_GUEST）同口径显式声明，
                 // 使受邀访客页面也能加载该共享 section 渲染器；不依赖 /js/** 的 VISITOR 兜底（否则邀请访客 403）。
@@ -168,7 +164,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // 加载该共享下钻 helper；同 page-sections 不依赖 /js/** 的 VISITOR 兜底（否则邀请访客 403）。
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-drilldowns.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-theme.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-vue.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-ui-slots.js"),
                 // 核心导航装配端点（NavigationController 读 NavigationRegistry 跨插件聚合、按身份可见性过滤）：

@@ -79,7 +79,7 @@ async function submitSetup() {
   const proxyPortText = document.getElementById('proxy-port').value.trim();
 
   if (!username) { setStatusKey('validation.username-required', '请填写用户名', null, 'error'); return; }
-  if (password.length < 6) { setStatusKey('validation.password-short', '密码长度至少 6 位', null, 'error'); return; }
+  if (password.length < 12) { setStatusKey('validation.password-short', '密码长度至少 12 位', null, 'error'); return; }
   if (password !== confirm) { setStatusKey('validation.password-mismatch', '两次密码输入不一致', null, 'error'); return; }
 
   let proxyPort = 7890;

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.setup;
 
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -173,14 +174,65 @@ class CsrfProtectionFilterTest {
     }
 
     @Test
-    @DisplayName("非上传写请求不受该过滤器影响")
-    void unprotectedPostPassesThrough() throws Exception {
+    @DisplayName("无浏览器信号和环境凭证的后端客户端写请求继续放行")
+    void nonBrowserPostWithoutAmbientCredentialPassesThrough() throws Exception {
         MockHttpServletRequest request = request("POST", "/api/download/pixiv");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilterInternal(request, response, filterChain);
 
         verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("任意携带管理员会话的写请求缺少同源信号时拒绝")
+    void arbitrarySessionAuthenticatedWriteRequiresSameOrigin() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/download/pixiv");
+        request.setCookies(new Cookie("pixiv_session", "session-token"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("任意跨站来源的写请求即使未携带会话也拒绝")
+    void arbitraryCrossOriginWriteIsRejected() throws Exception {
+        MockHttpServletRequest request = request("PATCH", "/api/future/write");
+        request.addHeader(HttpHeaders.ORIGIN, "https://evil.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("Pixiv 油猴来源不携带后端环境凭证时可提交下载")
+    void pixivUserscriptSourceWithoutAmbientCredentialPassesThrough() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/download/pixiv");
+        request.addHeader(HttpHeaders.ORIGIN, "https://www.pixiv.net");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("Pixiv 来源不能借 userscript 例外访问非脚本写端点")
+    void pixivSourceCannotInitializeSetup() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/setup/init");
+        request.addHeader(HttpHeaders.ORIGIN, "https://www.pixiv.net");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
     }
 
     @Test

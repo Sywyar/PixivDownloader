@@ -214,8 +214,6 @@ class RouteAccessMirrorTest {
         // 插件管理后端 API：状态查询 + 外置插件运行期生命周期动词，仅管理员（admin-only）。
         assertOwnerPolicy("/api/plugins/**", "core", AccessPolicy.ADMIN);
         assertOwnerPolicy("/js/pixiv-side-modules.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
-        assertOwnerPolicy("/js/pixiv-feedback.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
-        assertOwnerPolicy("/css/pixiv-feedback.css", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         // 通用页面区块渲染器：与 /api/page-sections 同口径显式声明（不靠 /js/** 的 VISITOR 兜底），受邀访客可加载。
         assertOwnerPolicy("/js/pixiv-page-sections.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         // 通用下钻渲染器：与 /api/drilldowns 同口径显式声明（不靠 /js/** 的 VISITOR 兜底），受邀访客可加载。

@@ -1360,25 +1360,15 @@ class AuthFilterTest {
             assertThat(response.getStatus()).isEqualTo(403);
             verifyNoInteractions(filterChain);
 
-            reset(filterChain);
-            response = new MockHttpServletResponse();
-            AuthFilter localFilter = authFilterWithGuiActionRoute(
+            assertThatThrownBy(() -> authFilterWithGuiActionRoute(
                     "mail-local",
                     new WebRouteContribution(
                             "/api/gui/mail/local",
                             AccessPolicy.LOCAL,
                             Set.of(HttpMethod.POST),
-                            false));
-            request = new MockHttpServletRequest();
-            request.setMethod("POST");
-            request.setRequestURI("/api/gui/mail/local");
-            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
-            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "mail-local");
-
-            localFilter.doFilterInternal(request, response, filterChain);
-
-            assertThat(response.getStatus()).isEqualTo(403);
-            verifyNoInteractions(filterChain);
+                            false)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("conflicting route access policy");
         }
 
         @Test

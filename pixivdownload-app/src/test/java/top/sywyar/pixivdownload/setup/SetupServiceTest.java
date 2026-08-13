@@ -11,7 +11,10 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -106,7 +109,7 @@ class SetupServiceTest {
         @Test
         @DisplayName("初始化后状态应为已完成")
         void shouldCompleteSetup() throws IOException {
-            setupService.init("admin", "password123", "solo");
+            setupService.init("admin", "password1234", "solo");
 
             assertThat(setupService.isSetupComplete()).isTrue();
             assertThat(setupService.getMode()).isEqualTo("solo");
@@ -115,7 +118,7 @@ class SetupServiceTest {
         @Test
         @DisplayName("初始化后配置应持久化并可重新加载")
         void shouldPersistConfig() throws IOException {
-            setupService.init("admin", "password123", "multi");
+            setupService.init("admin", "password1234", "multi");
             assertThat(stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON)).exists();
 
             // 创建新的 SetupService 实例，模拟重启
@@ -134,13 +137,13 @@ class SetupServiceTest {
 
         @BeforeEach
         void initSetup() throws IOException {
-            setupService.init("admin", "password123", "solo");
+            setupService.init("admin", "password1234", "solo");
         }
 
         @Test
         @DisplayName("正确的用户名密码应通过验证")
         void shouldAcceptCorrectCredentials() {
-            assertThat(setupService.checkLogin("admin", "password123")).isTrue();
+            assertThat(setupService.checkLogin("admin", "password1234")).isTrue();
         }
 
         @Test
@@ -152,13 +155,13 @@ class SetupServiceTest {
         @Test
         @DisplayName("错误的用户名应拒绝")
         void shouldRejectWrongUsername() {
-            assertThat(setupService.checkLogin("wronguser", "password123")).isFalse();
+            assertThat(setupService.checkLogin("wronguser", "password1234")).isFalse();
         }
 
         @Test
         @DisplayName("null 用户名应拒绝")
         void shouldRejectNullUsername() {
-            assertThat(setupService.checkLogin(null, "password123")).isFalse();
+            assertThat(setupService.checkLogin(null, "password1234")).isFalse();
         }
 
         @Test
@@ -184,7 +187,7 @@ class SetupServiceTest {
 
         @BeforeEach
         void initSetup() throws IOException {
-            setupService.init("admin", "password123", "solo");
+            setupService.init("admin", "password1234", "solo");
         }
 
         @Test
@@ -206,12 +209,35 @@ class SetupServiceTest {
         }
 
         @Test
-        @DisplayName("长期 session 应在重启后保留")
-        void shouldPersistLongSession() {
+        @DisplayName("长期 session 应只以摘要持久化并在重启后保留")
+        void shouldPersistLongSessionDigest() throws IOException {
             String token = setupService.createSession(true);
+            Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
+            String persisted = Files.readString(configPath, StandardCharsets.UTF_8);
 
             SetupService reloaded = createSetupService();
+            assertThat(persisted).doesNotContain(token);
+            assertThat(new ObjectMapper().readValue(configPath.toFile(), SetupConfig.class)
+                    .getSessions().keySet()).allMatch(key -> key.matches("[0-9a-f]{64}"));
             assertThat(reloaded.isValidSession(token)).isTrue();
+        }
+
+        @Test
+        @DisplayName("旧版 session 原文应迁移为摘要且不进入备份")
+        void shouldMigrateRawPersistentSessionWithoutBackup() throws IOException {
+            String token = "legacy-session-token";
+            Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
+            ObjectMapper mapper = new ObjectMapper();
+            SetupConfig config = mapper.readValue(configPath.toFile(), SetupConfig.class);
+            config.setSessions(Map.of(token, System.currentTimeMillis() + 60_000));
+            mapper.writeValue(configPath.toFile(), config);
+
+            SetupService reloaded = createSetupService();
+            String persisted = Files.readString(configPath, StandardCharsets.UTF_8);
+
+            assertThat(reloaded.isValidSession(token)).isTrue();
+            assertThat(persisted).doesNotContain(token);
+            assertThat(SetupConfigFile.backupPath(configPath)).doesNotExist();
         }
 
         @Test
@@ -269,13 +295,43 @@ class SetupServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("损坏的安装状态应保持原文件并阻止重新初始化")
+    void shouldFailClosedOnCorruptedConfig() throws IOException {
+        Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
+        Files.createDirectories(configPath.getParent());
+        Files.writeString(configPath, "{broken", StandardCharsets.UTF_8);
+
+        SetupService corrupted = createSetupService();
+
+        assertThat(corrupted.isConfigurationCorrupted()).isTrue();
+        assertThatThrownBy(() -> corrupted.init("admin", "password1234", "solo"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(Files.readString(configPath, StandardCharsets.UTF_8)).isEqualTo("{broken");
+    }
+
+    @Test
+    @DisplayName("后续写入应生成可解析的安装状态备份")
+    void shouldCreateParseableBackupBeforeReplacement() throws IOException {
+        setupService.init("admin", "password1234", "solo");
+        Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
+
+        setupService.updateDisplayName("Alice");
+
+        ObjectMapper mapper = new ObjectMapper();
+        SetupConfig backup = mapper.readValue(SetupConfigFile.backupPath(configPath).toFile(), SetupConfig.class);
+        SetupConfig current = mapper.readValue(configPath.toFile(), SetupConfig.class);
+        assertThat(backup.getDisplayName()).isNull();
+        assertThat(current.getDisplayName()).isEqualTo("Alice");
+    }
+
     @Nested
     @DisplayName("isAdminLoggedIn - 请求登录态判断")
     class IsAdminLoggedInTests {
 
         @BeforeEach
         void initSetup() throws IOException {
-            setupService.init("admin", "password123", "multi");
+            setupService.init("admin", "password1234", "multi");
         }
 
         @Test
