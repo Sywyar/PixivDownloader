@@ -8,9 +8,15 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
@@ -19,10 +25,14 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.Requi
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 @DisplayName("插件状态服务：综合内置注册中心 + 外置清点 + 必选策略产出报告")
@@ -97,6 +107,52 @@ class PluginStatusServiceTest {
     }
 
     @Test
+    @DisplayName("插件 start 失败：状态为 FAILED 并保留插件 id 与异常诊断")
+    void lifecycleStartFailureIsReported() {
+        PluginRegistry registry = new PluginRegistry(List.of(
+                new TestPlugin("crashy", new IllegalStateException("startup exploded"))));
+
+        registry.start();
+        PluginDiagnostic diagnostic = new PluginStatusService(
+                registry, PluginInventory.empty(), RequiredPluginPolicy.empty())
+                .report().byId("crashy").orElseThrow();
+
+        assertThat(diagnostic.status()).isEqualTo(PluginStatus.FAILED);
+        assertThat(diagnostic.messages()).containsExactly(
+                IllegalStateException.class.getName() + ": startup exploded");
+    }
+
+    @Test
+    @DisplayName("PF4J 插件包启动失败：状态为 FAILED，并与普通坏包诊断分开标识")
+    void runtimePackageStartFailureIsReported() {
+        PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties());
+        PluginDescriptor descriptor = external("crashy", "1.0.0", PluginApiRequirement.unspecified());
+        PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(runtime.status()).thenReturn(Optional.of(new PluginRuntimeStatus(
+                Path.of("plugins"), PluginDirectoryState.POPULATED,
+                List.of("crashy"), List.of(),
+                List.of(new PluginLoadFailure("crashy", "startup exploded")))));
+        when(runtime.inspectPlugins()).thenReturn(PluginInventory.empty());
+        when(runtime.loadedDescriptors()).thenReturn(Map.of("crashy", descriptor));
+        when(installer.recoveryGateSnapshot()).thenReturn(
+                PluginRecoveryGateSnapshot.safe(PluginTransactionRecoveryReport.success()));
+        when(installer.listInstalled()).thenReturn(List.of());
+        PluginStatusService service = new PluginStatusService(
+                registry, runtime, installer, RequiredPluginPolicy.empty());
+
+        PluginDiagnostic diagnostic = service.report().byId("crashy").orElseThrow();
+
+        assertThat(diagnostic.status()).isEqualTo(PluginStatus.FAILED);
+        assertThat(diagnostic.messages()).containsExactly("startup exploded");
+        assertThat(service.startupFailuresById()).containsOnlyKeys("crashy");
+        RecoveryModeService recovery = new RecoveryModeService(service, RequiredPluginPolicy.empty());
+        assertThat(recovery.isActive()).isTrue();
+        assertThat(recovery.reasons()).extracting(reason -> reason.pluginId())
+                .containsExactly("crashy");
+    }
+
+    @Test
     @DisplayName("已安装但未启动的官方外置插件：状态报告保留 canonical 展示元数据，避免回退显示 id")
     void installedOnlyOfficialPluginsKeepCanonicalDisplayMetadata() {
         PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties());
@@ -163,14 +219,24 @@ class PluginStatusServiceTest {
     private static final class TestPlugin implements PixivFeaturePlugin {
         private final String id;
         private final PluginKind kind;
+        private final RuntimeException startFailure;
 
         TestPlugin(String id) {
-            this(id, PluginKind.FEATURE);
+            this(id, PluginKind.FEATURE, null);
         }
 
         TestPlugin(String id, PluginKind kind) {
+            this(id, kind, null);
+        }
+
+        TestPlugin(String id, RuntimeException startFailure) {
+            this(id, PluginKind.FEATURE, startFailure);
+        }
+
+        private TestPlugin(String id, PluginKind kind, RuntimeException startFailure) {
             this.id = id;
             this.kind = kind;
+            this.startFailure = startFailure;
         }
 
         @Override
@@ -191,6 +257,13 @@ class PluginStatusServiceTest {
         @Override
         public PluginKind kind() {
             return kind;
+        }
+
+        @Override
+        public void start() {
+            if (startFailure != null) {
+                throw startFailure;
+            }
         }
     }
 }

@@ -82,7 +82,7 @@ async function recoverArtworkMetadata(artworkId, meta) {
 /* ============================================================
    下载提交（POST /api/download/pixiv，payload 与现行引擎一致）
    ============================================================ */
-async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType) {
+async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson) {
     const delayMs = getImageDelayMs();
     const collectionId = state.settings.collectionId;
     const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
@@ -121,6 +121,9 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     }
     if (illustType != null && Number.isFinite(Number(illustType))) {
         other.illustType = Number(illustType);
+    }
+    if (rawMetaJson) {
+        other.rawMetaJson = rawMetaJson;
     }
     if (ugoiraData) {
         other.isUgoira = true;
@@ -893,7 +896,8 @@ async function processIllustItem(item) {
             meta.description || '',
             Array.isArray(meta.tags) ? meta.tags : [],
             seriesInfo,
-            meta.illustType ?? null
+            meta.illustType ?? null,
+            meta.rawMetaJson || null
         );
         if (dlData && dlData.alreadyDownloaded) {
             item.status = 'skipped';

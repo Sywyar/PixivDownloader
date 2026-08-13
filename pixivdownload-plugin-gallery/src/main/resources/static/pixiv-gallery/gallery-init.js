@@ -1,5 +1,16 @@
 'use strict';
 
+    const ARTWORK_GALLERY_RETURN_KEY = 'pixiv:gallery-return-to';
+
+    function rememberArtworkGalleryLocation() {
+        try {
+            sessionStorage.setItem(ARTWORK_GALLERY_RETURN_KEY, location.pathname + location.search);
+        } catch (_) { /* optional per-tab navigation memory */ }
+    }
+
+    rememberArtworkGalleryLocation();
+    window.addEventListener('pagehide', rememberArtworkGalleryLocation);
+
     function setupGalleryCrossPageHandoff() {
         // 类型切换链接由 /js/pixiv-navigation.js 异步渲染进 slot，渲染时机不确定：
         //  · 点击：用事件委托（监听 document），无论链接何时生成都能在跳转前写入跨页交接；
@@ -400,56 +411,9 @@
         clearSeriesFilter();
     });
 
-    function scheduleGalleryFrontendRefresh(frontend) {
-        if (!frontend || typeof frontend.refresh !== 'function') return;
-        window.setInterval(async () => {
-            const previousGeneration = frontend.generation();
-            const snapshot = await frontend.refresh({language: pageI18n && pageI18n.lang});
-            if (snapshot && snapshot.generation !== previousGeneration
-                && typeof frontend.isGenericRequest === 'function'
-                && frontend.isGenericRequest(location.search)) {
-                if (typeof frontend.refreshGeneric === 'function') await frontend.refreshGeneric();
-                else frontend.rerenderGeneric();
-            }
-        }, 60000);
-    }
-
     // ---------- Boot ----------
     (async function init() {
         restoreSidebarState();
-
-        const frontend = window.PixivGalleryFrontend;
-        const frontendReady = frontend && typeof frontend.bootstrap === 'function'
-            ? frontend.bootstrap()
-            : Promise.resolve(null);
-
-        if (frontend && typeof frontend.isGenericRequest === 'function'
-            && frontend.isGenericRequest(location.search)) {
-            document.body.classList.add('gallery-generic-mode');
-            document.querySelectorAll('#galleryViewNav .active, #galleryViewNav [aria-current]')
-                .forEach(item => {
-                    item.classList.remove('active');
-                    item.removeAttribute('aria-current');
-                });
-            const i18nReady = initPageI18n()
-                .catch(err => console.error(t('log.i18n-failed', 'i18n 加载失败'), err));
-            await Promise.all([frontendReady, i18nReady]);
-            scheduleGalleryFrontendRefresh(frontend);
-            await frontend.startDataFlow({
-                search: location.search,
-                loadPrimary: () => null,
-                generic: {
-                    grid: document.getElementById('galleryGrid'),
-                    status: document.getElementById('galleryStatus'),
-                    pagination: document.getElementById('pagination'),
-                    detail: document.getElementById('galleryGenericDetail'),
-                    filters: document.getElementById('galleryGenericFilters')
-                }
-            });
-            return;
-        }
-
-        scheduleGalleryFrontendRefresh(frontend);
         wireBatchManage();
 
         // 立即渲染静态控件，避免主界面被网络请求阻塞
@@ -509,11 +473,7 @@
             }
             return loadGallery();
         };
-        if (frontend && typeof frontend.startDataFlow === 'function') {
-            frontend.startDataFlow({search: location.search, loadPrimary});
-        } else {
-            loadPrimary();
-        }
+        loadPrimary();
     })();
 
     // ---------- 邀请访客 ----------

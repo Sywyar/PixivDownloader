@@ -30,9 +30,9 @@ import java.util.Optional;
  * <p>{@link #defaultRepository()}（供旧版无参 catalog 入口）优先级：兼容仓库 → 官方仓库 → 首个启用的自定义仓库（按配置
  * 顺序），跳过禁用项；都不可用则空——这使「未配置用户仓库时只访问内嵌官方仓库」成立，同时保留旧 {@code manifest-url} 行为。
  *
- * <p><b>主开关</b> {@code plugin-catalog.enabled}（默认 {@code false}）与仓库 {@code enabled} 正交：主开关关 → 整个受信
- * catalog / 市场能力不可用（{@link #featureEnabled()} 为 {@code false}），即便官方仓库默认启用也不会联网；管理员显式开启
- * 主开关后，默认仓库（官方）方才可用。
+ * <p><b>主开关</b> {@code plugin-catalog.enabled}（默认 {@code true}）与仓库 {@code enabled} 正交：主开关关 → 整个受信
+ * catalog / 市场能力不可用（{@link #featureEnabled()} 为 {@code false}），即便官方仓库启用也不会联网；主开关开启时，
+ * 默认仓库（官方）可用。
  */
 @Component
 public class PluginRepositoryRegistry {

@@ -43,6 +43,7 @@
     // ============================================================
 
     var NAV_ENDPOINT = '/api/navigation';
+    var PREFERRED_HREF_PREFIX = 'pixiv:nav-preferred:';
 
     // 图标 token → 内联 SVG 内容。与各页面既有 nav 图标一致，自带 fill/stroke 故任何页面都能正确渲染。
     var ICON_PATHS = {
@@ -119,18 +120,66 @@
         return q >= 0 ? href.slice(0, q) : href;
     }
 
+    function itemMarkers(item) {
+        return Array.isArray(item && item.markers) ? item.markers.map(function (marker) {
+            return marker == null ? '' : String(marker).trim();
+        }).filter(Boolean) : [];
+    }
+
+    function safeSameOriginHref(value) {
+        if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')
+            || /[\u0000-\u0020\\]/.test(value)) return null;
+        try {
+            var resolved = new global.URL(value, global.location.origin);
+            if (resolved.origin !== global.location.origin || resolved.username || resolved.password || resolved.hash) {
+                return null;
+            }
+            return resolved.pathname + resolved.search;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function preferredHref(marker) {
+        try {
+            return safeSameOriginHref(global.localStorage.getItem(PREFERRED_HREF_PREFIX + marker));
+        } catch (e) {
+            return null;
+        }
+    }
+
     function hrefFor(item) {
+        var markers = itemMarkers(item);
+        for (var i = 0; i < markers.length; i++) {
+            var remembered = preferredHref(markers[i]);
+            if (remembered) return remembered;
+        }
         // href 由贡献方完整声明（含任何 query）；公共渲染器不为任何插件 id 补默认 query。
         return item.href || '#';
     }
 
+    function rememberCurrentHref(items) {
+        var root = global.document.documentElement;
+        var marker = root && root.getAttribute('data-nav-remember-marker');
+        marker = marker == null ? '' : String(marker).trim();
+        if (!marker || !items.some(function (item) { return itemMarkers(item).indexOf(marker) !== -1; })) return;
+        var current = safeSameOriginHref((global.location.pathname || '') + (global.location.search || ''));
+        if (!current) return;
+        try { global.localStorage.setItem(PREFERRED_HREF_PREFIX + marker, current); } catch (e) { /* optional preference */ }
+    }
+
+    function applyPreferredHrefAnchors(items) {
+        qsa('[data-nav-preferred-href-marker]').forEach(function (anchor) {
+            var marker = anchor.getAttribute('data-nav-preferred-href-marker');
+            marker = marker == null ? '' : String(marker).trim();
+            if (!marker) return;
+            var item = items.find(function (candidate) { return itemMarkers(candidate).indexOf(marker) !== -1; });
+            if (item) anchor.setAttribute('href', hrefFor(item));
+        });
+    }
+
     function markersFor(item) {
-        if (!Array.isArray(item.markers)) {
-            return '';
-        }
-        return item.markers.map(function (marker) {
-            return marker == null ? '' : String(marker).trim();
-        }).filter(Boolean).join(' ');
+        return itemMarkers(item).join(' ');
     }
 
     function resolveLabel(i18n, item) {
@@ -202,7 +251,7 @@
         var explicitCurrent = slot.getAttribute('data-nav-current'); // null → 按 pathname 推断
         var pathname = (global.location && global.location.pathname) || '';
         return function (item) {
-            return explicitCurrent != null ? (item.id === explicitCurrent) : (baseHref(item.href) === pathname);
+            return explicitCurrent != null ? (item.id === explicitCurrent) : (baseHref(hrefFor(item)) === pathname);
         };
     }
 
@@ -324,6 +373,7 @@
             dispatchRendered();
             return;
         }
+        applyPreferredHrefAnchors(state.items);
         currentI18n = await buildI18n(state.items);
         if (vueMode) {
             // Vue 主渲染稳态：更新共享 reactive（各 app 自动重渲染）+ 为新出现的 slot（如 page-section 注入者）补挂。
@@ -385,6 +435,7 @@
         inFlight = true;
         try {
             state.items = await fetchNav();
+            rememberCurrentHref(state.items);
             loaded = true;
         } catch (e) {
             state.items = null;

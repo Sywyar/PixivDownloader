@@ -180,7 +180,9 @@ class PluginLifecycleServiceTest {
                     "ext-broken", getClass().getClassLoader(), List.of(BrokenPluginConfig.class));
             PluginContextModule good = new PluginContextModule(
                     "ext-good", getClass().getClassLoader(), List.of(PluginConfig.class));
-            PluginLifecycleService service = realService(parent, List.of(broken, good));
+            List<PluginContextModule> modules = List.of(broken, good);
+            PluginRegistry registry = pluginRegistryForModules(modules);
+            PluginLifecycleService service = realService(parent, modules, registry, capabilityRegistrar());
 
             service.startAll();
 
@@ -188,8 +190,34 @@ class PluginLifecycleServiceTest {
             assertThat(service.phase("ext-good")).contains(PluginRuntimePhase.STARTED);
             assertThat(service.contextFor("ext-broken")).isEmpty();
             assertThat(service.phase("ext-broken")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(registry.lifecycleFailuresById()).containsKey("ext-broken");
 
             service.stopAll();
+        }
+    }
+
+    @Test
+    @DisplayName("phase 0 插件 start 失败：不建立子 context，保留失败诊断并落 STOPPED")
+    void bootFeatureStartFailureSkipsServingFootprint() {
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            String pluginId = "ext-start-broken";
+            RecordingPlugin plugin = new RecordingPlugin(pluginId);
+            plugin.failStart = true;
+            PluginContextModule module = new PluginContextModule(
+                    pluginId, getClass().getClassLoader(), List.of(PluginConfig.class));
+            PluginRegistry registry = new PluginRegistry(
+                    List.of(), new PluginToggleProperties(), new PluginDiscoveryResult(List.of(
+                    new DiscoveredFeaturePlugin(pluginId, pluginId, plugin, getClass().getClassLoader())), List.of()));
+            PluginLifecycleService service = realService(
+                    parent, List.of(module), registry, capabilityRegistrar());
+
+            registry.start();
+            service.startAll();
+
+            assertThat(service.contextFor(pluginId)).isEmpty();
+            assertThat(service.phase(pluginId)).contains(PluginRuntimePhase.STOPPED);
+            assertThat(registry.lifecycleFailuresById()).containsKey(pluginId);
         }
     }
 
@@ -2124,14 +2152,17 @@ class PluginLifecycleServiceTest {
     // ============================ 夹具 ============================
 
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
+        return realService(parent, modules, pluginRegistryForModules(modules), capabilityRegistrar());
+    }
+
+    private static PluginRegistry pluginRegistryForModules(List<PluginContextModule> modules) {
         List<DiscoveredFeaturePlugin> discovered = modules.stream()
                 .map(module -> new DiscoveredFeaturePlugin(
                         module.sourcePluginId(), module.sourcePluginId(),
                         new RecordingPlugin(module.sourcePluginId()), module.classLoader()))
                 .toList();
-        PluginRegistry pluginRegistry = new PluginRegistry(
+        return new PluginRegistry(
                 List.of(), new PluginToggleProperties(), new PluginDiscoveryResult(discovered, List.of()));
-        return realService(parent, modules, pluginRegistry, capabilityRegistrar());
     }
 
     private static PluginLifecycleService realService(

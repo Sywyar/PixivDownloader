@@ -12,14 +12,13 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 
 /**
  * 恢复模式判定服务（后端）：综合 {@link PluginStatusService} 的插件状态报告与必选插件策略
- * {@link RequiredPluginPolicy}，判定核心壳当前是否应进入恢复模式（存在未满足的必选插件）。
+ * {@link RequiredPluginPolicy}，判定核心壳当前是否应进入恢复模式（存在未满足的必选插件或插件启动失败）。
  *
  * <p>必选插件全部 {@link top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus#STARTED} 时判定为正常运行，
- * 此时不改变任何路由行为；只要有必选插件缺失 / 禁用 / 启动失败 / 版本不兼容即判定进入恢复模式。判定结果由访问控制
+ * 此时不改变任何路由行为；只要有必选插件缺失 / 禁用 / 版本不兼容，或插件在启动阶段崩溃，即判定进入恢复模式。判定结果由访问控制
  * 消费方 {@link RecoveryModeGate} 据以放行诊断 / 修复入口、拦截正常业务请求。
  *
- * <p>判定结果在首次查询后缓存：required 插件在启动期一次性发现、复验并接入，核心壳启动完成后必选插件的满足情况
- * 是固定的，按请求重复评估无意义。
+ * <p>判定结果在首次查询后缓存；运行期插件状态变化后由生命周期协调器调用 {@link #refresh()} 重新评估。
  */
 @Service
 public class RecoveryModeService {
@@ -44,7 +43,8 @@ public class RecoveryModeService {
         }
         RecoveryModeDecision current = cached;
         if (current == null) {
-            current = evaluator.evaluate(pluginStatusService.report(), requiredPluginPolicy);
+            current = evaluator.evaluate(pluginStatusService.report(), requiredPluginPolicy,
+                    pluginStatusService.startupFailuresById().keySet());
             cached = current;
         }
         return current;
@@ -68,7 +68,12 @@ public class RecoveryModeService {
         return decision().active();
     }
 
-    /** 插件运行态变化后使下一次查询重新评估必选策略。 */
+    /** 当前触发恢复模式的结构化原因。 */
+    public java.util.List<RecoveryModeReason> reasons() {
+        return decision().reasons();
+    }
+
+    /** 插件运行态变化后使下一次查询重新评估恢复条件。 */
     public void refresh() {
         cached = null;
     }

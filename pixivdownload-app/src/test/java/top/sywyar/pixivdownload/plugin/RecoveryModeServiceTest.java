@@ -78,6 +78,22 @@ class RecoveryModeServiceTest {
         assertThat(service.isActive()).isFalse();
     }
 
+    @Test
+    @DisplayName("空必选策略下插件 start 失败：完整状态链进入恢复模式并指出插件")
+    void pluginStartFailureActivatesRecovery() {
+        PluginRegistry registry = new PluginRegistry(List.of(
+                new TestPlugin("crashy", new IllegalStateException("startup exploded"))));
+        registry.start();
+        RecoveryModeService service = new RecoveryModeService(
+                new PluginStatusService(registry, PluginInventory.empty(), RequiredPluginPolicy.empty()),
+                RequiredPluginPolicy.empty());
+
+        assertThat(service.isActive()).isTrue();
+        assertThat(service.decision().firstReason().orElseThrow().pluginId()).isEqualTo("crashy");
+        assertThat(service.decision().firstReason().orElseThrow().messages())
+                .containsExactly(IllegalStateException.class.getName() + ": startup exploded");
+    }
+
     private static PluginInventory startedDownloadWorkbenchInventory() {
         TestPlugin plugin = new TestPlugin("download-workbench");
         PluginDescriptor descriptor = new PluginDescriptor(
@@ -100,14 +116,24 @@ class RecoveryModeServiceTest {
     private static final class TestPlugin implements PixivFeaturePlugin {
         private final String id;
         private final PluginKind kind;
+        private final RuntimeException startFailure;
 
         TestPlugin(String id) {
-            this(id, PluginKind.FEATURE);
+            this(id, PluginKind.FEATURE, null);
         }
 
         TestPlugin(String id, PluginKind kind) {
+            this(id, kind, null);
+        }
+
+        TestPlugin(String id, RuntimeException startFailure) {
+            this(id, PluginKind.FEATURE, startFailure);
+        }
+
+        private TestPlugin(String id, PluginKind kind, RuntimeException startFailure) {
             this.id = id;
             this.kind = kind;
+            this.startFailure = startFailure;
         }
 
         @Override
@@ -128,6 +154,13 @@ class RecoveryModeServiceTest {
         @Override
         public PluginKind kind() {
             return kind;
+        }
+
+        @Override
+        public void start() {
+            if (startFailure != null) {
+                throw startFailure;
+            }
         }
     }
 }

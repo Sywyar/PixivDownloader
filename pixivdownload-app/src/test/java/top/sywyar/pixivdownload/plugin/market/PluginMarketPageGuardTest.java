@@ -193,7 +193,9 @@ class PluginMarketPageGuardTest {
                 "install.state.installing", "install.state.pending-restart",
                 "install.restart-hint", "install.goto-manage", "compat.needs", "fallback.notice",
                 "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
-                "master.disabled.title", "error.catalog", "empty.title", "security.notice", "disclaimer");
+                "master.disabled.title", "recovery.banner.title", "recovery.banner.desc",
+                "recovery.reason.missing", "recovery.reason.failed", "recovery.reason.unavailable",
+                "error.catalog", "empty.title", "security.notice", "disclaimer");
         for (String key : critical) {
             assertThat(zh.getProperty(key)).as("zh 缺关键键 %s", key).isNotBlank();
             assertThat(en.getProperty(key)).as("en 缺关键键 %s", key).isNotBlank();
@@ -227,6 +229,23 @@ class PluginMarketPageGuardTest {
                         "hideDefaultInstalled: true", "hideDependencies: true",
                         "data-pmk-filter", "hideDefaultInstalled: state.hideDefaultInstalled",
                         "hideDependencies: state.hideDependencies");
+    }
+
+    @Test
+    @DisplayName("恢复模式复用插件状态接口显示具体原因，并在 Vue / 基础回退中默认显示官方预装插件")
+    void recoveryBannerUsesPluginStatusAndShowsDefaultInstalledPlugins() throws IOException {
+        String core = read(CORE);
+        String api = read(API);
+        String vue = read(VUE);
+        String fallback = read(FALLBACK);
+
+        assertThat(api).contains("/api/plugins/status", "fetchPluginStatus");
+        assertThat(core).contains("PMK.recoveryReasons", "report.recoveryReasons", "MISSING_REQUIRED", "FAILED",
+                "reason.pluginId", "reason.messages");
+        assertThat(vue).contains("recovery.banner.title", "recoveryReasons", "hasRecoveryReasons",
+                "self.hideDefaultInstalled = !self.recoveryMode");
+        assertThat(fallback).contains("recovery.banner.title", "state.recoveryReasons",
+                "state.hideDefaultInstalled = !state.recoveryMode");
     }
 
     @Test

@@ -17,5 +17,6 @@ public record ArtworkMetaResponse(
         List<WorkTag> tags,
         Long seriesId,
         Long seriesOrder,
-        String seriesTitle
+        String seriesTitle,
+        String rawMetaJson
 ) {}

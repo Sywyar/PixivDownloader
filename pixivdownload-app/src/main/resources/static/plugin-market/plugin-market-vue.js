@@ -37,6 +37,15 @@
 '  <div v-else-if="error" class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">{{ error }}</div></div>',
 '',
 '  <template v-else>',
+'    <div v-if="recoveryMode" class="pmk-banner pmk-banner--error">',
+'      <i class="fa-solid fa-triangle-exclamation"></i>',
+'      <div class="pmk-banner-body">',
+'        <div class="pmk-banner-title">{{ t(\'recovery.banner.title\', \'当前正处于恢复模式\') }}</div>',
+'        <div>{{ t(\'recovery.banner.desc\', \'正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。\') }}</div>',
+'        <ul v-if="hasRecoveryReasons"><li v-for="reason in recoveryReasons" :key="reason">{{ reason }}</li></ul>',
+'      </div>',
+'    </div>',
+'',
 '    <div v-if="!masterEnabled" class="pmk-banner pmk-banner--warn">',
 '      <i class="fa-solid fa-circle-exclamation"></i>',
 '      <div class="pmk-banner-body">',
@@ -302,6 +311,9 @@
                     error: null,
                     catalogError: null,
                     masterEnabled: false,
+                    recoveryMode: false,
+                    recoveryReasons: [],
+                    filtersInitialized: false,
                     coreApiVersion: '',
                     repositories: [],
                     defaultRepositoryId: null,
@@ -378,6 +390,7 @@
                 showCatalogLoading: function () { return this.masterEnabled && this.catalogLoading; },
                 showCatalogError: function () { return this.masterEnabled && !!this.catalogError; },
                 showBody: function () { return this.masterEnabled && !!this.catalog; },
+                hasRecoveryReasons: function () { return this.recoveryReasons.length > 0; },
                 showVersionSelect: function () { return !!this.detail && this.detail.versions.length > 1; },
                 showDetailVerification: function () { return !!this.detail && !!this.detail.verificationBadge; },
                 showRestartHint: function () {
@@ -410,9 +423,17 @@
                     var token = ++this.reloadToken;
                     this.catalogToken++;
                     this.loading = true; this.error = null; this.catalogError = null;
-                    PMK.api.fetchRepositories().then(function (repos) {
+                    Promise.all([PMK.api.fetchRepositories(), PMK.api.fetchPluginStatus()]).then(function (responses) {
                         if (token !== self.reloadToken) return;   // 已有更新的 reload，丢弃旧响应
+                        var repos = responses[0];
+                        var status = responses[1];
                         self.masterEnabled = !!repos.enabled;
+                        self.recoveryMode = !!status.recoveryMode;
+                        self.recoveryReasons = PMK.recoveryReasons(status);
+                        if (!self.filtersInitialized) {
+                            self.hideDefaultInstalled = !self.recoveryMode;
+                            self.filtersInitialized = true;
+                        }
                         self.coreApiVersion = repos.coreApiVersion || '';
                         self.repositories = repos.repositories || [];
                         self.defaultRepositoryId = repos.defaultRepositoryId || null;

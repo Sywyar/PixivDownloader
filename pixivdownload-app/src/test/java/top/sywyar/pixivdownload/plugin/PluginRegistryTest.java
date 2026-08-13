@@ -235,23 +235,29 @@ class PluginRegistryTest {
     }
 
     @Test
-    @DisplayName("SmartLifecycle 后续 start 失败时逆序停止本轮已启动身份")
-    void smartLifecycleStartFailureRollsBackStartedIdentities() {
+    @DisplayName("SmartLifecycle 隔离普通 start 失败并继续启动其它插件")
+    void smartLifecycleIsolatesNonFatalStartFailure() {
         RetryStopPlugin first = new RetryStopPlugin("first", 0);
         IllegalStateException failure = new IllegalStateException("second start failed");
         StartFailurePlugin second = new StartFailurePlugin("second", failure);
-        PluginRegistry registry = new PluginRegistry(List.of(first, second));
+        RetryStopPlugin third = new RetryStopPlugin("third", 0);
+        PluginRegistry registry = new PluginRegistry(List.of(first, second, third));
         PluginRegistry.RegisteredPlugin firstIdentity = registry.registeredPlugins().get(0);
         PluginRegistry.RegisteredPlugin secondIdentity = registry.registeredPlugins().get(1);
+        PluginRegistry.RegisteredPlugin thirdIdentity = registry.registeredPlugins().get(2);
 
-        assertThatThrownBy(registry::start).isSameAs(failure);
+        registry.start();
 
-        assertThat(registry.isRunning()).isFalse();
+        assertThat(registry.isRunning()).isTrue();
         assertThat(first.startCount()).isEqualTo(1);
-        assertThat(first.stopCount()).isEqualTo(1);
+        assertThat(first.stopCount()).isZero();
         assertThat(second.startCount()).isEqualTo(1);
-        assertThat(registry.featureStarted(firstIdentity)).isFalse();
+        assertThat(third.startCount()).isEqualTo(1);
+        assertThat(registry.featureStarted(firstIdentity)).isTrue();
         assertThat(registry.featureStarted(secondIdentity)).isFalse();
+        assertThat(registry.featureStarted(thirdIdentity)).isTrue();
+        assertThat(registry.lifecycleFailuresById()).containsEntry(
+                "second", IllegalStateException.class.getName() + ": second start failed");
     }
 
     @Test
@@ -276,24 +282,6 @@ class PluginRegistryTest {
         assertThat(registry.featureStarted(firstIdentity)).isTrue();
         assertThat(first.stopCount()).isEqualTo(1);
         assertThat(registry.stopFeature(firstIdentity)).isTrue();
-    }
-
-    @Test
-    @DisplayName("普通 start 失败的回滚若抛 fatal 则 fatal 成为主失败且不被吞掉")
-    void fatalRollbackFailureOverridesNonFatalStartFailure() {
-        TestVirtualMachineError fatal = new TestVirtualMachineError("fatal rollback stop");
-        FatalStopPlugin first = new FatalStopPlugin("first", fatal);
-        IllegalStateException startFailure = new IllegalStateException("second start failed");
-        StartFailurePlugin second = new StartFailurePlugin("second", startFailure);
-        PluginRegistry registry = new PluginRegistry(List.of(first, second));
-        PluginRegistry.RegisteredPlugin firstIdentity = registry.registeredPlugins().get(0);
-
-        assertThatThrownBy(registry::start)
-                .isSameAs(fatal)
-                .satisfies(thrown -> assertThat(thrown.getSuppressed()).contains(startFailure));
-
-        assertThat(registry.featureStarted(firstIdentity)).isTrue();
-        assertThat(registry.isRunning()).isFalse();
     }
 
     @Test

@@ -14,8 +14,10 @@ import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.LifecycleAction;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
@@ -91,11 +93,14 @@ class PluginManagementControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/plugins/status 返回管理视图 JSON（recoveryMode + plugins + apiRequirement/dependencies 投影）")
+    @DisplayName("GET /api/plugins/status 返回恢复原因与插件管理视图 JSON")
     void statusReturnsReport() throws Exception {
         when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(
-                false,
+                true,
                 new PluginManagementService.TransactionRecoveryView("SAFE", true, List.of()),
+                List.of(new RecoveryModeReason("demo-ext", PluginStatus.FAILED,
+                        "plugin.recovery.failed", PluginApiRequirement.unspecified(),
+                        List.of("startup exploded"))),
                 List.of(
                 new PluginManagementService.PluginManagementEntry(
                         "demo-ext", "demo-ext", "nav.label", "nav.summary", "book", "amber", "1.0.0", PluginKind.FEATURE,
@@ -106,9 +111,12 @@ class PluginManagementControllerTest {
 
         mockMvc.perform(get("/api/plugins/status"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recoveryMode").value(false))
+                .andExpect(jsonPath("$.recoveryMode").value(true))
                 .andExpect(jsonPath("$.transactionRecovery.state").value("SAFE"))
                 .andExpect(jsonPath("$.transactionRecovery.safeToScan").value(true))
+                .andExpect(jsonPath("$.recoveryReasons[0].pluginId").value("demo-ext"))
+                .andExpect(jsonPath("$.recoveryReasons[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.recoveryReasons[0].messages[0]").value("startup exploded"))
                 .andExpect(jsonPath("$.plugins[0].id").value("demo-ext"))
                 .andExpect(jsonPath("$.plugins[0].descriptionKey").value("nav.summary"))
                 .andExpect(jsonPath("$.plugins[0].iconKey").value("book"))

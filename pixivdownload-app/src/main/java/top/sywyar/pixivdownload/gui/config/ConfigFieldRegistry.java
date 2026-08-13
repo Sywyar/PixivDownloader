@@ -251,10 +251,10 @@ public final class ConfigFieldRegistry {
 
                 // ── 插件市场 / 受信 catalog（归入「插件」分组）──────────────────────
                 // 插件启停由 Web 插件前端控制；桌面配置页只保留插件市场 / 仓库相关配置。
-                // 受信 catalog 主开关：默认关闭（开启前不联网）；高级项（超时 / 字节上限 / repositories 列表）
+                // 受信 catalog 主开关：默认开启；高级项（超时 / 字节上限 / repositories 列表）
                 // 不入字段网格，仅可手写 config.yaml。两项均需重启（仓库注册中心在启动期构建）。
                 ConfigFieldSpec.builder("plugin-catalog.enabled", message("gui.config.field.plugin-catalog.enabled.label"), BOOL, groupPlugins)
-                        .defaultValue("false")
+                        .defaultValue("true")
                         .help(message("gui.config.field.plugin-catalog.enabled.help"))
                         .build(),
 

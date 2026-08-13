@@ -10,7 +10,8 @@
  *   3) Vue 运行时加载失败（ensure reject）→ 优雅回退命令式、不抛、派发 rendered。
  *   4) 拉取失败 → 清空全部 slot、不残留坏入口、派发 rendered。
  *   5) 幂等：Vue 稳态下 refresh() 不重复 mountOn（复用既有 app），稳态不再走命令式。
- *   6) 选择器安全：只用固定字面 [data-nav-slot]（mock querySelectorAll 对其它选择器抛错即守卫）。
+ *   6) 选择器安全：只用固定字面 slot / 偏好链接选择器（mock querySelectorAll 对其它选择器抛错即守卫）。
+ *   7) 下载页偏好：工作台页面记录当前 URL，顶部导航与独立返回链接复用同一 marker 目标。
  *
  * 运行： node src/test/js/pixiv-navigation.test.js
  */
@@ -43,23 +44,36 @@ function navSlot(placement, opts) {
     return el;
 }
 
-function makeDocument(slots) {
+function makeDocument(slots, anchors, rootAttrs) {
     const body = new El('body');
     slots.forEach(s => body.appendChild(s));
+    (anchors || []).forEach(a => body.appendChild(a));
     const head = new El('head');
+    const documentElement = new El('html');
+    Object.keys(rootAttrs || {}).forEach(k => documentElement.setAttribute(k, rootAttrs[k]));
     return {
-        head, body, readyState: 'complete',
+        head, body, documentElement, readyState: 'complete',
         createElement: t => new El(t),
         addEventListener() {},
-        // 仅支持固定字面 [data-nav-slot]；任何其它选择器抛错 = 「target 绝不拼进选择器」守卫。
+        // 仅支持两个固定字面选择器；任何其它选择器抛错 = 「target 绝不拼进选择器」守卫。
         querySelectorAll(sel) {
-            if (sel !== '[data-nav-slot]') {
+            if (sel !== '[data-nav-slot]' && sel !== '[data-nav-preferred-href-marker]') {
                 throw new Error('Unexpected selector (target must never be interpolated): ' + sel);
             }
             const out = [];
-            (function walk(n) { n.children.forEach(c => { if (c.getAttribute('data-nav-slot') !== null) out.push(c); walk(c); }); })(body);
+            const attr = sel === '[data-nav-slot]' ? 'data-nav-slot' : 'data-nav-preferred-href-marker';
+            (function walk(n) { n.children.forEach(c => { if (c.getAttribute(attr) !== null) out.push(c); walk(c); }); })(body);
             return out;
         }
+    };
+}
+
+function makeStorage(initial) {
+    const values = new Map(Object.entries(initial || {}));
+    return {
+        getItem: key => values.has(key) ? values.get(key) : null,
+        setItem: (key, value) => values.set(String(key), String(value)),
+        value: key => values.get(key)
     };
 }
 
@@ -108,11 +122,14 @@ function makePixivVue(record, ensureRejects) {
 
 function load(opts) {
     const slots = opts.slots;
-    const document = makeDocument(slots);
+    const document = makeDocument(slots, opts.anchors, opts.rootAttrs);
+    const localStorage = makeStorage(opts.storage);
     const record = { mounts: [], events: [] };
     const sandbox = {
         document,
-        location: { pathname: opts.pathname || '/monitor.html' },
+        location: { origin: 'http://localhost', pathname: opts.pathname || '/monitor.html', search: opts.search || '' },
+        localStorage,
+        URL,
         console: { warn() {}, log() {}, error() {} },
         setTimeout, clearTimeout, Promise,
         fetch: makeFetch(opts.items, opts.fetchOk),
@@ -124,7 +141,7 @@ function load(opts) {
     if (opts.pixivVue) sandbox.PixivVue = makePixivVue(record, opts.ensureRejects);
     vm.createContext(sandbox);
     vm.runInContext(SRC, sandbox);
-    return { PixivNav: sandbox.PixivNav, document, record, slots };
+    return { PixivNav: sandbox.PixivNav, document, localStorage, record, slots };
 }
 
 function renderedCount(record) { return record.events.filter(e => e.type === 'pixivnav:rendered').length; }
@@ -172,6 +189,43 @@ async function main() {
         // 幂等：Vue 稳态下 refresh 不重复 mountOn。
         await PixivNav.refresh();
         ok('1: Vue 稳态 refresh() 不重复 mountOn（复用既有 app）', record.mounts.length === 2);
+    }
+
+    // ===== 场景 7：工作台页面记录自身地址，导航项与站内信式独立返回链接读取同一偏好 =====
+    {
+        const preferredKey = 'pixiv:nav-preferred:preferred-download-workbench';
+        const download = {
+            id: 'download-workbench', placements: ['app.top'], href: '/pixiv-batch.html', icon: 'download',
+            labelNamespace: 'batch', labelI18nKey: 'nav.label', markers: ['preferred-download-workbench']
+        };
+        const first = load({
+            slots: [], items: [download], pathname: '/pixiv-batch-alt.html',
+            rootAttrs: {'data-nav-remember-marker': 'preferred-download-workbench'}
+        });
+        await first.PixivNav.ready();
+        ok('7: 新版工作台把当前地址记录到 marker 对应偏好',
+            first.localStorage.value(preferredKey) === '/pixiv-batch-alt.html');
+
+        const top = navSlot('app.top', {'data-nav-link-class': 'app-nav-link'});
+        const back = new El('a');
+        back.setAttribute('href', '/pixiv-batch.html');
+        back.setAttribute('data-nav-preferred-href-marker', 'preferred-download-workbench');
+        const second = load({
+            slots: [top], anchors: [back], items: [download], pathname: '/pixiv-notifications.html',
+            storage: {[preferredKey]: '/pixiv-batch-alt.html'}
+        });
+        await second.PixivNav.ready();
+        ok('7: 顶部下载导航使用最近打开的工作台地址',
+            top.innerHTML.indexOf('href="/pixiv-batch-alt.html"') >= 0);
+        ok('7: 独立返回链接使用同一 marker 目标', back.getAttribute('href') === '/pixiv-batch-alt.html');
+
+        const unsafe = load({
+            slots: [navSlot('app.top')], items: [download], pathname: '/monitor.html',
+            storage: {[preferredKey]: '//example.invalid/steal'}
+        });
+        await unsafe.PixivNav.ready();
+        ok('7: 非同源偏好值被拒绝并回退贡献方默认地址',
+            unsafe.slots[0].innerHTML.indexOf('href="/pixiv-batch.html"') >= 0);
     }
 
     // ===== 场景 2：无 PixivVue → 命令式 innerHTML 渲染（与 Vue 同源链接），不抛、派发 rendered =====

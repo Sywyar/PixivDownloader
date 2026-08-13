@@ -895,7 +895,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 保存 ─────────────────────────────────────────────────────────────────────
 
     private void saveConfig() {
-        // 验证最终会按原值保存的字段；隐藏且无需保留的字段仍可按空值写出。
+        // 只验证当前可编辑字段；隐藏字段仍可保留原值，但不能阻止其它配置保存。
         clearValidationErrors();
         List<String> errors = new ArrayList<>();
         FieldRenderer.RenderedField firstInvalidField = null;
@@ -904,17 +904,16 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             if (rf == null) {
                 continue;
             }
-            boolean validate = rf.panel().isVisible() && rf.control().isEnabled()
-                    || !rf.panel().isVisible() && shouldPreserveHiddenValue(spec);
+            boolean validate = rf.panel().isVisible() && rf.control().isEnabled();
             if (!validate) {
                 continue;
             }
             String val = rf.getValue().get();
             String err = validateFieldValueForSave(spec, val);
             if (err != null) {
-                String message = spec.label() + "：" + err;
-                errors.add(message);
-                rf.setValidationError(message);
+                String fieldMessage = spec.label() + "：" + err;
+                errors.add(validationReportFieldPath(spec) + "：" + err);
+                rf.setValidationError(fieldMessage);
                 if (firstInvalidField == null) {
                     firstInvalidField = rf;
                 }
@@ -1012,6 +1011,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     message("gui.dialog.error.title"),
                     message("gui.config.dialog.save-failed.message", e.getMessage()));
         }
+    }
+
+    private static String validationReportFieldPath(ConfigFieldSpec spec) {
+        String groupPath = spec.group() + " / " + spec.label();
+        return spec.pluginContributed()
+                ? message("gui.config.scope.plugins") + " [" + spec.ownerPluginId() + "] / " + groupPath
+                : groupPath;
     }
 
     /**
@@ -1987,6 +1993,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         @Override
+        public String actionFieldValue(String key) throws IOException {
+            return delegate.actionFieldValue(key);
+        }
+
+        @Override
         public void setFieldValue(String key, String value) {
             delegate.setFieldValue(key, value);
         }
@@ -2105,6 +2116,23 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     public String currentFieldValue(String key) {
         FieldRenderer.RenderedField rf = renderedFields.get(key);
         return rf == null ? "" : rf.getValue().get();
+    }
+
+    @Override
+    public String actionFieldValue(String key) throws IOException {
+        FieldRenderer.RenderedField rf = renderedFields.get(key);
+        if (rf == null) {
+            return "";
+        }
+        String current = rf.getValue().get();
+        ConfigFieldSpec spec = findSpec(key);
+        if (!isPluginCredential(spec)
+                || (current != null && !current.isBlank())
+                || rf.credentialClearRequested()
+                || !rf.credentialStored()) {
+            return current == null ? "" : current;
+        }
+        return credentialStore.readAll(spec.ownerPluginId()).getOrDefault(key, "");
     }
 
     @Override

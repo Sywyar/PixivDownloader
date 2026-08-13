@@ -26,7 +26,7 @@ async function confirmDeleteNovel() {
         const r = await fetch(`/api/gallery/novel/${encodeURIComponent(novelId)}`, { method: 'DELETE', credentials: 'same-origin' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         toast(pageI18n.t('delete.success', '已删除'), 'success');
-        setTimeout(() => { window.location.href = '/pixiv-novel-gallery.html?view=all'; }, 600);
+        setTimeout(() => { window.location.replace(novelGalleryReturnTo); }, 600);
     } catch (e) {
         btn.disabled = false;
         closeDeleteNovelModal();

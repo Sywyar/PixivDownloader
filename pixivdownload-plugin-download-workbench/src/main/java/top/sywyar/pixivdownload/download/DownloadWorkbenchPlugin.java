@@ -43,6 +43,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     /** 下载工作台插件 id：下载进度 SSE 推流随该插件运行期归属（停用 / 卸载时其推流被统一关闭）。 */
     public static final String ID = "download-workbench";
+    private static final String PREFERRED_DOWNLOAD_WORKBENCH_MARKER = "preferred-download-workbench";
     private static final String SURVEY_PUBLICATION_RESOURCE =
             "static/pixiv-layout-feedback/release-publication.properties";
     private static final String SURVEY_POSTHOG_CONFIG_RESOURCE =
@@ -153,7 +154,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 ID,
                 Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                         NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
-                "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10));
+                "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
+                Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER)));
     }
 
     @Override

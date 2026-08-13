@@ -26,7 +26,7 @@
             await api(`/api/gallery/artwork/${state.artworkId}`, {method: 'DELETE'});
             toast(wt('delete.success', 'Deleted'), 'success');
             setTimeout(() => {
-                window.location.href = '/pixiv-gallery.html?view=all';
+                window.location.replace(state.returnTo);
             }, 600);
         } catch (e) {
             btn.disabled = false;

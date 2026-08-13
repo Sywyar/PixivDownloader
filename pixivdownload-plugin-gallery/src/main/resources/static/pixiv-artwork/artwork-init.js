@@ -24,6 +24,7 @@
     }
 
     (async function initArtworkPage() {
+        bindArtworkGalleryReturn();
         await initPageI18n();
         setupAdminMode();
         loadArtwork();

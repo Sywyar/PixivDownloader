@@ -44,6 +44,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.io.IOException;
 import java.text.MessageFormat;
 import java.awt.GridLayout;
 import java.util.ArrayList;
@@ -608,7 +609,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 : value;
     }
 
-    private ObjectNode buildPayload(GuiConfigSectionSpec section, GuiConfigActionSpec action) {
+    private ObjectNode buildPayload(GuiConfigSectionSpec section, GuiConfigActionSpec action) throws IOException {
         ObjectNode root = MAPPER.createObjectNode();
         String owner = effectiveOwner(action.ownerPluginId(), section);
         if (owner == null || !section.ownerPluginIds().contains(owner)) {
@@ -621,7 +622,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             }
             String value = field.fieldKey() == null
                     ? field.literalValue()
-                    : ctx.currentFieldValue(field.fieldKey());
+                    : ctx.actionFieldValue(field.fieldKey());
             putPayload(root, field.payloadPath(), value, field.valueType());
         }
         return root;

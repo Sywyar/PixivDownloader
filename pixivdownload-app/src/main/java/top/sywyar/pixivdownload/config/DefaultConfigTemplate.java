@@ -50,7 +50,7 @@ public final class DefaultConfigTemplate {
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.plugin-catalog");
-        appendSetting(config, messages, "plugin-catalog.enabled: false", "config.template.plugin-catalog.enabled.comment");
+        appendSetting(config, messages, "plugin-catalog.enabled: true", "config.template.plugin-catalog.enabled.comment");
         appendSetting(config, messages, "plugin-catalog.official-repository-enabled: true", "config.template.plugin-catalog.official-repository-enabled.comment");
         appendSetting(config, messages, "plugin-catalog.connect-timeout-ms: 15000", "config.template.plugin-catalog.connect-timeout-ms.comment");
         appendSetting(config, messages, "plugin-catalog.read-timeout-ms: 60000", "config.template.plugin-catalog.read-timeout-ms.comment");

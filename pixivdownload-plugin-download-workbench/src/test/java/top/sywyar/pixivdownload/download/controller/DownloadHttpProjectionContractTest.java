@@ -45,11 +45,12 @@ class DownloadHttpProjectionContractTest {
     void artworkMetaResponseUsesCanonicalAgeRatingFields() {
         ArtworkMetaResponse response = new ArtworkMetaResponse(
                 0, "title", 2, true, 10, 3, 5L, "author", "desc",
-                List.of(), 7L, 1L, "series");
+                List.of(), 7L, 1L, "series", "{\"illustTitle\":\"title\"}");
 
         JsonNode json = objectMapper.valueToTree(response);
         assertThat(json.path("xRestrict").asInt()).isEqualTo(2);
         assertThat(json.path("isAi").asBoolean()).isTrue();
+        assertThat(json.path("rawMetaJson").asText()).contains("illustTitle");
         assertThat(json.has("xrestrict")).isFalse();
         assertThat(json.has("ai")).isFalse();
     }

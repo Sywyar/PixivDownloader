@@ -9,7 +9,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("恢复模式评估器：必选插件未满足时判定进入恢复模式")
+@DisplayName("恢复模式评估器：必选插件未满足或插件启动失败时进入恢复模式")
 class RecoveryModeEvaluatorTest {
 
     private static final String DW = "download-workbench";
@@ -92,11 +92,27 @@ class RecoveryModeEvaluatorTest {
     }
 
     @Test
-    @DisplayName("空必选策略：无论报告如何都正常运行")
-    void emptyPolicyIsOperational() {
+    @DisplayName("空必选策略：未声明为必选的缺失状态不触发恢复模式")
+    void emptyPolicyIgnoresNonFailedStatus() {
         RecoveryModeDecision decision = evaluator.evaluate(
                 reportWith(DW, PluginStatus.MISSING_REQUIRED), RequiredPluginPolicy.empty());
         assertThat(decision.active()).isFalse();
+    }
+
+    @Test
+    @DisplayName("空必选策略：明确的插件启动失败进入恢复模式并保留诊断")
+    void failedPluginEntersRecoveryWithoutRequiredPolicy() {
+        PluginStatusReport report = new PluginStatusReport(List.of(
+                new PluginDiagnostic("crashy", PluginStatus.FAILED, null, false, List.of("boom"))));
+
+        RecoveryModeDecision decision = evaluator.evaluate(
+                report, RequiredPluginPolicy.empty(), java.util.Set.of("crashy"));
+
+        assertThat(decision.active()).isTrue();
+        RecoveryModeReason reason = decision.firstReason().orElseThrow();
+        assertThat(reason.pluginId()).isEqualTo("crashy");
+        assertThat(reason.messageKey()).isEqualTo("plugin.recovery.failed");
+        assertThat(reason.messages()).containsExactly("boom");
     }
 
     @Test
@@ -116,9 +132,10 @@ class RecoveryModeEvaluatorTest {
     }
 
     @Test
-    @DisplayName("report 或 policy 为 null：正常运行（不抛出）")
-    void nullInputsAreOperational() {
+    @DisplayName("report 或 policy 为空时保持安全，普通 FAILED 不冒充启动失败")
+    void nullInputsRemainSafe() {
         assertThat(evaluator.evaluate(null, policyRequiring(DW)).active()).isFalse();
         assertThat(evaluator.evaluate(reportWith(DW, PluginStatus.MISSING_REQUIRED), null).active()).isFalse();
+        assertThat(evaluator.evaluate(reportWith(DW, PluginStatus.FAILED), null).active()).isFalse();
     }
 }

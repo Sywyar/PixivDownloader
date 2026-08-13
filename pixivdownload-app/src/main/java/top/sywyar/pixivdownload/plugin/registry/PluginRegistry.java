@@ -133,6 +133,8 @@ public class PluginRegistry implements SmartLifecycle {
     /** PluginRegistry 与 runtime lifecycle 共享的 feature callback 事实源；对象身份区分代际。 */
     private final Set<RegisteredPlugin> startedFeatures =
             Collections.newSetFromMap(new IdentityHashMap<>());
+    /** 插件启动 / 服务接入失败的纯值诊断；对象身份区分代际，避免保留插件异常或 classloader。 */
+    private final Map<RegisteredPlugin, String> lifecycleFailures = new IdentityHashMap<>();
 
     /** 启用开关：活动成员判定的事实源。构造期与运行期 {@link #register} 都据此决定插件是否进入活动快照。 */
     private final PluginToggleProperties toggles;
@@ -354,6 +356,7 @@ public class PluginRegistry implements SmartLifecycle {
         List<RegisteredPlugin> nextActive = currentState.active().stream()
                 .filter(registered -> registered != target)
                 .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+        lifecycleFailures.remove(target);
         publishState(nextInstalled, nextActive);
     }
 
@@ -583,8 +586,13 @@ public class PluginRegistry implements SmartLifecycle {
                     startedThisAttempt.add(registered);
                 }
             } catch (Throwable failure) {
-                startFailure = failure;
-                break;
+                if (isFatal(failure)) {
+                    startFailure = failure;
+                    break;
+                }
+                recordLifecycleFailure(registered, failure);
+                log.error(MessageBundles.get(
+                        "plugin.log.start-failed", registered.id(), failure.getMessage()), failure);
             }
         }
         if (startFailure != null) {
@@ -609,8 +617,9 @@ public class PluginRegistry implements SmartLifecycle {
             rethrowUnchecked(cleanupFatal != null ? cleanupFatal : startFailure);
         }
         running = true;
-        log.info(MessageBundles.get("plugin.log.started", plugins.size(),
-                plugins.stream().map(RegisteredPlugin::id).collect(Collectors.joining(", "))));
+        List<String> startedIds = plugins.stream().filter(this::featureStarted)
+                .map(RegisteredPlugin::id).toList();
+        log.info(MessageBundles.get("plugin.log.started", startedIds.size(), String.join(", ", startedIds)));
     }
 
     @Override
@@ -691,6 +700,66 @@ public class PluginRegistry implements SmartLifecycle {
         synchronized (lock) {
             return startedFeatures.contains(registered);
         }
+    }
+
+    /** 记录当前精确身份的生命周期失败，只保留有界纯文本诊断。 */
+    public void recordLifecycleFailure(RegisteredPlugin registered, Throwable failure) {
+        Objects.requireNonNull(registered, "registered plugin");
+        Objects.requireNonNull(failure, "failure");
+        synchronized (lock) {
+            if (!containsIdentity(state.installed(), registered)
+                    && !containsIdentity(state.active(), registered)) {
+                return;
+            }
+            lifecycleFailures.put(registered, describeFailure(failure));
+        }
+    }
+
+    /** 清除当前精确身份的生命周期失败；完整服务足迹成功发布后调用。 */
+    public void clearLifecycleFailure(RegisteredPlugin registered) {
+        if (registered == null) {
+            return;
+        }
+        synchronized (lock) {
+            lifecycleFailures.remove(registered);
+        }
+    }
+
+    /** 当前精确身份的生命周期失败诊断。 */
+    public Optional<String> lifecycleFailure(RegisteredPlugin registered) {
+        if (registered == null) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            return Optional.ofNullable(lifecycleFailures.get(registered));
+        }
+    }
+
+    /** 当前安装代际的生命周期失败，按插件注册顺序返回纯值快照。 */
+    public Map<String, String> lifecycleFailuresById() {
+        synchronized (lock) {
+            Map<String, String> failures = new LinkedHashMap<>();
+            for (RegisteredPlugin registered : state.installed()) {
+                String failure = lifecycleFailures.get(registered);
+                if (failure != null) {
+                    failures.put(registered.id(), failure);
+                }
+            }
+            return Collections.unmodifiableMap(failures);
+        }
+    }
+
+    private static String describeFailure(Throwable failure) {
+        String type = failure.getClass().getName();
+        String message = failure.getMessage();
+        if (message == null || message.isBlank()) {
+            return type;
+        }
+        String compact = message.replace('\r', ' ').replace('\n', ' ').trim();
+        if (compact.length() > 512) {
+            compact = compact.substring(0, 512) + "…";
+        }
+        return type + ": " + compact;
     }
 
     private static void rethrowFatal(Throwable failure) {

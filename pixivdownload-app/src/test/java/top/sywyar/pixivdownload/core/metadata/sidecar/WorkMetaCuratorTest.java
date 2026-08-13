@@ -36,6 +36,7 @@ class WorkMetaCuratorTest {
                  "isOriginal":false,"isUnlisted":false,"illustComment":"d","restrict":0,"alt":"a",
                  "bookmarkCount":266,"likeCount":187,"viewCount":1254,"commentCount":5,
                  "bookmarkData":null,"likeData":false,"userIllusts":{"x":1},"zoneConfig":{"z":1},"extraData":{"e":1},
+                 "noLoginData":{"n":1},
                  "titleCaptionTranslation":{"workTitle":null,"workCaption":"译文"}}""");
         JsonNode pages = json("[{\"urls\":{\"original\":\"https://i.pximg.net/x_p0.jpg\"},\"width\":1640,\"height\":2360}]");
 
@@ -71,6 +72,7 @@ class WorkMetaCuratorTest {
         assertThat(raw.has("userIllusts")).isFalse();
         assertThat(raw.has("zoneConfig")).isFalse();
         assertThat(raw.has("extraData")).isFalse();
+        assertThat(raw.has("noLoginData")).isFalse();
         // A+B 原样保留（含长尾 restrict/alt）
         assertThat(raw.path("description").asText()).isEqualTo("d");
         assertThat(raw.path("isOriginal").asBoolean()).isFalse();

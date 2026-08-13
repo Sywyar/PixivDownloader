@@ -123,6 +123,24 @@ class WorkMetaCaptureServiceTest {
     }
 
     @Test
+    @DisplayName("已有插画 sidecar 不应被空标题或作品 ID 占位标题覆盖，有效标题仍可刷新")
+    void shouldProtectExistingArtworkSidecarFromBadReplacement() throws Exception {
+        when(pixivDatabase.getArtwork(9L)).thenReturn(artwork(9L));
+        when(artworkFileLocator.resolveArtworkDirectory(any())).thenReturn(tempDir.toString());
+        Path sidecar = tempDir.resolve("9.meta.json");
+        Files.writeString(sidecar, "{\"old\":true}");
+
+        service.captureForwardedArtwork(9L, "{\"illustTitle\":\"\"}");
+        service.captureForwardedArtwork(9L, "{\"illustTitle\":\"作品 9\"}");
+        service.captureForwardedArtwork(9L, "{\"illustTitle\":\"Artwork 9\"}");
+
+        assertThat(Files.readString(sidecar)).isEqualTo("{\"old\":true}");
+
+        service.captureForwardedArtwork(9L, "{\"illustTitle\":\"有效新标题\"}");
+        assertThat(Files.readString(sidecar)).contains("有效新标题").doesNotContain("\"old\":true");
+    }
+
+    @Test
     @DisplayName("前端转发：空串 / 非法 JSON 直接跳过、不触 DB / 不写盘")
     void shouldSkipForwardedArtworkOnBlankOrInvalidJson() {
         service.captureForwardedArtwork(9L, "   ");

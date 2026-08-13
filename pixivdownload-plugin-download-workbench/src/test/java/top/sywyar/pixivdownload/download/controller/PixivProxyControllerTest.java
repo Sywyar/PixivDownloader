@@ -34,6 +34,7 @@ import java.util.Optional;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -472,6 +473,9 @@ class PixivProxyControllerTest {
                         "userId": "55555",
                         "userName": "TestArtist",
                         "description": "Hello World",
+                        "userIllusts": {"1": "large"},
+                        "zoneConfig": {"header": "noise"},
+                        "noLoginData": {"secret": "noise"},
                         "tags": {
                           "tags": [
                             {"tag": "Cat", "translation": {"en": "猫"}},
@@ -496,7 +500,11 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.tags[0].name").value("Cat"))
                     .andExpect(jsonPath("$.tags[0].translatedName").value("猫"))
                     .andExpect(jsonPath("$.tags[1].name").value("Original"))
-                    .andExpect(jsonPath("$.tags[1].translatedName").doesNotExist());
+                    .andExpect(jsonPath("$.tags[1].translatedName").doesNotExist())
+                    .andExpect(jsonPath("$.rawMetaJson", containsString("\"illustTitle\":\"Demo\"")))
+                    .andExpect(jsonPath("$.rawMetaJson", not(containsString("userIllusts"))))
+                    .andExpect(jsonPath("$.rawMetaJson", not(containsString("zoneConfig"))))
+                    .andExpect(jsonPath("$.rawMetaJson", not(containsString("noLoginData"))));
 
             verify(workVisibilityService).requireVisible(VISIBILITY_SCOPE, WorkType.ARTWORK, 12345L);
         }

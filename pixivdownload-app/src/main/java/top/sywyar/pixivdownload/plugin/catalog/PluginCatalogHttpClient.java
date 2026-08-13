@@ -38,8 +38,8 @@ import java.util.Set;
  * </ul>
  *
  * <p><b>已记录的残留风险（超出当前最小闭环范围）</b>：主机解析（{@link InetAddress#getAllByName}）与 JDK
- * {@code HttpClient} 实际连接时各做一次 DNS，二者之间存在 DNS rebinding 的 TOCTOU 窗口。受信 catalog + 默认关闭使风险
- * 很低；更强的「连已校验 IP + 自管 SNI」方案不在本框架范围。
+ * {@code HttpClient} 实际连接时各做一次 DNS，二者之间存在 DNS rebinding 的 TOCTOU 窗口。受信 catalog、严格地址校验与
+ * 有界响应使风险可控；更强的「连已校验 IP + 自管 SNI」方案不在本框架范围。
  */
 public class PluginCatalogHttpClient {
 

@@ -44,7 +44,7 @@ public class WorkMetaCurator {
             "bookmarkCount", "likeCount", "commentCount", "viewCount", "responseCount",
             "imageResponseCount", "imageResponseData", "imageResponseOutData",
             "bookmarkData", "likeData",
-            "userIllusts", "userNovels", "zoneConfig", "extraData",
+            "userIllusts", "userNovels", "zoneConfig", "extraData", "noLoginData",
             "comicPromotion", "fanboxPromotion",
             "contestBanners", "contestData", "pollData",
             "descriptionBoothId", "descriptionYoutubeId");

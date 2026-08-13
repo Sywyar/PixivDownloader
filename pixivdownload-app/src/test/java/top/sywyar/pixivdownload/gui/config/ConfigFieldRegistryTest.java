@@ -51,7 +51,7 @@ class ConfigFieldRegistryTest {
         assertThat(spec).as("插件市场主开关应保留").isNotNull();
         assertThat(spec.type()).isEqualTo(FieldType.BOOL);
         assertThat(spec.group()).isEqualTo(pluginsGroup);
-        assertThat(spec.defaultValue()).isEqualTo("false");
+        assertThat(spec.defaultValue()).isEqualTo("true");
         assertThat(spec.label()).isNotBlank().doesNotStartWith("gui.config.field.");
     }
 

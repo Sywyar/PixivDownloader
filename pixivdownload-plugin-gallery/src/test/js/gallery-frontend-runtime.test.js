@@ -11,7 +11,6 @@ const assert = require('assert');
 
 const STATIC_ROOT = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-gallery');
 const RUNTIME_SOURCE = fs.readFileSync(path.join(STATIC_ROOT, 'gallery-frontend-runtime.js'), 'utf8');
-const GENERIC_SOURCE = fs.readFileSync(path.join(STATIC_ROOT, 'gallery-generic-view.js'), 'utf8');
 
 let passed = 0;
 function ok(label, condition) {
@@ -201,9 +200,7 @@ function makeEnvironment(options) {
     const opts = options || {};
     const calls = [];
     const state = {
-        descriptor: opts.descriptor || snapshot(1, [], []),
-        projectionPage: opts.projectionPage || {projections: [], nextCursor: null, hasMore: false, diagnostics: []},
-        work: opts.work || null
+        descriptor: opts.descriptor || snapshot(1, [], [])
     };
     const moduleScripts = Object.assign({}, opts.moduleScripts || {});
     const sandboxRef = {current: null};
@@ -227,11 +224,6 @@ function makeEnvironment(options) {
             const value = String(url);
             calls.push(value);
             if (value.startsWith('/api/gallery/unified/descriptors')) return response(state.descriptor);
-            if (value.startsWith('/api/gallery/unified/projections')) return response(state.projectionPage);
-            if (value.startsWith('/api/gallery/unified/works/')) {
-                if (typeof opts.workRequest === 'function') return opts.workRequest(value);
-                return state.work ? response({work: state.work, diagnostics: []}) : response({}, 404);
-            }
             return response({}, 404);
         },
         PixivI18n: {
@@ -248,7 +240,6 @@ function makeEnvironment(options) {
     sandboxRef.current = sandbox;
     vm.createContext(sandbox);
     vm.runInContext(RUNTIME_SOURCE, sandbox);
-    vm.runInContext(GENERIC_SOURCE, sandbox);
     return {sandbox, api: sandbox.PixivGalleryFrontend, document, calls, state, moduleScripts};
 }
 
@@ -262,7 +253,7 @@ function cardContext(env, item) {
 }
 
 async function main() {
-    // 1. 默认 URL 只装配 descriptors，仍调用正式 Pixiv 主路径，不触碰 neutral broker。
+    // 1. 运行时只装配 descriptors，不自行接管正式 Pixiv 主画廊数据流。
     {
         const descriptor = snapshot(1, [projectionDescriptor('alpha', 'IMAGE')], []);
         descriptor.diagnostics = [{
@@ -274,14 +265,8 @@ async function main() {
             descriptor
         });
         await env.api.bootstrap();
-        let primaryCalls = 0;
-        await env.api.startDataFlow({
-            search: '?view=all',
-            loadPrimary: () => { primaryCalls++; }
-        });
-        ok('默认 URL 调用正式 Pixiv 主路径', primaryCalls === 1);
-        ok('默认 URL 仅请求 descriptors，不请求 projections/works',
-            env.calls.length === 1 && env.calls[0].includes('/descriptors'));
+        ok('运行时只请求 descriptors', env.calls.length === 1 && env.calls[0].includes('/descriptors'));
+        ok('运行时不暴露主画廊数据流入口', typeof env.api.startDataFlow === 'undefined');
         ok('前端运行时不再暴露 VIEW_ENTRY 侧栏导航 API',
             typeof env.api.viewEntries === 'undefined' && typeof env.api.renderViewEntries === 'undefined');
         ok('服务端诊断只保留受控字段，不暴露 message 或 DTO',
@@ -289,129 +274,7 @@ async function main() {
             && !Object.prototype.hasOwnProperty.call(env.api.diagnostics()[0], 'payload'));
     }
 
-    // 2. generic URL 走 projection broker，不调用默认 Pixiv 主路径，详情未打开前不请求 works。
-    {
-        const item = projection('alpha', 'IMAGE', 'Neutral title');
-        const env = makeEnvironment({
-            search: '?galleryKind=IMAGE&sourceId=alpha',
-            descriptor: snapshot(2, [projectionDescriptor('alpha', 'IMAGE')], []),
-            projectionPage: {projections: [item], nextCursor: null, hasMore: false, diagnostics: []}
-        });
-        const hosts = {
-            grid: env.document.createElement('section'),
-            status: env.document.createElement('div'),
-            pagination: env.document.createElement('nav'),
-            detail: env.document.createElement('section'),
-            filters: env.document.createElement('section')
-        };
-        await env.api.bootstrap();
-        let primaryCalls = 0;
-        await env.api.startDataFlow({
-            search: '?galleryKind=IMAGE&sourceId=alpha',
-            loadPrimary: () => { primaryCalls++; },
-            generic: hosts
-        });
-        ok('generic URL 不调用默认 Pixiv 主路径', primaryCalls === 0);
-        ok('neutral URL 请求 projection broker', env.calls.some(url => url.includes('/projections?')));
-        ok('未打开详情前不请求 works', !env.calls.some(url => url.includes('/works/')));
-        ok('中性卡片安全渲染到主画廊网格', hosts.grid.children.length === 1);
-    }
-
-    // 3. filter extension 得到只读 filters 与受控 setFilter，并驱动 broker 查询参数。
-    {
-        const moduleUrl = '/extensions/filter.js';
-        const contribution = frontend('alpha.filter', moduleUrl, ['FILTER_EXTENSION'],
-            scope(['alpha'], [], ['IMAGE'], []));
-        let filterContext = null;
-        let initializerApiKeys = null;
-        const env = makeEnvironment({
-            search: '?galleryKind=IMAGE&sourceId=alpha',
-            descriptor: snapshot(3, [projectionDescriptor('alpha', 'IMAGE')], [contribution]),
-            moduleScripts: {
-                [moduleUrl](window) {
-                    window.PixivGalleryFrontend.registerModule(moduleUrl, api => {
-                        initializerApiKeys = Object.keys(api).sort().join(',');
-                        api.registerFilterExtension({
-                            id: 'alpha.filter',
-                            render(context) { filterContext = context; return false; }
-                        });
-                    });
-                }
-            }
-        });
-        const hosts = {
-            grid: env.document.createElement('section'),
-            status: env.document.createElement('div'),
-            pagination: env.document.createElement('nav'),
-            detail: env.document.createElement('section'),
-            filters: env.document.createElement('section')
-        };
-        await env.api.bootstrap();
-        await env.api.startDataFlow({
-            search: '?galleryKind=IMAGE&sourceId=alpha',
-            loadPrimary() {},
-            generic: hosts
-        });
-        ok('filter context 同时提供 filters 与 setFilter',
-            filterContext && Object.isFrozen(filterContext.filters)
-            && typeof filterContext.setFilter === 'function');
-        ok('initializer API 仅暴露四个约定注册方法', initializerApiKeys === [
-            'registerCardExtension', 'registerDetailAction',
-            'registerFilterExtension', 'registerMediaRenderer'
-        ].join(','));
-        await filterContext.setFilter({sort: 'TITLE', direction: 'ASC', tag: ['tag-1']});
-        const filteredCall = env.calls.filter(url => url.includes('/projections?')).pop();
-        ok('setFilter 以受控参数重新查询 broker',
-            filteredCall.includes('sort=TITLE') && filteredCall.includes('direction=ASC')
-            && filteredCall.includes('tag=tag-1'));
-    }
-
-    // 4. projection 的 preferredMediaId 与 galleryKind 成为详情媒体提示，不复制详情模型。
-    {
-        const item = projection('alpha', 'IMAGE', 'Preferred media');
-        item.preferredMediaId = 'media-2';
-        const workKey = item.key.workKey;
-        const work = {
-            key: workKey,
-            title: 'Preferred media',
-            author: {sourceId: 'alpha', actorId: 'a1', name: 'Author'},
-            media: [
-                {key: {workKey, mediaId: 'media-1'}, kind: 'IMAGE', url: '/media/one.jpg'},
-                {key: {workKey, mediaId: 'media-2'}, kind: 'IMAGE', url: '/media/two.jpg'}
-            ],
-            attributes: {}
-        };
-        const env = makeEnvironment({
-            search: '?galleryKind=IMAGE&sourceId=alpha',
-            descriptor: snapshot(4, [projectionDescriptor('alpha', 'IMAGE')], []),
-            projectionPage: {projections: [item], nextCursor: null, hasMore: false, diagnostics: []},
-            work
-        });
-        const hosts = {
-            grid: env.document.createElement('section'),
-            status: env.document.createElement('div'),
-            pagination: env.document.createElement('nav'),
-            detail: env.document.createElement('section'),
-            filters: env.document.createElement('section')
-        };
-        await env.api.bootstrap();
-        await env.api.startDataFlow({
-            search: '?galleryKind=IMAGE&sourceId=alpha',
-            loadPrimary() {},
-            generic: hosts
-        });
-        const resolved = await env.api.openDetail(item);
-        const mediaRoot = hosts.detail.children[hosts.detail.children.length - 1];
-        const preferredHost = mediaRoot.children[0];
-        ok('详情直接使用 broker 返回的同一 GalleryWork', resolved === work);
-        ok('preferredMediaId 对应媒体优先并标记 focus',
-            preferredHost.dataset.mediaId === 'media-2'
-            && preferredHost.classList.contains('gallery-generic-media-preferred')
-            && preferredHost.getAttribute('tabindex') === '-1');
-        ok('详情保留 projection 当前 galleryKind 提示', mediaRoot.dataset.galleryKind === 'IMAGE');
-    }
-
-    // 5. 模块加载失败 fail-soft，标准卡片仍可用。
+    // 2. 模块加载失败 fail-soft，不影响其它运行时能力。
     {
         const contribution = frontend('alpha.card', '/missing.js', ['CARD_EXTENSION'],
             scope(['alpha'], ['work'], ['IMAGE'], []));
@@ -423,12 +286,12 @@ async function main() {
             env.api.diagnostics().some(item => item.code === 'module-load-failed'));
         ok('模块加载失败诊断不泄漏第三方异常原文',
             !JSON.stringify(env.api.diagnostics()).includes('missing module'));
-        const fallbackCard = env.api.renderStandardCard(
-            cardContext(env, projection('alpha', 'IMAGE', 'Fallback')));
-        ok('模块加载失败仍可渲染标准卡片', fallbackCard && fallbackCard.nodeType === 1);
+        const context = cardContext(env, projection('alpha', 'IMAGE', 'Fallback'));
+        env.api.renderCardExtensions(context);
+        ok('模块加载失败后扩展渲染安全为空', context.host.children.length === 0);
     }
 
-    // 6. 异步执行的 module 必须自报当前正在加载的 URL，不能冒充另一个本地模块。
+    // 3. 异步执行的 module 必须自报当前正在加载的 URL，不能冒充另一个本地模块。
     {
         const moduleUrl = '/extensions/expected.js';
         const contribution = frontend('alpha.card', moduleUrl, ['CARD_EXTENSION'],
@@ -448,7 +311,7 @@ async function main() {
             env.api.diagnostics().some(item => item.code === 'module-registration-missing'));
     }
 
-    // 7. initializer 重复 id：首个 handler 生效，重复项被诊断且不会覆盖。
+    // 4. initializer 重复 id：首个 handler 生效，重复项被诊断且不会覆盖。
     {
         const moduleUrl = '/extensions/duplicate.js';
         const contribution = frontend('alpha.card', moduleUrl, ['CARD_EXTENSION'],
@@ -479,7 +342,7 @@ async function main() {
         ok('重复 id 形成诊断', env.api.diagnostics().some(item => item.code === 'duplicate-handler-id'));
     }
 
-    // 8. initializer 部分注册后抛错时回滚该模块新增的全部 handler。
+    // 5. initializer 部分注册后抛错时回滚该模块新增的全部 handler。
     {
         const moduleUrl = '/extensions/partial.js';
         const contribution = frontend('alpha.card', moduleUrl, ['CARD_EXTENSION'],
@@ -509,7 +372,7 @@ async function main() {
             !JSON.stringify(env.api.diagnostics()).includes('initializer-secret-token'));
     }
 
-    // 9. renderer 抛错或返回 false 均回退标准 renderer；media 对象原样透传。
+    // 6. renderer 抛错或返回 false 均回退标准 renderer；media 对象原样透传。
     {
         const moduleUrl = '/extensions/media.js';
         const contribution = frontend('alpha.media', moduleUrl, ['MEDIA_RENDERER'],
@@ -549,7 +412,7 @@ async function main() {
             !JSON.stringify(env.api.diagnostics()).includes('renderer-secret-token'));
     }
 
-    // 10. 稳定公开标准媒体 helper 覆盖 LIVE_PHOTO_VIDEO 与 UNKNOWN，返回 Node 且不自行 append。
+    // 7. 稳定公开标准媒体 helper 覆盖 LIVE_PHOTO_VIDEO 与 UNKNOWN，返回 Node 且不自行 append。
     {
         const env = makeEnvironment({});
         const host = env.document.createElement('div');
@@ -591,7 +454,7 @@ async function main() {
         ok('UNKNOWN 文案经 textContent 安全写入', env.document.innerHtmlWrites === 0 && unknown.textContent.length > 0);
     }
 
-    // 11. generation 刷新先注销旧 handler；同一作品不再被旧扩展装饰。
+    // 8. generation 刷新先注销旧 handler；同一作品不再被旧扩展装饰。
     {
         const moduleUrl = '/extensions/generation.js';
         const contribution = frontend('alpha.card', moduleUrl, ['CARD_EXTENSION'],
@@ -622,81 +485,7 @@ async function main() {
         ok('运行时 generation 更新', env.api.generation() === 8);
     }
 
-    // 12. generation 移除当前 projection 时清空旧内容，恢复后重新查询 broker。
-    {
-        const item = projection('alpha', 'IMAGE', 'generation-card');
-        const env = makeEnvironment({
-            descriptor: snapshot(9, [projectionDescriptor('alpha', 'IMAGE')], []),
-            projectionPage: {projections: [item], nextCursor: null, hasMore: false, diagnostics: []}
-        });
-        const hosts = {
-            grid: env.document.createElement('section'),
-            status: env.document.createElement('div'),
-            pagination: env.document.createElement('nav'),
-            detail: env.document.createElement('section'),
-            filters: env.document.createElement('section')
-        };
-        await env.api.bootstrap();
-        await env.api.startDataFlow({
-            search: '?galleryKind=IMAGE&sourceId=alpha', loadPrimary() {}, generic: hosts
-        });
-        ok('projection 活动时中性卡片可见', hosts.grid.children.length === 1);
-
-        env.state.descriptor = snapshot(10, [], []);
-        await env.api.refresh({force: true});
-        await env.api.refreshGeneric();
-        ok('projection 卸载后旧卡片立即清空', hosts.grid.children.length === 0);
-        ok('projection 卸载后显示不可用状态',
-            hosts.status.textContent.includes('frontend.status.unavailable'));
-
-        env.state.descriptor = snapshot(11, [projectionDescriptor('alpha', 'IMAGE')], []);
-        await env.api.refresh({force: true});
-        await env.api.refreshGeneric();
-        ok('projection 恢复后重新查询并显示卡片', hosts.grid.children.length === 1
-            && env.calls.filter(url => url.startsWith('/api/gallery/unified/projections')).length === 2);
-    }
-
-    // 13. generation 更新后 pending 详情响应不能把已卸载来源写回页面。
-    {
-        let resolveWork;
-        const pendingWork = new Promise(resolve => { resolveWork = resolve; });
-        const item = projection('alpha', 'IMAGE', 'pending-detail');
-        const work = {
-            key: item.key.workKey,
-            title: item.title,
-            author: item.author,
-            media: [{key: {workKey: item.key.workKey, mediaId: 'media-1'}, kind: 'IMAGE', url: '/image'}]
-        };
-        const env = makeEnvironment({
-            descriptor: snapshot(12, [projectionDescriptor('alpha', 'IMAGE')], []),
-            projectionPage: {projections: [item], nextCursor: null, hasMore: false, diagnostics: []},
-            workRequest() { return pendingWork; }
-        });
-        const hosts = {
-            grid: env.document.createElement('section'),
-            status: env.document.createElement('div'),
-            pagination: env.document.createElement('nav'),
-            detail: env.document.createElement('section'),
-            filters: env.document.createElement('section')
-        };
-        await env.api.bootstrap();
-        await env.api.startDataFlow({
-            search: '?galleryKind=IMAGE&sourceId=alpha', loadPrimary() {}, generic: hosts
-        });
-        const detailPromise = env.api.openDetail(item);
-        env.state.descriptor = snapshot(13, [], []);
-        await env.api.refresh({force: true});
-        await env.api.refreshGeneric();
-        resolveWork(await response({work, diagnostics: []}));
-        const staleResult = await detailPromise;
-
-        ok('generation 更新后丢弃 pending 详情响应', staleResult == null);
-        ok('pending 详情响应不会重绘已卸载来源',
-            hosts.detail.hidden && hosts.detail.children.length === 0
-            && hosts.status.textContent.includes('frontend.status.unavailable'));
-    }
-
-    // 14. context.t 支持 namespace:key，动态模块仍只注册声明过的运行时 hook。
+    // 9. context.t 支持 namespace:key，动态模块仍只注册声明过的运行时 hook。
     {
         const moduleUrl = '/extensions/i18n.js';
         const card = frontend('alpha.card', moduleUrl, ['CARD_EXTENSION'],
@@ -719,22 +508,6 @@ async function main() {
         const context = cardContext(env, projection('alpha', 'IMAGE', 'x'));
         env.api.renderCardExtensions(context);
         ok('context.t 支持 namespace:key', context.host.textContent === 'T:alpha:card.label');
-    }
-
-    // 15. 标准卡片只用 textContent，恶意标题不会成为 HTML，缩略图拒绝编码路径穿越。
-    {
-        const env = makeEnvironment({});
-        const host = env.document.createElement('div');
-        const item = projection('alpha', 'IMAGE', '<img src=x onerror=alert(1)>');
-        item.thumbnailUrl = '/%2e%2e/private.png';
-        const card = env.api.renderStandardCard({work: item, card: item, host, openDetail() {}});
-        ok('标准卡片返回 Node', card && card.nodeType === 1);
-        ok('恶意标题保持纯文本', card.textContent.includes('<img src=x onerror=alert(1)>'));
-        ok('标准卡片零 innerHTML 写入', env.document.innerHtmlWrites === 0);
-        const descendants = node => node.children.reduce(
-            (items, child) => items.concat(child, descendants(child)), []);
-        ok('标准卡片拒绝编码路径穿越缩略图',
-            !descendants(card).some(node => node.tagName === 'IMG'));
     }
 
     console.log(`\ngallery-frontend-runtime.test.js: ${passed} assertions passed ✓`);

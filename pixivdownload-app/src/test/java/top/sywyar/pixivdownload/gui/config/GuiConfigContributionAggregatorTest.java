@@ -1265,6 +1265,7 @@ class GuiConfigContributionAggregatorTest {
                 path -> "http://localhost:6999" + path, snapshot);
 
         assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+        assertThat(panel.actionFieldValue("fixture.api-key")).isEqualTo(FAKE_CREDENTIAL);
         assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.saved"))).isTrue();
         assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore().readAll("fixture"))
                 .containsEntry("fixture.api-key", FAKE_CREDENTIAL);
@@ -1273,26 +1274,31 @@ class GuiConfigContributionAggregatorTest {
 
         clickButton(panel, GuiMessages.get("gui.button.save"));
         assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+        assertThat(panel.actionFieldValue("fixture.api-key")).isEqualTo(FAKE_CREDENTIAL);
         assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.saved"))).isTrue();
         assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore().readAll("fixture"))
                 .containsEntry("fixture.api-key", FAKE_CREDENTIAL);
 
         panel.setFieldValue("fixture.api-key", "replacement-credential");
+        assertThat(panel.actionFieldValue("fixture.api-key")).isEqualTo("replacement-credential");
         assertThat(containsLabelText(panel,
                 GuiMessages.get("gui.credential.status.replace-pending"))).isTrue();
         clickButton(panel, GuiMessages.get("gui.button.save"));
 
         assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+        assertThat(panel.actionFieldValue("fixture.api-key")).isEqualTo("replacement-credential");
         assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.saved"))).isTrue();
         assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore().readAll("fixture"))
                 .containsEntry("fixture.api-key", "replacement-credential");
 
         panel.requestCredentialClear("fixture.api-key");
+        assertThat(panel.actionFieldValue("fixture.api-key")).isEmpty();
         assertThat(containsLabelText(panel,
                 GuiMessages.get("gui.credential.status.clear-pending"))).isTrue();
         clickButton(panel, GuiMessages.get("gui.button.save"));
 
         assertThat(containsLabelText(panel, GuiMessages.get("gui.credential.status.not-saved"))).isTrue();
+        assertThat(panel.actionFieldValue("fixture.api-key")).isEmpty();
         assertThat(new top.sywyar.pixivdownload.config.credential.PluginCredentialStore()
                 .readAll("fixture")).isEmpty();
         assertThat(RuntimeFiles.resolvePluginCredentialPath("fixture")).doesNotExist();

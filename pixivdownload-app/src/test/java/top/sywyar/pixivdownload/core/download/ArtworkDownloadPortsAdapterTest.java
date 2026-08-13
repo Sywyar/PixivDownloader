@@ -69,9 +69,11 @@ class ArtworkDownloadPortsAdapterTest {
                 7L,
                 8L
         );
+        verify(pixivDatabase).refreshArtworkMetadataAfterDownload(
+                42L, "title", 1, true, 84L, "description", 5L, 6L, 7L, 8L);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<TagDto>> tags = ArgumentCaptor.forClass(List.class);
-        verify(pixivDatabase).saveArtworkTags(eq(42L), tags.capture());
+        verify(pixivDatabase).replaceArtworkTagsAfterDownload(eq(42L), tags.capture());
         assertThat(tags.getValue()).singleElement().satisfies(tag -> {
             assertThat(tag.getTagId()).isEqualTo(9L);
             assertThat(tag.getName()).isEqualTo("tag");
@@ -91,7 +93,7 @@ class ArtworkDownloadPortsAdapterTest {
 
         assertThatThrownBy(() -> adapter.record(sampleCompletion())).isSameAs(failure);
 
-        verify(pixivDatabase, never()).saveArtworkTags(anyLong(), anyList());
+        verify(pixivDatabase, never()).replaceArtworkTagsAfterDownload(anyLong(), anyList());
     }
 
     @Test
@@ -100,13 +102,38 @@ class ArtworkDownloadPortsAdapterTest {
         PixivDatabase pixivDatabase = mock(PixivDatabase.class);
         ArtworkDownloadHistoryAdapter adapter = new ArtworkDownloadHistoryAdapter(pixivDatabase);
         RuntimeException failure = new RuntimeException("tag failed");
-        doThrow(failure).when(pixivDatabase).saveArtworkTags(eq(42L), anyList());
+        doThrow(failure).when(pixivDatabase).replaceArtworkTagsAfterDownload(eq(42L), anyList());
 
         assertThatThrownBy(() -> adapter.record(sampleCompletion())).isSameAs(failure);
 
         verify(pixivDatabase).insertArtwork(
                 anyLong(), any(), any(), anyInt(), any(), anyLong(), any(), any(),
                 any(), any(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("重下得到空值或作品 ID 占位标题时应保留旧元数据")
+    void historyAdapterKeepsExistingMetadataForBadReplacement() {
+        PixivDatabase pixivDatabase = mock(PixivDatabase.class);
+        ArtworkDownloadHistoryAdapter adapter = new ArtworkDownloadHistoryAdapter(pixivDatabase);
+        when(pixivDatabase.getArtwork(42L)).thenReturn(new ArtworkRecord(
+                42L, "旧标题", "/old", 1, "jpg", 100L, false, null, null,
+                2, true, 84L, "旧简介", 4L, 6L, 7L, 8L, false));
+        when(pixivDatabase.getOrCreateFileNameTemplateId("{artwork_id}_p{page}")).thenReturn(5L);
+
+        adapter.record(new ArtworkDownloadCompletion(
+                42L, "作品 42", tempDir.resolve("42"), 2,
+                new LinkedHashSet<>(List.of("png", "jpg")), 303L,
+                0, false, null, " ", "{artwork_id}_p{page}", null,
+                null, null, null));
+
+        verify(pixivDatabase).insertArtwork(
+                42L, "旧标题", tempDir.resolve("42").toAbsolutePath().toString(),
+                2, "png,jpg", 303L, 2, true, 84L, "旧简介",
+                5L, 6L, 7L, 8L);
+        verify(pixivDatabase).refreshArtworkMetadataAfterDownload(
+                42L, null, null, null, null, null, 5L, null, null, null);
+        verify(pixivDatabase).replaceArtworkTagsAfterDownload(42L, List.of());
     }
 
     @Test

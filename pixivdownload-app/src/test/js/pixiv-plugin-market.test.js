@@ -28,6 +28,7 @@ sandbox.fetch = function (url, opts) {
     const response = nextFetchResponse;
     return Promise.resolve({
         status: response.status,
+        ok: response.status >= 200 && response.status < 300,
         json: () => Promise.resolve(response.body)
     });
 };
@@ -160,6 +161,25 @@ ok('旧清单缺 defaultInstalled 字段时稳定视为非默认安装', !PMK.da
 ok('依赖判定只消费中性 category', PMK.data.entryDependency(dependency));
 ok('默认安装判定不硬编码任何插件 id', DATA_SRC.includes('m.defaultInstalled') && !DATA_SRC.includes("'douyin'"));
 
+PMK.state.i18n.client = null;
+const missingReasons = PMK.recoveryReasons({
+    recoveryMode: true,
+    transactionRecovery: {safeToScan: true, failures: []},
+    recoveryReasons: [{pluginId: 'download-workbench', status: 'MISSING_REQUIRED', messages: []}],
+    plugins: []
+});
+ok('恢复横幅指出缺失的必装插件', missingReasons.length === 1 && missingReasons[0].includes('download-workbench'));
+const failedReasons = PMK.recoveryReasons({
+    recoveryMode: true,
+    transactionRecovery: {safeToScan: true, failures: []},
+    recoveryReasons: [{pluginId: 'crashy', status: 'FAILED', messageKey: 'plugin.recovery.failed', messages: ['startup exploded']}],
+    plugins: [{id: 'bad-signature', status: 'FAILED', requiredByPolicy: false, messages: ['signature rejected']}]
+});
+ok('恢复横幅指出崩溃插件及诊断', failedReasons.length === 1
+    && failedReasons[0].includes('crashy') && failedReasons[0].includes('startup exploded'));
+ok('恢复横幅不把其它 FAILED 诊断冒充恢复原因', !failedReasons[0].includes('bad-signature'));
+eq('正常模式不显示恢复原因', PMK.recoveryReasons({recoveryMode: false, plugins: []}).length, 0);
+
 const blockedMessage = '安装事务已阻断；请重启后完成恢复';
 const blockedResult = PMK.data.installResult({
     outcome: 'INSTALLED', accepted: true, activated: true, effectiveAfterRestart: true,
@@ -176,6 +196,12 @@ eq('市场 recoveryBlocked toast 使用错误色调', blockedFeedback.tone, 'err
 eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message, blockedMessage);
 
 (async function () {
+    fetchCalls.length = 0;
+    nextFetchResponse = {status: 200, body: {recoveryMode: true, plugins: []}};
+    const status = await PMK.api.fetchPluginStatus();
+    ok('市场 API 读取恢复模式状态', status.recoveryMode === true);
+    eq('市场 API 复用插件管理状态端点', fetchCalls[0].url, '/api/plugins/status');
+
     // 503 是安装事务的结构化终态，不得被 API 层当成普通 HTTP 错误丢掉 outcome / message。
     fetchCalls.length = 0;
     nextFetchResponse = {

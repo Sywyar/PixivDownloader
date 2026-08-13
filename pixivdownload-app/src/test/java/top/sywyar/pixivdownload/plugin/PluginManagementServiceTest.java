@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -123,11 +124,16 @@ class PluginManagementServiceTest {
         when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
         when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         when(recovery.isActive()).thenReturn(true);
+        when(recovery.reasons()).thenReturn(List.of(new RecoveryModeReason(
+                MISSING_ID, PluginStatus.MISSING_REQUIRED, "plugin.recovery.missing",
+                PluginApiRequirement.unspecified(), List.of("required but not installed"))));
 
         PluginManagementService.PluginManagementReport report =
                 service(status, lifecycle, RequiredPluginPolicy.empty(), recovery).list();
 
         assertThat(report.recoveryMode()).isTrue();
+        assertThat(report.recoveryReasons()).extracting(RecoveryModeReason::pluginId)
+                .containsExactly(MISSING_ID);
         assertThat(report.plugins()).extracting(PluginManagementService.PluginManagementEntry::id)
                 .containsExactly(BUILT_IN_ID, EXTERNAL_ID, MISSING_ID);
 
