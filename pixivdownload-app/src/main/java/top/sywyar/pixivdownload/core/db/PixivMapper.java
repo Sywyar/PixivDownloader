@@ -121,6 +121,29 @@ public interface PixivMapper {
                                  @Param("authorId") Long authorId,
                                  @Param("description") String description);
 
+    /** 成功重下后刷新有效元数据；null 表示保留已有字段。 */
+    @Update("UPDATE artworks SET"
+            + " title = COALESCE(#{title}, title),"
+            + " \"R18\" = COALESCE(#{xRestrict}, \"R18\"),"
+            + " is_ai = COALESCE(#{isAi}, is_ai),"
+            + " author_id = COALESCE(#{authorId}, author_id),"
+            + " description = COALESCE(#{description}, description),"
+            + " file_name = #{fileName},"
+            + " file_author_name_id = COALESCE(#{fileAuthorNameId}, file_author_name_id),"
+            + " series_id = COALESCE(#{seriesId}, series_id),"
+            + " series_order = COALESCE(#{seriesOrder}, series_order)"
+            + " WHERE artwork_id = #{artworkId} AND deleted = 0")
+    void refreshMetadataAfterDownload(@Param("artworkId") long artworkId,
+                                      @Param("title") String title,
+                                      @Param("xRestrict") Integer xRestrict,
+                                      @Param("isAi") Boolean isAi,
+                                      @Param("authorId") Long authorId,
+                                      @Param("description") String description,
+                                      @Param("fileName") long fileName,
+                                      @Param("fileAuthorNameId") Long fileAuthorNameId,
+                                      @Param("seriesId") Long seriesId,
+                                      @Param("seriesOrder") Long seriesOrder);
+
     @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId}")
     void deleteById(long artworkId);
 

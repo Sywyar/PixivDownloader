@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.download.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +47,11 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @RequiredArgsConstructor
 public class PixivProxyController {
+
+    private static final Set<String> FORWARDED_META_STRIP_KEYS = Set.of(
+            "userIllusts", "userNovels", "zoneConfig", "extraData", "noLoginData",
+            "comicPromotion", "fanboxPromotion", "contestBanners", "contestData",
+            "pollData", "imageResponseData", "imageResponseOutData");
 
     private final ObjectMapper objectMapper;
     private final PixivThumbnailFetcher pixivThumbnailFetcher;
@@ -240,8 +246,18 @@ public class PixivProxyController {
                 extractTags(b),
                 seriesId,
                 seriesOrder,
-                seriesTitle
+                seriesTitle,
+                buildForwardedMetaJson(b)
         ));
+    }
+
+    private String buildForwardedMetaJson(JsonNode body) throws IOException {
+        if (!body.isObject()) {
+            return null;
+        }
+        ObjectNode pruned = body.deepCopy();
+        FORWARDED_META_STRIP_KEYS.forEach(pruned::remove);
+        return objectMapper.writeValueAsString(pruned);
     }
 
     private static Long parsePositiveLong(String value) {

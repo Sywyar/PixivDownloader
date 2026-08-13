@@ -292,8 +292,20 @@ public class PixivDatabase {
      * 再用前端拉到的 Pixiv 元数据补齐。
      */
     public void fillArtworkMetadataIfMissing(long artworkId, String title, Integer xRestrict,
-                                             Boolean isAi, Long authorId, String description) {
+                                              Boolean isAi, Long authorId, String description) {
         pixivMapper.updateMetadataIfMissing(artworkId, title, xRestrict, isAi, authorId, description);
+    }
+
+    /**
+     * 完整下载成功后刷新作品元数据。调用方以 {@code null} 表示新值不可用，数据库保留原字段；
+     * 通用 {@link #insertArtwork} 的 INSERT OR IGNORE / 软删除复位语义保持不变。
+     */
+    public void refreshArtworkMetadataAfterDownload(long artworkId, String title, Integer xRestrict,
+                                                     Boolean isAi, Long authorId, String description,
+                                                     long fileName, Long fileAuthorNameId,
+                                                     Long seriesId, Long seriesOrder) {
+        pixivMapper.refreshMetadataAfterDownload(artworkId, title, xRestrict, isAi, authorId,
+                description, fileName, fileAuthorNameId, seriesId, seriesOrder);
     }
 
     public boolean hasArtwork(long artworkId) {
@@ -394,6 +406,17 @@ public class PixivDatabase {
                 pixivMapper.insertArtworkTag(artworkId, tagId);
             }
         }
+    }
+
+    /** 有效的新标签列表整体替换旧关联；空列表视为不可信输入并保留旧标签。 */
+    @Transactional
+    public void replaceArtworkTagsAfterDownload(long artworkId, List<TagDto> tags) {
+        if (tags == null || tags.stream().noneMatch(t -> t != null
+                && t.getName() != null && !t.getName().isBlank())) {
+            return;
+        }
+        pixivMapper.deleteArtworkTags(artworkId);
+        saveArtworkTags(artworkId, tags);
     }
 
     /**

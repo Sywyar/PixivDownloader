@@ -31,6 +31,8 @@ const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main
     'static', 'pixiv-batch.html'), 'utf8');
 const classicCoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch', 'batch-core.js'), 'utf8');
+const classicDownloadSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch', 'batch-download.js'), 'utf8');
 const cssSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'pixiv-batch-alt.css'), 'utf8');
 
@@ -269,6 +271,10 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(engineSource.includes('async function handleStart()')
         && engineSource.includes('function handlePause()')
         && engineSource.includes('async function triggerAdminPack()'));
+    [classicDownloadSource, engineSource].forEach(downloadSource => {
+        assert(downloadSource.includes('other.rawMetaJson = rawMetaJson;'));
+        assert(downloadSource.includes('meta.rawMetaJson || null'));
+    });
     assert(queueSource.includes('queueItemCard: queueItemRow'),
         '新版队列命名空间必须导出已定义的队列卡片函数');
     // —— 下载坞 Vue 岛门面（统计 / 当前卡 / 队列列表 reactive 主渲染，命令式回退）——

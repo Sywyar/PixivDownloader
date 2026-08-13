@@ -181,6 +181,38 @@ class PixivDatabaseTest {
         }
 
         @Test
+        @DisplayName("下载成功刷新有效元数据并整体替换非空标签，空值保留旧数据")
+        void shouldRefreshDownloadedArtworkMetadataWithoutReplacingWithEmptyValues() {
+            long fileNameId = pixivDatabase.getOrCreateFileNameTemplateId("{artwork_title}_p{page}");
+            long fileAuthorNameId = pixivDatabase.getOrCreateFileAuthorNameId("新作者");
+            pixivDatabase.insertArtwork(12345L, "旧标题", "/path/1", 1, "jpg", 1700000004L,
+                    0, false, 10L, "旧简介", 1L, null, 7L, 1L);
+            pixivDatabase.saveArtworkTags(12345L, List.of(new TagDto(null, "旧标签", null)));
+
+            pixivDatabase.refreshArtworkMetadataAfterDownload(12345L, "新标题", 2, true,
+                    20L, "新简介", fileNameId, fileAuthorNameId, 8L, 2L);
+            pixivDatabase.replaceArtworkTagsAfterDownload(12345L,
+                    List.of(new TagDto(null, "新标签", "new-tag")));
+            pixivDatabase.refreshArtworkMetadataAfterDownload(12345L, null, null, null,
+                    null, null, fileNameId, null, null, null);
+            pixivDatabase.replaceArtworkTagsAfterDownload(12345L, List.of());
+
+            ArtworkRecord record = pixivDatabase.getArtwork(12345L);
+            assertThat(record.title()).isEqualTo("新标题");
+            assertThat(record.xRestrict()).isEqualTo(2);
+            assertThat(record.isAi()).isTrue();
+            assertThat(record.authorId()).isEqualTo(20L);
+            assertThat(record.description()).isEqualTo("新简介");
+            assertThat(record.fileName()).isEqualTo(fileNameId);
+            assertThat(record.fileAuthorNameId()).isEqualTo(fileAuthorNameId);
+            assertThat(record.seriesId()).isEqualTo(8L);
+            assertThat(record.seriesOrder()).isEqualTo(2L);
+            assertThat(pixivDatabase.getArtworkTags(12345L))
+                    .extracting(TagDto::getName)
+                    .containsExactly("新标签");
+        }
+
+        @Test
         @DisplayName("查询不存在的作品应返回 null")
         void shouldReturnNullForNonExistentArtwork() {
             assertThat(pixivDatabase.getArtwork(99999L)).isNull();

@@ -532,7 +532,7 @@
         return promise;
     }
 
-    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, invocation) {
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation) {
         assertProcessInvocation(invocation);
         const delayMs = getImageDelayMs();
         const collectionId = await resolveBatchCollectionIdForDownload(invocation);
@@ -581,6 +581,9 @@
         }
         if (illustType != null && Number.isFinite(Number(illustType))) {
             other.illustType = Number(illustType);
+        }
+        if (rawMetaJson) {
+            other.rawMetaJson = rawMetaJson;
         }
         if (ugoiraData) {
             other.isUgoira = true;
@@ -936,6 +939,7 @@
                 Array.isArray(meta.tags) ? meta.tags : [],
                 seriesInfo,
                 meta.illustType ?? null,
+                meta.rawMetaJson || null,
                 invocation
             );
             assertProcessInvocation(invocation);

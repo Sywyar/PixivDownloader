@@ -9,11 +9,13 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
+import top.sywyar.pixivdownload.core.metadata.ArtworkMetadataQuality;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -72,7 +74,8 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
             return;
         }
         String directory = artworkFileLocator.resolveArtworkDirectory(rec);
-        writeSidecar(directory, artworkId, curated, "artwork");
+        writeSidecar(directory, artworkId, curated, "artwork",
+                illustBody.path("illustTitle").asText(null));
     }
 
     private void captureArtworkJson(long artworkId, String artworkJson, String pagesJson, String source) {
@@ -138,7 +141,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
         if (rec == null) {
             return;
         }
-        writeSidecar(rec.folder(), novelId, curated, "novel");
+        writeSidecar(rec.folder(), novelId, curated, "novel", null);
     }
 
     private void captureNovelJson(long novelId, String novelJson, String source) {
@@ -199,13 +202,20 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
         }
     }
 
-    private void writeSidecar(String directory, long workId, CuratedWorkMeta curated, String kind) {
+    private void writeSidecar(String directory, long workId, CuratedWorkMeta curated,
+                              String kind, String artworkTitle) {
         if (!StringUtils.hasText(directory)) {
             log.warn("Skip {} sidecar {}: no resolvable directory", kind, workId);
             return;
         }
         try {
             Path dir = Paths.get(directory);
+            if ("artwork".equals(kind)
+                    && Files.isRegularFile(sidecarStore.sidecarPath(dir, workId))
+                    && !ArtworkMetadataQuality.isMeaningfulTitle(workId, artworkTitle)) {
+                log.warn("Skip artwork sidecar {}: incoming title is blank or a known placeholder", workId);
+                return;
+            }
             sidecarStore.write(dir, workId, curated.document());
         } catch (Exception e) {
             log.warn("Failed to write {} sidecar {}: {}", kind, workId, e.getMessage());
