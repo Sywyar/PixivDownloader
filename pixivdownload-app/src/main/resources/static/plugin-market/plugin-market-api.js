@@ -24,6 +24,11 @@
         return getJson('/api/plugin-market/repositories');
     };
 
+    // GET /api/plugins/status → 恢复模式 + 插件失败 / 必选缺失诊断（复用插件管理只读投影）。
+    API.fetchPluginStatus = function () {
+        return getJson('/api/plugins/status');
+    };
+
     // GET /api/plugin-market/catalog?repositoryId= → 指定仓库（空取默认）的 catalog 摘要 + 分类计数 + 已安装数 + 安装状态。
     // catalog 条目已携带完整版本历史 / 依赖 / 兼容信息，故详情弹窗直接用内存中的条目，无需再单独拉 /plugins/{repo}/{id}。
     API.fetchCatalog = function (repositoryId) {

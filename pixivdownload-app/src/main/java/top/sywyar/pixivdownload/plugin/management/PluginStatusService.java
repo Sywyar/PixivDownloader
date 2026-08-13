@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
@@ -21,6 +22,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,6 +54,7 @@ public class PluginStatusService {
     private final Supplier<Map<String, PluginDescriptor>> loadedDescriptors;
     private final Supplier<PluginRecoveryGateSnapshot> recoveryGate;
     private final Supplier<List<PluginRuntimeVerificationSnapshot>> runtimeVerifications;
+    private final Supplier<Map<String, String>> runtimeStartupFailures;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final PluginStatusEvaluator evaluator = new PluginStatusEvaluator();
 
@@ -74,8 +77,7 @@ public class PluginStatusService {
                                RequiredPluginPolicy requiredPluginPolicy) {
         this(pluginRegistry, pluginInventory, installedArtifacts, loadedDescriptors,
                 () -> PluginRecoveryGateSnapshot.safe(PluginTransactionRecoveryReport.success()),
-                List::of,
-                requiredPluginPolicy);
+                List::of, requiredPluginPolicy);
     }
 
     public PluginStatusService(PluginRegistry pluginRegistry,
@@ -101,6 +103,7 @@ public class PluginStatusService {
         this.loadedDescriptors = loadedDescriptors;
         this.recoveryGate = recoveryGate;
         this.runtimeVerifications = runtimeVerifications;
+        this.runtimeStartupFailures = Map::of;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
@@ -117,12 +120,16 @@ public class PluginStatusService {
         this.runtimeVerifications = () -> runtimeManager.status()
                 .map(status -> status.verifications())
                 .orElseGet(List::of);
+        this.runtimeStartupFailures = () -> runtimeManager.status()
+                .map(PluginStatusService::runtimeStartupFailures)
+                .orElseGet(Map::of);
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
     /** 计算当前插件状态报告。每次调用按当前注册中心 / 清点快照重新评估。 */
     public PluginStatusReport report() {
         PluginRecoveryGateSnapshot recovery = recoveryGate.get();
+        Map<String, String> lifecycleFailures = startupFailuresById();
         Set<String> activeIds = pluginRegistry.registeredPlugins().stream()
                 .map(PluginRegistry.RegisteredPlugin::id)
                 .collect(Collectors.toSet());
@@ -131,8 +138,9 @@ public class PluginStatusService {
         // 内置插件：描述符现造，活动=已启动、安装但未活动=已禁用。
         for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.allRegisteredPlugins()) {
             if (registered.source() == PluginSource.BUILT_IN) {
-                PluginStatus base = activeIds.contains(registered.id())
-                        ? PluginStatus.STARTED : PluginStatus.DISABLED;
+                PluginStatus base = lifecycleFailures.containsKey(registered.id())
+                        ? PluginStatus.FAILED
+                        : activeIds.contains(registered.id()) ? PluginStatus.STARTED : PluginStatus.DISABLED;
                 observed.add(new ObservedPlugin(
                         PluginDescriptor.forBuiltIn(registered.plugin(), registered.id()), base));
             }
@@ -154,7 +162,7 @@ public class PluginStatusService {
         PluginInventory inventory = pluginInventory.get();
         for (PluginInstallation installation : inventory.installations()) {
             observed.add(new ObservedPlugin(installation.descriptor(),
-                    externalBaseStatus(installation, activeIds)));
+                    externalBaseStatus(installation, activeIds, lifecycleFailures)));
         }
         Set<String> observedExternalPackages = inventory.installations().stream()
                 .map(installation -> installation.descriptor().sourcePluginId())
@@ -173,7 +181,9 @@ public class PluginStatusService {
         PluginStatusReport evaluated = evaluator.evaluate(observed, requiredPluginPolicy);
 
         // 包级加载 / 发现失败（无描述符）追加为 FAILED 诊断，使报告覆盖坏包。
-        List<PluginDiagnostic> diagnostics = new ArrayList<>(evaluated.diagnostics());
+        List<PluginDiagnostic> diagnostics = evaluated.diagnostics().stream()
+                .map(diagnostic -> withLifecycleFailure(diagnostic, lifecycleFailures.get(diagnostic.id())))
+                .collect(Collectors.toCollection(ArrayList::new));
         for (PluginLoadFailure failure : inventory.failures()) {
             diagnostics.add(new PluginDiagnostic(failure.source(), PluginStatus.FAILED, null,
                     requiredPluginPolicy.isRequired(failure.source()), List.of(failure.reason())));
@@ -183,6 +193,13 @@ public class PluginStatusService {
 
     public PluginRecoveryGateSnapshot recoveryGateSnapshot() {
         return recoveryGate.get();
+    }
+
+    /** 当前确实发生在插件启动 / 子上下文启动阶段的失败；普通坏包与验签失败不在此列。 */
+    public Map<String, String> startupFailuresById() {
+        Map<String, String> failures = new LinkedHashMap<>(runtimeStartupFailures.get());
+        failures.putAll(pluginRegistry.lifecycleFailuresById());
+        return Map.copyOf(failures);
     }
 
     /** 当前 runtime 为各安装路径保留的最新结构化离线复验事实；不读取或解析失败原因文本。 */
@@ -196,11 +213,38 @@ public class PluginStatusService {
                 + " path=" + failure.transactionDirectory() + ": " + failure.detail();
     }
 
-    private static PluginStatus externalBaseStatus(PluginInstallation installation, Set<String> activeIds) {
+    private static Map<String, String> runtimeStartupFailures(PluginRuntimeStatus status) {
+        Set<String> notStarted = new LinkedHashSet<>(status.loadedPluginIds());
+        notStarted.removeAll(status.startedPluginIds());
+        Map<String, String> failures = new LinkedHashMap<>();
+        for (PluginLoadFailure failure : status.failures()) {
+            if (notStarted.contains(failure.source())) {
+                failures.putIfAbsent(failure.source(), failure.reason());
+            }
+        }
+        return Map.copyOf(failures);
+    }
+
+    private static PluginStatus externalBaseStatus(PluginInstallation installation, Set<String> activeIds,
+                                                   Map<String, String> lifecycleFailures) {
+        if (lifecycleFailures.containsKey(installation.id())) {
+            return PluginStatus.FAILED;
+        }
         if (installation.status() != PluginStatus.STARTED) {
             return installation.status();
         }
         // 已启动且兼容：若被开关禁用（已发现但未进入活动快照）则报 DISABLED，否则 STARTED。
         return activeIds.contains(installation.id()) ? PluginStatus.STARTED : PluginStatus.DISABLED;
+    }
+
+    private static PluginDiagnostic withLifecycleFailure(PluginDiagnostic diagnostic, String failure) {
+        if (failure == null) {
+            return diagnostic;
+        }
+        List<String> messages = new ArrayList<>();
+        messages.add(failure);
+        messages.addAll(diagnostic.messages());
+        return new PluginDiagnostic(diagnostic.id(), PluginStatus.FAILED, diagnostic.descriptor(),
+                diagnostic.requiredByPolicy(), messages);
     }
 }

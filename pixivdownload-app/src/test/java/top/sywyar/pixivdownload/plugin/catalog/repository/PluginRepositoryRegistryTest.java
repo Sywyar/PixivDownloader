@@ -16,11 +16,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PluginRepositoryRegistryTest {
 
     @Test
-    @DisplayName("默认配置：主开关关闭、官方仓库内嵌且默认启用、默认仓库为官方")
+    @DisplayName("默认配置：主开关与内嵌官方仓库均启用、默认仓库为官方")
     void defaultsEmbedEnabledOfficial() {
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(new PluginCatalogProperties());
 
-        assertThat(registry.featureEnabled()).as("主开关默认关闭").isFalse();
+        assertThat(registry.featureEnabled()).as("主开关默认开启").isTrue();
         assertThat(registry.repositories()).hasSize(1);
         PluginRepository official = registry.repositories().get(0);
         assertThat(official.repositoryId()).isEqualTo(PluginRepository.OFFICIAL_ID);

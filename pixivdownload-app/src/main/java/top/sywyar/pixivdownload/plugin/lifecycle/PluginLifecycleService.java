@@ -961,6 +961,12 @@ public class PluginLifecycleService {
                         record, failure, pluginRegistry.featureStarted(record.registered));
                 return;
             }
+            Optional<String> featureFailure = pluginRegistry.lifecycleFailure(record.registered);
+            if (featureFailure.isPresent()) {
+                handleBringUpFailure(record,
+                        new PluginLifecycleException(featureFailure.get()), false);
+                return;
+            }
         }
         bringUpServing(record, /* invokePluginStart */ false); // 启动期 start() 归 PluginRegistry，本服务不重复
     }
@@ -1137,6 +1143,7 @@ public class PluginLifecycleService {
         record.capabilityCleanupComplete = record.context == null;
         try {
             lifecycleState.transition(pluginId, PluginRuntimePhase.STARTED);
+            pluginRegistry.clearLifecycleFailure(record.registered);
         } catch (Throwable failure) {
             handleBringUpFailure(record, failure, featureStartedForRollback);
         }
@@ -1436,6 +1443,9 @@ public class PluginLifecycleService {
     /** 先完成安全回滚并保存 pending 状态；首个 fatal 最后按原对象身份重抛。 */
     private void handleBringUpFailure(
             ManagedPlugin record, Throwable originalFailure, boolean pluginStarted) {
+        if (record.registered != null && pluginRegistry.lifecycleFailure(record.registered).isEmpty()) {
+            pluginRegistry.recordLifecycleFailure(record.registered, originalFailure);
+        }
         Throwable cleanupFailure = quiesceFailedBringUpRuntime(record);
         if (cleanupFailure != null) {
             // Any retained runtime entry may still reach child code; do not stop the feature or close its context.

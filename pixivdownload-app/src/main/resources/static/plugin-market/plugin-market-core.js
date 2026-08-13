@@ -39,6 +39,66 @@
         return client ? (client.lang || client.defaultLang || '') : '';
     };
 
+    // 恢复横幅原因：直接投影 /api/plugins/status 的结构化恢复原因，不另造页面私有状态协议。
+    PMK.recoveryReasons = function (report) {
+        if (!report || !report.recoveryMode) return [];
+        var reasons = [];
+        var transaction = report.transactionRecovery;
+        if (transaction && transaction.safeToScan === false) {
+            var failures = Array.isArray(transaction.failures) ? transaction.failures : [];
+            if (failures.length) {
+                failures.forEach(function (failure) {
+                    var detail = [failure.kind, failure.transactionId, failure.detail].filter(Boolean).join(' · ');
+                    reasons.push(PMK.t('recovery.reason.transaction', '插件安装事务恢复失败：{detail}', { detail: detail }));
+                });
+            } else {
+                reasons.push(PMK.t('recovery.reason.transaction-unknown', '插件安装事务尚未完成恢复，请查看日志并重启程序。'));
+            }
+        }
+        function appendPluginReason(reason) {
+            if (!reason) return;
+            var pluginId = reason.pluginId || reason.id;
+            var status = String(reason.status || '');
+            if (status === 'MISSING_REQUIRED') {
+                reasons.push(PMK.t('recovery.reason.missing', '必装插件 {pluginId} 尚未安装，请先安装或修复。', {
+                    pluginId: pluginId
+                }));
+                return;
+            }
+            if (status === 'FAILED') {
+                if (reason.messageKey === 'plugin.recovery.transaction' && transaction) return;
+                var detail = Array.isArray(reason.messages) ? reason.messages.filter(Boolean).join(' · ') : '';
+                reasons.push(detail
+                    ? PMK.t('recovery.reason.failed', '插件 {pluginId} 启动失败：{detail}', {
+                        pluginId: pluginId, detail: detail
+                    })
+                    : PMK.t('recovery.reason.failed-no-detail', '插件 {pluginId} 启动失败，请查看日志并修复或重新安装。', {
+                        pluginId: pluginId
+                    }));
+                return;
+            }
+            if (status !== 'STARTED') {
+                reasons.push(PMK.t('recovery.reason.unavailable', '必装插件 {pluginId} 当前不可用（{status}），请安装或修复。', {
+                    pluginId: pluginId, status: status
+                }));
+            }
+        }
+        var structuredReasons = Array.isArray(report.recoveryReasons) ? report.recoveryReasons : null;
+        if (structuredReasons) {
+            structuredReasons.forEach(appendPluginReason);
+        } else {
+            (Array.isArray(report.plugins) ? report.plugins : [])
+                .filter(function (plugin) {
+                    return plugin && (plugin.requiredByPolicy || plugin.status === 'FAILED');
+                })
+                .forEach(appendPluginReason);
+        }
+        if (!reasons.length) {
+            reasons.push(PMK.t('recovery.reason.unknown', '插件状态异常，请查看日志并修复或重新安装相关插件。'));
+        }
+        return reasons;
+    };
+
     PMK.escapeHtml = function (str) {
         return String(str == null ? '' : str)
             .replace(/&/g, '&amp;')

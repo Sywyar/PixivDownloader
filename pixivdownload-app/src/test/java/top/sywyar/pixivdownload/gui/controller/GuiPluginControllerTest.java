@@ -81,6 +81,7 @@ class GuiPluginControllerTest {
         return new PluginManagementReport(
                 recoveryMode,
                 new TransactionRecoveryView("SAFE", true, List.of()),
+                List.of(),
                 plugins);
     }
 

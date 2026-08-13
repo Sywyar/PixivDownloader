@@ -36,6 +36,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
@@ -132,10 +133,11 @@ public class PluginManagementService {
                 List<PluginManagementEntry> entries = buildEntries(
                         status, gateBefore, gateBefore.safeToScan(), true);
                 boolean recoveryMode = recoveryModeService.isActive();
+                List<RecoveryModeReason> recoveryReasons = recoveryModeService.reasons();
                 if (gateBefore.equals(pluginStatusService.recoveryGateSnapshot())
                         && mutationBefore == lifecycleMutationEpoch()) {
                     return new PluginManagementReport(recoveryMode,
-                            TransactionRecoveryView.from(gateBefore), entries);
+                            TransactionRecoveryView.from(gateBefore), recoveryReasons, entries);
                 }
             } catch (RecoveryGateChangedException ignored) {
                 // gate 单调变化时丢弃混合快照，用新状态重建。
@@ -149,7 +151,7 @@ public class PluginManagementService {
         }
         // 连续并发变化时不再读取或发布任何跨组件状态，等待下一次请求取得稳定 seqlock 快照。
         return new PluginManagementReport(false,
-                TransactionRecoveryView.unstableLifecycleSnapshot(), List.of());
+                TransactionRecoveryView.unstableLifecycleSnapshot(), List.of(), List.of());
     }
 
     private List<PluginManagementEntry> buildEntries(
@@ -595,13 +597,15 @@ public class PluginManagementService {
     /**
      * 插件管理视图（对外）。
      *
-     * @param recoveryMode 核心壳当前是否处于恢复模式（存在未满足的必选插件）
+     * @param recoveryMode 核心壳当前是否处于恢复模式（存在未满足的必选插件或插件启动失败）
      * @param transactionRecovery 插件事务恢复准入状态与结构化失败；不触发磁盘扫描
+     * @param recoveryReasons 触发恢复模式的结构化原因
      * @param plugins      各插件状态条目（按状态报告评估顺序）
      */
     public record PluginManagementReport(
             boolean recoveryMode,
             TransactionRecoveryView transactionRecovery,
+            List<RecoveryModeReason> recoveryReasons,
             List<PluginManagementEntry> plugins) {
     }
 

@@ -10,7 +10,8 @@
 
     var rootEl = null;
     var state = {
-        loading: true, error: null, masterEnabled: false, coreApiVersion: '',
+        loading: true, error: null, masterEnabled: false, recoveryMode: false, recoveryReasons: [],
+        filtersInitialized: false, coreApiVersion: '',
         repositories: [], activeRepositoryId: null, defaultRepositoryId: null,
         catalog: null, catalogError: null, category: 'all', search: '',
         hideDefaultInstalled: true, hideDependencies: true,
@@ -169,6 +170,14 @@
         }
 
         var body = '';
+        if (state.recoveryMode) {
+            body += '<div class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">' +
+                '<div class="pmk-banner-title">' + esc(t('recovery.banner.title', '当前正处于恢复模式')) + '</div>' +
+                '<div>' + esc(t('recovery.banner.desc', '正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。')) + '</div>' +
+                (state.recoveryReasons.length ? '<ul>' + state.recoveryReasons.map(function (reason) {
+                    return '<li>' + esc(reason) + '</li>';
+                }).join('') + '</ul>' : '') + '</div></div>';
+        }
         if (!state.masterEnabled) {
             body += '<div class="pmk-banner pmk-banner--warn"><i class="fa-solid fa-circle-exclamation"></i><div class="pmk-banner-body">' +
                 '<div class="pmk-banner-title">' + esc(t('master.disabled.title', '插件市场未开启')) + '</div>' +
@@ -234,8 +243,16 @@
         state.loading = true; state.error = null; state.catalogError = null;
         state.catalogToken++;   // 让在途的旧 catalog 拉取失效（其回调将被 token 守卫丢弃）
         paint();
-        PMK.api.fetchRepositories().then(function (repos) {
+        Promise.all([PMK.api.fetchRepositories(), PMK.api.fetchPluginStatus()]).then(function (responses) {
+            var repos = responses[0];
+            var status = responses[1];
             state.masterEnabled = !!repos.enabled;
+            state.recoveryMode = !!status.recoveryMode;
+            state.recoveryReasons = PMK.recoveryReasons(status);
+            if (!state.filtersInitialized) {
+                state.hideDefaultInstalled = !state.recoveryMode;
+                state.filtersInitialized = true;
+            }
             state.coreApiVersion = repos.coreApiVersion || '';
             state.repositories = repos.repositories || [];
             state.defaultRepositoryId = repos.defaultRepositoryId || null;

@@ -10,8 +10,8 @@ import java.util.List;
 /**
  * 受信插件 catalog / 插件市场配置（{@code plugin-catalog.*}）。两级开关，二者正交：
  * <ul>
- *   <li><b>主开关</b> {@code enabled}（默认 {@code false}）：整个受信 catalog / 市场能力是否开启。<b>默认关闭，全新
- *       安装不联网</b>——管理员显式开启前，绝不访问任何仓库（含内嵌官方仓库）。</li>
+ *   <li><b>主开关</b> {@code enabled}（默认 {@code true}）：整个受信 catalog / 市场能力是否开启。市场只在管理员打开或
+ *       刷新页面、执行安装时访问仓库；可显式关闭以禁用仓库访问。</li>
  *   <li><b>官方仓库开关</b> {@code official-repository-enabled}（默认 {@code true}）：内嵌官方默认仓库是否在列表中启用。
  *       官方仓库地址内嵌于程序（见 {@code PluginRepository}），<b>可被禁用</b>；这只决定它启用与否，不影响主开关。</li>
  * </ul>
@@ -31,8 +31,8 @@ public class PluginCatalogProperties {
     /** 单个插件包下载的默认绝对字节上限（100MB）。 */
     public static final long DEFAULT_MAX_PACKAGE_BYTES = 100L * 1024 * 1024;
 
-    /** 是否启用受信 catalog / 插件市场主开关（默认关闭：不启用即不联网、不访问任何仓库）。 */
-    private boolean enabled = false;
+    /** 是否启用受信 catalog / 插件市场主开关（默认启用；可显式关闭以禁止访问仓库）。 */
+    private boolean enabled = true;
 
     /** 内嵌官方默认仓库是否启用（默认启用；官方仓库地址内嵌于程序，此项可单独禁用它）。 */
     private boolean officialRepositoryEnabled = true;
