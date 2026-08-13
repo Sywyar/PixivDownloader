@@ -70,6 +70,8 @@ class PluginReleaseScriptsTest {
 
         assertThat(pluginDescriptor("pixivdownload-plugin-mail")).contains("plugin.dependencies=notification@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-push")).contains("plugin.dependencies=notification@1.0");
+        assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
+                .contains("plugin.dependencies=posthog?@1.0");
     }
 
     @Test
@@ -151,6 +153,8 @@ class PluginReleaseScriptsTest {
         Set<String> officialPluginIds = officialDistributionPluginIds(common);
 
         assertThat(officialPluginIds).contains("download-workbench");
+        assertThat(officialPluginIds).contains("posthog");
+        assertThat(officialPluginIds).contains("multi-mode-decision-survey");
         assertThat(officialPluginIds).contains("notification");
         assertThat(officialPluginIds).contains("douyin");
         assertThat(generator).contains(
@@ -223,12 +227,13 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场策展将通知基础插件归为依赖、Douyin 归为下载类型扩展")
+    @DisplayName("市场策展将通知与 PostHog 插件归为依赖、Douyin 归为下载类型扩展")
     void marketCurationClassifiesDependencyAndDownloadTypeExtension() throws Exception {
         JsonNode curation = new ObjectMapper().readTree(
                 repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
 
         assertThat(curation.path("notification").path("category").asText()).isEqualTo("dependency");
+        assertThat(curation.path("posthog").path("category").asText()).isEqualTo("dependency");
         assertThat(curation.path("douyin").path("category").asText()).isEqualTo("download-type");
     }
 
@@ -242,8 +247,9 @@ class PluginReleaseScriptsTest {
         assertThat(defaultInstalled.find()).isTrue();
         assertThat(defaultInstalled.group("body")).contains(
                 "Get-OfficialRequiredPlugins",
-                "Id = \"gui-theme\"", "Id = \"stats\"", "Id = \"duplicate\"",
+                "Id = \"gui-theme\"", "Id = \"stats\"", "Id = \"posthog\"", "Id = \"duplicate\"",
                 "Id = \"gallery\"", "Id = \"novel\"", "Id = \"notification\"",
+                "Id = \"multi-mode-decision-survey\"",
                 "Id = \"push\"", "Id = \"mail\"", "Id = \"tts\"", "Id = \"ai\"")
                 .doesNotContain("Id = \"douyin\"", "Id = \"recovery-sentinel\"");
 
@@ -1206,236 +1212,108 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("布局偏好调查四个固定 Repository Variable 经 vars 上下文只传给 download-workbench")
-    void layoutSurveyVarsAreFixedPublicVarsPassedOnlyToDownloadWorkbench() throws Exception {
-        String release = workflow("release.yml");
-        String nightly = workflow("nightly.yml");
-        String publish = workflow("publish-plugins.yml");
-
-        // 1. 固定变量名存在且使用 vars（Repository Variables）而非 secrets
-        for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
-            String workflow = workflow(name);
-            for (String variable : List.of(
-                    "PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN",
-                    "PIXIV_LAYOUT_SURVEY_ID",
-                    "PIXIV_LAYOUT_SURVEY_API_HOST",
-                    "PIXIV_LAYOUT_SURVEY_UI_HOST")) {
-                assertThat(workflow).as(name).contains(variable);
-                assertThat(workflow).as(name).doesNotContain("secrets." + variable);
-                assertThat(workflow).as(name).contains("vars." + variable);
-            }
-            // 3. 不存在 enabled / SDK 版本 Repository Variable
-            assertThat(workflow).as(name).doesNotContain("PIXIV_LAYOUT_SURVEY_ENABLED");
-            assertThat(workflow).as(name).doesNotContain("PIXIV_LAYOUT_SURVEY_POSTHOG_JS_VERSION");
-        }
-
-        // 2. 上游正式发布缺配置时失败：require-config 按 github.repository 推导
-        for (String name : List.of("release.yml", "nightly.yml")) {
-            String workflow = workflow(name);
-            assertThat(workflow).as(name).contains(
-                    "-Dpixiv.layout-survey.project-token=${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}",
-                    "-Dpixiv.layout-survey.survey-id=${{ vars.PIXIV_LAYOUT_SURVEY_ID }}",
-                    "-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}",
-                    "-Dpixiv.layout-survey.ui-host=${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}",
-                    "-Dpixiv.layout-survey.require-config=${{ github.repository == 'Sywyar/PixivDownloader' }}");
-        }
-        // 4. 发布脚本只在 download-workbench 插件上应用调查配置（不传给其它插件）
-        assertThat(script("publish-plugin-releases.ps1"))
-                .contains("if ($Plugin.Id -eq \"download-workbench\")")
-                .doesNotContain("$Plugin.Id -eq \"stats\"");
-        // 5. 参数带引号安全传递（避免空格拆分）
-        assertThat(release).contains("\"-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}\"");
-        // 8/9/10/11. release / nightly / workflow_dispatch / workflow_call 流程保留
-        assertThat(release).contains("push:", "tags:", "workflow_dispatch:");
-        assertThat(nightly).contains("schedule:", "workflow_dispatch:");
-        assertThat(publish).contains("workflow_call:", "workflow_dispatch:");
-    }
-
-    @Test
-    @DisplayName("插件发布脚本把调查配置写入 download-workbench jar 后再计算 sha256 / 签名")
-    void publishScriptBakesSurveyConfigIntoWorkbenchJarBeforeSigning() throws Exception {
-        String publishScript = script("publish-plugin-releases.ps1");
-        String common = script("plugin-distribution-common.ps1");
-
-        assertThat(publishScript).contains(
-                "New-LayoutSurveyPublicConfig",
-                "if ($Plugin.Id -eq \"download-workbench\")",
-                "Update-JarFileEntry",
-                "\"static/pixiv-layout-feedback/public-config.js\"",
-                "generator",
-                "PIXIV_LAYOUT_SURVEY_OUTPUT_PATH",
-                "enabled: true");
-        // 签名 / sha256 覆盖最终字节：生成器替换发生在 Build-StagedPluginArtifact 内部，
-        // Write-StagedCompanionFiles 在构建返回之后才计算校验与签名。
-        assertThat(publishScript.indexOf("Update-JarFileEntry"))
-                .as("jar 内容替换必须先于 sha256 / 签名")
-                .isGreaterThan(publishScript.indexOf("Copy-Item $builtArtifact $stagedArtifact -Force"));
-        assertThat(publishScript.indexOf("Write-StagedCompanionFiles -StagedArtifact $stagedArtifact"))
-                .as("sha256 / 签名在 jar 内容替换之后")
-                .isGreaterThan(publishScript.indexOf("Update-JarFileEntry"));
-
-        assertThat(common).contains(
-                "function Update-JarFileEntry",
-                "[System.IO.Compression.ZipArchiveMode]::Update",
-                "so the signature always",
-                "covers the final artifact bytes");
-        // 上游缺配置时发布脚本明确失败
-        assertThat(publishScript).contains(
-                "refusing to publish download-workbench without a complete configuration");
-    }
-
-    @Test
-    @DisplayName("full-offline / 市场 manifest 仍覆盖最终公开配置字节（插件 jar 是不可变发布身份）")
-    void distributionStillCoversFinalPublicConfig() throws Exception {
-        String distribution = script("assemble-plugin-distribution.ps1");
-        String common = script("plugin-distribution-common.ps1");
-        assertThat(distribution).contains(
-                "Get-OfficialDistributionPlugins",
-                "plugins-manifest.json",
-                "SHA256SUMS");
-        // 发布脚本以 plugin.version 为不可变键，已有版本绝不重传
-        assertThat(script("publish-plugin-releases.ps1")).contains(
-                "Bump plugin.version instead of publishing new bytes under an existing tag",
-                "already published with expected assets; skip");
-        // 生成器只输出公开客户端配置，不含任何管理密钥
-        String generator = script("generate-layout-survey-public-config.ps1");
-        assertThat(generator)
-                .contains("PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN")
-                .contains("PIXIV_LAYOUT_SURVEY_ID")
-                .contains("PIXIV_LAYOUT_SURVEY_API_HOST")
-                .contains("PIXIV_LAYOUT_SURVEY_UI_HOST")
-                .contains("Object.freeze({")
-                .doesNotContain("personalApiKey")
-                .doesNotContain("serviceAccountToken")
-                .doesNotContain("-----BEGIN PRIVATE KEY-----");
-    }
-
-    @Test
-    @DisplayName("本地安装包脚本显式启用布局调查：EnableLayoutSurvey 只允许 Local，默认 properties 路径正确")
-    void localInstallerLayoutSurveyExplicitEnableContract() throws Exception {
-        String installer = script("package-installer-with-plugins.ps1");
-        String local = script("package-local.ps1");
-        String generator = script("generate-layout-survey-public-config.ps1");
-
-        // 1/2. 参数与默认路径
-        assertThat(installer).contains(
-                "[switch]$EnableLayoutSurvey",
-                "[string]$LayoutSurveyPropertiesFile",
-                "Join-Path $PSScriptRoot \"properties/posthog.properties\"");
-        // 3/4. Enable 只允许 Local；Catalog + Enable 立即失败
-        assertThat(installer).contains(
-                "if ($EnableLayoutSurvey -and $PluginSource -ne \"Local\")",
-                "EnableLayoutSurvey requires -PluginSource Local");
-        // 5. 文件存在不会自动启用：禁用分支生成时不携带 PropertiesFile
-        assertThat(installer).contains("$generatorParams = @{ OutputPath = $layoutSurveyConfigFile }");
-        // 6. 显式传文件但未 Enable 立即失败
-        assertThat(installer).contains(
-                "if (-not $EnableLayoutSurvey -and $PSBoundParameters.ContainsKey(\"LayoutSurveyPropertiesFile\"))");
-        // 7/8. Local 未 Enable 生成 disabled；Local Enable 调用统一生成器
-        assertThat(installer).contains(
-                "$generatorParams.PropertiesFile = $LayoutSurveyPropertiesFile",
-                "Layout survey packaging: enabled",
-                "Layout survey packaging: disabled",
-                "$layoutSurveyConfigFile = Join-Path $layoutSurveyDir \"public-config.js\"");
-        // 9. 生成路径传给 package-local.ps1
-        assertThat(installer).contains("$packageArgs.LayoutSurveyPublicConfigFile = $layoutSurveyConfigFile");
-        // 10. package-local.ps1 定义内部参数
-        assertThat(local).contains("[string]$LayoutSurveyPublicConfigFile");
-        // 11/12. 只修改 download-workbench；JAR entry 路径准确
-        assertThat(local).contains(
-                "if ($plugin.Id -eq \"download-workbench\"",
-                "\"static/pixiv-layout-feedback/public-config.js\"");
-        // 13. 修改后执行字节校验
-        assertThat(local).contains(
-                "Assert-JarFileEntryEqualsFile",
-                "Update-JarFileEntry");
-        // 14. Patch 发生在 SHA 与签名之前
-        assertThat(local.indexOf("Update-JarFileEntry -JarPath $targetArtifact"))
-                .as("JAR entry 替换必须先于 SHA-256")
-                .isGreaterThan(local.indexOf("Copy-Item $sourceArtifact $targetArtifact -Force"));
-        assertThat(local.indexOf("$sha = Get-Sha256Hex $targetArtifact"))
-                .as("SHA-256 在 JAR entry 替换之后")
-                .isGreaterThan(local.indexOf("Update-JarFileEntry -JarPath $targetArtifact"));
-        assertThat(local.indexOf("Get-PluginArtifactSignatureForDistribution"))
-                .as("签名在 SHA-256 之后")
-                .isGreaterThan(local.indexOf("$sha = Get-Sha256Hex $targetArtifact"));
-        // 15. 修改后不复用旧签名（artifactMutated 时清空 source sidecar）
-        assertThat(local).contains(
-                "$artifactMutated = $true",
-                "if ($artifactMutated) {",
-                "$sourceSignaturePath = \"\"");
-        // 16. 其他插件不受影响：注入被 plugin.id 门控，且无配置时完全不动作
-        assertThat(local).contains(
-                "-not [string]::IsNullOrWhiteSpace($LayoutSurveyPublicConfigFile)");
-        // Catalog 模式不允许本地覆盖
-        assertThat(local).contains(
-                "cannot be combined with PrebuiltPluginsDir (catalog artifacts are never modified locally)");
-        // 生成器 PropertiesFile 解析契约
-        assertThat(generator).contains(
-                "[string]$PropertiesFile",
-                "pixiv.layout-survey.project-token",
-                "pixiv.layout-survey.survey-id",
-                "pixiv.layout-survey.api-host",
-                "pixiv.layout-survey.ui-host",
-                "PropertiesFile cannot be combined with the explicit ProjectToken",
-                "unknown key",
-                "duplicate key",
-                "missing required key",
-                "multi-line continuation",
-                "placeholder value");
-        assertThat(generator).doesNotContain("pixiv.feedback.layout-survey");
-        assertThat(generator).doesNotContain("Write-Host $ProjectToken");
-    }
-
-    @Test
-    @DisplayName("本地打包改造不改变固定版本、GitHub Variables 与官方配置来源")
-    void localSurveyPackagingKeepsFixedVersionsAndOfficialSources() throws Exception {
-        assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
-                .contains("plugin.version=1.0.0");
-        String js = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
+    @DisplayName("调查发布者自持四个 PostHog 参数，官方发布兼容可信门禁命令并启用 profile")
+    void surveyPublisherOwnsPostHogConfigurationAndOfficialProfileActivatesIt() throws Exception {
+        String adapter = Files.readString(repoRoot().resolve("pixivdownload-plugin-posthog")
+                .resolve("src/main/resources/static/pixiv-posthog/pixiv-posthog.js"),
+                StandardCharsets.UTF_8);
+        String publisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
                 .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback.js"),
                 StandardCharsets.UTF_8);
-        assertThat(js).contains("POSTHOG_JS_VERSION = '1.409.5'");
-        for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
+        String publisherConfig = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
+                .resolve("src/main/resources/static/pixiv-layout-feedback/posthog-config.js"),
+                StandardCharsets.UTF_8);
+        String inboxOnlyPublisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
+                .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/survey.js"),
+                StandardCharsets.UTF_8);
+        String inboxOnlyPublisherConfig = Files.readString(
+                repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
+                        .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/posthog-config.js"),
+                StandardCharsets.UTF_8);
+        assertThat(adapter).contains(
+                "PixivPostHog",
+                "ownerKey",
+                "options.posthog",
+                "createSurveyClient")
+                .doesNotContain(
+                        "phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k",
+                        "surveyId: '",
+                        "https://layout-survey.sywyar.top",
+                        "download-workbench.layout-feedback",
+                        "options.sdk");
+        assertThat(publisher).contains(
+                "var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({})",
+                "ownerKey: POSTHOG_OWNER_KEY",
+                "posthog: POSTHOG");
+        assertThat(publisherConfig).contains(
+                "global.PixivLayoutSurveyPostHog = Object.freeze({",
+                "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
+                "apiHost: 'https://layout-survey.sywyar.top'",
+                "uiHost: 'https://us.posthog.com'")
+                .containsPattern("surveyId: '[^']+'");
+        assertThat(inboxOnlyPublisher).contains(
+                "var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({})",
+                "ownerKey: OWNER_KEY",
+                "posthog: POSTHOG");
+        assertThat(inboxOnlyPublisherConfig).contains(
+                "global.PixivMultiModeDecisionSurveyPostHog = Object.freeze({",
+                "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
+                "apiHost: 'https://layout-survey.sywyar.top'",
+                "uiHost: 'https://us.posthog.com'")
+                .containsPattern("surveyId: '[^']+'");
+        assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
+                .contains("plugin.dependencies=posthog?@1.0");
+        assertThat(pluginDescriptor("pixivdownload-plugin-multi-mode-decision-survey"))
+                .contains("plugin.dependencies=posthog@1.0,notification@1.0");
+        assertThat(Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
+                .resolve("src/main/resources/static/pixiv-batch-alt.html"), StandardCharsets.UTF_8))
+                .contains("/pixiv-posthog/pixiv-posthog.js")
+                .contains("/pixiv-layout-feedback/release-activation.js")
+                .contains("/pixiv-layout-feedback/posthog-config.js")
+                .doesNotContain("/pixiv-layout-feedback/public-config.js");
+
+        assertThat(workflow("publish-plugins.yml"))
+                .doesNotContain("PIXIV_LAYOUT_SURVEY", "pixiv.layout-survey", "Repository Variables");
+        for (String name : List.of("release.yml", "nightly.yml")) {
             assertThat(workflow(name)).as(name)
-                    .doesNotContain("posthog.properties")
-                    .doesNotContain("EnableLayoutSurvey");
+                    .contains(
+                            "\"-Dpixiv.layout-survey.project-token=${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}\"",
+                            "\"-Dpixiv.layout-survey.survey-id=${{ vars.PIXIV_LAYOUT_SURVEY_ID }}\"",
+                            "\"-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}\"",
+                            "\"-Dpixiv.layout-survey.ui-host=${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}\"",
+                            "\"-Dpixiv.layout-survey.require-config=${{ github.repository == 'Sywyar/PixivDownloader' }}\"")
+                    .doesNotContain("OFFICIAL_SURVEYS_MAVEN_PROFILE");
         }
-        // 四个 Repository Variable 名称与 vars 来源未改变
-        String release = workflow("release.yml");
-        for (String variable : List.of(
-                "PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN",
-                "PIXIV_LAYOUT_SURVEY_ID",
-                "PIXIV_LAYOUT_SURVEY_API_HOST",
-                "PIXIV_LAYOUT_SURVEY_UI_HOST")) {
-            assertThat(release).contains("vars." + variable);
-            assertThat(release).doesNotContain("secrets." + variable);
+        assertThat(workflow("publish-plugins.yml"))
+                .contains("github.repository == 'Sywyar/PixivDownloader'");
+        assertThat(script("publish-plugin-releases.ps1"))
+                .contains("& $mvn \"-Pofficial-surveys\" \"-pl\" $Plugin.Module");
+        String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
+        assertThat(rootPom)
+                .contains("<layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>")
+                .contains("<multi-mode-decision-survey.official-release-enabled>false</multi-mode-decision-survey.official-release-enabled>")
+                .contains("<id>official-surveys</id>")
+                .contains("<name>pixiv.layout-survey.require-config</name>")
+                .contains("<value>true</value>")
+                .contains("<layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>")
+                .contains("<multi-mode-decision-survey.official-release-enabled>true</multi-mode-decision-survey.official-release-enabled>");
+        for (String name : List.of(
+                "package-local.ps1",
+                "package-installer-with-plugins.ps1",
+                "plugin-distribution-common.ps1",
+                "publish-plugin-releases.ps1")) {
+            assertThat(script(name)).as(name)
+                    .doesNotContain(
+                            "LayoutSurveyPublicConfigFile",
+                            "EnableLayoutSurvey",
+                            "posthog.properties",
+                            "generate-layout-survey-public-config");
         }
+        assertThat(repoRoot().resolve("scripts/generate-layout-survey-public-config.ps1")).doesNotExist();
+        assertThat(repoRoot().resolve("scripts/properties/posthog.properties")).doesNotExist();
+        assertThat(repoRoot().resolve("scripts/properties/posthog.properties.example")).doesNotExist();
     }
 
-    @Test
-    @DisplayName("本地 posthog.properties 被精确忽略，example 文件四项为空且无旧键")
-    void localPropertiesGitignoreAndExampleContract() throws Exception {
-        String ignore = Files.readString(repoRoot().resolve(".gitignore"), StandardCharsets.UTF_8);
-        assertThat(ignore).contains("/scripts/properties/posthog.properties");
-        assertThat(ignore.lines()).as("不得忽略整个 scripts/properties/ 目录")
-                .doesNotContain("/scripts/properties/");
-
-        Path example = repoRoot().resolve("scripts/properties/posthog.properties.example");
-        assertThat(Files.isRegularFile(example)).isTrue();
-        Map<String, String> props = readProperties(example);
-        assertThat(props.keySet()).as("example 四个精确键且无旧前缀")
-                .containsExactly(
-                        "pixiv.layout-survey.project-token",
-                        "pixiv.layout-survey.survey-id",
-                        "pixiv.layout-survey.api-host",
-                        "pixiv.layout-survey.ui-host");
-        for (String value : props.values()) {
-            assertThat(value).as("example 值必须为空").isEmpty();
-        }
-        assertThat(Files.readString(example, StandardCharsets.UTF_8))
-                .doesNotContain("pixiv.feedback.layout-survey");
-    }
 
     @Test
     @DisplayName("Nightly no-diff 门禁保留：has_changes 由真实 Git diff 判定并门控全部昂贵任务")

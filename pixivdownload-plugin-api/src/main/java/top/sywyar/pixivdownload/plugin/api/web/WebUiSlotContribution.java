@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.web;
 
+import java.util.Map;
+
 /**
  * 插件向某个宿主页面 <b>UI 槽位</b>（mount point）贡献的内容声明。把此前仅存在于前端 JS 的「页面槽位」
  * 机制（宿主页声明稳定的槽位锚点、活动插件把片段注入同名锚点）提升为后端可追踪、可随插件生命周期
@@ -28,11 +30,21 @@ package top.sywyar.pixivdownload.plugin.api.web;
  *                  并 serving）；{@code null} 表示由宿主内联或贡献方已加载的行为模块渲染。非空时必须是同源绝对路径
  *                  （以单个 {@code /} 开头）
  * @param order     同一 {@code target} 内的叠放顺序，越小越靠前（多个插件贡献同一锚点时据此稳定排序）
+ * @param metadata  挂载点消费者约定的只读字符串元数据；不承载宿主盖章的 owner 身份
  */
 public record WebUiSlotContribution(
         String slotId,
         String target,
         String moduleUrl,
-        int order
+        int order,
+        Map<String, String> metadata
 ) {
+
+    public WebUiSlotContribution {
+        metadata = Map.copyOf(metadata == null ? Map.of() : metadata);
+    }
+
+    public WebUiSlotContribution(String slotId, String target, String moduleUrl, int order) {
+        this(slotId, target, moduleUrl, order, Map.of());
+    }
 }

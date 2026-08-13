@@ -81,7 +81,7 @@ jobs:
 
   publish:
     needs: quality-gate
-    if: ${{ !cancelled() && needs.quality-gate.result == 'success' }}
+    if: ${{ !cancelled() && needs.quality-gate.result == 'success' && github.repository == 'Sywyar/PixivDownloader' }}
     # Windows runner：插件分发脚本面向 Windows PowerShell（plugin-distribution-common.ps1 用 System.IO.Compression / Get-FileHash）。
     runs-on: windows-latest
     steps:
@@ -136,17 +136,12 @@ jobs:
         # 仅对「plugin.version 尚无对应 Release」的插件单独编译（mvn -pl <module> -am，不全量构建）并发布；
         # 版本已发布的插件跳过、绝不重编译 / 重上传（不可变）。更新一个插件 = 只编译并发布这一个。
         # 手动触发时 publish_args 填 -f 会强制每个插件都重编译，并先删除同名 Release 资产后重新上传。
-        # 布局偏好调查的四个公开客户端配置经 Repository Variables（vars 上下文，不是 secrets）注入，
-        # 只作用于 download-workbench 插件；上游仓库缺少任意一项时构建明确失败。
+        # 布局偏好调查的四个公开客户端参数由 download-workbench 源码持有；官方插件发布脚本
+        # 只通过 tracked Maven profile 打开一个发行激活位，不读取 GitHub 变量或临时 properties。
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
           PUBLISH_PLUGIN_ARGS: ${{ inputs.publish_args || '' }}
-          PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN: ${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}
-          PIXIV_LAYOUT_SURVEY_ID: ${{ vars.PIXIV_LAYOUT_SURVEY_ID }}
-          PIXIV_LAYOUT_SURVEY_API_HOST: ${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}
-          PIXIV_LAYOUT_SURVEY_UI_HOST: ${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}
-          PIXIV_LAYOUT_SURVEY_REQUIRE_CONFIG: ${{ github.repository == 'Sywyar/PixivDownloader' }}
         run: |
           $publishArgs = @{
             Repo = $env:PLUGINS_REPO

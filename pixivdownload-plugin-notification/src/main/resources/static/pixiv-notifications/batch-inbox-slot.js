@@ -89,7 +89,11 @@
 
         async function refresh() {
             try {
-                var response = await fetch('/api/notifications?limit=8', {
+                var query = new URLSearchParams({limit: '8'});
+                if (typeof pageI18n !== 'undefined' && pageI18n && pageI18n.lang) {
+                    query.set('lang', pageI18n.lang);
+                }
+                var response = await fetch('/api/notifications?' + query.toString(), {
                     credentials: 'same-origin', signal: context.signal,
                     headers: { 'Accept': 'application/json' }
                 });

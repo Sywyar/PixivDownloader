@@ -90,8 +90,7 @@ class DownloadWorkbenchRequiredContextTest {
                         "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
                         "classpath:/static/|/pixiv-batch-alt.html|true",
                         "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false",
-                        "classpath:/static/pixiv-layout-feedback/|/pixiv-layout-feedback/|false",
-                        "classpath:/static/vendor/posthog-js/|/vendor/posthog-js/|false");
+                        "classpath:/static/pixiv-layout-feedback/|/pixiv-layout-feedback/|false");
         assertThat(plugin.i18n())
                 .extracting(i18n -> i18n.namespace() + "|" + i18n.baseName())
                 .containsExactly(

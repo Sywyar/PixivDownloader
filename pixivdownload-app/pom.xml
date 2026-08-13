@@ -191,6 +191,8 @@
                         <douyin.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-douyin/target/classes</douyin.plugin.classes>
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
                         <download-workbench.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-download-workbench/target/classes</download-workbench.plugin.classes>
+                        <posthog.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-posthog/target/classes</posthog.plugin.classes>
+                        <multi-mode-decision-survey.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-multi-mode-decision-survey/target/classes</multi-mode-decision-survey.plugin.classes>
                         <duplicate.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-duplicate/target/classes</duplicate.plugin.classes>
                         <gallery.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gallery/target/classes</gallery.plugin.classes>
                         <novel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel/target/classes</novel.plugin.classes>

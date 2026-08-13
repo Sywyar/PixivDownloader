@@ -13,16 +13,6 @@
     Local mode builds that set from the current source tree and normally requires the official signing key.
     -AllowUnsignedLocalPlugins creates a local-test-only installer using explicit LOCAL_UPLOAD provenance;
     it never changes the catalog or release verification policy.
-
-    Layout survey packaging (LOCAL ONLY):
-      -EnableLayoutSurvey must be combined with -PluginSource Local. It reads the four public
-      pixiv.layout-survey.* values from scripts/properties/posthog.properties (or the file passed via
-      -LayoutSurveyPropertiesFile), generates a public-config.js, and bakes it into the staged
-      download-workbench plugin copy so the local test installer shows the survey.
-      Without -EnableLayoutSurvey, Local mode still generates an explicit disabled public-config.js so a
-      previously enabled local build is overwritten; the real properties file is never read in that mode.
-      Catalog mode never bakes a local configuration: -EnableLayoutSurvey with -PluginSource Catalog
-      fails immediately, and catalog-downloaded plugins are never modified.
 #>
 [CmdletBinding()]
 param(
@@ -36,8 +26,6 @@ param(
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
     [switch]$AllowUnsignedLocalPlugins,
-    [switch]$EnableLayoutSurvey,
-    [string]$LayoutSurveyPropertiesFile,
     [switch]$RunTests
 )
 
@@ -51,7 +39,6 @@ if (-not $PluginInputsDir) {
 }
 $StagePluginsScript = Join-Path $PSScriptRoot "stage-official-plugin-inputs-from-catalog.ps1"
 $PackageLocalScript = Join-Path $PSScriptRoot "package-local.ps1"
-$LayoutSurveyGenerator = Join-Path $PSScriptRoot "generate-layout-survey-public-config.ps1"
 
 function Write-Step {
     param([string]$Message)
@@ -103,12 +90,6 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 if ($AllowUnsignedLocalPlugins -and $PluginSource -ne "Local") {
     throw "AllowUnsignedLocalPlugins can only be used with -PluginSource Local."
-}
-if ($EnableLayoutSurvey -and $PluginSource -ne "Local") {
-    throw "EnableLayoutSurvey requires -PluginSource Local; catalog-downloaded signed plugins must never be modified locally."
-}
-if (-not $EnableLayoutSurvey -and $PSBoundParameters.ContainsKey("LayoutSurveyPropertiesFile")) {
-    throw "LayoutSurveyPropertiesFile was provided without -EnableLayoutSurvey; pass -EnableLayoutSurvey to use it."
 }
 if ($PluginSource -eq "Local" -and $AllowUnsignedLocalPlugins) {
     if (-not [string]::IsNullOrWhiteSpace($OfficialKeyId) -or
@@ -173,42 +154,6 @@ try {
     }
     Write-Host "    Boot jar      : $bootJar"
 
-    # Local layout-survey packaging configuration. Enabled only when
-    # -EnableLayoutSurvey is passed: the file's existence alone never enables
-    # the survey. Local mode without the switch still generates an explicit
-    # disabled config so a residual enabled config in the staged plugin copy is
-    # overwritten. Catalog mode generates nothing and never modifies catalog
-    # artifacts. The generated file is written into the build directory and
-    # only its path is passed on; the four values are never printed.
-    $layoutSurveyConfigFile = ""
-    if ($PluginSource -eq "Local") {
-        $layoutSurveyDir = Join-Path $ProjectRoot "build/local-layout-survey"
-        $layoutSurveyConfigFile = Join-Path $layoutSurveyDir "public-config.js"
-        Remove-Item -LiteralPath $layoutSurveyConfigFile -Force -ErrorAction SilentlyContinue
-        $generatorParams = @{ OutputPath = $layoutSurveyConfigFile }
-        if ($EnableLayoutSurvey) {
-            if (-not $LayoutSurveyPropertiesFile) {
-                $LayoutSurveyPropertiesFile = Join-Path $PSScriptRoot "properties/posthog.properties"
-            }
-            $generatorParams.PropertiesFile = $LayoutSurveyPropertiesFile
-        }
-        & $LayoutSurveyGenerator @generatorParams |
-            ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0) {
-            throw "Layout survey public config generation failed."
-        }
-        if (-not (Test-Path -LiteralPath $layoutSurveyConfigFile -PathType Leaf)) {
-            throw "Layout survey public config file was not generated: $layoutSurveyConfigFile"
-        }
-        if ($EnableLayoutSurvey) {
-            Write-Host "Layout survey packaging: enabled (properties file: $LayoutSurveyPropertiesFile)"
-        } else {
-            Write-Host "Layout survey packaging: disabled"
-        }
-    } else {
-        Write-Host "Layout survey packaging: disabled (catalog plugins kept untouched)"
-    }
-
     $packageArgs = @{
         Version = $Version
         PrebuiltJar = $bootJar
@@ -220,10 +165,6 @@ try {
     } else {
         $packageArgs.SignatureToolJar = $resolvedSignatureToolJar
     }
-    if ($layoutSurveyConfigFile) {
-        $packageArgs.LayoutSurveyPublicConfigFile = $layoutSurveyConfigFile
-    }
-
     if ($PluginSource -eq "Catalog") {
         Write-Step "Staging official plugin inputs from signed catalog"
         & $StagePluginsScript `

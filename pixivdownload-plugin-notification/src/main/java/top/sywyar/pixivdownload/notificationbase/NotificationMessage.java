@@ -18,6 +18,8 @@ public record NotificationMessage(
         Long readTime
 ) {
 
+    static final String PERSISTENT_SURVEY_ID_PREFIX = "persistent-survey:";
+
     public NotificationMessage(String id,
                                String category,
                                String severity,
@@ -35,5 +37,20 @@ public record NotificationMessage(
     @JsonProperty("hasHtmlContent")
     public boolean hasHtmlContent() {
         return contentHtml != null;
+    }
+
+    @JsonProperty("deletable")
+    public boolean deletable() {
+        return !persistentSurvey();
+    }
+
+    @JsonProperty("embeddedContentUrl")
+    public String embeddedContentUrl() {
+        return persistentSurvey() ? actionUrl : null;
+    }
+
+    @JsonIgnore
+    public boolean persistentSurvey() {
+        return id != null && id.startsWith(PERSISTENT_SURVEY_ID_PREFIX);
     }
 }

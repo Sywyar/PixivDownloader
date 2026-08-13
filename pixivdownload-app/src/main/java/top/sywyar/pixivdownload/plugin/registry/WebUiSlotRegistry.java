@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.registry;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.ArrayList;
@@ -21,7 +22,7 @@ import java.util.stream.Collectors;
  * 本注册中心只持有纯数据 record，不持插件 Bean / classloader / 子 context 引用。
  */
 @Component
-public class WebUiSlotRegistry {
+public class WebUiSlotRegistry implements WebUiSlotCatalog {
 
     /** 一条已注册 UI 槽位及其声明方插件。 */
     public record RegisteredUiSlot(String pluginId, WebUiSlotContribution slot) {
@@ -91,6 +92,11 @@ public class WebUiSlotRegistry {
     /** 按注册顺序返回全部 UI 槽位的不可变快照。 */
     public List<RegisteredUiSlot> slots() {
         return snapshot;
+    }
+
+    @Override
+    public List<WebUiSlotContribution> uiSlots() {
+        return snapshot.stream().map(RegisteredUiSlot::slot).toList();
     }
 
     /** 返回某 owner 已在构造期或运行期提交的同一份槽位快照，供下载扩展 boot 装配避免再次调用插件 getter。 */

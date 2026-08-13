@@ -46,10 +46,12 @@ function Get-OfficialDefaultInstalledPlugins {
             )
         },
         [pscustomobject]@{ Id = "stats"; Module = "pixivdownload-plugin-stats"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "posthog"; Module = "pixivdownload-plugin-posthog"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "duplicate"; Module = "pixivdownload-plugin-duplicate"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "gallery"; Module = "pixivdownload-plugin-gallery"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "novel"; Module = "pixivdownload-plugin-novel"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "notification"; Module = "pixivdownload-plugin-notification"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "multi-mode-decision-survey"; Module = "pixivdownload-plugin-multi-mode-decision-survey"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "push"; Module = "pixivdownload-plugin-push"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{
             Id = "mail"; Module = "pixivdownload-plugin-mail"; Format = "jar"; PrivateLibs = $true;
@@ -360,96 +362,6 @@ function Get-ZipEntryNames {
         return @($archive.Entries | ForEach-Object { $_.FullName })
     } finally {
         $archive.Dispose()
-    }
-}
-
-function Update-JarFileEntry {
-    # Replace (or add) a single entry inside a jar with the bytes of a local file.
-    # Used by the release publisher to bake the generated layout-survey public
-    # client configuration into the download-workbench plugin jar before its
-    # SHA-256 and detached signature are computed, so the signature always
-    # covers the final artifact bytes.
-    param(
-        [Parameter(Mandatory = $true)][string]$JarPath,
-        [Parameter(Mandatory = $true)][string]$EntryName,
-        [Parameter(Mandatory = $true)][string]$SourceFile
-    )
-    Import-ZipFileAssembly
-    # ZipArchiveMode lives in System.IO.Compression.dll; under Windows PowerShell
-    # 5.1 the FileSystem assembly may already satisfy the ZipFile type check while
-    # ZipArchiveMode is still unresolved, so load it explicitly before use.
-    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
-    if (-not (Test-Path -LiteralPath $SourceFile -PathType Leaf)) {
-        throw "Source file for jar entry update not found: $SourceFile"
-    }
-    $archive = [System.IO.Compression.ZipFile]::Open(
-        $JarPath, [System.IO.Compression.ZipArchiveMode]::Update)
-    try {
-        $existing = $archive.GetEntry($EntryName)
-        if ($existing) { $existing.Delete() }
-        $entry = $archive.CreateEntry($EntryName, [System.IO.Compression.CompressionLevel]::Optimal)
-        $stream = $entry.Open()
-        try {
-            $bytes = [System.IO.File]::ReadAllBytes($SourceFile)
-            $stream.Write($bytes, 0, $bytes.Length)
-        } finally {
-            $stream.Dispose()
-        }
-    } finally {
-        $archive.Dispose()
-    }
-}
-
-function Read-JarFileEntryBytes {
-    # Return the raw bytes of a single entry inside a jar (or $null when the
-    # entry does not exist). Used to byte-verify baked configuration entries
-    # before checksums / signatures are computed.
-    param(
-        [Parameter(Mandatory = $true)][string]$JarPath,
-        [Parameter(Mandatory = $true)][string]$EntryName
-    )
-    Import-ZipFileAssembly
-    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($JarPath)
-    try {
-        $entry = $archive.GetEntry($EntryName)
-        if (-not $entry) { return $null }
-        $stream = $entry.Open()
-        try {
-            $memory = New-Object System.IO.MemoryStream
-            $stream.CopyTo($memory)
-            return $memory.ToArray()
-        } finally {
-            $stream.Dispose()
-        }
-    } finally {
-        $archive.Dispose()
-    }
-}
-
-function Assert-JarFileEntryEqualsFile {
-    # Byte-for-byte equality between a jar entry and a local file. Throws on
-    # missing entry, size mismatch, or any single-byte difference.
-    param(
-        [Parameter(Mandatory = $true)][string]$JarPath,
-        [Parameter(Mandatory = $true)][string]$EntryName,
-        [Parameter(Mandatory = $true)][string]$SourceFile
-    )
-    if (-not (Test-Path -LiteralPath $SourceFile -PathType Leaf)) {
-        throw "Source file for jar entry assertion not found: $SourceFile"
-    }
-    $entryBytes = Read-JarFileEntryBytes $JarPath $EntryName
-    if ($null -eq $entryBytes) {
-        throw "Jar entry '$EntryName' not found in $JarPath"
-    }
-    $sourceBytes = [System.IO.File]::ReadAllBytes($SourceFile)
-    if ($entryBytes.Length -ne $sourceBytes.Length) {
-        throw "Jar entry '$EntryName' length mismatch in $JarPath (entry $($entryBytes.Length) bytes vs source $($sourceBytes.Length) bytes)."
-    }
-    for ($i = 0; $i -lt $entryBytes.Length; $i++) {
-        if ($entryBytes[$i] -ne $sourceBytes[$i]) {
-            throw "Jar entry '$EntryName' byte mismatch at offset $i in $JarPath."
-        }
     }
 }
 
