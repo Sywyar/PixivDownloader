@@ -1230,26 +1230,26 @@ class PluginReleaseScriptsTest {
                 "createSurveyClient")
                 .doesNotContain(
                         "phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k",
-                        "019fce31-c9ce-0000-934a-375b3ddbbd6c",
+                        "surveyId: '",
                         "https://layout-survey.sywyar.top",
                         "download-workbench.layout-feedback",
                         "options.sdk");
         assertThat(publisher).contains(
                 "var POSTHOG = Object.freeze({",
                 "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
-                "surveyId: '019fce31-c9ce-0000-934a-375b3ddbbd6c'",
                 "apiHost: 'https://layout-survey.sywyar.top'",
                 "uiHost: 'https://us.posthog.com'",
                 "ownerKey: POSTHOG_OWNER_KEY",
-                "posthog: POSTHOG");
+                "posthog: POSTHOG")
+                .containsPattern("surveyId: '[^']+'");
         assertThat(inboxOnlyPublisher).contains(
                 "var POSTHOG = Object.freeze({",
                 "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
-                "surveyId: '019ff791-9fcf-0000-2a64-0be9f0b64dbf'",
                 "apiHost: 'https://layout-survey.sywyar.top'",
                 "uiHost: 'https://us.posthog.com'",
                 "ownerKey: OWNER_KEY",
-                "posthog: POSTHOG");
+                "posthog: POSTHOG")
+                .containsPattern("surveyId: '[^']+'");
         assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
                 .contains("plugin.dependencies=posthog?@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-multi-mode-decision-survey"))

@@ -33,7 +33,9 @@ const STATE_KEY = 'pixiv:layout-feedback:state:v1';
 const SEEN_KEY = 'pixiv:layout-feedback:seen:v1';
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 const SUGGESTION_MAX = 1000;
-const SURVEY_ID = '019fce31-c9ce-0000-934a-375b3ddbbd6c';
+const CONFIG_WINDOW = {};
+vm.runInNewContext(SOURCE, {window: CONFIG_WINDOW});
+const SURVEY_ID = CONFIG_WINDOW.PixivLayoutFeedback._internals.POSTHOG.surveyId;
 
 let passed = 0;
 function ok(label, condition) {

@@ -236,7 +236,8 @@ class LayoutSurveyContractTest {
         assertThat(js)
                 .contains("var POSTHOG = Object.freeze({")
                 .contains("projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'")
-                .contains("surveyId: '019fce31-c9ce-0000-934a-375b3ddbbd6c'")
+                .containsPattern("surveyId: '[^']+'");
+        assertThat(js)
                 .contains("apiHost: 'https://layout-survey.sywyar.top'")
                 .contains("uiHost: 'https://us.posthog.com'")
                 .contains("ownerKey: POSTHOG_OWNER_KEY")

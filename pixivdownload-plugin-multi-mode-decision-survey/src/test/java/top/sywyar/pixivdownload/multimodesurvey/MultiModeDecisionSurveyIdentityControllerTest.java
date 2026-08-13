@@ -11,16 +11,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class MultiModeDecisionSurveyIdentityControllerTest {
 
     private static final String INSTALL_ID = "123e4567-e89b-42d3-a456-426614174000";
+    private static final String SURVEY_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    private static final String OTHER_SURVEY_ID = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
 
     @Test
     @DisplayName("同一安装身份稳定派生且不暴露原始 UUID")
     void derivesStableSurveyScopedIdentity() {
-        String first = MultiModeDecisionSurveyIdentityController.deriveScopedIdentity(INSTALL_ID);
-        String second = MultiModeDecisionSurveyIdentityController.deriveScopedIdentity(INSTALL_ID);
+        String first = MultiModeDecisionSurveyIdentityController.deriveScopedIdentity(SURVEY_ID, INSTALL_ID);
+        String second = MultiModeDecisionSurveyIdentityController.deriveScopedIdentity(SURVEY_ID, INSTALL_ID);
 
         assertThat(first).isEqualTo(second).matches("pmds_[0-9a-f]{64}");
+        assertThat(first).isNotEqualTo(MultiModeDecisionSurveyIdentityController
+                .deriveScopedIdentity(OTHER_SURVEY_ID, INSTALL_ID));
         assertThat(first).doesNotContain(INSTALL_ID);
-        var response = new MultiModeDecisionSurveyIdentityController(() -> INSTALL_ID).identity();
+        var response = new MultiModeDecisionSurveyIdentityController(() -> INSTALL_ID).identity(SURVEY_ID);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getCacheControl()).contains("no-store");
         assertThat(response.getBody()).isNotNull();
@@ -30,11 +34,22 @@ class MultiModeDecisionSurveyIdentityControllerTest {
     @Test
     @DisplayName("非法安装身份拒绝派生，端点按 503 且 no-store 降级")
     void rejectsInvalidIdentityWithoutExposingIt() {
-        assertThatThrownBy(() -> MultiModeDecisionSurveyIdentityController.deriveScopedIdentity("bad"))
+        assertThatThrownBy(() -> MultiModeDecisionSurveyIdentityController
+                .deriveScopedIdentity(SURVEY_ID, "bad"))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        var response = new MultiModeDecisionSurveyIdentityController(() -> "bad").identity();
+        var response = new MultiModeDecisionSurveyIdentityController(() -> "bad").identity(SURVEY_ID);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getHeaders().getCacheControl()).contains("no-store");
+        assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    @DisplayName("非法调查 ID 按 400 且 no-store 拒绝")
+    void rejectsInvalidSurveyId() {
+        var response = new MultiModeDecisionSurveyIdentityController(() -> INSTALL_ID).identity("bad");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getHeaders().getCacheControl()).contains("no-store");
         assertThat(response.getBody()).isNull();
     }

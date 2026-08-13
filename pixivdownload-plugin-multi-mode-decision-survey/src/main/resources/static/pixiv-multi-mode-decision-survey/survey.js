@@ -126,7 +126,7 @@
         }
 
         function fetchIdentity() {
-            return global.fetch(IDENTITY_URL, {
+            return global.fetch(IDENTITY_URL + '?surveyId=' + encodeURIComponent(POSTHOG.surveyId), {
                 credentials: 'same-origin',
                 cache: 'no-store',
                 headers: {'Accept': 'application/json'}

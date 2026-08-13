@@ -48,7 +48,7 @@ class PostHogPf4jPluginTest {
                 .contains("var SDK_URL = '/vendor/posthog-js/' + SDK_VERSION + '/array.full.js'")
                 .contains("ownerKey", "options.posthog", "createSurveyClient")
                 .doesNotContain("phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k")
-                .doesNotContain("019fce31-c9ce-0000-934a-375b3ddbbd6c")
+                .doesNotContain("surveyId: '")
                 .doesNotContain("https://layout-survey.sywyar.top")
                 .doesNotContain("download-workbench.layout-feedback")
                 .contains("bootstrap = {distinctID: options.distinctId, isIdentifiedID: false}")

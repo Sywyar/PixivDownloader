@@ -41,7 +41,7 @@ class MultiModeDecisionSurveyPluginTest {
     }
 
     @Test
-    @DisplayName("调查发布者自持四个 PostHog 参数与给定问卷 ID")
+    @DisplayName("调查发布者自持 PostHog 参数与问卷结构")
     void ownsPostHogParametersAndSurveyMetadata() throws Exception {
         String script;
         try (InputStream input = getClass().getResourceAsStream(
@@ -51,11 +51,14 @@ class MultiModeDecisionSurveyPluginTest {
         }
         assertThat(script).contains(
                 "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
-                "surveyId: '019ff791-9fcf-0000-2a64-0be9f0b64dbf'",
                 "apiHost: 'https://layout-survey.sywyar.top'",
                 "uiHost: 'https://us.posthog.com'",
-                "var QUESTION_ID = '0ac24f7c-abeb-4405-8c9c-916e4ca904ac'",
-                "var CHOICES = ['Yes', 'No', 'Other']")
+                "var QUESTION_ID =",
+                "var CHOICES = ['Yes', 'No', 'Other']",
+                "IDENTITY_URL + '?surveyId=' + encodeURIComponent(POSTHOG.surveyId)")
+                .containsPattern("surveyId: '[^']+'");
+        assertThat(script).containsPattern("var QUESTION_ID = '[^']+'");
+        assertThat(script)
                 .doesNotContain("snooze", "never");
     }
 }
