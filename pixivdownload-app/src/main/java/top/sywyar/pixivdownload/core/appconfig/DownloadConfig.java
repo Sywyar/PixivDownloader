@@ -4,6 +4,7 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 
 @Data
 @Configuration
@@ -12,7 +13,7 @@ public class DownloadConfig implements DownloadSettings {
     private volatile String rootFolder = "pixiv-download";
 
     public String getRootFolder() {
-        return rootFolder == null ? "pixiv-download" : rootFolder.replaceAll("[/\\\\]+$", "");
+        return RuntimeFiles.normalizeRootFolder(rootFolder);
     }
 
     /**

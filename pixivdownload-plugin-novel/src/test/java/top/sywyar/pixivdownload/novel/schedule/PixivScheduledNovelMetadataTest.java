@@ -86,7 +86,7 @@ class PixivScheduledNovelMetadataTest {
     }
 
     private Long uploadTimestamp(String json) {
-        return PixivScheduledNovelMetadata.parse(1L, parse(json)).uploadTimestamp();
+        return PixivNovelMetadata.parse(1L, parse(json)).uploadTimestamp();
     }
 
     private JsonNode parse(String json) {

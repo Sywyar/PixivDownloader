@@ -134,7 +134,7 @@
     "repo.proxy.unsupported": "Proxy unsupported",
     "search.placeholder": "Search plugins, authors or tags...",
     "section.repositories": "Trusted repositories",
-    "security.notice": "Security notice: unverifiable, unsigned, or user-allowed plugins run code inside the local app process. Verify their source and safety before installing; we cannot guarantee the safety of unverified plugins.",
+    "security.notice": "Plugin permissions and signatures: all plugins run in the same JVM as the application and inherit the operating-system permissions of the current user. They can read or modify files, access the network and database, start processes, and even terminate the application. A signature proves the package publisher and content integrity only; it is not a security review or sandbox. Install only plugins you trust.",
     "seg.installed": "Installed",
     "seg.market": "Market",
     "sidebar.browse": "Browse categories",

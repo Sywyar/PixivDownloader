@@ -18,6 +18,8 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -121,7 +123,12 @@ public class AiPlugin implements PixivFeaturePlugin {
                 "gui.config.ai.modality.help",
                 "gui.config.ai.preset.label",
                 "gui.config.ai.preset.help",
-                List.of(),
+                List.of(new GuiConfigSectionNoticeContribution(
+                        "ai.network-target.security",
+                        "gui.config.ai.security.notice",
+                        ID,
+                        GuiConfigSectionNoticeStyle.HINT,
+                        0)),
                 GuiConfigSectionLayout.CARD_SWITCHER,
                 1200,
                 fields.stream()

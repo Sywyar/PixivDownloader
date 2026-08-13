@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.config;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -149,9 +150,42 @@ class DeleteStagingManifestTest {
     }
 
     @Test
+    @DisplayName("恢复拒绝相对原路径与经过符号链接父目录的目标")
+    void rejectsRelativeAndSymbolicLinkOriginalPaths() throws IOException {
+        Path relativeSubdir = Files.createDirectories(tempDir.resolve("delete-staging/relative"));
+        Files.writeString(relativeSubdir.resolve("0_x.jpg"), "x", StandardCharsets.UTF_8);
+        Files.writeString(relativeSubdir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME),
+                "version=1\ncount=1\n0.original=relative/x.jpg\n0.staged=0_x.jpg\n",
+                StandardCharsets.UTF_8);
+        assertThat(DeleteStagingManifest.read(relativeSubdir)).isEmpty();
+
+        Path stagingRoot = Files.createDirectories(tempDir.resolve("delete-staging-links"));
+        Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
+        Path outside = Files.createDirectories(tempDir.resolve("outside-restore"));
+        Path linkedParent = tempDir.resolve("linked-restore");
+        createSymbolicLinkOrSkip(linkedParent, outside);
+        Path original = linkedParent.resolve("restored.jpg");
+        Files.writeString(subdir.resolve("0_restored.jpg"), "backup", StandardCharsets.UTF_8);
+        DeleteStagingManifest.write(subdir, List.of(entry(original, "0_restored.jpg")));
+
+        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+
+        assertThat(outside.resolve("restored.jpg")).doesNotExist();
+        assertThat(subdir).isDirectory();
+    }
+
+    @Test
     @DisplayName("恢复：暂存根目录不存在时安全返回，不抛异常")
     void recoverIsNoOpWhenRootMissing() {
         DeleteStagingManifest.recoverLeftovers(tempDir.resolve("nonexistent"));
         DeleteStagingManifest.recoverLeftovers(null);
+    }
+
+    private static void createSymbolicLinkOrSkip(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (IOException | UnsupportedOperationException | SecurityException unavailable) {
+            Assumptions.assumeTrue(false, "当前文件系统不支持测试符号链接: " + unavailable.getMessage());
+        }
     }
 }

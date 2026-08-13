@@ -91,6 +91,8 @@
     "restart.process.title": "App restart required",
     "result.count": "{n} result(s)",
     "search.placeholder": "Search plugin name or tag…",
+    "security.notice.desc": "Plugins run in the same JVM as the application and inherit the operating-system permissions of the current user. They can read or modify files, access the network and database, start processes, and even terminate the application. A signature proves the package publisher and content integrity only; it is not a security review or sandbox. Install only plugins you trust.",
+    "security.notice.title": "Plugin permissions and signatures",
     "seg.installed": "Installed",
     "source.built-in": "Built-in",
     "source.external": "External",

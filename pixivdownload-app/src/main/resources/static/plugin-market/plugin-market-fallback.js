@@ -189,7 +189,7 @@
         }
         body += '<div class="pmk-banner pmk-banner--warn pmk-security-notice">' +
             '<i class="fa-solid fa-shield-halved"></i><div class="pmk-banner-body">' +
-            esc(t('security.notice', '安全提示：无法验证、未签名或由用户放行的插件会在本机进程内运行代码。安装前请自行确认来源与安全性；我们无法保证未验证插件的安全。')) +
+            esc(t('security.notice', '插件权限与签名说明：所有插件都与主程序运行在同一 JVM，并继承本机当前用户的操作系统权限。签名只证明来源与内容完整性，不代表安全审查，也不提供沙箱隔离；请仅安装你信任的插件。')) +
             '</div></div>';
         if (state.masterEnabled && state.catalogError) {
             body += '<div class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">' +

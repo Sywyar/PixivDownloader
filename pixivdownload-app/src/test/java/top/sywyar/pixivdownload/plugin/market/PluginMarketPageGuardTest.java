@@ -271,7 +271,7 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("插件市场展示未验证 / 未签名插件安全提示，Vue 与基础回退视图共用 i18n 文案")
+    @DisplayName("插件市场说明所有插件的同进程权限与签名边界，Vue 与基础回退视图共用 i18n 文案")
     void rendersSecurityNoticeInVueAndFallback() throws IOException {
         String vue = read(VUE);
         String fallback = read(FALLBACK);
@@ -281,9 +281,9 @@ class PluginMarketPageGuardTest {
         assertThat(vue).contains("pmk-security-notice", "security.notice");
         assertThat(fallback).contains("pmk-security-notice", "security.notice");
         assertThat(zh.getProperty("security.notice"))
-                .contains("无法验证", "未签名", "无法保证未验证插件的安全");
+                .contains("所有插件", "同一 JVM", "操作系统权限", "安全审查", "沙箱隔离");
         assertThat(en.getProperty("security.notice"))
-                .contains("unverifiable", "unsigned", "cannot guarantee the safety of unverified plugins");
+                .contains("all plugins", "same JVM", "operating-system permissions", "security review", "sandbox");
     }
 
     @Test

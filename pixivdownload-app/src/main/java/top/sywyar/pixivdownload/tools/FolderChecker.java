@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.tools;
 import org.sqlite.SQLiteConfig;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import javax.swing.*;
@@ -440,7 +441,7 @@ public class FolderChecker {
 
     // ---- 工具方法 ----
     private static String stripTrailingSlash(String path) {
-        return path == null ? null : path.replaceAll("[/\\\\]+$", "");
+        return PathPrefixCodec.stripTrailingSeparators(path);
     }
 
     private void copyToClipboard(String text) {

@@ -51,6 +51,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class NovelPixivProxyController {
 
+    static final String PIXIV_API_LANGUAGE = "zh";
     private static final Set<String> VALID_ORDERS = Set.of("date_d", "date", "popular_d");
     private static final Set<String> VALID_MODES = Set.of("all", "safe", "r18");
     private static final Set<String> VALID_S_MODES = Set.of("s_tag", "s_tc");

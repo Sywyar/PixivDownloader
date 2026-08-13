@@ -125,11 +125,7 @@ public class DouyinHistoryRepository {
         if (folder == null) {
             return null;
         }
-        return storedPathCodec.encode(stripTrailingSlash(folder));
-    }
-
-    private static String stripTrailingSlash(String path) {
-        return path == null ? null : path.replaceAll("[/\\\\]+$", "");
+        return storedPathCodec.encode(folder);
     }
 
 }

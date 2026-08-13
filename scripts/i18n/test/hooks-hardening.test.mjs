@@ -189,7 +189,8 @@ test('CLI CI=true：拒绝 bootstrap / allow-unchanged / force；普通 i18n:che
             assert.match(run.stderr, /refusing/);
         }
         // 普通检查不受 CI 影响
-        const check = spawnSync('node', [path.join(SCRIPTS_DIR, 'check.mjs'), '--snapshot', 'index'],
+        const check = spawnSync('node', [path.join(SCRIPTS_DIR, 'check.mjs'), '--snapshot', 'index',
+            '--repo-root', root, '--report-root', root],
             { cwd: root, encoding: 'utf8', env });
         assert.equal(check.status, 0, check.stdout + check.stderr);
         // 核心库不接受任何安全参数组合：CI=false 也不得放行危险模式（由 CLI 边界判定，不依赖进程内状态）

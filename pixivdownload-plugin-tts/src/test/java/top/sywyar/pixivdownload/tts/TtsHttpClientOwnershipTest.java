@@ -8,6 +8,8 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpCookiePolicy;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRedirectPolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoutePolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
@@ -246,6 +248,16 @@ class TtsHttpClientOwnershipTest {
                                 Duration.ofSeconds(2),
                                 Duration.ofSeconds(4),
                                 OutboundHttpRoutePolicy.GLOBAL_IF_CONFIGURED));
+        assertThat(httpProfiles)
+                .filteredOn(profile -> profile.redirectPolicy() == OutboundHttpRedirectPolicy.NEVER)
+                .hasSize(4)
+                .allSatisfy(profile -> assertThat(profile.cookiePolicy())
+                        .isEqualTo(OutboundHttpCookiePolicy.DISABLED));
+        assertThat(httpProfiles)
+                .filteredOn(profile -> profile.redirectPolicy() == OutboundHttpRedirectPolicy.FOLLOW)
+                .singleElement()
+                .satisfies(profile -> assertThat(profile.cookiePolicy())
+                        .isEqualTo(OutboundHttpCookiePolicy.ENABLED));
         assertThat(webSocketProfiles)
                 .extracting(
                         OutboundWebSocketClientProfile::connectTimeout,

@@ -18,7 +18,7 @@ public class PushHttpClientConfiguration {
     @Bean(name = "pushRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(PushPlugin.ID)
     public ManagedPluginRestTemplate pushRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(10),
                 Duration.ofSeconds(15),
                 OutboundHttpRoute.direct()));
@@ -27,7 +27,7 @@ public class PushHttpClientConfiguration {
     @Bean(name = "pushProxyRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(PushPlugin.ID)
     public ManagedPluginRestTemplate pushProxyRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(10),
                 Duration.ofSeconds(15),
                 OutboundHttpRoute.configuredProxy()));

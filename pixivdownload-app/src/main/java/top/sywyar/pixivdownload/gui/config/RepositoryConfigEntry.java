@@ -20,7 +20,7 @@ import java.util.Map;
  * @param manifestUrl     清单地址（必填、必须为合法绝对 https URL）
  * @param enabled         是否启用
  * @param proxyPolicy     代理策略配置串（固定枚举：{@code direct-strict} / {@code proxy-trusted} / {@code custom}）
- * @param allowRedirects  custom 档是否允许至多一跳重定向
+ * @param allowRedirects  custom 档是否允许至多五跳重定向
  * @param strictHttps     custom 档是否只允许 HTTPS
  * @param allowNonPublicAddresses custom 档是否允许非公网地址
  * @param useProxy        custom 档是否使用应用全局代理（{@code proxy.*}）

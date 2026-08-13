@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 
 import java.util.List;
 import java.util.Set;
@@ -75,6 +76,12 @@ class AiPluginGuiConfigContributionTest {
         assertThat(section.presetHelpKey()).isEqualTo("gui.config.ai.preset.help");
         assertThat(section.mergeable()).isTrue();
         assertThat(section.contributesGroupVisibility()).isTrue();
+        assertThat(section.notices()).singleElement().satisfies(notice -> {
+            assertThat(notice.noticeId()).isEqualTo("ai.network-target.security");
+            assertThat(notice.textKey()).isEqualTo("gui.config.ai.security.notice");
+            assertThat(notice.i18nNamespace()).isEqualTo(AiPlugin.ID);
+            assertThat(notice.style()).isEqualTo(GuiConfigSectionNoticeStyle.HINT);
+        });
         assertThat(section.fieldLayouts()).extracting(GuiConfigFieldLayoutContribution::fieldKey)
                 .containsExactlyElementsOf(fields().stream().map(GuiConfigFieldContribution::key).toList());
         assertThat(section.fieldLayouts()).allSatisfy(layout -> {

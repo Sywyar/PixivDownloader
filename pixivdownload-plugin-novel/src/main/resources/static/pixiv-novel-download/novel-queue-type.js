@@ -261,54 +261,16 @@ async function getNovelUserMeta(userId, hookContext) {
 
             const fmt = (state.settings.novelFormat || 'txt').toLowerCase();
             const autoTranslate = !!(isAdmin && state.settings.novelAutoTranslate);
-            const seriesInfo = (item.seriesId && item.seriesId > 0) ? {
-                seriesId: Number(item.seriesId),
-                seriesOrder: item.seriesOrder,
-                seriesTitle: item.seriesTitle
-            } : (meta.seriesId ? {
-                seriesId: meta.seriesId,
-                seriesOrder: meta.seriesOrder,
-                seriesTitle: meta.seriesTitle
-            } : null);
-            // 系列简介/封面/tags：一批共享一次查询，best-effort；失败则不附加。
-            const seriesEnrichment = seriesInfo
-                ? await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'novel', invocation)
-                : null;
-            assertNovelProcess(invocation);
+            if (meta.seriesId) item.seriesId = Number(meta.seriesId);
             const collectionId = await resolveBatchCollectionIdForDownload(invocation);
             assertNovelProcess(invocation);
             const body = {
                 novelId: Number(novelId),
-                title: meta.title,
-                cookie: cookie || null,
-                content: meta.content,
                 other: {
-                    authorId: meta.authorId,
-                    authorName: meta.authorName,
-                    xRestrict: meta.xRestrict,
-                    ai: meta.isAi,
-                    original: meta.isOriginal,
-                    language: meta.language,
-                    wordCount: meta.wordCount,
-                    textLength: meta.textLength,
-                    readingTimeSeconds: meta.readingTimeSeconds ?? item.readingTimeSeconds ?? null,
-                    pageCount: meta.pageCount,
-                    description: meta.description,
-                    tags: Array.isArray(meta.tags) && meta.tags.length ? meta.tags : (item.tags || []),
-                    seriesId: seriesInfo ? seriesInfo.seriesId : null,
-                    seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
-                    seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
-                    seriesDescription: seriesEnrichment && seriesEnrichment.caption ? seriesEnrichment.caption : null,
-                    seriesCoverUrl: seriesEnrichment && seriesEnrichment.coverUrl ? seriesEnrichment.coverUrl : null,
-                    seriesTags: seriesEnrichment && seriesEnrichment.tags && seriesEnrichment.tags.length
-                            ? seriesEnrichment.tags : null,
                     fileNameTemplate: state.settings.fileNameTemplate,
                     bookmark: !!state.settings.bookmark,
                     collectionId,
                     format: fmt,
-                    uploadTimestamp: meta.uploadTimestamp || item.uploadTimestamp || null,
-                    coverUrl: meta.coverUrl || item.coverUrl || '',
-                    embeddedImages: meta.textEmbeddedImages || {},
                     // 下载即自动翻译（仅管理员；后端再次校验）。译文合订沿用「生成合订本」设置。
                     autoTranslate,
                     autoTranslateLanguage: state.settings.novelTranslateLang || defaultNovelTranslateLang(),
@@ -321,7 +283,7 @@ async function getNovelUserMeta(userId, hookContext) {
             renderQueue();
             const dlRes = await fetch(`${BASE}/api/novel/download`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {...headers, 'Content-Type': 'application/json'},
                 credentials: 'same-origin',
                 signal: invocation.signal,
                 body: JSON.stringify(body)

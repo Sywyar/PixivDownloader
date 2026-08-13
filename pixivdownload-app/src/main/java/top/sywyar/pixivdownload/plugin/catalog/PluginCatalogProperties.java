@@ -85,13 +85,13 @@ public class PluginCatalogProperties {
 
         /**
          * 代理策略：{@code direct-strict}（默认；直连、仅 https、拒非公网地址、禁重定向）、{@code proxy-trusted}
-         * （经应用全局代理拉取、仅在内置主机白名单内跟随至多一跳重定向）或 {@code custom}（采用下列四个自定义网络
+         * （经应用全局代理拉取、仅在内置主机白名单内跟随至多五跳重定向）或 {@code custom}（采用下列四个自定义网络
          * 开关）。全部档位的大小 / sha256 / 签名校验保持 fail-closed。未知策略串在拉取时稳定报「不支持」
          * （{@code PROXY_POLICY_UNSUPPORTED}）、绝不静默回落直连。
          */
         private String proxyPolicy = "direct-strict";
 
-        /** custom：是否允许跟随至多一跳重定向（目标仍重新执行 URL / 地址校验）。 */
+        /** custom：是否允许跟随至多五跳重定向（每个目标仍重新执行 URL / 地址校验）。 */
         private boolean allowRedirects;
 
         /** custom：是否只允许 HTTPS；关闭后额外允许 HTTP，其它协议仍拒绝。 */

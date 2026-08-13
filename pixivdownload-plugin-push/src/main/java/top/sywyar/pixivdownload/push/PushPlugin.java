@@ -190,12 +190,19 @@ public class PushPlugin implements PixivFeaturePlugin {
                 "",
                 "",
                 "",
-                List.of(new GuiConfigSectionNoticeContribution(
-                        NOTIFICATION_SERVICE_NOTICE,
-                        "gui.config.notification.hint",
-                        ID,
-                        GuiConfigSectionNoticeStyle.HINT,
-                        0)),
+                List.of(
+                        new GuiConfigSectionNoticeContribution(
+                                NOTIFICATION_SERVICE_NOTICE,
+                                "gui.config.notification.hint",
+                                ID,
+                                GuiConfigSectionNoticeStyle.HINT,
+                                0),
+                        new GuiConfigSectionNoticeContribution(
+                                "push.network-target.security",
+                                "gui.config.push.security.notice",
+                                ID,
+                                GuiConfigSectionNoticeStyle.HINT,
+                                10)),
                 GuiConfigSectionLayout.FIELD_LIST,
                 70,
                 List.of(),

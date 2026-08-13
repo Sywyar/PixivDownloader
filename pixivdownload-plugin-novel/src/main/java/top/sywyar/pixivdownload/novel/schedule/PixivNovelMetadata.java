@@ -13,7 +13,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /** Pixiv 小说 AJAX body 的 novel 模块内解析结果。 */
-record PixivScheduledNovelMetadata(
+public record PixivNovelMetadata(
         long novelId,
         String title,
         int xRestrict,
@@ -37,7 +37,7 @@ record PixivScheduledNovelMetadata(
         Long uploadTimestamp,
         Map<String, String> embeddedImages) {
 
-    static PixivScheduledNovelMetadata parse(long novelId, JsonNode body) {
+    public static PixivNovelMetadata parse(long novelId, JsonNode body) {
         Long seriesId = null;
         Long seriesOrder = null;
         String seriesTitle = null;
@@ -51,7 +51,7 @@ record PixivScheduledNovelMetadata(
             }
         }
         String content = body.path("content").asText("");
-        return new PixivScheduledNovelMetadata(
+        return new PixivNovelMetadata(
                 novelId,
                 body.path("title").asText(""),
                 body.path("xRestrict").asInt(0),
@@ -76,7 +76,7 @@ record PixivScheduledNovelMetadata(
                 embeddedImages(body));
     }
 
-    static SeriesMetadata parseSeries(JsonNode body) {
+    public static SeriesMetadata parseSeries(JsonNode body) {
         return new SeriesMetadata(
                 body.path("caption").asText(""),
                 seriesCoverUrl(body),
@@ -175,7 +175,7 @@ record PixivScheduledNovelMetadata(
             String translated = null;
             JsonNode translation = value.path("translation");
             if (translation.isObject()) {
-                String english = translation.path("en").asText("");
+                String english = translation.path(PixivScheduledNovelWorkExecutor.ENGLISH_TRANSLATION_KEY).asText("");
                 if (!english.isEmpty()) {
                     translated = english;
                 }
@@ -347,6 +347,6 @@ record PixivScheduledNovelMetadata(
         }
     }
 
-    record SeriesMetadata(String description, String coverUrl, List<WorkTag> tags) {
+    public record SeriesMetadata(String description, String coverUrl, List<WorkTag> tags) {
     }
 }

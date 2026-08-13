@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -289,7 +290,15 @@ public final class RuntimeFiles {
         if (rootFolder == null || rootFolder.isBlank()) {
             return DEFAULT_DOWNLOAD_ROOT;
         }
-        return rootFolder.replaceAll("[/\\\\]+$", "");
+        String value = rootFolder.trim();
+        if (value.matches("(?i)^[a-z]:($|[^/\\\\].*)")) {
+            throw new IllegalArgumentException("download root must not be drive-relative: " + value);
+        }
+        if (isMalformedUncPath(value)) {
+            throw new IllegalArgumentException("download root is not a valid UNC path: " + value);
+        }
+        String normalized = Path.of(value).normalize().toString();
+        return normalized.isEmpty() ? "." : normalized;
     }
 
     private static Path resolveDirectory(String propertyName, String defaultDirectory) {
@@ -376,22 +385,23 @@ public final class RuntimeFiles {
         }
 
         if (!Files.exists(target)) {
-            Files.move(legacy, target, StandardCopyOption.REPLACE_EXISTING);
-            moveCompanionFiles(legacy, target, companionSuffixes);
+            if (hasAnyCompanion(target, companionSuffixes)) {
+                log.warn(message("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+                return;
+            }
+            copyFileUnit(legacy, target, companionSuffixes);
+            deleteFileUnit(legacy, companionSuffixes);
             log.info(message("runtime.log.file.migrated", normalizedLegacy, normalizedTarget));
             return;
         }
 
-        if (Files.size(target) == Files.size(legacy) && Files.mismatch(target, legacy) == -1) {
-            Files.deleteIfExists(legacy);
-            deleteCompanionFiles(legacy, companionSuffixes);
+        if (fileUnitsMatch(legacy, target, companionSuffixes)) {
+            deleteFileUnit(legacy, companionSuffixes);
             log.info(message("runtime.log.legacy-duplicate.deleted", normalizedLegacy));
             return;
         }
 
-        Files.deleteIfExists(legacy);
-        deleteCompanionFiles(legacy, companionSuffixes);
-        log.warn(message("runtime.log.legacy-authoritative.deleted", normalizedLegacy, normalizedTarget));
+        log.warn(message("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
     }
 
     private static void adoptLegacyDirectory(Path target, Path legacy) throws IOException {
@@ -450,19 +460,64 @@ public final class RuntimeFiles {
         return targetDirectory.resolveSibling(fileName);
     }
 
-    private static void moveCompanionFiles(Path legacy, Path target, List<String> companionSuffixes) throws IOException {
-        for (String suffix : companionSuffixes) {
-            Path legacyCompanion = Path.of(legacy + suffix);
-            if (Files.exists(legacyCompanion)) {
-                Files.move(legacyCompanion, Path.of(target + suffix), StandardCopyOption.REPLACE_EXISTING);
+    private static void copyFileUnit(Path legacy, Path target, List<String> companionSuffixes) throws IOException {
+        List<Path> copiedTargets = new ArrayList<>();
+        try {
+            for (String suffix : companionSuffixes) {
+                Path legacyCompanion = Path.of(legacy + suffix);
+                if (Files.exists(legacyCompanion)) {
+                    Path targetCompanion = Path.of(target + suffix);
+                    Files.copy(legacyCompanion, targetCompanion, StandardCopyOption.COPY_ATTRIBUTES);
+                    copiedTargets.add(targetCompanion);
+                }
             }
+            Files.copy(legacy, target, StandardCopyOption.COPY_ATTRIBUTES);
+            copiedTargets.add(target);
+            if (!fileUnitsMatch(legacy, target, companionSuffixes)) {
+                throw new IOException("runtime file migration verification failed: " + legacy + " -> " + target);
+            }
+        } catch (IOException failure) {
+            for (int i = copiedTargets.size() - 1; i >= 0; i--) {
+                try {
+                    Files.deleteIfExists(copiedTargets.get(i));
+                } catch (IOException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
         }
     }
 
-    private static void deleteCompanionFiles(Path legacy, List<String> companionSuffixes) throws IOException {
+    private static void deleteFileUnit(Path legacy, List<String> companionSuffixes) throws IOException {
+        Files.deleteIfExists(legacy);
         for (String suffix : companionSuffixes) {
             Files.deleteIfExists(Path.of(legacy + suffix));
         }
+    }
+
+    private static boolean fileUnitsMatch(Path legacy, Path target, List<String> companionSuffixes) throws IOException {
+        if (!sameFileContents(legacy, target)) {
+            return false;
+        }
+        for (String suffix : companionSuffixes) {
+            Path legacyCompanion = Path.of(legacy + suffix);
+            Path targetCompanion = Path.of(target + suffix);
+            if (Files.exists(legacyCompanion) != Files.exists(targetCompanion)
+                    || Files.exists(legacyCompanion) && !sameFileContents(legacyCompanion, targetCompanion)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameFileContents(Path first, Path second) throws IOException {
+        return Files.exists(first) && Files.exists(second)
+                && Files.size(first) == Files.size(second)
+                && Files.mismatch(first, second) == -1;
+    }
+
+    private static boolean hasAnyCompanion(Path path, List<String> companionSuffixes) {
+        return companionSuffixes.stream().anyMatch(suffix -> Files.exists(Path.of(path + suffix)));
     }
 
     private static void addDownloadRootCandidate(Set<Path> paths, String rootFolder, String fileName) {
@@ -501,6 +556,14 @@ public final class RuntimeFiles {
 
     private static boolean isWindows(String osName) {
         return osName != null && osName.toLowerCase().contains("win");
+    }
+
+    private static boolean isMalformedUncPath(String value) {
+        if (!value.startsWith("\\\\") && !value.startsWith("//")) {
+            return false;
+        }
+        String[] segments = value.substring(2).split("[\\\\/]", -1);
+        return segments.length < 2 || segments[0].isBlank() || segments[1].isBlank();
     }
 
     private static String message(String code, Object... args) {

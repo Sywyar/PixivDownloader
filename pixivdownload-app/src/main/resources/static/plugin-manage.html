@@ -67,6 +67,14 @@
     <!-- 恢复 / 补齐模式横幅（仅 recoveryMode 时由 JS 填充并显示） -->
     <div id="pm-recovery" hidden></div>
 
+    <div class="pm-recovery pm-security-notice">
+        <i class="fa-solid fa-shield-halved"></i>
+        <div>
+            <div class="pm-recovery-title" data-i18n="security.notice.title">插件权限与签名说明</div>
+            <div class="pm-recovery-desc" data-i18n="security.notice.desc">插件与主程序运行在同一 JVM，并继承本机当前用户的操作系统权限。签名只证明来源与内容完整性，不代表安全审查，也不提供沙箱隔离；请仅安装你信任的插件。</div>
+        </div>
+    </div>
+
     <!-- 概览统计（信息区，由 JS 据后端状态填充） -->
     <div class="pm-stats" id="pm-stats"></div>
 
@@ -111,6 +119,11 @@
                     data-i18n-aria-label="install.close" aria-label="关闭"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <p class="pm-modal-desc" data-i18n="install.desc">选择本地 .jar / .zip 插件包。系统会先校验，再卸下旧版本、原子替换并立即激活；失败时自动恢复原版本。</p>
+
+        <div class="pm-recovery pm-security-notice">
+            <i class="fa-solid fa-shield-halved"></i>
+            <div class="pm-recovery-desc" data-i18n="security.notice.desc">插件与主程序运行在同一 JVM，并继承本机当前用户的操作系统权限。签名只证明来源与内容完整性，不代表安全审查，也不提供沙箱隔离；请仅安装你信任的插件。</div>
+        </div>
 
         <label class="pm-file">
             <input type="file" id="pm-install-file" accept=".jar,.zip">

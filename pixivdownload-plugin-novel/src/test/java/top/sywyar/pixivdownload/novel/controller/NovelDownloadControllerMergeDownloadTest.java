@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.novel.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,6 +10,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -69,6 +72,9 @@ class NovelDownloadControllerMergeDownloadTest {
                 workVisibilityService,
                 visitorDownloadQuotaService,
                 multiModeSettings,
+                new ObjectMapper(),
+                mock(PixivAjaxClient.class),
+                mock(PixivProxyAccessPolicy.class),
                 messages);
     }
 

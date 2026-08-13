@@ -148,10 +148,18 @@ class PluginManagePageGuardTest {
                 "toggle.saved.enabled", "toggle.saved.disabled", "toggle.failed",
                 "restart.backend.message", "restart.backend.confirm", "restart.backend.later",
                 "restart.process.message", "restart.process.done",
-                "verification.io-error", "verification.provenance-invalid"}) {
+                "verification.io-error", "verification.provenance-invalid",
+                "security.notice.title", "security.notice.desc"}) {
             assertThat(zh.getProperty(key)).as("中文文案 " + key).isNotBlank();
             assertThat(en.getProperty(key)).as("英文文案 " + key).isNotBlank();
         }
+        assertThat(zh.getProperty("security.notice.desc"))
+                .contains("同一 JVM", "操作系统权限", "安全审查", "沙箱隔离");
+        assertThat(en.getProperty("security.notice.desc"))
+                .contains("same JVM", "operating-system permissions", "security review", "sandbox");
+        assertThat(read(HTML)).as("插件列表与本地安装弹窗都必须直接展示权限说明")
+                .containsOnlyOnce("data-i18n=\"security.notice.title\"")
+                .contains("data-i18n=\"security.notice.desc\"");
     }
 
     @Test
