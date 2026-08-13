@@ -28,13 +28,13 @@ class PixivGalleryPageGuardTest {
                         "id=\"collectionList\"", "id=\"batchManageBtn\"", "id=\"batchActionBar\"",
                         "id=\"galleryStatus\"", "id=\"galleryGrid\"", "id=\"pagination\"",
                         "id=\"authorView\"", "id=\"authorPagination\"", "id=\"mobileOverlay\"",
-                        "data-nav-slot=\"gallery.type-switch\"", "id=\"galleryGenericFilters\"",
-                        "id=\"galleryGenericDetail\"");
+                        "data-nav-slot=\"gallery.type-switch\"");
         assertThat(html)
                 .contains("value=\"authorId\"", "value=\"tagExact\"", "data-sort=\"series\"", "data-r18=\"r18g\"",
                         "data-ai=\"yes\"", "data-format=\"webp\"",
                         "data-action=\"export\"", "data-action=\"collect\"", "data-action=\"delete\"")
                 .doesNotContain("id=\"galleryFrontendNav\"")
+                .doesNotContain("id=\"galleryGenericFilters\"", "id=\"galleryGenericDetail\"")
                 .doesNotContain("<button type=\"button\" class=\"gallery-type-option");
     }
 
@@ -49,8 +49,6 @@ class PixivGalleryPageGuardTest {
                 "/pixiv-gallery/gallery-collections.js",
                 "/pixiv-gallery/gallery-batch.js",
                 "/pixiv-gallery/gallery-views.js",
-                "/pixiv-gallery/gallery-frontend-runtime.js",
-                "/pixiv-gallery/gallery-generic-view.js",
                 "/pixiv-gallery/gallery-sidebar.js",
                 "/pixiv-gallery/gallery-init.js");
 
@@ -61,11 +59,12 @@ class PixivGalleryPageGuardTest {
             previous = current;
         }
         assertThat(read("static/pixiv-gallery/gallery-init.js"))
-                .contains("(async function init()", "wireBatchManage();",
-                        "frontend.bootstrap()", "frontend.startDataFlow({",
-                        "frontend.refreshGeneric()",
-                        "#galleryViewNav .active, #galleryViewNav [aria-current]")
-                .doesNotContain("galleryFrontendNav", "navigationHost", "existingHrefs");
+                .contains("(async function init()", "wireBatchManage();", "loadPrimary();")
+                .doesNotContain("PixivGalleryFrontend", "galleryGeneric", "galleryFrontendNav",
+                        "navigationHost", "existingHrefs");
+        assertThat(html).doesNotContain(
+                "/pixiv-gallery/gallery-frontend-runtime.js",
+                "/pixiv-gallery/gallery-generic-view.js");
     }
 
     @Test
@@ -110,10 +109,10 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
-    @DisplayName("正式主画廊提供中性前端契约且不硬编码来源模块")
-    void genericFrontendRuntimeKeepsPluginNeutralBoundary() throws IOException {
+    @DisplayName("类型化前端运行时资源保持中性且不再由正式主画廊启动")
+    void typedFrontendRuntimeRemainsNeutralButIsNotBootstrappedByMainGallery() throws IOException {
         String runtime = read("static/pixiv-gallery/gallery-frontend-runtime.js");
-        String genericView = read("static/pixiv-gallery/gallery-generic-view.js");
+        String html = read("static/pixiv-gallery.html");
 
         assertThat(runtime)
                 .contains("registerFilterExtension(definition)",
@@ -125,17 +124,7 @@ class PixivGalleryPageGuardTest {
                         "'LIVE_PHOTO_VIDEO'", "'UNKNOWN'")
                 .doesNotContain("failure.message", "String(failure)",
                         "renderViewEntries", "viewEntries:", "VIEW_ENTRY");
-        assertThat(genericView)
-                .contains("'/api/gallery/unified/projections?'",
-                        "'/api/gallery/unified/works/'",
-                        "filters: filterContext.filters",
-                        "setFilter: filterContext.setFilter",
-                        "detailHint.preferredMediaId")
-                .doesNotContain("douyin-gallery-frontend.js",
-                        "novel-gallery-frontend.js",
-                        "pixiv-gallery-frontend.js",
-                        "sourceId === 'pixiv'",
-                        "sourceId === 'douyin'");
+        assertThat(html).doesNotContain("gallery-frontend-runtime.js", "gallery-generic-view.js");
     }
 
     @Test
@@ -144,6 +133,7 @@ class PixivGalleryPageGuardTest {
         Path staticRoot = sourceStaticRoot();
         assertThat(staticRoot.resolve("unified-gallery.html")).doesNotExist();
         assertThat(staticRoot.resolve("unified-gallery")).doesNotExist();
+        assertThat(staticRoot.resolve("pixiv-gallery/gallery-generic-view.js")).doesNotExist();
     }
 
     private String read(String path) throws IOException {

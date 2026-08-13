@@ -29,10 +29,13 @@ async function douyinDetailInitI18n() {
 }
 
 function douyinDetailBindNavigation(state) {
-    const galleryLink = document.getElementById('galleryLink');
     const backButton = document.getElementById('backButton');
-    galleryLink.href = state.returnTo;
-    backButton.addEventListener('click', () => window.location.assign(state.returnTo));
+    backButton.href = state.returnTo;
+    backButton.addEventListener('click', event => {
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        window.location.replace(state.returnTo);
+    });
 }
 
 function douyinDetailFailureStatus(failure) {

@@ -34,8 +34,7 @@ window.PixivArtwork = window.PixivArtwork || {};
         document.title = state.artwork
             ? `${state.artwork.title || wt('status.unknown-artwork', 'Artwork {id}', {id: state.artwork.artworkId})} - Pixiv Gallery`
             : wt('page.title', 'Artwork Detail - Pixiv Gallery');
-        document.getElementById('backBtnLabel').textContent = wt('button.back', 'Back');
-        document.getElementById('galleryBtnLabel').textContent = wt('button.gallery', 'Gallery');
+        document.getElementById('backBtnLabel').textContent = wt('button.back', 'Back to Gallery');
         const deleteBtn = document.getElementById('deleteArtworkBtn');
         if (deleteBtn) {
             document.getElementById('deleteBtnLabel').textContent = wt('button.delete', 'Delete');
@@ -139,9 +138,45 @@ window.PixivArtwork = window.PixivArtwork || {};
         return {get, put};
     })();
 
+    const ARTWORK_GALLERY_RETURN_KEY = 'pixiv:gallery-return-to';
+
+    function safeArtworkGalleryReturnTo(value) {
+        if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')
+            || /[\u0000-\u0020\\]/.test(value)) return null;
+        try {
+            const resolved = new URL(value, window.location.origin);
+            if (resolved.origin !== window.location.origin || resolved.username || resolved.password
+                || resolved.hash || resolved.pathname !== '/pixiv-gallery.html') return null;
+            return resolved.pathname + resolved.search;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function resolveArtworkGalleryReturnTo() {
+        try {
+            return safeArtworkGalleryReturnTo(sessionStorage.getItem(ARTWORK_GALLERY_RETURN_KEY))
+                || '/pixiv-gallery.html?view=all';
+        } catch (_) {
+            return '/pixiv-gallery.html?view=all';
+        }
+    }
+
+    function bindArtworkGalleryReturn() {
+        const link = document.getElementById('backToGalleryLink');
+        if (!link) return;
+        link.href = state.returnTo;
+        link.addEventListener('click', event => {
+            if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            window.location.replace(state.returnTo);
+        });
+    }
+
     const state = {
         artworkId: null,
         artwork: null,
+        returnTo: resolveArtworkGalleryReturnTo(),
         collections: [],
         collectionMembership: new Set(),
         lightboxIndex: 0,
@@ -279,4 +314,4 @@ window.PixivArtwork = window.PixivArtwork || {};
 
 // ---- PixivArtwork facade ----
 window.PixivArtwork.core = window.PixivArtwork.core || {};
-window.PixivArtwork.core = Object.assign(window.PixivArtwork.core, { interpolate, wt, syncExpandButtonText, applyStaticPageTranslations, initPageI18n, ImageCache, state, getQueryParam, api, toast, escapeHtml, formatTime, buildGalleryFilterHref, buildSeriesDirectoryHref, buildPixivArtworkHref, buildShowcaseHref, buildPixivAuthorHref, loadImageToElement, HEART_SVG });
+window.PixivArtwork.core = Object.assign(window.PixivArtwork.core, { interpolate, wt, syncExpandButtonText, applyStaticPageTranslations, initPageI18n, ImageCache, state, getQueryParam, api, toast, escapeHtml, formatTime, buildGalleryFilterHref, buildSeriesDirectoryHref, buildPixivArtworkHref, buildShowcaseHref, buildPixivAuthorHref, loadImageToElement, safeArtworkGalleryReturnTo, resolveArtworkGalleryReturnTo, bindArtworkGalleryReturn, HEART_SVG });

@@ -73,6 +73,9 @@ assert.ok(PAGE_HTML.includes("frame-src 'self'; child-src 'self'")
     && PAGE_HTML.includes("connect-src 'self'")
     && PAGE_HTML.includes("object-src 'none'; base-uri 'none'; form-action 'none'"),
     '详细页 CSP 必须限制自身资源、网络连接和 iframe，并禁止对象、表单与 base 改写');
+assert.ok(PAGE_HTML.includes('src="/js/pixiv-navigation.js"')
+    && PAGE_HTML.includes('data-nav-preferred-href-marker="preferred-download-workbench"'),
+    '站内信返回入口必须复用共享导航记录的最近下载工作台地址');
 assert.ok(PAGE_SOURCE.includes('(!message.hasHtmlContent && !message.embeddedContentUrl)')
     && PAGE_SOURCE.includes("'/api/notifications/' + encodeURIComponent(message.id) + '/content'")
     && !PAGE_SOURCE.includes('sywyar.github.io')

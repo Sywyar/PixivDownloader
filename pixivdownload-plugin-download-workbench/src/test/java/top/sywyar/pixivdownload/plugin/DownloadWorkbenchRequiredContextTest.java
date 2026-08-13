@@ -136,6 +136,7 @@ class DownloadWorkbenchRequiredContextTest {
                 .satisfies(nav -> {
                     assertThat(nav.id()).isEqualTo("download-workbench");
                     assertThat(nav.href()).isEqualTo("/pixiv-batch.html");
+                    assertThat(nav.markers()).containsExactly("preferred-download-workbench");
                 });
         assertThat(plugin.startupRoutes()).singleElement().satisfies(route -> {
             assertThat(route.path()).isEqualTo("/pixiv-batch.html");

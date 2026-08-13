@@ -198,7 +198,7 @@ class GalleryExternalPluginBootContextTest {
         assertThat(externalCl.getResource("static/unified-gallery/unified-gallery.css")).isNull();
         assertThat(externalCl.getResource("static/pixiv-gallery/pixiv-gallery.css")).isNotNull();
         assertThat(externalCl.getResource("static/pixiv-gallery/gallery-frontend-runtime.js")).isNotNull();
-        assertThat(externalCl.getResource("static/pixiv-gallery/gallery-generic-view.js")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-gallery/gallery-generic-view.js")).isNull();
         assertThat(externalCl.getResource("static/pixiv-gallery/pixiv-gallery-frontend.js")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/gallery.properties")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-gallery.html")).isNull();

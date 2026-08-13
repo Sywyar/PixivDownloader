@@ -1,4 +1,5 @@
 'use strict';
+bindNovelGalleryReturn();
 document.getElementById('heartBtn').addEventListener('click', openAddToCollectionModal);
 document.getElementById('addToCollectionClose').addEventListener('click', closeAddToCollectionModal);
 document.getElementById('addToCollectionDone').addEventListener('click', closeAddToCollectionModal);

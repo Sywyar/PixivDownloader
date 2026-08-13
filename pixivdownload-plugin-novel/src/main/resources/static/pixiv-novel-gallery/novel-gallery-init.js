@@ -1,5 +1,16 @@
 'use strict';
 
+const NOVEL_GALLERY_RETURN_KEY = 'pixiv:novel-gallery-return-to';
+
+function rememberNovelGalleryLocation() {
+    try {
+        sessionStorage.setItem(NOVEL_GALLERY_RETURN_KEY, location.pathname + location.search);
+    } catch (_) { /* optional per-tab navigation memory */ }
+}
+
+rememberNovelGalleryLocation();
+window.addEventListener('pagehide', rememberNovelGalleryLocation);
+
 function setupNovelCrossPageHandoff() {
     // 类型切换链接由 /js/pixiv-navigation.js 异步渲染进 slot，渲染时机不确定：
     //  · 点击：用事件委托（监听 document），无论链接何时生成都能在跳转前写入跨页交接；

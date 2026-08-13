@@ -4,6 +4,7 @@ window.PixivNovel = window.PixivNovel || {};
 ['core', 'content', 'series', 'collections', 'admin', 'init'].forEach(function (k) { window.PixivNovel[k] = window.PixivNovel[k] || {}; });
 const params = new URLSearchParams(location.search);
 const novelId = params.get('id');
+const NOVEL_GALLERY_RETURN_KEY = 'pixiv:novel-gallery-return-to';
 let pageI18n;
 let rerenderPayload = null;
 let cachedSeriesNav = null;
@@ -18,6 +19,41 @@ const collectionState = {
     list: [],
     membership: new Set()
 };
+
+function safeNovelGalleryReturnTo(value) {
+    if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')
+        || /[\u0000-\u0020\\]/.test(value)) return null;
+    try {
+        const resolved = new URL(value, window.location.origin);
+        if (resolved.origin !== window.location.origin || resolved.username || resolved.password
+            || resolved.hash || resolved.pathname !== '/pixiv-novel-gallery.html') return null;
+        return resolved.pathname + resolved.search;
+    } catch (_) {
+        return null;
+    }
+}
+
+function resolveNovelGalleryReturnTo() {
+    try {
+        return safeNovelGalleryReturnTo(sessionStorage.getItem(NOVEL_GALLERY_RETURN_KEY))
+            || '/pixiv-novel-gallery.html?view=all';
+    } catch (_) {
+        return '/pixiv-novel-gallery.html?view=all';
+    }
+}
+
+const novelGalleryReturnTo = resolveNovelGalleryReturnTo();
+
+function bindNovelGalleryReturn() {
+    const link = document.getElementById('backToGalleryLink');
+    if (!link) return;
+    link.href = novelGalleryReturnTo;
+    link.addEventListener('click', event => {
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        window.location.replace(novelGalleryReturnTo);
+    });
+}
 
 function escapeHtml(s) {
     return PixivNovelRender.escapeHtml(s);
@@ -36,4 +72,4 @@ function toast(msg, type) {
 
 // ---- PixivNovel facade ----
 window.PixivNovel.core = window.PixivNovel.core || {};
-window.PixivNovel.core = Object.assign(window.PixivNovel.core, { params, novelId, collectionState, HEART_DEFAULT_SVG, escapeHtml, toast });
+window.PixivNovel.core = Object.assign(window.PixivNovel.core, { params, novelId, novelGalleryReturnTo, collectionState, HEART_DEFAULT_SVG, safeNovelGalleryReturnTo, resolveNovelGalleryReturnTo, bindNovelGalleryReturn, escapeHtml, toast });

@@ -63,12 +63,16 @@ class DouyinGalleryPageGuardTest {
                         "resolved.pathname !== '/pixiv-douyin-gallery.html'",
                         "'/pixiv-douyin-gallery.html?view=all'")
                 .doesNotContain("failure.message", "innerHTML");
+        assertThat(html)
+                .contains("id=\"backButton\"", "data-i18n=\"douyin:detail.action.back\"")
+                .doesNotContain("id=\"galleryLink\"", "history.back()", "onclick=");
         assertThat(render)
                 .contains("'IMAGE'", "'VIDEO'", "'LIVE_PHOTO_VIDEO'", "'COVER'", "textContent")
                 .doesNotContain("innerHTML", "outerHTML", "insertAdjacentHTML");
         assertThat(resource("static/pixiv-douyin/douyin-init.js"))
-                .contains("pageI18n.apply(document)", "next.apply(document)")
-                .doesNotContain("apply(document.body)");
+                .contains("pageI18n.apply(document)", "next.apply(document)",
+                        "window.location.replace(state.returnTo)")
+                .doesNotContain("apply(document.body)", "window.location.assign(state.returnTo)");
         assertThat(css).contains("html[data-theme=\"dark\"]", "@media (max-width: 900px)");
     }
 

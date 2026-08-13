@@ -22375,16 +22375,8 @@
       "module": "pixivdownload-plugin-douyin",
       "baseName": "web/douyin",
       "key": "detail.action.back",
-      "acceptedSourceHash": "572cf45ba43634b3448aadbc48d5398a1b32ad8a97bf42b689c394de222c30a1",
-      "acceptedTranslationHash": "76900f1bfd16c8d4dd3d25e6f46638d7165aee23883ccea6bfe071c514421769"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-plugin-douyin",
-      "baseName": "web/douyin",
-      "key": "detail.action.gallery",
-      "acceptedSourceHash": "14d56700231d13158fefe843991c2b175707f834ff33d58e4304436125ad9acc",
-      "acceptedTranslationHash": "70c99c26ffca19cbe2c108deb00053bbb2a2f20c5e95fba8e2ae2977480e4d6e"
+      "acceptedSourceHash": "dc28ed0540698b591438a6871a673dd2f4db5d2ffd1a1ebcf7a6fce8839b696d",
+      "acceptedTranslationHash": "ee316703bc68c09d16394619599bc5eb3538c7aab6db4002c2f25e6ec92e7971"
     },
     {
       "locale": "en-US",
@@ -38175,8 +38167,8 @@
       "module": "pixivdownload-plugin-gallery",
       "baseName": "web/artwork",
       "key": "button.back",
-      "acceptedSourceHash": "572cf45ba43634b3448aadbc48d5398a1b32ad8a97bf42b689c394de222c30a1",
-      "acceptedTranslationHash": "76900f1bfd16c8d4dd3d25e6f46638d7165aee23883ccea6bfe071c514421769"
+      "acceptedSourceHash": "dc28ed0540698b591438a6871a673dd2f4db5d2ffd1a1ebcf7a6fce8839b696d",
+      "acceptedTranslationHash": "ee316703bc68c09d16394619599bc5eb3538c7aab6db4002c2f25e6ec92e7971"
     },
     {
       "locale": "en-US",
@@ -38241,14 +38233,6 @@
       "key": "button.favorite-active",
       "acceptedSourceHash": "a2b11e55e322135e5207a92e716d19b46a35d7b4e097a7085884e1d67108ac0b",
       "acceptedTranslationHash": "5862b23be9f0f3ad2b6fa5c52e954e242349f312f20830ec9a64d1c19b584190"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-plugin-gallery",
-      "baseName": "web/artwork",
-      "key": "button.gallery",
-      "acceptedSourceHash": "6f966a995ad3884757dff1845f79d0e215027ebe1f6bef6ab7d7bd4c54797384",
-      "acceptedTranslationHash": "352cfc749e55222e135ee48e67631ba33f834d936c137560fd39063d2e57e5cb"
     },
     {
       "locale": "en-US",
@@ -45727,8 +45711,8 @@
       "module": "pixivdownload-plugin-novel",
       "baseName": "web/novel-gallery",
       "key": "button.back",
-      "acceptedSourceHash": "572cf45ba43634b3448aadbc48d5398a1b32ad8a97bf42b689c394de222c30a1",
-      "acceptedTranslationHash": "76900f1bfd16c8d4dd3d25e6f46638d7165aee23883ccea6bfe071c514421769"
+      "acceptedSourceHash": "dc28ed0540698b591438a6871a673dd2f4db5d2ffd1a1ebcf7a6fce8839b696d",
+      "acceptedTranslationHash": "ee316703bc68c09d16394619599bc5eb3538c7aab6db4002c2f25e6ec92e7971"
     },
     {
       "locale": "en-US",
@@ -45769,14 +45753,6 @@
       "key": "button.favorite-active",
       "acceptedSourceHash": "a2b11e55e322135e5207a92e716d19b46a35d7b4e097a7085884e1d67108ac0b",
       "acceptedTranslationHash": "e06057849dd4e3bd3d05c8b5270e52cba90e495d6d4a57fd34b982e89e90e907"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-plugin-novel",
-      "baseName": "web/novel-gallery",
-      "key": "button.gallery",
-      "acceptedSourceHash": "6f966a995ad3884757dff1845f79d0e215027ebe1f6bef6ab7d7bd4c54797384",
-      "acceptedTranslationHash": "352cfc749e55222e135ee48e67631ba33f834d936c137560fd39063d2e57e5cb"
     },
     {
       "locale": "en-US",
