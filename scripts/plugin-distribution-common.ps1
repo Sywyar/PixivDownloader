@@ -51,6 +51,7 @@ function Get-OfficialDefaultInstalledPlugins {
         [pscustomobject]@{ Id = "gallery"; Module = "pixivdownload-plugin-gallery"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "novel"; Module = "pixivdownload-plugin-novel"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "notification"; Module = "pixivdownload-plugin-notification"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "multi-mode-decision-survey"; Module = "pixivdownload-plugin-multi-mode-decision-survey"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "push"; Module = "pixivdownload-plugin-push"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{
             Id = "mail"; Module = "pixivdownload-plugin-mail"; Format = "jar"; PrivateLibs = $true;

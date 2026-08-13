@@ -24,6 +24,18 @@
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
   },
+  "multi-mode-decision-survey": {
+    "description": { "zh": "通过管理员站内信收集多人模式保留意愿；调查参数与问卷语义由本插件自持。", "en": "Collects feedback on retaining multi-user mode through the administrator inbox; this plugin owns the survey parameters and semantics." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "utility",
+    "tags": ["survey", "multi-mode", "inbox", "posthog"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "recommended": true,
+    "officialRequired": false,
+    "changeNotes": ["新增多人模式去留调查站内信"]
+  },
   "douyin": {
     "description": { "zh": "提供抖音视频、图文与实况作品的链接解析、批量与计划下载、本地画廊和作品详情。", "en": "Adds link parsing, batch and scheduled downloads, a local gallery, and work details for Douyin videos, image posts, and live photos." },
     "author": "Sywyar",

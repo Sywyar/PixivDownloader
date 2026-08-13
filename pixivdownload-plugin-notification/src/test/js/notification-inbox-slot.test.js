@@ -51,9 +51,12 @@ assert.ok(PAGE_SOURCE.includes('snapshot.categoryUnreadCount')
     && PAGE_SOURCE.includes("query.set('unreadOnly', 'true')")
     && PAGE_SOURCE.includes("api('/api/notifications/read-all' + query"),
     '分类页必须使用当前分类未读数并支持仅看未读与当前分类全部已读');
-assert.ok(PAGE_SOURCE.includes('function markSelectedRead(event)')
+assert.ok(PAGE_SOURCE.includes("var autoRead = message.category === 'survey'")
+    && PAGE_SOURCE.includes('if (!autoRead) toolbar.appendChild(markRead)')
+    && PAGE_SOURCE.includes('markSelectedRead(null, true, true)')
+    && PAGE_SOURCE.includes('if (!keepSelection)')
     && !SOURCE.includes("encodeURIComponent(message.id) + '/read'"),
-    '消息详情必须显式标记已读，弹窗点击不能等待冗余已读请求');
+    '调查详情必须自动标记已读且仅看未读时保留已打开详情，弹窗点击不等待冗余请求');
 assert.ok(PAGE_SOURCE.includes('requestSequence !== loadSequence')
     && PAGE_SOURCE.includes('if (id) selectMessage(id, false); else clearSelection(false);'),
     '列表必须拒绝过期分类响应，历史导航移除 id 时必须清空详情');

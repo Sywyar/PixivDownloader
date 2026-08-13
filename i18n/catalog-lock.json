@@ -42172,6 +42172,166 @@
     },
     {
       "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "choice-no",
+      "acceptedSourceHash": "a6a3b7a4313b91535c2f766802907ae6365bf686816603a27ba98a501b608b74",
+      "acceptedTranslationHash": "1ea442a134b2a184bd5d40104401f2a37fbc09ccf3f4bc9da161c6099be3691d"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "choice-other",
+      "acceptedSourceHash": "d2909f1647e7c891a8282759b2eaa961e84620ff04cda7b8b5478cb540d74fa4",
+      "acceptedTranslationHash": "f97e9da0e3b879f0a9df979ae260a5f7e1371edb127c1862d4f861981166cdc1"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "choice-yes",
+      "acceptedSourceHash": "d1901d36b4bcbe35d6f7b58b55c52c60abbe61265db5dc6f426421c4916b0cbb",
+      "acceptedTranslationHash": "85a39ab345d672ff8ca9b9c6876f3adcacf45ee7c1e2dbd2408fd338bd55e07e"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "completed",
+      "acceptedSourceHash": "5e2125dcd41cfa0009d0babf1061b0d8ae888a4d33147ea45e7341103aa87e48",
+      "acceptedTranslationHash": "6be00dbc892377274ed71a1fd860621cd8c82fe5a60662cc0417a03555303875"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "description",
+      "acceptedSourceHash": "46ebff185d2de46d1cbe28d6a49ff693eb380279227db85c85e9a6085ad73545",
+      "acceptedTranslationHash": "edd1d5a3e440b6b9f8441687bb734307d876ccec7a031a6065b3a0fbbe927acc"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "ended",
+      "acceptedSourceHash": "ce72f2cc488b4434170407bc037cd9f84b348dc6cc244c6ddc89ba03c9d5afde",
+      "acceptedTranslationHash": "23b6472624fccc52b2f0e16d418b5f3705e448c6eda15a9233cf21208f07bdd5"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "inbox-body",
+      "acceptedSourceHash": "31ab04812159a93ef812bc02a7ba23c7deb0d99cd9d4a5304b95df6d699cec8e",
+      "acceptedTranslationHash": "3685650dc7f10ca96561226088ff37c20a83990254bd542a719d0b813138c231"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "inbox-title",
+      "acceptedSourceHash": "a409e7c31bf3e8ecc2cf4d55e9e88f2889f0e6b515f2656a1f50ca6874ff5d27",
+      "acceptedTranslationHash": "b38ed7414452409ba74231fcb95b42919f2ddb8bd782c69028ce2c112d8e0f3e"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "loading",
+      "acceptedSourceHash": "ddb93702c0f7c496cdd2f9a04349733de55272fdbcc750ee2feb0c187de67427",
+      "acceptedTranslationHash": "348758a3ce0974e2f96b3be35c813e7bdeb357f9c788fb074f2cb6c1596d3ac6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "other-placeholder",
+      "acceptedSourceHash": "4f2a135460ace1af1236182d571f733e600626a57efadc3ad3b89d1360014e18",
+      "acceptedTranslationHash": "5b29b720f216f08aa8d40d88b60462a36cb44179e586d8ae7a0f35b4bca32afd"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "other-required",
+      "acceptedSourceHash": "9a1b8dde0cad94828102f9a588ff367e24f5b4a3022173a8a66a1c42807c4841",
+      "acceptedTranslationHash": "211e9050c6711a85dc715244fd47702cf7ae8ede91ce29fa8322392f7b9b3e88"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "plugin.name",
+      "acceptedSourceHash": "a409e7c31bf3e8ecc2cf4d55e9e88f2889f0e6b515f2656a1f50ca6874ff5d27",
+      "acceptedTranslationHash": "b38ed7414452409ba74231fcb95b42919f2ddb8bd782c69028ce2c112d8e0f3e"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "plugin.summary",
+      "acceptedSourceHash": "6cd70d0c01cf26b96a2bd3236951d41f8aa87ed54d932f018cafaba9eaa7ded2",
+      "acceptedTranslationHash": "0765268b65df512c6023ac630229d31984424b86a79586ef87047006fda562ef"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "privacy",
+      "acceptedSourceHash": "4887662c728e4650a0b994235e7cdd63fb1e3ae55ca4117876b0927c4a52ed7a",
+      "acceptedTranslationHash": "684b4396818733d555d74cae66d3ffd83685516deed8ffbc345605155ea02f86"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "question",
+      "acceptedSourceHash": "2cc3e29ea3f87466f7f9f3bb7dbcfc804c0190c1f0b8225fb6eea71d2e7f38d5",
+      "acceptedTranslationHash": "9455036c4d022faad3cc16b417d7881022521d26cf54d46f25de12993186543c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "required",
+      "acceptedSourceHash": "c1663c1d44e6915c03d2394fcf14af8b8e7265f6ca9c8d8cc7b32c75dc3e5e52",
+      "acceptedTranslationHash": "ab3820d47d7e3ec5f73620707ce92bec92385f9545533040bda966686e1e8e18"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "submit",
+      "acceptedSourceHash": "08a85f4ab4bab9cac9adb34251164b48c783698f43a1978166000d48015fa2ca",
+      "acceptedTranslationHash": "155f816c0407310c0dab222493370773e045ee7fe04e6c9a951b07f495531264"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "submit-failed",
+      "acceptedSourceHash": "306c6970a4d4d87b3bec8f4101955e04820ab4f81d75145582ad576856cc56b1",
+      "acceptedTranslationHash": "3782e8d8ffbd071ded6c93a992f658ce9a0a3109696d0d5cf93be481e8e8d324"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "submitting",
+      "acceptedSourceHash": "18931020ad52e63a09e01c7e84c4e9ab498fa2a4e209fbdc15525b8989fe9834",
+      "acceptedTranslationHash": "64115d5b9c794c9257475694ccc8056a407c4f3a2e523ccc4668a63418132887"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-multi-mode-decision-survey",
+      "baseName": "web/multi-mode-decision-survey",
+      "key": "unavailable",
+      "acceptedSourceHash": "586e5690d4b61620049f432ba2c716a76c4fc961ddc54ee89d61b0d7bc9ac359",
+      "acceptedTranslationHash": "3e5d2ab4f7aafe3a5691106e7bc2f6dec2521c8c16bf36ac15b65d74c5cbae44"
+    },
+    {
+      "locale": "en-US",
       "module": "pixivdownload-plugin-notification",
       "baseName": "web/notification",
       "key": "gui.config.field.notification.inbox.enabled.help",

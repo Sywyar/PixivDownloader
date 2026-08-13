@@ -74,6 +74,8 @@ class DistributionPackagingBoundaryTest {
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
     private static final String POSTHOG_CLASSES_PROPERTY = "posthog.plugin.classes";
+    private static final String MULTI_MODE_DECISION_SURVEY_CLASSES_PROPERTY =
+            "multi-mode-decision-survey.plugin.classes";
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String GALLERY_CLASSES_PROPERTY = "gallery.plugin.classes";
     private static final String NOVEL_CLASSES_PROPERTY = "novel.plugin.classes";
@@ -217,6 +219,8 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 gui-theme 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.notificationbase.NotificationPf4jPlugin"))
                 .as("外置 notification 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.multimodesurvey.MultiModeDecisionSurveyPf4jPlugin"))
+                .as("外置多人模式去留调查插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.push.PushPf4jPlugin"))
                 .as("外置 push 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.mail.MailPf4jPlugin"))
@@ -307,6 +311,8 @@ class DistributionPackagingBoundaryTest {
                 .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/notification.properties"))
                 .as("notification i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/multi-mode-decision-survey.properties"))
+                .as("多人模式去留调查 i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-tts/pixiv-tts.css"))
                 .as("tts 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-ai/pixiv-translate.js"))
@@ -354,6 +360,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/top/sywyar/pixivdownload/ai/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/notification/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/multimodesurvey/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/push/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/tts/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
@@ -385,6 +392,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/static/pixiv-series",
                 "BOOT-INF/classes/static/pixiv-tts/",
                 "BOOT-INF/classes/static/pixiv-ai/",
+                "BOOT-INF/classes/static/pixiv-multi-mode-decision-survey/",
                 "BOOT-INF/classes/i18n/web/batch",
                 "BOOT-INF/classes/i18n/web/userscript",
                 "BOOT-INF/classes/i18n/web/douyin",
@@ -400,6 +408,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/i18n/web/series",
                 "BOOT-INF/classes/i18n/web/gui-theme",
                 "BOOT-INF/classes/i18n/web/notification",
+                "BOOT-INF/classes/i18n/web/multi-mode-decision-survey",
                 "BOOT-INF/classes/i18n/web/push",
                 "BOOT-INF/classes/i18n/web/mail",
                 "BOOT-INF/classes/i18n/web/tts",
@@ -478,6 +487,16 @@ class DistributionPackagingBoundaryTest {
                 "top/sywyar/pixivdownload/posthog/PostHogPf4jPlugin.class",
                 "static/pixiv-posthog/pixiv-posthog.js",
                 "static/vendor/posthog-js/1.409.5/array.full.js");
+    }
+
+    @Test
+    @DisplayName("multi-mode-decision-survey 以 thin 外置插件形态打包并自持站内信调查")
+    void multiModeDecisionSurveyPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(MULTI_MODE_DECISION_SURVEY_CLASSES_PROPERTY,
+                "pixivdownload-plugin-multi-mode-decision-survey",
+                "top/sywyar/pixivdownload/multimodesurvey/MultiModeDecisionSurveyPf4jPlugin.class",
+                "static/pixiv-multi-mode-decision-survey/embed.html",
+                "static/pixiv-multi-mode-decision-survey/survey.js");
     }
 
     @Test

@@ -154,6 +154,7 @@ class PluginReleaseScriptsTest {
 
         assertThat(officialPluginIds).contains("download-workbench");
         assertThat(officialPluginIds).contains("posthog");
+        assertThat(officialPluginIds).contains("multi-mode-decision-survey");
         assertThat(officialPluginIds).contains("notification");
         assertThat(officialPluginIds).contains("douyin");
         assertThat(generator).contains(
@@ -248,6 +249,7 @@ class PluginReleaseScriptsTest {
                 "Get-OfficialRequiredPlugins",
                 "Id = \"gui-theme\"", "Id = \"stats\"", "Id = \"posthog\"", "Id = \"duplicate\"",
                 "Id = \"gallery\"", "Id = \"novel\"", "Id = \"notification\"",
+                "Id = \"multi-mode-decision-survey\"",
                 "Id = \"push\"", "Id = \"mail\"", "Id = \"tts\"", "Id = \"ai\"")
                 .doesNotContain("Id = \"douyin\"", "Id = \"recovery-sentinel\"");
 
@@ -1218,6 +1220,9 @@ class PluginReleaseScriptsTest {
         String publisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
                 .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback.js"),
                 StandardCharsets.UTF_8);
+        String inboxOnlyPublisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
+                .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/survey.js"),
+                StandardCharsets.UTF_8);
         assertThat(adapter).contains(
                 "PixivPostHog",
                 "ownerKey",
@@ -1237,8 +1242,18 @@ class PluginReleaseScriptsTest {
                 "uiHost: 'https://us.posthog.com'",
                 "ownerKey: POSTHOG_OWNER_KEY",
                 "posthog: POSTHOG");
+        assertThat(inboxOnlyPublisher).contains(
+                "var POSTHOG = Object.freeze({",
+                "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
+                "surveyId: '019ff791-9fcf-0000-2a64-0be9f0b64dbf'",
+                "apiHost: 'https://layout-survey.sywyar.top'",
+                "uiHost: 'https://us.posthog.com'",
+                "ownerKey: OWNER_KEY",
+                "posthog: POSTHOG");
         assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
                 .contains("plugin.dependencies=posthog?@1.0");
+        assertThat(pluginDescriptor("pixivdownload-plugin-multi-mode-decision-survey"))
+                .contains("plugin.dependencies=posthog@1.0,notification@1.0");
         assertThat(Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
                 .resolve("src/main/resources/static/pixiv-batch-alt.html"), StandardCharsets.UTF_8))
                 .contains("/pixiv-posthog/pixiv-posthog.js")
@@ -1261,8 +1276,10 @@ class PluginReleaseScriptsTest {
         String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
         assertThat(rootPom)
                 .contains("<layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>")
+                .contains("<multi-mode-decision-survey.official-release-enabled>false</multi-mode-decision-survey.official-release-enabled>")
                 .contains("<id>official-surveys</id>")
-                .contains("<layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>");
+                .contains("<layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>")
+                .contains("<multi-mode-decision-survey.official-release-enabled>true</multi-mode-decision-survey.official-release-enabled>");
         for (String name : List.of(
                 "package-local.ps1",
                 "package-installer-with-plugins.ps1",

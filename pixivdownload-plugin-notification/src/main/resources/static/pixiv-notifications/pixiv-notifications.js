@@ -6,6 +6,7 @@
     var contentFrameHost = null;
     var contentFrames = new Map();
     var loadSequence = 0;
+    var markingReadIds = new Set();
     var state = {
         category: '', unreadOnly: false, messages: [], unreadCount: 0,
         selectedId: '', selectedMessage: null
@@ -240,6 +241,7 @@
 
     function renderDetail(message) {
         var detail = resetDetail();
+        var autoRead = message.category === 'survey';
         var severity = severityClass(message).trim();
         if (severity) detail.classList.add(severity);
 
@@ -289,10 +291,10 @@
         actionStatus.className = 'notification-detail-action-status';
         actionStatus.setAttribute('role', 'status');
         actionStatus.setAttribute('aria-live', 'polite');
-        toolbar.appendChild(markRead);
+        if (!autoRead) toolbar.appendChild(markRead);
         if (message.deletable !== false) toolbar.appendChild(remove);
         toolbar.appendChild(actionStatus);
-        detail.appendChild(toolbar);
+        if (!autoRead || message.deletable !== false) detail.appendChild(toolbar);
 
         var actionUrl = safeActionHref(message.actionUrl);
         if (actionUrl && !message.embeddedContentUrl) {
@@ -306,11 +308,13 @@
             }
             detail.appendChild(action);
         }
+        if (autoRead && !message.readTime) markSelectedRead(null, true, true);
     }
 
-    async function markSelectedRead(event) {
+    async function markSelectedRead(event, keepSelection, quiet) {
         var id = state.selectedId;
-        if (!id || !state.selectedMessage || state.selectedMessage.readTime) return;
+        if (!id || markingReadIds.has(id) || !state.selectedMessage || state.selectedMessage.readTime) return;
+        markingReadIds.add(id);
         var button = event && event.currentTarget;
         if (button) button.disabled = true;
         try {
@@ -320,17 +324,22 @@
             state.unreadCount = Math.max(0, state.unreadCount - 1);
             if (state.unreadOnly) {
                 state.messages = state.messages.filter(function (item) { return item.id !== id; });
-                clearSelection(true);
-                return;
+                if (!keepSelection) {
+                    clearSelection(true);
+                    return;
+                }
+            } else {
+                state.messages = state.messages.map(function (item) { return item.id === id ? updated : item; });
             }
-            state.messages = state.messages.map(function (item) { return item.id === id ? updated : item; });
             state.selectedMessage = updated;
             renderList();
             renderDetail(updated);
         } catch (error) {
             if (button) button.disabled = false;
             var status = el('notificationDetailActionStatus');
-            if (status) status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+            if (!quiet && status) status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+        } finally {
+            markingReadIds.delete(id);
         }
     }
 
