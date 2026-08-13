@@ -1,8 +1,13 @@
 package top.sywyar.pixivdownload.gui.panel;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSnapshot;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldType;
@@ -15,12 +20,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
-@DisplayName("配置页保存后的后端重启引导")
+@DisplayName("配置页保存与后端重启引导")
 class ConfigPanelRestartTest {
 
     @TempDir
@@ -89,6 +95,86 @@ class ConfigPanelRestartTest {
 
         assertThat(Files.readString(configPath, StandardCharsets.UTF_8))
                 .contains("fixture.restart: after");
+    }
+
+    @Test
+    @DisplayName("插件端口仅在可见后校验且重名错误按作用域报告")
+    void blankPluginPortOnlyBlocksSaveWhileVisibleAndReportsScope() throws Exception {
+        String previousConfigDir = System.getProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+        Path configDir = tempDir.resolve("config");
+        GuiMessages.setLocale(Locale.US);
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, configDir.toString());
+        try {
+            Files.createDirectories(configDir);
+            Path configPath = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+            Files.writeString(configPath, "fixture.restart: before\n", StandardCharsets.UTF_8);
+            String group = GuiMessages.get("gui.config.group.server");
+            ConfigFieldSpec changed = ConfigFieldSpec.builder(
+                            "fixture.restart", "Restart fixture", FieldType.STRING, group)
+                    .defaultValue("before")
+                    .build();
+            ConfigFieldSpec corePort = ConfigFieldSpec.builder(
+                            "fixture.core-port", "Proxy port", FieldType.STRING, group)
+                    .defaultValue("7890")
+                    .validator(value -> value.isBlank() ? "Enter a valid port number" : null)
+                    .build();
+            ConfigFieldSpec mode = ConfigFieldSpec.builder(
+                            "fixture.proxy.mode", "Proxy mode", FieldType.ENUM, group)
+                    .ownerPluginId("fixture")
+                    .defaultValue("inherit")
+                    .enumValues("inherit", "custom")
+                    .build();
+            ConfigFieldSpec port = ConfigFieldSpec.builder(
+                            "fixture.proxy.port", "Proxy port", FieldType.PORT, group)
+                    .ownerPluginId("fixture")
+                    .defaultValue("")
+                    .visibleWhen(snapshot -> snapshot.equals("fixture.proxy.mode", "custom"))
+                    .build();
+            ConfigPanel panel = new ConfigPanel(configPath, 6999, path -> path,
+                    new ConfigFieldSnapshot(List.of(group), List.of(changed, corePort, mode, port), List.of()),
+                    null, null, () -> false, () -> false);
+            panel.setFieldValue("fixture.restart", "after");
+
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+
+            assertThat(Files.readString(configPath, StandardCharsets.UTF_8))
+                    .contains("fixture.restart: after");
+            assertThat(Files.readString(
+                    RuntimeFiles.resolvePluginConfigPath("fixture", "properties"), StandardCharsets.UTF_8))
+                    .contains("fixture.proxy.port=");
+
+            panel.setFieldValue("fixture.restart", "blocked");
+            panel.setFieldValue("fixture.core-port", "");
+            panel.setFieldValue("fixture.proxy.mode", "custom");
+            panel.updateEnabledStates();
+            Logger logger = (Logger) LoggerFactory.getLogger(ConfigPanel.class);
+            ListAppender<ILoggingEvent> capture = new ListAppender<>();
+            capture.start();
+            logger.addAppender(capture);
+            try {
+                findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            } finally {
+                logger.detachAppender(capture);
+                capture.stop();
+            }
+
+            assertThat(Files.readString(configPath, StandardCharsets.UTF_8))
+                    .contains("fixture.restart: after")
+                    .doesNotContain("fixture.restart: blocked");
+            assertThat(capture.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(message -> assertThat(message)
+                            .contains(group + " / Proxy port：")
+                            .contains("; " + GuiMessages.get("gui.config.scope.plugins")
+                                    + " [fixture] / " + group + " / Proxy port："));
+        } finally {
+            GuiMessages.clearLocaleOverride();
+            if (previousConfigDir == null) {
+                System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+            } else {
+                System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, previousConfigDir);
+            }
+        }
     }
 
     private ConfigPanel panel(Path configPath,
