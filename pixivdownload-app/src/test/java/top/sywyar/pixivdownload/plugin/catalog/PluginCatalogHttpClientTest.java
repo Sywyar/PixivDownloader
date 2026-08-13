@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -164,10 +165,13 @@ class PluginCatalogHttpClientTest {
             }
             CatalogTestSupport.serveBytes(server, "/pkg.zip", body);
             Path target = dir.resolve("out.zip");
+            AtomicLong progress = new AtomicLong();
 
-            long written = relaxed.streamToFile(CatalogTestSupport.loopbackUrl(server, "/pkg.zip"), 1L << 20, target);
+            long written = relaxed.streamToFile(
+                    CatalogTestSupport.loopbackUrl(server, "/pkg.zip"), 1L << 20, target, progress::set);
 
             assertThat(written).isEqualTo(body.length);
+            assertThat(progress.get()).isEqualTo(body.length);
             assertThat(Files.readAllBytes(target)).isEqualTo(body);
         }
 

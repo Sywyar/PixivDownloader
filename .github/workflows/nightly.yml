@@ -164,6 +164,13 @@ jobs:
           path: build/release-jars/*.jar
           if-no-files-found: error
 
+      - name: Upload update signature tool
+        uses: actions/upload-artifact@v7
+        with:
+          name: update-signature-tool
+          path: pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar
+          if-no-files-found: error
+
       - name: Stage official plugin inputs from signed catalog
         shell: pwsh
         run: |
@@ -317,6 +324,18 @@ jobs:
           name: java-distributions
           path: artifacts/java-distributions
 
+      - name: Download update signature tool
+        uses: actions/download-artifact@v7
+        with:
+          name: update-signature-tool
+          path: tools/update-signature
+
+      - name: Set up JDK 17 for update signing
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
       - name: Diff changelog since last nightly
         id: changelog
         shell: bash
@@ -364,11 +383,15 @@ jobs:
           SIZE=$(stat -c%s "$INSTALLER")
           LATEST_VERSION="${{ needs.resolve-version.outputs.version }}"
           RELEASE_DATE=$(date -u +%Y-%m-%d)
+          EXPIRES_AT=$(date -u -d '+14 days' +%Y-%m-%dT%H:%M:%SZ)
           ASSET_URL="https://github.com/${GH_REPOSITORY}/releases/download/nightly/${FILENAME}"
           NOTES_URL="https://github.com/${GH_REPOSITORY}/releases/tag/nightly"
 
           jq -n \
             --arg latestVersion "$LATEST_VERSION" \
+            --arg channel "nightly" \
+            --argjson sequence "$GITHUB_RUN_ID" \
+            --arg expiresAt "$EXPIRES_AT" \
             --arg releaseDate "$RELEASE_DATE" \
             --rawfile releaseNotes CHANGELOG_DIFF.md \
             --arg releaseNotesUrl "$NOTES_URL" \
@@ -376,6 +399,9 @@ jobs:
             --arg assetSha256 "$SHA256" \
             --argjson assetSize "$SIZE" \
             '{
+              channel: $channel,
+              sequence: $sequence,
+              expiresAt: $expiresAt,
               latestVersion: $latestVersion,
               releaseDate: $releaseDate,
               releaseNotes: $releaseNotes,
@@ -391,6 +417,47 @@ jobs:
 
           echo "Generated update.json:"
           cat artifacts/update.json
+
+      - name: Prepare update signing private key
+        shell: pwsh
+        env:
+          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
+          PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64) -and [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM)) {
+            throw "Missing update signing private key secret."
+          }
+          $privateKeyFile = Join-Path $env:RUNNER_TEMP "pixivdownloader-update-signing-key.pem"
+          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
+            [System.IO.File]::WriteAllBytes($privateKeyFile,
+              [System.Convert]::FromBase64String(($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')))
+          } else {
+            $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM.Replace('\r\n', "`n").Replace('\n', "`n").Replace('\r', "`n")
+            [System.IO.File]::WriteAllText($privateKeyFile, $pem.Trim() + "`n", (New-Object System.Text.UTF8Encoding($false)))
+          }
+          & chmod 600 -- $privateKeyFile
+          if ($LASTEXITCODE -ne 0) { throw "Failed to restrict update signing private key permissions." }
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "UPDATE_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile`n", (New-Object System.Text.UTF8Encoding($false)))
+
+      - name: Sign update manifest
+        shell: pwsh
+        run: |
+          $tools = @(Get-ChildItem tools/update-signature/pixivdownload-plugin-signature-*.jar -File |
+            Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" })
+          if ($tools.Count -ne 1) {
+            throw "Expected exactly one update signature tool, found $($tools.Count)."
+          }
+          & java -cp $tools[0].FullName top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
+            manifest --manifest artifacts/update.json --repository-id pixivdownloader-update `
+            --key-id pixivdownloader-official-root-2026-07 `
+            --private-key $env:UPDATE_SIGNING_PRIVATE_KEY_FILE --out artifacts/update.json.sig
+          if ($LASTEXITCODE -ne 0) { throw "Update manifest signing failed." }
+
+      - name: Cleanup update signing private key
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "pixivdownloader-update-signing-key.pem") -Force -ErrorAction SilentlyContinue
 
       - name: Build release body
         shell: bash
@@ -453,6 +520,7 @@ jobs:
             artifacts/java-distributions/*-java.zip
             artifacts/java-distributions/*-full-offline.zip
             artifacts/update.json
+            artifacts/update.json.sig
 
       - name: Advance nightly tag after successful release
         # The nightly tag is the "last successful Nightly baseline" used by the

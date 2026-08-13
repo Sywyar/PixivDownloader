@@ -3,26 +3,27 @@ package top.sywyar.pixivdownload.update;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.common.SemanticVersion;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,9 +31,11 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -68,25 +71,35 @@ public class UpdateService {
 
     /** 当前平台支持的 asset key。Windows installer 是目前唯一受支持的类型。 */
     public static final String ASSET_WIN_X64_INSTALLER = "win-x64-installer";
+    static final String UPDATE_MANIFEST_REPOSITORY_ID = "pixivdownloader-update";
+    static final String CHANNEL_STABLE = "stable";
+    static final String CHANNEL_NIGHTLY = "nightly";
 
     /** installer 临时存放目录（运行目录下）。 */
     private static final Path INSTALLER_CACHE_DIR = Path.of("update-cache");
+    private static final long MAX_MANIFEST_BYTES = 1024L * 1024L;
+    private static final long MAX_SIGNATURE_BYTES = 16L * 1024L;
     /** 安装包硬上限，避免清单声明异常导致磁盘塞满。 */
     private static final long MAX_INSTALLER_BYTES = 500L * 1024L * 1024L;
     /** 静默检查的最小间隔：24 小时。 */
     private static final long AUTO_CHECK_MIN_INTERVAL_MS = 24L * 3600L * 1000L;
+    private static final PluginRepository UPDATE_REPOSITORY = new PluginRepository(
+            "official-update", "", UpdateConfig.DEFAULT_MANIFEST_URL,
+            true, true, true, RepositoryProxyPolicy.CUSTOM, RepositoryProxyPolicy.CUSTOM.configId(),
+            true, true, false, true,
+            30_000, 60_000, MAX_MANIFEST_BYTES, MAX_INSTALLER_BYTES, List.of());
 
     /**
-     * 用于解析 manifest 文本。GitHub release 资产以 {@code application/octet-stream} 返回，
-     * Spring 默认的 Jackson HttpMessageConverter 不接受该 content-type，所以手动把响应体
-     * 拿成 {@link String} 后再反序列化。
+     * 用于从已验签的原始 manifest 字节反序列化。未知字段仅用于向后兼容，不绕过必填字段校验。
      */
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private final UpdateConfig updateConfig;
-    private final RestTemplate downloadRestTemplate;
     private final AppMessages messages;
+    private final PluginSupplyChainVerifier manifestVerifier;
+    private final Path trustStatePath;
+    private final PluginCatalogClientProvider httpClientProvider;
 
     /**
      * 下载安装包时的实时进度；null 表示当前没有进行中的下载。
@@ -99,12 +112,24 @@ public class UpdateService {
     private volatile DownloadProgress currentDownloadProgress;
     private volatile boolean downloadInProgress;
 
+    @Autowired
     public UpdateService(UpdateConfig updateConfig,
-                         @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                         AppMessages messages) {
+                         AppMessages messages,
+                         PluginCatalogClientProvider httpClientProvider) {
+        this(updateConfig, messages,
+                new PluginSupplyChainVerifier(), RuntimeFiles.resolveUpdateTrustStatePath(), httpClientProvider);
+    }
+
+    UpdateService(UpdateConfig updateConfig,
+                  AppMessages messages,
+                  PluginSupplyChainVerifier manifestVerifier,
+                  Path trustStatePath,
+                  PluginCatalogClientProvider httpClientProvider) {
         this.updateConfig = updateConfig;
-        this.downloadRestTemplate = downloadRestTemplate;
         this.messages = messages;
+        this.manifestVerifier = manifestVerifier;
+        this.trustStatePath = trustStatePath;
+        this.httpClientProvider = httpClientProvider;
     }
 
     /**
@@ -153,7 +178,7 @@ public class UpdateService {
 
         log.info(forLog("update.log.check.starting", manifestUrl));
         try {
-            UpdateManifest manifest = fetchManifest(manifestUrl);
+            UpdateManifest manifest = fetchManifest(manifestUrl, CHANNEL_STABLE);
             if (manifest == null || manifest.getLatestVersion() == null) {
                 throw new IllegalStateException(forLog("update.error.manifest.invalid", "empty"));
             }
@@ -164,7 +189,7 @@ public class UpdateService {
                 String nightlyUrl = updateConfig.getNightlyManifestUrl();
                 if (nightlyUrl != null && !nightlyUrl.isBlank()) {
                     try {
-                        UpdateManifest nightlyManifest = fetchManifest(nightlyUrl);
+                        UpdateManifest nightlyManifest = fetchManifest(nightlyUrl, CHANNEL_NIGHTLY);
                         if (nightlyManifest != null && nightlyManifest.getLatestVersion() != null) {
                             UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
                             boolean hasUpdate = nightlyResult.isUpdateAvailable();
@@ -183,7 +208,7 @@ public class UpdateService {
                                         nightlyResult.getLatestVersion()));
                             }
                         }
-                    } catch (RestClientException | IOException | IllegalStateException e) {
+                    } catch (IOException | IllegalStateException e) {
                         log.warn(forLog("update.log.check.nightly-failed", e.getMessage()));
                     }
                 }
@@ -200,7 +225,7 @@ public class UpdateService {
                 cleanupInstallerCache();
             }
             return combined;
-        } catch (RestClientException | IOException | IllegalStateException e) {
+        } catch (IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
             UpdateCheckResult failed = UpdateCheckResult.builder()
                     .enabled(true)
@@ -223,27 +248,104 @@ public class UpdateService {
      * （如发布说明里的"修复"、"新增"）变成乱码。Jackson 直接对字节流按 UTF-8
      * 解析即可绕过这一层错误的字符集协商。
      */
-    private UpdateManifest fetchManifest(String manifestUrl) throws IOException {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON, MediaType.ALL));
-        headers.set(HttpHeaders.USER_AGENT, AppInfo.dashedUserAgent("Updater"));
-
-        ResponseEntity<byte[]> response = downloadRestTemplate.exchange(
-                URI.create(manifestUrl),
-                HttpMethod.GET,
-                new HttpEntity<>(headers),
-                byte[].class);
-
-        if (response.getStatusCode() != HttpStatus.OK) {
-            throw new IOException(forLog("update.error.manifest.invalid",
-                    "HTTP " + response.getStatusCode().value()));
+    private UpdateManifest fetchManifest(String manifestUrl, String expectedChannel) throws IOException {
+        requireHttpsUrl(manifestUrl, "manifest");
+        byte[] body = fetchBounded(manifestUrl, MAX_MANIFEST_BYTES);
+        byte[] signatureBytes = fetchBounded(detachedSignatureUrl(manifestUrl), MAX_SIGNATURE_BYTES);
+        SignatureMetadata signature;
+        try {
+            signature = MAPPER.readValue(signatureBytes, SignatureMetadata.class);
+        } catch (Exception e) {
+            throw invalidManifest("malformed signature");
+        }
+        VerificationResult verified = manifestVerifier.verifyManifest(new ManifestVerificationRequest(
+                body, UPDATE_MANIFEST_REPOSITORY_ID, signature, VerificationPolicy.officialRepository()));
+        if (!verified.accepted()) {
+            throw invalidManifest("signature verification failed: " + verified.diagnosticCode());
         }
 
-        byte[] body = response.getBody();
+        UpdateManifest manifest = MAPPER.readValue(body, UpdateManifest.class);
+        validateManifest(manifest, expectedChannel);
+        String manifestSha256 = sha256(body);
+        UpdateTrustState previous = UpdateTrustState.read(trustStatePath, MAPPER);
+        UpdateTrustState accepted = previous.accept(
+                expectedChannel, manifest.getSequence(), manifest.getLatestVersion().trim(), manifestSha256);
+        accepted.writeIfChanged(trustStatePath, previous, MAPPER);
+        return manifest;
+    }
+
+    private byte[] fetchBounded(String url, long maxBytes) throws IOException {
+        byte[] body;
+        try {
+            body = httpClientProvider.clientFor(UPDATE_REPOSITORY).fetchBytes(url.trim(), maxBytes);
+        } catch (PluginCatalogException e) {
+            throw new IOException(e.getMessage(), e);
+        }
         if (body == null || body.length == 0) {
-            throw new IOException(forLog("update.error.manifest.invalid", "empty body"));
+            throw invalidManifest("empty body");
         }
-        return MAPPER.readValue(body, UpdateManifest.class);
+        return body;
+    }
+
+    private void validateManifest(UpdateManifest manifest, String expectedChannel) {
+        if (manifest == null
+                || !expectedChannel.equals(manifest.getChannel())
+                || manifest.getSequence() <= 0
+                || manifest.getLatestVersion() == null
+                || manifest.getLatestVersion().isBlank()) {
+            throw invalidManifest("missing channel, sequence, or version");
+        }
+        try {
+            if (!Instant.parse(manifest.getExpiresAt()).isAfter(Instant.now())) {
+                throw invalidManifest("expired");
+            }
+        } catch (DateTimeParseException | NullPointerException e) {
+            throw invalidManifest("invalid expiresAt");
+        }
+        if (manifest.getReleaseNotesUrl() != null && !manifest.getReleaseNotesUrl().isBlank()) {
+            requireHttpsUrl(manifest.getReleaseNotesUrl(), "release notes");
+        }
+        if (manifest.getAssets() == null || manifest.getAssets().isEmpty()) {
+            throw invalidManifest("missing assets");
+        }
+        for (Map.Entry<String, UpdateManifest.Asset> entry : manifest.getAssets().entrySet()) {
+            UpdateManifest.Asset asset = entry.getValue();
+            if (entry.getKey() == null || entry.getKey().isBlank() || asset == null) {
+                throw invalidManifest("invalid asset");
+            }
+            requireHttpsUrl(asset.getUrl(), "asset");
+            if (asset.getSha256() == null || !asset.getSha256().matches("(?i)[0-9a-f]{64}")) {
+                throw invalidManifest("invalid asset sha256");
+            }
+            if (asset.getSizeBytes() <= 0 || asset.getSizeBytes() > MAX_INSTALLER_BYTES) {
+                throw invalidManifest("invalid asset size");
+            }
+        }
+    }
+
+    private void requireHttpsUrl(String value, String label) {
+        try {
+            URI uri = URI.create(value == null ? "" : value.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme())
+                    || uri.getHost() == null || uri.getHost().isBlank()
+                    || uri.getUserInfo() != null || uri.getFragment() != null) {
+                throw invalidManifest(label + " URL must be HTTPS");
+            }
+        } catch (IllegalArgumentException e) {
+            throw invalidManifest("invalid " + label + " URL");
+        }
+    }
+
+    private IllegalStateException invalidManifest(String detail) {
+        return new IllegalStateException(forLog("update.error.manifest.invalid", detail));
+    }
+
+    private static String detachedSignatureUrl(String manifestUrl) {
+        String url = manifestUrl.trim();
+        int query = url.indexOf('?');
+        return query >= 0
+                ? url.substring(0, query) + ".sig" + url.substring(query)
+                : url + ".sig";
     }
 
     public UpdateCheckResult lastResult() {
@@ -426,11 +528,11 @@ public class UpdateService {
         UpdateCheckResult check = selectChannel(nightlyChannel);
 
         String url = check.getAssetUrl();
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        if (url == null || !url.startsWith("https://")) {
             throw new IllegalStateException(forLog("update.error.asset.url-not-allowed", url));
         }
         long declaredSize = check.getAssetSizeBytes();
-        if (declaredSize > MAX_INSTALLER_BYTES) {
+        if (declaredSize <= 0 || declaredSize > MAX_INSTALLER_BYTES) {
             throw new IllegalStateException(forLog("update.error.asset.size-too-large",
                     declaredSize, MAX_INSTALLER_BYTES));
         }
@@ -442,33 +544,11 @@ public class UpdateService {
         log.info(forLog("update.log.download.starting", url));
         currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
 
-        HttpHeaders requestHeaders = new HttpHeaders();
-        requestHeaders.set(HttpHeaders.USER_AGENT, AppInfo.dashedUserAgent("Updater"));
-
         try {
-            downloadRestTemplate.execute(URI.create(url), HttpMethod.GET,
-                    req -> req.getHeaders().putAll(requestHeaders),
-                    response -> {
-                        long contentLength = response.getHeaders().getContentLength();
-                        long total = contentLength > 0 ? contentLength : declaredSize;
-                        try (InputStream in = response.getBody();
-                             OutputStream out = Files.newOutputStream(tmp)) {
-                            byte[] buf = new byte[65536];
-                            long received = 0;
-                            int read;
-                            while ((read = in.read(buf)) != -1) {
-                                if (received + read > MAX_INSTALLER_BYTES) {
-                                    throw new IOException(forLog("update.error.asset.size-too-large",
-                                            received + read, MAX_INSTALLER_BYTES));
-                                }
-                                out.write(buf, 0, read);
-                                received += read;
-                                currentDownloadProgress = new DownloadProgress(received, total, false, false, null, null);
-                            }
-                        }
-                        return null;
-                    });
-        } catch (RestClientException e) {
+            httpClientProvider.clientFor(UPDATE_REPOSITORY).streamToFile(url, MAX_INSTALLER_BYTES, tmp,
+                    received -> currentDownloadProgress = new DownloadProgress(
+                            received, declaredSize, false, false, null, null));
+        } catch (PluginCatalogException e) {
             Files.deleteIfExists(tmp);
             Throwable cause = e.getCause();
             String errMsg = cause != null ? cause.getMessage() : e.getMessage();
@@ -480,8 +560,15 @@ public class UpdateService {
 
         String expected = check.getAssetSha256();
         long finalSize = Files.size(tmp);
+        if (finalSize != declaredSize) {
+            Files.deleteIfExists(tmp);
+            String msg = forLog("update.log.download.failed",
+                    "size mismatch: expected " + declaredSize + ", actual " + finalSize);
+            currentDownloadProgress = new DownloadProgress(finalSize, declaredSize, false, true, msg, null);
+            throw new IOException(msg);
+        }
         String actual = sha256(tmp);
-        if (expected != null && !expected.isBlank() && !expected.equalsIgnoreCase(actual)) {
+        if (expected == null || !expected.matches("(?i)[0-9a-f]{64}") || !expected.equalsIgnoreCase(actual)) {
             Files.deleteIfExists(tmp);
             String msg = forLog("update.log.download.checksum-mismatch", expected, actual);
             currentDownloadProgress = new DownloadProgress(finalSize, declaredSize, false, true, msg, null);
@@ -567,6 +654,14 @@ public class UpdateService {
                 }
             }
             return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+    }
+
+    private static String sha256(byte[] bytes) throws IOException {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (NoSuchAlgorithmException e) {
             throw new IOException(e);
         }

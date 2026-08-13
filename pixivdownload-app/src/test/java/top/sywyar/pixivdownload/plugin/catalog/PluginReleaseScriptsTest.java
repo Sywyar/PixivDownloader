@@ -926,18 +926,18 @@ class PluginReleaseScriptsTest {
                     "path: artifacts/plugin-inputs",
                     "Generate update manifest",
                     "artifacts/update.json",
+                    "artifacts/update.json.sig",
                     "\"win-x64-installer\"");
-            // 最终 Release files 只含安装包 + 两个 ZIP + update.json，绝不含裸 JAR / app-shell JAR。
+            // 最终 Release files 只含安装包 + 两个 ZIP + update.json 及其签名，绝不含裸 JAR / app-shell JAR。
             String filesBlock = workflow.substring(workflow.lastIndexOf("files: |"));
             assertThat(filesBlock).as(name + " release files").contains(
                     "artifacts/*-setup.exe",
                     "artifacts/java-distributions/*-java.zip",
                     "artifacts/java-distributions/*-full-offline.zip",
-                    "artifacts/update.json")
+                    "artifacts/update.json",
+                    "artifacts/update.json.sig")
                     .doesNotContain(".jar");
             assertThat(workflow).as(name).doesNotContain(
-                    "Prepare plugin signing private key",
-                    "PLUGIN_SIGNING_PRIVATE_KEY_FILE",
                     "-CoreShellOnly",
                     "-DefaultDownloader",
                     "default-downloader.zip",
@@ -1167,6 +1167,33 @@ class PluginReleaseScriptsTest {
             }
             assertThat(keys).as(name + " update asset keys").containsExactly("win-x64-installer");
         }
+    }
+
+    @Test
+    @DisplayName("Release 与 Nightly 为更新清单写入时效元数据并生成 detached 签名")
+    void updateManifestsAreVersionedAndSigned() throws Exception {
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+            assertThat(workflow).as(name).contains(
+                    "Upload update signature tool",
+                    "Download update signature tool",
+                    "channel: $channel",
+                    "sequence: $sequence",
+                    "expiresAt: $expiresAt",
+                    "--argjson sequence \"$GITHUB_RUN_ID\"",
+                    "Prepare update signing private key",
+                    "Sign update manifest",
+                    "--repository-id pixivdownloader-update",
+                    "--key-id pixivdownloader-official-root-2026-07",
+                    "--out artifacts/update.json.sig",
+                    "chmod 600 -- $privateKeyFile",
+                    "Cleanup update signing private key",
+                    "if: always()",
+                    "pixivdownloader-update-signing-key.pem",
+                    "artifacts/update.json.sig");
+        }
+        assertThat(workflow("release.yml")).contains("--arg channel \"stable\"", "'+370 days'");
+        assertThat(workflow("nightly.yml")).contains("--arg channel \"nightly\"", "'+14 days'");
     }
 
     @Test

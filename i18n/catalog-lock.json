@@ -1223,8 +1223,8 @@
       "module": "pixivdownload-app",
       "baseName": "gui",
       "key": "gui.config.field.update.manifest-url.help",
-      "acceptedSourceHash": "929eb870dde4f7714a51be92df2806a6824db3d31d7a85bd9377bc40b3f13471",
-      "acceptedTranslationHash": "2ee1b1b7f5898dab77d65ff7c0337c7403a7e2b5e993daf7f7f2080214e8c6ea"
+      "acceptedSourceHash": "b2adfe44e39e8d3f76696061a030864b8f623de9d8c5a621827aafaa10459f06",
+      "acceptedTranslationHash": "a8f11d19b8285747d7d2d6550f0bb583e969247ca432985bc65c75fc5b1a741d"
     },
     {
       "locale": "en-US",
@@ -1239,8 +1239,8 @@
       "module": "pixivdownload-app",
       "baseName": "gui",
       "key": "gui.config.field.update.nightly-manifest-url.help",
-      "acceptedSourceHash": "035487725f222326da716597acedbb3a3c14618facbd46fbe95c7c8d90402663",
-      "acceptedTranslationHash": "c4e4d88446dcb3d9ec030431f1f731ce0342440c15bceaf06df060d709f4571e"
+      "acceptedSourceHash": "5a21de09bcb020acf2bdfa74cd784a6e5b7d53806d070745c2e04806de220021",
+      "acceptedTranslationHash": "ba6d05508ee3ab634a8e605d36f2eb3736b9ea3d8381d59319922758c6179372"
     },
     {
       "locale": "en-US",
@@ -9031,16 +9031,16 @@
       "module": "pixivdownload-app",
       "baseName": "messages",
       "key": "config.template.update.manifest-url.comment",
-      "acceptedSourceHash": "22ef9666400af38626a4c1c945694892c655078e1584e104a6f7827e97f75c01",
-      "acceptedTranslationHash": "44b88d04a447a23c070b4398fbd587042754752961ce9c303165873293c991ec"
+      "acceptedSourceHash": "3248bdb7c7692e32705ebc1cf2c1624b4a9ab5e27af5dda8dbc5c17e6a2124a8",
+      "acceptedTranslationHash": "af5b76fd86e7b094f2e6f097ba44572d0b174096b83e23f34e650343b3cef43f"
     },
     {
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
       "key": "config.template.update.nightly-manifest-url.comment",
-      "acceptedSourceHash": "a48a471186429675957302de5f1d0896edcba01c8b6527ea184220d97ae8d2f0",
-      "acceptedTranslationHash": "cc5becd1823dd56a31e30d8496c02649494b6489a203de7d26a9196e4f0f1b92"
+      "acceptedSourceHash": "c12d7ad6878aa2a1f80abe8e43c04b972379f24f18a2b7da50167faf91b153be",
+      "acceptedTranslationHash": "a2640d95be9d0b30d8c05bbc301c2187314240eb8eb5a539e4a22425ef4a8dc6"
     },
     {
       "locale": "en-US",

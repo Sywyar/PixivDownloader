@@ -51,6 +51,7 @@ public final class RuntimeFiles {
     public static final String BACKFILL_UNREACHABLE_FILE = "unreachable.json";
     public static final String DELETE_STAGING_DIR = "delete-staging";
     public static final String DOWNLOAD_ROOT_MARKER = "download_root_marker.txt";
+    public static final String UPDATE_TRUST_STATE_FILE = "update_trust.json";
     public static final String INSTALL_IDENTITY_FILE = "install_identity.txt";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
     private static final String LEGACY_GUI_STATE_DIR = "_gui";
@@ -183,6 +184,11 @@ public final class RuntimeFiles {
      */
     public static Path resolveDownloadRootMarkerPath() {
         return stateDirectory().resolve(DOWNLOAD_ROOT_MARKER).normalize();
+    }
+
+    /** 更新清单防回滚高水位：{@code state/update_trust.json}。 */
+    public static Path resolveUpdateTrustStatePath() {
+        return stateDirectory().resolve(UPDATE_TRUST_STATE_FILE).normalize();
     }
 
     /**

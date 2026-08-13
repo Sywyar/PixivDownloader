@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.LongConsumer;
 
 /**
  * 受信 catalog 专用的 <b>SSRF 安全</b> HTTP 客户端：只用于拉取受信清单字节与下载受信插件包。它的 public 方法接收的 URL
@@ -137,12 +138,17 @@ public class PluginCatalogHttpClient {
      * 网络失败 / 超限 / 非 200 → {@link PluginCatalogException}（超限 / 失败时 {@code target} 可能为半成品，由调用方清理）。
      */
     public long streamToFile(String url, long maxBytes, Path target) {
+        return streamToFile(url, maxBytes, target, ignored -> { });
+    }
+
+    /** 与 {@link #streamToFile(String, long, Path)} 相同，并在每次写入后报告累计字节数。 */
+    public long streamToFile(String url, long maxBytes, Path target, LongConsumer progress) {
         URI uri = verifyUrlAllowed(url);
         HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri);
         try (InputStream in = response.body();
              OutputStream out = Files.newOutputStream(target)) {
             requireOk(response, uri);
-            return copyBounded(in, out, maxBytes, uri);
+            return copyBounded(in, out, maxBytes, uri, progress);
         } catch (IOException e) {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
                     "failed to download " + uri + ": " + e.getMessage());
@@ -273,6 +279,11 @@ public class PluginCatalogHttpClient {
     }
 
     private static long copyBounded(InputStream in, OutputStream out, long maxBytes, URI uri) throws IOException {
+        return copyBounded(in, out, maxBytes, uri, ignored -> { });
+    }
+
+    private static long copyBounded(InputStream in, OutputStream out, long maxBytes, URI uri,
+                                    LongConsumer progress) throws IOException {
         byte[] chunk = new byte[BUFFER_SIZE];
         long total = 0;
         int read;
@@ -284,6 +295,7 @@ public class PluginCatalogHttpClient {
                         "response exceeds " + maxBytes + " bytes: " + uri);
             }
             out.write(chunk, 0, read);
+            progress.accept(total);
         }
         return total;
     }
