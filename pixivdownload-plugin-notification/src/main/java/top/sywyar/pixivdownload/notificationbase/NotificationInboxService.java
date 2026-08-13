@@ -305,6 +305,10 @@ public class NotificationInboxService {
         if (!NotificationCategory.SURVEY.token().equals(metadata.get("notification.category"))) {
             return null;
         }
+        String instanceKey = metadata.get("notification.instance-key");
+        if (instanceKey == null || !SLOT_ID.matcher(instanceKey).matches()) {
+            return null;
+        }
         String namespace = metadata.get("notification.i18n-namespace");
         String titleKey = metadata.get("notification.title-key");
         String bodyKey = metadata.get("notification.body-key");
@@ -318,7 +322,8 @@ public class NotificationInboxService {
             return null;
         }
         return new PersistentSurvey(
-                NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX + slot.slotId(), slot.slotId(),
+                NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX + slot.slotId() + ":" + instanceKey,
+                slot.slotId(),
                 embedUrl, namespace, titleKey, bodyKey);
     }
 

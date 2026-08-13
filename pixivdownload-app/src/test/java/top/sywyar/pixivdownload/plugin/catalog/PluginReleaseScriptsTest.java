@@ -1220,8 +1220,15 @@ class PluginReleaseScriptsTest {
         String publisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
                 .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback.js"),
                 StandardCharsets.UTF_8);
+        String publisherConfig = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
+                .resolve("src/main/resources/static/pixiv-layout-feedback/posthog-config.js"),
+                StandardCharsets.UTF_8);
         String inboxOnlyPublisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
                 .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/survey.js"),
+                StandardCharsets.UTF_8);
+        String inboxOnlyPublisherConfig = Files.readString(
+                repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
+                        .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/posthog-config.js"),
                 StandardCharsets.UTF_8);
         assertThat(adapter).contains(
                 "PixivPostHog",
@@ -1235,20 +1242,24 @@ class PluginReleaseScriptsTest {
                         "download-workbench.layout-feedback",
                         "options.sdk");
         assertThat(publisher).contains(
-                "var POSTHOG = Object.freeze({",
+                "var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({})",
+                "ownerKey: POSTHOG_OWNER_KEY",
+                "posthog: POSTHOG");
+        assertThat(publisherConfig).contains(
+                "global.PixivLayoutSurveyPostHog = Object.freeze({",
                 "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
                 "apiHost: 'https://layout-survey.sywyar.top'",
-                "uiHost: 'https://us.posthog.com'",
-                "ownerKey: POSTHOG_OWNER_KEY",
-                "posthog: POSTHOG")
+                "uiHost: 'https://us.posthog.com'")
                 .containsPattern("surveyId: '[^']+'");
         assertThat(inboxOnlyPublisher).contains(
-                "var POSTHOG = Object.freeze({",
+                "var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({})",
+                "ownerKey: OWNER_KEY",
+                "posthog: POSTHOG");
+        assertThat(inboxOnlyPublisherConfig).contains(
+                "global.PixivMultiModeDecisionSurveyPostHog = Object.freeze({",
                 "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
                 "apiHost: 'https://layout-survey.sywyar.top'",
-                "uiHost: 'https://us.posthog.com'",
-                "ownerKey: OWNER_KEY",
-                "posthog: POSTHOG")
+                "uiHost: 'https://us.posthog.com'")
                 .containsPattern("surveyId: '[^']+'");
         assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
                 .contains("plugin.dependencies=posthog?@1.0");
@@ -1258,6 +1269,7 @@ class PluginReleaseScriptsTest {
                 .resolve("src/main/resources/static/pixiv-batch-alt.html"), StandardCharsets.UTF_8))
                 .contains("/pixiv-posthog/pixiv-posthog.js")
                 .contains("/pixiv-layout-feedback/release-activation.js")
+                .contains("/pixiv-layout-feedback/posthog-config.js")
                 .doesNotContain("/pixiv-layout-feedback/public-config.js");
 
         for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {

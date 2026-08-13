@@ -2,12 +2,7 @@
     'use strict';
 
     var OWNER_KEY = 'multi-mode-decision-survey.removal-decision';
-    var POSTHOG = Object.freeze({
-        projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k',
-        surveyId: '019ff791-9fcf-0000-2a64-0be9f0b64dbf',
-        apiHost: 'https://layout-survey.sywyar.top',
-        uiHost: 'https://us.posthog.com'
-    });
+    var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({});
     var QUESTION_ID = '0ac24f7c-abeb-4405-8c9c-916e4ca904ac';
     var STATE_KEY = 'pixiv:multi-mode-decision-survey:state:v1';
     var IDENTITY_URL = '/api/multi-mode-decision-survey/identity';

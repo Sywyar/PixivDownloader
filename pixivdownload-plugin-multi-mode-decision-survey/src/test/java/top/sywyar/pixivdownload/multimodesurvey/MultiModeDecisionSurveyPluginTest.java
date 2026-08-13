@@ -7,6 +7,8 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MultiModeDecisionSurveyPluginTest {
 
     @Test
-    @DisplayName("只贡献管理员站内信资源，源码构建默认不发布站内信")
+    @DisplayName("只贡献管理员站内信资源并按发行激活位发布站内信")
     void contributesOnlyAdminInboxSurveyAndDefaultsOff() throws Exception {
         Properties descriptor = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
@@ -37,7 +39,27 @@ class MultiModeDecisionSurveyPluginTest {
                 assertThat(resource.publicPathPrefix()).isEqualTo("/pixiv-multi-mode-decision-survey/"));
         assertThat(plugin.i18n()).singleElement().satisfies(bundle ->
                 assertThat(bundle.namespace()).isEqualTo("multi-mode-decision-survey"));
-        assertThat(plugin.uiSlots()).isEmpty();
+        Properties publication = new Properties();
+        try (InputStream input = getClass().getResourceAsStream(
+                "/static/pixiv-multi-mode-decision-survey/release-publication.properties")) {
+            assertThat(input).isNotNull();
+            publication.load(input);
+        }
+        boolean officialRelease = "true".equalsIgnoreCase(
+                publication.getProperty("officialReleaseEnabled"));
+        var slots = plugin.uiSlots();
+        assertThat(slots).hasSize(officialRelease ? 1 : 0);
+        if (officialRelease) {
+            byte[] config;
+            try (InputStream input = getClass().getResourceAsStream(
+                    "/static/pixiv-multi-mode-decision-survey/posthog-config.js")) {
+                assertThat(input).isNotNull();
+                config = input.readAllBytes();
+            }
+            assertThat(slots.get(0).metadata().get("notification.instance-key"))
+                    .isEqualTo(HexFormat.of().formatHex(
+                            MessageDigest.getInstance("SHA-256").digest(config)));
+        }
     }
 
     @Test
@@ -49,16 +71,33 @@ class MultiModeDecisionSurveyPluginTest {
             assertThat(input).isNotNull();
             script = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
-        assertThat(script).contains(
+        String config;
+        try (InputStream input = getClass().getResourceAsStream(
+                "/static/pixiv-multi-mode-decision-survey/posthog-config.js")) {
+            assertThat(input).isNotNull();
+            config = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        assertThat(config).contains(
+                "global.PixivMultiModeDecisionSurveyPostHog = Object.freeze({",
                 "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
                 "apiHost: 'https://layout-survey.sywyar.top'",
-                "uiHost: 'https://us.posthog.com'",
+                "uiHost: 'https://us.posthog.com'")
+                .containsPattern("surveyId: '[^']+'");
+        assertThat(script).contains(
+                "var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({})",
                 "var QUESTION_ID =",
                 "var CHOICES = ['Yes', 'No', 'Other']",
-                "IDENTITY_URL + '?surveyId=' + encodeURIComponent(POSTHOG.surveyId)")
-                .containsPattern("surveyId: '[^']+'");
+                "IDENTITY_URL + '?surveyId=' + encodeURIComponent(POSTHOG.surveyId)");
         assertThat(script).containsPattern("var QUESTION_ID = '[^']+'");
         assertThat(script)
                 .doesNotContain("snooze", "never");
+
+        String embed;
+        try (InputStream input = getClass().getResourceAsStream(
+                "/static/pixiv-multi-mode-decision-survey/embed.html")) {
+            assertThat(input).isNotNull();
+            embed = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        assertThat(embed).contains("/pixiv-multi-mode-decision-survey/posthog-config.js");
     }
 }

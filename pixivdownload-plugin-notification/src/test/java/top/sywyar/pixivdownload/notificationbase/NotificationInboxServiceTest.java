@@ -158,12 +158,14 @@ class NotificationInboxServiceTest {
         assertThat(service.latest(NotificationCategory.SURVEY, false, 10, "zh-CN"))
                 .singleElement()
                 .satisfies(message -> {
-                    assertThat(message.id()).isEqualTo("persistent-survey:download-workbench.layout-survey");
+                    assertThat(message.id()).isEqualTo(
+                            "persistent-survey:download-workbench.layout-survey:instance-a");
                     assertThat(message.title()).isEqualTo("ZH layout-feedback.inbox-title");
                     assertThat(message.embeddedContentUrl()).isEqualTo("/pixiv-layout-feedback/embed.html");
                     assertThat(message.deletable()).isFalse();
                 });
-        assertThat(service.find("persistent-survey:download-workbench.layout-survey", "en-US").title())
+        assertThat(service.find(
+                "persistent-survey:download-workbench.layout-survey:instance-a", "en-US").title())
                 .isEqualTo("EN layout-feedback.inbox-title");
         assertThat(mapper.insertCalls).isEqualTo(1);
         assertThat(mapper.deleteStaleCalls).isEqualTo(1);
@@ -174,7 +176,8 @@ class NotificationInboxServiceTest {
 
         slots.set(List.of());
         service.synchronizePersistentSurveys();
-        assertThat(service.find("persistent-survey:download-workbench.layout-survey")).isNull();
+        assertThat(service.find(
+                "persistent-survey:download-workbench.layout-survey:instance-a")).isNull();
     }
 
     @Test
@@ -184,7 +187,7 @@ class NotificationInboxServiceTest {
         NotificationInboxService service = new NotificationInboxService(
                 mapper, () -> 500, () -> 90, () -> List.of(surveySlot()),
                 (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
-        String id = "persistent-survey:download-workbench.layout-survey";
+        String id = "persistent-survey:download-workbench.layout-survey:instance-a";
 
         assertThat(service.delete(id)).isFalse();
         assertThat(service.dismissUnavailableSurvey(id)).isTrue();
@@ -199,6 +202,27 @@ class NotificationInboxServiceTest {
     }
 
     @Test
+    @DisplayName("调查实例变化会清理旧墓碑并创建新的未读站内信")
+    void replacesTombstonedSurveyWhenInstanceChanges() {
+        MemoryMapper mapper = new MemoryMapper();
+        AtomicReference<List<WebUiSlotContribution>> slots =
+                new AtomicReference<>(List.of(surveySlot("instance-a")));
+        NotificationInboxService service = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, slots::get,
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        String oldId = "persistent-survey:download-workbench.layout-survey:instance-a";
+        String newId = "persistent-survey:download-workbench.layout-survey:instance-b";
+
+        assertThat(service.dismissUnavailableSurvey(oldId)).isTrue();
+        slots.set(List.of(surveySlot("instance-b")));
+        service.synchronizePersistentSurveys();
+
+        assertThat(mapper.findById(oldId)).isNull();
+        assertThat(service.find(newId)).isNotNull().satisfies(message ->
+                assertThat(message.readTime()).isNull());
+    }
+
+    @Test
     @DisplayName("站内信调查贡献拒绝外部嵌入地址")
     void ignoresSurveyContributionWithExternalEmbedUrl() {
         MemoryMapper mapper = new MemoryMapper();
@@ -206,6 +230,7 @@ class NotificationInboxServiceTest {
                 "unsafe.survey", "notification.inbox", null, 10,
                 java.util.Map.of(
                         "notification.category", "survey",
+                        "notification.instance-key", "instance-a",
                         "notification.embed-url", "https://evil.example/survey",
                         "notification.i18n-namespace", "layout-feedback",
                         "notification.title-key", "layout-feedback.inbox-title",
@@ -244,10 +269,15 @@ class NotificationInboxServiceTest {
     }
 
     private static WebUiSlotContribution surveySlot() {
+        return surveySlot("instance-a");
+    }
+
+    private static WebUiSlotContribution surveySlot(String instanceKey) {
         return new WebUiSlotContribution(
                 "download-workbench.layout-survey", "notification.inbox", null, 10,
                 java.util.Map.of(
                         "notification.category", "survey",
+                        "notification.instance-key", instanceKey,
                         "notification.embed-url", "/pixiv-layout-feedback/embed.html",
                         "notification.i18n-namespace", "layout-feedback",
                         "notification.title-key", "layout-feedback.inbox-title",

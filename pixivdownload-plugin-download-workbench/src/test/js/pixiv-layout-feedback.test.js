@@ -16,6 +16,8 @@ const assert = require('assert');
 
 const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-layout-feedback', 'pixiv-layout-feedback.js');
+const CONFIG_SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
+    'pixiv-layout-feedback', 'posthog-config.js');
 const CSS_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-layout-feedback', 'pixiv-layout-feedback.css');
 const EMBED_SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
@@ -24,6 +26,7 @@ const POSTHOG_SOURCE_PATH = path.join(__dirname, '..', '..', '..', '..',
     'pixivdownload-plugin-posthog', 'src', 'main', 'resources', 'static',
     'pixiv-posthog', 'pixiv-posthog.js');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
+const CONFIG_SOURCE = fs.readFileSync(CONFIG_SOURCE_PATH, 'utf8');
 const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 const EMBED_SOURCE = fs.readFileSync(EMBED_SOURCE_PATH, 'utf8');
 const POSTHOG_SOURCE = fs.readFileSync(POSTHOG_SOURCE_PATH, 'utf8');
@@ -34,6 +37,7 @@ const SEEN_KEY = 'pixiv:layout-feedback:seen:v1';
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 const SUGGESTION_MAX = 1000;
 const CONFIG_WINDOW = {};
+vm.runInNewContext(CONFIG_SOURCE, {window: CONFIG_WINDOW});
 vm.runInNewContext(SOURCE, {window: CONFIG_WINDOW});
 const SURVEY_ID = CONFIG_WINDOW.PixivLayoutFeedback._internals.POSTHOG.surveyId;
 
@@ -851,6 +855,7 @@ function createHarness(options) {
     sandbox.dispatchEvent = windowEvents.dispatchEvent.bind(windowEvents);
 
     vm.createContext(sandbox);
+    vm.runInContext(CONFIG_SOURCE, sandbox, {filename: 'posthog-config.js'});
     if (options.posthogAvailable !== false) {
         vm.runInContext(POSTHOG_SOURCE, sandbox, {filename: 'pixiv-posthog.js'});
     }

@@ -7,10 +7,13 @@ const vm = require('node:vm');
 const {test} = require('node:test');
 
 function internals() {
+    const configSource = fs.readFileSync(path.join(__dirname, '../../main/resources/static',
+        'pixiv-multi-mode-decision-survey', 'posthog-config.js'), 'utf8');
     const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static',
         'pixiv-multi-mode-decision-survey', 'survey.js'), 'utf8');
     const window = {document: {addEventListener() {}}};
     const context = vm.createContext({window});
+    vm.runInContext(configSource, context);
     vm.runInContext(source, context);
     return window.PixivMultiModeDecisionSurvey._internals;
 }

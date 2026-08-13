@@ -87,12 +87,7 @@
     var SURVEY_TOTAL_TIMEOUT_MS = 30 * 1000;
     var APP_VERSION_TIMEOUT_MS = 10 * 1000;
     var POSTHOG_OWNER_KEY = 'download-workbench.layout-feedback';
-    var POSTHOG = Object.freeze({
-        projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k',
-        surveyId: '019fce31-c9ce-0000-934a-375b3ddbbd6c',
-        apiHost: 'https://layout-survey.sywyar.top',
-        uiHost: 'https://us.posthog.com'
-    });
+    var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({});
     var I18N_NS = 'layout-feedback';
     var ALLOWED_SURVEY_EVENTS = ['survey shown', 'survey sent', 'survey dismissed'];
     var PROTOCOL_PROPERTIES = [
@@ -453,7 +448,8 @@
 
     function readSurveyConfig() {
         var manager = global.PixivPostHog;
-        if (!manager || typeof manager.createSurveyClient !== 'function') return null;
+        if (!manager || typeof manager.createSurveyClient !== 'function'
+                || typeof POSTHOG.surveyId !== 'string' || !POSTHOG.surveyId) return null;
         return {
             enabled: true,
             surveyId: POSTHOG.surveyId

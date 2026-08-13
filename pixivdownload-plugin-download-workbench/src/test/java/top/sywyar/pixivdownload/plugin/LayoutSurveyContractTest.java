@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,6 +36,7 @@ class LayoutSurveyContractTest {
     private static final String BATCH_ALT_HTML = STATIC_ROOT + "pixiv-batch-alt.html";
     private static final String SURVEY_CSS = STATIC_ROOT + "pixiv-layout-feedback/pixiv-layout-feedback.css";
     private static final String SURVEY_JS = STATIC_ROOT + "pixiv-layout-feedback/pixiv-layout-feedback.js";
+    private static final String POSTHOG_CONFIG = STATIC_ROOT + "pixiv-layout-feedback/posthog-config.js";
     private static final String RELEASE_ACTIVATION = STATIC_ROOT
             + "pixiv-layout-feedback/release-activation.js";
     private static final String RELEASE_PUBLICATION = STATIC_ROOT
@@ -194,11 +197,13 @@ class LayoutSurveyContractTest {
         String css = "/pixiv-layout-feedback/pixiv-layout-feedback.css";
         String activation = "/pixiv-layout-feedback/release-activation.js";
         String adapter = "/pixiv-posthog/pixiv-posthog.js";
+        String config = "/pixiv-layout-feedback/posthog-config.js";
         String script = "/pixiv-layout-feedback/pixiv-layout-feedback.js";
 
         assertThat(countOccurrences(alt, css)).as(BATCH_ALT_HTML + " 调查 CSS 恰好一次").isEqualTo(1);
         assertThat(countOccurrences(alt, activation)).as(BATCH_ALT_HTML + " 发行激活位恰好一次").isEqualTo(1);
         assertThat(countOccurrences(alt, adapter)).as(BATCH_ALT_HTML + " PostHog 适配器恰好一次").isEqualTo(1);
+        assertThat(countOccurrences(alt, config)).as(BATCH_ALT_HTML + " PostHog 配置恰好一次").isEqualTo(1);
         assertThat(countOccurrences(alt, script)).as(BATCH_ALT_HTML + " 调查业务脚本恰好一次").isEqualTo(1);
 
         List<String> scripts = scriptSources(alt);
@@ -208,23 +213,28 @@ class LayoutSurveyContractTest {
         assertThat(scripts.indexOf(adapter))
                 .as(BATCH_ALT_HTML + " PostHog 适配器必须加载")
                 .isGreaterThan(scripts.indexOf(activation));
+        assertThat(scripts.indexOf(config))
+                .as(BATCH_ALT_HTML + " PostHog 配置必须加载")
+                .isGreaterThan(scripts.indexOf(adapter));
         assertThat(scripts.indexOf(script))
                 .as(BATCH_ALT_HTML + " 调查业务脚本必须加载")
-                .isGreaterThan(scripts.indexOf(adapter))
-                .describedAs("PostHog 适配器必须在调查业务脚本之前加载");
+                .isGreaterThan(scripts.indexOf(config))
+                .describedAs("PostHog 配置必须在调查业务脚本之前加载");
 
         String batch = read(BATCH_HTML);
         assertThat(batch).as(BATCH_HTML + " 不再加载调查资源")
                 .doesNotContain(css)
                 .doesNotContain(activation)
                 .doesNotContain(adapter)
+                .doesNotContain(config)
                 .doesNotContain(script);
     }
 
     @Test
     @DisplayName("源码默认关闭调查，生成激活位与发布槽位一致，发布者自持四个 PostHog 参数")
-    void sourceBuildIsDisabledAndPublisherOwnsPostHogParameters() throws IOException {
+    void sourceBuildIsDisabledAndPublisherOwnsPostHogParameters() throws Exception {
         String js = read(SURVEY_JS);
+        String postHogConfig = read(POSTHOG_CONFIG);
         String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
         assertThat(rootPom)
                 .contains("<layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>")
@@ -233,18 +243,24 @@ class LayoutSurveyContractTest {
         boolean officialRelease = read(RELEASE_PUBLICATION).contains("officialReleaseEnabled=true");
         assertThat(read(RELEASE_ACTIVATION)).contains(
                 "global.PixivLayoutFeedbackOfficialRelease = " + officialRelease + ";");
-        assertThat(js)
-                .contains("var POSTHOG = Object.freeze({")
+        assertThat(postHogConfig)
+                .contains("global.PixivLayoutSurveyPostHog = Object.freeze({")
                 .contains("projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'")
-                .containsPattern("surveyId: '[^']+'");
-        assertThat(js)
                 .contains("apiHost: 'https://layout-survey.sywyar.top'")
                 .contains("uiHost: 'https://us.posthog.com'")
+                .containsPattern("surveyId: '[^']+'");
+        assertThat(js)
+                .contains("var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({})")
                 .contains("ownerKey: POSTHOG_OWNER_KEY")
                 .contains("posthog: POSTHOG")
                 .contains("global.PixivLayoutFeedbackOfficialRelease !== true");
-        assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().uiSlots())
-                .hasSize(officialRelease ? 1 : 0);
+        var slots = new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().uiSlots();
+        assertThat(slots).hasSize(officialRelease ? 1 : 0);
+        if (officialRelease) {
+            assertThat(slots.get(0).metadata().get("notification.instance-key"))
+                    .isEqualTo(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                            .digest(postHogConfig.getBytes(StandardCharsets.UTF_8))));
+        }
     }
 
     @Test
@@ -261,6 +277,7 @@ class LayoutSurveyContractTest {
                 .contains("connect-src 'self' https://layout-survey.sywyar.top")
                 .contains("/pixiv-layout-feedback/release-activation.js")
                 .contains("/pixiv-posthog/pixiv-posthog.js")
+                .contains("/pixiv-layout-feedback/posthog-config.js")
                 .contains("/pixiv-layout-feedback/pixiv-layout-feedback.js")
                 .contains("/pixiv-layout-feedback/embed.js");
         assertThat(embedJs)
@@ -271,6 +288,7 @@ class LayoutSurveyContractTest {
         assertThat(pluginSource)
                 .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
                 .contains("\"notification.inbox\"")
+                .contains("\"notification.instance-key\", instanceKey")
                 .contains("\"notification.embed-url\", \"/pixiv-layout-feedback/embed.html\"")
                 .contains("\"notification.i18n-namespace\", \"layout-feedback\"");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
