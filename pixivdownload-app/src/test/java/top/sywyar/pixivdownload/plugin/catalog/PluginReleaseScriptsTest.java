@@ -1181,14 +1181,13 @@ class PluginReleaseScriptsTest {
                     "sequence: $sequence",
                     "expiresAt: $expiresAt",
                     "--argjson sequence \"$GITHUB_RUN_ID\"",
-                    "Prepare update signing private key",
                     "Sign update manifest",
                     "--repository-id pixivdownloader-update",
                     "--key-id pixivdownloader-official-root-2026-07",
                     "--out artifacts/update.json.sig",
                     "chmod 600 -- $privateKeyFile",
-                    "Cleanup update signing private key",
-                    "if: always()",
+                    "} finally {",
+                    "Remove-Item -LiteralPath $privateKeyFile",
                     "pixivdownloader-update-signing-key.pem",
                     "artifacts/update.json.sig");
         }
