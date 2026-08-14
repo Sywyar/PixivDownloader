@@ -7,7 +7,9 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -432,8 +434,29 @@ public final class RuntimeFiles {
             }
         }
 
-        deleteDirectoryTree(legacy);
-        log.info(message("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
+        deleteEmptyDirectories(legacy);
+        if (Files.exists(legacy, LinkOption.NOFOLLOW_LINKS)) {
+            log.warn(message("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+        } else {
+            log.info(message("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
+        }
+    }
+
+    private static void deleteEmptyDirectories(Path directory) throws IOException {
+        List<Path> directories;
+        try (Stream<Path> stream = Files.walk(directory)) {
+            directories = stream
+                    .filter(path -> Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+                    .sorted(Comparator.comparingInt(Path::getNameCount).reversed())
+                    .toList();
+        }
+        for (Path candidate : directories) {
+            try {
+                Files.deleteIfExists(candidate);
+            } catch (DirectoryNotEmptyException ignored) {
+                // 冲突或未知文件必须留在旧目录，避免迁移时丢失数据。
+            }
+        }
     }
 
     private static void deleteDirectoryTree(Path directory) throws IOException {

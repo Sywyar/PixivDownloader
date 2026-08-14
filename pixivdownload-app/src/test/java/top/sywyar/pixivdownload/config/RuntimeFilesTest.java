@@ -189,6 +189,25 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("目录迁移遇到内容冲突时保留旧文件，只清理已迁空目录")
+    void shouldRetainConflictingLegacyDirectoryFiles() throws IOException {
+        Path legacy = Files.createDirectories(tempDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR));
+        Path target = Files.createDirectories(dataDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR));
+        Files.writeString(legacy.resolve("conflict.png"), "legacy", StandardCharsets.UTF_8);
+        Files.writeString(target.resolve("conflict.png"), "current", StandardCharsets.UTF_8);
+        Files.createDirectories(legacy.resolve("nested"));
+        Files.writeString(legacy.resolve("nested/migrated.png"), "migrated", StandardCharsets.UTF_8);
+
+        RuntimeFiles.collectionIconsDirectory();
+
+        assertThat(target.resolve("conflict.png")).hasContent("current");
+        assertThat(legacy.resolve("conflict.png")).hasContent("legacy");
+        assertThat(target.resolve("nested/migrated.png")).hasContent("migrated");
+        assertThat(legacy.resolve("nested")).doesNotExist();
+        assertThat(legacy).isDirectory();
+    }
+
+    @Test
     @DisplayName("宿主启动准备不得迁移插件自有旧文件")
     void shouldNotMigratePluginOwnedLegacyFilesDuringHostPreparation() throws IOException {
         Path legacyBatch = downloadRoot.resolve("batch_state.json");
