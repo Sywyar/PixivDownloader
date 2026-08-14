@@ -6,6 +6,10 @@ name: Publish plugins
 # 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
 on:
   workflow_call:
+    outputs:
+      trusted_base_sha:
+        description: 'Protected predecessor approved by the reusable quality gate'
+        value: ${{ jobs.trusted-base.outputs.sha }}
     inputs:
       publish_args:
         description: '可选发布参数；填写 -f 时强制重编译并覆盖上传所有插件资产'

@@ -1160,8 +1160,6 @@ class PluginReleaseScriptsTest {
             String signingJob = workflowJob(workflow,
                     name.equals("release.yml") ? "release" : "release-nightly");
             assertThat(workflow).as(name).contains(
-                    "Upload update signature tool",
-                    "Download update signature tool",
                     "channel: $channel",
                     "sequence: $sequence",
                     "expiresAt: $expiresAt",
@@ -1175,16 +1173,36 @@ class PluginReleaseScriptsTest {
                     "Remove-Item -LiteralPath $privateKeyFile",
                     "pixivdownloader-update-signing-key.pem",
                     "artifacts/update.json.sig");
+            assertThat(workflowJob(workflow, "build-jar")).as(name + " candidate build job")
+                    .doesNotContain("Upload update signature tool");
             assertThat(signingJob).as(name + " update signing job")
                     .contains(
+                            "needs.publish-plugins.outputs.trusted_base_sha",
+                            "Checkout trusted update signature tool source",
+                            "working-directory: trusted-update-signature-tool-source",
+                            "test \"$(git rev-parse HEAD)\" = \"$TRUSTED_BASE_SHA\"",
+                            "mvn -B -ntp -pl pixivdownload-plugin-signature -am package -DskipTests -Dexec.skip=true",
+                            "TRUSTED_UPDATE_SIGNATURE_TOOL=$destination",
+                            "TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256=$sha256",
+                            "Trusted update signature tool checksum mismatch.",
+                            "& java -cp $env:TRUSTED_UPDATE_SIGNATURE_TOOL",
                             "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                             "--key-id pixivdownloader-update-root-2026-08")
                     .doesNotContain(
                             "UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM }}",
+                            "Download update signature tool",
+                            "tools/update-signature",
                             "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64",
                             "PLUGIN_SIGNING_PRIVATE_KEY_PEM",
                             "--key-id pixivdownloader-official-root-2026-07");
+            assertThat(signingJob.indexOf("name: Build trusted update signature tool"))
+                    .as(name + " trusted tool build precedes secret injection")
+                    .isGreaterThan(signingJob.indexOf("name: Generate update manifest"))
+                    .isLessThan(signingJob.indexOf("name: Sign update manifest"));
         }
+        assertThat(workflow("publish-plugins.yml")).contains(
+                "trusted_base_sha:",
+                "value: ${{ jobs.trusted-base.outputs.sha }}");
         assertThat(workflow("release.yml")).contains(
                 "--arg channel \"stable\"", "--argjson sequence \"$GITHUB_RUN_ID\"", "'+370 days'");
         assertThat(workflow("nightly.yml")).contains(
