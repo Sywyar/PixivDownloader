@@ -419,11 +419,12 @@ jobs:
           EXPIRES_AT=$(date -u -d '+14 days' +%Y-%m-%dT%H:%M:%SZ)
           ASSET_URL="https://github.com/${GH_REPOSITORY}/releases/download/nightly/${FILENAME}"
           NOTES_URL="https://github.com/${GH_REPOSITORY}/releases/tag/nightly"
+          SEQUENCE=$(./scripts/ci/nightly-manifest-sequence.sh "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")
 
           jq -n \
             --arg latestVersion "$LATEST_VERSION" \
             --arg channel "nightly" \
-            --argjson sequence "$GITHUB_RUN_ID" \
+            --argjson sequence "$SEQUENCE" \
             --arg expiresAt "$EXPIRES_AT" \
             --arg releaseDate "$RELEASE_DATE" \
             --rawfile releaseNotes CHANGELOG_DIFF.md \

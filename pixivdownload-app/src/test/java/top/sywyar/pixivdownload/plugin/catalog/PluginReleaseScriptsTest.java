@@ -1163,7 +1163,6 @@ class PluginReleaseScriptsTest {
                     "channel: $channel",
                     "sequence: $sequence",
                     "expiresAt: $expiresAt",
-                    "--argjson sequence \"$GITHUB_RUN_ID\"",
                     "Sign update manifest",
                     "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                     "--repository-id pixivdownloader-update",
@@ -1175,8 +1174,10 @@ class PluginReleaseScriptsTest {
                     "pixivdownloader-update-signing-key.pem",
                     "artifacts/update.json.sig");
         }
-        assertThat(workflow("release.yml")).contains("--arg channel \"stable\"", "'+370 days'");
-        assertThat(workflow("nightly.yml")).contains("--arg channel \"nightly\"", "'+14 days'");
+        assertThat(workflow("release.yml")).contains(
+                "--arg channel \"stable\"", "--argjson sequence \"$GITHUB_RUN_ID\"", "'+370 days'");
+        assertThat(workflow("nightly.yml")).contains(
+                "--arg channel \"nightly\"", "--argjson sequence \"$SEQUENCE\"", "'+14 days'");
     }
 
     @Test
@@ -1364,6 +1365,35 @@ class PluginReleaseScriptsTest {
         // 首次无标签仍检查 [Unreleased] 区段。
         assertThat(script).contains("[Unreleased]");
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("nightly-changelog-gate.sh"));
+    }
+
+    @Test
+    @DisplayName("Nightly 更新清单序号在工作流重试时严格递增")
+    void nightlyManifestSequenceIncludesRunAttempt() throws Exception {
+        Path sequenceScript = repoRoot().resolve("scripts").resolve("ci").resolve("nightly-manifest-sequence.sh");
+        String nightly = workflow("nightly.yml");
+        assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
+
+        assertThat(nightly)
+                .contains(
+                        "SEQUENCE=$(./scripts/ci/nightly-manifest-sequence.sh \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\")",
+                        "--argjson sequence \"$SEQUENCE\"")
+                .doesNotContain("--argjson sequence \"$GITHUB_RUN_ID\"");
+
+        long firstAttempt = Long.parseLong(runBash(repoRoot(), sequenceScript, "9000000000", "1"));
+        long secondAttempt = Long.parseLong(runBash(repoRoot(), sequenceScript, "9000000000", "2"));
+        long lastSupportedAttempt = Long.parseLong(runBash(repoRoot(), sequenceScript, "9000000000", "999"));
+        long nextRun = Long.parseLong(runBash(repoRoot(), sequenceScript, "9000000001", "1"));
+        assertThat(secondAttempt).isGreaterThan(firstAttempt);
+        assertThat(nextRun).isGreaterThan(lastSupportedAttempt);
+        assertThat(firstAttempt).isGreaterThan(9_000_000_000L);
+
+        Process invalidAttempt = new ProcessBuilder(
+                "bash", toBashPath(sequenceScript), "9000000000", "1000")
+                .directory(repoRoot().toFile()).redirectErrorStream(true).start();
+        String invalidOutput = new String(invalidAttempt.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(invalidAttempt.waitFor()).as(invalidOutput).isNotEqualTo(0);
+        assertAsciiWithoutBom(sequenceScript);
     }
 
     @Test
