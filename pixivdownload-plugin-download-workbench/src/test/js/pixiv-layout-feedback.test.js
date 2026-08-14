@@ -456,6 +456,7 @@ function createFakeAdapter(overrides) {
     let sdkDistinctId = null;
     const adapter = {
         calls,
+        ackOk: !['throw', 'undefined', 'null', 'false', 'reject'].includes(overrides.capture),
         surveys: overrides.surveys || [],
         lastSurveyCallback: null,
         sdkConfig() { return sdkConfig; },
@@ -823,6 +824,9 @@ function createHarness(options) {
             if (options.fetch === 'no-version') {
                 return Promise.resolve({ok: true, json: () => Promise.resolve({name: 'x'})});
             }
+            if (url === publicConfig.apiHost + '/e/') {
+                return Promise.resolve({ok: !sandbox.posthog || sandbox.posthog.ackOk !== false});
+            }
             return Promise.resolve({ok: true, json: () => Promise.resolve({name: 'x', version: '1.2.3'})});
         },
         PixivFeedback: {
@@ -1062,12 +1066,21 @@ function testEmbeddedSurveyPublicationStates() {
 }
 
 function captureEvents(harness) {
-    return (harness.adapter && harness.adapter.calls.capture || []).map(c => c.name);
+    return (harness.adapter && harness.adapter.calls.capture || []).map(c => c.name)
+        .concat(ackEvents(harness).map(event => event.event));
 }
 
 function captureProps(harness, name) {
     const call = (harness.adapter.calls.capture || []).find(c => c.name === name);
-    return call ? call.properties : null;
+    if (call) return call.properties;
+    const event = ackEvents(harness).find(item => item.event === name);
+    return event ? event.properties : null;
+}
+
+function ackEvents(harness) {
+    return harness.fetchCalls
+        .filter(call => call.url === harness.config.apiHost + '/e/' && call.init && call.init.body)
+        .map(call => JSON.parse(call.init.body));
 }
 
 function waitForFlush() {
@@ -2087,35 +2100,6 @@ function testCaptureResultAcceptanceMatrix() {
     }).then(() => submitWithCaptureOverride('throw')).then(h => {
         eq('capture 同步抛错 → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
         eq('capture 同步抛错 → 保留弹窗可重试', h.document.querySelectorAll('.plf-backdrop').length, 1);
-    }).then(() => {
-        // before_send 返回 null → SDK 丢弃事件 → capture 返回 undefined（真实 1.409.5 语义）
-        const h = initHarness({
-            adapter: (() => {
-                const a = createFakeAdapter({surveys: [defaultSurvey()]});
-                a.capture = function (name, properties) {
-                    const event = {
-                        uuid: 'evt-x', event: name, timestamp: 't',
-                        properties: Object.assign({}, properties)
-                    };
-                    const config = this.sdkConfig();
-                    if (config && typeof config.before_send === 'function') {
-                        config.before_send(event);
-                    }
-                    // 模拟 before_send 链中后续过滤器返回 null：
-                    // SDK 丢弃整个事件，capture() 返回 undefined。
-                    return undefined;
-                };
-                return a;
-            })(),
-            batchLayout: 'landscape'
-        });
-        return h.api.open().then(() => waitForFlush()).then(() => {
-            selectChoice(h, 'pixiv-batch-landscape');
-            h.submitButton().click();
-            return waitForFlush();
-        }).then(() => {
-            eq('before_send 返回 null → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
-        });
     });
 }
 

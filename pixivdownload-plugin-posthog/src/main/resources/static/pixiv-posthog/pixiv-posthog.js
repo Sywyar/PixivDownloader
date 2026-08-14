@@ -2,6 +2,7 @@
     'use strict';
 
     var SDK_LOAD_TIMEOUT_MS = 10000;
+    var CAPTURE_ACK_TIMEOUT_MS = 15000;
     var SDK_VERSION = '1.409.5';
     var SDK_URL = '/vendor/posthog-js/' + SDK_VERSION + '/array.full.js';
     var clients = Object.create(null);
@@ -219,7 +220,61 @@
         return record.promise;
     }
 
+    function captureSurveyWithAck(ownerKey, eventName, properties) {
+        var record = clients[typeof ownerKey === 'string' ? ownerKey.trim() : ''];
+        if (!record || !record.promise || typeof global.fetch !== 'function'
+                || typeof global.AbortController !== 'function') {
+            return Promise.reject(new Error('posthog survey client unavailable'));
+        }
+        return record.promise.then(function (client) {
+            if (!client) throw new Error('posthog survey client unavailable');
+            var capturing = true;
+            try {
+                capturing = !(typeof client.has_opted_out_capturing === 'function'
+                        && client.has_opted_out_capturing())
+                    && !(typeof client.is_capturing === 'function' && client.is_capturing() === false);
+            } catch (_) {
+                capturing = false;
+            }
+            if (!capturing) throw new Error('posthog capture is disabled');
+            var event = {
+                event: eventName,
+                properties: Object.assign({}, properties || {}, {
+                    distinct_id: record.distinctId,
+                    token: record.posthog.projectToken
+                }),
+                timestamp: new Date().toISOString()
+            };
+            var filtered = record.beforeSend(event);
+            if (!filtered || filtered.event !== eventName || !filtered.properties) {
+                throw new Error('posthog survey event rejected');
+            }
+            var controller = new global.AbortController();
+            var timeoutId = global.setTimeout(function () {
+                controller.abort();
+            }, CAPTURE_ACK_TIMEOUT_MS);
+            return Promise.resolve().then(function () {
+                return global.fetch(record.posthog.apiHost + '/e/', {
+                        method: 'POST',
+                        credentials: 'omit',
+                        cache: 'no-store',
+                        referrerPolicy: 'no-referrer',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(filtered),
+                        signal: controller.signal
+                    });
+                }).then(function (response) {
+                    if (!response || response.ok !== true) {
+                        throw new Error('posthog capture was not acknowledged');
+                    }
+                }).finally(function () {
+                    global.clearTimeout(timeoutId);
+                });
+        });
+    }
+
     global.PixivPostHog = Object.freeze({
-        createSurveyClient: createSurveyClient
+        createSurveyClient: createSurveyClient,
+        captureSurveyWithAck: captureSurveyWithAck
     });
 })(window);

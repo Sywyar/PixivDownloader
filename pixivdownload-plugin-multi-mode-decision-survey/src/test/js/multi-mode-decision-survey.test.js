@@ -67,3 +67,11 @@ test('beforeSend keeps only survey protocol and response properties', () => {
     ].sort());
     assert.equal(api.beforeSend({event: '$pageview', properties: {}}), null);
 });
+
+test('waits for remote acknowledgement before recording completion', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static',
+        'pixiv-multi-mode-decision-survey', 'survey.js'), 'utf8');
+
+    assert.match(source, /captureSurveyWithAck\(OWNER_KEY, 'survey sent', properties\)\.then\(function \(\) \{\s*rememberSubmitted\(\)/);
+    assert.doesNotMatch(source, /client\.capture\('survey sent'/);
+});

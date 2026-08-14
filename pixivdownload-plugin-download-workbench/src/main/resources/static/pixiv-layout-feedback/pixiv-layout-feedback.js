@@ -2166,6 +2166,19 @@
                     finish(false);
                     return;
                 }
+                if (name === 'survey sent') {
+                    var manager = global.PixivPostHog;
+                    if (!manager || typeof manager.captureSurveyWithAck !== 'function') {
+                        finish(false);
+                        return;
+                    }
+                    manager.captureSurveyWithAck(POSTHOG_OWNER_KEY, name, properties).then(function () {
+                        finish(true);
+                    }, function () {
+                        finish(false);
+                    });
+                    return;
+                }
                 try {
                     var result = sdk.capture(name, properties);
                     // 只有 capture 返回非空 CaptureResult 对象（result.event === name）
@@ -2762,11 +2775,11 @@
                 }
                 return sendSurveyEvent(generation, 'survey sent', props);
             }).then(function () {
-                // capture 已同步返回被接受的 CaptureResult，但若 generation 在结果
+                // 事件接收端已返回 2xx，但若 generation 在结果
                 // 处理前已失效（destroy），旧回调不得再写状态 / 显示 Toast / 动 DOM。
                 if (!isRuntimeGenerationActive(generation)) return;
                 submitting = false;
-                // PostHog 已接受：本地同步写 submitted（含服务端 submitted 命令；
+                // PostHog 已确认：本地同步写 submitted（含服务端 submitted 命令；
                 // 服务端保存失败不撤销已接受的提交，保留本地回退，不显示
                 // “PostHog 提交失败”，只记录不含用户数据的 warning）。
                 writeState('submitted');

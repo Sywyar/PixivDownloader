@@ -52,18 +52,13 @@
         return text && Array.from(text).length <= 1000 ? text : null;
     }
 
-    function acceptedCapture(result, eventName) {
-        return !!result && typeof result === 'object' && result.event === eventName;
-    }
-
     global.PixivMultiModeDecisionSurvey = Object.freeze({
         _internals: Object.freeze({
             POSTHOG: POSTHOG,
             QUESTION_ID: QUESTION_ID,
             beforeSend: beforeSend,
             resolveQuestion: resolveQuestion,
-            responseValue: responseValue,
-            acceptedCapture: acceptedCapture
+            responseValue: responseValue
         })
     });
 
@@ -255,18 +250,16 @@
                 submit.textContent = t('submitting', '提交中…');
                 var properties = {'$survey_id': POSTHOG.surveyId, '$survey_completed': true};
                 properties['$survey_response_' + question.id] = response;
-                var capture = null;
-                try { capture = client.capture('survey sent', properties); } catch (_) { capture = null; }
-                if (acceptedCapture(capture, 'survey sent')) {
+                global.PixivPostHog.captureSurveyWithAck(OWNER_KEY, 'survey sent', properties).then(function () {
                     rememberSubmitted();
                     status('completed', '感谢反馈，您的回答已提交。');
-                } else {
+                }).catch(function () {
                     submit.textContent = t('submit', '提交');
                     submit.disabled = false;
                     error.textContent = t('submit-failed', '提交失败，请稍后重试。');
                     error.hidden = false;
                     reportHeight();
-                }
+                });
             });
             try { client.capture('survey shown', {'$survey_id': POSTHOG.surveyId}); } catch (_) { /* best effort */ }
             reportHeight();
@@ -279,7 +272,8 @@
             });
             status('loading', '正在加载调查…');
             if (global.PixivMultiModeDecisionSurveyOfficialRelease !== true
-                    || !global.PixivPostHog || typeof global.PixivPostHog.createSurveyClient !== 'function') {
+                    || !global.PixivPostHog || typeof global.PixivPostHog.createSurveyClient !== 'function'
+                    || typeof global.PixivPostHog.captureSurveyWithAck !== 'function') {
                 status('unavailable', '调查暂时无法加载，请稍后重试。');
                 return;
             }

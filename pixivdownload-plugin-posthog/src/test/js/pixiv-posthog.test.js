@@ -55,21 +55,39 @@ async function testSynchronousLoadFailureCanRetry() {
 
 async function main() {
     const initCalls = [];
+    const fetchCalls = [];
     const storage = new Map();
     const clients = {};
+    let optedOut = false;
+    let capturing = true;
+    let timeoutCallback = null;
+    let fetchImpl = () => Promise.resolve({ok: true, status: 200});
     const sdk = {
         init(token, config, name) {
             initCalls.push({token, config, name});
-            clients[name] = {name};
+            clients[name] = {
+                name,
+                has_opted_out_capturing() { return optedOut; },
+                is_capturing() { return capturing; }
+            };
             return clients[name];
         }
     };
     const sandbox = {
-        window: null, console, Promise, Object, URL, Uint8Array,
-        setTimeout, clearTimeout, posthog: sdk, crypto: webcrypto,
+        window: null, console, Promise, Object, URL, Uint8Array, AbortController,
+        setTimeout(callback) {
+            timeoutCallback = callback;
+            return 1;
+        },
+        clearTimeout() { timeoutCallback = null; },
+        posthog: sdk, crypto: webcrypto,
         localStorage: {
             getItem(key) { return storage.has(key) ? storage.get(key) : null; },
             setItem(key, value) { storage.set(key, value); }
+        },
+        fetch(url, options) {
+            fetchCalls.push({url, options});
+            return fetchImpl(url, options);
         }
     };
     sandbox.window = sandbox;
@@ -192,7 +210,55 @@ async function main() {
     assert.strictEqual(initCalls.length, 4);
     assert.notStrictEqual(initCalls[1].config.bootstrap.distinctID,
         initCalls[3].config.bootstrap.distinctID);
-    assert.deepStrictEqual(Object.keys(api), ['createSurveyClient']);
+    const response = {
+        '$survey_id': posthog.surveyId,
+        '$survey_response_q1': 'Yes'
+    };
+    await api.captureSurveyWithAck('download-workbench.layout-feedback', 'survey sent', response);
+    assert.strictEqual(fetchCalls.length, 1);
+    assert.strictEqual(fetchCalls[0].url, posthog.apiHost + '/e/');
+    assert.strictEqual(fetchCalls[0].options.method, 'POST');
+    assert.strictEqual(fetchCalls[0].options.credentials, 'omit');
+    assert.ok(fetchCalls[0].options.signal);
+    assert.strictEqual(JSON.parse(fetchCalls[0].options.body).properties.distinct_id,
+        'plf_' + 'a'.repeat(64));
+    assert.strictEqual(timeoutCallback, null);
+
+    fetchImpl = () => Promise.resolve({ok: false, status: 429});
+    await assert.rejects(api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response), /not acknowledged/);
+    fetchImpl = () => Promise.reject(new Error('network unavailable'));
+    await assert.rejects(api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response), /network unavailable/);
+
+    fetchImpl = () => Promise.resolve({ok: true, status: 200});
+    optedOut = true;
+    const fetchCount = fetchCalls.length;
+    await assert.rejects(api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response), /disabled/);
+    assert.strictEqual(fetchCalls.length, fetchCount);
+    optedOut = false;
+    capturing = false;
+    await assert.rejects(api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response), /disabled/);
+    assert.strictEqual(fetchCalls.length, fetchCount);
+    capturing = true;
+
+    fetchImpl = (url, options) => new Promise((resolve, reject) => {
+        if (options.signal.aborted) {
+            reject(new Error('request aborted'));
+            return;
+        }
+        options.signal.addEventListener('abort', () => reject(new Error('request aborted')), {once: true});
+    });
+    const timedOut = api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response);
+    await Promise.resolve();
+    assert.ok(timeoutCallback);
+    timeoutCallback();
+    await assert.rejects(timedOut, /request aborted/);
+    assert.strictEqual(timeoutCallback, null);
+    assert.deepStrictEqual(Object.keys(api), ['createSurveyClient', 'captureSurveyWithAck']);
     await testSynchronousLoadFailureCanRetry();
     console.log('pixiv-posthog.test.js: passed');
 }
