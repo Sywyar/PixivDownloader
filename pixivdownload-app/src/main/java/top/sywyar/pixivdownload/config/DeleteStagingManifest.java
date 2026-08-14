@@ -15,10 +15,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -30,7 +33,7 @@ import java.util.stream.Stream;
  * 把半删除状态永久化。
  *
  * <p>纯 JDK 实现（{@link Properties} + UTF-8），不引入 Spring / Jackson —— 因为它要在 Spring 上下文启动之前的
- * 静态运行期路径里被调用（见 {@link RuntimeFiles#recoverDeleteStagingLeftovers()}）。日志走与 {@link RuntimeFiles}
+ * 静态运行期路径里被调用（见 {@link RuntimeFiles#recoverDeleteStagingLeftovers(String)}）。日志走与 {@link RuntimeFiles}
  * 一致的静态 {@link MessageBundles}（启动期、可能无请求上下文）。
  */
 @Slf4j
@@ -44,6 +47,10 @@ public final class DeleteStagingManifest {
     private static final String ORIGINAL_SUFFIX = ".original";
     private static final String STAGED_SUFFIX = ".staged";
     private static final int VERSION = 1;
+    static final long MAX_MANIFEST_BYTES = 1024 * 1024;
+    static final int MAX_ENTRIES = 10_000;
+    static final int MAX_ORIGINAL_PATH_CHARS = 32_768;
+    static final int MAX_STAGED_FILE_NAME_CHARS = 255;
 
     private DeleteStagingManifest() {
     }
@@ -56,17 +63,36 @@ public final class DeleteStagingManifest {
      * 写出恢复清单（覆盖既有）。由原子删除在「复制原文件之前」调用：清单先于删除落盘，崩溃后启动方能据此恢复。
      */
     public static void write(Path stagingDir, List<Entry> entries) throws IOException {
+        if (entries == null || entries.size() > MAX_ENTRIES) {
+            throw new IOException("delete-staging manifest has too many entries");
+        }
         Properties props = new Properties();
         props.setProperty(VERSION_KEY, Integer.toString(VERSION));
         props.setProperty(COUNT_KEY, Integer.toString(entries.size()));
+        Set<Path> originals = new HashSet<>();
+        Set<String> stagedNames = new HashSet<>();
         for (int i = 0; i < entries.size(); i++) {
             Entry entry = entries.get(i);
+            if (entry == null) {
+                throw new IOException("delete-staging manifest entry is missing");
+            }
             Path original = entry.originalFile();
-            if (original == null || !original.isAbsolute()) {
+            String staged = entry.stagedFileName();
+            if (original == null || !original.isAbsolute()
+                    || original.toString().length() > MAX_ORIGINAL_PATH_CHARS) {
                 throw new IOException("delete-staging original path must be absolute");
             }
-            props.setProperty(i + ORIGINAL_SUFFIX, original.normalize().toString());
-            props.setProperty(i + STAGED_SUFFIX, entry.stagedFileName());
+            Path normalizedOriginal = original.normalize();
+            if (staged == null || staged.isBlank()
+                    || staged.length() > MAX_STAGED_FILE_NAME_CHARS
+                    || isUnsafeStagedName(stagingDir, staged)) {
+                throw new IOException("delete-staging staged file name is unsafe");
+            }
+            if (!originals.add(normalizedOriginal) || !stagedNames.add(staged)) {
+                throw new IOException("delete-staging manifest contains duplicate entries");
+            }
+            props.setProperty(i + ORIGINAL_SUFFIX, normalizedOriginal.toString());
+            props.setProperty(i + STAGED_SUFFIX, staged);
         }
         Path manifest = stagingDir.resolve(MANIFEST_FILE_NAME);
         PlainFilePathGuard.requirePlainParent(manifest, false);
@@ -77,6 +103,10 @@ public final class DeleteStagingManifest {
         try (Writer writer = Files.newBufferedWriter(manifest, StandardCharsets.UTF_8)) {
             props.store(writer, "PixivDownload delete-staging recovery manifest");
         }
+        if (Files.size(manifest) > MAX_MANIFEST_BYTES) {
+            Files.deleteIfExists(manifest);
+            throw new IOException("delete-staging manifest is too large");
+        }
     }
 
     /**
@@ -84,10 +114,11 @@ public final class DeleteStagingManifest {
      * 某子目录全部原文件就位后才删除该子目录；清单缺失 / 损坏 / 任一恢复失败时<b>保留</b>子目录并记日志，供人工恢复。
      * 顶层非目录残留一律不动（保守，不再无条件清扫，避免误删未知文件）。
      */
-    public static void recoverLeftovers(Path stagingRoot) {
+    public static void recoverLeftovers(Path stagingRoot, Collection<Path> allowedRoots) {
         if (stagingRoot == null || !PlainFilePathGuard.isPlainDirectory(stagingRoot)) {
             return;
         }
+        List<Path> normalizedAllowedRoots = normalizeAllowedRoots(allowedRoots);
         List<Path> subdirectories;
         try (Stream<Path> children = Files.list(stagingRoot)) {
             subdirectories = children.filter(PlainFilePathGuard::isPlainDirectory).toList();
@@ -96,13 +127,14 @@ public final class DeleteStagingManifest {
             return;
         }
         for (Path subdirectory : subdirectories) {
-            recoverSubdirectory(subdirectory);
+            recoverSubdirectory(subdirectory, normalizedAllowedRoots);
         }
     }
 
-    private static void recoverSubdirectory(Path subdirectory) {
+    private static void recoverSubdirectory(Path subdirectory, List<Path> allowedRoots) {
         Optional<List<Entry>> entries = read(subdirectory);
-        if (entries.isEmpty()) {
+        if (entries.isEmpty() || entries.get().stream()
+                .anyMatch(entry -> !isWithinAllowedRoot(entry.originalFile(), allowedRoots))) {
             // 清单缺失 / 损坏：无法确定哪些原文件已被删，保守保留整个子目录（含唯一备份）供人工恢复。
             log.warn(MessageBundles.get("runtime.log.delete-staging.manifest-unreadable", subdirectory));
             return;
@@ -119,6 +151,22 @@ public final class DeleteStagingManifest {
         }
         deleteDirectoryTree(subdirectory);
         log.info(MessageBundles.get("runtime.log.delete-staging.recovered", subdirectory));
+    }
+
+    private static List<Path> normalizeAllowedRoots(Collection<Path> allowedRoots) {
+        if (allowedRoots == null || allowedRoots.isEmpty()) {
+            return List.of();
+        }
+        return allowedRoots.stream()
+                .filter(root -> root != null)
+                .map(root -> root.toAbsolutePath().normalize())
+                .filter(root -> root.getParent() != null)
+                .distinct()
+                .toList();
+    }
+
+    private static boolean isWithinAllowedRoot(Path path, List<Path> allowedRoots) {
+        return allowedRoots.stream().anyMatch(path::startsWith);
     }
 
     /**
@@ -142,9 +190,7 @@ public final class DeleteStagingManifest {
             if (parent != null) {
                 PlainFilePathGuard.requirePlainParent(original, true);
             }
-            Files.copy(staged, original,
-                    StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING,
-                    LinkOption.NOFOLLOW_LINKS);
+            copyRestoredFile(staged, original);
             PlainFilePathGuard.requirePlainRegularFile(original);
             log.info(MessageBundles.get("runtime.log.delete-staging.restored", original));
             return true;
@@ -154,12 +200,25 @@ public final class DeleteStagingManifest {
         }
     }
 
+    static void copyRestoredFile(Path staged, Path original) throws IOException {
+        Files.copy(staged, original,
+                StandardCopyOption.COPY_ATTRIBUTES,
+                LinkOption.NOFOLLOW_LINKS);
+    }
+
     /**
      * 读取并校验恢复清单。文件缺失 / 解析失败 / 版本不符 / 条目不完整时一律返回空（调用方据此保留子目录）。
      */
     static Optional<List<Entry>> read(Path stagingDir) {
         Path manifest = stagingDir.resolve(MANIFEST_FILE_NAME);
         if (!PlainFilePathGuard.isPlainRegularFile(manifest)) {
+            return Optional.empty();
+        }
+        try {
+            if (Files.size(manifest) > MAX_MANIFEST_BYTES) {
+                return Optional.empty();
+            }
+        } catch (IOException e) {
             return Optional.empty();
         }
         Properties props = new Properties();
@@ -177,14 +236,18 @@ public final class DeleteStagingManifest {
         } catch (NumberFormatException e) {
             return Optional.empty();
         }
-        if (count < 0) {
+        if (count < 0 || count > MAX_ENTRIES) {
             return Optional.empty();
         }
         List<Entry> entries = new ArrayList<>(count);
+        Set<Path> originals = new HashSet<>();
+        Set<String> stagedNames = new HashSet<>();
         for (int i = 0; i < count; i++) {
             String original = props.getProperty(i + ORIGINAL_SUFFIX);
             String staged = props.getProperty(i + STAGED_SUFFIX);
             if (original == null || original.isBlank() || staged == null || staged.isBlank()
+                    || original.length() > MAX_ORIGINAL_PATH_CHARS
+                    || staged.length() > MAX_STAGED_FILE_NAME_CHARS
                     || isUnsafeStagedName(stagingDir, staged)) {
                 return Optional.empty();
             }
@@ -193,7 +256,11 @@ public final class DeleteStagingManifest {
                 if (!originalPath.isAbsolute()) {
                     return Optional.empty();
                 }
-                entries.add(new Entry(originalPath.normalize(), staged));
+                Path normalizedOriginal = originalPath.normalize();
+                if (!originals.add(normalizedOriginal) || !stagedNames.add(staged)) {
+                    return Optional.empty();
+                }
+                entries.add(new Entry(normalizedOriginal, staged));
             } catch (InvalidPathException e) {
                 return Optional.empty();
             }

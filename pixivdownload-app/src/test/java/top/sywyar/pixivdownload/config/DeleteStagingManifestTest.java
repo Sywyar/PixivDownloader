@@ -7,12 +7,15 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("DeleteStagingManifest 删除暂存恢复清单与启动恢复")
 class DeleteStagingManifestTest {
@@ -49,7 +52,7 @@ class DeleteStagingManifestTest {
         Files.writeString(subdir.resolve("0_300_p0.jpg"), "p0-bytes", StandardCharsets.UTF_8);
         DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
 
-        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         assertThat(original).exists();
         assertThat(Files.readString(original, StandardCharsets.UTF_8)).isEqualTo("p0-bytes");
@@ -67,7 +70,7 @@ class DeleteStagingManifestTest {
         Files.writeString(subdir.resolve("0_300_p0.jpg"), "stale-staged", StandardCharsets.UTF_8);
         DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
 
-        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         assertThat(Files.readString(original, StandardCharsets.UTF_8)).isEqualTo("current");
         assertThat(subdir).doesNotExist();
@@ -82,7 +85,7 @@ class DeleteStagingManifestTest {
         // 故意不写入暂存副本，模拟连备份也丢失
         DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
 
-        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         assertThat(original).doesNotExist();
         assertThat(subdir).isDirectory();
@@ -96,7 +99,7 @@ class DeleteStagingManifestTest {
         Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
         Path stagedBackup = Files.writeString(subdir.resolve("0_a.jpg"), "a", StandardCharsets.UTF_8);
 
-        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         assertThat(subdir).isDirectory();
         assertThat(stagedBackup).exists();
@@ -117,15 +120,22 @@ class DeleteStagingManifestTest {
         for (int i = 0; i < unsafeNames.size(); i++) {
             Path subdir = Files.createDirectories(stagingRoot.resolve("op-" + i));
             Files.writeString(subdir.resolve("0_x.jpg"), "backup", StandardCharsets.UTF_8);
-            DeleteStagingManifest.write(subdir, List.of(new DeleteStagingManifest.Entry(
-                    original.toAbsolutePath().normalize(), unsafeNames.get(i))));
+            Properties manifest = new Properties();
+            manifest.setProperty("version", "1");
+            manifest.setProperty("count", "1");
+            manifest.setProperty("0.original", original.toAbsolutePath().normalize().toString());
+            manifest.setProperty("0.staged", unsafeNames.get(i));
+            try (var writer = Files.newBufferedWriter(
+                    subdir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME), StandardCharsets.UTF_8)) {
+                manifest.store(writer, "untrusted manifest fixture");
+            }
 
             assertThat(DeleteStagingManifest.read(subdir))
                     .as("暂存副本名 %s 应被判为损坏", unsafeNames.get(i))
                     .isEmpty();
         }
 
-        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         // 损坏清单一律保留子目录，且不会据越权来源把任何文件写到原文件位置
         assertThat(original).doesNotExist();
@@ -143,10 +153,70 @@ class DeleteStagingManifestTest {
         Files.writeString(subdir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME),
                 "version=1\ncount=not-a-number\n", StandardCharsets.UTF_8);
 
-        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         assertThat(subdir).isDirectory();
         assertThat(DeleteStagingManifest.read(subdir)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("清单拒绝超限条目数、超长字段和重复目标或暂存项")
+    void rejectsResourceLimitAndDuplicateViolations() throws IOException {
+        Path stagingDir = Files.createDirectories(tempDir.resolve("bounded"));
+        Path original = tempDir.resolve("300/300_p0.jpg").toAbsolutePath();
+
+        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir,
+                java.util.Collections.nCopies(DeleteStagingManifest.MAX_ENTRIES + 1,
+                        entry(original, "0.jpg"))))
+                .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(
+                entry(original, "0.jpg"), entry(original, "1.jpg"))))
+                .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(
+                entry(original, "0.jpg"), entry(tempDir.resolve("other.jpg"), "0.jpg"))))
+                .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(entry(
+                tempDir.resolve("a".repeat(DeleteStagingManifest.MAX_ORIGINAL_PATH_CHARS)), "0.jpg"))))
+                .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(
+                entry(original, "a".repeat(DeleteStagingManifest.MAX_STAGED_FILE_NAME_CHARS + 1)))))
+                .isInstanceOf(IOException.class);
+
+        Files.writeString(stagingDir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME),
+                "version=1\ncount=" + (DeleteStagingManifest.MAX_ENTRIES + 1) + "\n",
+                StandardCharsets.UTF_8);
+        assertThat(DeleteStagingManifest.read(stagingDir)).isEmpty();
+
+        Files.writeString(stagingDir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME),
+                "x".repeat((int) DeleteStagingManifest.MAX_MANIFEST_BYTES + 1), StandardCharsets.UTF_8);
+        assertThat(DeleteStagingManifest.read(stagingDir)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("恢复复制与并发新建目标冲突时原子地拒绝覆盖")
+    void restoreCopyNeverOverwritesConcurrentlyCreatedTarget() throws IOException {
+        Path staged = Files.writeString(tempDir.resolve("staged.jpg"), "staged", StandardCharsets.UTF_8);
+        Path original = Files.writeString(tempDir.resolve("target.jpg"), "new", StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> DeleteStagingManifest.copyRestoredFile(staged, original))
+                .isInstanceOf(FileAlreadyExistsException.class);
+        assertThat(original).hasContent("new");
+    }
+
+    @Test
+    @DisplayName("恢复清单指向授权根外部时不写入并保留暂存副本")
+    void rejectsOriginalOutsideAllowedRoots() throws IOException {
+        Path stagingRoot = Files.createDirectories(tempDir.resolve("delete-staging-outside"));
+        Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
+        Path allowedRoot = Files.createDirectories(tempDir.resolve("allowed"));
+        Path outside = tempDir.resolveSibling(tempDir.getFileName() + "-outside").resolve("restored.jpg");
+        Files.writeString(subdir.resolve("0_restored.jpg"), "backup", StandardCharsets.UTF_8);
+        DeleteStagingManifest.write(subdir, List.of(entry(outside, "0_restored.jpg")));
+
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(allowedRoot));
+
+        assertThat(outside).doesNotExist();
+        assertThat(subdir).isDirectory();
     }
 
     @Test
@@ -168,7 +238,7 @@ class DeleteStagingManifestTest {
         Files.writeString(subdir.resolve("0_restored.jpg"), "backup", StandardCharsets.UTF_8);
         DeleteStagingManifest.write(subdir, List.of(entry(original, "0_restored.jpg")));
 
-        DeleteStagingManifest.recoverLeftovers(stagingRoot);
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         assertThat(outside.resolve("restored.jpg")).doesNotExist();
         assertThat(subdir).isDirectory();
@@ -177,8 +247,8 @@ class DeleteStagingManifestTest {
     @Test
     @DisplayName("恢复：暂存根目录不存在时安全返回，不抛异常")
     void recoverIsNoOpWhenRootMissing() {
-        DeleteStagingManifest.recoverLeftovers(tempDir.resolve("nonexistent"));
-        DeleteStagingManifest.recoverLeftovers(null);
+        DeleteStagingManifest.recoverLeftovers(tempDir.resolve("nonexistent"), List.of(tempDir));
+        DeleteStagingManifest.recoverLeftovers(null, List.of(tempDir));
     }
 
     private static void createSymbolicLinkOrSkip(Path link, Path target) {

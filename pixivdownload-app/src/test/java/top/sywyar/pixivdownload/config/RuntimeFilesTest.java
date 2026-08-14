@@ -252,7 +252,7 @@ class RuntimeFilesTest {
         DeleteStagingManifest.write(subdir, List.of(new DeleteStagingManifest.Entry(
                 original.toAbsolutePath().normalize(), "0_300_p0.jpg")));
 
-        RuntimeFiles.recoverDeleteStagingLeftovers();
+        RuntimeFiles.recoverDeleteStagingLeftovers(downloadRoot.toString());
 
         assertThat(original).exists();
         assertThat(Files.readString(original, StandardCharsets.UTF_8)).isEqualTo("p0-bytes");
@@ -271,7 +271,7 @@ class RuntimeFilesTest {
         Files.writeString(corrupt.resolve("0_b.jpg"), "b", StandardCharsets.UTF_8);
         Files.writeString(corrupt.resolve("manifest.properties"), "count=oops\n", StandardCharsets.UTF_8);
 
-        RuntimeFiles.recoverDeleteStagingLeftovers();
+        RuntimeFiles.recoverDeleteStagingLeftovers(downloadRoot.toString());
 
         assertThat(noManifest).isDirectory();
         assertThat(noManifest.resolve("0_a.jpg")).exists();

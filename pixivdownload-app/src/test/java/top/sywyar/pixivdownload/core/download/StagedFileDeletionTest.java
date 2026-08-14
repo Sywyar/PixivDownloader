@@ -135,7 +135,7 @@ class StagedFileDeletionTest {
         assertEquals(1, stagingSubdirectories().size(), "前置：暂存子目录被保留");
 
         // 模拟下次启动：恢复入口据清单把仍缺失的 b 从暂存复原
-        RuntimeFiles.recoverDeleteStagingLeftovers();
+        RuntimeFiles.recoverDeleteStagingLeftovers(tempDir.toString());
 
         assertTrue(Files.exists(b), "启动恢复应复原 b");
         assertEquals("b", Files.readString(b), "复原内容应一致");
