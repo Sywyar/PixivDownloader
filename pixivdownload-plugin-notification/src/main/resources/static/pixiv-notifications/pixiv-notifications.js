@@ -336,6 +336,7 @@
         try {
             var updated = await api(withLanguage('/api/notifications/' + encodeURIComponent(id) + '/read'),
                 { method: 'POST' });
+            ++loadSequence;
             if (state.selectedId !== id) return;
             state.unreadCount = Math.max(0, state.unreadCount - 1);
             if (state.unreadOnly) {
@@ -377,6 +378,7 @@
         if (button) button.disabled = true;
         try {
             await api('/api/notifications/' + encodeURIComponent(id), { method: 'DELETE' });
+            ++loadSequence;
             if (state.selectedId !== id) return;
             discardContentFrame(id);
             if (!message.readTime) state.unreadCount = Math.max(0, state.unreadCount - 1);
@@ -479,6 +481,7 @@
             var query = category ? '?category=' + encodeURIComponent(category) : '';
             try {
                 await api('/api/notifications/read-all' + query, { method: 'POST' });
+                ++loadSequence;
                 if (state.category !== category || !await loadMessages()) return;
                 if (state.unreadOnly) clearSelection(true);
                 else if (state.selectedId) selectMessage(state.selectedId, false);
