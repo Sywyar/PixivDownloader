@@ -131,7 +131,7 @@ public class SetupController {
 
     @PostMapping("/api/auth/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
-                                               HttpServletRequest httpRequest) {
+                                               HttpServletRequest httpRequest) throws IOException {
         String clientIp = getClientIp(httpRequest);
         if (!loginRateLimitService.isAllowed(clientIp)) {
             throw new LocalizedException(
@@ -165,7 +165,7 @@ public class SetupController {
     }
 
     @PostMapping("/api/auth/logout")
-    public ResponseEntity<AuthResponse> logout(HttpServletRequest request) {
+    public ResponseEntity<AuthResponse> logout(HttpServletRequest request) throws IOException {
         String token = SessionUtils.extractToken(request);
         setupService.removeSession(token);
 

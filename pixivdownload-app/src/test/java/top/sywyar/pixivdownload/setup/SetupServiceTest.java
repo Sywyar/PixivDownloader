@@ -192,7 +192,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("创建的短期 session 应有效")
-        void shouldCreateValidShortSession() {
+        void shouldCreateValidShortSession() throws IOException {
             String token = setupService.createSession(false);
 
             assertThat(token).isNotNull().isNotBlank();
@@ -201,7 +201,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("创建的长期 session 应有效")
-        void shouldCreateValidLongSession() {
+        void shouldCreateValidLongSession() throws IOException {
             String token = setupService.createSession(true);
 
             assertThat(token).isNotNull().isNotBlank();
@@ -242,7 +242,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("短期 session 不应在重启后保留")
-        void shouldNotPersistShortSession() {
+        void shouldNotPersistShortSession() throws IOException {
             String token = setupService.createSession(false);
 
             SetupService reloaded = createSetupService();
@@ -251,7 +251,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("移除 session 后应失效")
-        void shouldInvalidateRemovedSession() {
+        void shouldInvalidateRemovedSession() throws IOException {
             String token = setupService.createSession(false);
             assertThat(setupService.isValidSession(token)).isTrue();
 
@@ -282,7 +282,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("多个 session 应独立管理")
-        void shouldManageMultipleSessions() {
+        void shouldManageMultipleSessions() throws IOException {
             String token1 = setupService.createSession(false);
             String token2 = setupService.createSession(false);
 
@@ -292,6 +292,78 @@ class SetupServiceTest {
             setupService.removeSession(token1);
             assertThat(setupService.isValidSession(token1)).isFalse();
             assertThat(setupService.isValidSession(token2)).isTrue();
+        }
+
+        @Test
+        @DisplayName("长期 session 持久化失败时不发布到内存")
+        void shouldRollbackRememberedSessionWhenSaveFails() throws IOException {
+            Path backup = blockStateDirectory();
+            try {
+                assertThatThrownBy(() -> setupService.createSession(true))
+                        .isInstanceOf(IOException.class);
+            } finally {
+                restoreStateDirectory(backup);
+            }
+
+            setupService.updateDisplayName("after-failure");
+            SetupConfig persisted = new ObjectMapper().readValue(
+                    stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
+            assertThat(persisted.getSessions()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("长期 session 注销持久化失败时保持原登录态")
+        void shouldRollbackLogoutWhenSaveFails() throws IOException {
+            String token = setupService.createSession(true);
+            Path backup = blockStateDirectory();
+            try {
+                assertThatThrownBy(() -> setupService.removeSession(token))
+                        .isInstanceOf(IOException.class);
+                assertThat(setupService.isValidSession(token)).isTrue();
+            } finally {
+                restoreStateDirectory(backup);
+            }
+        }
+
+        @Test
+        @DisplayName("长期 session 超过上限时淘汰最早到期项")
+        void shouldCapPersistentSessions() throws IOException {
+            String first = null;
+            String latest = null;
+            for (int i = 0; i <= SetupService.MAX_PERSISTENT_SESSIONS; i++) {
+                latest = setupService.createSession(true);
+                if (i == 0) {
+                    first = latest;
+                }
+            }
+
+            assertThat(setupService.isValidSession(first)).isFalse();
+            assertThat(setupService.isValidSession(latest)).isTrue();
+            SetupConfig persisted = new ObjectMapper().readValue(
+                    stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
+            assertThat(persisted.getSessions()).hasSize(SetupService.MAX_PERSISTENT_SESSIONS);
+        }
+    }
+
+    @Test
+    @DisplayName("密码和称呼持久化失败时回滚内存状态")
+    void shouldRollbackAccountMutationsWhenSaveFails() throws IOException {
+        setupService.init("admin", "password1234", "solo");
+        setupService.updateDisplayName("Before");
+        String token = setupService.createSession(true);
+        Path backup = blockStateDirectory();
+        try {
+            assertThatThrownBy(() -> setupService.changePassword("password1234", "new-password-1234"))
+                    .isInstanceOf(IOException.class);
+            assertThat(setupService.checkLogin("admin", "password1234")).isTrue();
+            assertThat(setupService.checkLogin("admin", "new-password-1234")).isFalse();
+            assertThat(setupService.isValidSession(token)).isTrue();
+
+            assertThatThrownBy(() -> setupService.updateDisplayName("After"))
+                    .isInstanceOf(IOException.class);
+            assertThat(setupService.getDisplayName()).isEqualTo("Before");
+        } finally {
+            restoreStateDirectory(backup);
         }
     }
 
@@ -336,7 +408,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("有效 session cookie 应识别为已登录")
-        void shouldRecognizeValidSessionCookie() {
+        void shouldRecognizeValidSessionCookie() throws IOException {
             String token = setupService.createSession(false);
             MockHttpServletRequest request = new MockHttpServletRequest();
             request.setCookies(new Cookie("pixiv_session", token));
@@ -352,5 +424,17 @@ class SetupServiceTest {
 
             assertThat(setupService.isAdminLoggedIn(request)).isFalse();
         }
+    }
+
+    private Path blockStateDirectory() throws IOException {
+        Path backup = tempDir.resolve("state-backup");
+        Files.move(stateDir, backup);
+        Files.writeString(stateDir, "blocked", StandardCharsets.UTF_8);
+        return backup;
+    }
+
+    private void restoreStateDirectory(Path backup) throws IOException {
+        Files.deleteIfExists(stateDir);
+        Files.move(backup, stateDir);
     }
 }

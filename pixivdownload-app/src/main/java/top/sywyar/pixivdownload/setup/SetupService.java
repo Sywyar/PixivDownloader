@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -38,6 +39,7 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
     private static final SecureRandom SESSION_RANDOM = new SecureRandom();
     private static final int MAX_TOKEN_LENGTH = 128;
+    static final int MAX_PERSISTENT_SESSIONS = 32;
     public static final int MIN_PASSWORD_LENGTH = 12;
 
     @Getter
@@ -83,12 +85,14 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         if (!configurationCorrupted
                 && passwordHash != null && !passwordHash.startsWith("$2")
                 && !persistentSessions.isEmpty()) {
+            SetupState before = snapshot();
             sessions.clear();
             persistentSessions.clear();
             log.info(message("setup.log.password-hash.legacy-detected"));
             try {
                 save();
             } catch (IOException e) {
+                restore(before);
                 log.warn(message("setup.log.config.load.failed", e.getMessage()));
             }
         }
@@ -173,20 +177,13 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         if (pwd == null || pwd.length() < MIN_PASSWORD_LENGTH) {
             throw new IllegalArgumentException("Password must be at least " + MIN_PASSWORD_LENGTH + " characters");
         }
+        SetupState before = snapshot();
         this.salt = null;  // BCrypt 不需要单独的 salt 字段
         this.passwordHash = BCRYPT.encode(pwd);
         this.username = uname;
         this.mode = usageMode;
         this.setupComplete = true;
-        try {
-            save();
-        } catch (IOException e) {
-            this.setupComplete = false;
-            this.mode = null;
-            this.username = null;
-            this.passwordHash = null;
-            throw e;
-        }
+        saveOrRestore(before);
         log.info(message("setup.log.completed", usageMode));
     }
 
@@ -208,11 +205,12 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
             throw new IllegalArgumentException(
                     "New password must be at least " + MIN_PASSWORD_LENGTH + " characters");
         }
+        SetupState before = snapshot();
         this.salt = null;
         this.passwordHash = BCRYPT.encode(newPwd);
         sessions.clear();
         persistentSessions.clear();
-        save();
+        saveOrRestore(before);
         log.info(message("setup.log.password.changed"));
     }
 
@@ -223,14 +221,15 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
      * 与登录用 {@link #username} 无关，仅用于个性化展示。
      */
     public synchronized void updateDisplayName(String name) throws IOException {
+        SetupState before = snapshot();
         String trimmed = name == null ? null : name.trim();
         this.displayName = (trimmed == null || trimmed.isEmpty()) ? null : trimmed;
-        save();
+        saveOrRestore(before);
     }
 
     // ---- 登录验证 -------------------------------------------------------
 
-    public boolean checkLogin(String uname, String pwd) {
+    public synchronized boolean checkLogin(String uname, String pwd) {
         if (username == null || !username.equals(uname) || passwordHash == null) return false;
         // BCrypt 哈希以 $2a$/$2b$/$2y$ 开头；旧版为 64 位 hex（SHA-256）
         if (passwordHash.startsWith("$2")) {
@@ -238,12 +237,15 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         }
         // 向后兼容：旧 SHA-256 哈希验证通过后自动升级为 BCrypt
         if (passwordHash.equals(legacySha256Hash(pwd, salt))) {
+            SetupState before = snapshot();
             this.salt         = null;
             this.passwordHash = BCRYPT.encode(pwd);
             try {
                 save();
             } catch (IOException e) {
+                restore(before);
                 log.warn(message("setup.log.password-hash.upgrade.failed", e.getMessage()));
+                return true;
             }
             log.info(message("setup.log.password-hash.upgraded"));
             return true;
@@ -253,26 +255,28 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
 
     // ---- Session 管理 --------------------------------------------------
 
-    public String createSession(boolean remember) {
+    public synchronized String createSession(boolean remember) throws IOException {
         byte[] tokenBytes = new byte[32];
         SESSION_RANDOM.nextBytes(tokenBytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
         Arrays.fill(tokenBytes, (byte) 0);
         String digest = tokenDigest(token);
         long expiry = System.currentTimeMillis() + (remember ? SESSION_LONG : SESSION_SHORT);
+        if (remember) {
+            long latestExpiry = persistentSessions.values().stream().mapToLong(Long::longValue).max().orElse(0L);
+            expiry = Math.max(expiry, latestExpiry + 1);
+        }
+        SetupState before = remember ? snapshot() : null;
         sessions.put(digest, expiry);
         if (remember) {
+            evictPersistentSessionsIfNeeded();
             persistentSessions.put(digest, expiry);
-            try {
-                save();
-            } catch (IOException e) {
-                log.warn(message("setup.log.session.save.failed", e.getMessage()));
-            }
+            saveOrRestore(before);
         }
         return token;
     }
 
-    public boolean isValidSession(String token) {
+    public synchronized boolean isValidSession(String token) {
         if (token == null || token.isBlank() || token.length() > MAX_TOKEN_LENGTH) return false;
         String digest = tokenDigest(token);
         Long exp = sessions.get(digest);
@@ -304,17 +308,68 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         return !"multi".equals(getMode()) || isAdminLoggedIn(request);
     }
 
-    public void removeSession(String token) {
+    public synchronized void removeSession(String token) throws IOException {
         if (token == null || token.length() > MAX_TOKEN_LENGTH) return;
         String digest = tokenDigest(token);
+        SetupState before = snapshot();
         sessions.remove(digest);
         if (persistentSessions.remove(digest) != null) {
-            try {
-                save();
-            } catch (IOException e) {
-                log.warn(message("setup.log.session.remove.failed", e.getMessage()));
-            }
+            saveOrRestore(before);
         }
+    }
+
+    private void evictPersistentSessionsIfNeeded() {
+        long now = System.currentTimeMillis();
+        persistentSessions.entrySet().removeIf(entry -> {
+            if (entry.getValue() > now) {
+                return false;
+            }
+            sessions.remove(entry.getKey());
+            return true;
+        });
+        while (persistentSessions.size() >= MAX_PERSISTENT_SESSIONS) {
+            String oldest = persistentSessions.entrySet().stream()
+                    .min(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
+                    .orElse(null);
+            if (oldest == null) {
+                return;
+            }
+            persistentSessions.remove(oldest);
+            sessions.remove(oldest);
+        }
+    }
+
+    private SetupState snapshot() {
+        return new SetupState(setupComplete, mode, username, displayName, passwordHash, salt,
+                new LinkedHashMap<>(sessions), new LinkedHashMap<>(persistentSessions));
+    }
+
+    private void saveOrRestore(SetupState before) throws IOException {
+        try {
+            save();
+        } catch (IOException e) {
+            restore(before);
+            throw e;
+        }
+    }
+
+    private void restore(SetupState state) {
+        setupComplete = state.setupComplete();
+        mode = state.mode();
+        username = state.username();
+        displayName = state.displayName();
+        passwordHash = state.passwordHash();
+        salt = state.salt();
+        sessions.clear();
+        sessions.putAll(state.sessions());
+        persistentSessions.clear();
+        persistentSessions.putAll(state.persistentSessions());
+    }
+
+    private record SetupState(boolean setupComplete, String mode, String username, String displayName,
+                              String passwordHash, String salt, Map<String, Long> sessions,
+                              Map<String, Long> persistentSessions) {
     }
 
     // ---- 工具 ----------------------------------------------------------
