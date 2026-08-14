@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const {webcrypto} = require('crypto');
 
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-posthog', 'pixiv-posthog.js'), 'utf8');
@@ -53,6 +54,7 @@ async function testSynchronousLoadFailureCanRetry() {
 
 async function main() {
     const initCalls = [];
+    const storage = new Map();
     const clients = {};
     const sdk = {
         init(token, config, name) {
@@ -61,7 +63,14 @@ async function main() {
             return clients[name];
         }
     };
-    const sandbox = {window: null, console, Promise, Object, URL, setTimeout, clearTimeout, posthog: sdk};
+    const sandbox = {
+        window: null, console, Promise, Object, URL, Uint8Array,
+        setTimeout, clearTimeout, posthog: sdk, crypto: webcrypto,
+        localStorage: {
+            getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+            setItem(key, value) { storage.set(key, value); }
+        }
+    };
     sandbox.window = sandbox;
     vm.createContext(sandbox);
     vm.runInContext(source, sandbox, {filename: 'pixiv-posthog.js'});
@@ -92,6 +101,8 @@ async function main() {
     assert.strictEqual(initCalls[0].config.bootstrap.distinctID, 'plf_' + 'a'.repeat(64));
     assert.strictEqual(initCalls[0].config.autocapture, false);
     assert.strictEqual(initCalls[0].config.before_send, filter);
+    assert.strictEqual(initCalls[0].config.persistence, 'memory');
+    assert.strictEqual(initCalls[0].config.disable_persistence, true);
     assert.strictEqual(initCalls[0].token, posthog.projectToken);
     assert.strictEqual(initCalls[0].config.api_host, posthog.apiHost);
     assert.strictEqual(initCalls[0].config.ui_host, posthog.uiHost);
@@ -147,6 +158,31 @@ async function main() {
     assert.ok(second);
     assert.strictEqual(initCalls.length, 2);
     assert.strictEqual(initCalls[1].token, 'phc_owner_two');
+    assert.match(initCalls[1].config.bootstrap.distinctID, /^ps_[0-9a-f]{64}$/);
+    const third = await api.createSurveyClient({
+        ownerKey: 'another-plugin.second-survey',
+        posthog: {...posthog, surveyId: 'survey-three'},
+        beforeSend: filter
+    });
+    assert.ok(third);
+    assert.strictEqual(initCalls.length, 3);
+    assert.match(initCalls[2].config.bootstrap.distinctID, /^ps_[0-9a-f]{64}$/);
+    assert.notStrictEqual(initCalls[1].config.bootstrap.distinctID,
+        initCalls[2].config.bootstrap.distinctID);
+    const fourth = await api.createSurveyClient({
+        ownerKey: 'another-plugin',
+        posthog: {
+            projectToken: 'phc_owner_four',
+            surveyId: 'own-survey.survey-two',
+            apiHost: 'https://eu.i.posthog.com',
+            uiHost: 'https://eu.posthog.com'
+        },
+        beforeSend: filter
+    });
+    assert.ok(fourth);
+    assert.strictEqual(initCalls.length, 4);
+    assert.notStrictEqual(initCalls[1].config.bootstrap.distinctID,
+        initCalls[3].config.bootstrap.distinctID);
     assert.deepStrictEqual(Object.keys(api), ['createSurveyClient']);
     await testSynchronousLoadFailureCanRetry();
     console.log('pixiv-posthog.test.js: passed');

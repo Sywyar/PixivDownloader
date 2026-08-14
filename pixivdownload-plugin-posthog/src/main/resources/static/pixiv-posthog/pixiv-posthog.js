@@ -120,6 +120,26 @@
             && left.uiHost === right.uiHost;
     }
 
+    function fallbackDistinctId(ownerKey, surveyId) {
+        var storageKey = 'pixivdownload.posthog.survey-id.' + JSON.stringify([ownerKey, surveyId]);
+        var pattern = /^ps_[0-9a-f]{64}$/;
+        try {
+            var stored = global.localStorage && global.localStorage.getItem(storageKey);
+            if (pattern.test(stored || '')) return stored;
+        } catch (_) { /* use an in-memory identity */ }
+        if (!global.crypto || typeof global.crypto.getRandomValues !== 'function') return '';
+        var bytes = new Uint8Array(32);
+        global.crypto.getRandomValues(bytes);
+        var generated = 'ps_';
+        for (var i = 0; i < bytes.length; i++) {
+            generated += bytes[i].toString(16).padStart(2, '0');
+        }
+        try {
+            if (global.localStorage) global.localStorage.setItem(storageKey, generated);
+        } catch (_) { /* stable for this page through the owner record */ }
+        return generated;
+    }
+
     function sdkConfig(options, posthog) {
         var result = {
             api_host: posthog.apiHost,
@@ -134,7 +154,8 @@
             disable_session_recording: true,
             disable_surveys: false,
             person_profiles: 'identified_only',
-            persistence: 'localStorage',
+            persistence: 'memory',
+            disable_persistence: true,
             cross_subdomain_cookie: false,
             respect_dnt: true,
             save_campaign_params: false,
@@ -162,16 +183,19 @@
         if (!ownerKey || !posthog || typeof options.beforeSend !== 'function') {
             return Promise.resolve(null);
         }
-        var distinctId = typeof options.distinctId === 'string' ? options.distinctId : '';
+        var requestedDistinctId = typeof options.distinctId === 'string' ? options.distinctId : '';
         var existing = clients[ownerKey];
         if (existing) {
-            if (existing.distinctId !== distinctId || existing.beforeSend !== options.beforeSend
+            if ((requestedDistinctId && existing.distinctId !== requestedDistinctId)
+                    || existing.beforeSend !== options.beforeSend
                     || !samePostHog(existing.posthog, posthog)) {
                 warn('posthog: survey client already exists with a different configuration; owner disabled for this page');
                 return Promise.resolve(null);
             }
             return existing.promise;
         }
+        var distinctId = requestedDistinctId || fallbackDistinctId(ownerKey, posthog.surveyId);
+        if (!distinctId) return Promise.resolve(null);
         var record = {
             distinctId: distinctId,
             beforeSend: options.beforeSend,

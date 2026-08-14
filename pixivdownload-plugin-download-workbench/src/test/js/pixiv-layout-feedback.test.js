@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
+const {webcrypto} = require('crypto');
 
 const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-layout-feedback', 'pixiv-layout-feedback.js');
@@ -844,6 +845,8 @@ function createHarness(options) {
         CustomEvent: MiniCustomEvent,
         AbortController,
         URL,
+        Uint8Array,
+        crypto: webcrypto,
         setTimeout: timers.setTimeout,
         clearTimeout: timers.clearTimeout
     };
@@ -1595,7 +1598,8 @@ function testSdkInitConfigPrivacy() {
         eq('dead clicks 关闭', c.capture_dead_clicks, false);
         eq('surveys 保持启用', c.disable_surveys, false);
         eq('person_profiles 不创建匿名 Person', c.person_profiles, 'identified_only');
-        eq('persistence 使用 localStorage', c.persistence, 'localStorage');
+        eq('persistence 仅使用内存', c.persistence, 'memory');
+        eq('SDK persistence 显式关闭', c.disable_persistence, true);
         eq('cross_subdomain_cookie 关闭', c.cross_subdomain_cookie, false);
         eq('DNT 尊重', c.respect_dnt, true);
         eq('campaign params 关闭', c.save_campaign_params, false);
@@ -3051,7 +3055,7 @@ function testServerModeUnavailableFallsBackToLocal() {
         return waitForFlush().then(() => {
             eq('403（multi 模式）回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
             const cfg = h.adapter.sdkConfig();
-            eq('回退模式 sdk config 不包含 bootstrap', cfg.bootstrap === undefined, true);
+            ok('回退模式使用调查隔离匿名 ID', /^ps_[0-9a-f]{64}$/.test(cfg.bootstrap.distinctID));
             eq('回退模式不包含 distinct_id 初始化字段', cfg.distinct_id, undefined);
         });
     }).then(() => {
@@ -3062,7 +3066,8 @@ function testServerModeUnavailableFallsBackToLocal() {
         h.dispatchFirstDownload();
         return waitForFlush().then(() => {
             eq('服务端不可达回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
-            eq('服务端不可达不设置 bootstrap', h.adapter.sdkConfig().bootstrap === undefined, true);
+            ok('服务端不可达使用调查隔离匿名 ID',
+                /^ps_[0-9a-f]{64}$/.test(h.adapter.sdkConfig().bootstrap.distinctID));
         });
     }).then(() => {
         const h = initHarness({
@@ -3526,7 +3531,8 @@ function testOpenWaitsForServer403Fallback() {
     });
     return h.api.open().then(() => waitForFlush()).then(() => {
         eq('403 后浏览器匿名模式初始化', h.adapter.sdkConfig() !== null, true);
-        eq('403 后不设置 bootstrap', h.adapter.sdkConfig().bootstrap === undefined, true);
+        ok('403 后使用调查隔离匿名 ID',
+            /^ps_[0-9a-f]{64}$/.test(h.adapter.sdkConfig().bootstrap.distinctID));
         eq('403 后本地模式可展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
     });
 }
@@ -3912,49 +3918,51 @@ function testApplyServerViewRejectsInvalidShapes() {
         });
         return h.api.open().then(() => waitForFlush()).then(() => h);
     };
+    const usesFallbackIdentity = h => /^ps_[0-9a-f]{64}$/.test(
+        h.adapter.sdkConfig().bootstrap.distinctID);
     return withServerState({revision: 1.5}).then(h => {
-        eq('非整数 revision 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('非整数 revision 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({revision: -1})).then(h => {
-        eq('负数 revision 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('负数 revision 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({revision: Number.NaN})).then(h => {
-        eq('NaN revision 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('NaN revision 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({distinctId: ''})).then(h => {
-        eq('available=true 但 distinctId 缺失视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('available=true 但 distinctId 缺失视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'bogus', canShow: false, retryAfterMs: 0})).then(h => {
-        eq('未知 status 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('未知 status 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'submitted', canShow: true, retryAfterMs: 0})).then(h => {
-        eq('submitted + canShow=true 组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('submitted + canShow=true 组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'snoozed', canShow: true, retryAfterMs: 100})).then(h => {
-        eq('snoozed canShow=true + retryAfterMs>0 组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('snoozed canShow=true + retryAfterMs>0 组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'snoozed', canShow: false, retryAfterMs: 0})).then(h => {
-        eq('snoozed canShow=false + retryAfterMs=0 组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('snoozed canShow=false + retryAfterMs=0 组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: null, canShow: false, retryAfterMs: 0})).then(h => {
-        eq('status=null 必须 canShow=true：组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('status=null 必须 canShow=true：组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: null, canShow: true, retryAfterMs: 50})).then(h => {
-        eq('status=null 必须 retryAfterMs=0：组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('status=null 必须 retryAfterMs=0：组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         stateAvailable: false, status: 'never', canShow: false, retryAfterMs: 0
     })).then(h => {
-        eq('stateAvailable=false 必须 status=null：组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('stateAvailable=false 必须 status=null：组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         status: 'submitted', canShow: false, retryAfterMs: 0,
         seenLayouts: ['pixiv-batch-landscape', 'pixiv-batch-landscape']
     })).then(h => {
-        eq('seenLayouts 重复视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('seenLayouts 重复视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         status: 'submitted', canShow: false, retryAfterMs: 0,
         seenLayouts: ['pixiv-batch-unknown']
     })).then(h => {
-        eq('seenLayouts 未知布局视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('seenLayouts 未知布局视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         status: 'submitted', canShow: false, retryAfterMs: 0,
         seenLayouts: ['pixiv-batch-landscape', 'pixiv-batch-portrait', 'pixiv-batch-alt', 'pixiv-batch-landscape']
     })).then(h => {
-        eq('seenLayouts 超过三个视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('seenLayouts 超过三个视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({canShow: 'yes'})).then(h => {
-        eq('canShow 非 boolean 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('canShow 非 boolean 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({retryAfterMs: -1})).then(h => {
-        eq('负数 retryAfterMs 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('负数 retryAfterMs 视图整体拒绝', usesFallbackIdentity(h), true);
     });
 }
 
@@ -6577,19 +6585,21 @@ function testRevisionSafeIntegerBoundary() {
         });
         return h.api.open().then(() => waitForFlush()).then(() => h);
     };
+    const usesFallbackIdentity = h => /^ps_[0-9a-f]{64}$/.test(
+        h.adapter.sdkConfig().bootstrap.distinctID);
     return withRevision(MAX_SAFE).then(h => {
         ok('revision=Number.MAX_SAFE_INTEGER 合法',
             !!(h.adapter.sdkConfig() && h.adapter.sdkConfig().bootstrap));
     }).then(() => withRevision(MAX_SAFE + 1)).then(h => {
-        eq('revision=MAX_SAFE_INTEGER+1 → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=MAX_SAFE_INTEGER+1 → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision(1.5)).then(h => {
-        eq('revision=非整数 → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=非整数 → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision(Infinity)).then(h => {
-        eq('revision=Infinity → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=Infinity → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision(NaN)).then(h => {
-        eq('revision=NaN → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=NaN → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision('5')).then(h => {
-        eq('revision=string → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=string → VIEW_INVALID', usesFallbackIdentity(h), true);
     });
 }
 
