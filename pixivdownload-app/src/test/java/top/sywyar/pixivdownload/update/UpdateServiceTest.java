@@ -24,6 +24,8 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.Signature;
 import java.util.Base64;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.LongConsumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -200,6 +202,55 @@ class UpdateServiceTest {
             restoreProperty("os.arch", oldOsArch);
             Files.deleteIfExists(part);
         }
+    }
+
+    @Test
+    @DisplayName("异步下载固定启动时选中的更新对象")
+    void shouldKeepSelectedUpdateSnapshotForAsyncDownload() throws Exception {
+        CountDownLatch received = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        UpdateCheckResult selected = UpdateCheckResult.builder()
+                .updateAvailable(true)
+                .latestVersion("999.0.4-selected")
+                .assetUrl("https://example.com/selected.exe")
+                .assetSha256(ASSET_SHA256)
+                .assetSizeBytes(1)
+                .build();
+        UpdateCheckResult replacement = UpdateCheckResult.builder()
+                .updateAvailable(true)
+                .latestVersion("999.0.5-replacement")
+                .assetUrl("https://example.com/replacement.exe")
+                .assetSha256(ASSET_SHA256)
+                .assetSizeBytes(1)
+                .build();
+        java.util.concurrent.atomic.AtomicReference<UpdateCheckResult> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(PluginCatalogClientProvider.class)) {
+            @Override
+            UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
+                captured.set(check);
+                received.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new IOException("timed out waiting for test release");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+                return UpdateDownloadResult.builder().version(check.getLatestVersion()).build();
+            }
+        };
+        var lastResult = UpdateService.class.getDeclaredField("lastResult");
+        lastResult.setAccessible(true);
+        lastResult.set(service, selected);
+
+        service.startDownloadAsync(false);
+        assertThat(received.await(5, TimeUnit.SECONDS)).isTrue();
+        lastResult.set(service, replacement);
+        release.countDown();
+
+        assertThat(captured.get()).isSameAs(selected);
     }
 
     @Test

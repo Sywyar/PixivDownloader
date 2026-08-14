@@ -374,7 +374,7 @@ public class UpdateService {
 
         Thread worker = new Thread(() -> {
             try {
-                downloadInstaller(nightlyChannel);
+                downloadInstaller(selected);
             } catch (Exception e) {
                 DownloadProgress cur = currentDownloadProgress;
                 if (cur == null || (!cur.done() && !cur.failed())) {
@@ -525,7 +525,10 @@ public class UpdateService {
      * @param nightlyChannel {@code true} 表示下载每夜版替代选项；{@code false} 表示下载正式版
      */
     public UpdateDownloadResult downloadInstaller(boolean nightlyChannel) throws IOException {
-        UpdateCheckResult check = selectChannel(nightlyChannel);
+        return downloadInstaller(selectChannel(nightlyChannel));
+    }
+
+    UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
 
         String url = check.getAssetUrl();
         if (url == null || !url.startsWith("https://")) {
