@@ -170,7 +170,10 @@
 
     function discardContentFrame(id) {
         var frame = contentFrames.get(id);
-        if (frame) frame.remove();
+        if (frame) {
+            if (frame._notificationHeightTimer) window.clearTimeout(frame._notificationHeightTimer);
+            frame.remove();
+        }
         contentFrames.delete(id);
     }
 
@@ -214,9 +217,19 @@
         });
         if (!frame) return;
         if (data.type === 'pixiv-content-height') {
-            if (typeof data.height !== 'number' || !Number.isFinite(data.height) || data.height <= 0) return;
-            var frameHeight = Math.ceil(data.height + 2) + 'px';
-            if (frame.style.height !== frameHeight) frame.style.height = frameHeight;
+            if (state.selectedId !== frame.getAttribute('data-notification-id') || frame.hidden
+                    || typeof data.height !== 'number' || !Number.isFinite(data.height)) return;
+            var height = Math.min(2000, Math.max(160, Math.ceil(data.height + 2)));
+            frame._notificationPendingHeight = height;
+            if (frame._notificationHeightTimer) return;
+            var applyHeight = function () {
+                frame._notificationHeightTimer = null;
+                if (state.selectedId !== frame.getAttribute('data-notification-id') || frame.hidden) return;
+                var frameHeight = frame._notificationPendingHeight + 'px';
+                if (frame.style.height !== frameHeight) frame.style.height = frameHeight;
+            };
+            applyHeight();
+            frame._notificationHeightTimer = window.setTimeout(applyHeight, 50);
             return;
         }
         if (data.type === 'pixiv-survey-unavailable') {

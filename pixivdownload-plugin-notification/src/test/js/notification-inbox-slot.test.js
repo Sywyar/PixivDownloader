@@ -97,13 +97,14 @@ assert.ok(PAGE_SOURCE.includes("data.type !== 'pixiv-external-link'")
     && PAGE_SOURCE.includes("window.addEventListener('message', handleContentMessage)"),
     'HTML 正文链接只能由当前 iframe 消息桥接到全站外链确认');
 assert.ok(PAGE_SOURCE.includes("data.type === 'pixiv-content-height'")
-    && PAGE_SOURCE.includes("typeof data.height !== 'number' || !Number.isFinite(data.height) || data.height <= 0")
-    && PAGE_SOURCE.includes("var frameHeight = Math.ceil(data.height + 2) + 'px'")
+    && PAGE_SOURCE.includes("state.selectedId !== frame.getAttribute('data-notification-id') || frame.hidden")
+    && PAGE_SOURCE.includes('Math.min(2000, Math.max(160, Math.ceil(data.height + 2)))')
+    && PAGE_SOURCE.includes('window.setTimeout(applyHeight, 50)')
     && PAGE_SOURCE.includes('if (frame.style.height !== frameHeight) frame.style.height = frameHeight;')
     && PAGE_SOURCE.includes("frame.setAttribute('scrolling', 'no')")
     && /\.notification-detail-content-frame\s*\{[^}]*width:\s*100%;[^}]*height:\s*1px;[^}]*border:\s*0;[^}]*overflow:\s*hidden;/s.test(CSS)
     && !/\.notification-detail-content-frame\s*\{[^}]*min-height:/s.test(CSS),
-    'HTML 正文必须按可信消息自适应高度且不显示独立滚动框');
+    'HTML 正文必须仅按当前 frame 的限频消息在 160-2000px 内自适应高度且不显示独立滚动框');
 assert.ok(PAGE_SOURCE.includes("frame.setAttribute('data-embedded-survey', 'true')")
     && PAGE_SOURCE.includes("data.type === 'pixiv-survey-unavailable'")
     && PAGE_SOURCE.includes("event.origin !== location.origin")
