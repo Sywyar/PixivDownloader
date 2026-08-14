@@ -73,6 +73,21 @@ class NovelMarkupParserTest {
     }
 
     @Test
+    @DisplayName("jumpuri 只把无凭据的 HTTP(S) 绝对地址渲染为链接")
+    void jumpUriRejectsUnsafeSchemesAndCredentials() {
+        String html = NovelMarkupParser.render("""
+                [[jumpuri:安全 > https://example.com/path?a=1&b=2]]
+                [[jumpuri:脚本 > javascript:alert(1)]]
+                [[jumpuri:数据 > data:text/html,x]]
+                [[jumpuri:凭据 > https://user@example.com/path]]
+                """, NovelMarkupParser.Format.HTML);
+
+        assertThat(html).contains("href=\"https://example.com/path?a=1&amp;b=2\"");
+        assertThat(html).doesNotContain("javascript:", "data:text", "user@example.com");
+        assertThat(html).contains("脚本", "数据", "凭据");
+    }
+
+    @Test
     @DisplayName("XHTML 模式：epub:type 命名空间前缀存在；img placeholder 存在")
     void xhtmlEpubTypeAndImage() {
         String raw = "[uploadedimage:99]\n[pixivimage:777]";

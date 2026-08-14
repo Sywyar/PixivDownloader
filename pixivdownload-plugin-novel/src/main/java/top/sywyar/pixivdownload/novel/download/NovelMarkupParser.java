@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.novel.download;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -360,11 +361,17 @@ public final class NovelMarkupParser {
                         .append(escapeHtml(m.group("rbRuby").trim()))
                         .append("</rt></ruby>");
             } else if (m.group("juText") != null) {
-                out.append("<a href=\"")
-                        .append(escapeAttr(m.group("juUrl").trim()))
-                        .append("\" rel=\"noopener noreferrer\" target=\"_blank\">")
-                        .append(escapeHtml(m.group("juText").trim()))
-                        .append("</a>");
+                String label = escapeHtml(m.group("juText").trim());
+                String href = safeExternalHref(m.group("juUrl"));
+                if (href == null) {
+                    out.append(label);
+                } else {
+                    out.append("<a href=\"")
+                            .append(escapeAttr(href))
+                            .append("\" rel=\"noopener noreferrer\" target=\"_blank\">")
+                            .append(label)
+                            .append("</a>");
+                }
             } else if (m.group("jumpPage") != null) {
                 out.append("<span class=\"novel-jump\">↗ p.")
                         .append(escapeHtml(m.group("jumpPage")))
@@ -382,6 +389,19 @@ public final class NovelMarkupParser {
         }
         appendEscapedWithBreaks(out, text.substring(last));
         return out.toString();
+    }
+
+    private static String safeExternalHref(String value) {
+        try {
+            URI uri = URI.create(value.trim());
+            String scheme = uri.getScheme();
+            return uri.isAbsolute() && uri.getHost() != null && uri.getRawUserInfo() == null
+                    && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    ? uri.toASCIIString()
+                    : null;
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private static void appendImageFigure(StringBuilder out, String url, String dataAttr,

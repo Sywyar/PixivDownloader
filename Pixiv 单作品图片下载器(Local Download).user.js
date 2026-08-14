@@ -684,8 +684,19 @@
             let s = raw;
             s = s.replace(/\[\[rb:([^>\]]+)>([^\]]+)\]\]/g, (_, base, ruby) =>
                 ph(`<ruby>${escapeXml(base.trim())}<rt>${escapeXml(ruby.trim())}</rt></ruby>`));
-            s = s.replace(/\[\[jumpuri:([^>\]]+)>([^\]]+)\]\]/g, (_, text, url) =>
-                ph(`<a href="${escapeXml(url.trim())}">${escapeXml(text.trim())}</a>`));
+            s = s.replace(/\[\[jumpuri:([^>\]]+)>([^\]]+)\]\]/g, (_, text, rawUrl) => {
+                const label = escapeXml(text.trim());
+                try {
+                    const url = new URL(rawUrl.trim());
+                    if ((url.protocol === 'http:' || url.protocol === 'https:')
+                            && !url.username && !url.password) {
+                        return ph(`<a href="${escapeXml(url.href)}">${label}</a>`);
+                    }
+                } catch (_) {
+                    // 非绝对 URL 不生成可点击链接。
+                }
+                return ph(label);
+            });
             s = s.replace(/\[chapter:([^\]]+)\]/g, (_, title) =>
                 ph(`</p><h2>${escapeXml(title.trim())}</h2><p>`));
             s = s.replace(/\[(?:uploadedimage|pixivimage):([0-9]+(?:-\d+)?)\]/g, (_, id) => {
