@@ -90,12 +90,25 @@ class NotificationInboxMapperTest {
             assertThat(mapper.findById("legacy").readTime()).isEqualTo(30);
             assertThat(mapper.acceptRemoteAnnouncementIndex(
                     2, "a".repeat(64), 100, 200)).isEqualTo(1);
+            assertThat(mapper.saveRemoteAnnouncementValidators(
+                    "a".repeat(64), "\"announcement-v1\"",
+                    "Wed, 12 Aug 2026 09:22:58 GMT")).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementValidators()).isEqualTo(
+                    new RemoteAnnouncementValidators(
+                            "a".repeat(64), 200, "\"announcement-v1\"",
+                            "Wed, 12 Aug 2026 09:22:58 GMT"));
             assertThat(mapper.acceptRemoteAnnouncementIndex(
                     1, "b".repeat(64), 100, 200)).isZero();
             assertThat(mapper.acceptRemoteAnnouncementIndex(
                     2, "b".repeat(64), 100, 200)).isZero();
             assertThat(mapper.acceptRemoteAnnouncementIndex(
                     2, "a".repeat(64), 100, 200)).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementValidators().etag())
+                    .isEqualTo("\"announcement-v1\"");
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    3, "c".repeat(64), 200, 300)).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementValidators()).isEqualTo(
+                    new RemoteAnnouncementValidators("c".repeat(64), 300, null, null));
             assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)
                     .containsExactly("newer");
             assertThat(mapper.markAllRead("announcement", 40)).isEqualTo(1);
@@ -195,7 +208,9 @@ class NotificationInboxMapperTest {
                         sequence INTEGER NOT NULL,
                         manifest_sha256 TEXT NOT NULL,
                         generated_time INTEGER NOT NULL,
-                        expires_time INTEGER NOT NULL
+                        expires_time INTEGER NOT NULL,
+                        etag TEXT,
+                        last_modified TEXT
                     )
                     """);
         }

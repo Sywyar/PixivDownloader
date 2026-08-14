@@ -471,6 +471,17 @@ class NotificationInboxServiceTest {
         }
 
         @Override
+        public RemoteAnnouncementValidators findRemoteAnnouncementValidators() {
+            return null;
+        }
+
+        @Override
+        public int saveRemoteAnnouncementValidators(
+                String manifestSha256, String etag, String lastModified) {
+            return 0;
+        }
+
+        @Override
         public long countUnread(String category) {
             return messages.stream()
                     .filter(this::visible)

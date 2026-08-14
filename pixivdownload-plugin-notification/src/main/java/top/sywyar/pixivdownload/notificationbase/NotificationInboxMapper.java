@@ -111,7 +111,13 @@ public interface NotificationInboxMapper {
             + " VALUES (1, #{sequence}, #{manifestSha256}, #{generatedTime}, #{expiresTime})"
             + " ON CONFLICT(id) DO UPDATE SET sequence = excluded.sequence,"
             + " manifest_sha256 = excluded.manifest_sha256, generated_time = excluded.generated_time,"
-            + " expires_time = excluded.expires_time"
+            + " expires_time = excluded.expires_time,"
+            + " etag = CASE WHEN excluded.manifest_sha256"
+            + " = notification_remote_index_state.manifest_sha256"
+            + " THEN notification_remote_index_state.etag ELSE NULL END,"
+            + " last_modified = CASE WHEN excluded.manifest_sha256"
+            + " = notification_remote_index_state.manifest_sha256"
+            + " THEN notification_remote_index_state.last_modified ELSE NULL END"
             + " WHERE excluded.sequence > notification_remote_index_state.sequence"
             + " OR (excluded.sequence = notification_remote_index_state.sequence"
             + " AND excluded.manifest_sha256 = notification_remote_index_state.manifest_sha256)")
@@ -119,6 +125,18 @@ public interface NotificationInboxMapper {
                                       @Param("manifestSha256") String manifestSha256,
                                       @Param("generatedTime") long generatedTime,
                                       @Param("expiresTime") long expiresTime);
+
+    @Select("SELECT manifest_sha256 AS manifestSha256, expires_time AS expiresTime,"
+            + " etag, last_modified AS lastModified"
+            + " FROM notification_remote_index_state WHERE id = 1")
+    RemoteAnnouncementValidators findRemoteAnnouncementValidators();
+
+    @Update("UPDATE notification_remote_index_state SET etag = #{etag},"
+            + " last_modified = #{lastModified}"
+            + " WHERE id = 1 AND manifest_sha256 = #{manifestSha256}")
+    int saveRemoteAnnouncementValidators(@Param("manifestSha256") String manifestSha256,
+                                         @Param("etag") String etag,
+                                         @Param("lastModified") String lastModified);
 
     @Select({
             "<script>",

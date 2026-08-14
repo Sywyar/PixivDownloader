@@ -66,7 +66,9 @@ public final class NotificationInboxSchema {
                                     column("sequence", "INTEGER", true, null, 0),
                                     column("manifest_sha256", "TEXT", true, null, 0),
                                     column("generated_time", "INTEGER", true, null, 0),
-                                    column("expires_time", "INTEGER", true, null, 0)),
+                                    column("expires_time", "INTEGER", true, null, 0),
+                                    column("etag", "TEXT", false, null, 0),
+                                    column("last_modified", "TEXT", false, null, 0)),
                             List.of(),
                             "id = 1 AND sequence > 0"
                                     + " AND length(manifest_sha256) = 64"

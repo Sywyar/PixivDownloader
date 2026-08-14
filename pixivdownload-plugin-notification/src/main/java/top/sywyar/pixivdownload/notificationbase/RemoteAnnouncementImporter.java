@@ -30,15 +30,21 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.LongUnaryOperator;
 import java.util.regex.Pattern;
 
 /** 从固定 GitHub Pages 索引拉取并幂等保存管理员公告。 */
@@ -48,6 +54,16 @@ public final class RemoteAnnouncementImporter {
             "https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json");
     static final URI SIGNATURE_URI = URI.create(INDEX_URI + ".sig");
     static final long POLL_DELAY_MILLIS = 6L * 60 * 60 * 1_000;
+    static final long POLL_TICK_MILLIS = 60_000;
+    static final long INITIAL_JITTER_MILLIS = 30L * 60 * 1_000;
+    static final int POLL_JITTER_PERCENT = 15;
+    static final long[] RETRY_DELAYS_MILLIS = {
+            5L * 60 * 1_000,
+            15L * 60 * 1_000,
+            60L * 60 * 1_000,
+            POLL_DELAY_MILLIS
+    };
+    static final long MAX_RETRY_AFTER_MILLIS = 24L * 60 * 60 * 1_000;
     static final int MAX_INDEX_BYTES = 1_024 * 1_024;
     static final int MAX_SIGNATURE_BYTES = 16 * 1_024;
     static final int MAX_ANNOUNCEMENTS = 100;
@@ -62,6 +78,7 @@ public final class RemoteAnnouncementImporter {
     private static final Pattern LOCALE_TAG = Pattern.compile(
             "[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+");
     private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
+    private static final Pattern ETAG = Pattern.compile("(?:W/)?\"[!#-~]*\"");
     private static final Set<String> ROOT_FIELDS =
             Set.of("schemaVersion", "sequence", "generatedAt", "expiresAt",
                     "requiredLocales", "announcements");
@@ -77,11 +94,16 @@ public final class RemoteAnnouncementImporter {
     private final NotificationInboxService inbox;
     private final PluginSupplyChainVerifier verifier;
     private final Clock clock;
+    private final LongUnaryOperator randomLong;
+
+    private long nextPollTime;
+    private int consecutiveFailures;
 
     RemoteAnnouncementImporter(OutboundHttpClient client,
                                ObjectMapper objectMapper,
                                NotificationInboxService inbox) {
-        this(client, objectMapper, inbox, new PluginSupplyChainVerifier(), Clock.systemUTC());
+        this(client, objectMapper, inbox, new PluginSupplyChainVerifier(), Clock.systemUTC(),
+                bound -> ThreadLocalRandom.current().nextLong(bound));
     }
 
     RemoteAnnouncementImporter(OutboundHttpClient client,
@@ -89,6 +111,16 @@ public final class RemoteAnnouncementImporter {
                                NotificationInboxService inbox,
                                PluginSupplyChainVerifier verifier,
                                Clock clock) {
+        this(client, objectMapper, inbox, verifier, clock,
+                bound -> ThreadLocalRandom.current().nextLong(bound));
+    }
+
+    RemoteAnnouncementImporter(OutboundHttpClient client,
+                               ObjectMapper objectMapper,
+                               NotificationInboxService inbox,
+                               PluginSupplyChainVerifier verifier,
+                               Clock clock,
+                               LongUnaryOperator randomLong) {
         this.client = Objects.requireNonNull(client, "remote announcement HTTP client");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper").copy()
                 .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
@@ -96,26 +128,60 @@ public final class RemoteAnnouncementImporter {
         this.inbox = Objects.requireNonNull(inbox, "notification inbox");
         this.verifier = Objects.requireNonNull(verifier, "remote announcement verifier");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.randomLong = Objects.requireNonNull(randomLong, "random delay source");
+        nextPollTime = addDelay(clock.millis(), randomDelay(INITIAL_JITTER_MILLIS + 1));
     }
 
     @Scheduled(
             initialDelay = 0,
-            fixedDelay = POLL_DELAY_MILLIS,
+            fixedDelay = POLL_TICK_MILLIS,
             scheduler = "notificationAnnouncementTaskScheduler")
-    public void poll() {
+    public void tick() {
+        if (claimDuePoll()) {
+            poll();
+        }
+    }
+
+    void poll() {
         try {
-            int imported = importIndex(fetchIndex(), fetchSignature());
-            if (imported > 0) {
-                LOG.info("Imported {} remote announcement(s)", imported);
+            RemoteAnnouncementValidators validators =
+                    inbox.remoteAnnouncementValidators(clock.millis());
+            FetchedIndex fetched = fetchIndex(validators);
+            if (fetched.notModified()) {
+                scheduleSuccess();
+                return;
+            }
+            ImportOutcome outcome = importIndexOutcome(fetched.bytes(), fetchSignature());
+            if (outcome.complete()) {
+                inbox.saveRemoteAnnouncementValidators(
+                        outcome.manifestSha256(), fetched.etag(), fetched.lastModified());
+            }
+            if (outcome.imported() > 0) {
+                LOG.info("Imported {} remote announcement(s)", outcome.imported());
+            }
+            if (outcome.transientFailure()) {
+                scheduleFailure(outcome.retryAfterMillis());
+            } else {
+                scheduleSuccess();
             }
         } catch (RejectedIndex exception) {
             LOG.warn("Remote announcement index rejected [{}]", exception.code);
+            if (exception.transientFailure) {
+                scheduleFailure(exception.retryAfterMillis);
+            } else {
+                scheduleSuccess();
+            }
         } catch (RuntimeException exception) {
             LOG.warn("Remote announcement poll failed [{}]", exception.getClass().getSimpleName());
+            scheduleFailure(-1);
         }
     }
 
     int importIndex(byte[] bytes, byte[] signatureBytes) {
+        return importIndexOutcome(bytes, signatureBytes).imported();
+    }
+
+    private ImportOutcome importIndexOutcome(byte[] bytes, byte[] signatureBytes) {
         VerificationResult verification = verifier.verifyManifest(new ManifestVerificationRequest(
                 bytes, REPOSITORY_ID, signature(signatureBytes), VerificationPolicy.officialRepository()));
         if (!verification.accepted()) {
@@ -150,6 +216,9 @@ public final class RemoteAnnouncementImporter {
         }
 
         int imported = 0;
+        boolean complete = true;
+        boolean transientFailure = false;
+        long retryAfterMillis = -1;
         Set<String> seenIds = new HashSet<>();
         for (int position = 0; position < announcements.size(); position++) {
             try {
@@ -174,20 +243,39 @@ public final class RemoteAnnouncementImporter {
             } catch (RejectedIndex | IllegalArgumentException exception) {
                 String code = exception instanceof RejectedIndex rejected ? rejected.code : "invalid-field";
                 LOG.warn("Remote announcement item {} rejected [{}]", position, code);
+                complete = false;
+                if (exception instanceof RejectedIndex rejected && rejected.transientFailure) {
+                    transientFailure = true;
+                    retryAfterMillis = Math.max(retryAfterMillis, rejected.retryAfterMillis);
+                }
             }
         }
-        return imported;
+        return new ImportOutcome(
+                imported, complete, transientFailure, retryAfterMillis, verification.sha256());
     }
 
-    private byte[] fetchIndex() {
+    private FetchedIndex fetchIndex(RemoteAnnouncementValidators validators) {
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        headers.put("Accept", List.of("application/json"));
+        if (validators != null) {
+            if (validators.etag() != null) {
+                headers.put("If-None-Match", List.of(validators.etag()));
+            }
+            if (validators.lastModified() != null) {
+                headers.put("If-Modified-Since", List.of(validators.lastModified()));
+            }
+        }
         OutboundHttpRequest request = new OutboundHttpRequest(
                 INDEX_URI,
                 "GET",
-                Map.of("Accept", List.of("application/json")),
+                headers,
                 new byte[0]);
         try (OutboundHttpStreamResponse response = client.exchangeStream(request)) {
+            if (response.statusCode() == 304 && validators != null && headers.size() > 1) {
+                return FetchedIndex.notModifiedResponse();
+            }
             if (response.statusCode() != 200) {
-                throw rejected("http-status");
+                throw rejectedHttpStatus("http-status", response);
             }
             requireJsonContentType(response.headers().get("Content-Type"));
             rejectOversizeContentLength(response.headers().get("Content-Length"), MAX_INDEX_BYTES);
@@ -195,7 +283,11 @@ public final class RemoteAnnouncementImporter {
             if (bytes.length > MAX_INDEX_BYTES) {
                 throw rejected("response-size");
             }
-            return bytes;
+            return new FetchedIndex(
+                    bytes,
+                    cacheEtag(response.headers().get("ETag")),
+                    cacheLastModified(response.headers().get("Last-Modified")),
+                    false);
         } catch (IOException exception) {
             throw new OutboundHttpTransportException(
                     "Failed to read remote announcement index", exception);
@@ -210,7 +302,7 @@ public final class RemoteAnnouncementImporter {
                 new byte[0]);
         try (OutboundHttpStreamResponse response = client.exchangeStream(request)) {
             if (response.statusCode() != 200) {
-                throw rejected("signature-http-status");
+                throw rejectedHttpStatus("signature-http-status", response);
             }
             rejectOversizeContentLength(response.headers().get("Content-Length"), MAX_SIGNATURE_BYTES);
             byte[] bytes = response.body().readNBytes(MAX_SIGNATURE_BYTES + 1);
@@ -232,7 +324,7 @@ public final class RemoteAnnouncementImporter {
                 new byte[0]);
         try (OutboundHttpStreamResponse response = client.exchangeStream(request)) {
             if (response.statusCode() != 200) {
-                throw rejected("content-http-status");
+                throw rejectedHttpStatus("content-http-status", response);
             }
             requireHtmlContentType(response.headers().get("Content-Type"));
             rejectOversizeContentLength(
@@ -246,7 +338,107 @@ public final class RemoteAnnouncementImporter {
             }
             return new NotificationHtmlContent(contentUrl, decodeUtf8(bytes, "invalid-html"));
         } catch (IOException | OutboundHttpTransportException exception) {
-            throw rejected("content-transport");
+            throw transientRejected("content-transport", -1);
+        }
+    }
+
+    private synchronized boolean claimDuePoll() {
+        if (clock.millis() < nextPollTime) {
+            return false;
+        }
+        nextPollTime = Long.MAX_VALUE;
+        return true;
+    }
+
+    private synchronized void scheduleSuccess() {
+        consecutiveFailures = 0;
+        long spread = POLL_DELAY_MILLIS * POLL_JITTER_PERCENT / 100;
+        nextPollTime = addDelay(
+                clock.millis(), POLL_DELAY_MILLIS - spread + randomDelay(spread * 2 + 1));
+    }
+
+    private synchronized void scheduleFailure(long retryAfterMillis) {
+        long delay = RETRY_DELAYS_MILLIS[
+                Math.min(consecutiveFailures, RETRY_DELAYS_MILLIS.length - 1)];
+        consecutiveFailures++;
+        nextPollTime = addDelay(clock.millis(), Math.max(delay, retryAfterMillis));
+    }
+
+    private long randomDelay(long bound) {
+        long value = randomLong.applyAsLong(bound);
+        if (value < 0 || value >= bound) {
+            throw new IllegalStateException("Random delay source returned an out-of-range value");
+        }
+        return value;
+    }
+
+    private static long addDelay(long now, long delay) {
+        try {
+            return Math.addExact(now, delay);
+        } catch (ArithmeticException exception) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    private RejectedIndex rejectedHttpStatus(
+            String code, OutboundHttpStreamResponse response) {
+        int status = response.statusCode();
+        if (status == 429) {
+            return transientRejected(
+                    code, retryAfterMillis(response.headers().get("Retry-After"), clock.millis()));
+        }
+        return status >= 500 && status <= 599
+                ? transientRejected(code, -1)
+                : rejected(code);
+    }
+
+    private static long retryAfterMillis(List<String> values, long now) {
+        if (values == null || values.size() != 1) {
+            return -1;
+        }
+        String value = values.get(0).trim();
+        try {
+            long seconds = Long.parseLong(value);
+            if (seconds < 0) {
+                return -1;
+            }
+            return seconds >= MAX_RETRY_AFTER_MILLIS / 1_000
+                    ? MAX_RETRY_AFTER_MILLIS
+                    : seconds * 1_000;
+        } catch (NumberFormatException ignored) {
+            try {
+                long delay = Math.subtractExact(
+                        ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME)
+                                .toInstant().toEpochMilli(),
+                        now);
+                return Math.min(Math.max(0, delay), MAX_RETRY_AFTER_MILLIS);
+            } catch (ArithmeticException | DateTimeParseException exception) {
+                return -1;
+            }
+        }
+    }
+
+    private static String cacheEtag(List<String> values) {
+        if (values == null || values.size() != 1) {
+            return null;
+        }
+        String value = values.get(0);
+        return value.length() <= 256 && ETAG.matcher(value).matches() ? value : null;
+    }
+
+    private static String cacheLastModified(List<String> values) {
+        if (values == null || values.size() != 1) {
+            return null;
+        }
+        String value = values.get(0);
+        if (value.length() > 128) {
+            return null;
+        }
+        try {
+            ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME);
+            return value;
+        } catch (DateTimeParseException exception) {
+            return null;
         }
     }
 
@@ -500,6 +692,29 @@ public final class RemoteAnnouncementImporter {
         return new RejectedIndex(code);
     }
 
+    private static RejectedIndex transientRejected(String code, long retryAfterMillis) {
+        return new RejectedIndex(code, true, retryAfterMillis);
+    }
+
+    private record FetchedIndex(
+            byte[] bytes,
+            String etag,
+            String lastModified,
+            boolean notModified) {
+
+        private static FetchedIndex notModifiedResponse() {
+            return new FetchedIndex(new byte[0], null, null, true);
+        }
+    }
+
+    private record ImportOutcome(
+            int imported,
+            boolean complete,
+            boolean transientFailure,
+            long retryAfterMillis,
+            String manifestSha256) {
+    }
+
     private record Announcement(
             String id,
             long publishedAt,
@@ -527,10 +742,18 @@ public final class RemoteAnnouncementImporter {
 
     private static final class RejectedIndex extends RuntimeException {
         private final String code;
+        private final boolean transientFailure;
+        private final long retryAfterMillis;
 
         private RejectedIndex(String code) {
+            this(code, false, -1);
+        }
+
+        private RejectedIndex(String code, boolean transientFailure, long retryAfterMillis) {
             super(code);
             this.code = code;
+            this.transientFailure = transientFailure;
+            this.retryAfterMillis = retryAfterMillis;
         }
     }
 }

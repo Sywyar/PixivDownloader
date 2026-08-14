@@ -205,7 +205,7 @@ class NotificationPluginTest {
                     .satisfies(table -> assertThat(table.columns())
                             .extracting(column -> column.name())
                             .containsExactly("id", "sequence", "manifest_sha256",
-                                    "generated_time", "expires_time"));
+                                    "generated_time", "expires_time", "etag", "last_modified"));
         });
         assertThat(plugin.navigation()).isEmpty();
         assertThat(pf4j.configurationClasses()).containsExactly(NotificationPluginConfiguration.class);

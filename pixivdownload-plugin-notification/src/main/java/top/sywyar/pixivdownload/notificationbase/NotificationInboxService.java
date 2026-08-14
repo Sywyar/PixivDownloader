@@ -217,6 +217,24 @@ public class NotificationInboxService {
                 sequence, manifestSha256, generatedTime, expiresTime) == 1;
     }
 
+    RemoteAnnouncementValidators remoteAnnouncementValidators(long now) {
+        RemoteAnnouncementValidators validators = mapper.findRemoteAnnouncementValidators();
+        return validators == null || validators.expiresTime() <= now ? null : validators;
+    }
+
+    @Transactional
+    boolean saveRemoteAnnouncementValidators(String manifestSha256,
+                                             String etag,
+                                             String lastModified) {
+        if (manifestSha256 == null || !SHA256.matcher(manifestSha256).matches()) {
+            throw new IllegalArgumentException("remote announcement manifest SHA-256 is invalid");
+        }
+        return mapper.saveRemoteAnnouncementValidators(
+                manifestSha256,
+                optionalHeaderValue(etag),
+                optionalHeaderValue(lastModified)) == 1;
+    }
+
     public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit) {
         return latest(category, unreadOnly, limit, null);
     }
@@ -615,6 +633,17 @@ public class NotificationInboxService {
 
     private static String optional(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String optionalHeaderValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.isBlank() || value.length() > 512
+                || value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+            throw new IllegalArgumentException("remote announcement cache validator is invalid");
+        }
+        return value;
     }
 
     private static String safeActionUrl(String value) {

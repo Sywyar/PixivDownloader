@@ -34,6 +34,7 @@ import java.security.Signature;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -49,6 +50,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongUnaryOperator;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -355,6 +357,154 @@ class RemoteAnnouncementImporterTest {
     }
 
     @Test
+    @DisplayName("仅在可信索引有效期内发送条件请求并接受未修改响应")
+    void reusesTrustedIndexValidators() {
+        Harness harness = harness(Locale.US);
+        String body = index(item("cached", PUBLISHED, "info"));
+        Map<String, List<String>> headers = Map.of(
+                "Content-Type", List.of("application/json; charset=utf-8"),
+                "ETag", List.of("\"announcement-v1\""),
+                "Last-Modified", List.of("Wed, 12 Aug 2026 09:22:58 GMT"));
+        harness.client.respond(200, headers, body);
+
+        harness.importer.poll();
+        harness.client.plan = new ResponsePlan(304, Map.of(), new byte[0], null);
+        harness.importer.poll();
+
+        harness.client.respond(200, Map.of(
+                "Content-Type", List.of("application/json; charset=utf-8"),
+                "ETag", List.of("\"announcement-v2\"")), body);
+        harness.importer.poll();
+        harness.client.plan = new ResponsePlan(304, Map.of(), new byte[0], null);
+        harness.importer.poll();
+
+        assertThat(harness.mapper.findRemoteAnnouncementValidators()).satisfies(validators -> {
+            assertThat(validators.etag()).isEqualTo("\"announcement-v2\"");
+            assertThat(validators.lastModified()).isNull();
+        });
+        assertThat(harness.client.lastIndexRequest.headers())
+                .containsEntry("If-None-Match", List.of("\"announcement-v2\""))
+                .doesNotContainKey("If-Modified-Since");
+        assertThat(harness.client.requests).hasValue(8);
+        assertThat(harness.client.contentRequests).hasValue(2);
+    }
+
+    @Test
+    @DisplayName("过期可信索引不再发送缓存验证头")
+    void doesNotReuseExpiredValidators() {
+        MutableClock clock = new MutableClock(CLOCK.instant());
+        Harness harness = harness(Locale.US, clock, ignored -> 0);
+        String body = indexWithMetadata(
+                1, GENERATED, "2026-08-14T00:01:00Z",
+                "[\"zh-CN\",\"en-US\"]", item("expiring", PUBLISHED, "info"));
+        harness.client.respond(200, Map.of(
+                "Content-Type", List.of("application/json; charset=utf-8"),
+                "ETag", List.of("\"expiring\"")), body);
+
+        harness.importer.poll();
+        clock.advance(Duration.ofMinutes(1));
+        harness.importer.poll();
+
+        assertThat(harness.client.lastIndexRequest.headers())
+                .doesNotContainKeys("If-None-Match", "If-Modified-Since");
+    }
+
+    @Test
+    @DisplayName("首次与成功轮询使用有界随机抖动")
+    void jittersInitialAndSuccessfulPolls() {
+        MutableClock clock = new MutableClock(CLOCK.instant());
+        Harness harness = harness(Locale.US, clock, bound -> bound - 1);
+
+        harness.importer.tick();
+        clock.advance(Duration.ofMinutes(30).minusMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(0);
+
+        clock.advance(Duration.ofMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(4);
+
+        clock.advance(Duration.ofHours(6).plusMinutes(54).minusMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(4);
+
+        clock.advance(Duration.ofMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(6);
+    }
+
+    @Test
+    @DisplayName("限流响应按 Retry-After 延后轮询")
+    void honorsRetryAfterForRateLimits() {
+        MutableClock clock = new MutableClock(CLOCK.instant());
+        Harness harness = harness(Locale.US, clock, ignored -> 0);
+        harness.client.plan = new ResponsePlan(
+                429, Map.of("Retry-After", List.of("3600")), new byte[0], null);
+
+        harness.importer.tick();
+        harness.client.respond(200, jsonHeaders(), index(item("after-limit", PUBLISHED, "info")));
+        clock.advance(Duration.ofHours(1).minusMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(1);
+
+        clock.advance(Duration.ofMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(5);
+
+        clock.advance(Duration.ofHours(5).plusMinutes(6).minusMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(5);
+
+        clock.advance(Duration.ofMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(7);
+    }
+
+    @Test
+    @DisplayName("连续传输与服务端故障逐级延长重试间隔")
+    void backsOffRepeatedTransientFailures() {
+        MutableClock clock = new MutableClock(CLOCK.instant());
+        Harness harness = harness(Locale.US, clock, ignored -> 0);
+        harness.client.plan = ResponsePlan.failure(
+                new OutboundHttpTransportException("network unavailable"));
+
+        harness.importer.tick();
+        harness.client.plan = new ResponsePlan(503, jsonHeaders(), new byte[0], null);
+        clock.advance(Duration.ofMinutes(5).minusMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(1);
+
+        clock.advance(Duration.ofMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(2);
+
+        clock.advance(Duration.ofMinutes(15).minusMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(2);
+
+        clock.advance(Duration.ofMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(3);
+    }
+
+    @Test
+    @DisplayName("客户端错误按正常周期检查而不高频重试")
+    void doesNotRapidlyRetryClientErrors() {
+        MutableClock clock = new MutableClock(CLOCK.instant());
+        Harness harness = harness(Locale.US, clock, ignored -> 0);
+        harness.client.plan = new ResponsePlan(404, jsonHeaders(), new byte[0], null);
+
+        harness.importer.tick();
+        clock.advance(Duration.ofHours(5).plusMinutes(6).minusMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(1);
+
+        clock.advance(Duration.ofMillis(1));
+        harness.importer.tick();
+        assertThat(harness.client.requests).hasValue(2);
+    }
+
+    @Test
     @DisplayName("正文超时、错误媒体类型、非法 UTF-8 与超大响应只拒绝对应公告")
     void rejectsInvalidHtmlSnapshots() {
         List<ResponsePlan> failures = List.of(
@@ -414,9 +564,9 @@ class RemoteAnnouncementImporterTest {
             assertThat(profile.maxConnections()).isEqualTo(1);
             assertThat(profile.maxConnectionsPerRoute()).isEqualTo(1);
         });
-        Scheduled scheduled = RemoteAnnouncementImporter.class.getMethod("poll").getAnnotation(Scheduled.class);
+        Scheduled scheduled = RemoteAnnouncementImporter.class.getMethod("tick").getAnnotation(Scheduled.class);
         assertThat(scheduled.initialDelay()).isZero();
-        assertThat(scheduled.fixedDelay()).isEqualTo(RemoteAnnouncementImporter.POLL_DELAY_MILLIS);
+        assertThat(scheduled.fixedDelay()).isEqualTo(RemoteAnnouncementImporter.POLL_TICK_MILLIS);
         assertThat(scheduled.scheduler()).isEqualTo("notificationAnnouncementTaskScheduler");
         opened.close();
         assertThat(client.closed).isTrue();
@@ -462,6 +612,15 @@ class RemoteAnnouncementImporterTest {
     }
 
     private static Harness harness(AtomicReference<Locale> locale) {
+        return harness(locale, CLOCK, ignored -> 0);
+    }
+
+    private static Harness harness(Locale locale, Clock clock, LongUnaryOperator randomLong) {
+        return harness(new AtomicReference<>(locale), clock, randomLong);
+    }
+
+    private static Harness harness(
+            AtomicReference<Locale> locale, Clock clock, LongUnaryOperator randomLong) {
         SigningFixture signing = SigningFixture.create();
         RecordingMapper mapper = new RecordingMapper();
         NotificationInboxService inbox = new NotificationInboxService(
@@ -470,7 +629,7 @@ class RemoteAnnouncementImporterTest {
         StubClient client = new StubClient(signing);
         return new Harness(mapper, inbox, client,
                 new RemoteAnnouncementImporter(
-                        client, new ObjectMapper(), inbox, signing.verifier(), CLOCK),
+                        client, new ObjectMapper(), inbox, signing.verifier(), clock, randomLong),
                 signing);
     }
 
@@ -691,6 +850,9 @@ class RemoteAnnouncementImporterTest {
                 new ConcurrentHashMap<>();
         private long acceptedSequence;
         private String acceptedDigest;
+        private long acceptedExpiresTime;
+        private String etag;
+        private String lastModified;
 
         @Override
         public int insert(NotificationMessage message) {
@@ -821,8 +983,32 @@ class RemoteAnnouncementImporterTest {
                     || sequence == acceptedSequence && !Objects.equals(manifestSha256, acceptedDigest)) {
                 return 0;
             }
+            if (!Objects.equals(manifestSha256, acceptedDigest)) {
+                etag = null;
+                lastModified = null;
+            }
             acceptedSequence = sequence;
             acceptedDigest = manifestSha256;
+            acceptedExpiresTime = expiresTime;
+            return 1;
+        }
+
+        @Override
+        public synchronized RemoteAnnouncementValidators findRemoteAnnouncementValidators() {
+            return acceptedDigest == null
+                    ? null
+                    : new RemoteAnnouncementValidators(
+                            acceptedDigest, acceptedExpiresTime, etag, lastModified);
+        }
+
+        @Override
+        public synchronized int saveRemoteAnnouncementValidators(
+                String manifestSha256, String etag, String lastModified) {
+            if (!Objects.equals(manifestSha256, acceptedDigest)) {
+                return 0;
+            }
+            this.etag = etag;
+            this.lastModified = lastModified;
             return 1;
         }
 
@@ -931,7 +1117,34 @@ class RemoteAnnouncementImporterTest {
         RemoteAnnouncementImporter importer(
                 StubClient client, NotificationInboxService inbox, SigningFixture signing) {
             return new RemoteAnnouncementImporter(
-                    client, new ObjectMapper(), inbox, signing.verifier(), CLOCK);
+                    client, new ObjectMapper(), inbox, signing.verifier(), CLOCK, ignored -> 0);
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+        private final AtomicReference<Instant> current;
+
+        private MutableClock(Instant initial) {
+            current = new AtomicReference<>(initial);
+        }
+
+        private void advance(Duration duration) {
+            current.updateAndGet(value -> value.plus(duration));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return current.get();
         }
     }
 }
