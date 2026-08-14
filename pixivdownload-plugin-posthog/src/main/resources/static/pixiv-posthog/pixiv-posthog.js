@@ -28,7 +28,7 @@
             return Promise.resolve(global.posthog);
         }
         if (sdkPromise) return sdkPromise;
-        sdkPromise = new Promise(function (resolve) {
+        var attempt = new Promise(function (resolve) {
             var script;
             var settled = false;
             var timeoutId = null;
@@ -39,6 +39,9 @@
                 if (script) {
                     script.removeEventListener('load', onLoad);
                     script.removeEventListener('error', onError);
+                }
+                if (!sdk) {
+                    if (script && script.parentNode) script.parentNode.removeChild(script);
                 }
                 resolve(sdk);
             }
@@ -56,14 +59,17 @@
                 script.addEventListener('error', onError);
                 timeoutId = global.setTimeout(function () {
                     finish(null);
-                    if (script.parentNode) script.parentNode.removeChild(script);
                 }, SDK_LOAD_TIMEOUT_MS);
                 (global.document.head || global.document.documentElement).appendChild(script);
             } catch (_) {
                 finish(null);
             }
         });
-        return sdkPromise;
+        sdkPromise = attempt;
+        attempt.then(function (sdk) {
+            if (!sdk && sdkPromise === attempt) sdkPromise = null;
+        });
+        return attempt;
     }
 
     function instanceName(ownerKey) {
@@ -181,6 +187,9 @@
             }, posthog), instanceName(ownerKey)) || null;
         }).catch(function () {
             return null;
+        }).then(function (client) {
+            if (!client && clients[ownerKey] === record) delete clients[ownerKey];
+            return client;
         });
         return record.promise;
     }

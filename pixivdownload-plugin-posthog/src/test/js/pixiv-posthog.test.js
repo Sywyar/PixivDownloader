@@ -8,6 +8,49 @@ const vm = require('vm');
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-posthog', 'pixiv-posthog.js'), 'utf8');
 
+async function testSynchronousLoadFailureCanRetry() {
+    let attempts = 0;
+    const sdk = {init() { return {}; }};
+    const sandbox = {window: null, console, Promise, Object, URL, setTimeout, clearTimeout};
+    const head = {
+        appendChild(script) {
+            attempts++;
+            if (attempts === 1) throw new Error('append failed');
+            script.parentNode = head;
+            sandbox.posthog = sdk;
+            Promise.resolve().then(() => script.listeners.load());
+        },
+        removeChild(script) { script.parentNode = null; }
+    };
+    sandbox.document = {
+        head,
+        documentElement: head,
+        querySelector() { return null; },
+        createElement() {
+            return {
+                listeners: {}, parentNode: null,
+                addEventListener(type, listener) { this.listeners[type] = listener; },
+                removeEventListener(type) { delete this.listeners[type]; }
+            };
+        }
+    };
+    sandbox.window = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(source, sandbox, {filename: 'pixiv-posthog-retry.js'});
+    const options = {
+        ownerKey: 'retry.owner',
+        posthog: {
+            projectToken: 'phc_retry', surveyId: 'survey-retry',
+            apiHost: 'https://layout-survey.sywyar.top', uiHost: 'https://us.posthog.com'
+        },
+        distinctId: 'retry_' + 'c'.repeat(64),
+        beforeSend: event => event
+    };
+    assert.strictEqual(await sandbox.PixivPostHog.createSurveyClient(options), null);
+    assert.ok(await sandbox.PixivPostHog.createSurveyClient(options));
+    assert.strictEqual(attempts, 2);
+}
+
 async function main() {
     const initCalls = [];
     const clients = {};
@@ -105,6 +148,7 @@ async function main() {
     assert.strictEqual(initCalls.length, 2);
     assert.strictEqual(initCalls[1].token, 'phc_owner_two');
     assert.deepStrictEqual(Object.keys(api), ['createSurveyClient']);
+    await testSynchronousLoadFailureCanRetry();
     console.log('pixiv-posthog.test.js: passed');
 }
 
