@@ -1,9 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
@@ -16,6 +14,9 @@ import java.util.Locale;
 
 @Service
 public class PixivAjaxProxyClient implements PixivAjaxClient {
+
+    static final int MAX_JSON_RESPONSE_BYTES = 4 * 1024 * 1024;
+    static final int MAX_SERIES_RESPONSE_BYTES = 1024 * 1024;
 
     private final RestTemplate restTemplate;
 
@@ -37,13 +38,38 @@ public class PixivAjaxProxyClient implements PixivAjaxClient {
     }
 
     private String exchange(URI uri, String cookie) {
-        HttpEntity<Void> entity = new HttpEntity<>(PixivRequestHeaders.ajax(cookie));
-        ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, response.getStatusCode().value());
-        }
-        byte[] body = response.getBody();
-        return body == null ? "" : new String(body, StandardCharsets.UTF_8);
+        return restTemplate.execute(uri, HttpMethod.GET,
+                request -> request.getHeaders().putAll(PixivRequestHeaders.ajax(cookie)),
+                response -> {
+                    if (!response.getStatusCode().is2xxSuccessful()) {
+                        throw new PixivAjaxException(
+                                PixivAjaxFailure.HTTP_STATUS, response.getStatusCode().value());
+                    }
+                    int limit = responseLimit(uri);
+                    long declaredLength = response.getHeaders().getContentLength();
+                    if (declaredLength > limit) {
+                        throw responseTooLarge();
+                    }
+                    try (var body = response.getBody()) {
+                        byte[] bytes = body.readNBytes(limit + 1);
+                        if (bytes.length > limit) {
+                            throw responseTooLarge();
+                        }
+                        return new String(bytes, StandardCharsets.UTF_8);
+                    }
+                });
+    }
+
+    private static int responseLimit(URI uri) {
+        String path = uri.getPath();
+        return path.startsWith("/ajax/novel/series/")
+                || path.startsWith("/ajax/novel/series_content/")
+                ? MAX_SERIES_RESPONSE_BYTES
+                : MAX_JSON_RESPONSE_BYTES;
+    }
+
+    private static PixivAjaxException responseTooLarge() {
+        return new PixivAjaxException(PixivAjaxFailure.RESPONSE_TOO_LARGE, 0);
     }
 
     private static void requireAllowedTarget(URI uri) {

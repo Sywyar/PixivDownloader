@@ -12,9 +12,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
@@ -44,7 +47,6 @@ public class NovelBrowserImportController {
     private static final int MAX_DESCRIPTION_LENGTH = 262_144;
     private static final int MAX_CONTENT_LENGTH = 3_000_000;
     private static final int MAX_TAGS = 256;
-    private static final int MAX_EMBEDDED_IMAGES = 512;
     private static final int MAX_SHORT_FIELD_LENGTH = 256;
     private static final int MAX_URL_LENGTH = 4_096;
     private static final int MAX_COUNT = 10_000_000;
@@ -91,15 +93,16 @@ public class NovelBrowserImportController {
             if (!validMetadata(metadata)) {
                 return error(400, "novel.browser-import.response-invalid");
             }
-            String rawMetaJson = objectMapper.writeValueAsString(body);
-            if (rawMetaJson.getBytes(StandardCharsets.UTF_8).length > MAX_RESPONSE_BYTES) {
-                return error(413, "novel.browser-import.payload-too-large");
-            }
+            String rawMetaJson = NovelDownloadRequestFactory.boundedRawMetadata(objectMapper, body);
             String fetchToken = ticketStore.issueBrowserFetchTicket(novelId, metadata, rawMetaJson);
             return ResponseEntity.ok()
                     .cacheControl(CacheControl.noStore())
                     .body(new FetchTicketResponse(
                             fetchToken, NovelBrowserFetchTicketStore.TICKET_TTL_SECONDS));
+        } catch (PixivAjaxException oversized) {
+            return oversized.failure() == PixivAjaxFailure.RESPONSE_TOO_LARGE
+                    ? error(413, "novel.browser-import.payload-too-large")
+                    : error(400, "novel.browser-import.response-invalid");
         } catch (IOException | RuntimeException invalid) {
             return error(400, "novel.browser-import.response-invalid");
         }
@@ -181,7 +184,7 @@ public class NovelBrowserImportController {
     }
 
     private static boolean validEmbeddedImages(Map<String, String> images) {
-        if (images == null || images.size() > MAX_EMBEDDED_IMAGES) {
+        if (images == null || images.size() > PixivNovelMetadata.MAX_EMBEDDED_IMAGES) {
             return false;
         }
         for (Map.Entry<String, String> entry : images.entrySet()) {

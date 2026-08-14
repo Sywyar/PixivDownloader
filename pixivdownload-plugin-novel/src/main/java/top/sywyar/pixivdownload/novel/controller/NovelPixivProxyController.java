@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
@@ -146,7 +147,7 @@ public class NovelPixivProxyController {
         }
         PixivNovelMetadata metadata = PixivNovelMetadata.parse(parsedId, b);
         String fetchToken = browserFetchTicketStore.issuePreviewFetchTicket(
-                parsedId, metadata, objectMapper.writeValueAsString(b),
+                parsedId, metadata, NovelDownloadRequestFactory.boundedRawMetadata(objectMapper, b),
                 requestOwnerIdentityResolver.resolve(request), cookie);
         Long seriesId = null;
         Long seriesOrder = null;

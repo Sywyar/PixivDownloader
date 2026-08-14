@@ -2,12 +2,14 @@ package top.sywyar.pixivdownload.novel.schedule;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("Pixiv 计划小说元数据上传时间解析")
 class PixivScheduledNovelMetadataTest {
@@ -83,6 +85,24 @@ class PixivScheduledNovelMetadataTest {
                 .isNull();
         assertThat(uploadTimestamp("{\"uploadTimestamp\":null}"))
                 .isNull();
+    }
+
+    @Test
+    @DisplayName("内嵌图片映射超过安全项数时拒绝响应")
+    void shouldRejectExcessiveEmbeddedImages() {
+        ObjectNode body = mapper.createObjectNode();
+        ObjectNode images = body.putObject("textEmbeddedImages");
+        for (int i = 0; i <= 512; i++) {
+            images.putObject(Integer.toString(i))
+                    .putObject("urls")
+                    .put("original", "https://i.pximg.net/image-" + i + ".jpg");
+        }
+
+        assertThatThrownBy(() -> PixivNovelMetadata.parse(1L, body))
+                .isInstanceOfSatisfying(
+                        top.sywyar.pixivdownload.core.pixiv.PixivAjaxException.class,
+                        failure -> assertThat(failure.failure().name())
+                                .isEqualTo("RESPONSE_TOO_LARGE"));
     }
 
     private Long uploadTimestamp(String json) {

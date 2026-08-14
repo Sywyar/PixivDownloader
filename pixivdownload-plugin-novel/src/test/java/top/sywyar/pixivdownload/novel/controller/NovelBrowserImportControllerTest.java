@@ -43,8 +43,11 @@ class NovelBrowserImportControllerTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         var fetchToken = ((NovelBrowserImportController.FetchTicketResponse) response.getBody()).fetchToken();
-        assertThat(store.consumeFetchTicket(
-                fetchToken, 42L, RequestOwnerIdentity.adminScope(), null, true)).isPresent();
+        NovelBrowserFetchTicketStore.ImportedNovel imported = store.consumeFetchTicket(
+                fetchToken, 42L, RequestOwnerIdentity.adminScope(), null, true).orElseThrow();
+        assertThat(imported.rawMetaJson())
+                .doesNotContain("content", "textEmbeddedImages")
+                .contains("\"title\":\"restricted\"");
         assertThat(store.consumeFetchTicket(
                 fetchToken, 42L, RequestOwnerIdentity.adminScope(), null, true)).isEmpty();
     }
@@ -83,6 +86,24 @@ class NovelBrowserImportControllerTest {
         MockHttpServletRequest request = localRequest();
         request.addHeader(NovelBrowserImportController.IMPORT_TOKEN_HEADER, importToken);
         request.setContent(new byte[NovelBrowserImportController.MAX_RESPONSE_BYTES + 1]);
+
+        assertThat(controller.importNovel(42L, request).getStatusCode().value()).isEqualTo(413);
+    }
+
+    @Test
+    @DisplayName("剪除正文后原始元数据仍超限时拒绝签发下载票据")
+    void rejectsOversizedRawMetadata() throws Exception {
+        NovelBrowserFetchTicketStore store = new NovelBrowserFetchTicketStore();
+        NovelBrowserImportController controller = controller("solo", store);
+        String importToken = ((NovelBrowserImportController.ImportTokenResponse)
+                controller.issueImportToken(localRequest()).getBody()).token();
+        MockHttpServletRequest request = localRequest();
+        request.addHeader(NovelBrowserImportController.IMPORT_TOKEN_HEADER, importToken);
+        request.setContentType("application/json");
+        request.setContent(("{\"error\":false,\"body\":{\"id\":\"42\",\"title\":\"title\","
+                + "\"content\":\"body\",\"userId\":\"7\",\"userName\":\"author\","
+                + "\"unexpected\":\"" + "x".repeat(256 * 1024) + "\"}}")
+                .getBytes(StandardCharsets.UTF_8));
 
         assertThat(controller.importNovel(42L, request).getStatusCode().value()).isEqualTo(413);
     }

@@ -224,7 +224,8 @@ public class NovelDownloadController {
         PixivNovelMetadata metadata = PixivNovelMetadata.parse(novelId, body);
         PixivNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(metadata.seriesId(), credential);
         NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(
-                metadata, series, credential, body.toString());
+                metadata, series, credential,
+                NovelDownloadRequestFactory.boundedRawMetadata(objectMapper, body));
         command.getOther().applyTo(request.getOther());
         return request;
     }

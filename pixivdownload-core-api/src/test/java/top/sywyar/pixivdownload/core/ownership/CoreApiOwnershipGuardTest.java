@@ -324,7 +324,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome",
                     List.of("ALLOWED", "OWNER_REQUIRED", "RATE_LIMITED")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure",
-                    List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
+                    List.of("INVALID_TARGET", "HTTP_STATUS", "RESPONSE_TOO_LARGE", "TRANSPORT")),
             Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome",
                     List.of("NEVER", "OK", "ERROR", "CANCELLED", "INTERRUPTED")),
             Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState",

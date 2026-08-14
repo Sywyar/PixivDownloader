@@ -9846,6 +9846,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "error.pixiv.response.too-large",
+      "acceptedSourceHash": "f4a631d8c2102d86616d61d21d8f4d9ee5e627619f34f69ed76addb30d3a65a4",
+      "acceptedTranslationHash": "2aa76b482879cfd9c403a5ca7d7d0e10536562ec9f4bc9d68443b9b7f18e882c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "error.pixiv.upstream.failed",
       "acceptedSourceHash": "5854b100bfa374db8b3368301d8a467be10d6f80da2f3c581e7c0cdd48a5baab",
       "acceptedTranslationHash": "e300317fce528be537fac169acaa9e59627d8d524774a064fb5bcc9469e9c66a"

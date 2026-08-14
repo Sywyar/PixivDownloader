@@ -142,4 +142,17 @@ class GlobalExceptionHandlerTest {
                 .contains("Pixiv 拒绝了请求")
                 .doesNotContain("403");
     }
+
+    @Test
+    @DisplayName("Pixiv 响应超过安全上限时应返回明确的本地化 502")
+    void shouldMapOversizedPixivResponseToLocalizedBadGateway() {
+        ResponseEntity<ErrorResponse> response = handler.handlePixivAjax(
+                new PixivAjaxException(PixivAjaxFailure.RESPONSE_TOO_LARGE, 0),
+                Locale.US);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(502);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError())
+                .isEqualTo("The Pixiv response exceeded the safe size limit and was rejected.");
+    }
 }

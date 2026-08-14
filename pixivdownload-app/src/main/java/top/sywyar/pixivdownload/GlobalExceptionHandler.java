@@ -185,6 +185,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(PixivAjaxException.class)
     public ResponseEntity<ErrorResponse> handlePixivAjax(PixivAjaxException e, Locale locale) {
+        if (e.failure() == PixivAjaxFailure.RESPONSE_TOO_LARGE) {
+            String message = messages.getOrDefault(locale, "error.pixiv.response.too-large",
+                    "Pixiv 响应超过安全大小上限，已拒绝处理");
+            log.warn(logMessage("error.log.request.failed", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(message));
+        }
         if (e.failure() != PixivAjaxFailure.HTTP_STATUS) {
             return handleGeneric(e, locale);
         }

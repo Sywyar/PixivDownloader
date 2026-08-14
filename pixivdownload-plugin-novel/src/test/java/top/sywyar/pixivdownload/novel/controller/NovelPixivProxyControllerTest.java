@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
@@ -218,6 +219,13 @@ class NovelPixivProxyControllerTest {
                     .andExpect(jsonPath("$.original").doesNotExist())
                     .andExpect(jsonPath("$.fetchToken").value("p".repeat(43)));
 
+            ArgumentCaptor<String> rawMetadata = ArgumentCaptor.forClass(String.class);
+            verify(browserFetchTicketStore).issuePreviewFetchTicket(
+                    eq(789012L), any(PixivNovelMetadata.class), rawMetadata.capture(),
+                    eq(RequestOwnerIdentity.adminScope()), isNull());
+            org.assertj.core.api.Assertions.assertThat(rawMetadata.getValue())
+                    .doesNotContain("content", "textEmbeddedImages")
+                    .contains("\"title\":\"R18G Novel\"");
             verify(workVisibilityService).requireVisible(VISIBILITY_SCOPE, WorkType.NOVEL, 789012L);
         }
 
