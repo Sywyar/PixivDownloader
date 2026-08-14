@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -90,7 +91,7 @@ class NotificationInboxControllerTest {
                 new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>Survey body</p>"));
         NotificationInboxController controller = new NotificationInboxController(service);
 
-        ResponseEntity<String> response = controller.htmlContent(message.id());
+        ResponseEntity<String> response = controller.htmlContent(message.id(), null);
 
         assertThat(response.getHeaders().getContentType().toString()).isEqualTo("text/html;charset=UTF-8");
         assertThat(response.getHeaders().getCacheControl()).contains("no-store", "private");
@@ -107,6 +108,30 @@ class NotificationInboxControllerTest {
                         "<p>Survey body</p>")
                 .endsWith("<p>Survey body</p>");
         assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+    }
+
+    @Test
+    @DisplayName("远程公告正文端点按请求语言返回同一逻辑公告的翻译")
+    void servesLocalizedRemoteAnnouncementHtml() {
+        NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper);
+        String base = "https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/localized/";
+        assertThat(service.storeRemoteAnnouncement(
+                "localized", NotificationSeverity.INFO,
+                List.of(
+                        new RemoteAnnouncementTranslation(
+                                "zh-CN", "中文", "中文摘要", base + "zh-CN.html", "<p>中文正文</p>"),
+                        new RemoteAnnouncementTranslation(
+                                "en-US", "English", "English summary", base + "en-US.html",
+                                "<p>English body</p>")),
+                1)).isTrue();
+        NotificationInboxController controller = new NotificationInboxController(service);
+
+        ResponseEntity<String> chinese = controller.htmlContent("remote-announcement:localized", "zh-CN");
+        ResponseEntity<String> english = controller.htmlContent("remote-announcement:localized", "en-US");
+
+        assertThat(chinese.getBody()).contains("<p>中文正文</p>").doesNotContain("<p>English body</p>");
+        assertThat(english.getBody()).contains("<p>English body</p>").doesNotContain("<p>中文正文</p>");
     }
 
     @Test

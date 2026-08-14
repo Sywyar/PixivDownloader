@@ -171,7 +171,7 @@
             if (pageI18n && pageI18n.lang) embeddedUrl.searchParams.set('lang', pageI18n.lang);
             return embeddedUrl.pathname + embeddedUrl.search;
         }
-        return '/api/notifications/' + encodeURIComponent(message.id) + '/content';
+        return withLanguage('/api/notifications/' + encodeURIComponent(message.id) + '/content');
     }
 
     function discardContentFrame(id) {

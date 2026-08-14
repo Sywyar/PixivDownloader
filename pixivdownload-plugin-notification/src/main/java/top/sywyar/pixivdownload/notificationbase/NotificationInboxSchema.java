@@ -39,7 +39,23 @@ public final class NotificationInboxSchema {
                             + " AND created_time >= 0"
                             + " AND active IN (0,1)"
                             + " AND (read_time IS NULL OR read_time >= created_time)"
-                            + " AND (deleted_time IS NULL OR deleted_time >= created_time)")),
+                            + " AND (deleted_time IS NULL OR deleted_time >= created_time)"),
+                    new TableSpec(
+                            "notification_announcement_translations",
+                            List.of(
+                                    column("announcement_id", "TEXT", true, null, 1),
+                                    column("locale", "TEXT", true, null, 2),
+                                    column("title", "TEXT", true, null, 0),
+                                    column("summary", "TEXT", true, null, 0),
+                                    column("content_url", "TEXT", true, null, 0),
+                                    column("content_html", "TEXT", true, null, 0)),
+                            List.of(),
+                            "length(trim(announcement_id)) > 0"
+                                    + " AND length(trim(locale)) > 0"
+                                    + " AND length(trim(title)) > 0"
+                                    + " AND length(trim(summary)) > 0"
+                                    + " AND length(trim(content_url)) > 0"
+                                    + " AND length(content_html) > 0")),
             List.of(),
             List.of());
 

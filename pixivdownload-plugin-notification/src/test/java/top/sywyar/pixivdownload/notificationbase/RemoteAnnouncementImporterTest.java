@@ -9,7 +9,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
@@ -32,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,27 +43,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RemoteAnnouncementImporterTest {
 
     private static final String PUBLISHED = "2026-08-12T00:00:00Z";
-    private static final LocaleBundlePolicy LOCALE_POLICY = new LocaleBundlePolicy() {
-        @Override
-        public List<Locale> supportedLocales() {
-            return List.of(Locale.SIMPLIFIED_CHINESE, Locale.US);
-        }
-
-        @Override
-        public Locale normalize(Locale requested) {
-            return requested != null && requested.getLanguage().equals(Locale.CHINESE.getLanguage())
-                    ? Locale.SIMPLIFIED_CHINESE
-                    : Locale.US;
-        }
-
-        @Override
-        public List<String> resourceSuffixChain(Locale requested) {
-            return normalize(requested).equals(Locale.SIMPLIFIED_CHINESE)
-                    ? List.of("", "en")
-                    : List.of("en", "");
-        }
-    };
-
     @Test
     @DisplayName("按发布时间进入公告分类并映射严重程度")
     void importsInPublishedOrderAndMapsFields() {
@@ -104,8 +83,8 @@ class RemoteAnnouncementImporterTest {
     }
 
     @Test
-    @DisplayName("重复轮询不改写首次内容，显式删除后也不重新拉取复活")
-    void repeatedPollKeepsFirstLocalizedHistoryAndReadState() {
+    @DisplayName("切换语言复用同一公告并保留已读与删除状态")
+    void localeSwitchKeepsLogicalHistoryAndReadState() {
         AtomicReference<Locale> locale = new AtomicReference<>(Locale.SIMPLIFIED_CHINESE);
         Harness harness = harness(locale);
         byte[] index = bytes(index(item("stable", PUBLISHED, "info")));
@@ -120,19 +99,53 @@ class RemoteAnnouncementImporterTest {
 
         assertThat(harness.importer.importIndex(index)).isZero();
         assertThat(harness.inbox.find(first.id())).satisfies(message -> {
-            assertThat(message.title()).isEqualTo("中文 stable");
-            assertThat(message.body()).isEqualTo("中文摘要 stable");
-            assertThat(message.contentUrl()).endsWith("/stable/zh-CN.html");
+            assertThat(message.title()).isEqualTo("English stable");
+            assertThat(message.body()).isEqualTo("English summary stable");
+            assertThat(message.contentUrl()).endsWith("/stable/en-US.html");
             assertThat(message.readTime()).isEqualTo(read.readTime());
         });
-        assertThat(harness.inbox.htmlContent(first.id())).isEqualTo(firstContent);
-        assertThat(harness.client.contentRequests).hasValue(1);
+        assertThat(harness.inbox.htmlContent(first.id())).satisfies(content -> {
+            assertThat(content.sourceUrl()).endsWith("/stable/en-US.html");
+            assertThat(content.html()).isEqualTo(firstContent.html());
+        });
+        assertThat(harness.client.contentRequests).hasValue(2);
         assertThat(harness.inbox.unreadCount()).isZero();
 
+        locale.set(Locale.JAPAN);
+        String expanded = indexWithLocales(
+                "[\"zh-CN\",\"en-US\",\"ja-JP\"]",
+                itemWithTranslations("stable", PUBLISHED, "info", """
+                        "zh-CN": {
+                          "title": "中文 stable",
+                          "summary": "中文摘要 stable",
+                          "contentUrl": "%sstable/zh-CN.html"
+                        },
+                        "en-US": {
+                          "title": "English stable",
+                          "summary": "English summary stable",
+                          "contentUrl": "%sstable/en-US.html"
+                        },
+                        "ja-JP": {
+                          "title": "日本語 stable",
+                          "summary": "日本語要約 stable",
+                          "contentUrl": "%sstable/ja-JP.html"
+                        }
+                        """.formatted(contentBase(), contentBase(), contentBase())));
+        assertThat(harness.importer.importIndex(bytes(expanded))).isEqualTo(1);
+        assertThat(harness.inbox.latest(NotificationCategory.ANNOUNCEMENT, false, 10))
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.id()).isEqualTo(first.id());
+                    assertThat(message.title()).isEqualTo("日本語 stable");
+                    assertThat(message.readTime()).isEqualTo(read.readTime());
+                });
+        assertThat(harness.inbox.htmlContent(first.id()).sourceUrl()).endsWith("/stable/ja-JP.html");
+        assertThat(harness.client.contentRequests).hasValue(5);
+
         assertThat(harness.inbox.delete(first.id())).isTrue();
-        assertThat(harness.importer.importIndex(index)).isZero();
+        assertThat(harness.importer.importIndex(bytes(expanded))).isZero();
         assertThat(harness.inbox.find(first.id())).isNull();
-        assertThat(harness.client.contentRequests).hasValue(1);
+        assertThat(harness.client.contentRequests).hasValue(5);
     }
 
     @Test
@@ -148,13 +161,13 @@ class RemoteAnnouncementImporterTest {
         assertThat(harness.importer.importIndex(bytes(index(item("legacy", PUBLISHED, "info")))))
                 .isEqualTo(1);
         assertThat(harness.inbox.find("remote-announcement:legacy")).satisfies(message -> {
-            assertThat(message.title()).isEqualTo("既有标题");
-            assertThat(message.body()).isEqualTo("既有摘要");
+            assertThat(message.title()).isEqualTo("中文 legacy");
+            assertThat(message.body()).isEqualTo("中文摘要 legacy");
             assertThat(message.readTime()).isEqualTo(publishedAt + 1);
             assertThat(message.hasHtmlContent()).isTrue();
         });
         assertThat(harness.inbox.htmlContent("remote-announcement:legacy").html()).isEqualTo(htmlBody());
-        assertThat(harness.client.contentRequests).hasValue(1);
+        assertThat(harness.client.contentRequests).hasValue(2);
     }
 
     @Test
@@ -339,7 +352,7 @@ class RemoteAnnouncementImporterTest {
         try {
             assertThat(client.requested.await(3, TimeUnit.SECONDS)).isTrue();
             assertThat(client.contentRequested.await(3, TimeUnit.SECONDS)).isTrue();
-            assertThat(client.requests).hasValue(2);
+            assertThat(client.requests).hasValue(3);
         } finally {
             context.close();
         }
@@ -367,11 +380,12 @@ class RemoteAnnouncementImporterTest {
 
     private static Harness harness(AtomicReference<Locale> locale) {
         RecordingMapper mapper = new RecordingMapper();
-        NotificationInboxService inbox = new NotificationInboxService(mapper);
+        NotificationInboxService inbox = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, List::of,
+                (namespace, requested, key) -> java.util.Optional.empty(), ignored -> locale.get());
         StubClient client = new StubClient();
         return new Harness(mapper, inbox, client,
-                new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox,
-                        LOCALE_POLICY, locale::get));
+                new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox));
     }
 
     private static Map<String, List<String>> jsonHeaders() {
@@ -455,7 +469,7 @@ class RemoteAnnouncementImporterTest {
 
     private static final class StubClient implements OutboundHttpClient {
         private final CountDownLatch requested = new CountDownLatch(1);
-        private final CountDownLatch contentRequested = new CountDownLatch(1);
+        private final CountDownLatch contentRequested = new CountDownLatch(2);
         private final AtomicInteger requests = new AtomicInteger();
         private final AtomicInteger contentRequests = new AtomicInteger();
         private volatile ResponsePlan plan = new ResponsePlan(
@@ -500,6 +514,8 @@ class RemoteAnnouncementImporterTest {
     private static final class RecordingMapper implements NotificationInboxMapper {
         private final List<NotificationMessage> messages = new CopyOnWriteArrayList<>();
         private final java.util.Set<String> dismissedIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        private final Map<String, List<RemoteAnnouncementTranslation>> remoteTranslations =
+                new ConcurrentHashMap<>();
 
         @Override
         public int insert(NotificationMessage message) {
@@ -538,12 +554,13 @@ class RemoteAnnouncementImporterTest {
         }
 
         @Override
-        public boolean needsRemoteAnnouncementImport(String id) {
-            NotificationMessage message = findById(id);
-            return !dismissedIds.contains(id)
-                    && (message == null
-                    || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())
-                    && message.contentHtml() == null);
+        public boolean blocksRemoteAnnouncementImport(String id) {
+            NotificationMessage message = messages.stream()
+                    .filter(candidate -> candidate.id().equals(id))
+                    .findFirst()
+                    .orElse(null);
+            return dismissedIds.contains(id)
+                    || message != null && !NotificationCategory.ANNOUNCEMENT.token().equals(message.category());
         }
 
         @Override
@@ -561,6 +578,65 @@ class RemoteAnnouncementImporterTest {
                         current.createdTime(), current.readTime()));
                 return 1;
             }
+        }
+
+        @Override
+        public List<RemoteAnnouncementTranslation> findRemoteAnnouncementTranslations(String announcementId) {
+            if (findById(announcementId) == null) {
+                return List.of();
+            }
+            return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
+                    .map(translation -> new RemoteAnnouncementTranslation(
+                            translation.locale(), translation.title(), translation.summary(),
+                            translation.contentUrl(), ""))
+                    .sorted(Comparator.comparing(RemoteAnnouncementTranslation::locale))
+                    .toList();
+        }
+
+        @Override
+        public NotificationHtmlContent findRemoteAnnouncementHtml(String announcementId, String locale) {
+            if (findById(announcementId) == null) {
+                return null;
+            }
+            return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
+                    .filter(translation -> translation.locale().equals(locale))
+                    .findFirst()
+                    .map(translation -> new NotificationHtmlContent(
+                            translation.contentUrl(), translation.contentHtml()))
+                    .orElse(null);
+        }
+
+        @Override
+        public int upsertRemoteAnnouncementTranslation(
+                String announcementId,
+                RemoteAnnouncementTranslation translation) {
+            remoteTranslations.compute(announcementId, (ignored, existing) -> {
+                List<RemoteAnnouncementTranslation> updated = new ArrayList<>(
+                        existing == null ? List.of() : existing);
+                updated.removeIf(current -> current.locale().equals(translation.locale()));
+                updated.add(translation);
+                return List.copyOf(updated);
+            });
+            return 1;
+        }
+
+        @Override
+        public int deleteStaleRemoteAnnouncementTranslations(String announcementId, List<String> locales) {
+            AtomicInteger removed = new AtomicInteger();
+            remoteTranslations.computeIfPresent(announcementId, (ignored, existing) -> {
+                List<RemoteAnnouncementTranslation> updated = new ArrayList<>(existing);
+                int before = updated.size();
+                updated.removeIf(translation -> !locales.contains(translation.locale()));
+                removed.set(before - updated.size());
+                return List.copyOf(updated);
+            });
+            return removed.get();
+        }
+
+        @Override
+        public int deleteRemoteAnnouncementTranslations(String announcementId) {
+            List<RemoteAnnouncementTranslation> removed = remoteTranslations.remove(announcementId);
+            return removed == null ? 0 : removed.size();
         }
 
         @Override
@@ -661,8 +737,7 @@ class RemoteAnnouncementImporterTest {
 
         @Bean
         RemoteAnnouncementImporter importer(StubClient client, NotificationInboxService inbox) {
-            return new RemoteAnnouncementImporter(
-                    client, new ObjectMapper(), inbox, LOCALE_POLICY, () -> Locale.US);
+            return new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox);
         }
     }
 }

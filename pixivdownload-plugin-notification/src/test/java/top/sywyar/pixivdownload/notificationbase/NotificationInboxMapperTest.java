@@ -71,11 +71,20 @@ class NotificationInboxMapperTest {
                     "https://sywyar.github.io/PixivDownloader-Remote-Content/legacy.html",
                     null, null, 25, 30L);
             assertThat(mapper.insert(legacy)).isEqualTo(1);
-            assertThat(mapper.needsRemoteAnnouncementImport("legacy")).isTrue();
+            assertThat(mapper.blocksRemoteAnnouncementImport("legacy")).isFalse();
             assertThat(mapper.restoreRemoteAnnouncementHtml(
                     "legacy", legacy.contentUrl(), "<!doctype html><p>legacy</p>"))
                     .isEqualTo(1);
-            assertThat(mapper.needsRemoteAnnouncementImport("legacy")).isFalse();
+            RemoteAnnouncementTranslation translation = new RemoteAnnouncementTranslation(
+                    "en-US", "English legacy", "English summary", legacy.contentUrl(),
+                    "<!doctype html><p>English legacy</p>");
+            assertThat(mapper.upsertRemoteAnnouncementTranslation("legacy", translation)).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementTranslations("legacy"))
+                    .containsExactly(new RemoteAnnouncementTranslation(
+                            "en-US", "English legacy", "English summary", legacy.contentUrl(), ""));
+            assertThat(mapper.findRemoteAnnouncementHtml("legacy", "en-US"))
+                    .isEqualTo(new NotificationHtmlContent(
+                            legacy.contentUrl(), "<!doctype html><p>English legacy</p>"));
             assertThat(mapper.findById("legacy").readTime()).isEqualTo(30);
             assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)
                     .containsExactly("newer");
@@ -113,7 +122,7 @@ class NotificationInboxMapperTest {
             assertThat(mapper.dismissAnnouncement("announcement", 110)).isEqualTo(1);
             assertThat(mapper.findById("announcement")).isNull();
             assertThat(mapper.findHtmlContent("announcement")).isNull();
-            assertThat(mapper.needsRemoteAnnouncementImport("announcement")).isFalse();
+            assertThat(mapper.blocksRemoteAnnouncementImport("announcement")).isTrue();
             assertThat(mapper.insert(message("announcement", "announcement", 120))).isZero();
             assertThat(mapper.deleteNonAnnouncement("survey")).isEqualTo(1);
             assertThat(mapper.findById("survey")).isNull();
@@ -156,6 +165,17 @@ class NotificationInboxMapperTest {
                         read_time INTEGER,
                         deleted_time INTEGER,
                         active INTEGER NOT NULL DEFAULT 1
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE notification_announcement_translations (
+                        announcement_id TEXT NOT NULL,
+                        locale TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        content_url TEXT NOT NULL,
+                        content_html TEXT NOT NULL,
+                        PRIMARY KEY (announcement_id, locale)
                     )
                     """);
         }

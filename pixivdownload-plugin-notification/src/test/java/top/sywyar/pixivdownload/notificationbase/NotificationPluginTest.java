@@ -168,8 +168,10 @@ class NotificationPluginTest {
             assertThat(slot.target()).isEqualTo("topbar-actions");
             assertThat(slot.moduleUrl()).isEqualTo("/pixiv-notifications/batch-inbox-slot.js");
         });
-        assertThat(plugin.schema()).singleElement().satisfies(schema ->
-                assertThat(schema.tables()).singleElement().satisfies(table -> {
+        assertThat(plugin.schema()).singleElement().satisfies(schema -> {
+            assertThat(schema.tables()).hasSize(2);
+            assertThat(schema.tables()).filteredOn(table -> table.name().equals("notification_messages"))
+                    .singleElement().satisfies(table -> {
                     assertThat(table.name()).isEqualTo("notification_messages");
                     assertThat(table.columns()).extracting(column -> column.name())
                             .containsExactly("id", "category", "severity", "scenario_id", "title", "body",
@@ -184,7 +186,18 @@ class NotificationPluginTest {
                             .contains("content_html IS NULL OR length(content_html) > 0")
                             .contains("active IN (0,1)")
                             .contains("deleted_time IS NULL OR deleted_time >= created_time");
-                }));
+                    });
+            assertThat(schema.tables())
+                    .filteredOn(table -> table.name().equals("notification_announcement_translations"))
+                    .singleElement().satisfies(table -> {
+                        assertThat(table.columns()).extracting(column -> column.name())
+                                .containsExactly("announcement_id", "locale", "title", "summary",
+                                        "content_url", "content_html");
+                        assertThat(table.columns()).extracting(column -> column.primaryKeyPosition())
+                                .containsExactly(1, 2, 0, 0, 0, 0);
+                        assertThat(table.indexes()).isEmpty();
+                    });
+        });
         assertThat(plugin.navigation()).isEmpty();
         assertThat(pf4j.configurationClasses()).containsExactly(NotificationPluginConfiguration.class);
         assertThat(NotificationSink.class).isAssignableFrom(InboxNotificationSink.class);

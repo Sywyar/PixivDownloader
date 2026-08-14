@@ -84,9 +84,10 @@ assert.ok(PAGE_HTML.includes('src="/js/pixiv-navigation.js"')
     '站内信返回入口必须复用共享导航记录的最近下载工作台地址');
 assert.ok(PAGE_SOURCE.includes('(!message.hasHtmlContent && !message.embeddedContentUrl)')
     && PAGE_SOURCE.includes("'/api/notifications/' + encodeURIComponent(message.id) + '/content'")
+    && PAGE_SOURCE.includes("return withLanguage('/api/notifications/'")
     && !PAGE_SOURCE.includes('sywyar.github.io')
     && !PAGE_SOURCE.includes('PixivDownloader-Remote-Content'),
-    '任意分类的 HTML 正文必须只从本地鉴权端点加载');
+    '任意分类的 HTML 正文必须只从本地鉴权端点按当前语言加载');
 assert.ok(PAGE_SOURCE.includes("frame.setAttribute('sandbox', 'allow-scripts')")
     && PAGE_SOURCE.includes("frame.setAttribute('referrerpolicy', 'no-referrer')")
     && PAGE_SOURCE.includes("camera 'none'; clipboard-read 'none'; clipboard-write 'none'")

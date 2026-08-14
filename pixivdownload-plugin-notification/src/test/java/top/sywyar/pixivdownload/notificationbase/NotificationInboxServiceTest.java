@@ -7,8 +7,10 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -130,18 +132,21 @@ class NotificationInboxServiceTest {
     void keepsRemoteAnnouncementDismissedAcrossRefetch() {
         MemoryMapper mapper = new MemoryMapper();
         NotificationInboxService service = new NotificationInboxService(mapper);
+        List<RemoteAnnouncementTranslation> firstTranslations = List.of(new RemoteAnnouncementTranslation(
+                "en-US", "Title", "Body", CONTENT_URL, "<!doctype html><p>First</p>"));
 
         assertThat(service.storeRemoteAnnouncement(
-                "stable", NotificationSeverity.INFO, "Title", "Body",
-                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>First</p>"), 1)).isTrue();
+                "stable", NotificationSeverity.INFO, firstTranslations, 1)).isTrue();
         assertThat(service.delete("remote-announcement:stable")).isTrue();
 
         assertThat(service.find("remote-announcement:stable")).isNull();
         assertThat(service.htmlContent("remote-announcement:stable")).isNull();
         assertThat(service.storeRemoteAnnouncement(
-                "stable", NotificationSeverity.WARNING, "Changed", "Changed",
-                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>Changed</p>"), 2)).isFalse();
-        assertThat(service.needsRemoteAnnouncementImport("stable")).isFalse();
+                "stable", NotificationSeverity.WARNING,
+                List.of(new RemoteAnnouncementTranslation(
+                        "en-US", "Changed", "Changed", CONTENT_URL, "<!doctype html><p>Changed</p>")),
+                2)).isFalse();
+        assertThat(service.needsRemoteAnnouncementImport("stable", firstTranslations)).isFalse();
     }
 
     @Test
@@ -338,6 +343,7 @@ class NotificationInboxServiceTest {
         private final List<NotificationMessage> messages = new ArrayList<>();
         private final Set<String> dismissedIds = new HashSet<>();
         private final Set<String> activePersistentIds = new HashSet<>();
+        private final Map<String, List<RemoteAnnouncementTranslation>> remoteTranslations = new HashMap<>();
         private int insertCalls;
         private int activeSyncCalls;
 
@@ -378,12 +384,13 @@ class NotificationInboxServiceTest {
         }
 
         @Override
-        public boolean needsRemoteAnnouncementImport(String id) {
-            NotificationMessage message = findById(id);
-            return !dismissedIds.contains(id)
-                    && (message == null
-                    || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())
-                    && message.contentHtml() == null);
+        public boolean blocksRemoteAnnouncementImport(String id) {
+            NotificationMessage message = messages.stream()
+                    .filter(candidate -> candidate.id().equals(id))
+                    .findFirst()
+                    .orElse(null);
+            return dismissedIds.contains(id)
+                    || message != null && !NotificationCategory.ANNOUNCEMENT.token().equals(message.category());
         }
 
         @Override
@@ -399,6 +406,60 @@ class NotificationInboxServiceTest {
                     current.title(), current.body(), contentUrl, contentHtml, current.actionUrl(),
                     current.createdTime(), current.readTime()));
             return 1;
+        }
+
+        @Override
+        public List<RemoteAnnouncementTranslation> findRemoteAnnouncementTranslations(String announcementId) {
+            if (findById(announcementId) == null) {
+                return List.of();
+            }
+            return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
+                    .map(translation -> new RemoteAnnouncementTranslation(
+                            translation.locale(), translation.title(), translation.summary(),
+                            translation.contentUrl(), ""))
+                    .sorted(Comparator.comparing(RemoteAnnouncementTranslation::locale))
+                    .toList();
+        }
+
+        @Override
+        public NotificationHtmlContent findRemoteAnnouncementHtml(String announcementId, String locale) {
+            if (findById(announcementId) == null) {
+                return null;
+            }
+            return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
+                    .filter(translation -> translation.locale().equals(locale))
+                    .findFirst()
+                    .map(translation -> new NotificationHtmlContent(
+                            translation.contentUrl(), translation.contentHtml()))
+                    .orElse(null);
+        }
+
+        @Override
+        public int upsertRemoteAnnouncementTranslation(
+                String announcementId,
+                RemoteAnnouncementTranslation translation) {
+            List<RemoteAnnouncementTranslation> current = new ArrayList<>(
+                    remoteTranslations.getOrDefault(announcementId, List.of()));
+            current.removeIf(existing -> existing.locale().equals(translation.locale()));
+            current.add(translation);
+            remoteTranslations.put(announcementId, List.copyOf(current));
+            return 1;
+        }
+
+        @Override
+        public int deleteStaleRemoteAnnouncementTranslations(String announcementId, List<String> locales) {
+            List<RemoteAnnouncementTranslation> current = new ArrayList<>(
+                    remoteTranslations.getOrDefault(announcementId, List.of()));
+            int before = current.size();
+            current.removeIf(translation -> !locales.contains(translation.locale()));
+            remoteTranslations.put(announcementId, List.copyOf(current));
+            return before - current.size();
+        }
+
+        @Override
+        public int deleteRemoteAnnouncementTranslations(String announcementId) {
+            List<RemoteAnnouncementTranslation> removed = remoteTranslations.remove(announcementId);
+            return removed == null ? 0 : removed.size();
         }
 
         @Override

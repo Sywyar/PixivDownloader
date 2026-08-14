@@ -48,10 +48,10 @@ public interface NotificationInboxMapper {
             + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1 AND content_html IS NOT NULL")
     NotificationHtmlContent findHtmlContent(@Param("id") String id);
 
-    @Select("SELECT NOT EXISTS(SELECT 1 FROM notification_messages"
+    @Select("SELECT EXISTS(SELECT 1 FROM notification_messages"
             + " WHERE id = #{id} AND (category <> 'announcement'"
-            + " OR deleted_time IS NOT NULL OR content_html IS NOT NULL))")
-    boolean needsRemoteAnnouncementImport(@Param("id") String id);
+            + " OR deleted_time IS NOT NULL OR active <> 1))")
+    boolean blocksRemoteAnnouncementImport(@Param("id") String id);
 
     @Update("UPDATE notification_messages SET content_url = #{contentUrl}, content_html = #{contentHtml}"
             + " WHERE id = #{id} AND category = 'announcement'"
@@ -59,6 +59,49 @@ public interface NotificationInboxMapper {
     int restoreRemoteAnnouncementHtml(@Param("id") String id,
                                       @Param("contentUrl") String contentUrl,
                                       @Param("contentHtml") String contentHtml);
+
+    @Select("SELECT t.locale, t.title, t.summary, t.content_url AS contentUrl,"
+            + " CASE WHEN t.content_html IS NULL THEN NULL ELSE '' END AS contentHtml"
+            + " FROM notification_announcement_translations t"
+            + " JOIN notification_messages m ON m.id = t.announcement_id"
+            + " WHERE t.announcement_id = #{announcementId} AND m.category = 'announcement'"
+            + " AND m.deleted_time IS NULL AND m.active = 1 ORDER BY t.locale")
+    List<RemoteAnnouncementTranslation> findRemoteAnnouncementTranslations(
+            @Param("announcementId") String announcementId);
+
+    @Select("SELECT t.content_url AS sourceUrl, t.content_html AS html"
+            + " FROM notification_announcement_translations t"
+            + " JOIN notification_messages m ON m.id = t.announcement_id"
+            + " WHERE t.announcement_id = #{announcementId} AND t.locale = #{locale}"
+            + " AND m.category = 'announcement' AND m.deleted_time IS NULL AND m.active = 1")
+    NotificationHtmlContent findRemoteAnnouncementHtml(@Param("announcementId") String announcementId,
+                                                       @Param("locale") String locale);
+
+    @Insert("INSERT INTO notification_announcement_translations"
+            + " (announcement_id, locale, title, summary, content_url, content_html)"
+            + " VALUES (#{announcementId}, #{translation.locale}, #{translation.title},"
+            + " #{translation.summary}, #{translation.contentUrl}, #{translation.contentHtml})"
+            + " ON CONFLICT(announcement_id, locale) DO UPDATE SET"
+            + " title = excluded.title, summary = excluded.summary,"
+            + " content_url = excluded.content_url, content_html = excluded.content_html")
+    int upsertRemoteAnnouncementTranslation(
+            @Param("announcementId") String announcementId,
+            @Param("translation") RemoteAnnouncementTranslation translation);
+
+    @Delete({
+            "<script>",
+            "DELETE FROM notification_announcement_translations WHERE announcement_id = #{announcementId}",
+            "<if test='locales != null and !locales.isEmpty()'>",
+            "AND locale NOT IN",
+            "<foreach collection='locales' item='locale' open='(' separator=',' close=')'>#{locale}</foreach>",
+            "</if>",
+            "</script>"
+    })
+    int deleteStaleRemoteAnnouncementTranslations(@Param("announcementId") String announcementId,
+                                                  @Param("locales") List<String> locales);
+
+    @Delete("DELETE FROM notification_announcement_translations WHERE announcement_id = #{announcementId}")
+    int deleteRemoteAnnouncementTranslations(@Param("announcementId") String announcementId);
 
     @Select({
             "<script>",

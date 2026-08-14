@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContribution;
@@ -9,6 +11,10 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -30,6 +36,7 @@ public class NotificationInboxService {
     private static final Pattern SLOT_ID = Pattern.compile("[a-z0-9][a-z0-9.-]{0,127}");
     private static final Pattern I18N_TOKEN = Pattern.compile("[a-z0-9][a-z0-9.-]{0,159}");
     private static final Pattern REMOTE_ANNOUNCEMENT_ID = Pattern.compile("[a-z0-9][a-z0-9-]{0,79}");
+    private static final Pattern REMOTE_LOCALE_TAG = Pattern.compile("[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+");
     private static final Pattern CONTENT_PATH = Pattern.compile(
             "/PixivDownloader-Remote-Content/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*"
                     + "[A-Za-z0-9][A-Za-z0-9._-]*\\.html");
@@ -40,6 +47,7 @@ public class NotificationInboxService {
     private final WebUiSlotCatalog uiSlots;
     private final NamespaceMessageResolver messages;
     private final Function<Locale, Locale> normalizeLocale;
+    private final Function<Locale, List<Locale>> localeFallbacks;
     private volatile List<PersistentSurvey> persistentSurveys;
 
     public NotificationInboxService(NotificationInboxMapper mapper) {
@@ -63,12 +71,35 @@ public class NotificationInboxService {
                              WebUiSlotCatalog uiSlots,
                              NamespaceMessageResolver messages,
                              Function<Locale, Locale> normalizeLocale) {
+        this(mapper, maxMessages, retentionDays, uiSlots, messages, normalizeLocale,
+                requested -> List.of(normalizeLocale.apply(requested)));
+    }
+
+    NotificationInboxService(NotificationInboxMapper mapper,
+                             IntSupplier maxMessages,
+                             IntSupplier retentionDays,
+                             WebUiSlotCatalog uiSlots,
+                             NamespaceMessageResolver messages,
+                             LocaleBundlePolicy localePolicy) {
+        this(mapper, maxMessages, retentionDays, uiSlots, messages,
+                localePolicy::normalize,
+                requested -> localeFallbacks(localePolicy, requested));
+    }
+
+    private NotificationInboxService(NotificationInboxMapper mapper,
+                                     IntSupplier maxMessages,
+                                     IntSupplier retentionDays,
+                                     WebUiSlotCatalog uiSlots,
+                                     NamespaceMessageResolver messages,
+                                     Function<Locale, Locale> normalizeLocale,
+                                     Function<Locale, List<Locale>> localeFallbacks) {
         this.mapper = Objects.requireNonNull(mapper, "notification inbox mapper");
         this.maxMessages = Objects.requireNonNull(maxMessages, "notification inbox max messages");
         this.retentionDays = Objects.requireNonNull(retentionDays, "notification inbox retention days");
         this.uiSlots = Objects.requireNonNull(uiSlots, "web UI slot catalog");
         this.messages = Objects.requireNonNull(messages, "namespace message resolver");
         this.normalizeLocale = Objects.requireNonNull(normalizeLocale, "locale normalizer");
+        this.localeFallbacks = Objects.requireNonNull(localeFallbacks, "locale fallback policy");
         synchronizePersistentSurveys();
     }
 
@@ -119,38 +150,54 @@ public class NotificationInboxService {
         return message;
     }
 
-    boolean storeRemoteAnnouncement(String remoteId,
-                                    NotificationSeverity severity,
-                                    String title,
-                                    String summary,
-                                    NotificationHtmlContent htmlContent,
-                                    long publishedAt) {
+    @Transactional
+    public boolean storeRemoteAnnouncement(String remoteId,
+                                           NotificationSeverity severity,
+                                           List<RemoteAnnouncementTranslation> translations,
+                                           long publishedAt) {
         String normalizedId = remoteAnnouncementId(remoteId);
         if (publishedAt < 0) {
             throw new IllegalArgumentException("remote announcement published time is invalid");
         }
-        NotificationHtmlContent validatedHtml = validatedHtmlContent(
-                Objects.requireNonNull(htmlContent, "remote announcement HTML"));
+        String messageId = REMOTE_ANNOUNCEMENT_ID_PREFIX + normalizedId;
+        List<RemoteAnnouncementTranslation> validatedTranslations = validatedRemoteTranslations(translations, true);
+        if (mapper.blocksRemoteAnnouncementImport(messageId)) {
+            return false;
+        }
+        RemoteAnnouncementTranslation primary = validatedTranslations.get(0);
         NotificationMessage message = new NotificationMessage(
-                REMOTE_ANNOUNCEMENT_ID_PREFIX + normalizedId,
+                messageId,
                 NotificationCategory.ANNOUNCEMENT.token(),
                 Objects.requireNonNull(severity, "notification severity").name(),
                 null,
-                requiredText(title, 160 * 4, "remote announcement title"),
-                requiredText(summary, 500 * 4, "remote announcement summary"),
-                validatedHtml.sourceUrl(),
-                validatedHtml.html(),
+                primary.title(),
+                primary.summary(),
+                primary.contentUrl(),
+                primary.contentHtml(),
                 null,
                 publishedAt,
                 null);
-        return mapper.insert(message) == 1
-                || mapper.restoreRemoteAnnouncementHtml(
-                        message.id(), message.contentUrl(), message.contentHtml()) == 1;
+        int changed = mapper.insert(message);
+        changed += mapper.restoreRemoteAnnouncementHtml(
+                message.id(), message.contentUrl(), message.contentHtml());
+        for (RemoteAnnouncementTranslation translation : validatedTranslations) {
+            changed += mapper.upsertRemoteAnnouncementTranslation(messageId, translation);
+        }
+        changed += mapper.deleteStaleRemoteAnnouncementTranslations(
+                messageId, validatedTranslations.stream().map(RemoteAnnouncementTranslation::locale).toList());
+        return changed > 0;
     }
 
-    boolean needsRemoteAnnouncementImport(String remoteId) {
-        return mapper.needsRemoteAnnouncementImport(
-                REMOTE_ANNOUNCEMENT_ID_PREFIX + remoteAnnouncementId(remoteId));
+    boolean needsRemoteAnnouncementImport(String remoteId,
+                                          List<RemoteAnnouncementTranslation> translations) {
+        String messageId = REMOTE_ANNOUNCEMENT_ID_PREFIX + remoteAnnouncementId(remoteId);
+        if (mapper.blocksRemoteAnnouncementImport(messageId)) {
+            return false;
+        }
+        List<RemoteAnnouncementTranslation> expected = validatedRemoteTranslations(translations, false);
+        List<RemoteAnnouncementTranslation> stored = safeRemoteTranslations(
+                mapper.findRemoteAnnouncementTranslations(messageId));
+        return !sameTranslationMetadata(expected, stored);
     }
 
     public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit) {
@@ -183,7 +230,24 @@ public class NotificationInboxService {
     }
 
     public NotificationHtmlContent htmlContent(String id) {
-        NotificationHtmlContent content = mapper.findHtmlContent(Objects.requireNonNull(id, "notification id"));
+        return htmlContent(id, null);
+    }
+
+    public NotificationHtmlContent htmlContent(String id, String language) {
+        String requiredId = Objects.requireNonNull(id, "notification id");
+        NotificationMessage message = safeStoredMessage(mapper.findById(requiredId));
+        NotificationHtmlContent content = null;
+        if (remoteAnnouncement(message)) {
+            RemoteAnnouncementTranslation translation = selectRemoteTranslation(
+                    safeRemoteTranslations(mapper.findRemoteAnnouncementTranslations(requiredId)),
+                    locale(language));
+            if (translation != null) {
+                content = mapper.findRemoteAnnouncementHtml(requiredId, translation.locale());
+            }
+        }
+        if (content == null) {
+            content = mapper.findHtmlContent(requiredId);
+        }
         if (content == null) {
             return null;
         }
@@ -207,6 +271,7 @@ public class NotificationInboxService {
         return mapper.markAllRead(categoryToken(category), System.currentTimeMillis());
     }
 
+    @Transactional
     public boolean delete(String id) {
         String requiredId = Objects.requireNonNull(id, "notification id");
         NotificationMessage message = mapper.findById(requiredId);
@@ -217,7 +282,11 @@ public class NotificationInboxService {
             return false;
         }
         if (NotificationCategory.ANNOUNCEMENT.token().equals(message.category())) {
-            return mapper.dismissAnnouncement(requiredId, System.currentTimeMillis()) == 1;
+            if (mapper.dismissAnnouncement(requiredId, System.currentTimeMillis()) != 1) {
+                return false;
+            }
+            mapper.deleteRemoteAnnouncementTranslations(requiredId);
+            return true;
         }
         return mapper.deleteNonAnnouncement(requiredId) == 1;
     }
@@ -269,7 +338,22 @@ public class NotificationInboxService {
     }
 
     private NotificationMessage localize(NotificationMessage message, Locale locale) {
-        if (message == null || !message.persistentSurvey() || persistentSurveys == null) {
+        if (message == null) {
+            return message;
+        }
+        if (remoteAnnouncement(message)) {
+            RemoteAnnouncementTranslation translation = selectRemoteTranslation(
+                    safeRemoteTranslations(mapper.findRemoteAnnouncementTranslations(message.id())), locale);
+            if (translation == null) {
+                return message;
+            }
+            return new NotificationMessage(
+                    message.id(), message.category(), message.severity(), message.scenarioId(),
+                    translation.title(), translation.summary(), translation.contentUrl(),
+                    translation.contentHtml() == null ? null : "", message.actionUrl(),
+                    message.createdTime(), message.readTime());
+        }
+        if (!message.persistentSurvey() || persistentSurveys == null) {
             return message;
         }
         PersistentSurvey survey = persistentSurveys.stream()
@@ -296,6 +380,55 @@ public class NotificationInboxService {
                 ? Locale.getDefault()
                 : Locale.forLanguageTag(language.trim().replace('_', '-'));
         return normalizeLocale.apply(requested);
+    }
+
+    private RemoteAnnouncementTranslation selectRemoteTranslation(
+            List<RemoteAnnouncementTranslation> translations,
+            Locale requested) {
+        if (translations.isEmpty()) {
+            return null;
+        }
+        LinkedHashSet<Locale> candidates = new LinkedHashSet<>();
+        candidates.add(requested);
+        try {
+            candidates.addAll(localeFallbacks.apply(requested));
+        } catch (RuntimeException ignored) {
+            // 损坏的本地语言配置不应阻止回退到任一可用公告翻译。
+        }
+        for (Locale candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            String exact = candidate.toLanguageTag();
+            for (RemoteAnnouncementTranslation translation : translations) {
+                if (translation.locale().equals(exact)) {
+                    return translation;
+                }
+            }
+            String language = candidate.getLanguage();
+            for (RemoteAnnouncementTranslation translation : translations) {
+                if (!language.isBlank()
+                        && Locale.forLanguageTag(translation.locale()).getLanguage().equals(language)) {
+                    return translation;
+                }
+            }
+        }
+        return translations.get(0);
+    }
+
+    private static List<Locale> localeFallbacks(LocaleBundlePolicy policy, Locale requested) {
+        Locale normalized = policy.normalize(requested);
+        LinkedHashSet<Locale> candidates = new LinkedHashSet<>();
+        candidates.add(normalized);
+        for (String suffix : policy.resourceSuffixChain(normalized)) {
+            for (Locale supported : policy.supportedLocales()) {
+                List<String> supportedChain = policy.resourceSuffixChain(supported);
+                if (!supportedChain.isEmpty() && suffix.equals(supportedChain.get(0))) {
+                    candidates.add(supported);
+                }
+            }
+        }
+        return List.copyOf(candidates);
     }
 
     private static PersistentSurvey persistentSurvey(WebUiSlotContribution slot) {
@@ -350,6 +483,90 @@ public class NotificationInboxService {
             throw new IllegalArgumentException("remote announcement id is invalid");
         }
         return normalized;
+    }
+
+    private static boolean remoteAnnouncement(NotificationMessage message) {
+        return message != null
+                && NotificationCategory.ANNOUNCEMENT.token().equals(message.category())
+                && message.id() != null
+                && message.id().startsWith(REMOTE_ANNOUNCEMENT_ID_PREFIX);
+    }
+
+    private static List<RemoteAnnouncementTranslation> validatedRemoteTranslations(
+            List<RemoteAnnouncementTranslation> translations,
+            boolean requireHtml) {
+        if (translations == null || translations.isEmpty() || translations.size() > 16) {
+            throw new IllegalArgumentException("remote announcement translations are invalid");
+        }
+        LinkedHashMap<String, RemoteAnnouncementTranslation> validated = new LinkedHashMap<>();
+        for (RemoteAnnouncementTranslation translation : translations) {
+            RemoteAnnouncementTranslation current = validatedRemoteTranslation(translation, requireHtml);
+            if (validated.putIfAbsent(current.locale(), current) != null) {
+                throw new IllegalArgumentException("remote announcement translation locale is duplicated");
+            }
+        }
+        return List.copyOf(validated.values());
+    }
+
+    private static RemoteAnnouncementTranslation validatedRemoteTranslation(
+            RemoteAnnouncementTranslation translation,
+            boolean requireHtml) {
+        Objects.requireNonNull(translation, "remote announcement translation");
+        String locale = Objects.requireNonNull(translation.locale(), "remote announcement locale");
+        if (!REMOTE_LOCALE_TAG.matcher(locale).matches()
+                || !Locale.forLanguageTag(locale).toLanguageTag().equals(locale)) {
+            throw new IllegalArgumentException("remote announcement locale is invalid");
+        }
+        String title = requiredText(translation.title(), 160 * 4, "remote announcement title");
+        String summary = requiredText(translation.summary(), 500 * 4, "remote announcement summary");
+        String contentUrl = safeContentUrl(translation.contentUrl());
+        String contentHtml = translation.contentHtml();
+        if (requireHtml) {
+            contentHtml = validatedHtmlContent(new NotificationHtmlContent(contentUrl, contentHtml)).html();
+        } else if (contentHtml != null) {
+            contentHtml = "";
+        }
+        return new RemoteAnnouncementTranslation(locale, title, summary, contentUrl, contentHtml);
+    }
+
+    private static List<RemoteAnnouncementTranslation> safeRemoteTranslations(
+            List<RemoteAnnouncementTranslation> translations) {
+        if (translations == null || translations.isEmpty()) {
+            return List.of();
+        }
+        List<RemoteAnnouncementTranslation> safe = new ArrayList<>();
+        for (RemoteAnnouncementTranslation translation : translations) {
+            try {
+                safe.add(validatedRemoteTranslation(translation, false));
+            } catch (IllegalArgumentException | NullPointerException ignored) {
+                // 损坏的单个本地翻译不应阻止其它公告内容回退。
+            }
+        }
+        safe.sort(Comparator.comparing(RemoteAnnouncementTranslation::locale));
+        return List.copyOf(safe);
+    }
+
+    private static boolean sameTranslationMetadata(List<RemoteAnnouncementTranslation> expected,
+                                                   List<RemoteAnnouncementTranslation> stored) {
+        if (expected.size() != stored.size()) {
+            return false;
+        }
+        Map<String, RemoteAnnouncementTranslation> storedByLocale = stored.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        RemoteAnnouncementTranslation::locale,
+                        translation -> translation,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        for (RemoteAnnouncementTranslation translation : expected) {
+            RemoteAnnouncementTranslation current = storedByLocale.get(translation.locale());
+            if (current == null
+                    || !translation.title().equals(current.title())
+                    || !translation.summary().equals(current.summary())
+                    || !translation.contentUrl().equals(current.contentUrl())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static int positiveSetting(IntSupplier supplier, int defaultValue) {

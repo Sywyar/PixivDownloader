@@ -109,8 +109,9 @@ public class NotificationInboxController {
     }
 
     @GetMapping(value = "/{id}/content", produces = MediaType.TEXT_HTML_VALUE)
-    public ResponseEntity<String> htmlContent(@PathVariable String id) {
-        NotificationHtmlContent content = inbox.htmlContent(id);
+    public ResponseEntity<String> htmlContent(@PathVariable String id,
+                                              @RequestParam(required = false) String lang) {
+        NotificationHtmlContent content = inbox.htmlContent(id, lang);
         if (content == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }

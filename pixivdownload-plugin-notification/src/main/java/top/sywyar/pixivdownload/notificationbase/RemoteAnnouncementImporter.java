@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
-import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
@@ -23,6 +22,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -30,7 +30,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /** 从固定 GitHub Pages 索引拉取并幂等保存管理员公告。 */
@@ -59,21 +58,15 @@ public final class RemoteAnnouncementImporter {
     private final OutboundHttpClient client;
     private final ObjectMapper objectMapper;
     private final NotificationInboxService inbox;
-    private final LocaleBundlePolicy localePolicy;
-    private final Supplier<Locale> currentLocale;
 
     RemoteAnnouncementImporter(OutboundHttpClient client,
                                ObjectMapper objectMapper,
-                               NotificationInboxService inbox,
-                               LocaleBundlePolicy localePolicy,
-                               Supplier<Locale> currentLocale) {
+                               NotificationInboxService inbox) {
         this.client = Objects.requireNonNull(client, "remote announcement HTTP client");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper").copy()
                 .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                 .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
         this.inbox = Objects.requireNonNull(inbox, "notification inbox");
-        this.localePolicy = Objects.requireNonNull(localePolicy, "locale policy");
-        this.currentLocale = Objects.requireNonNull(currentLocale, "current locale supplier");
     }
 
     @Scheduled(
@@ -113,15 +106,16 @@ public final class RemoteAnnouncementImporter {
             try {
                 Announcement announcement = announcement(
                         announcements.get(position), requiredLocales, seenIds);
-                if (!inbox.needsRemoteAnnouncementImport(announcement.id())) {
+                if (!inbox.needsRemoteAnnouncementImport(
+                        announcement.id(), announcement.translations())) {
                     continue;
                 }
-                NotificationHtmlContent htmlContent = fetchHtml(
-                        announcement.translation().contentUrl());
+                List<RemoteAnnouncementTranslation> snapshots = announcement.translations().stream()
+                        .map(translation -> translation.withHtml(fetchHtml(translation.contentUrl()).html()))
+                        .toList();
                 if (inbox.storeRemoteAnnouncement(
                         announcement.id(), announcement.severity(),
-                        announcement.translation().title(), announcement.translation().summary(),
-                        htmlContent, announcement.publishedAt())) {
+                        snapshots, announcement.publishedAt())) {
                     imported++;
                 }
             } catch (RejectedIndex | IllegalArgumentException exception) {
@@ -221,8 +215,7 @@ public final class RemoteAnnouncementImporter {
             throw rejected("locales");
         }
 
-        String selectedLocale = selectLocale(requiredLocales);
-        Translation selected = null;
+        List<RemoteAnnouncementTranslation> translations = new ArrayList<>();
         for (String locale : requiredLocales) {
             JsonNode translation = locales.get(locale);
             requireFields(translation, TRANSLATION_FIELDS, "translation-fields");
@@ -233,34 +226,10 @@ public final class RemoteAnnouncementImporter {
             if (!NotificationInboxService.safeContentUrl(contentUrl).equals(expectedUrl)) {
                 throw rejected("content-url");
             }
-            if (locale.equals(selectedLocale)) {
-                selected = new Translation(title, summary, contentUrl);
-            }
+            translations.add(new RemoteAnnouncementTranslation(
+                    locale, title, summary, contentUrl, null));
         }
-        if (selected == null) {
-            throw rejected("locale-fallback");
-        }
-        return new Announcement(id, publishedAt, severity, selected);
-    }
-
-    private String selectLocale(Set<String> locales) {
-        Locale target = localePolicy.normalize(currentLocale.get());
-        String exact = target.toLanguageTag();
-        if (locales.contains(exact)) {
-            return exact;
-        }
-        for (String suffix : localePolicy.resourceSuffixChain(target)) {
-            for (Locale supported : localePolicy.supportedLocales()) {
-                List<String> supportedChain = localePolicy.resourceSuffixChain(supported);
-                if (!supportedChain.isEmpty() && suffix.equals(supportedChain.get(0))) {
-                    String tag = supported.toLanguageTag();
-                    if (locales.contains(tag)) {
-                        return tag;
-                    }
-                }
-            }
-        }
-        throw rejected("locale-fallback");
+        return new Announcement(id, publishedAt, severity, List.copyOf(translations));
     }
 
     private static Set<String> requiredLocales(JsonNode node) {
@@ -386,14 +355,11 @@ public final class RemoteAnnouncementImporter {
         return new RejectedIndex(code);
     }
 
-    private record Translation(String title, String summary, String contentUrl) {
-    }
-
     private record Announcement(
             String id,
             long publishedAt,
             NotificationSeverity severity,
-            Translation translation) {
+            List<RemoteAnnouncementTranslation> translations) {
     }
 
     private static final class RejectedIndex extends RuntimeException {

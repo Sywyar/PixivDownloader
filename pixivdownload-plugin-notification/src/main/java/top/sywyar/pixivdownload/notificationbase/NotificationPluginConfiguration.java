@@ -24,8 +24,6 @@ import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCata
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotCatalog;
 
 import java.time.Duration;
-import java.util.Locale;
-
 @Configuration
 @EnableScheduling
 public class NotificationPluginConfiguration {
@@ -63,7 +61,7 @@ public class NotificationPluginConfiguration {
                         NotificationPlugin.DEFAULT_INBOX_RETENTION_DAYS),
                 uiSlots,
                 messages,
-                localePolicy::normalize);
+                localePolicy);
     }
 
     @Bean
@@ -103,10 +101,8 @@ public class NotificationPluginConfiguration {
     public RemoteAnnouncementImporter remoteAnnouncementImporter(
             @Qualifier("notificationAnnouncementHttpClient") OutboundHttpClient client,
             ObjectMapper objectMapper,
-            NotificationInboxService inbox,
-            LocaleBundlePolicy localePolicy) {
-        return new RemoteAnnouncementImporter(
-                client, objectMapper, inbox, localePolicy, Locale::getDefault);
+            NotificationInboxService inbox) {
+        return new RemoteAnnouncementImporter(client, objectMapper, inbox);
     }
 
     @Bean
