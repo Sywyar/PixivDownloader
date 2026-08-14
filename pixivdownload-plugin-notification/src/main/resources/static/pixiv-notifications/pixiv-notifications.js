@@ -191,7 +191,7 @@
         frame.setAttribute('data-notification-id', message.id);
         if (message.embeddedContentUrl) {
             frame.setAttribute('data-embedded-survey', 'true');
-            frame.setAttribute('loading', 'eager');
+            frame.setAttribute('loading', 'lazy');
         } else {
             frame.setAttribute('sandbox', 'allow-scripts');
             frame.setAttribute('loading', 'lazy');
@@ -203,12 +203,6 @@
         contentFrames.set(message.id, frame);
         contentFrameHost.appendChild(frame);
         return frame;
-    }
-
-    function preloadEmbeddedFrames(messages) {
-        messages.forEach(function (message) {
-            if (message.embeddedContentUrl) contentFrame(message);
-        });
     }
 
     async function handleContentMessage(event) {
@@ -436,7 +430,6 @@
             if (requestSequence !== loadSequence) return false;
             state.messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
             state.unreadCount = Math.max(0, Number(snapshot.categoryUnreadCount) || 0);
-            preloadEmbeddedFrames(state.messages);
             renderList();
             return true;
         } catch (error) {

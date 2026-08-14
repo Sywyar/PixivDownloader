@@ -114,11 +114,12 @@ assert.ok(PAGE_SOURCE.includes("frame.setAttribute('data-embedded-survey', 'true
     '插件调查应以内嵌同源页面展示、校验消息来源、隐藏删除入口并跟随当前语言');
 assert.ok(PAGE_HTML.includes('id="notificationContentFrames"')
     && PAGE_SOURCE.includes('var contentFrames = new Map();')
-    && PAGE_SOURCE.includes("frame.setAttribute('loading', 'eager')")
-    && PAGE_SOURCE.includes('preloadEmbeddedFrames(state.messages);')
+    && !PAGE_SOURCE.includes("frame.setAttribute('loading', 'eager')")
+    && !PAGE_SOURCE.includes('preloadEmbeddedFrames')
+    && PAGE_SOURCE.includes("frame.setAttribute('loading', 'lazy')")
     && PAGE_SOURCE.includes("frame.getAttribute('data-content-source') === source")
     && /if \(state\.selectedMessage\) \{[\s\S]*?return;\s*\}\s*try \{/s.test(PAGE_SOURCE),
-    '调查 iframe 必须随列表预热并按消息与语言复用，重复选择不得重新请求详情或重建正文');
+    '调查 iframe 必须仅在打开消息后创建并按消息与语言复用，重复选择不得重新请求详情或重建正文');
 assert.ok(/\.notification-detail-content-frame\[hidden\]\s*\{\s*display:\s*none;\s*\}/s.test(CSS),
     '缓存多封 HTML 正文时必须显式隐藏非当前 iframe，避免正文拼接显示');
 assert.ok(/\.notification-page\s*\{[^}]*height:\s*100dvh;[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s.test(CSS)
