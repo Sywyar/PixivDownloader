@@ -50,6 +50,11 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        if ("TRACE".equalsIgnoreCase(request.getMethod())) {
+            response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            response.setHeader(HttpHeaders.ALLOW, "GET, HEAD, OPTIONS, POST, PUT, DELETE, PATCH");
+            return;
+        }
         if (!requiresSameOriginCheck(request)) {
             filterChain.doFilter(request, response);
             return;
@@ -86,7 +91,7 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return false;
         }
         String normalizedMethod = method.toUpperCase(Locale.ROOT);
-        return !Set.of("GET", "HEAD", "OPTIONS", "TRACE").contains(normalizedMethod);
+        return !Set.of("GET", "HEAD", "OPTIONS").contains(normalizedMethod);
     }
 
     private static boolean requiresExplicitOriginSignal(HttpServletRequest request) {

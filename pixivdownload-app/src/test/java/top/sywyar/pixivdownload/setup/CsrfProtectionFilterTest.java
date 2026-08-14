@@ -95,6 +95,19 @@ class CsrfProtectionFilterTest {
     }
 
     @Test
+    @DisplayName("TRACE 在过滤器层直接返回 405")
+    void traceIsAlwaysRejected() throws Exception {
+        MockHttpServletRequest request = request("TRACE", "/api/collections/7/icon");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(405);
+        assertThat(response.getHeader(HttpHeaders.ALLOW)).doesNotContain("TRACE");
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
     @DisplayName("缺少 Origin 时同源 Referer 放行上传写请求")
     void sameOriginRefererAllowsProtectedWrite() throws Exception {
         MockHttpServletRequest request = request("POST", "/api/plugins/install");
