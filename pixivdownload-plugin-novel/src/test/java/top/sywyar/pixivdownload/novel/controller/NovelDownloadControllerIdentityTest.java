@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadCommand;
@@ -24,6 +25,7 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
+import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
@@ -61,6 +63,7 @@ class NovelDownloadControllerIdentityTest {
     @Mock private PixivAjaxClient pixivAjaxClient;
     @Mock private PixivProxyAccessPolicy pixivProxyAccessPolicy;
     @Mock private MessageResolver messages;
+    @Mock private NovelBrowserFetchTicketStore browserFetchTicketStore;
     @Mock private HttpServletRequest httpRequest;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -189,6 +192,60 @@ class NovelDownloadControllerIdentityTest {
                         && request.getOther().getRawMetaJson().contains("server title")), isNull());
     }
 
+    @Test
+    @DisplayName("solo 模式以绑定作品的一次性票据消费浏览器取得的小说数据")
+    void soloConsumesBrowserFetchTicketWithoutRefetchingPixiv() throws Exception {
+        when(applicationModeProvider.getMode()).thenReturn("solo");
+        when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(httpRequest.getHeader("Host")).thenReturn("localhost:6999");
+        String token = "a".repeat(43);
+        PixivNovelMetadata metadata = PixivNovelMetadata.parse(123L, objectMapper.readTree("""
+                {"id":"123","title":"restricted title","content":"restricted content",
+                 "userId":"42","userName":"author"}
+                """));
+        when(browserFetchTicketStore.consumeFetchTicket(token, 123L)).thenReturn(java.util.Optional.of(
+                new NovelBrowserFetchTicketStore.ImportedNovel(metadata, "{\"id\":\"123\"}")));
+        NovelDownloadCommand command = requestWithAdminOptions();
+        command.setFetchToken(token);
+
+        var response = controller().downloadNovel(command, httpRequest);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        verify(novelDownloadService).download(argThat(request ->
+                "restricted title".equals(request.getTitle())
+                        && "restricted content".equals(request.getContent())
+                        && request.getCookie() == null), isNull());
+        verifyNoInteractions(pixivAjaxClient);
+    }
+
+    @Test
+    @DisplayName("multi 模式拒绝使用本机浏览器导入票据")
+    void multiRejectsBrowserFetchTicket() {
+        when(applicationModeProvider.getMode()).thenReturn("multi");
+        NovelDownloadCommand command = requestWithAdminOptions();
+        command.setFetchToken("a".repeat(43));
+
+        var response = controller().downloadNovel(command, httpRequest);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        verifyNoInteractions(browserFetchTicketStore, pixivAjaxClient, novelDownloadService);
+    }
+
+    @Test
+    @DisplayName("远程请求不能消费本机浏览器导入票据")
+    void remoteRequestRejectsBrowserFetchTicket() {
+        when(applicationModeProvider.getMode()).thenReturn("solo");
+        when(httpRequest.getRemoteAddr()).thenReturn("192.0.2.10");
+        when(httpRequest.getHeader("Host")).thenReturn("downloads.example");
+        NovelDownloadCommand command = requestWithAdminOptions();
+        command.setFetchToken("a".repeat(43));
+
+        var response = controller().downloadNovel(command, httpRequest);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        verifyNoInteractions(browserFetchTicketStore, pixivAjaxClient, novelDownloadService);
+    }
+
     private NovelDownloadController controller() {
         return new NovelDownloadController(
                 novelDownloadService,
@@ -205,7 +262,8 @@ class NovelDownloadControllerIdentityTest {
                 objectMapper,
                 pixivAjaxClient,
                 pixivProxyAccessPolicy,
-                messages);
+                messages,
+                browserFetchTicketStore);
     }
 
     private static NovelDownloadCommand requestWithAdminOptions() {

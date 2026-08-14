@@ -39,7 +39,8 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
     private static final Pattern USERSCRIPT_WRITE_PATH = Pattern.compile(
             "^/api/(?:download/pixiv|download/status|download/queue/[^/]+/cancel|download/queue/clear"
                     + "|sse/close/aggregated/[^/]+|quota/(?:init|pack)|batch/state|novel/download"
-                    + "|novel/series/[^/]+/merge|downloaded/batch|gallery/novels/downloaded-batch)$");
+                    + "|novel/browser-import/[0-9]+|novel/series/[^/]+/merge"
+                    + "|downloaded/batch|gallery/novels/downloaded-batch)$");
     private static final String SESSION_COOKIE = "pixiv_session";
     private static final String VISITOR_COOKIE = "pixiv_user_id";
 

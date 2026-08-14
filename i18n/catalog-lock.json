@@ -43238,6 +43238,46 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-novel",
       "baseName": "novel/messages",
+      "key": "novel.browser-import.fetch-ticket-invalid",
+      "acceptedSourceHash": "dd84e99b21f4d7a93debd69930ad9cdba14e1ebc698004369856ab9f7c92fd01",
+      "acceptedTranslationHash": "ae080a1d2fe27de0c2b96fa259599ebb038a689f968afc6757053e28da4c3b2f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-novel",
+      "baseName": "novel/messages",
+      "key": "novel.browser-import.payload-too-large",
+      "acceptedSourceHash": "470db9656d8de26e091b062dd01e67c36a56bbc379e127553da39d5cdc2c7e8e",
+      "acceptedTranslationHash": "ffddca64baaa0bc07a97631a326faf57e2ab70af3d16e1134d3a96efcd3d871f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-novel",
+      "baseName": "novel/messages",
+      "key": "novel.browser-import.response-invalid",
+      "acceptedSourceHash": "c1d23d16777c8ddb6c227c4d65732a2de74a10eceee5e5ea427e9d703b2295e4",
+      "acceptedTranslationHash": "50a04b915fbd844a4f156892b5e7b9ba5619684a1395f50adbe5e218601b44c1"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-novel",
+      "baseName": "novel/messages",
+      "key": "novel.browser-import.token-invalid",
+      "acceptedSourceHash": "3b7f5e0cc3dcc8572d452a37ed3e4558acf12eb08bb56109a9c2105fe0dfb035",
+      "acceptedTranslationHash": "72e61bf188bffd48e5a8786a6ba822276e6d0c31de3e24ace27a1b0fa72578cf"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-novel",
+      "baseName": "novel/messages",
+      "key": "novel.browser-import.unavailable",
+      "acceptedSourceHash": "ff958875c78f07cd5c1177417ab3b1ee3259d489f946ce24250ad765fc1f06d6",
+      "acceptedTranslationHash": "69dabd67222927ff3bf75e553cc7723c693372dd3be6410c2dc8a343eed88510"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-novel",
+      "baseName": "novel/messages",
       "key": "novel.epub.chapter",
       "acceptedSourceHash": "232a629991da88bbf32060eb65d962b2bf3ac531d6abe182e6f7eb6d9374d034",
       "acceptedTranslationHash": "7dc5256ed098b042ccd22c3741fd0d576d3e42adccccd40763d165c3d8a75bc8"

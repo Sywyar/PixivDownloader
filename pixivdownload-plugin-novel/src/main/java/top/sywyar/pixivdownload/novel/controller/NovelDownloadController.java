@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
 import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
@@ -45,6 +46,7 @@ import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import java.io.IOException;
 import java.net.URI;
@@ -86,6 +88,7 @@ public class NovelDownloadController {
     private final PixivAjaxClient pixivAjaxClient;
     private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final MessageResolver messages;
+    private final NovelBrowserFetchTicketStore browserFetchTicketStore;
 
     @PostMapping("/novel/download")
     public ResponseEntity<?> downloadNovel(
@@ -184,6 +187,25 @@ public class NovelDownloadController {
     private NovelDownloadRequest resolveDownloadRequest(
             NovelDownloadCommand command,
             HttpServletRequest httpRequest) throws IOException {
+        if (command.getFetchToken() != null && !command.getFetchToken().isBlank()) {
+            if (!"solo".equals(applicationModeProvider.getMode())
+                    || !LocalRequestTrust.isLocalRequest(
+                    httpRequest.getRemoteAddr(),
+                    httpRequest.getHeader("Host"),
+                    httpRequest.getHeader("X-Forwarded-For"),
+                    httpRequest.getHeader("X-Real-IP"),
+                    httpRequest.getHeader("Forwarded"))) {
+                throw new IllegalArgumentException(messages.get("novel.browser-import.fetch-ticket-invalid"));
+            }
+            NovelBrowserFetchTicketStore.ImportedNovel imported = browserFetchTicketStore
+                    .consumeFetchTicket(command.getFetchToken(), command.getNovelId())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            messages.get("novel.browser-import.fetch-ticket-invalid")));
+            NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(
+                    imported.metadata(), null, null, imported.rawMetaJson());
+            command.getOther().applyTo(request.getOther());
+            return request;
+        }
         String credential = AcquisitionCredentialResolver.resolve(
                 httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME), null);
         long novelId = command.getNovelId();

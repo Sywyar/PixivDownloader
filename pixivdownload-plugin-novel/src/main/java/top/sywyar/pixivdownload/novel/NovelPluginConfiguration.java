@@ -32,10 +32,12 @@ import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
+import top.sywyar.pixivdownload.novel.controller.NovelBrowserImportController;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardController;
 import top.sywyar.pixivdownload.novel.controller.NovelGlossaryController;
 import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
 import top.sywyar.pixivdownload.novel.config.NovelExecutionConfiguration;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRepository;
@@ -336,6 +338,22 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
+    public NovelBrowserFetchTicketStore novelBrowserFetchTicketStore() {
+        return new NovelBrowserFetchTicketStore();
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
+    public NovelBrowserImportController novelBrowserImportController(
+            ObjectMapper objectMapper,
+            NovelBrowserFetchTicketStore ticketStore,
+            ApplicationModeProvider applicationModeProvider,
+            @Qualifier("novelPluginMessages") MessageResolver messages) {
+        return new NovelBrowserImportController(objectMapper, ticketStore, applicationModeProvider, messages);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelDownloadController novelDownloadController(NovelDownloadService novelDownloadService,
                                                           NovelAutoTranslateService novelAutoTranslateService,
                                                           NovelDatabase novelDatabase,
@@ -350,11 +368,13 @@ public class NovelPluginConfiguration {
                                                           ObjectMapper objectMapper,
                                                           PixivAjaxClient pixivAjaxClient,
                                                           PixivProxyAccessPolicy pixivProxyAccessPolicy,
-                                                          @Qualifier("novelPluginMessages") MessageResolver messages) {
+                                                          @Qualifier("novelPluginMessages") MessageResolver messages,
+                                                          NovelBrowserFetchTicketStore browserFetchTicketStore) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
                 novelGalleryService, novelMergeService, novelTranslationService, applicationModeProvider,
                 requestOwnerIdentityResolver, workVisibilityService, visitorDownloadQuotaService,
-                multiModeSettings, objectMapper, pixivAjaxClient, pixivProxyAccessPolicy, messages);
+                multiModeSettings, objectMapper, pixivAjaxClient, pixivProxyAccessPolicy, messages,
+                browserFetchTicketStore);
     }
 
     @Bean

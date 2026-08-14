@@ -63,6 +63,7 @@ public final class TestNovelGalleryPlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         return List.of(
                 WebRouteContribution.visitor("/api/novel/download"),
+                WebRouteContribution.local("/api/novel/browser-import/**"),
                 WebRouteContribution.visitor("/api/novel/status/**"),
                 WebRouteContribution.visitor("/api/novel/translate-status/**"),
                 WebRouteContribution.visitor("/api/novel/*/downloaded"),

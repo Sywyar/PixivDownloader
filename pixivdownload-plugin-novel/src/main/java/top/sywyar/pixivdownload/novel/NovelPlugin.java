@@ -66,11 +66,13 @@ public class NovelPlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         // 小说下载端点归小说自有前缀 /api/novel/**（端点迁移见 NovelDownloadController）+ 旧址兼容垫片
         // /api/download/{pixiv/novel,novel/status,novel/translate-status}（NovelDownloadLegacyForwardController
-        // forward 至新址）。两者一律 VISITOR：复刻插画下载 /api/download/pixiv 的现状——multi 访客可
+        // forward 至新址）。普通下载路径一律 VISITOR：复刻插画下载 /api/download/pixiv 的现状——multi 访客可
         // 下载（走配额）、solo 需会话、邀请访客 403、不入 monitor（AuthFilter 不为该策略派生任何清单、命中后落到
-        // 默认会话/访客分支）。声明它只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
+        // 默认会话/访客分支）。浏览器响应导入仅允许 LOCAL，控制器还会限制为真实 loopback 的 solo 模式。
+        // 声明只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
         return List.of(
                 WebRouteContribution.visitor("/api/novel/download"),
+                WebRouteContribution.local("/api/novel/browser-import/**"),
                 WebRouteContribution.visitor("/api/novel/status/**"),
                 WebRouteContribution.visitor("/api/novel/translate-status/**"),
                 WebRouteContribution.visitor("/api/novel/*/downloaded"),

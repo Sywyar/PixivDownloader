@@ -236,6 +236,31 @@ class CsrfProtectionFilterTest {
     }
 
     @Test
+    @DisplayName("Pixiv 油猴来源可把小说响应导入本机一次性票据端点")
+    void pixivUserscriptCanImportNovelResponseWithoutAmbientCredential() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/novel/browser-import/42");
+        request.addHeader(HttpHeaders.ORIGIN, "https://www.pixiv.net");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("小说响应导入例外只接受十进制作品 ID 路径")
+    void pixivUserscriptCannotImportNovelResponseToNonNumericPath() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/novel/browser-import/not-a-number");
+        request.addHeader(HttpHeaders.ORIGIN, "https://www.pixiv.net");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
     @DisplayName("Pixiv 来源不能借 userscript 例外访问非脚本写端点")
     void pixivSourceCannotInitializeSetup() throws Exception {
         MockHttpServletRequest request = request("POST", "/api/setup/init");

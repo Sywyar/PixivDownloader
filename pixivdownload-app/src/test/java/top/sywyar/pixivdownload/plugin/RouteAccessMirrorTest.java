@@ -265,6 +265,7 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/pixiv/me/novel-bookmarks", "novel", AccessPolicy.VISITOR);
         // 小说下载端点归小说插件、新址 + 旧址兼容垫片一律 VISITOR（复刻 /api/download/pixiv 现状）。
         assertOwnerPolicy("/api/novel/download", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/browser-import/**", "novel", AccessPolicy.LOCAL);
         assertOwnerPolicy("/api/novel/status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/translate-status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/*/downloaded", "novel", AccessPolicy.VISITOR);
