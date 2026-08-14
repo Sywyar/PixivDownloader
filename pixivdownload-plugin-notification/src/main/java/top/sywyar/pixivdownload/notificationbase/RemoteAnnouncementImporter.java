@@ -41,6 +41,8 @@ public final class RemoteAnnouncementImporter {
     static final long POLL_DELAY_MILLIS = 6L * 60 * 60 * 1_000;
     static final int MAX_INDEX_BYTES = 1_024 * 1_024;
     static final int MAX_ANNOUNCEMENTS = 100;
+    static final long MAX_PUBLISHED_AT_FUTURE_MILLIS = 10L * 60 * 1_000;
+    private static final long MIN_PUBLISHED_AT_MILLIS = 1_577_836_800_000L; // 2020-01-01T00:00:00Z
 
     private static final Logger LOG = LoggerFactory.getLogger(RemoteAnnouncementImporter.class);
     private static final String PUBLIC_ANNOUNCEMENT_BASE =
@@ -292,7 +294,8 @@ public final class RemoteAnnouncementImporter {
         }
         try {
             long epochMillis = Instant.parse(value).toEpochMilli();
-            if (epochMillis < 0) {
+            long maximum = Math.addExact(System.currentTimeMillis(), MAX_PUBLISHED_AT_FUTURE_MILLIS);
+            if (epochMillis < MIN_PUBLISHED_AT_MILLIS || epochMillis > maximum) {
                 throw rejected("published-at");
             }
             return epochMillis;

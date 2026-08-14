@@ -195,6 +195,8 @@ class RemoteAnnouncementImporterTest {
                 index(item("INVALID", PUBLISHED, "info")),
                 index(item("bad-severity", PUBLISHED, "error")),
                 index(item("bad-date", "2026-08-12T00:00:00+00:00", "info")),
+                index(item("too-old", "2019-12-31T23:59:59Z", "info")),
+                index(item("too-far-future", "2099-01-01T00:00:00Z", "info")),
                 index(item("long-title", PUBLISHED, "info"))
                         .replace("English long-title", "x".repeat(161)),
                 index(item("long-summary", PUBLISHED, "info"))
