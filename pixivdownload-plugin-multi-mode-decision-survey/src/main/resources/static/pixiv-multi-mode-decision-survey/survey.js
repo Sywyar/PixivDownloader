@@ -2,6 +2,7 @@
     'use strict';
 
     var OWNER_KEY = 'multi-mode-decision-survey.removal-decision';
+    var TRUSTED_POSTHOG_API_ORIGINS = Object.freeze(['https://layout-survey.sywyar.top']);
     var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({});
     var QUESTION_ID = '0ac24f7c-abeb-4405-8c9c-916e4ca904ac';
     var STATE_KEY = 'pixiv:multi-mode-decision-survey:state:v1';
@@ -286,6 +287,7 @@
             var client = await global.PixivPostHog.createSurveyClient({
                 ownerKey: OWNER_KEY,
                 posthog: POSTHOG,
+                trustedApiOrigins: TRUSTED_POSTHOG_API_ORIGINS,
                 distinctId: distinctId,
                 beforeSend: beforeSend
             });

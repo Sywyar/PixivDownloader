@@ -7,7 +7,6 @@
     var clients = Object.create(null);
     var sdkPromise = null;
     var ALLOWED_API_ORIGINS = Object.freeze([
-        'https://layout-survey.sywyar.top',
         'https://us.i.posthog.com',
         'https://eu.i.posthog.com'
     ]);
@@ -97,18 +96,20 @@
         }
     }
 
-    function normalizePostHog(value) {
+    function normalizePostHog(value, trustedApiOrigins) {
+        var apiOrigins = ALLOWED_API_ORIGINS.concat(
+            Array.isArray(trustedApiOrigins) ? trustedApiOrigins : []);
         if (!value || typeof value !== 'object'
                 || !nonBlank(value.projectToken)
                 || !nonBlank(value.surveyId)
-                || !allowedOrigin(value.apiHost, ALLOWED_API_ORIGINS)
+                || !allowedOrigin(value.apiHost, apiOrigins)
                 || !allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)) {
             return null;
         }
         return Object.freeze({
             projectToken: value.projectToken.trim(),
             surveyId: value.surveyId.trim(),
-            apiHost: allowedOrigin(value.apiHost, ALLOWED_API_ORIGINS),
+            apiHost: allowedOrigin(value.apiHost, apiOrigins),
             uiHost: allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)
         });
     }
@@ -179,7 +180,7 @@
     function createSurveyClient(options) {
         options = options || {};
         var ownerKey = typeof options.ownerKey === 'string' ? options.ownerKey.trim() : '';
-        var posthog = normalizePostHog(options.posthog);
+        var posthog = normalizePostHog(options.posthog, options.trustedApiOrigins);
         if (!ownerKey || !posthog || typeof options.beforeSend !== 'function') {
             return Promise.resolve(null);
         }

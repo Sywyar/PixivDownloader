@@ -87,6 +87,7 @@
     var SURVEY_TOTAL_TIMEOUT_MS = 30 * 1000;
     var APP_VERSION_TIMEOUT_MS = 10 * 1000;
     var POSTHOG_OWNER_KEY = 'download-workbench.layout-feedback';
+    var TRUSTED_POSTHOG_API_ORIGINS = Object.freeze(['https://layout-survey.sywyar.top']);
     var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({});
     var I18N_NS = 'layout-feedback';
     var ALLOWED_SURVEY_EVENTS = ['survey shown', 'survey sent', 'survey dismissed'];
@@ -2102,6 +2103,7 @@
                 global.PixivPostHog.createSurveyClient({
                     ownerKey: POSTHOG_OWNER_KEY,
                     posthog: POSTHOG,
+                    trustedApiOrigins: TRUSTED_POSTHOG_API_ORIGINS,
                     distinctId: serverIdentityAvailable && serverDistinctId ? serverDistinctId : '',
                     beforeSend: beforeSendFilter
                 }).then(function (sdk) {

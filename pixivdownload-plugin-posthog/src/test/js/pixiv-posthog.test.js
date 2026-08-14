@@ -44,6 +44,7 @@ async function testSynchronousLoadFailureCanRetry() {
             projectToken: 'phc_retry', surveyId: 'survey-retry',
             apiHost: 'https://layout-survey.sywyar.top', uiHost: 'https://us.posthog.com'
         },
+        trustedApiOrigins: ['https://layout-survey.sywyar.top'],
         distinctId: 'retry_' + 'c'.repeat(64),
         beforeSend: event => event
     };
@@ -86,12 +87,14 @@ async function main() {
     const first = await api.createSurveyClient({
         ownerKey: 'download-workbench.layout-feedback',
         posthog,
+        trustedApiOrigins: [posthog.apiHost],
         distinctId: 'plf_' + 'a'.repeat(64),
         beforeSend: filter
     });
     const reused = await api.createSurveyClient({
         ownerKey: 'download-workbench.layout-feedback',
         posthog,
+        trustedApiOrigins: [posthog.apiHost],
         distinctId: 'plf_' + 'a'.repeat(64),
         beforeSend: filter
     });
@@ -117,6 +120,11 @@ async function main() {
     assert.strictEqual(await api.createSurveyClient({
         ownerKey: 'invalid.insecure-host',
         posthog: {...posthog, apiHost: 'https://attacker.example'},
+        beforeSend: filter
+    }), null);
+    assert.strictEqual(await api.createSurveyClient({
+        ownerKey: 'invalid.untrusted-custom-host',
+        posthog,
         beforeSend: filter
     }), null);
     for (const [ownerKey, apiHost] of [
@@ -162,6 +170,7 @@ async function main() {
     const third = await api.createSurveyClient({
         ownerKey: 'another-plugin.second-survey',
         posthog: {...posthog, surveyId: 'survey-three'},
+        trustedApiOrigins: [posthog.apiHost],
         beforeSend: filter
     });
     assert.ok(third);

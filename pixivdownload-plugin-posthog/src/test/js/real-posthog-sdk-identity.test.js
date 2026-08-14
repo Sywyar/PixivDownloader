@@ -280,6 +280,7 @@ async function main() {
             apiHost: 'https://layout-survey.sywyar.top',
             uiHost: 'https://us.posthog.com'
         },
+        trustedApiOrigins: ['https://layout-survey.sywyar.top'],
         distinctId: scopedId,
         beforeSend: event => event
     });
