@@ -453,6 +453,7 @@ jobs:
           }
 
       - name: Build release body
+        if: ${{ success() }}
         shell: bash
         run: |
           cat > RELEASE_BODY.md <<'EOF'
