@@ -9,6 +9,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
+import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -111,6 +112,11 @@ public class UpdateService {
     private volatile Instant lastSuccessfulCheckAt;
     private volatile DownloadProgress currentDownloadProgress;
     private volatile boolean downloadInProgress;
+    private volatile VerifiedInstaller verifiedInstaller;
+
+    private record VerifiedInstaller(Path path, long sizeBytes, String sha256,
+                                     String version, boolean nightly, Instant verifiedAt) {
+    }
 
     @Autowired
     public UpdateService(UpdateConfig updateConfig,
@@ -368,6 +374,7 @@ public class UpdateService {
             throw new IllegalStateException("Download already in progress");
         }
         UpdateCheckResult selected = selectChannel(nightlyChannel);
+        verifiedInstaller = null;
         downloadInProgress = true;
         long declaredSize = selected.getAssetSizeBytes();
         currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
@@ -441,7 +448,7 @@ public class UpdateService {
      * 进行中的下载受 {@link #downloadInProgress} 保护，不会被删除。
      */
     private void cleanupInstallerCache() {
-        if (downloadInProgress) {
+        if (downloadInProgress || verifiedInstaller != null) {
             return;
         }
         if (!Files.exists(INSTALLER_CACHE_DIR)) {
@@ -529,6 +536,7 @@ public class UpdateService {
     }
 
     UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
+        verifiedInstaller = null;
 
         String url = check.getAssetUrl();
         if (url == null || !url.startsWith("https://")) {
@@ -543,6 +551,7 @@ public class UpdateService {
         Files.createDirectories(INSTALLER_CACHE_DIR);
         Path target = INSTALLER_CACHE_DIR.resolve(buildInstallerFileName(url, check.getLatestVersion()));
         Path tmp = INSTALLER_CACHE_DIR.resolve(target.getFileName() + ".part");
+        PlainFilePathGuard.requirePlainParent(target, true);
 
         log.info(forLog("update.log.download.starting", url));
         currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
@@ -579,6 +588,10 @@ public class UpdateService {
         }
 
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+        Path verifiedPath = target.toAbsolutePath().normalize();
+        PlainFilePathGuard.requirePlainRegularFile(verifiedPath);
+        verifiedInstaller = new VerifiedInstaller(verifiedPath, finalSize, actual,
+                check.getLatestVersion(), check.isNightly(), Instant.now());
         currentDownloadProgress = new DownloadProgress(finalSize, finalSize, true, false, null, target.toAbsolutePath().toString());
         log.info(forLog("update.log.download.completed", target.toAbsolutePath(), finalSize));
 
@@ -595,23 +608,20 @@ public class UpdateService {
      * Inno Setup 安装包带有 UAC manifest，会请求管理员权限，
      * 当前进程退出后 installer 可以覆盖已安装文件。
      */
-    public void launchInstallerAndExit(String installerPath) throws IOException {
-        Path installer = Path.of(installerPath).toAbsolutePath();
-        if (!Files.isRegularFile(installer)) {
-            throw new IOException(forLog("update.error.installer.not-found", installer));
-        }
-
+    public void launchInstallerAndExit() throws IOException {
         String platformKey = currentPlatformAssetKey();
         if (!ASSET_WIN_X64_INSTALLER.equals(platformKey)) {
             throw new IOException(forLog("update.error.installer.platform-unsupported"));
         }
 
+        Path installer = verifiedInstallerForLaunch();
         log.info(forLog("update.log.install.launching", installer));
         try {
             new ProcessBuilder(installer.toString())
                     .directory(installer.getParent().toFile())
                     .inheritIO()
                     .start();
+            verifiedInstaller = null;
         } catch (IOException e) {
             log.warn(forLog("update.log.install.launch-failed", e.getMessage()));
             throw e;
@@ -627,6 +637,21 @@ public class UpdateService {
         }, "update-exit");
         exitThread.setDaemon(true);
         exitThread.start();
+    }
+
+    Path verifiedInstallerForLaunch() throws IOException {
+        VerifiedInstaller verified = verifiedInstaller;
+        if (verified == null) {
+            throw new IOException(forLog("update.error.installer.not-found", INSTALLER_CACHE_DIR));
+        }
+        Path cacheRoot = INSTALLER_CACHE_DIR.toAbsolutePath().normalize();
+        Path installer = verified.path();
+        if (!cacheRoot.equals(installer.getParent()) || !PlainFilePathGuard.isPlainRegularFile(installer)
+                || Files.size(installer) != verified.sizeBytes()
+                || !sha256(installer).equalsIgnoreCase(verified.sha256())) {
+            throw new IOException(forLog("update.error.installer.not-found", installer));
+        }
+        return installer;
     }
 
     private static String buildInstallerFileName(String url, String version) {

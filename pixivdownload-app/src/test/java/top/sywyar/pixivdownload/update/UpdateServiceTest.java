@@ -254,6 +254,51 @@ class UpdateServiceTest {
     }
 
     @Test
+    @DisplayName("安装启动仅使用服务端已验证文件并在启动前重验大小和哈希")
+    void shouldBindInstallToVerifiedDownloadSnapshot() throws Exception {
+        String oldOsName = System.getProperty("os.name");
+        String oldOsArch = System.getProperty("os.arch");
+        byte[] payload = {1, 2, 3};
+        String hash = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(payload));
+        String version = "999.0.4-verified-installer-test";
+        Path target = Path.of("update-cache", "PixivDownload-" + version + "-win-x64-setup.exe");
+        try {
+            System.setProperty("os.name", "Windows 11");
+            System.setProperty("os.arch", "amd64");
+            PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+            doAnswer(invocation -> {
+                Path output = invocation.getArgument(2);
+                Files.write(output, payload);
+                invocation.<LongConsumer>getArgument(3).accept(payload.length);
+                return (long) payload.length;
+            }).when(client).streamToFile(anyString(), anyLong(), any(Path.class), any(LongConsumer.class));
+            PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+            when(provider.clientFor(any())).thenReturn(client);
+            UpdateService service = new UpdateService(config(), APP_MESSAGES, provider);
+            UpdateCheckResult selected = UpdateCheckResult.builder()
+                    .updateAvailable(true)
+                    .latestVersion(version)
+                    .assetUrl("https://example.com/" + target.getFileName())
+                    .assetSha256(hash)
+                    .assetSizeBytes(payload.length)
+                    .nightly(false)
+                    .build();
+
+            service.downloadInstaller(selected);
+            assertThat(service.verifiedInstallerForLaunch()).isEqualTo(target.toAbsolutePath().normalize());
+
+            Files.write(target, new byte[]{9, 9, 9});
+            assertThatThrownBy(service::verifiedInstallerForLaunch)
+                    .isInstanceOf(IOException.class);
+        } finally {
+            restoreProperty("os.name", oldOsName);
+            restoreProperty("os.arch", oldOsArch);
+            Files.deleteIfExists(target);
+        }
+    }
+
+    @Test
     @DisplayName("update.enabled=false 时不联网，直接返回未启用结果")
     void shouldShortCircuitWhenDisabled() {
         UpdateConfig config = new UpdateConfig();
