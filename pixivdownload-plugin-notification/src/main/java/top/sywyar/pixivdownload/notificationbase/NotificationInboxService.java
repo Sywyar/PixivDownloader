@@ -240,7 +240,7 @@ public class NotificationInboxService {
         if (active.equals(persistentSurveys)) {
             return;
         }
-        mapper.deleteStalePersistentSurveys(active.stream().map(PersistentSurvey::id).toList());
+        mapper.setActivePersistentSurveys(active.stream().map(PersistentSurvey::id).toList());
         long now = System.currentTimeMillis();
         for (PersistentSurvey survey : active) {
             mapper.insert(new NotificationMessage(

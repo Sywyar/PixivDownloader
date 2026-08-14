@@ -122,11 +122,13 @@ class NotificationInboxMapperTest {
                     "persistent-survey:layout", "survey", "INFO", "layout",
                     "title.key", "body.key", null, null, "/survey/embed.html", 130, null);
             assertThat(mapper.insert(persistent)).isEqualTo(1);
-            assertThat(mapper.deleteStalePersistentSurveys(List.of(persistent.id()))).isZero();
+            assertThat(mapper.setActivePersistentSurveys(List.of(persistent.id()))).isEqualTo(1);
             assertThat(mapper.dismissPersistentSurvey(persistent.id(), 140)).isEqualTo(1);
             assertThat(mapper.insert(persistent)).isZero();
-            assertThat(mapper.deleteStalePersistentSurveys(List.of())).isEqualTo(1);
-            assertThat(mapper.insert(persistent)).isEqualTo(1);
+            assertThat(mapper.setActivePersistentSurveys(List.of())).isEqualTo(1);
+            assertThat(mapper.setActivePersistentSurveys(List.of(persistent.id()))).isEqualTo(1);
+            assertThat(mapper.insert(persistent)).isZero();
+            assertThat(mapper.findById(persistent.id())).isNull();
         }
     }
 
@@ -152,7 +154,8 @@ class NotificationInboxMapperTest {
                         action_url TEXT,
                         created_time INTEGER NOT NULL,
                         read_time INTEGER,
-                        deleted_time INTEGER
+                        deleted_time INTEGER,
+                        active INTEGER NOT NULL DEFAULT 1
                     )
                     """);
         }

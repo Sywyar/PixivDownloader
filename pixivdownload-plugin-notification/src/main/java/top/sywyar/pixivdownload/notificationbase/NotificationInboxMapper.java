@@ -29,7 +29,7 @@ public interface NotificationInboxMapper {
             "<script>",
             SELECT_MESSAGE,
             "<where>",
-            "deleted_time IS NULL",
+            "deleted_time IS NULL AND active = 1",
             "<if test='category != null'>AND category = #{category}</if>",
             "<if test='unreadOnly'>AND read_time IS NULL</if>",
             "</where>",
@@ -40,12 +40,12 @@ public interface NotificationInboxMapper {
                                          @Param("unreadOnly") boolean unreadOnly,
                                          @Param("limit") int limit);
 
-    @Select(SELECT_MESSAGE + " WHERE id = #{id} AND deleted_time IS NULL")
+    @Select(SELECT_MESSAGE + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1")
     NotificationMessage findById(@Param("id") String id);
 
     @Select("SELECT content_url AS sourceUrl, content_html AS html"
             + " FROM notification_messages"
-            + " WHERE id = #{id} AND deleted_time IS NULL AND content_html IS NOT NULL")
+            + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1 AND content_html IS NOT NULL")
     NotificationHtmlContent findHtmlContent(@Param("id") String id);
 
     @Select("SELECT NOT EXISTS(SELECT 1 FROM notification_messages"
@@ -62,20 +62,21 @@ public interface NotificationInboxMapper {
 
     @Select({
             "<script>",
-            "SELECT COUNT(*) FROM notification_messages WHERE deleted_time IS NULL AND read_time IS NULL",
+            "SELECT COUNT(*) FROM notification_messages"
+                    + " WHERE deleted_time IS NULL AND active = 1 AND read_time IS NULL",
             "<if test='category != null'>AND category = #{category}</if>",
             "</script>"
     })
     long countUnread(@Param("category") String category);
 
     @Update("UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})"
-            + " WHERE id = #{id} AND deleted_time IS NULL AND read_time IS NULL")
+            + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1 AND read_time IS NULL")
     int markRead(@Param("id") String id, @Param("readTime") long readTime);
 
     @Update({
             "<script>",
             "UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})",
-            "WHERE deleted_time IS NULL AND read_time IS NULL",
+            "WHERE deleted_time IS NULL AND active = 1 AND read_time IS NULL",
             "<if test='category != null'>AND category = #{category}</if>",
             "</script>"
     })
@@ -84,29 +85,34 @@ public interface NotificationInboxMapper {
     @Update("UPDATE notification_messages"
             + " SET deleted_time = MAX(created_time, #{deletedTime}),"
             + " content_url = NULL, content_html = NULL, action_url = NULL"
-            + " WHERE id = #{id} AND category = 'announcement' AND deleted_time IS NULL")
+            + " WHERE id = #{id} AND category = 'announcement' AND deleted_time IS NULL AND active = 1")
     int dismissAnnouncement(@Param("id") String id, @Param("deletedTime") long deletedTime);
 
     @Update("UPDATE notification_messages"
             + " SET deleted_time = MAX(created_time, #{deletedTime}),"
             + " content_url = NULL, content_html = NULL, action_url = NULL"
             + " WHERE id = #{id} AND category = 'survey'"
-            + " AND id LIKE 'persistent-survey:%' AND deleted_time IS NULL")
+            + " AND id LIKE 'persistent-survey:%' AND deleted_time IS NULL AND active = 1")
     int dismissPersistentSurvey(@Param("id") String id, @Param("deletedTime") long deletedTime);
 
-    @Delete({
+    @Update({
             "<script>",
-            "DELETE FROM notification_messages WHERE id LIKE 'persistent-survey:%'",
-            "<if test='activeIds != null and !activeIds.isEmpty()'>",
-            "AND id NOT IN",
+            "UPDATE notification_messages SET active =",
+            "<choose>",
+            "<when test='activeIds != null and !activeIds.isEmpty()'>",
+            "CASE WHEN id IN",
             "<foreach collection='activeIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
-            "</if>",
+            "THEN 1 ELSE 0 END",
+            "</when>",
+            "<otherwise>0</otherwise>",
+            "</choose>",
+            "WHERE id LIKE 'persistent-survey:%'",
             "</script>"
     })
-    int deleteStalePersistentSurveys(@Param("activeIds") List<String> activeIds);
+    int setActivePersistentSurveys(@Param("activeIds") List<String> activeIds);
 
     @Delete("DELETE FROM notification_messages"
-            + " WHERE id = #{id} AND category <> 'announcement' AND deleted_time IS NULL")
+            + " WHERE id = #{id} AND category <> 'announcement' AND deleted_time IS NULL AND active = 1")
     int deleteNonAnnouncement(@Param("id") String id);
 
     @Delete("DELETE FROM notification_messages"

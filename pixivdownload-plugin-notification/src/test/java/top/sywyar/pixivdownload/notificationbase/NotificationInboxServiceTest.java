@@ -168,16 +168,39 @@ class NotificationInboxServiceTest {
                 "persistent-survey:download-workbench.layout-survey:instance-a", "en-US").title())
                 .isEqualTo("EN layout-feedback.inbox-title");
         assertThat(mapper.insertCalls).isEqualTo(1);
-        assertThat(mapper.deleteStaleCalls).isEqualTo(1);
+        assertThat(mapper.activeSyncCalls).isEqualTo(1);
 
         service.synchronizePersistentSurveys();
         assertThat(mapper.insertCalls).isEqualTo(1);
-        assertThat(mapper.deleteStaleCalls).isEqualTo(1);
+        assertThat(mapper.activeSyncCalls).isEqualTo(1);
 
         slots.set(List.of());
         service.synchronizePersistentSurveys();
         assertThat(service.find(
                 "persistent-survey:download-workbench.layout-survey:instance-a")).isNull();
+    }
+
+    @Test
+    @DisplayName("调查插件停用后隐藏记录，重新启用时保留已读状态")
+    void preservesPersistentSurveyStateWhilePluginIsInactive() {
+        MemoryMapper mapper = new MemoryMapper();
+        AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(surveySlot()));
+        NotificationInboxService service = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, slots::get,
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        String id = "persistent-survey:download-workbench.layout-survey:instance-a";
+
+        NotificationMessage read = service.markRead(id);
+        slots.set(List.of());
+        service.synchronizePersistentSurveys();
+        assertThat(service.find(id)).isNull();
+        assertThat(mapper.messages).filteredOn(message -> message.id().equals(id))
+                .singleElement().extracting(NotificationMessage::readTime).isEqualTo(read.readTime());
+
+        slots.set(List.of(surveySlot()));
+        service.synchronizePersistentSurveys();
+        assertThat(service.find(id).readTime()).isEqualTo(read.readTime());
+        assertThat(mapper.insertCalls).isEqualTo(2);
     }
 
     @Test
@@ -287,13 +310,15 @@ class NotificationInboxServiceTest {
     static final class MemoryMapper implements NotificationInboxMapper {
         private final List<NotificationMessage> messages = new ArrayList<>();
         private final Set<String> dismissedIds = new HashSet<>();
+        private final Set<String> activePersistentIds = new HashSet<>();
         private int insertCalls;
-        private int deleteStaleCalls;
+        private int activeSyncCalls;
 
         @Override
         public int insert(NotificationMessage message) {
             insertCalls++;
-            if (dismissedIds.contains(message.id()) || findById(message.id()) != null) {
+            if (dismissedIds.contains(message.id())
+                    || messages.stream().anyMatch(existing -> existing.id().equals(message.id()))) {
                 return 0;
             }
             messages.add(message);
@@ -303,6 +328,7 @@ class NotificationInboxServiceTest {
         @Override
         public List<NotificationMessage> findLatest(String category, boolean unreadOnly, int limit) {
             return messages.stream()
+                    .filter(this::visible)
                     .filter(message -> category == null || category.equals(message.category()))
                     .filter(message -> !unreadOnly || message.readTime() == null)
                     .sorted(Comparator.comparingLong(NotificationMessage::createdTime).reversed())
@@ -312,7 +338,8 @@ class NotificationInboxServiceTest {
 
         @Override
         public NotificationMessage findById(String id) {
-            return messages.stream().filter(message -> message.id().equals(id)).findFirst().orElse(null);
+            return messages.stream().filter(this::visible)
+                    .filter(message -> message.id().equals(id)).findFirst().orElse(null);
         }
 
         @Override
@@ -350,6 +377,7 @@ class NotificationInboxServiceTest {
         @Override
         public long countUnread(String category) {
             return messages.stream()
+                    .filter(this::visible)
                     .filter(message -> category == null || category.equals(message.category()))
                     .filter(message -> message.readTime() == null)
                     .count();
@@ -406,14 +434,19 @@ class NotificationInboxServiceTest {
         }
 
         @Override
-        public int deleteStalePersistentSurveys(List<String> activeIds) {
-            deleteStaleCalls++;
+        public int setActivePersistentSurveys(List<String> activeIds) {
+            activeSyncCalls++;
             Set<String> active = Set.copyOf(activeIds);
-            int before = messages.size() + dismissedIds.size();
-            messages.removeIf(message -> message.persistentSurvey() && !active.contains(message.id()));
-            dismissedIds.removeIf(id -> id.startsWith(NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX)
-                    && !active.contains(id));
-            return before - messages.size() - dismissedIds.size();
+            int changed = (int) messages.stream().filter(NotificationMessage::persistentSurvey)
+                    .filter(message -> active.contains(message.id()) != activePersistentIds.contains(message.id()))
+                    .count();
+            activePersistentIds.clear();
+            activePersistentIds.addAll(active);
+            return changed;
+        }
+
+        private boolean visible(NotificationMessage message) {
+            return !message.persistentSurvey() || activePersistentIds.contains(message.id());
         }
 
         @Override

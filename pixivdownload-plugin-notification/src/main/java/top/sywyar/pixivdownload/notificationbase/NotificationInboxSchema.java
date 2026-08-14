@@ -26,7 +26,8 @@ public final class NotificationInboxSchema {
                             column("action_url", "TEXT", false, null, 0),
                             column("created_time", "INTEGER", true, null, 0),
                             column("read_time", "INTEGER", false, null, 0),
-                            column("deleted_time", "INTEGER", false, null, 0)),
+                            column("deleted_time", "INTEGER", false, null, 0),
+                            column("active", "INTEGER", true, "1", 0)),
                     List.of(
                             index("idx_notification_messages_created_time", "created_time"),
                             index("idx_notification_messages_unread_created", "read_time", "created_time")),
@@ -36,6 +37,7 @@ public final class NotificationInboxSchema {
                             + " AND length(trim(body)) > 0"
                             + " AND (content_html IS NULL OR length(content_html) > 0)"
                             + " AND created_time >= 0"
+                            + " AND active IN (0,1)"
                             + " AND (read_time IS NULL OR read_time >= created_time)"
                             + " AND (deleted_time IS NULL OR deleted_time >= created_time)")),
             List.of(),
