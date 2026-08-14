@@ -95,7 +95,7 @@ public class NovelBrowserImportController {
             if (rawMetaJson.getBytes(StandardCharsets.UTF_8).length > MAX_RESPONSE_BYTES) {
                 return error(413, "novel.browser-import.payload-too-large");
             }
-            String fetchToken = ticketStore.issueFetchTicket(novelId, metadata, rawMetaJson);
+            String fetchToken = ticketStore.issueBrowserFetchTicket(novelId, metadata, rawMetaJson);
             return ResponseEntity.ok()
                     .cacheControl(CacheControl.noStore())
                     .body(new FetchTicketResponse(

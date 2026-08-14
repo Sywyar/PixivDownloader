@@ -266,6 +266,7 @@ async function getNovelUserMeta(userId, hookContext) {
             assertNovelProcess(invocation);
             const body = {
                 novelId: Number(novelId),
+                fetchToken: meta.fetchToken || null,
                 other: {
                     fileNameTemplate: state.settings.fileNameTemplate,
                     bookmark: !!state.settings.bookmark,

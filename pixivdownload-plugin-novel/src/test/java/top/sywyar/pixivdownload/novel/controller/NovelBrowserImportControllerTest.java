@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.nio.charset.StandardCharsets;
@@ -42,8 +43,10 @@ class NovelBrowserImportControllerTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         var fetchToken = ((NovelBrowserImportController.FetchTicketResponse) response.getBody()).fetchToken();
-        assertThat(store.consumeFetchTicket(fetchToken, 42L)).isPresent();
-        assertThat(store.consumeFetchTicket(fetchToken, 42L)).isEmpty();
+        assertThat(store.consumeFetchTicket(
+                fetchToken, 42L, RequestOwnerIdentity.adminScope(), null, true)).isPresent();
+        assertThat(store.consumeFetchTicket(
+                fetchToken, 42L, RequestOwnerIdentity.adminScope(), null, true)).isEmpty();
     }
 
     @Test

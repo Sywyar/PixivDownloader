@@ -126,7 +126,7 @@ public class NovelDownloadController {
 
         NovelDownloadRequest request;
         try {
-            request = resolveDownloadRequest(command, httpRequest);
+            request = resolveDownloadRequest(command, httpRequest, ownerIdentity);
         } catch (IllegalArgumentException invalid) {
             return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
                     .success(false)
@@ -186,28 +186,33 @@ public class NovelDownloadController {
 
     private NovelDownloadRequest resolveDownloadRequest(
             NovelDownloadCommand command,
-            HttpServletRequest httpRequest) throws IOException {
+            HttpServletRequest httpRequest,
+            RequestOwnerIdentity ownerIdentity) throws IOException {
+        String credential = AcquisitionCredentialResolver.resolve(
+                httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME), null);
         if (command.getFetchToken() != null && !command.getFetchToken().isBlank()) {
-            if (!"solo".equals(applicationModeProvider.getMode())
-                    || !LocalRequestTrust.isLocalRequest(
+            boolean allowBrowserImport = "solo".equals(applicationModeProvider.getMode())
+                    && LocalRequestTrust.isLocalRequest(
                     httpRequest.getRemoteAddr(),
                     httpRequest.getHeader("Host"),
                     httpRequest.getHeader("X-Forwarded-For"),
                     httpRequest.getHeader("X-Real-IP"),
-                    httpRequest.getHeader("Forwarded"))) {
-                throw new IllegalArgumentException(messages.get("novel.browser-import.fetch-ticket-invalid"));
-            }
+                    httpRequest.getHeader("Forwarded"));
             NovelBrowserFetchTicketStore.ImportedNovel imported = browserFetchTicketStore
-                    .consumeFetchTicket(command.getFetchToken(), command.getNovelId())
+                    .consumeFetchTicket(command.getFetchToken(), command.getNovelId(),
+                            ownerIdentity, credential, allowBrowserImport)
                     .orElseThrow(() -> new IllegalArgumentException(
                             messages.get("novel.browser-import.fetch-ticket-invalid")));
+            boolean fromPreview = imported.origin()
+                    == NovelBrowserFetchTicketStore.FetchOrigin.WEB_PREVIEW;
+            PixivNovelMetadata.SeriesMetadata series = fromPreview
+                    ? fetchSeriesBestEffort(imported.metadata().seriesId(), credential)
+                    : null;
             NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(
-                    imported.metadata(), null, null, imported.rawMetaJson());
+                    imported.metadata(), series, fromPreview ? credential : null, imported.rawMetaJson());
             command.getOther().applyTo(request.getOther());
             return request;
         }
-        String credential = AcquisitionCredentialResolver.resolve(
-                httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME), null);
         long novelId = command.getNovelId();
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/{id}")

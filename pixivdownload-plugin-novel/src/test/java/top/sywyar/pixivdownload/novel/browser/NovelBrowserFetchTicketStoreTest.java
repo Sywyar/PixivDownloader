@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -30,17 +31,21 @@ class NovelBrowserFetchTicketStoreTest {
         PixivNovelMetadata metadata = PixivNovelMetadata.parse(42L, objectMapper.readTree("""
                 {"id":"42","title":"restricted","content":"body","userId":"7","userName":"author"}
                 """));
-        String fetchToken = store.issueFetchTicket(42L, metadata, "{\"id\":\"42\"}");
+        String fetchToken = store.issueBrowserFetchTicket(42L, metadata, "{\"id\":\"42\"}");
 
-        assertThat(store.consumeFetchTicket(fetchToken, 41L)).isEmpty();
-        assertThat(store.consumeFetchTicket(fetchToken, 42L)).isEmpty();
+        RequestOwnerIdentity admin = RequestOwnerIdentity.adminScope();
+        assertThat(store.consumeFetchTicket(fetchToken, 41L, admin, null, true)).isEmpty();
+        assertThat(store.consumeFetchTicket(fetchToken, 42L, admin, null, true)).isEmpty();
 
-        String validToken = store.issueFetchTicket(42L, metadata, "{\"id\":\"42\"}");
-        assertThat(store.consumeFetchTicket(validToken, 42L))
+        String disallowedToken = store.issueBrowserFetchTicket(42L, metadata, "{\"id\":\"42\"}");
+        assertThat(store.consumeFetchTicket(disallowedToken, 42L, admin, null, false)).isEmpty();
+
+        String validToken = store.issueBrowserFetchTicket(42L, metadata, "{\"id\":\"42\"}");
+        assertThat(store.consumeFetchTicket(validToken, 42L, admin, null, true))
                 .get()
                 .extracting(NovelBrowserFetchTicketStore.ImportedNovel::metadata)
                 .isEqualTo(metadata);
-        assertThat(store.consumeFetchTicket(validToken, 42L)).isEmpty();
+        assertThat(store.consumeFetchTicket(validToken, 42L, admin, null, true)).isEmpty();
     }
 
     @Test
@@ -53,6 +58,34 @@ class NovelBrowserFetchTicketStoreTest {
         clock.advanceSeconds(NovelBrowserFetchTicketStore.TICKET_TTL_SECONDS + 1);
 
         assertThat(store.claimImportToken(importToken)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Web 预览票据绑定 owner、作品与取得凭据")
+    void previewTicketIsBoundToRequestContext() throws Exception {
+        NovelBrowserFetchTicketStore store = new NovelBrowserFetchTicketStore();
+        PixivNovelMetadata metadata = PixivNovelMetadata.parse(42L, objectMapper.readTree("""
+                {"id":"42","title":"preview","content":"body","userId":"7","userName":"author"}
+                """));
+        RequestOwnerIdentity owner = RequestOwnerIdentity.owner("owner-a");
+
+        String wrongOwner = store.issuePreviewFetchTicket(
+                42L, metadata, "{\"id\":\"42\"}", owner, "cookie-a");
+        assertThat(store.consumeFetchTicket(
+                wrongOwner, 42L, RequestOwnerIdentity.owner("owner-b"), "cookie-a", false)).isEmpty();
+
+        String wrongCredential = store.issuePreviewFetchTicket(
+                42L, metadata, "{\"id\":\"42\"}", owner, "cookie-a");
+        assertThat(store.consumeFetchTicket(
+                wrongCredential, 42L, owner, "cookie-b", false)).isEmpty();
+
+        String valid = store.issuePreviewFetchTicket(
+                42L, metadata, "{\"id\":\"42\"}", owner, "cookie-a");
+        assertThat(store.consumeFetchTicket(valid, 42L, owner, "cookie-a", false))
+                .get()
+                .extracting(NovelBrowserFetchTicketStore.ImportedNovel::origin)
+                .isEqualTo(NovelBrowserFetchTicketStore.FetchOrigin.WEB_PREVIEW);
+        assertThat(store.consumeFetchTicket(valid, 42L, owner, "cookie-a", false)).isEmpty();
     }
 
     private static final class MutableClock extends Clock {

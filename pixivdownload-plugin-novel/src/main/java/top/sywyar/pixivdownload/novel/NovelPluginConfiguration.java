@@ -384,9 +384,10 @@ public class NovelPluginConfiguration {
                                                                PixivProxyAccessPolicy pixivProxyAccessPolicy,
                                                                RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                                WorkVisibilityService workVisibilityService,
+                                                               NovelBrowserFetchTicketStore browserFetchTicketStore,
                                                                @Qualifier("novelPluginMessages") MessageResolver messages) {
         return new NovelPixivProxyController(objectMapper, pixivAjaxClient, pixivProxyAccessPolicy,
-                requestOwnerIdentityResolver, workVisibilityService, messages);
+                requestOwnerIdentityResolver, workVisibilityService, browserFetchTicketStore, messages);
     }
 
     @Bean
