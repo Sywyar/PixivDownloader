@@ -1157,6 +1157,8 @@ class PluginReleaseScriptsTest {
     void updateManifestsAreVersionedAndSigned() throws Exception {
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
+            String signingJob = workflowJob(workflow,
+                    name.equals("release.yml") ? "release" : "release-nightly");
             assertThat(workflow).as(name).contains(
                     "Upload update signature tool",
                     "Download update signature tool",
@@ -1173,6 +1175,15 @@ class PluginReleaseScriptsTest {
                     "Remove-Item -LiteralPath $privateKeyFile",
                     "pixivdownloader-update-signing-key.pem",
                     "artifacts/update.json.sig");
+            assertThat(signingJob).as(name + " update signing job")
+                    .contains(
+                            "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                            "--key-id pixivdownloader-update-root-2026-08")
+                    .doesNotContain(
+                            "UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM }}",
+                            "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64",
+                            "PLUGIN_SIGNING_PRIVATE_KEY_PEM",
+                            "--key-id pixivdownloader-official-root-2026-07");
         }
         assertThat(workflow("release.yml")).contains(
                 "--arg channel \"stable\"", "--argjson sequence \"$GITHUB_RUN_ID\"", "'+370 days'");

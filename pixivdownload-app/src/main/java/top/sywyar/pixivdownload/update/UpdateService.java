@@ -19,7 +19,9 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
@@ -73,6 +75,9 @@ public class UpdateService {
     /** 当前平台支持的 asset key。Windows installer 是目前唯一受支持的类型。 */
     public static final String ASSET_WIN_X64_INSTALLER = "win-x64-installer";
     static final String UPDATE_MANIFEST_REPOSITORY_ID = "pixivdownloader-update";
+    static final String UPDATE_SIGNING_KEY_ID = "pixivdownloader-update-root-2026-08";
+    static final String UPDATE_SIGNING_PUBLIC_KEY_SPKI_BASE64 =
+            "MCowBQYDK2VwAyEAxU04MszKsRvOOe4F95FW8mbwLtUjvQ56E6740wWeFSI=";
     static final String CHANNEL_STABLE = "stable";
     static final String CHANNEL_NIGHTLY = "nightly";
 
@@ -123,7 +128,19 @@ public class UpdateService {
                          AppMessages messages,
                          PluginCatalogClientProvider httpClientProvider) {
         this(updateConfig, messages,
-                new PluginSupplyChainVerifier(), RuntimeFiles.resolveUpdateTrustStatePath(), httpClientProvider);
+                updateManifestVerifier(), RuntimeFiles.resolveUpdateTrustStatePath(), httpClientProvider);
+    }
+
+    static PluginSupplyChainVerifier updateManifestVerifier() {
+        TrustedPluginKey updateRoot = new TrustedPluginKey(
+                UPDATE_SIGNING_KEY_ID,
+                SignatureMetadata.ED25519,
+                UPDATE_SIGNING_PUBLIC_KEY_SPKI_BASE64,
+                TrustedPluginKey.State.ACTIVE,
+                "PixivDownloader",
+                "PixivDownloader update root",
+                true);
+        return new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(updateRoot)));
     }
 
     UpdateService(UpdateConfig updateConfig,

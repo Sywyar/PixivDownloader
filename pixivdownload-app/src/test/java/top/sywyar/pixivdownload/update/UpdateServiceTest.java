@@ -9,10 +9,14 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
+import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.OfficialPluginTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 
 import java.io.IOException;
@@ -61,6 +65,32 @@ class UpdateServiceTest {
 
             assertThat(context.getBean(UpdateService.class)).isNotNull();
         }
+    }
+
+    @Test
+    @DisplayName("生产更新信任根与官方插件信任根相互隔离")
+    void productionUpdateTrustRootIsIsolatedFromPluginRoot() {
+        byte[] manifest = "{}".getBytes(StandardCharsets.UTF_8);
+        String invalidSignature = Base64.getEncoder().encodeToString(new byte[64]);
+        SignatureMetadata updateSignature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519,
+                UpdateService.UPDATE_SIGNING_KEY_ID, invalidSignature);
+        SignatureMetadata pluginSignature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519,
+                OfficialPluginTrustRoots.OFFICIAL_KEY_ID, invalidSignature);
+
+        assertThat(UpdateService.updateManifestVerifier().verifyManifest(new ManifestVerificationRequest(
+                manifest, UpdateService.UPDATE_MANIFEST_REPOSITORY_ID,
+                updateSignature, VerificationPolicy.officialRepository())).status())
+                .isEqualTo(VerificationStatus.INVALID_SIGNATURE);
+        assertThat(UpdateService.updateManifestVerifier().verifyManifest(new ManifestVerificationRequest(
+                manifest, UpdateService.UPDATE_MANIFEST_REPOSITORY_ID,
+                pluginSignature, VerificationPolicy.officialRepository())).status())
+                .isEqualTo(VerificationStatus.UNKNOWN_KEY);
+        assertThat(new PluginSupplyChainVerifier().verifyManifest(new ManifestVerificationRequest(
+                manifest, UpdateService.UPDATE_MANIFEST_REPOSITORY_ID,
+                updateSignature, VerificationPolicy.officialRepository())).status())
+                .isEqualTo(VerificationStatus.UNKNOWN_KEY);
     }
 
     @Test
