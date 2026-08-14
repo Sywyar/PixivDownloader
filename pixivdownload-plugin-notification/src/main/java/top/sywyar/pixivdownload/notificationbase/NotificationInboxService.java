@@ -37,6 +37,7 @@ public class NotificationInboxService {
     private static final Pattern I18N_TOKEN = Pattern.compile("[a-z0-9][a-z0-9.-]{0,159}");
     private static final Pattern REMOTE_ANNOUNCEMENT_ID = Pattern.compile("[a-z0-9][a-z0-9-]{0,79}");
     private static final Pattern REMOTE_LOCALE_TAG = Pattern.compile("[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+");
+    private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
     private static final Pattern CONTENT_PATH = Pattern.compile(
             "/PixivDownloader-Remote-Content/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*"
                     + "[A-Za-z0-9][A-Za-z0-9._-]*\\.html");
@@ -198,6 +199,22 @@ public class NotificationInboxService {
         List<RemoteAnnouncementTranslation> stored = safeRemoteTranslations(
                 mapper.findRemoteAnnouncementTranslations(messageId));
         return !sameTranslationMetadata(expected, stored);
+    }
+
+    @Transactional
+    boolean acceptRemoteAnnouncementIndex(long sequence,
+                                          String manifestSha256,
+                                          long generatedTime,
+                                          long expiresTime) {
+        if (sequence <= 0
+                || manifestSha256 == null
+                || !SHA256.matcher(manifestSha256).matches()
+                || generatedTime < 0
+                || expiresTime <= generatedTime) {
+            throw new IllegalArgumentException("remote announcement index state is invalid");
+        }
+        return mapper.acceptRemoteAnnouncementIndex(
+                sequence, manifestSha256, generatedTime, expiresTime) == 1;
     }
 
     public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit) {
@@ -520,13 +537,19 @@ public class NotificationInboxService {
         String title = requiredText(translation.title(), 160 * 4, "remote announcement title");
         String summary = requiredText(translation.summary(), 500 * 4, "remote announcement summary");
         String contentUrl = safeContentUrl(translation.contentUrl());
+        String contentSha256 = Objects.requireNonNull(
+                translation.contentSha256(), "remote announcement content SHA-256");
+        if (!SHA256.matcher(contentSha256).matches()) {
+            throw new IllegalArgumentException("remote announcement content SHA-256 is invalid");
+        }
         String contentHtml = translation.contentHtml();
         if (requireHtml) {
             contentHtml = validatedHtmlContent(new NotificationHtmlContent(contentUrl, contentHtml)).html();
         } else if (contentHtml != null) {
             contentHtml = "";
         }
-        return new RemoteAnnouncementTranslation(locale, title, summary, contentUrl, contentHtml);
+        return new RemoteAnnouncementTranslation(
+                locale, title, summary, contentUrl, contentSha256, contentHtml);
     }
 
     private static List<RemoteAnnouncementTranslation> safeRemoteTranslations(
@@ -562,7 +585,8 @@ public class NotificationInboxService {
             if (current == null
                     || !translation.title().equals(current.title())
                     || !translation.summary().equals(current.summary())
-                    || !translation.contentUrl().equals(current.contentUrl())) {
+                    || !translation.contentUrl().equals(current.contentUrl())
+                    || !translation.contentSha256().equals(current.contentSha256())) {
                 return false;
             }
         }

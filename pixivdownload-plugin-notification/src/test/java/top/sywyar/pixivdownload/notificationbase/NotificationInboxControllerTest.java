@@ -120,10 +120,11 @@ class NotificationInboxControllerTest {
                 "localized", NotificationSeverity.INFO,
                 List.of(
                         new RemoteAnnouncementTranslation(
-                                "zh-CN", "中文", "中文摘要", base + "zh-CN.html", "<p>中文正文</p>"),
+                                "zh-CN", "中文", "中文摘要", base + "zh-CN.html",
+                                "0".repeat(64), "<p>中文正文</p>"),
                         new RemoteAnnouncementTranslation(
                                 "en-US", "English", "English summary", base + "en-US.html",
-                                "<p>English body</p>")),
+                                "1".repeat(64), "<p>English body</p>")),
                 1)).isTrue();
         NotificationInboxController controller = new NotificationInboxController(service);
 

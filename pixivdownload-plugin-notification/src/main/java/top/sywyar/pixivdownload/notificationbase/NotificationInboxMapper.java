@@ -61,6 +61,7 @@ public interface NotificationInboxMapper {
                                       @Param("contentHtml") String contentHtml);
 
     @Select("SELECT t.locale, t.title, t.summary, t.content_url AS contentUrl,"
+            + " t.content_sha256 AS contentSha256,"
             + " CASE WHEN t.content_html IS NULL THEN NULL ELSE '' END AS contentHtml"
             + " FROM notification_announcement_translations t"
             + " JOIN notification_messages m ON m.id = t.announcement_id"
@@ -78,12 +79,14 @@ public interface NotificationInboxMapper {
                                                        @Param("locale") String locale);
 
     @Insert("INSERT INTO notification_announcement_translations"
-            + " (announcement_id, locale, title, summary, content_url, content_html)"
+            + " (announcement_id, locale, title, summary, content_url, content_sha256, content_html)"
             + " VALUES (#{announcementId}, #{translation.locale}, #{translation.title},"
-            + " #{translation.summary}, #{translation.contentUrl}, #{translation.contentHtml})"
+            + " #{translation.summary}, #{translation.contentUrl}, #{translation.contentSha256},"
+            + " #{translation.contentHtml})"
             + " ON CONFLICT(announcement_id, locale) DO UPDATE SET"
             + " title = excluded.title, summary = excluded.summary,"
-            + " content_url = excluded.content_url, content_html = excluded.content_html")
+            + " content_url = excluded.content_url, content_sha256 = excluded.content_sha256,"
+            + " content_html = excluded.content_html")
     int upsertRemoteAnnouncementTranslation(
             @Param("announcementId") String announcementId,
             @Param("translation") RemoteAnnouncementTranslation translation);
@@ -102,6 +105,20 @@ public interface NotificationInboxMapper {
 
     @Delete("DELETE FROM notification_announcement_translations WHERE announcement_id = #{announcementId}")
     int deleteRemoteAnnouncementTranslations(@Param("announcementId") String announcementId);
+
+    @Insert("INSERT INTO notification_remote_index_state"
+            + " (id, sequence, manifest_sha256, generated_time, expires_time)"
+            + " VALUES (1, #{sequence}, #{manifestSha256}, #{generatedTime}, #{expiresTime})"
+            + " ON CONFLICT(id) DO UPDATE SET sequence = excluded.sequence,"
+            + " manifest_sha256 = excluded.manifest_sha256, generated_time = excluded.generated_time,"
+            + " expires_time = excluded.expires_time"
+            + " WHERE excluded.sequence > notification_remote_index_state.sequence"
+            + " OR (excluded.sequence = notification_remote_index_state.sequence"
+            + " AND excluded.manifest_sha256 = notification_remote_index_state.manifest_sha256)")
+    int acceptRemoteAnnouncementIndex(@Param("sequence") long sequence,
+                                      @Param("manifestSha256") String manifestSha256,
+                                      @Param("generatedTime") long generatedTime,
+                                      @Param("expiresTime") long expiresTime);
 
     @Select({
             "<script>",

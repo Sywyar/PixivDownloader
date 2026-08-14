@@ -19,16 +19,30 @@ import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.Signature;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,11 +52,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("远程公告导入")
 class RemoteAnnouncementImporterTest {
 
     private static final String PUBLISHED = "2026-08-12T00:00:00Z";
+    private static final Clock CLOCK = Clock.fixed(
+            Instant.parse("2026-08-14T00:00:00Z"), ZoneOffset.UTC);
+    private static final String GENERATED = "2026-08-13T00:00:00Z";
+    private static final String EXPIRES = "2026-09-12T00:00:00Z";
     @Test
     @DisplayName("按发布时间进入公告分类并映射严重程度")
     void importsInPublishedOrderAndMapsFields() {
@@ -76,6 +95,8 @@ class RemoteAnnouncementImporterTest {
             assertThat(request.method()).isEqualTo("GET");
             assertThat(request.headers()).containsEntry("Accept", List.of("application/json"));
         });
+        assertThat(harness.client.lastSignatureRequest.uri())
+                .isEqualTo(RemoteAnnouncementImporter.SIGNATURE_URI);
         assertThat(harness.client.lastContentRequest).satisfies(request -> {
             assertThat(request.uri().toString()).endsWith("/newer/en-US.html");
             assertThat(request.headers()).containsEntry("Accept", List.of("text/html"));
@@ -89,7 +110,7 @@ class RemoteAnnouncementImporterTest {
         Harness harness = harness(locale);
         byte[] index = bytes(index(item("stable", PUBLISHED, "info")));
 
-        assertThat(harness.importer.importIndex(index)).isEqualTo(1);
+        assertThat(harness.importIndex(index)).isEqualTo(1);
         NotificationMessage first = harness.inbox.find("remote-announcement:stable");
         NotificationHtmlContent firstContent = harness.inbox.htmlContent(first.id());
         NotificationMessage read = harness.inbox.markRead(first.id());
@@ -97,7 +118,7 @@ class RemoteAnnouncementImporterTest {
         harness.client.contentPlan = new ResponsePlan(
                 200, htmlHeaders(), bytes("<!doctype html><p>Changed</p>"), null);
 
-        assertThat(harness.importer.importIndex(index)).isZero();
+        assertThat(harness.importIndex(index)).isZero();
         assertThat(harness.inbox.find(first.id())).satisfies(message -> {
             assertThat(message.title()).isEqualTo("English stable");
             assertThat(message.body()).isEqualTo("English summary stable");
@@ -112,26 +133,34 @@ class RemoteAnnouncementImporterTest {
         assertThat(harness.inbox.unreadCount()).isZero();
 
         locale.set(Locale.JAPAN);
-        String expanded = indexWithLocales(
+        harness.client.contentPlan = new ResponsePlan(
+                200, htmlHeaders(), bytes(htmlBody()), null);
+        String expanded = indexWithSequenceAndLocales(
+                2,
                 "[\"zh-CN\",\"en-US\",\"ja-JP\"]",
                 itemWithTranslations("stable", PUBLISHED, "info", """
                         "zh-CN": {
                           "title": "中文 stable",
                           "summary": "中文摘要 stable",
-                          "contentUrl": "%sstable/zh-CN.html"
+                          "contentUrl": "%sstable/zh-CN.html",
+                          "contentSha256": "%s"
                         },
                         "en-US": {
                           "title": "English stable",
                           "summary": "English summary stable",
-                          "contentUrl": "%sstable/en-US.html"
+                          "contentUrl": "%sstable/en-US.html",
+                          "contentSha256": "%s"
                         },
                         "ja-JP": {
                           "title": "日本語 stable",
                           "summary": "日本語要約 stable",
-                          "contentUrl": "%sstable/ja-JP.html"
+                          "contentUrl": "%sstable/ja-JP.html",
+                          "contentSha256": "%s"
                         }
-                        """.formatted(contentBase(), contentBase(), contentBase())));
-        assertThat(harness.importer.importIndex(bytes(expanded))).isEqualTo(1);
+                        """.formatted(
+                        contentBase(), htmlSha256(), contentBase(), htmlSha256(),
+                        contentBase(), htmlSha256())));
+        assertThat(harness.importIndex(bytes(expanded))).isEqualTo(1);
         assertThat(harness.inbox.latest(NotificationCategory.ANNOUNCEMENT, false, 10))
                 .singleElement()
                 .satisfies(message -> {
@@ -143,7 +172,7 @@ class RemoteAnnouncementImporterTest {
         assertThat(harness.client.contentRequests).hasValue(5);
 
         assertThat(harness.inbox.delete(first.id())).isTrue();
-        assertThat(harness.importer.importIndex(bytes(expanded))).isZero();
+        assertThat(harness.importIndex(bytes(expanded))).isZero();
         assertThat(harness.inbox.find(first.id())).isNull();
         assertThat(harness.client.contentRequests).hasValue(5);
     }
@@ -158,7 +187,7 @@ class RemoteAnnouncementImporterTest {
                 "既有标题", "既有摘要", contentBase() + "legacy/zh-CN.html", null, null,
                 publishedAt, publishedAt + 1));
 
-        assertThat(harness.importer.importIndex(bytes(index(item("legacy", PUBLISHED, "info")))))
+        assertThat(harness.importIndex(bytes(index(item("legacy", PUBLISHED, "info")))))
                 .isEqualTo(1);
         assertThat(harness.inbox.find("remote-announcement:legacy")).satisfies(message -> {
             assertThat(message.title()).isEqualTo("中文 legacy");
@@ -174,7 +203,7 @@ class RemoteAnnouncementImporterTest {
     @DisplayName("没有精确语言时先回退英文再回退中文")
     void localeFallbackPrefersEnglishThenChinese() {
         Harness englishFallback = harness(Locale.JAPAN);
-        assertThat(englishFallback.importer.importIndex(bytes(index(item("fallback", PUBLISHED, "info")))))
+        assertThat(englishFallback.importIndex(bytes(index(item("fallback", PUBLISHED, "info")))))
                 .isEqualTo(1);
         assertThat(englishFallback.inbox.find("remote-announcement:fallback").title())
                 .isEqualTo("English fallback");
@@ -186,10 +215,11 @@ class RemoteAnnouncementImporterTest {
                         "zh-CN": {
                           "title": "中文 zh-only",
                           "summary": "中文摘要 zh-only",
-                          "contentUrl": "%szh-only/zh-CN.html"
+                          "contentUrl": "%szh-only/zh-CN.html",
+                          "contentSha256": "%s"
                         }
-                        """.formatted(contentBase())));
-        assertThat(chineseFallback.importer.importIndex(bytes(chineseOnly))).isEqualTo(1);
+                        """.formatted(contentBase(), htmlSha256())));
+        assertThat(chineseFallback.importIndex(bytes(chineseOnly))).isEqualTo(1);
         assertThat(chineseFallback.inbox.find("remote-announcement:zh-only").title())
                 .isEqualTo("中文 zh-only");
     }
@@ -225,6 +255,59 @@ class RemoteAnnouncementImporterTest {
         for (String invalid : invalidIndexes) {
             assertRejectedIndexPreservesExisting(invalid);
         }
+    }
+
+    @Test
+    @DisplayName("签名篡改、未知密钥、过期清单与序列回退均保留可信公告")
+    void rejectsUntrustedExpiredAndRollbackIndexes() {
+        Harness harness = harness(Locale.US);
+        byte[] trusted = bytes(indexWithSequenceAndLocales(
+                2, "[\"zh-CN\",\"en-US\"]", item("trusted", PUBLISHED, "info")));
+        assertThat(harness.importIndex(trusted)).isEqualTo(1);
+        NotificationMessage existing = harness.inbox.find("remote-announcement:trusted");
+
+        byte[] lower = bytes(index(item("lower", PUBLISHED, "info")));
+        byte[] conflicting = bytes(indexWithSequenceAndLocales(
+                2, "[\"zh-CN\",\"en-US\"]", item("conflicting", PUBLISHED, "info")));
+        byte[] expired = bytes(indexWithMetadata(
+                3, "2026-07-01T00:00:00Z", "2026-08-13T00:00:00Z",
+                "[\"zh-CN\",\"en-US\"]", item("expired", PUBLISHED, "info")));
+        byte[] overflowingValidity = bytes(indexWithMetadata(
+                3, "-292000000-01-01T00:00:00Z", "+292000000-01-01T00:00:00Z",
+                "[\"zh-CN\",\"en-US\"]", item("overflow", PUBLISHED, "info")));
+        byte[] next = bytes(indexWithSequenceAndLocales(
+                3, "[\"zh-CN\",\"en-US\"]", item("next", PUBLISHED, "info")));
+        byte[] tampered = bytes(new String(next, StandardCharsets.UTF_8)
+                .replace("English next", "English tampered"));
+        SigningFixture unknown = SigningFixture.create();
+
+        assertThatThrownBy(() -> harness.importIndex(lower)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> harness.importIndex(conflicting)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> harness.importIndex(expired)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> harness.importIndex(overflowingValidity))
+                .isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> harness.importer.importIndex(
+                tampered, harness.signing.signatureBytes(next))).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> harness.importer.importIndex(
+                next, unknown.signatureBytes(next))).isInstanceOf(RuntimeException.class);
+
+        assertThat(harness.inbox.find(existing.id())).isEqualTo(existing);
+        assertThat(harness.inbox.find("remote-announcement:lower")).isNull();
+        assertThat(harness.inbox.find("remote-announcement:conflicting")).isNull();
+        assertThat(harness.inbox.find("remote-announcement:expired")).isNull();
+        assertThat(harness.inbox.find("remote-announcement:overflow")).isNull();
+        assertThat(harness.inbox.find("remote-announcement:next")).isNull();
+    }
+
+    @Test
+    @DisplayName("正文摘要不匹配时拒绝快照并保留其它消息")
+    void rejectsContentHashMismatch() {
+        Harness harness = harness(Locale.US);
+        String index = index(item("bad-hash", PUBLISHED, "info"))
+                .replace(htmlSha256(), "f".repeat(64));
+
+        assertThat(harness.importIndex(bytes(index))).isZero();
+        assertThat(harness.inbox.find("remote-announcement:bad-hash")).isNull();
     }
 
     @Test
@@ -285,7 +368,7 @@ class RemoteAnnouncementImporterTest {
             Harness harness = harness(Locale.US);
             harness.client.contentPlan = failure;
 
-            assertThat(harness.importer.importIndex(bytes(index(item("invalid-html", PUBLISHED, "info")))))
+            assertThat(harness.importIndex(bytes(index(item("invalid-html", PUBLISHED, "info")))))
                     .isZero();
             assertThat(harness.inbox.find("remote-announcement:invalid-html")).isNull();
         }
@@ -300,7 +383,7 @@ class RemoteAnnouncementImporterTest {
                 "Existing", "Existing body", null);
         String invalid = item("BAD", PUBLISHED, "info");
 
-        assertThat(harness.importer.importIndex(bytes(index(
+        assertThat(harness.importIndex(bytes(index(
                 item("good", PUBLISHED, "info"), invalid)))).isEqualTo(1);
 
         assertThat(harness.inbox.find(existing.id())).isNotNull();
@@ -312,7 +395,7 @@ class RemoteAnnouncementImporterTest {
     @DisplayName("插件配置使用固定超时、禁止重定向和 Cookie 的单连接客户端")
     void configurationOwnsStrictHttpProfile() throws Exception {
         AtomicReference<OutboundHttpClientProfile> captured = new AtomicReference<>();
-        StubClient client = new StubClient();
+        StubClient client = new StubClient(SigningFixture.create());
         OutboundHttpClientFactory factory = profile -> {
             captured.set(profile);
             return client;
@@ -352,7 +435,7 @@ class RemoteAnnouncementImporterTest {
         try {
             assertThat(client.requested.await(3, TimeUnit.SECONDS)).isTrue();
             assertThat(client.contentRequested.await(3, TimeUnit.SECONDS)).isTrue();
-            assertThat(client.requests).hasValue(3);
+            assertThat(client.requests).hasValue(4);
         } finally {
             context.close();
         }
@@ -379,13 +462,16 @@ class RemoteAnnouncementImporterTest {
     }
 
     private static Harness harness(AtomicReference<Locale> locale) {
+        SigningFixture signing = SigningFixture.create();
         RecordingMapper mapper = new RecordingMapper();
         NotificationInboxService inbox = new NotificationInboxService(
                 mapper, () -> 500, () -> 90, List::of,
                 (namespace, requested, key) -> java.util.Optional.empty(), ignored -> locale.get());
-        StubClient client = new StubClient();
+        StubClient client = new StubClient(signing);
         return new Harness(mapper, inbox, client,
-                new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox));
+                new RemoteAnnouncementImporter(
+                        client, new ObjectMapper(), inbox, signing.verifier(), CLOCK),
+                signing);
     }
 
     private static Map<String, List<String>> jsonHeaders() {
@@ -401,17 +487,32 @@ class RemoteAnnouncementImporterTest {
     }
 
     private static String index(String... announcements) {
-        return indexWithLocales("[\"zh-CN\",\"en-US\"]", String.join(",", announcements));
+        return indexWithSequenceAndLocales(
+                1, "[\"zh-CN\",\"en-US\"]", String.join(",", announcements));
     }
 
     private static String indexWithLocales(String locales, String announcements) {
+        return indexWithSequenceAndLocales(1, locales, announcements);
+    }
+
+    private static String indexWithSequenceAndLocales(
+            long sequence, String locales, String announcements) {
+        return indexWithMetadata(sequence, GENERATED, EXPIRES, locales, announcements);
+    }
+
+    private static String indexWithMetadata(
+            long sequence, String generatedAt, String expiresAt,
+            String locales, String announcements) {
         return """
                 {
                   "schemaVersion": 1,
+                  "sequence": %d,
+                  "generatedAt": "%s",
+                  "expiresAt": "%s",
                   "requiredLocales": %s,
                   "announcements": [%s]
                 }
-                """.formatted(locales, announcements);
+                """.formatted(sequence, generatedAt, expiresAt, locales, announcements);
     }
 
     private static String item(String id, String publishedAt, String severity) {
@@ -419,14 +520,18 @@ class RemoteAnnouncementImporterTest {
                 "zh-CN": {
                   "title": "中文 %s",
                   "summary": "中文摘要 %s",
-                  "contentUrl": "%s%s/zh-CN.html"
+                  "contentUrl": "%s%s/zh-CN.html",
+                  "contentSha256": "%s"
                 },
                 "en-US": {
                   "title": "English %s",
                   "summary": "English summary %s",
-                  "contentUrl": "%s%s/en-US.html"
+                  "contentUrl": "%s%s/en-US.html",
+                  "contentSha256": "%s"
                 }
-                """.formatted(id, id, contentBase(), id, id, id, contentBase(), id));
+                """.formatted(
+                id, id, contentBase(), id, htmlSha256(),
+                id, id, contentBase(), id, htmlSha256()));
     }
 
     private static String itemWithTranslations(
@@ -449,11 +554,28 @@ class RemoteAnnouncementImporterTest {
         return value.getBytes(StandardCharsets.UTF_8);
     }
 
+    private static String htmlSha256() {
+        return sha256Hex(bytes(htmlBody()));
+    }
+
+    private static String sha256Hex(byte[] value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     private record Harness(
             RecordingMapper mapper,
             NotificationInboxService inbox,
             StubClient client,
-            RemoteAnnouncementImporter importer) {
+            RemoteAnnouncementImporter importer,
+            SigningFixture signing) {
+
+        private int importIndex(byte[] bytes) {
+            return importer.importIndex(bytes, signing.signatureBytes(bytes));
+        }
     }
 
     private record ResponsePlan(
@@ -467,21 +589,69 @@ class RemoteAnnouncementImporterTest {
         }
     }
 
+    private record SigningFixture(KeyPair keyPair, PluginSupplyChainVerifier verifier, String keyId) {
+
+        private static SigningFixture create() {
+            try {
+                KeyPair pair = KeyPairGenerator.getInstance(SignatureMetadata.ED25519).generateKeyPair();
+                String keyId = "remote-announcement-test-key";
+                TrustedPluginKey key = new TrustedPluginKey(
+                        keyId,
+                        SignatureMetadata.ED25519,
+                        Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()),
+                        TrustedPluginKey.State.ACTIVE,
+                        "Test Publisher",
+                        "Test Root",
+                        true);
+                return new SigningFixture(
+                        pair, new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key))), keyId);
+            } catch (Exception exception) {
+                throw new IllegalStateException(exception);
+            }
+        }
+
+        private byte[] signatureBytes(byte[] manifest) {
+            try {
+                byte[] digest = MessageDigest.getInstance("SHA-256").digest(manifest);
+                byte[] envelope = EnvelopeV1Codec.manifestMessage(
+                        RemoteAnnouncementImporter.REPOSITORY_ID, manifest.length, digest);
+                Signature signer = Signature.getInstance(SignatureMetadata.ED25519);
+                signer.initSign(keyPair.getPrivate());
+                signer.update(envelope);
+                String value = Base64.getEncoder().encodeToString(signer.sign());
+                return bytes("""
+                        {"formatVersion":1,"algorithm":"Ed25519","keyId":"%s","value":"%s"}
+                        """.formatted(keyId, value));
+            } catch (Exception exception) {
+                throw new IllegalStateException(exception);
+            }
+        }
+    }
+
     private static final class StubClient implements OutboundHttpClient {
         private final CountDownLatch requested = new CountDownLatch(1);
         private final CountDownLatch contentRequested = new CountDownLatch(2);
         private final AtomicInteger requests = new AtomicInteger();
         private final AtomicInteger contentRequests = new AtomicInteger();
-        private volatile ResponsePlan plan = new ResponsePlan(
-                200, jsonHeaders(), bytes(index(item("scheduled", PUBLISHED, "info"))), null);
+        private final SigningFixture signing;
+        private volatile ResponsePlan plan;
+        private volatile ResponsePlan signaturePlan;
         private volatile ResponsePlan contentPlan = new ResponsePlan(
                 200, htmlHeaders(), bytes(htmlBody()), null);
         private volatile OutboundHttpRequest lastIndexRequest;
+        private volatile OutboundHttpRequest lastSignatureRequest;
         private volatile OutboundHttpRequest lastContentRequest;
         private volatile boolean closed;
 
+        private StubClient(SigningFixture signing) {
+            this.signing = signing;
+            respond(200, jsonHeaders(), index(item("scheduled", PUBLISHED, "info")));
+        }
+
         private void respond(int status, Map<String, List<String>> headers, String body) {
             plan = new ResponsePlan(status, headers, bytes(body), null);
+            signaturePlan = new ResponsePlan(
+                    200, jsonHeaders(), signing.signatureBytes(bytes(body)), null);
         }
 
         @Override
@@ -489,14 +659,17 @@ class RemoteAnnouncementImporterTest {
             requests.incrementAndGet();
             requested.countDown();
             boolean indexRequest = RemoteAnnouncementImporter.INDEX_URI.equals(request.uri());
+            boolean signatureRequest = RemoteAnnouncementImporter.SIGNATURE_URI.equals(request.uri());
             if (indexRequest) {
                 lastIndexRequest = request;
+            } else if (signatureRequest) {
+                lastSignatureRequest = request;
             } else {
                 lastContentRequest = request;
                 contentRequests.incrementAndGet();
                 contentRequested.countDown();
             }
-            ResponsePlan current = indexRequest ? plan : contentPlan;
+            ResponsePlan current = indexRequest ? plan : signatureRequest ? signaturePlan : contentPlan;
             if (current.failure() != null) {
                 throw current.failure();
             }
@@ -516,6 +689,8 @@ class RemoteAnnouncementImporterTest {
         private final java.util.Set<String> dismissedIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
         private final Map<String, List<RemoteAnnouncementTranslation>> remoteTranslations =
                 new ConcurrentHashMap<>();
+        private long acceptedSequence;
+        private String acceptedDigest;
 
         @Override
         public int insert(NotificationMessage message) {
@@ -588,7 +763,7 @@ class RemoteAnnouncementImporterTest {
             return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
                     .map(translation -> new RemoteAnnouncementTranslation(
                             translation.locale(), translation.title(), translation.summary(),
-                            translation.contentUrl(), ""))
+                            translation.contentUrl(), translation.contentSha256(), ""))
                     .sorted(Comparator.comparing(RemoteAnnouncementTranslation::locale))
                     .toList();
         }
@@ -637,6 +812,18 @@ class RemoteAnnouncementImporterTest {
         public int deleteRemoteAnnouncementTranslations(String announcementId) {
             List<RemoteAnnouncementTranslation> removed = remoteTranslations.remove(announcementId);
             return removed == null ? 0 : removed.size();
+        }
+
+        @Override
+        public synchronized int acceptRemoteAnnouncementIndex(
+                long sequence, String manifestSha256, long generatedTime, long expiresTime) {
+            if (sequence < acceptedSequence
+                    || sequence == acceptedSequence && !Objects.equals(manifestSha256, acceptedDigest)) {
+                return 0;
+            }
+            acceptedSequence = sequence;
+            acceptedDigest = manifestSha256;
+            return 1;
         }
 
         @Override
@@ -721,8 +908,13 @@ class RemoteAnnouncementImporterTest {
         }
 
         @Bean(destroyMethod = "close")
-        StubClient client() {
-            return new StubClient();
+        StubClient client(SigningFixture signing) {
+            return new StubClient(signing);
+        }
+
+        @Bean
+        SigningFixture signing() {
+            return SigningFixture.create();
         }
 
         @Bean
@@ -736,8 +928,10 @@ class RemoteAnnouncementImporterTest {
         }
 
         @Bean
-        RemoteAnnouncementImporter importer(StubClient client, NotificationInboxService inbox) {
-            return new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox);
+        RemoteAnnouncementImporter importer(
+                StubClient client, NotificationInboxService inbox, SigningFixture signing) {
+            return new RemoteAnnouncementImporter(
+                    client, new ObjectMapper(), inbox, signing.verifier(), CLOCK);
         }
     }
 }

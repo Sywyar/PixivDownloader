@@ -6,10 +6,11 @@ public record RemoteAnnouncementTranslation(
         String title,
         String summary,
         String contentUrl,
+        String contentSha256,
         String contentHtml
 ) {
 
     RemoteAnnouncementTranslation withHtml(String html) {
-        return new RemoteAnnouncementTranslation(locale, title, summary, contentUrl, html);
+        return new RemoteAnnouncementTranslation(locale, title, summary, contentUrl, contentSha256, html);
     }
 }

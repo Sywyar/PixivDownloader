@@ -48,6 +48,7 @@ public final class NotificationInboxSchema {
                                     column("title", "TEXT", true, null, 0),
                                     column("summary", "TEXT", true, null, 0),
                                     column("content_url", "TEXT", true, null, 0),
+                                    column("content_sha256", "TEXT", false, null, 0),
                                     column("content_html", "TEXT", true, null, 0)),
                             List.of(),
                             "length(trim(announcement_id)) > 0"
@@ -55,7 +56,23 @@ public final class NotificationInboxSchema {
                                     + " AND length(trim(title)) > 0"
                                     + " AND length(trim(summary)) > 0"
                                     + " AND length(trim(content_url)) > 0"
-                                    + " AND length(content_html) > 0")),
+                                    + " AND length(content_sha256) = 64"
+                                    + " AND content_sha256 NOT GLOB '*[^0-9a-f]*'"
+                                    + " AND length(content_html) > 0"),
+                    new TableSpec(
+                            "notification_remote_index_state",
+                            List.of(
+                                    column("id", "INTEGER", true, null, 1),
+                                    column("sequence", "INTEGER", true, null, 0),
+                                    column("manifest_sha256", "TEXT", true, null, 0),
+                                    column("generated_time", "INTEGER", true, null, 0),
+                                    column("expires_time", "INTEGER", true, null, 0)),
+                            List.of(),
+                            "id = 1 AND sequence > 0"
+                                    + " AND length(manifest_sha256) = 64"
+                                    + " AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'"
+                                    + " AND generated_time >= 0"
+                                    + " AND expires_time > generated_time")),
             List.of(),
             List.of());
 

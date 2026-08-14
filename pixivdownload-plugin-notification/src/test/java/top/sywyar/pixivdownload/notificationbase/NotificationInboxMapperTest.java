@@ -77,15 +77,25 @@ class NotificationInboxMapperTest {
                     .isEqualTo(1);
             RemoteAnnouncementTranslation translation = new RemoteAnnouncementTranslation(
                     "en-US", "English legacy", "English summary", legacy.contentUrl(),
+                    "0".repeat(64),
                     "<!doctype html><p>English legacy</p>");
             assertThat(mapper.upsertRemoteAnnouncementTranslation("legacy", translation)).isEqualTo(1);
             assertThat(mapper.findRemoteAnnouncementTranslations("legacy"))
                     .containsExactly(new RemoteAnnouncementTranslation(
-                            "en-US", "English legacy", "English summary", legacy.contentUrl(), ""));
+                            "en-US", "English legacy", "English summary", legacy.contentUrl(),
+                            "0".repeat(64), ""));
             assertThat(mapper.findRemoteAnnouncementHtml("legacy", "en-US"))
                     .isEqualTo(new NotificationHtmlContent(
                             legacy.contentUrl(), "<!doctype html><p>English legacy</p>"));
             assertThat(mapper.findById("legacy").readTime()).isEqualTo(30);
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    2, "a".repeat(64), 100, 200)).isEqualTo(1);
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    1, "b".repeat(64), 100, 200)).isZero();
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    2, "b".repeat(64), 100, 200)).isZero();
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    2, "a".repeat(64), 100, 200)).isEqualTo(1);
             assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)
                     .containsExactly("newer");
             assertThat(mapper.markAllRead("announcement", 40)).isEqualTo(1);
@@ -174,8 +184,18 @@ class NotificationInboxMapperTest {
                         title TEXT NOT NULL,
                         summary TEXT NOT NULL,
                         content_url TEXT NOT NULL,
+                        content_sha256 TEXT NOT NULL,
                         content_html TEXT NOT NULL,
                         PRIMARY KEY (announcement_id, locale)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE notification_remote_index_state (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        sequence INTEGER NOT NULL,
+                        manifest_sha256 TEXT NOT NULL,
+                        generated_time INTEGER NOT NULL,
+                        expires_time INTEGER NOT NULL
                     )
                     """);
         }

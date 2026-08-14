@@ -169,7 +169,7 @@ class NotificationPluginTest {
             assertThat(slot.moduleUrl()).isEqualTo("/pixiv-notifications/batch-inbox-slot.js");
         });
         assertThat(plugin.schema()).singleElement().satisfies(schema -> {
-            assertThat(schema.tables()).hasSize(2);
+            assertThat(schema.tables()).hasSize(3);
             assertThat(schema.tables()).filteredOn(table -> table.name().equals("notification_messages"))
                     .singleElement().satisfies(table -> {
                     assertThat(table.name()).isEqualTo("notification_messages");
@@ -192,11 +192,20 @@ class NotificationPluginTest {
                     .singleElement().satisfies(table -> {
                         assertThat(table.columns()).extracting(column -> column.name())
                                 .containsExactly("announcement_id", "locale", "title", "summary",
-                                        "content_url", "content_html");
+                                        "content_url", "content_sha256", "content_html");
                         assertThat(table.columns()).extracting(column -> column.primaryKeyPosition())
-                                .containsExactly(1, 2, 0, 0, 0, 0);
+                                .containsExactly(1, 2, 0, 0, 0, 0, 0);
+                        assertThat(table.columns()).filteredOn(column -> column.name().equals("content_sha256"))
+                                .singleElement().satisfies(column -> assertThat(column.notNull()).isFalse());
                         assertThat(table.indexes()).isEmpty();
                     });
+            assertThat(schema.tables())
+                    .filteredOn(table -> table.name().equals("notification_remote_index_state"))
+                    .singleElement()
+                    .satisfies(table -> assertThat(table.columns())
+                            .extracting(column -> column.name())
+                            .containsExactly("id", "sequence", "manifest_sha256",
+                                    "generated_time", "expires_time"));
         });
         assertThat(plugin.navigation()).isEmpty();
         assertThat(pf4j.configurationClasses()).containsExactly(NotificationPluginConfiguration.class);

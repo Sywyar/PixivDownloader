@@ -133,7 +133,8 @@ class NotificationInboxServiceTest {
         MemoryMapper mapper = new MemoryMapper();
         NotificationInboxService service = new NotificationInboxService(mapper);
         List<RemoteAnnouncementTranslation> firstTranslations = List.of(new RemoteAnnouncementTranslation(
-                "en-US", "Title", "Body", CONTENT_URL, "<!doctype html><p>First</p>"));
+                "en-US", "Title", "Body", CONTENT_URL,
+                "0".repeat(64), "<!doctype html><p>First</p>"));
 
         assertThat(service.storeRemoteAnnouncement(
                 "stable", NotificationSeverity.INFO, firstTranslations, 1)).isTrue();
@@ -144,7 +145,8 @@ class NotificationInboxServiceTest {
         assertThat(service.storeRemoteAnnouncement(
                 "stable", NotificationSeverity.WARNING,
                 List.of(new RemoteAnnouncementTranslation(
-                        "en-US", "Changed", "Changed", CONTENT_URL, "<!doctype html><p>Changed</p>")),
+                        "en-US", "Changed", "Changed", CONTENT_URL,
+                        "1".repeat(64), "<!doctype html><p>Changed</p>")),
                 2)).isFalse();
         assertThat(service.needsRemoteAnnouncementImport("stable", firstTranslations)).isFalse();
     }
@@ -416,7 +418,7 @@ class NotificationInboxServiceTest {
             return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
                     .map(translation -> new RemoteAnnouncementTranslation(
                             translation.locale(), translation.title(), translation.summary(),
-                            translation.contentUrl(), ""))
+                            translation.contentUrl(), translation.contentSha256(), ""))
                     .sorted(Comparator.comparing(RemoteAnnouncementTranslation::locale))
                     .toList();
         }
@@ -460,6 +462,12 @@ class NotificationInboxServiceTest {
         public int deleteRemoteAnnouncementTranslations(String announcementId) {
             List<RemoteAnnouncementTranslation> removed = remoteTranslations.remove(announcementId);
             return removed == null ? 0 : removed.size();
+        }
+
+        @Override
+        public int acceptRemoteAnnouncementIndex(long sequence, String manifestSha256,
+                                                 long generatedTime, long expiresTime) {
+            return 1;
         }
 
         @Override
