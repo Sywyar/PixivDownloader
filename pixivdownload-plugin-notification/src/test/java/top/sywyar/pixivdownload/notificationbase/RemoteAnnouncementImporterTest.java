@@ -614,7 +614,7 @@ class RemoteAnnouncementImporterTest {
         }
 
         @Override
-        public int deleteStalePersistentSurveys(List<String> activeIds) {
+        public int setActivePersistentSurveys(List<String> activeIds) {
             return 0;
         }
 
