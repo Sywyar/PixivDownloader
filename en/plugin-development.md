@@ -195,9 +195,16 @@ const client = await window.PixivPostHog?.createSurveyClient({
   }
 });
 if (!client) return; // dependency missing, invalid parameters, SDK failure, or conflict
+
+await window.PixivPostHog.captureSurveyWithAck(
+  'example-plugin.feedback',
+  'survey sent',
+  surveyProperties,
+  submissionId
+);
 ```
 
-`ownerKey` must be globally stable. Repeating a call for the same owner on one page reuses the client only when the four parameters, `distinctId`, and the `beforeSend` function object are unchanged; any mismatch fails closed. Different owners may use different project parameters. The adapter pins and loads the vendored SDK, disables default collection, and creates isolated named instances, but it does not select surveys or send events for a plugin. If `posthog` is disabled at runtime, JavaScript already loaded in an open page cannot be withdrawn; after refresh the resource is absent and the caller must degrade as if the client were unavailable.
+`ownerKey` must be globally stable. Repeating a call for the same owner on one page reuses the client only when the four parameters, `distinctId`, and the `beforeSend` function object are unchanged; any mismatch fails closed. Different owners may use different project parameters. `submissionId` must be a stable UUID derived by the publishing plugin from the survey ID, campaign version, and survey-scoped anonymous identity. Retries of the same response must reuse it; only a campaign-version change should produce a new value. The adapter sends this value as the event's top-level `uuid` and resolves the Promise only after the fixed ingestion endpoint returns 2xx; a missing or invalid UUID is rejected before any request is sent. The adapter pins and loads the vendored SDK, disables default collection, and creates isolated named instances, but it does not select surveys, generate identities, or decide response fields for a plugin. If `posthog` is disabled at runtime, JavaScript already loaded in an open page cannot be withdrawn; after refresh the resource is absent and the caller must degrade as if the client were unavailable.
 
 To keep a survey in the inbox and let users complete it there, the publishing plugin may additionally contribute a `notification.inbox` slot with no slot module:
 

@@ -194,9 +194,16 @@ const client = await window.PixivPostHog?.createSurveyClient({
   }
 });
 if (!client) return; // 依赖缺失、参数非法、SDK 加载失败或配置冲突时静默关闭
+
+await window.PixivPostHog.captureSurveyWithAck(
+  'example-plugin.feedback',
+  'survey sent',
+  surveyProperties,
+  submissionId
+);
 ```
 
-`ownerKey` 必须全局稳定；同一页面内同一 owner 以相同四参数、`distinctId` 和同一个 `beforeSend` 函数重复调用会复用客户端，任一项变化则 fail-closed。不同 owner 可以使用不同项目参数。适配器固定并加载 vendored SDK、关闭默认采集并创建隔离的命名实例，但不会替插件选择调查或发送事件。若运行时停用 `posthog`，已打开页面中已经加载的 JavaScript 不会被撤销；刷新后资源缺席，调用方必须按客户端不可用降级。
+`ownerKey` 必须全局稳定；同一页面内同一 owner 以相同四参数、`distinctId` 和同一个 `beforeSend` 函数重复调用会复用客户端，任一项变化则 fail-closed。不同 owner 可以使用不同项目参数。`submissionId` 必须是发布插件根据 Survey ID、campaign 版本和调查作用域匿名身份派生的稳定 UUID；同一答卷的重试必须复用，campaign 版本提升时才生成新值。适配器会把该 UUID 作为事件顶层 `uuid` 发送，并只在固定接收端返回 2xx 后完成 Promise；缺失或非法 UUID 会在发出请求前拒绝。适配器固定并加载 vendored SDK、关闭默认采集并创建隔离的命名实例，但不会替插件选择调查、生成身份或决定回答字段。若运行时停用 `posthog`，已打开页面中已经加载的 JavaScript 不会被撤销；刷新后资源缺席，调用方必须按客户端不可用降级。
 
 若调查需要长期出现在站内信并直接填写，发布插件可以额外贡献一个不加载槽位模块的 `notification.inbox` 槽位：
 
