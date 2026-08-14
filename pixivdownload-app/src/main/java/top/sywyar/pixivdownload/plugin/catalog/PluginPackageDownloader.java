@@ -23,7 +23,7 @@ import java.util.Locale;
  * <b>不存在「全局严格客户端下载所有包」的旁路</b>：
  * <ul>
  *   <li>{@code direct-strict} 仓库：仅 https、拒非公网、禁重定向、不走代理。</li>
- *   <li>{@code proxy-trusted} 仓库（如内嵌官方仓库）：经应用全局代理、按内置主机白名单跟随至多一跳重定向（GitHub
+ *   <li>{@code proxy-trusted} 仓库（如内嵌官方仓库）：经应用全局代理、按内置主机白名单跟随至多五跳重定向（GitHub
  *       release 资产 CDN 即走此路）；完整性仍由生命周期协调器提交的文件事务逐字节兜底。</li>
  *   <li>未知策略：{@code clientFor} fail-closed 抛 {@link PluginCatalogErrorCode#PROXY_POLICY_UNSUPPORTED}、绝不静默直连。</li>
  * </ul>

@@ -9,6 +9,9 @@ import java.util.Map;
  * 远端 update.json 的反序列化结构。
  * <pre>
  * {
+ *   "channel": "stable",
+ *   "sequence": 123456789,
+ *   "expiresAt": "2027-06-19T00:00:00Z",
  *   "latestVersion": "1.2.3",
  *   "releaseDate": "2026-05-15",
  *   "releaseNotes": "支持自动更新...",
@@ -26,6 +29,9 @@ import java.util.Map;
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class UpdateManifest {
+    private String channel;
+    private long sequence;
+    private String expiresAt;
     private String latestVersion;
     private String releaseDate;
     private String releaseNotes;

@@ -110,14 +110,14 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.ok").value(true))
                     .andExpect(jsonPath("$.mode").value("solo"));
 
-            verify(setupService).init("admin", "password123", "solo");
+            verify(setupService).init("admin", "password1234", "solo");
         }
 
         @Test
@@ -131,7 +131,7 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isForbidden());
@@ -148,11 +148,29 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.error").value("已完成配置，不可重复初始化"));
+        }
+
+        @Test
+        @DisplayName("安装状态损坏时应返回 503 且不覆盖文件")
+        void shouldReturn503WhenConfigurationIsCorrupted() throws Exception {
+            when(setupService.isConfigurationCorrupted()).thenReturn(true);
+
+            mockMvc.perform(post("/api/setup/init")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of(
+                                    "username", "admin",
+                                    "password", "password1234",
+                                    "mode", "solo"
+                            ))))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.error").value(containsString("安装状态文件已损坏")));
+
+            verify(setupService, never()).init(any(), any(), any());
         }
 
         @Test
@@ -162,7 +180,7 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isBadRequest())
@@ -180,7 +198,7 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("密码长度至少 6 位")));
+                    .andExpect(jsonPath("$.error").value(containsString("密码长度必须为 12 到 1024 个字符")));
         }
 
         @Test
@@ -192,7 +210,7 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "solo",
                                     "proxyEnabled", true,
                                     "proxyHost", "127.0.0.1",
@@ -200,7 +218,7 @@ class SetupControllerTest {
                             ))))
                     .andExpect(status().isOk());
 
-            verify(setupService).init("admin", "password123", "solo");
+            verify(setupService).init("admin", "password1234", "solo");
             verify(proxySetupService).applyAndReload(true, "127.0.0.1", 1080);
         }
 
@@ -215,7 +233,7 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "solo",
                                     "proxyEnabled", true,
                                     "proxyHost", "127.0.0.1",
@@ -226,7 +244,7 @@ class SetupControllerTest {
                     .andExpect(jsonPath("$.mode").value("solo"))
                     .andExpect(jsonPath("$.warning").value(containsString("代理配置写入 config.yaml 失败")));
 
-            verify(setupService).init("admin", "password123", "solo");
+            verify(setupService).init("admin", "password1234", "solo");
         }
 
         @Test
@@ -238,7 +256,7 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "solo",
                                     "proxyEnabled", true,
                                     "proxyHost", "",
@@ -257,7 +275,7 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "mode", "invalid"
                             ))))
                     .andExpect(status().isBadRequest())
@@ -273,20 +291,20 @@ class SetupControllerTest {
 
         @BeforeEach
         void allowRateLimit() {
-            when(loginRateLimitService.isAllowed(any())).thenReturn(true);
+            lenient().when(loginRateLimitService.isAllowed(any())).thenReturn(true);
         }
 
         @Test
         @DisplayName("未勾选记住我应设置浏览器会话 Cookie")
         void shouldLoginSuccessfully() throws Exception {
-            when(setupService.checkLogin("admin", "password123")).thenReturn(true);
+            when(setupService.checkLogin("admin", "password1234")).thenReturn(true);
             when(setupService.createSession(false)).thenReturn("test-token");
 
             mockMvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "rememberMe", false
                             ))))
                     .andExpect(status().isOk())
@@ -314,16 +332,31 @@ class SetupControllerTest {
         }
 
         @Test
+        @DisplayName("超长登录凭据应在校验层拒绝")
+        void shouldRejectOversizedCredentials() throws Exception {
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of(
+                                    "username", "admin",
+                                    "password", "x".repeat(1025)
+                            ))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value(containsString("密码不能超过 1024 个字符")));
+
+            verify(setupService, never()).checkLogin(any(), any());
+        }
+
+        @Test
         @DisplayName("勾选记住我应设置长期 Cookie")
         void shouldSetLongCookieForRememberMe() throws Exception {
-            when(setupService.checkLogin("admin", "password123")).thenReturn(true);
+            when(setupService.checkLogin("admin", "password1234")).thenReturn(true);
             when(setupService.createSession(true)).thenReturn("long-token");
 
             mockMvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123",
+                                    "password", "password1234",
                                     "rememberMe", true
                             ))))
                     .andExpect(status().isOk())

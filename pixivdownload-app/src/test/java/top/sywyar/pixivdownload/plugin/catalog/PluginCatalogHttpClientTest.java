@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -164,10 +165,13 @@ class PluginCatalogHttpClientTest {
             }
             CatalogTestSupport.serveBytes(server, "/pkg.zip", body);
             Path target = dir.resolve("out.zip");
+            AtomicLong progress = new AtomicLong();
 
-            long written = relaxed.streamToFile(CatalogTestSupport.loopbackUrl(server, "/pkg.zip"), 1L << 20, target);
+            long written = relaxed.streamToFile(
+                    CatalogTestSupport.loopbackUrl(server, "/pkg.zip"), 1L << 20, target, progress::set);
 
             assertThat(written).isEqualTo(body.length);
+            assertThat(progress.get()).isEqualTo(body.length);
             assertThat(Files.readAllBytes(target)).isEqualTo(body);
         }
 
@@ -301,11 +305,32 @@ class PluginCatalogHttpClientTest {
         }
 
         @Test
-        @DisplayName("只跟随一跳：第二跳仍是 3xx 即失败（DOWNLOAD_FAILED）")
-        void refusesSecondHop() {
+        @DisplayName("允许五跳且每跳重新校验：GitHub latest release 风格链路可到达最终内容")
+        void followsFiveHops() {
             server = CatalogTestSupport.startServer();
-            CatalogTestSupport.serveRedirect(server, "/b", CatalogTestSupport.loopbackUrl(server, "/c"));
-            CatalogTestSupport.serveRedirect(server, "/a", CatalogTestSupport.loopbackUrl(server, "/b"));
+            CatalogTestSupport.serveRedirect(server, "/a", "/b");
+            CatalogTestSupport.serveRedirect(server, "/b", "/c");
+            CatalogTestSupport.serveRedirect(server, "/c", "/d");
+            CatalogTestSupport.serveRedirect(server, "/d", "/e");
+            CatalogTestSupport.serveRedirect(server, "/e", "/final");
+            CatalogTestSupport.serveBytes(server, "/final", "release-asset".getBytes(StandardCharsets.UTF_8));
+
+            assertThat(allowlisted("127.0.0.1").fetchBytes(
+                    CatalogTestSupport.loopbackUrl(server, "/a"), 1024))
+                    .isEqualTo("release-asset".getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Test
+        @DisplayName("超过五跳仍 fail-closed（DOWNLOAD_FAILED）")
+        void refusesSixthHop() {
+            server = CatalogTestSupport.startServer();
+            CatalogTestSupport.serveRedirect(server, "/a", "/b");
+            CatalogTestSupport.serveRedirect(server, "/b", "/c");
+            CatalogTestSupport.serveRedirect(server, "/c", "/d");
+            CatalogTestSupport.serveRedirect(server, "/d", "/e");
+            CatalogTestSupport.serveRedirect(server, "/e", "/f");
+            CatalogTestSupport.serveRedirect(server, "/f", "/final");
+            CatalogTestSupport.serveBytes(server, "/final", new byte[]{1});
 
             assertThatThrownBy(() -> allowlisted("127.0.0.1")
                     .fetchBytes(CatalogTestSupport.loopbackUrl(server, "/a"), 1024))

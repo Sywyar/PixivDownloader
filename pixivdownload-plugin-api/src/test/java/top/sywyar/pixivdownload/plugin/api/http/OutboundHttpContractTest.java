@@ -257,6 +257,11 @@ class OutboundHttpContractTest {
                 .isEqualTo(OutboundHttpClientProfile.DEFAULT_MAX_CONNECTIONS_PER_ROUTE);
         assertThat(profile.route().policy())
                 .isEqualTo(OutboundHttpRoutePolicy.SCOPED_OR_GLOBAL_IF_ENABLED);
+
+        OutboundHttpClientProfile credentialed = OutboundHttpClientProfile.credentialed(
+                Duration.ofSeconds(2), Duration.ofSeconds(3), OutboundHttpRoute.direct());
+        assertThat(credentialed.redirectPolicy()).isEqualTo(OutboundHttpRedirectPolicy.NEVER);
+        assertThat(credentialed.cookiePolicy()).isEqualTo(OutboundHttpCookiePolicy.DISABLED);
     }
 
     @Test

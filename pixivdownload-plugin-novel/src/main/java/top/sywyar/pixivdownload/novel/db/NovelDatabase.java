@@ -92,7 +92,7 @@ public class NovelDatabase {
                             Integer pageCount, Boolean isOriginal, String xLanguage,
                             String rawContent, String coverExt) {
         NovelRecord previous = novelMapper.findById(novelId);
-        novelMapper.insertOrReplace(novelId, title, pathPrefixCodec.encode(stripTrailingSlash(folder)),
+        novelMapper.insertOrReplace(novelId, title, pathPrefixCodec.encode(folder),
                 count, extensions, time, xRestrict, isAi, authorId, description,
                 fileName, fileAuthorNameId, seriesId, seriesOrder,
                 wordCount, textLength, readingTimeSeconds, pageCount, isOriginal, xLanguage, rawContent, coverExt);
@@ -391,7 +391,7 @@ public class NovelDatabase {
     public void updateSeriesMetadata(long seriesId, String description, String coverExt, String coverFolder) {
         if (seriesId <= 0) return;
         novelMapper.updateNovelSeriesMetadata(seriesId, description, coverExt,
-                pathPrefixCodec.encode(stripTrailingSlash(coverFolder)));
+                pathPrefixCodec.encode(coverFolder));
     }
 
     @Transactional
@@ -461,10 +461,6 @@ public class NovelDatabase {
                 series.description(),
                 series.coverExt(),
                 pathPrefixCodec.resolve(series.coverFolder()));
-    }
-
-    private static String stripTrailingSlash(String path) {
-        return path == null ? null : path.replaceAll("[/\\\\]+$", "");
     }
 
     private static String escapeLikePattern(String value) {

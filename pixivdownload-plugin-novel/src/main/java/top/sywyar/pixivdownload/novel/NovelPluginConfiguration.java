@@ -347,11 +347,14 @@ public class NovelPluginConfiguration {
                                                           RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                           VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                           MultiModeSettings multiModeSettings,
+                                                          ObjectMapper objectMapper,
+                                                          PixivAjaxClient pixivAjaxClient,
+                                                          PixivProxyAccessPolicy pixivProxyAccessPolicy,
                                                           @Qualifier("novelPluginMessages") MessageResolver messages) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
                 novelGalleryService, novelMergeService, novelTranslationService, applicationModeProvider,
                 requestOwnerIdentityResolver, workVisibilityService, visitorDownloadQuotaService,
-                multiModeSettings, messages);
+                multiModeSettings, objectMapper, pixivAjaxClient, pixivProxyAccessPolicy, messages);
     }
 
     @Bean

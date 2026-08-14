@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
@@ -160,10 +161,10 @@ public class DownloadedWorkController {
     public ResponseEntity<DownloadResponse> moveArtWork(
             @PathVariable Long artworkId,
             @Valid @RequestBody MoveArtworkRequest request) {
-        String movePath = request.getMovePath().replaceAll("[/\\\\]+$", "");
+        String movePath = PathPrefixCodec.stripTrailingSeparators(request.getMovePath());
         String presetRoot = request.getClassifierTargetFolder();
         if (presetRoot != null) {
-            presetRoot = presetRoot.replaceAll("[/\\\\]+$", "");
+            presetRoot = PathPrefixCodec.stripTrailingSeparators(presetRoot);
             if (presetRoot.isEmpty()) presetRoot = null;
         }
         artworkMoveService.moveArtWork(artworkId, movePath, request.getMoveTime(), presetRoot);

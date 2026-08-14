@@ -1127,12 +1127,6 @@
         }
     }
 
-    // 小说转发额外剪掉正文 content（后端已存 raw_content）与内嵌图 textEmbeddedImages（已存 novel_images）；
-    // 后端仍会独立再剪一遍。任何异常返回 null（不阻断下载）。
-    function buildNovelForwardMetaJson(body) {
-        return buildForwardMetaJson(body, ['content', 'textEmbeddedImages']);
-    }
-
     /* ========== DOM 帮助函数 ========== */
     function $el(tag, props = {}, children = []) {
         const e = document.createElement(tag);
@@ -1638,8 +1632,7 @@
             language: String((body && body.language) || ''),
             coverUrl: _pn_extractCoverUrl(body),
             uploadTimestamp: _pn_extractUploadTimestamp(body),
-            textEmbeddedImages: _pn_extractTextEmbeddedImages(body),
-            rawMetaJson: buildNovelForwardMetaJson(body)
+            textEmbeddedImages: _pn_extractTextEmbeddedImages(body)
         };
     }
 
@@ -1989,39 +1982,6 @@
                     onerror: reject
                 });
             });
-        },
-        _novelSeriesMetaPromises: new Map(),
-        getNovelSeriesEnrichment(seriesId) {
-            const sid = Number(seriesId);
-            if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
-            if (this._novelSeriesMetaPromises.has(sid)) return this._novelSeriesMetaPromises.get(sid);
-            // 直连 Pixiv 系列接口（与 getNovelMeta 同理，避免后端代理 + document.cookie
-            // 取不到 HttpOnly 会话 Cookie 导致受限系列封面 / 简介 / 标签缺失）。
-            const p = new Promise((resolve) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: `https://www.pixiv.net/ajax/novel/series/${sid}?lang=zh`,
-                    headers: {Referer: 'https://www.pixiv.net/'},
-                    onload: (res) => {
-                        try {
-                            const data = JSON.parse(res.responseText);
-                            if (!data || data.error) return resolve(null);
-                            const meta = data.body || null;
-                            if (!meta) return resolve(null);
-                            resolve({
-                                caption: String(meta.caption || ''),
-                                coverUrl: _pn_extractSeriesCoverUrl(meta),
-                                tags: _pn_extractTags(meta)
-                            });
-                        } catch (_) {
-                            resolve(null);
-                        }
-                    },
-                    onerror: () => resolve(null)
-                });
-            });
-            this._novelSeriesMetaPromises.set(sid, p);
-            return p;
         },
         initQuota() {
             const headers = {'Content-Type': 'application/json'};
@@ -2777,52 +2737,15 @@
                 this.ui.renderQueue(this.queue);
 
                 const fmt = (this.globalSettings.novelFormat || 'txt').toLowerCase();
-                const seriesInfo = meta.seriesId ? {
-                    seriesId: meta.seriesId,
-                    seriesOrder: meta.seriesOrder,
-                    seriesTitle: meta.seriesTitle
-                } : null;
-                if (seriesInfo && seriesInfo.seriesId) item.seriesId = Number(seriesInfo.seriesId);
-                const seriesEnrich = seriesInfo
-                    ? await Api.getNovelSeriesEnrichment(seriesInfo.seriesId)
-                    : null;
+                if (meta.seriesId) item.seriesId = Number(meta.seriesId);
                 const body = {
                     novelId: Number(novelId),
-                    title: meta.title,
-                    // bookmark 已迁到脚本端，后端不再需要用户 Pixiv cookie；pximg 下封面/内嵌图
-                    // 只看 Referer，不需要 cookie。
-                    cookie: null,
-                    content: meta.content,
                     other: {
-                        authorId: meta.authorId,
-                        authorName: meta.authorName,
-                        xRestrict: meta.xRestrict,
-                        ai: meta.isAi,
-                        original: meta.isOriginal,
-                        language: meta.language,
-                        wordCount: meta.wordCount,
-                        textLength: meta.textLength,
-                        readingTimeSeconds: meta.readingTimeSeconds ?? null,
-                        pageCount: meta.pageCount,
-                        description: meta.description,
-                        tags: Array.isArray(meta.tags) ? meta.tags : [],
-                        seriesId: seriesInfo ? seriesInfo.seriesId : null,
-                        seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
-                        seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
-                        seriesDescription: seriesEnrich && seriesEnrich.caption ? seriesEnrich.caption : null,
-                        seriesCoverUrl: seriesEnrich && seriesEnrich.coverUrl ? seriesEnrich.coverUrl : null,
-                        seriesTags: seriesEnrich && seriesEnrich.tags && seriesEnrich.tags.length
-                            ? seriesEnrich.tags : null,
                         // bookmark 由脚本侧直连 Pixiv 完成（见 _maybeBookmarkAfterDownload），
                         // 永远不让后端代发 —— document.cookie 取不到 HttpOnly PHPSESSID。
                         bookmark: false,
                         collectionId: null,
-                        format: fmt,
-                        uploadTimestamp: meta.uploadTimestamp || null,
-                        coverUrl: meta.coverUrl || '',
-                        embeddedImages: meta.textEmbeddedImages || {},
-                        // 已抓到的小说 body 轻剪枝后转发，后端落 meta sidecar + upload_time 列投影（零额外请求、best-effort）。
-                        rawMetaJson: meta.rawMetaJson || null
+                        format: fmt
                     }
                 };
 

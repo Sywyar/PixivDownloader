@@ -253,7 +253,14 @@ public class PathPrefixCodec implements StoredPathCodec {
 
     public static String stripTrailingSeparators(String value) {
         if (value == null) return null;
-        return value.replaceAll("[/\\\\]+$", "");
+        String stripped = value.replaceAll("[/\\\\]+$", "");
+        if (!stripped.isEmpty()) {
+            if (stripped.matches("(?i)^[a-z]:$") && value.length() > stripped.length()) {
+                return stripped + (value.indexOf('\\') >= 0 ? "\\" : "/");
+            }
+            return stripped;
+        }
+        return value.isEmpty() ? value : value.charAt(0) == '\\' ? "\\" : "/";
     }
 
     private List<PathPrefix> currentPrefixes() {

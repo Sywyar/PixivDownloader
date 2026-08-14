@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +11,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
@@ -22,7 +29,12 @@ import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadStatus;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadCommand;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
+import top.sywyar.pixivdownload.novel.response.NovelProxyRateLimitResponse;
+import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
@@ -30,16 +42,17 @@ import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -69,37 +82,30 @@ public class NovelDownloadController {
     private final WorkVisibilityService workVisibilityService;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final MultiModeSettings multiModeSettings;
+    private final ObjectMapper objectMapper;
+    private final PixivAjaxClient pixivAjaxClient;
+    private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final MessageResolver messages;
 
     @PostMapping("/novel/download")
     public ResponseEntity<?> downloadNovel(
-            @Valid @RequestBody NovelDownloadRequest request,
+            @Valid @RequestBody NovelDownloadCommand command,
             HttpServletRequest httpRequest) {
-        if (request.getNovelId() == null || request.getNovelId() <= 0) {
+        if (command.getNovelId() == null || command.getNovelId() <= 0) {
             return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
                     .success(false)
-                    .message(messages.get("pixiv.proxy.novel.id.invalid", String.valueOf(request.getNovelId())))
+                    .message(messages.get("pixiv.proxy.novel.id.invalid", String.valueOf(command.getNovelId())))
                     .build());
         }
-        if (request.getOther() == null) {
-            request.setOther(new NovelDownloadRequest.Other());
-        }
-        try {
-            novelDownloadService.validateUserDownloadFolder(request.getOther());
-        } catch (DownloadPathRejectedException rejected) {
-            return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
-                    .success(false)
-                    .message(messages.get(
-                            "download.path.segment.invalid",
-                            request.getOther().getUsername()))
-                    .build());
+        if (command.getOther() == null) {
+            command.setOther(new NovelDownloadCommand.Other());
         }
         String mode = applicationModeProvider.getMode();
         if ("multi".equals(mode)) {
             String pdMode = multiModeSettings.getPostDownloadMode();
             // 软删除的小说文件已不在磁盘，视为未下载放行（是否真正重下由客户端的下载设置决定）
             if (("never-delete".equals(pdMode) || "timed-delete".equals(pdMode))
-                    && novelDatabase.hasActiveNovel(request.getNovelId())) {
+                    && novelDatabase.hasActiveNovel(command.getNovelId())) {
                 return ResponseEntity.ok(new NovelAlreadyDownloadedResponse(
                         true, true, messages.get("download.already-downloaded")));
             }
@@ -107,8 +113,29 @@ public class NovelDownloadController {
 
         RequestOwnerIdentity ownerIdentity = requestOwnerIdentityResolver.resolve(httpRequest);
         boolean isAdmin = requestOwnerIdentityResolver.isAdminAuthenticated(httpRequest);
-        stripUnauthorizedCollectionSelection(request, mode, isAdmin);
-        stripUnauthorizedAutoTranslate(request, mode, isAdmin);
+        stripUnauthorizedCollectionSelection(command, mode, isAdmin);
+        stripUnauthorizedAutoTranslate(command, mode, isAdmin);
+
+        ResponseEntity<?> proxyDeny = checkPixivFetchAccess(httpRequest, isAdmin);
+        if (proxyDeny != null) {
+            return proxyDeny;
+        }
+
+        NovelDownloadRequest request;
+        try {
+            request = resolveDownloadRequest(command, httpRequest);
+        } catch (IllegalArgumentException invalid) {
+            return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
+                    .success(false)
+                    .message(invalid.getMessage())
+                    .build());
+        } catch (IOException invalidUpstream) {
+            log.warn("Pixiv novel response could not be parsed: novelId={}", command.getNovelId());
+            return ResponseEntity.status(502).body(NovelDownloadResponse.builder()
+                    .success(false)
+                    .message(messages.get("pixiv.proxy.novel.response.invalid"))
+                    .build());
+        }
 
         String userUuid = null;
         if (!isAdmin && "multi".equals(mode)) {
@@ -136,9 +163,79 @@ public class NovelDownloadController {
                 .success(true)
                 .message(messages.get("download.task.started"))
                 .downloadPath(messages.get("download.download-path.pending",
-                        String.valueOf(request.getNovelId())))
+                        String.valueOf(command.getNovelId())))
                 .downloadedCount(1)
                 .build());
+    }
+
+    private ResponseEntity<?> checkPixivFetchAccess(HttpServletRequest request, boolean isAdmin) {
+        PixivProxyAccessDecision decision = pixivProxyAccessPolicy.evaluate(
+                requestOwnerIdentityResolver.resolveExistingOwnerUuid(request).orElse(null), isAdmin);
+        return switch (decision.outcome()) {
+            case ALLOWED -> null;
+            case OWNER_REQUIRED -> ResponseEntity.status(401)
+                    .body(new NovelErrorResponse(decision.errorMessage()));
+            case RATE_LIMITED -> ResponseEntity.status(429)
+                    .body(new NovelProxyRateLimitResponse(
+                            decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
+        };
+    }
+
+    private NovelDownloadRequest resolveDownloadRequest(
+            NovelDownloadCommand command,
+            HttpServletRequest httpRequest) throws IOException {
+        String credential = AcquisitionCredentialResolver.resolve(
+                httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME), null);
+        long novelId = command.getNovelId();
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
+                .queryParam("lang", NovelPixivProxyController.PIXIV_API_LANGUAGE)
+                .buildAndExpand(Map.of("id", novelId))
+                .encode()
+                .toUri();
+        JsonNode body = requirePixivBody(pixivAjaxClient.get(uri, credential));
+        PixivNovelMetadata metadata = PixivNovelMetadata.parse(novelId, body);
+        PixivNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(metadata.seriesId(), credential);
+        NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(
+                metadata, series, credential, body.toString());
+        command.getOther().applyTo(request.getOther());
+        return request;
+    }
+
+    private PixivNovelMetadata.SeriesMetadata fetchSeriesBestEffort(Long seriesId, String credential) {
+        if (seriesId == null || seriesId <= 0L) {
+            return null;
+        }
+        try {
+            URI uri = UriComponentsBuilder
+                    .fromUriString("https://www.pixiv.net/ajax/novel/series/{id}")
+                    .queryParam("lang", NovelPixivProxyController.PIXIV_API_LANGUAGE)
+                    .buildAndExpand(Map.of("id", seriesId))
+                    .encode()
+                    .toUri();
+            return PixivNovelMetadata.parseSeries(requirePixivBody(pixivAjaxClient.get(uri, credential)));
+        } catch (Exception failure) {
+            log.debug("Pixiv novel series enrichment skipped: seriesId={}, errorType={}",
+                    seriesId, failure.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private JsonNode requirePixivBody(String response) throws IOException {
+        JsonNode root = objectMapper.readTree(response);
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException(messages.get("pixiv.proxy.novel.response.invalid"));
+        }
+        if (root.path("error").asBoolean(false)) {
+            String message = root.path("message").asText("").trim();
+            throw new IllegalArgumentException(message.isEmpty()
+                    ? messages.get("pixiv.proxy.novel.response.invalid") : message);
+        }
+        JsonNode body = root.path("body");
+        if (!body.isObject()) {
+            throw new IllegalArgumentException(messages.get("pixiv.proxy.novel.response.invalid"));
+        }
+        return body;
     }
 
     @GetMapping("/novel/status/{novelId}")
@@ -362,8 +459,8 @@ public class NovelDownloadController {
         return "download.status.in-progress";
     }
 
-    private void stripUnauthorizedCollectionSelection(NovelDownloadRequest request, String mode, boolean isAdmin) {
-        NovelDownloadRequest.Other other = request.getOther();
+    private void stripUnauthorizedCollectionSelection(NovelDownloadCommand request, String mode, boolean isAdmin) {
+        NovelDownloadCommand.Other other = request.getOther();
         if (other == null || other.getCollectionId() == null) return;
         if ("multi".equals(mode) && !isAdmin) {
             other.setCollectionId(null);
@@ -371,8 +468,8 @@ public class NovelDownloadController {
     }
 
     /** 翻译为 admin-only：multi 模式普通游客的请求一律不触发自动翻译。 */
-    private void stripUnauthorizedAutoTranslate(NovelDownloadRequest request, String mode, boolean isAdmin) {
-        NovelDownloadRequest.Other other = request.getOther();
+    private void stripUnauthorizedAutoTranslate(NovelDownloadCommand request, String mode, boolean isAdmin) {
+        NovelDownloadCommand.Other other = request.getOther();
         if (other == null || !other.isAutoTranslate()) return;
         if ("multi".equals(mode) && !isAdmin) {
             other.setAutoTranslate(false);

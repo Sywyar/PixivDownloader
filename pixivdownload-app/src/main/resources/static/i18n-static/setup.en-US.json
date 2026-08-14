@@ -7,7 +7,7 @@
     "button.submit": "Complete Setup",
     "field.confirm-password": "Confirm Password",
     "field.confirm-password.placeholder": "Enter the password again",
-    "field.password": "Password (at least 6 characters)",
+    "field.password": "Password (at least 12 characters)",
     "field.password.placeholder": "Set a password",
     "field.username": "Username",
     "field.username.placeholder": "Set the administrator username",
@@ -28,7 +28,7 @@
     "status.redirecting": "Redirecting...",
     "status.saving": "Saving setup...",
     "validation.password-mismatch": "The two passwords do not match",
-    "validation.password-short": "Password must be at least 6 characters",
+    "validation.password-short": "Password must be at least 12 characters",
     "validation.username-required": "Please enter a username",
     "welcome.body": "This appears to be the first run. Complete the initial setup below.<br>This page will not be shown again after setup is complete.",
     "welcome.title": "Welcome"

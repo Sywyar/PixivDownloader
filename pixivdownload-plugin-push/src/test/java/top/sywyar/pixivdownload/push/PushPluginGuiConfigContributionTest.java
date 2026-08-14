@@ -104,13 +104,14 @@ class PushPluginGuiConfigContributionTest {
         assertThat(notice.mergeable()).isTrue();
         assertThat(notice.contributesGroupVisibility()).isFalse();
         assertThat(notice.fieldLayouts()).isEmpty();
-        assertThat(notice.notices()).singleElement().satisfies(item -> {
-            GuiConfigSectionNoticeContribution resolved = (GuiConfigSectionNoticeContribution) item;
-            assertThat(resolved.noticeId()).isEqualTo("notification.service.concurrent");
-            assertThat(resolved.textKey()).isEqualTo("gui.config.notification.hint");
-            assertThat(resolved.i18nNamespace()).isEqualTo(PushPlugin.ID);
-            assertThat(resolved.style()).isEqualTo(GuiConfigSectionNoticeStyle.HINT);
+        assertThat(notice.notices()).hasSize(2).allSatisfy(item -> {
+            assertThat(item.i18nNamespace()).isEqualTo(PushPlugin.ID);
+            assertThat(item.style()).isEqualTo(GuiConfigSectionNoticeStyle.HINT);
         });
+        assertThat(notice.notices()).extracting(GuiConfigSectionNoticeContribution::noticeId)
+                .containsExactly("notification.service.concurrent", "push.network-target.security");
+        assertThat(notice.notices()).extracting(GuiConfigSectionNoticeContribution::textKey)
+                .containsExactly("gui.config.notification.hint", "gui.config.push.security.notice");
         assertThat(master.groupId()).isEqualTo(GuiConfigGroups.NOTIFICATION);
         assertThat(master.layout()).isEqualTo(GuiConfigSectionLayout.FIELD_LIST);
         assertThat(master.fieldLayouts()).extracting(GuiConfigFieldLayoutContribution::fieldKey)

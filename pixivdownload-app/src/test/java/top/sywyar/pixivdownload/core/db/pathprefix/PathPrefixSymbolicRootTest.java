@@ -111,6 +111,14 @@ class PathPrefixSymbolicRootTest {
     class CodecTests {
 
         @Test
+        @DisplayName("去除尾分隔符时应保留 POSIX 与 Windows 文件系统根")
+        void shouldPreserveFilesystemRootWhenStrippingTrailingSeparators() {
+            assertThat(PathPrefixCodec.stripTrailingSeparators("/")).isEqualTo("/");
+            assertThat(PathPrefixCodec.stripTrailingSeparators("C:\\")).isEqualTo("C:\\");
+            assertThat(PathPrefixCodec.stripTrailingSeparators("folder///")).isEqualTo("folder");
+        }
+
+        @Test
         @DisplayName("相对 root 时符号根应启用，根目录下路径编码为 {0}/...")
         void shouldEncodeRootSubPathToSymbolicToken() {
             assertThat(codec.isSymbolicRootActive()).isTrue();

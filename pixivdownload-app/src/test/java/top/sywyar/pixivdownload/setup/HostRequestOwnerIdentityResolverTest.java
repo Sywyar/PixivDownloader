@@ -33,24 +33,24 @@ class HostRequestOwnerIdentityResolverTest {
     void resolvesVisitorOwnerScope() {
         SetupService setupService = mock(SetupService.class);
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-User-UUID", "11111111-1111-1111-1111-111111111111");
+        request.addHeader("X-User-UUID", "11111111-2222-4333-8444-555555555555");
         when(setupService.hasAdminScope(request)).thenReturn(false);
 
         RequestOwnerIdentity identity = new HostRequestOwnerIdentityResolver(setupService).resolve(request);
 
         assertThat(identity.admin()).isFalse();
-        assertThat(identity.ownerUuid()).isEqualTo("11111111-1111-1111-1111-111111111111");
+        assertThat(identity.ownerUuid()).isEqualTo("11111111-2222-4333-8444-555555555555");
     }
 
     @Test
     @DisplayName("已有 owner 查询只返回请求中宿主认可的 UUID")
     void resolvesExistingOwnerUuid() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-User-UUID", "11111111-1111-1111-1111-111111111111");
+        request.addHeader("X-User-UUID", "11111111-2222-4333-8444-555555555555");
 
         assertThat(new HostRequestOwnerIdentityResolver(mock(SetupService.class))
                 .resolveExistingOwnerUuid(request))
-                .contains("11111111-1111-1111-1111-111111111111");
+                .contains("11111111-2222-4333-8444-555555555555");
     }
 
     @Test

@@ -54,7 +54,7 @@ public final class SystemNotificationTemplateContributor implements Notification
     }
 
     private static String loadHtml(String id) {
-        String path = "notification/templates/mail/" + id + ".html";
+        String path = "system-notification/templates/mail/" + id + ".html";
         try (InputStream input = SystemNotificationTemplateContributor.class
                 .getClassLoader().getResourceAsStream(path)) {
             if (input == null) {

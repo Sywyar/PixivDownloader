@@ -180,7 +180,7 @@ public class PixivDatabase {
     }
 
     private static String stripTrailingSlash(String path) {
-        return path == null ? null : path.replaceAll("[/\\\\]+$", "");
+        return PathPrefixCodec.stripTrailingSeparators(path);
     }
 
     private String encodePath(String absolutePath) {

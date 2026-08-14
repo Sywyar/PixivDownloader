@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.core.download;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -11,6 +12,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -164,6 +166,25 @@ class StagedFileDeletionTest {
         assertEquals(0, stagingResidueCount(), "暂存目录应无残留");
     }
 
+    @Test
+    @DisplayName("符号链接文件和符号链接父目录均不进入删除集合")
+    void doesNotDeleteThroughSymbolicLinks() throws Exception {
+        Path outsideDir = Files.createDirectories(tempDir.resolve("outside"));
+        Path outsideFile = Files.writeString(outsideDir.resolve("outside.jpg"), "outside");
+        Path work = Files.createDirectories(tempDir.resolve("work-links"));
+        Path fileLink = work.resolve("file-link.jpg");
+        Path directoryLink = work.resolve("directory-link");
+        createSymbolicLinkOrSkip(fileLink, outsideFile);
+        createSymbolicLinkOrSkip(directoryLink, outsideDir);
+
+        assertTrue(deletion.deleteAtomically(List.of(fileLink, directoryLink.resolve("outside.jpg"))));
+
+        assertTrue(Files.exists(outsideFile), "链接指向的外部文件不得被删除");
+        assertTrue(Files.exists(fileLink, LinkOption.NOFOLLOW_LINKS), "文件链接本身也不属于作品普通文件");
+        assertTrue(Files.exists(directoryLink, LinkOption.NOFOLLOW_LINKS), "链接父目录不得被清理");
+        assertEquals(0, stagingResidueCount(), "拒绝链接路径后不应留下暂存残留");
+    }
+
     /** 删除 {@code deletePoison} 时抛 IOException（触发回滚），回滚复原 {@code restorePoison} 时再抛 IOException。 */
     private static StagedFileDeletion failDeleteAndRestore(Path deletePoison, Path restorePoison) {
         Path deleteTarget = deletePoison.toAbsolutePath().normalize();
@@ -185,5 +206,13 @@ class StagedFileDeletionTest {
                 super.restoreFile(staged, original);
             }
         };
+    }
+
+    private static void createSymbolicLinkOrSkip(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (IOException | UnsupportedOperationException | SecurityException unavailable) {
+            Assumptions.assumeTrue(false, "当前文件系统不支持测试符号链接: " + unavailable.getMessage());
+        }
     }
 }

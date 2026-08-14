@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
 import top.sywyar.pixivdownload.config.SslConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -195,7 +196,7 @@ public class GuiStatusController {
         String username = body == null || body.username() == null ? "" : body.username().trim();
         String password = body == null || body.password() == null ? "" : body.password();
         String mode = body == null || body.mode() == null ? "" : body.mode().trim();
-        if (username.isEmpty() || password.length() < 6
+        if (username.isEmpty() || password.length() < SetupService.MIN_PASSWORD_LENGTH
                 || !("solo".equals(mode) || "multi".equals(mode))) {
             return ResponseEntity.badRequest()
                     .body(new GuiSetupInitResponse(false, null, "invalid"));
@@ -221,7 +222,7 @@ public class GuiStatusController {
         }
         String oldPwd = body == null || body.oldPassword() == null ? "" : body.oldPassword();
         String newPwd = body == null || body.newPassword() == null ? "" : body.newPassword();
-        if (newPwd.length() < 6) {
+        if (newPwd.length() < SetupService.MIN_PASSWORD_LENGTH) {
             return ResponseEntity.badRequest()
                     .body(new GuiChangePasswordResponse(false, "weak-password"));
         }

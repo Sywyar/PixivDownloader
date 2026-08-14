@@ -5,10 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.config.DeleteStagingManifest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -57,6 +59,7 @@ public class StagedFileDeletion {
         Map<Path, Path> stagedByOriginal = new LinkedHashMap<>();
         try {
             Files.createDirectories(stagingDir);
+            PlainFilePathGuard.requirePlainParent(stagingDir.resolve(".staging-check"), false);
             List<DeleteStagingManifest.Entry> manifestEntries = new ArrayList<>(targets.size());
             int index = 0;
             for (Path original : targets) {
@@ -69,7 +72,9 @@ public class StagedFileDeletion {
             // 先写恢复清单再复制原文件：进程在删除中途崩溃时，下次启动可据清单把已删原文件从暂存复制回原位。
             DeleteStagingManifest.write(stagingDir, manifestEntries);
             for (Map.Entry<Path, Path> staged : stagedByOriginal.entrySet()) {
-                Files.copy(staged.getKey(), staged.getValue(), StandardCopyOption.COPY_ATTRIBUTES);
+                PlainFilePathGuard.requirePlainRegularFile(staged.getKey());
+                Files.copy(staged.getKey(), staged.getValue(),
+                        StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS);
             }
         } catch (IOException e) {
             // 写清单 / 复制阶段失败：尚未删除任何原文件，回滚 = 仅清理暂存
@@ -101,13 +106,18 @@ public class StagedFileDeletion {
 
     /** 删除单个原文件。protected 仅供测试注入删除失败（不要在生产代码中改写其语义）。 */
     protected void deleteFile(Path original) throws IOException {
+        PlainFilePathGuard.requirePlainRegularFile(original);
         Files.deleteIfExists(original);
     }
 
     /** 把暂存副本复制回原位（回滚单个原文件）。protected 仅供测试注入回滚复制失败（不要在生产代码中改写其语义）。 */
     protected void restoreFile(Path staged, Path original) throws IOException {
+        PlainFilePathGuard.requirePlainRegularFile(staged);
+        PlainFilePathGuard.requirePlainParent(original, true);
         Files.copy(staged, original,
-                StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING);
+                StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING,
+                LinkOption.NOFOLLOW_LINKS);
+        PlainFilePathGuard.requirePlainRegularFile(original);
     }
 
     /**
@@ -132,6 +142,9 @@ public class StagedFileDeletion {
 
     /** 删除暂存子目录树；仅在删除全部成功、或回滚全部成功后调用。删失败仅记小日志、忽略（不影响删除结果）。 */
     private void cleanStaging(Path stagingDir) {
+        if (!PlainFilePathGuard.isPlainDirectory(stagingDir)) {
+            return;
+        }
         try (Stream<Path> tree = Files.walk(stagingDir)) {
             tree.sorted(Comparator.reverseOrder()).forEach(path -> {
                 try {
@@ -155,7 +168,7 @@ public class StagedFileDeletion {
             if (path == null) {
                 continue;
             }
-            if (seen.add(path.toAbsolutePath().normalize()) && Files.isRegularFile(path)) {
+            if (seen.add(path.toAbsolutePath().normalize()) && PlainFilePathGuard.isPlainRegularFile(path)) {
                 targets.add(path);
             }
         }

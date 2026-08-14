@@ -109,7 +109,7 @@ class RuntimeFilesTest {
     }
 
     @Test
-    @DisplayName("should keep new directory copy when both new and legacy files exist")
+    @DisplayName("新旧运行期文件冲突时应保留两份内容")
     void shouldKeepNewDirectoryCopyWhenBothExist() throws IOException {
         Path target = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
         Path legacy = downloadRoot.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
@@ -122,7 +122,44 @@ class RuntimeFilesTest {
 
         assertThat(resolved).isEqualTo(target);
         assertThat(Files.readString(target, StandardCharsets.UTF_8)).contains("\"new\"");
-        assertThat(legacy).doesNotExist();
+        assertThat(Files.readString(legacy, StandardCharsets.UTF_8)).contains("\"legacy\"");
+    }
+
+    @Test
+    @DisplayName("SQLite 主库相同但伴随文件冲突时应保留完整旧文件组")
+    void shouldKeepLegacyDatabaseUnitWhenCompanionDiffers() throws IOException {
+        Path target = dataDir.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB);
+        Path legacy = downloadRoot.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB);
+        Files.createDirectories(target.getParent());
+        Files.writeString(target, "same-db", StandardCharsets.UTF_8);
+        Files.writeString(legacy, "same-db", StandardCharsets.UTF_8);
+        Files.writeString(Path.of(target + "-wal"), "new-wal", StandardCharsets.UTF_8);
+        Files.writeString(Path.of(legacy + "-wal"), "legacy-wal", StandardCharsets.UTF_8);
+
+        RuntimeFiles.resolveDatabasePath(downloadRoot.toString());
+
+        assertThat(legacy).exists();
+        assertThat(Path.of(legacy + "-wal")).hasContent("legacy-wal");
+        assertThat(Path.of(target + "-wal")).hasContent("new-wal");
+    }
+
+    @Test
+    @DisplayName("下载根规范化应保留文件系统根并拒绝 drive-relative 与畸形 UNC")
+    void shouldNormalizeDownloadRootWithoutDestroyingFilesystemRoots() {
+        String filesystemRoot = tempDir.getRoot().toString();
+
+        assertThat(RuntimeFiles.normalizeRootFolder(filesystemRoot))
+                .isEqualTo(tempDir.getRoot().normalize().toString());
+        assertThat(RuntimeFiles.normalizeRootFolder("downloads/../pixiv/"))
+                .isEqualTo(Path.of("pixiv").toString());
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.normalizeRootFolder("C:"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.normalizeRootFolder("C:relative"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.normalizeRootFolder("\\\\server"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.normalizeRootFolder("//server"));
     }
 
     @Test

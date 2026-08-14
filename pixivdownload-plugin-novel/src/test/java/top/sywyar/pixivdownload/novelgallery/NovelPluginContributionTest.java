@@ -103,6 +103,7 @@ class NovelPluginContributionTest {
                 "novel.series.log.refresh.failed.exception",
                 "download.path.segment.invalid",
                 "pixiv.proxy.novel.id.invalid",
+                "pixiv.proxy.novel.response.invalid",
                 "pixiv.proxy.novel.series.id.invalid",
                 "novel.translate.success",
                 "novel.translate.skipped",

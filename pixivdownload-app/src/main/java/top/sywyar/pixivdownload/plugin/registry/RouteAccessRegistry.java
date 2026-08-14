@@ -73,7 +73,7 @@ public class RouteAccessRegistry {
 
     /**
      * 注册一个插件的全部路由声明。同一 pluginId 重复注册、路径模式非法或
-     * 与已注册路由的（模式, 方法集, 访问级别）三元组完全重复都立即抛出，
+     * 与已注册路由重复或产生访问策略冲突都立即抛出，
      * 使应用启动失败而不是带病运行。
      */
     public void register(String pluginId, List<WebRouteContribution> routes) {
@@ -110,6 +110,7 @@ public class RouteAccessRegistry {
             List<RegisteredRoute> next = new ArrayList<>(snapshot);
             for (WebRouteContribution route : routes) {
                 validate(route, pluginId);
+                rejectPolicyConflict(next, pluginId, route);
                 if (!keys.add(routeKey(route))) {
                     throw new IllegalStateException("duplicate route contribution: "
                             + route.pathPattern() + " (plugin: " + pluginId + ")");
@@ -187,9 +188,8 @@ public class RouteAccessRegistry {
      * 前缀声明，使宽前缀不会吞掉其下更窄的端点（如宽 {@code /api/tts/**}=ADMIN 不再吞掉窄
      * {@code POST /api/tts/edge/synthesize}）。
      * <p>特异性从高到低：① 精确模式优先于前缀模式；② 前缀更长（去 {@code **} 后更长）优先于更短；
-     * ③ 显式方法集（命中请求方法）优先于空方法集（= 全部方法）。同等特异性下：候选含 {@link AccessPolicy#PUBLIC}
-     * 时返回 PUBLIC（无条件公开、可达面是全集，与历史「先判 isPublic」一致，叠加更窄策略不收紧其公开性）；
-     * 若同等特异性候选策略互不相同且都非 PUBLIC，则属声明歧义、立即抛出（fail-fast，不静默依赖注册顺序）。
+     * ③ 显式方法集（命中请求方法）优先于空方法集（= 全部方法）。同等特异性候选若策略不同则属声明歧义，
+     * 立即抛出（fail-fast，不静默依赖注册顺序）。
      * 无匹配返回空（{@code AuthFilter} 据此统一 404）。
      */
     public Optional<RegisteredRoute> resolve(String path, HttpMethod method) {
@@ -219,26 +219,19 @@ public class RouteAccessRegistry {
         return Optional.of(disambiguate(best, path, method));
     }
 
-    /** 同等特异性多候选的择一：PUBLIC（无条件公开）胜出；策略全相同取其一；否则属声明歧义、fail-fast。 */
+    /** 同等特异性多候选策略全相同取其一；否则属声明歧义、fail-fast。 */
     private static RegisteredRoute disambiguate(List<RegisteredRoute> candidates, String path, HttpMethod method) {
         AccessPolicy first = candidates.get(0).route().accessPolicy();
-        boolean conflicting = false;
         for (RegisteredRoute registered : candidates) {
-            AccessPolicy policy = registered.route().accessPolicy();
-            if (policy == AccessPolicy.PUBLIC) {
-                return registered;
-            }
-            if (policy != first) {
-                conflicting = true;
+            if (registered.route().accessPolicy() != first) {
+                throw new IllegalStateException("ambiguous route resolution for " + method + " " + path + ": "
+                        + candidates.stream()
+                                .map(candidate -> candidate.route().pathPattern() + "="
+                                        + candidate.route().accessPolicy())
+                                .collect(Collectors.joining(", ")));
             }
         }
-        if (!conflicting) {
-            return candidates.get(0);
-        }
-        throw new IllegalStateException("ambiguous route resolution for " + method + " " + path + ": "
-                + candidates.stream()
-                        .map(registered -> registered.route().pathPattern() + "=" + registered.route().accessPolicy())
-                        .collect(Collectors.joining(", ")));
+        return candidates.get(0);
     }
 
     /**
@@ -272,6 +265,47 @@ public class RouteAccessRegistry {
             throw new IllegalStateException("ACTUATOR_PUBLIC route is reserved for the core host"
                     + " (plugin: " + pluginId + ")");
         }
+    }
+
+    private static void rejectPolicyConflict(List<RegisteredRoute> registeredRoutes,
+                                             String pluginId,
+                                             WebRouteContribution proposed) {
+        for (RegisteredRoute registered : registeredRoutes) {
+            WebRouteContribution existing = registered.route();
+            if (!methodsOverlap(existing, proposed) || existing.accessPolicy() == proposed.accessPolicy()) {
+                continue;
+            }
+            boolean samePattern = existing.pathPattern().equals(proposed.pathPattern());
+            boolean conflictsWithCoreBoundary = !CORE_PLUGIN_ID.equals(pluginId)
+                    && CORE_PLUGIN_ID.equals(registered.pluginId())
+                    && isProtectedCorePolicy(existing.accessPolicy())
+                    && isWithin(proposed.pathPattern(), existing.pathPattern());
+            if (samePattern || conflictsWithCoreBoundary) {
+                throw new IllegalStateException("conflicting route access policy: "
+                        + proposed.pathPattern() + "=" + proposed.accessPolicy()
+                        + " overlaps " + existing.pathPattern() + "=" + existing.accessPolicy()
+                        + " (plugin: " + pluginId + ")");
+            }
+        }
+    }
+
+    private static boolean methodsOverlap(WebRouteContribution left, WebRouteContribution right) {
+        return left.methods().isEmpty() || right.methods().isEmpty()
+                || left.methods().stream().anyMatch(right.methods()::contains);
+    }
+
+    private static boolean isProtectedCorePolicy(AccessPolicy policy) {
+        return policy == AccessPolicy.ADMIN
+                || policy == AccessPolicy.LOCAL
+                || policy == AccessPolicy.GUI
+                || policy == AccessPolicy.ACTUATOR_PUBLIC;
+    }
+
+    private static boolean isWithin(String proposedPattern, String protectedPattern) {
+        if (!protectedPattern.endsWith("**")) {
+            return proposedPattern.equals(protectedPattern);
+        }
+        return proposedPattern.startsWith(protectedPattern.substring(0, protectedPattern.length() - 2));
     }
 
     /** 同一（模式, 方法集, 访问策略）三元组视为重复声明；方法集排序后参与键值。 */

@@ -20,7 +20,7 @@ import java.util.List;
  * @param builtIn         是否为程序内嵌（非用户配置；内嵌仓库不可被自定义配置以同 id 覆盖）
  * @param proxyPolicy     解析后的代理策略（配置串无法识别时为 {@code null} = 不支持，由拉取层稳定报错）
  * @param rawProxyPolicy  原始代理策略串（诊断用，保留用户原配置）
- * @param allowRedirects  custom 档是否允许至多一跳重定向
+ * @param allowRedirects  custom 档是否允许至多五跳重定向
  * @param strictHttps     custom 档是否仅允许 HTTPS
  * @param allowNonPublicAddresses custom 档是否允许非公网地址
  * @param useProxy        custom 档是否使用应用全局代理（{@code proxy.*}）
@@ -71,7 +71,7 @@ public record PluginRepository(
 
     /**
      * 构造内嵌官方默认仓库（{@code builtIn=true}、{@code official=true}、{@link RepositoryProxyPolicy#PROXY_TRUSTED}）。
-     * 官方仓库经应用全局代理拉取（GitHub 在受限网络下需代理），并按内置主机白名单跟随 GitHub release 资产的一跳重定向；
+     * 官方仓库经应用全局代理拉取（GitHub 在受限网络下需代理），并按内置主机白名单跟随 GitHub release 资产的有界重定向；
      * 完整性仍由安装器的 sha256/size 逐字节兜底。其 {@code enabled} 由 {@code plugin-catalog.official-repository-enabled}
      * （默认 {@code true}）决定，可被禁用。
      */

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.setup;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 @Component
@@ -34,6 +36,12 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
     private static final Pattern COLLECTION_ICON_PATH = Pattern.compile("^/api/collections/\\d+/icon$");
     private static final Pattern PLUGIN_MARKET_INSTALL_PATH =
             Pattern.compile("^/api/plugin-market/[^/]+/[^/]+/[^/]+/install$");
+    private static final Pattern USERSCRIPT_WRITE_PATH = Pattern.compile(
+            "^/api/(?:download/pixiv|download/status|download/queue/[^/]+/cancel|download/queue/clear"
+                    + "|sse/close/aggregated/[^/]+|quota/(?:init|pack)|batch/state|novel/download"
+                    + "|novel/series/[^/]+/merge|downloaded/batch|gallery/novels/downloaded-batch)$");
+    private static final String SESSION_COOKIE = "pixiv_session";
+    private static final String VISITOR_COOKIE = "pixiv_user_id";
 
     private final AppLocaleResolver localeResolver;
     private final AppMessages messages;
@@ -52,6 +60,20 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return;
         }
 
+        if (isTrustedUserscriptSource(request)
+                && isUserscriptWriteEndpoint(request)
+                && !hasAmbientCredential(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        if (!requiresExplicitOriginSignal(request)
+                && !hasBrowserOriginSignal(request)
+                && !hasAmbientCredential(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         log.warn("Rejected cross-origin write request: method={}, path={}, origin={}, referer={}",
                 request.getMethod(), request.getRequestURI(),
                 request.getHeader(HttpHeaders.ORIGIN), request.getHeader(HttpHeaders.REFERER));
@@ -59,6 +81,15 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
     }
 
     static boolean requiresSameOriginCheck(HttpServletRequest request) {
+        String method = request.getMethod();
+        if (method == null) {
+            return false;
+        }
+        String normalizedMethod = method.toUpperCase(Locale.ROOT);
+        return !Set.of("GET", "HEAD", "OPTIONS", "TRACE").contains(normalizedMethod);
+    }
+
+    private static boolean requiresExplicitOriginSignal(HttpServletRequest request) {
         String method = request.getMethod();
         String path = SafeRequestPath.resolve(request).orElse(null);
         if (method == null || path == null) {
@@ -91,6 +122,51 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
         }
         return "DELETE".equals(normalizedMethod)
                 && path.equals("/api/narration/cast/voice/reference");
+    }
+
+    private static boolean hasBrowserOriginSignal(HttpServletRequest request) {
+        return StringUtils.hasText(request.getHeader(HttpHeaders.ORIGIN))
+                || StringUtils.hasText(request.getHeader(HttpHeaders.REFERER))
+                || StringUtils.hasText(request.getHeader("Sec-Fetch-Site"));
+    }
+
+    private static boolean hasAmbientCredential(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return false;
+        }
+        for (Cookie cookie : cookies) {
+            if (SESSION_COOKIE.equals(cookie.getName())
+                    || AuthFilter.INVITE_COOKIE.equals(cookie.getName())
+                    || VISITOR_COOKIE.equals(cookie.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isTrustedUserscriptSource(HttpServletRequest request) {
+        String source = request.getHeader(HttpHeaders.ORIGIN);
+        if (!StringUtils.hasText(source)) {
+            source = request.getHeader(HttpHeaders.REFERER);
+        }
+        if (!StringUtils.hasText(source)) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(source);
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && ("www.pixiv.net".equalsIgnoreCase(uri.getHost())
+                    || "pixiv.net".equalsIgnoreCase(uri.getHost()));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static boolean isUserscriptWriteEndpoint(HttpServletRequest request) {
+        return SafeRequestPath.resolve(request)
+                .map(path -> USERSCRIPT_WRITE_PATH.matcher(path).matches())
+                .orElse(false);
     }
 
     private static boolean hasSameOriginSignal(HttpServletRequest request) {

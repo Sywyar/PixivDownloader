@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.client.GuiLocalApiClient;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
@@ -1363,7 +1365,7 @@ public class StatusPanel extends JPanel {
         }
         try {
             new ConfigFileEditor(configPath).write("download.root-folder",
-                    newRoot.replaceAll("[/\\\\]+$", ""));
+                    RuntimeFiles.normalizeRootFolder(newRoot));
             return true;
         } catch (Exception e) {
             log.warn(logMessage("gui.status.log.path-prefix.root-persist-failed", safeText(e)), e);
@@ -1510,7 +1512,8 @@ public class StatusPanel extends JPanel {
         if (value == null) {
             return "";
         }
-        return value.replaceAll("[/\\\\]+$", "").replace('\\', '/').toLowerCase(Locale.ROOT);
+        return PathPrefixCodec.stripTrailingSeparators(value)
+                .replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
     public String getWebUrl(String path) {

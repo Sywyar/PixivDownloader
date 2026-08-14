@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -177,7 +179,12 @@ public class TtsPlugin implements PixivFeaturePlugin {
                 "gui.config.tts.modality.help",
                 "",
                 "",
-                List.of(),
+                List.of(new GuiConfigSectionNoticeContribution(
+                        "tts.network-target.security",
+                        "gui.config.tts.security.notice",
+                        ID,
+                        GuiConfigSectionNoticeStyle.HINT,
+                        0)),
                 GuiConfigSectionLayout.CARD_SWITCHER,
                 1200,
                 fields.stream()

@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 
 import java.util.List;
 import java.util.Set;
@@ -96,6 +97,12 @@ class TtsPluginGuiConfigContributionTest {
         assertThat(section.layoutHelpKey()).isEqualTo("gui.config.tts.modality.help");
         assertThat(section.mergeable()).isTrue();
         assertThat(section.contributesGroupVisibility()).isTrue();
+        assertThat(section.notices()).singleElement().satisfies(notice -> {
+            assertThat(notice.noticeId()).isEqualTo("tts.network-target.security");
+            assertThat(notice.textKey()).isEqualTo("gui.config.tts.security.notice");
+            assertThat(notice.i18nNamespace()).isEqualTo(TtsPlugin.ID);
+            assertThat(notice.style()).isEqualTo(GuiConfigSectionNoticeStyle.HINT);
+        });
         assertThat(section.fieldLayouts()).extracting(GuiConfigFieldLayoutContribution::fieldKey)
                 .containsExactlyElementsOf(fields().stream().map(GuiConfigFieldContribution::key).toList());
         assertThat(section.fieldLayouts()).allSatisfy(layout -> {

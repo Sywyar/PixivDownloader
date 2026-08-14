@@ -241,7 +241,7 @@
 
     function renderDetail(message) {
         var detail = resetDetail();
-        var autoRead = message.category === 'survey';
+        var autoRead = message.category === 'survey' || message.category === 'announcement';
         var severity = severityClass(message).trim();
         if (severity) detail.classList.add(severity);
 

@@ -18,10 +18,10 @@ import java.util.Set;
  *       SSRF）+ 禁重定向 + <b>不走代理</b>，按该仓库的连接 / 读取超时构造。<b>绝不放宽</b>。</li>
  *   <li>{@link RepositoryProxyPolicy#PROXY_TRUSTED}（仅对用户显式信任的仓库，如内嵌官方仓库）：<b>经应用全局代理</b>
  *       （{@code proxy.*}）拉取，仅 https，并按内置主机白名单（GitHub release 资产 CDN {@code *.githubusercontent.com}）
- *       <b>跟随至多一跳</b>重定向。完整性仍由 {@code ExternalPluginInstaller} 的 sha256/size 逐字节兜底——本档放宽只关
+ *       <b>跟随至多五跳</b>重定向。完整性仍由 {@code ExternalPluginInstaller} 的 sha256/size 逐字节兜底——本档放宽只关
  *       SSRF/滥用、<b>不</b>关完整性。代理未启用（{@code proxy.enabled=false}）时直连（仍按白名单跟随重定向）。</li>
  *   <li>{@link RepositoryProxyPolicy#CUSTOM}：采用仓库条目声明的重定向、HTTPS、非公网地址与应用全局代理开关；重定向仍限制
- *       为至多一跳并对目标重新校验。</li>
+ *       为至多五跳并对每个目标重新校验。</li>
  * </ul>
  *
  * <p>未知 / 不可识别的策略（{@code proxyPolicy} 为 {@code null}）一律抛稳定的
@@ -32,7 +32,7 @@ import java.util.Set;
 public class DefaultPluginCatalogClientProvider implements PluginCatalogClientProvider {
 
     /**
-     * 受信仓库（PROXY_TRUSTED）允许跟随一跳重定向的目标主机域：GitHub release 资产 CDN（{@code release-assets.}
+     * 受信仓库（PROXY_TRUSTED）允许跟随有界重定向的目标主机域：GitHub release 资产 CDN（{@code release-assets.}
      * / {@code objects.githubusercontent.com} 等）统一收口为 {@code githubusercontent.com} 子域。内置常量、不对外开放配置，
      * 缩小可被滥用面（GitHub 自有域，第三方无法注册其子域）。
      */
@@ -53,7 +53,7 @@ public class DefaultPluginCatalogClientProvider implements PluginCatalogClientPr
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs());
         }
         if (policy == RepositoryProxyPolicy.PROXY_TRUSTED) {
-            // 受信档：经应用全局代理拉取（启用时）；仅 https；按内置白名单跟随一跳重定向（GitHub release 资产 CDN）。
+            // 受信档：经应用全局代理拉取（启用时）；仅 https；按内置白名单跟随有界重定向（GitHub release 资产 CDN）。
             return new PluginCatalogHttpClient(true, false,
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
                     outboundProxySelector(), TRUSTED_REDIRECT_HOSTS);

@@ -10,6 +10,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.sqlite.SQLiteConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -313,7 +314,7 @@ public class JsonToSqliteMigration {
     }
 
     private static String stripTrailingSlash(String path) {
-        return path == null ? null : path.replaceAll("[/\\\\]+$", "");
+        return PathPrefixCodec.stripTrailingSeparators(path);
     }
 
     private static void report(Consumer<String> reporter, String message) {

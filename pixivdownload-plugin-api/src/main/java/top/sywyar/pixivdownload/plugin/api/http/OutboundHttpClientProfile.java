@@ -49,6 +49,22 @@ public record OutboundHttpClientProfile(
                 DEFAULT_MAX_CONNECTIONS_PER_ROUTE);
     }
 
+    /** 带调用方凭证的无状态请求：不保存 Cookie，也不跟随可能把凭证带到其它目标的重定向。 */
+    public static OutboundHttpClientProfile credentialed(
+            Duration connectTimeout,
+            Duration readTimeout,
+            OutboundHttpRoute route
+    ) {
+        return new OutboundHttpClientProfile(
+                connectTimeout,
+                readTimeout,
+                route,
+                OutboundHttpRedirectPolicy.NEVER,
+                OutboundHttpCookiePolicy.DISABLED,
+                DEFAULT_MAX_CONNECTIONS,
+                DEFAULT_MAX_CONNECTIONS_PER_ROUTE);
+    }
+
     private static Duration positive(Duration value, String name) {
         Objects.requireNonNull(value, name);
         if (value.isZero() || value.isNegative()) {

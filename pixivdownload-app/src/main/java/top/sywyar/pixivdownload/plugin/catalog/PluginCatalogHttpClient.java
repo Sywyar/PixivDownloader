@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.LongConsumer;
 
 /**
  * 受信 catalog 专用的 <b>SSRF 安全</b> HTTP 客户端：只用于拉取受信清单字节与下载受信插件包。它的 public 方法接收的 URL
@@ -30,7 +31,7 @@ import java.util.Set;
  *       未指定地址（生产）即拒绝。</li>
  *   <li><b>默认禁重定向</b>（{@link HttpClient.Redirect#NEVER}）：3xx 一律按失败处理、<b>绝不</b>跟随到二次地址，避免
  *       重定向绕过 IP 校验。<b>受信仓库</b>（proxy-trusted）可经完整构造声明一份<b>重定向主机白名单</b>，仅对白名单内主机
- *       <b>跟随至多一跳</b>（GitHub release 资产 CDN 的 302→签名 URL 即走此路），并对该跳重跑全部校验。</li>
+ *       <b>跟随至多五跳</b>（覆盖 GitHub latest release 与资产 CDN 链路），并对每一跳重跑全部校验。</li>
  *   <li><b>默认不走代理</b>（{@link HttpClient.Builder#NO_PROXY}）：经代理会使本地 IP 校验失效（代理替我们解析 DNS）。
  *       受信仓库可经完整构造改走出站代理；此时 DNS 由代理完成，本地 IP 校验按上述原因<b>跳过</b>，安全边界改由
  *       https + 重定向主机白名单 + 调用方的 sha256/size 完整性兜底承担。</li>
@@ -46,6 +47,7 @@ public class PluginCatalogHttpClient {
     private static final Set<String> SCHEMES_HTTPS_ONLY = Set.of("https");
     private static final Set<String> SCHEMES_HTTPS_AND_HTTP = Set.of("https", "http");
     private static final int BUFFER_SIZE = 8192;
+    private static final int MAX_REDIRECTS = 5;
 
     private final boolean httpsOnly;
     private final boolean allowNonPublicAddresses;
@@ -73,7 +75,7 @@ public class PluginCatalogHttpClient {
     }
 
     /**
-     * 完整构造：在严格档基础上，可选地<b>经出站代理</b>拉取，并<b>按主机白名单跟随至多一跳重定向</b>——仅供受信仓库
+     * 完整构造：在严格档基础上，可选地<b>经出站代理</b>拉取，并<b>按主机白名单跟随至多五跳重定向</b>——仅供受信仓库
      * （proxy-trusted）使用（直连严格档恒用上面的四参构造）。
      *
      * <ul>
@@ -81,7 +83,7 @@ public class PluginCatalogHttpClient {
      *       跳过本地解析与 IP 段校验（本地解析在受限网络下可能失败 / 被污染，且经代理后本地 IP 校验本就失效）。受信路径的
      *       安全边界改由 https + 重定向主机白名单 + 调用方的 sha256/size 完整性兜底承担。</li>
      *   <li>{@code redirectAllowlistDomains} 非空：遇 3xx 时，仅当 {@code Location} 主机命中白名单（相等或为其子域）才
-     *       <b>跟随一跳</b>（并对该跳目标重跑 {@link #verifyUrlAllowed}）；再遇 3xx 即失败。空白名单 = 不跟随（严格档行为不变）。</li>
+     *       <b>跟随至多五跳</b>（并对每跳目标重跑 {@link #verifyUrlAllowed}）。空白名单 = 不跟随（严格档行为不变）。</li>
      * </ul>
      */
     public PluginCatalogHttpClient(boolean httpsOnly, boolean allowNonPublicAddresses,
@@ -93,7 +95,7 @@ public class PluginCatalogHttpClient {
     }
 
     /**
-     * 自定义网络档构造。允许重定向时最多跟随一跳；白名单为空表示允许任意目标主机，但该目标仍会重新执行 scheme / 主机 /
+     * 自定义网络档构造。允许重定向时最多跟随五跳；白名单为空表示允许任意目标主机，但每个目标仍会重新执行 scheme / 主机 /
      * 地址校验。{@code validateAddressesWhenProxied=true} 时，即便使用代理也先按本机 DNS 结果执行非公网地址阻断；这无法约束
      * 代理端可能不同的 DNS 视图，但可阻断 IP 字面量与本机明确解析到非公网的目标。
      */
@@ -137,12 +139,17 @@ public class PluginCatalogHttpClient {
      * 网络失败 / 超限 / 非 200 → {@link PluginCatalogException}（超限 / 失败时 {@code target} 可能为半成品，由调用方清理）。
      */
     public long streamToFile(String url, long maxBytes, Path target) {
+        return streamToFile(url, maxBytes, target, ignored -> { });
+    }
+
+    /** 与 {@link #streamToFile(String, long, Path)} 相同，并在每次写入后报告累计字节数。 */
+    public long streamToFile(String url, long maxBytes, Path target, LongConsumer progress) {
         URI uri = verifyUrlAllowed(url);
         HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri);
         try (InputStream in = response.body();
              OutputStream out = Files.newOutputStream(target)) {
             requireOk(response, uri);
-            return copyBounded(in, out, maxBytes, uri);
+            return copyBounded(in, out, maxBytes, uri, progress);
         } catch (IOException e) {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
                     "failed to download " + uri + ": " + e.getMessage());
@@ -179,21 +186,23 @@ public class PluginCatalogHttpClient {
     }
 
     /**
-     * 发送请求，并在配置了重定向白名单时<b>跟随至多一跳</b>白名单内的重定向（详见完整构造说明）。白名单为空时不跟随，
-     * 由后续 {@link #requireOk} 把 3xx 当失败拒绝（严格档行为）。
+     * 发送请求，并在显式允许时<b>跟随至多五跳</b>重定向（详见完整构造说明）。每一跳都重新执行 URL / 地址 / 白名单校验；
+     * 未允许时由后续 {@link #requireOk} 把 3xx 当失败拒绝（严格档行为）。
      */
     private HttpResponse<InputStream> sendFollowingAllowedRedirect(URI uri) {
         HttpResponse<InputStream> response = send(uri);
-        if (isRedirect(response.statusCode()) && allowRedirects) {
-            URI target = resolveAllowedRedirect(response, uri);
-            closeQuietly(response);
-            HttpResponse<InputStream> hop = send(target);
-            if (isRedirect(hop.statusCode())) {
-                closeQuietly(hop);
+        URI current = uri;
+        int redirects = 0;
+        while (isRedirect(response.statusCode()) && allowRedirects) {
+            if (redirects++ >= MAX_REDIRECTS) {
+                closeQuietly(response);
                 throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                        "refusing to follow more than one redirect for " + uri);
+                        "refusing to follow more than " + MAX_REDIRECTS + " redirects for " + uri);
             }
-            return hop;
+            URI target = resolveAllowedRedirect(response, current);
+            closeQuietly(response);
+            current = target;
+            response = send(current);
         }
         return response;
     }
@@ -244,7 +253,7 @@ public class PluginCatalogHttpClient {
         return false;
     }
 
-    /** 尽力关闭一个响应体以释放连接（跟随重定向前丢弃首个响应 / 拒绝多跳时丢弃次响应）。 */
+    /** 尽力关闭一个响应体以释放连接（跟随下一跳或拒绝超限跳转前丢弃当前响应）。 */
     private static void closeQuietly(HttpResponse<InputStream> response) {
         try {
             response.body().close();
@@ -273,6 +282,11 @@ public class PluginCatalogHttpClient {
     }
 
     private static long copyBounded(InputStream in, OutputStream out, long maxBytes, URI uri) throws IOException {
+        return copyBounded(in, out, maxBytes, uri, ignored -> { });
+    }
+
+    private static long copyBounded(InputStream in, OutputStream out, long maxBytes, URI uri,
+                                    LongConsumer progress) throws IOException {
         byte[] chunk = new byte[BUFFER_SIZE];
         long total = 0;
         int read;
@@ -284,6 +298,7 @@ public class PluginCatalogHttpClient {
                         "response exceeds " + maxBytes + " bytes: " + uri);
             }
             out.write(chunk, 0, read);
+            progress.accept(total);
         }
         return total;
     }

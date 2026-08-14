@@ -40,7 +40,7 @@ public class TtsHttpClientConfiguration {
     @Bean(name = "narrationTtsRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
     public ManagedPluginRestTemplate narrationTtsRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(30),
                 Duration.ofSeconds(300),
                 OutboundHttpRoute.direct()));
@@ -49,7 +49,7 @@ public class TtsHttpClientConfiguration {
     @Bean(name = "narrationTtsProxyRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
     public ManagedPluginRestTemplate narrationTtsProxyRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(30),
                 Duration.ofSeconds(300),
                 OutboundHttpRoute.configuredProxy()));
@@ -58,7 +58,7 @@ public class TtsHttpClientConfiguration {
     @Bean(name = "narrationTtsProbeRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
     public ManagedPluginRestTemplate narrationTtsProbeRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(2),
                 Duration.ofSeconds(4),
                 OutboundHttpRoute.direct()));
@@ -67,7 +67,7 @@ public class TtsHttpClientConfiguration {
     @Bean(name = "narrationTtsProbeProxyRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
     public ManagedPluginRestTemplate narrationTtsProbeProxyRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(2),
                 Duration.ofSeconds(4),
                 OutboundHttpRoute.configuredProxy()));

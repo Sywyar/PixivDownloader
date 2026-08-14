@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.config;
 
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.IOException;
@@ -9,6 +10,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -59,10 +61,19 @@ public final class DeleteStagingManifest {
         props.setProperty(COUNT_KEY, Integer.toString(entries.size()));
         for (int i = 0; i < entries.size(); i++) {
             Entry entry = entries.get(i);
-            props.setProperty(i + ORIGINAL_SUFFIX, entry.originalFile().toString());
+            Path original = entry.originalFile();
+            if (original == null || !original.isAbsolute()) {
+                throw new IOException("delete-staging original path must be absolute");
+            }
+            props.setProperty(i + ORIGINAL_SUFFIX, original.normalize().toString());
             props.setProperty(i + STAGED_SUFFIX, entry.stagedFileName());
         }
         Path manifest = stagingDir.resolve(MANIFEST_FILE_NAME);
+        PlainFilePathGuard.requirePlainParent(manifest, false);
+        if (Files.exists(manifest, LinkOption.NOFOLLOW_LINKS)
+                && !PlainFilePathGuard.isPlainRegularFile(manifest)) {
+            throw new IOException("delete-staging manifest path is unsafe");
+        }
         try (Writer writer = Files.newBufferedWriter(manifest, StandardCharsets.UTF_8)) {
             props.store(writer, "PixivDownload delete-staging recovery manifest");
         }
@@ -74,12 +85,12 @@ public final class DeleteStagingManifest {
      * 顶层非目录残留一律不动（保守，不再无条件清扫，避免误删未知文件）。
      */
     public static void recoverLeftovers(Path stagingRoot) {
-        if (stagingRoot == null || !Files.isDirectory(stagingRoot)) {
+        if (stagingRoot == null || !PlainFilePathGuard.isPlainDirectory(stagingRoot)) {
             return;
         }
         List<Path> subdirectories;
         try (Stream<Path> children = Files.list(stagingRoot)) {
-            subdirectories = children.filter(Files::isDirectory).toList();
+            subdirectories = children.filter(PlainFilePathGuard::isPlainDirectory).toList();
         } catch (IOException e) {
             log.warn(MessageBundles.get("runtime.log.delete-staging.scan-failed", stagingRoot));
             return;
@@ -117,11 +128,11 @@ public final class DeleteStagingManifest {
      */
     private static boolean restoreIfMissing(Path subdirectory, Entry entry) {
         Path original = entry.originalFile();
-        if (Files.exists(original)) {
-            return true;
+        if (Files.exists(original, LinkOption.NOFOLLOW_LINKS)) {
+            return PlainFilePathGuard.isPlainRegularFile(original);
         }
         Path staged = subdirectory.resolve(entry.stagedFileName());
-        if (!Files.isRegularFile(staged)) {
+        if (!PlainFilePathGuard.isPlainRegularFile(staged)) {
             // 原文件已删且暂存副本也不可用：这一份无法恢复，记 error 并据此保留子目录。
             log.error(MessageBundles.get("runtime.log.delete-staging.staged-missing", original, staged));
             return false;
@@ -129,10 +140,12 @@ public final class DeleteStagingManifest {
         try {
             Path parent = original.getParent();
             if (parent != null) {
-                Files.createDirectories(parent);
+                PlainFilePathGuard.requirePlainParent(original, true);
             }
             Files.copy(staged, original,
-                    StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING);
+                    StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING,
+                    LinkOption.NOFOLLOW_LINKS);
+            PlainFilePathGuard.requirePlainRegularFile(original);
             log.info(MessageBundles.get("runtime.log.delete-staging.restored", original));
             return true;
         } catch (IOException e) {
@@ -146,7 +159,7 @@ public final class DeleteStagingManifest {
      */
     static Optional<List<Entry>> read(Path stagingDir) {
         Path manifest = stagingDir.resolve(MANIFEST_FILE_NAME);
-        if (!Files.isRegularFile(manifest)) {
+        if (!PlainFilePathGuard.isPlainRegularFile(manifest)) {
             return Optional.empty();
         }
         Properties props = new Properties();
@@ -176,7 +189,11 @@ public final class DeleteStagingManifest {
                 return Optional.empty();
             }
             try {
-                entries.add(new Entry(Paths.get(original), staged));
+                Path originalPath = Paths.get(original);
+                if (!originalPath.isAbsolute()) {
+                    return Optional.empty();
+                }
+                entries.add(new Entry(originalPath.normalize(), staged));
             } catch (InvalidPathException e) {
                 return Optional.empty();
             }
@@ -213,6 +230,9 @@ public final class DeleteStagingManifest {
 
     /** 删除整个暂存子目录树（含恢复清单）；仅在该子目录全部原文件就位后调用。删失败仅记小日志、忽略。 */
     private static void deleteDirectoryTree(Path directory) {
+        if (!PlainFilePathGuard.isPlainDirectory(directory)) {
+            return;
+        }
         try (Stream<Path> tree = Files.walk(directory)) {
             tree.sorted(Comparator.reverseOrder()).forEach(path -> {
                 try {

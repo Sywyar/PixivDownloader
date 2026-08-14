@@ -10,6 +10,8 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.setup.SetupConfig;
+import top.sywyar.pixivdownload.setup.SetupConfigFile;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.BufferedReader;
 import java.io.Console;
@@ -63,7 +65,7 @@ public final class CliSetupCommand {
 
     private static final Set<String> COMMANDS = Set.of(CMD_SETUP, CMD_CHANGE_PASSWORD, CMD_RESET_PASSWORD);
     private static final Set<String> VALID_MODES = Set.of("solo", "multi");
-    private static final int MIN_PASSWORD_LENGTH = 6;
+    private static final int MIN_PASSWORD_LENGTH = SetupService.MIN_PASSWORD_LENGTH;
 
     /**
      * 启动器自己识别的"无 value 标志"白名单。匹配这些字符串的参数会被原样放行。
@@ -650,12 +652,11 @@ public final class CliSetupCommand {
         if (!Files.isRegularFile(path)) {
             return new SetupConfig();
         }
-        return MAPPER.readValue(path.toFile(), SetupConfig.class);
+        return SetupConfigFile.read(path, MAPPER);
     }
 
     private static void writeSetupConfig(Path path, SetupConfig config) throws IOException {
-        Files.createDirectories(path.getParent());
-        MAPPER.writeValue(path.toFile(), config);
+        SetupConfigFile.write(path, config, MAPPER);
     }
 
     private static Path resolveSetupConfigPath() {

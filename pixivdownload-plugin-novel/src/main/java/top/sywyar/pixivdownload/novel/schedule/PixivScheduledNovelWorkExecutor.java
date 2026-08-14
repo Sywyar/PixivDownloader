@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
@@ -50,6 +51,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     static final String WORK_TYPE = "novel";
     static final String WORK_PAYLOAD_SCHEMA = "pixiv.schedule.work-reference";
     static final int WORK_PAYLOAD_VERSION = 1;
+    static final String ENGLISH_TRANSLATION_KEY = "en";
     private static final String SERIES_SOURCE_TYPE = "series";
 
     private static final Logger log = LoggerFactory.getLogger(PixivScheduledNovelWorkExecutor.class);
@@ -62,7 +64,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     private final NovelMergeService novelMergeService;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final NovelDownloadExecutionLane downloadExecutionLane;
-    private final ConcurrentHashMap<SeriesCacheKey, Optional<PixivScheduledNovelMetadata.SeriesMetadata>>
+    private final ConcurrentHashMap<SeriesCacheKey, Optional<PixivNovelMetadata.SeriesMetadata>>
             seriesMetadataCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, ScheduledTaskDefinition> seriesCacheRuns = new ConcurrentHashMap<>();
 
@@ -215,9 +217,9 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.fetch-retryable");
         }
 
-        PixivScheduledNovelMetadata metadata;
+        PixivNovelMetadata metadata;
         try {
-            metadata = PixivScheduledNovelMetadata.parse(novelId, body);
+            metadata = PixivNovelMetadata.parse(novelId, body);
         } catch (RuntimeException e) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.response-invalid");
         }
@@ -229,7 +231,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                     false);
         }
 
-        PixivScheduledNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(
+        PixivNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(
                 context.task(), metadata.seriesId(), cookie);
         NovelDownloadRequest request = createRequest(metadata, series, definition.download(), cookie);
         context.cancellation().throwIfCancellationRequested();
@@ -258,7 +260,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                 liveStatusAvailable);
     }
 
-    private PixivScheduledNovelMetadata.SeriesMetadata fetchSeriesBestEffort(
+    private PixivNovelMetadata.SeriesMetadata fetchSeriesBestEffort(
             ScheduledTaskDefinition task,
             Long seriesId,
             String cookie) {
@@ -273,7 +275,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                 .orElse(null);
     }
 
-    private PixivScheduledNovelMetadata.SeriesMetadata fetchSeriesUncached(long seriesId, String cookie) {
+    private PixivNovelMetadata.SeriesMetadata fetchSeriesUncached(long seriesId, String cookie) {
         try {
             URI uri = UriComponentsBuilder
                     .fromUriString("https://www.pixiv.net/ajax/novel/series/{id}")
@@ -281,7 +283,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                     .buildAndExpand(Map.of("id", seriesId))
                     .encode()
                     .toUri();
-            return PixivScheduledNovelMetadata.parseSeries(
+            return PixivNovelMetadata.parseSeries(
                     requireAjaxBody(pixivAjaxClient.get(uri, cookie)));
         } catch (Exception e) {
             log.debug("Scheduled novel series enrichment skipped: seriesId={}, errorType={}",
@@ -291,51 +293,16 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     }
 
     private NovelDownloadRequest createRequest(
-            PixivScheduledNovelMetadata metadata,
-            PixivScheduledNovelMetadata.SeriesMetadata series,
+            PixivNovelMetadata metadata,
+            PixivNovelMetadata.SeriesMetadata series,
             PixivScheduledNovelDefinition.Download download,
             String cookie) {
-        NovelDownloadRequest request = new NovelDownloadRequest();
-        request.setNovelId(metadata.novelId());
-        request.setTitle(metadata.title());
-        request.setCookie(cookie);
-        request.setContent(metadata.content());
-
-        NovelDownloadRequest.Other other = new NovelDownloadRequest.Other();
-        other.setAuthorId(metadata.authorId());
-        other.setAuthorName(metadata.authorName());
-        other.setXRestrict(metadata.xRestrict());
-        other.setAi(metadata.ai());
-        other.setOriginal(metadata.original());
-        other.setLanguage(metadata.language());
-        other.setWordCount(metadata.wordCount());
-        other.setTextLength(metadata.textLength());
-        other.setReadingTimeSeconds(metadata.readingTimeSeconds());
-        other.setPageCount(metadata.pageCount());
-        other.setDescription(metadata.description());
-        other.setTags(metadata.tags());
-        other.setSeriesId(metadata.seriesId());
-        other.setSeriesOrder(metadata.seriesOrder());
-        other.setSeriesTitle(metadata.seriesTitle());
-        other.setUploadTimestamp(metadata.uploadTimestamp());
-        other.setCoverUrl(metadata.coverUrl());
-        other.setEmbeddedImages(metadata.embeddedImages());
+        NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(metadata, series, cookie, null);
+        NovelDownloadRequest.Other other = request.getOther();
         other.setFileNameTemplate(download.fileNameTemplate());
         other.setBookmark(download.bookmark());
         other.setCollectionId(download.collectionId());
         other.setFormat(download.novelFormat());
-        if (series != null) {
-            if (series.description() != null && !series.description().isBlank()) {
-                other.setSeriesDescription(series.description());
-            }
-            if (series.coverUrl() != null && !series.coverUrl().isBlank()) {
-                other.setSeriesCoverUrl(series.coverUrl());
-            }
-            if (series.tags() != null && !series.tags().isEmpty()) {
-                other.setSeriesTags(series.tags());
-            }
-        }
-        request.setOther(other);
         return request;
     }
 
@@ -345,7 +312,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
      */
     private boolean submitAutoTranslate(
             long novelId,
-            PixivScheduledNovelMetadata metadata,
+            PixivNovelMetadata metadata,
             PixivScheduledNovelDefinition definition) {
         PixivScheduledNovelDefinition.Download download = definition.download();
         if (!download.novelAutoTranslate()) {
@@ -585,7 +552,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         seriesMetadataCache.keySet().removeIf(key -> key.taskId() == taskId);
     }
 
-    private static Map<String, String> resultAttributes(PixivScheduledNovelMetadata metadata) {
+    private static Map<String, String> resultAttributes(PixivNovelMetadata metadata) {
         return Map.of(
                 "title", metadata.title(),
                 "xRestrict", Integer.toString(metadata.xRestrict()),

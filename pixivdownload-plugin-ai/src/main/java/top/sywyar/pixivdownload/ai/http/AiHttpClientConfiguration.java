@@ -18,7 +18,7 @@ public class AiHttpClientConfiguration {
     @Bean(name = "aiRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(AiPlugin.ID)
     public ManagedPluginRestTemplate aiRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(30),
                 Duration.ofSeconds(120),
                 OutboundHttpRoute.direct()));
@@ -27,7 +27,7 @@ public class AiHttpClientConfiguration {
     @Bean(name = "aiProxyRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(AiPlugin.ID)
     public ManagedPluginRestTemplate aiProxyRestTemplate(OutboundHttpClientFactory factory) {
-        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.standard(
+        return PluginRestTemplateAdapter.open(factory, OutboundHttpClientProfile.credentialed(
                 Duration.ofSeconds(30),
                 Duration.ofSeconds(120),
                 OutboundHttpRoute.configuredProxy()));

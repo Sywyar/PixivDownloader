@@ -18,6 +18,6 @@ public class SetupConfig {
     private String displayName;
     @ToString.Exclude private String passwordHash;
     @ToString.Exclude private String salt;
-    /** token → expiry timestamp (ms) */
+    /** SHA-256(token) → expiry timestamp (ms) */
     @ToString.Exclude private Map<String, Long> sessions = new ConcurrentHashMap<>();
 }

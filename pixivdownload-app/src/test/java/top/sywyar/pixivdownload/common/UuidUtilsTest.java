@@ -1,14 +1,15 @@
 package top.sywyar.pixivdownload.common;
 
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.Locale;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 
 @DisplayName("UuidUtils UUID 工具")
 class UuidUtilsTest {
@@ -17,45 +18,35 @@ class UuidUtilsTest {
     private static final String V4_ID = "11111111-2222-4333-8444-555555555555";
 
     @Nested
-    @DisplayName("generateUuidFromFingerprint - UUID 生成")
-    class GenerateUuidTests {
+    @DisplayName("请求 UUID 读取与生成")
+    class RequestUuidTests {
 
         @Test
-        @DisplayName("相同输入应生成相同 UUID")
-        void shouldGenerateConsistentUuid() {
-            String uuid1 = UuidUtils.generateUuidFromFingerprint("127.0.0.1", "Chrome/100");
-            String uuid2 = UuidUtils.generateUuidFromFingerprint("127.0.0.1", "Chrome/100");
+        @DisplayName("缺失身份时随机生成 v4 且同一请求内保持一致")
+        void generatesRandomV4OncePerRequest() {
+            MockHttpServletRequest first = new MockHttpServletRequest();
+            MockHttpServletRequest second = new MockHttpServletRequest();
 
-            assertThat(uuid1).isEqualTo(uuid2);
+            String uuid = UuidUtils.extractOrGenerateUuid(first);
+
+            assertThat(UuidUtils.parseUuidV4(uuid)).isNotNull();
+            assertThat(UuidUtils.extractOrGenerateUuid(first)).isEqualTo(uuid);
+            assertThat(UuidUtils.extractOrGenerateUuid(second)).isNotEqualTo(uuid);
         }
 
         @Test
-        @DisplayName("不同输入应生成不同 UUID")
-        void shouldGenerateDifferentUuidForDifferentInput() {
-            String uuid1 = UuidUtils.generateUuidFromFingerprint("127.0.0.1", "Chrome/100");
-            String uuid2 = UuidUtils.generateUuidFromFingerprint("192.168.1.1", "Firefox/100");
+        @DisplayName("只接受 v4 cookie 或请求头并规范化为小写")
+        void acceptsOnlyCanonicalV4Identity() {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.setCookies(new Cookie("pixiv_user_id", "11111111-2222-1333-8444-555555555555"));
+            request.addHeader("X-User-UUID", V4_ID.toUpperCase(Locale.ROOT));
 
-            assertThat(uuid1).isNotEqualTo(uuid2);
-        }
+            assertThat(UuidUtils.extractExistingUuid(request)).isEqualTo(V4_ID);
 
-        @Test
-        @DisplayName("null 输入应不抛异常")
-        void shouldHandleNullInputs() {
-            assertThatCode(() -> UuidUtils.generateUuidFromFingerprint(null, null))
-                    .doesNotThrowAnyException();
-
-            String uuid = UuidUtils.generateUuidFromFingerprint(null, null);
-            assertThat(uuid).isNotNull().isNotBlank();
-        }
-
-        @Test
-        @DisplayName("生成的 UUID 应符合标准格式")
-        void shouldGenerateValidUuidFormat() {
-            String uuid = UuidUtils.generateUuidFromFingerprint("127.0.0.1", "Chrome");
-
-            assertThat(uuid).matches(
-                    "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-            );
+            request = new MockHttpServletRequest();
+            request.setCookies(new Cookie("pixiv_user_id", "not-a-uuid"));
+            request.addHeader("X-User-UUID", "11111111-2222-1333-8444-555555555555");
+            assertThat(UuidUtils.extractExistingUuid(request)).isNull();
         }
     }
 
