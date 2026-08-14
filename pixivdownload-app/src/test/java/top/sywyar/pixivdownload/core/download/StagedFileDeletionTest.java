@@ -152,22 +152,22 @@ class StagedFileDeletionTest {
     }
 
     @Test
-    @DisplayName("只删除存在的常规文件，忽略缺失路径与目录")
-    void onlyDeletesExistingRegularFiles() throws Exception {
+    @DisplayName("缺失路径是幂等 no-op，但存在的非普通文件使整批删除失败")
+    void rejectsExistingUnsafeFilesBeforeDeletingAnything() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("work"));
         Path file = Files.writeString(dir.resolve("keep.jpg"), "x");
         Path subDir = Files.createDirectories(dir.resolve("subdir"));
         Path missing = dir.resolve("missing.jpg");
 
-        assertTrue(deletion.deleteAtomically(List.of(file, subDir, missing)));
+        assertFalse(deletion.deleteAtomically(List.of(file, subDir, missing)));
 
-        assertFalse(Files.exists(file), "存在的常规文件应被删除");
-        assertTrue(Files.isDirectory(subDir), "目录不应被删除");
+        assertTrue(Files.exists(file), "发现不安全路径后不得删除同批普通文件");
+        assertTrue(Files.isDirectory(subDir), "目录不得被当成成功过滤项");
         assertEquals(0, stagingResidueCount(), "暂存目录应无残留");
     }
 
     @Test
-    @DisplayName("符号链接文件和符号链接父目录均不进入删除集合")
+    @DisplayName("符号链接文件和符号链接父目录使删除失败且不触达链接目标")
     void doesNotDeleteThroughSymbolicLinks() throws Exception {
         Path outsideDir = Files.createDirectories(tempDir.resolve("outside"));
         Path outsideFile = Files.writeString(outsideDir.resolve("outside.jpg"), "outside");
@@ -177,7 +177,7 @@ class StagedFileDeletionTest {
         createSymbolicLinkOrSkip(fileLink, outsideFile);
         createSymbolicLinkOrSkip(directoryLink, outsideDir);
 
-        assertTrue(deletion.deleteAtomically(List.of(fileLink, directoryLink.resolve("outside.jpg"))));
+        assertFalse(deletion.deleteAtomically(List.of(fileLink, directoryLink.resolve("outside.jpg"))));
 
         assertTrue(Files.exists(outsideFile), "链接指向的外部文件不得被删除");
         assertTrue(Files.exists(fileLink, LinkOption.NOFOLLOW_LINKS), "文件链接本身也不属于作品普通文件");

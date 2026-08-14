@@ -50,7 +50,13 @@ public class StagedFileDeletion {
      *         已回滚到删除前状态（原文件复原），调用方应据此中止后续清理（如软删数据库）
      */
     public boolean deleteAtomically(Collection<Path> files) {
-        List<Path> targets = existingRegularFiles(files);
+        List<Path> targets;
+        try {
+            targets = validatedExistingFiles(files);
+        } catch (IOException e) {
+            log.warn(messages.getForLog("download.delete.log.stage-failed", e.getMessage()));
+            return false;
+        }
         if (targets.isEmpty()) {
             return true;
         }
@@ -158,7 +164,7 @@ public class StagedFileDeletion {
         }
     }
 
-    private static List<Path> existingRegularFiles(Collection<Path> files) {
+    private static List<Path> validatedExistingFiles(Collection<Path> files) throws IOException {
         if (files == null || files.isEmpty()) {
             return List.of();
         }
@@ -168,9 +174,14 @@ public class StagedFileDeletion {
             if (path == null) {
                 continue;
             }
-            if (seen.add(path.toAbsolutePath().normalize()) && PlainFilePathGuard.isPlainRegularFile(path)) {
-                targets.add(path);
+            Path normalized = path.toAbsolutePath().normalize();
+            if (!seen.add(normalized) || !Files.exists(normalized, LinkOption.NOFOLLOW_LINKS)) {
+                continue;
             }
+            if (!PlainFilePathGuard.isPlainRegularFile(normalized)) {
+                throw new IOException("unsafe existing delete target: " + normalized);
+            }
+            targets.add(normalized);
         }
         return targets;
     }
