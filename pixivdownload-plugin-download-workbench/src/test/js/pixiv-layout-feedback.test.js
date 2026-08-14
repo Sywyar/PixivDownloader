@@ -1553,8 +1553,16 @@ function testBeforeSendFilter() {
             time: 123,
             $lib: 'web',
             $lib_version: '1.409.5',
+            $lib_variant: 'full',
+            $device_id: 'device-1',
+            $session_id: 'session-1',
+            $window_id: 'window-1',
+            $pageview_id: 'pageview-1',
             '$survey_id': 's1',
             '$survey_response_q-layout': 'pixiv-batch-landscape',
+            app_version: '1.0.0',
+            current_layout: 'landscape',
+            survey_schema_version: 1,
             '$current_url': 'http://localhost:6999/pixiv-batch.html',
             '$referrer': 'http://evil.example',
             '$referring_domain': 'evil.example',
@@ -1566,10 +1574,14 @@ function testBeforeSendFilter() {
         }
     };
     const filtered = filter(base);
-    ok('保留 distinct_id', filtered.properties.distinct_id === 'anon-123');
-    ok('保留 $lib / $lib_version 协议字段', filtered.properties.$lib === 'web');
-    ok('保留 $survey_id', filtered.properties.$survey_id === 's1');
-    ok('保留 $survey_response_*', filtered.properties['$survey_response_q-layout'] === 'pixiv-batch-landscape');
+    ok('仅保留调查必需字段', Object.keys(filtered.properties).sort().join('|') === [
+        '$survey_id', '$survey_response_q-layout', 'app_version', 'current_layout',
+        'distinct_id', 'survey_schema_version', 'token'
+    ].sort().join('|'));
+    ok('删除 SDK 设备、会话、页面和版本属性', [
+        'time', '$lib', '$lib_version', '$lib_variant', '$device_id', '$session_id',
+        '$window_id', '$pageview_id'
+    ].every(key => filtered.properties[key] === undefined));
     ok('删除 $current_url', filtered.properties.$current_url === undefined);
     ok('删除 $referrer', filtered.properties.$referrer === undefined);
     ok('删除 $referring_domain', filtered.properties.$referring_domain === undefined);
@@ -2125,7 +2137,7 @@ function testBeforeSendTopLevelFields() {
     eq('顶层 $set 被删除', out.$set, undefined);
     eq('顶层 $set_once 被删除', out.$set_once, undefined);
     eq('顶层 $unset 被删除', out.$unset, undefined);
-    eq('保留 uuid', out.uuid, 'evt-1');
+    eq('删除 uuid', out.uuid, undefined);
     eq('保留 event', out.event, 'survey sent');
     eq('保留 timestamp', out.timestamp, '2026-01-01T00:00:00.000Z');
     ok('保留 distinct_id / token / $survey_id', out.properties.distinct_id === 'anon-1'
@@ -2133,7 +2145,7 @@ function testBeforeSendTopLevelFields() {
     eq('Survey response 不丢失', out.properties['$survey_response_q-layout'], 'pixiv-batch-portrait');
     eq('建议响应不丢失', out.properties['$survey_response_q-suggestion'], 'keep me');
     eq('环境属性仍被过滤', out.properties.$current_url, undefined);
-    ok('输出不携带多余顶层字段', Object.keys(out).every(k => ['uuid', 'event', 'timestamp', 'properties'].indexOf(k) >= 0));
+    ok('输出不携带多余顶层字段', Object.keys(out).every(k => ['event', 'timestamp', 'properties'].indexOf(k) >= 0));
     eq('非 Survey 事件仍返回 null', filter({uuid: 'e', event: '$pageview', properties: {}}), null);
 }
 
@@ -2723,8 +2735,9 @@ function testBeforeSendTimestampMatrix() {
     eq('普通对象 timestamp 省略', filter(Object.assign({}, base, {timestamp: {evil: true}})).timestamp, undefined);
     eq('非法 Date 省略', filter(Object.assign({}, base, {timestamp: new Date('invalid')})).timestamp, undefined);
 
-    ok('Date timestamp 不影响 uuid / event / properties',
-        outDate.uuid === 'evt-1' && outDate.event === 'survey sent' && outDate.properties.distinct_id === 'anon');
+    ok('Date timestamp 不影响 event / properties 且 uuid 被删除',
+        outDate.uuid === undefined && outDate.event === 'survey sent'
+        && outDate.properties.distinct_id === 'anon');
 }
 
 function testBeforeSendDateTimestampWithSurveyFields() {
@@ -2750,8 +2763,8 @@ function testBeforeSendDateTimestampWithSurveyFields() {
     eq('$survey_id 保留', out.properties['$survey_id'], 's1');
     eq('$survey_response_* 保留', out.properties['$survey_response_q-layout'], 'pixiv-batch-portrait');
     ok('Date timestamp 与其他顶层字段并存', out.timestamp === timestamp);
-    ok('输出顶层字段仅 uuid / event / timestamp / properties',
-        Object.keys(out).every(k => ['uuid', 'event', 'timestamp', 'properties'].indexOf(k) >= 0));
+    ok('输出顶层字段仅 event / timestamp / properties',
+        Object.keys(out).every(k => ['event', 'timestamp', 'properties'].indexOf(k) >= 0));
 }
 
 function testFakeAdapterDefaultTimestampIsDate() {

@@ -10,9 +10,7 @@
     var SCOPED_ID = /^pmds_[0-9a-f]{64}$/;
     var CHOICES = ['Yes', 'No', 'Other'];
     var PROTOCOL_PROPERTIES = [
-        'distinct_id', 'token', 'time', '$lib', '$lib_version', '$lib_variant',
-        '$device_id', '$session_id', '$window_id', '$pageview_id', '$survey_id',
-        '$survey_completed'
+        'distinct_id', 'token', '$survey_id', '$survey_completed'
     ];
 
     function beforeSend(event) {
@@ -25,7 +23,6 @@
             }
         });
         var result = {event: event.event, properties: properties};
-        if (typeof event.uuid === 'string') result.uuid = event.uuid;
         if (typeof event.timestamp === 'string'
                 || Object.prototype.toString.call(event.timestamp) === '[object Date]') {
             result.timestamp = event.timestamp;
@@ -199,7 +196,7 @@
 
             var privacy = global.document.createElement('p');
             privacy.className = 'survey-privacy';
-            privacy.textContent = t('privacy', '本问卷使用 PostHog SDK 提交，只收集您的回答和匿名标识。');
+            privacy.textContent = t('privacy', '本问卷会发送问卷回答、调查标识、调查专用匿名标识、完成状态、事件时间，以及传输所需的事件名和公开项目令牌。');
             var error = global.document.createElement('p');
             error.className = 'survey-error';
             error.hidden = true;

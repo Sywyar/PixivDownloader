@@ -102,32 +102,48 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("中英文隐私文案与身份模型一致：仅收集填写内容与随机安装身份（去重），不发送其他信息")
+    @DisplayName("中英文隐私文案准确列出调查事件字段并排除原始身份与本地数据")
     void privacyCopyMatchesIdentityModel() throws IOException {
         String zh = read(I18N_ZH);
         String en = read(I18N_EN);
         String js = read(SURVEY_JS);
 
-        // 中文简短声明：PostHog SDK + 只收集填写内容与随机安装身份的单向散列匿名标识
-        assertThat(zh).contains("PostHog SDK");
-        assertThat(zh).contains("只收集您填写的内容");
-        assertThat(zh).contains("单向散列");
-        assertThat(zh).contains("不可逆");
-        assertThat(zh).contains("随机安装身份");
-        assertThat(zh).contains("避免重复弹窗");
-        assertThat(zh).contains("不会发送其他任何信息");
+        assertThat(zh).contains(
+                "固定版本的 PostHog SDK",
+                "调查标识",
+                "调查专用匿名标识",
+                "应用版本",
+                "当前布局",
+                "调查结构版本",
+                "事件时间",
+                "事件名",
+                "公开项目令牌",
+                "不发送原始安装身份",
+                "Cookie",
+                "本地路径")
+                .doesNotContain("投递去重标识");
 
-        // 英文语义一致
-        assertThat(en).contains("PostHog SDK");
-        assertThat(en).contains("what you fill in");
-        assertThat(en).contains("installation identity");
-        assertThat(en).contains("duplicate pop-ups");
-        assertThat(en).contains("No other information is sent");
+        assertThat(en).contains(
+                "pinned PostHog SDK",
+                "survey ID",
+                "survey-scoped anonymous identifier",
+                "app version",
+                "current layout",
+                "survey schema version",
+                "event time",
+                "event name",
+                "public project token",
+                "does not send the raw installation identity",
+                "cookies",
+                "local paths")
+                .doesNotContain("delivery deduplication ID");
 
-        // JS 弹窗 fallback 与中文 i18n 语义一致
-        assertThat(js).contains("PostHog SDK");
-        assertThat(js).contains("随机安装身份");
-        assertThat(js).doesNotContain("匿名浏览器标识；");
+        assertThat(js).contains(
+                "固定版本的 PostHog SDK",
+                "调查专用匿名标识",
+                "公开项目令牌",
+                "不发送原始安装身份")
+                .doesNotContain("投递去重标识");
     }
 
     @Test
@@ -135,9 +151,14 @@ class LayoutSurveyContractTest {
     void changelogMatchesIdentityModel() throws IOException {
         Path repoRoot = repoRoot();
         String changelog = Files.readString(repoRoot.resolve("CHANGELOG.md"), StandardCharsets.UTF_8);
-        assertThat(changelog).contains("匿名调查标识");
+        assertThat(changelog).contains("调查专用匿名标识");
         assertThat(changelog).contains("随机安装身份与当前调查 ID 单向派生");
         assertThat(changelog).contains("匿名浏览器标识");
+        assertThat(changelog).contains("调查标识");
+        assertThat(changelog).contains("当前布局");
+        assertThat(changelog).contains("调查结构版本");
+        assertThat(changelog).contains("事件时间");
+        assertThat(changelog).contains("最小传输字段");
         assertThat(changelog).contains("原始安装身份");
         assertThat(changelog).doesNotContain("按安装身份去重");
     }

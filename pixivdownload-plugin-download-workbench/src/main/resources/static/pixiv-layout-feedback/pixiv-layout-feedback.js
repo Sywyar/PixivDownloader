@@ -92,8 +92,7 @@
     var I18N_NS = 'layout-feedback';
     var ALLOWED_SURVEY_EVENTS = ['survey shown', 'survey sent', 'survey dismissed'];
     var PROTOCOL_PROPERTIES = [
-        'distinct_id', 'token', 'time', '$lib', '$lib_version', '$lib_variant',
-        '$device_id', '$session_id', '$window_id', '$pageview_id', '$survey_id',
+        'distinct_id', 'token', '$survey_id',
         'app_version', 'current_layout', 'survey_schema_version'
     ];
 
@@ -229,7 +228,6 @@
             }
         });
         var minimal = {event: event.event, properties: out};
-        if (typeof event.uuid === 'string') minimal.uuid = event.uuid;
         if (isDateObject(event.timestamp) || typeof event.timestamp === 'string') {
             minimal.timestamp = event.timestamp;
         }
@@ -2405,7 +2403,7 @@
 
             var privacy = buildElement('p', 'plf-privacy');
             privacy.setAttribute('data-i18n', I18N_NS + ':privacy');
-            privacy.textContent = t('privacy', '本问卷使用 PostHog SDK 提交，只收集您填写的内容和由随机安装身份单向散列生成的匿名标识（不可逆，仅用于避免重复弹窗），不会发送其他任何信息。');
+            privacy.textContent = t('privacy', '本问卷使用固定版本的 PostHog SDK，并向固定的事件接收接口发送问卷回答、调查标识、调查专用匿名标识、应用版本、当前布局、调查结构版本、事件时间，以及传输所需的事件名和公开项目令牌。不发送原始安装身份、账号、Cookie、作品或本地路径。');
 
             var error = buildElement('p', 'plf-error');
             error.setAttribute('role', 'alert');
