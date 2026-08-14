@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -286,13 +287,19 @@ class LayoutSurveyContractTest {
     void inboxEmbedUsesPublisherOwnedSurveyResources() throws IOException {
         String html = read(EMBED_HTML);
         String embedJs = read(EMBED_JS);
+        String posthogConfig = read(POSTHOG_CONFIG);
         String pluginSource = Files.readString(pluginModuleRoot().resolve(
                 "src/main/java/top/sywyar/pixivdownload/download/DownloadWorkbenchPlugin.java"),
                 StandardCharsets.UTF_8);
+        Matcher surveyId = Pattern.compile("surveyId: '([^']+)'").matcher(posthogConfig);
+        assertThat(surveyId.find()).isTrue();
+        String fallbackIdentityKey = "pixivdownload.posthog.survey-id."
+                + "[\"download-workbench.layout-feedback\",\"" + surveyId.group(1) + "\"]";
 
         assertThat(html)
                 .contains("frame-ancestors 'self'")
                 .contains("connect-src 'self' https://layout-survey.sywyar.top")
+                .contains("/js/pixiv-survey-frame-bridge.js")
                 .contains("/pixiv-layout-feedback/release-activation.js")
                 .contains("/pixiv-posthog/pixiv-posthog.js")
                 .contains("/pixiv-layout-feedback/posthog-config.js")
@@ -300,21 +307,36 @@ class LayoutSurveyContractTest {
                 .contains("/pixiv-layout-feedback/embed.js");
         assertThat(embedJs)
                 .contains("openEmbedded()")
+                .contains("global.PixivSurveyFrameBridge.ready()")
+                .contains("storage: storage")
+                .contains("fetchImpl: global.fetch")
                 .contains("type: 'pixiv-survey-unavailable'")
                 .contains("notificationId: notificationId")
-                .contains("pixiv:batch-layout:v1");
+                .contains("pixiv:batch-layout:v1")
+                .doesNotContain("parent.postMessage");
         assertThat(pluginSource)
                 .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
                 .contains("private static final String SURVEY_INSTANCE_KEY = \"layout-feedback-v1\"")
+                .contains("pixivBridgeGet=/api/layout-feedback/state")
+                .contains("pixivBridgePost=/api/layout-feedback/state")
+                .contains("pixivBridgeRead=pixiv_theme")
                 .contains("\"notification.inbox\"")
                 .contains("\"notification.instance-key\", SURVEY_INSTANCE_KEY")
-                .contains("\"notification.embed-url\", \"/pixiv-layout-feedback/embed.html\"")
+                .contains("\"notification.embed-url\", SURVEY_EMBED_URL")
                 .contains("\"notification.i18n-namespace\", \"layout-feedback\"");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
                 .filteredOn(route -> "/pixiv-layout-feedback/embed.html".equals(route.pathPattern()))
                 .singleElement()
                 .extracting(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution::accessPolicy)
                 .isEqualTo(top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.ADMIN);
+        var slots = new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().uiSlots();
+        if (!slots.isEmpty()) {
+            assertThat(slots.get(0).metadata().get("notification.embed-url"))
+                    .contains("pixivBridgeRead="
+                            + URLEncoder.encode(fallbackIdentityKey, StandardCharsets.UTF_8))
+                    .contains("pixivBridgeWrite="
+                            + URLEncoder.encode(fallbackIdentityKey, StandardCharsets.UTF_8));
+        }
     }
 
     @Test

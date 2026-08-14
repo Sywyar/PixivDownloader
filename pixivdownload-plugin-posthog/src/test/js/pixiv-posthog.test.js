@@ -210,6 +210,27 @@ async function main() {
     assert.strictEqual(initCalls.length, 4);
     assert.notStrictEqual(initCalls[1].config.bootstrap.distinctID,
         initCalls[3].config.bootstrap.distinctID);
+    const customValues = new Map();
+    const customOwner = 'embedded-survey';
+    const customSurveyId = 'embedded-survey-id';
+    const customKey = 'pixivdownload.posthog.survey-id.'
+        + JSON.stringify([customOwner, customSurveyId]);
+    const customId = 'ps_' + 'd'.repeat(64);
+    customValues.set(customKey, customId);
+    const customStorage = {
+        getItem(key) { return customValues.has(key) ? customValues.get(key) : null; },
+        setItem(key, value) { customValues.set(key, value); }
+    };
+    assert.ok(await api.createSurveyClient({
+        ownerKey: customOwner,
+        posthog: {...posthog, surveyId: customSurveyId},
+        trustedApiOrigins: [posthog.apiHost],
+        storage: customStorage,
+        beforeSend: filter
+    }));
+    assert.strictEqual(initCalls.length, 5);
+    assert.strictEqual(initCalls[4].config.bootstrap.distinctID, customId);
+    assert.strictEqual(storage.has(customKey), false);
     const response = {
         '$survey_id': posthog.surveyId,
         '$survey_response_q1': 'Yes'

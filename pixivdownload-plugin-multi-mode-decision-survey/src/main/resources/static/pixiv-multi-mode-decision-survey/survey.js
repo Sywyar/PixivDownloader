@@ -68,6 +68,7 @@
         var notificationId = params.get('notificationId') || '';
         var i18n = null;
         var lastHeight = 0;
+        var storage = null;
 
         function t(key, fallback) {
             return i18n ? i18n.t('multi-mode-decision-survey:' + key, fallback) : fallback;
@@ -77,7 +78,7 @@
             var height = Math.ceil(Math.max(root.scrollHeight, root.getBoundingClientRect().height));
             if (height <= 0 || height === lastHeight) return;
             lastHeight = height;
-            global.parent.postMessage({type: 'pixiv-content-height', height: height}, global.location.origin);
+            global.PixivSurveyFrameBridge.post({type: 'pixiv-content-height', height: height});
         }
 
         function status(key, fallback) {
@@ -89,7 +90,7 @@
 
         function submitted() {
             try {
-                var state = JSON.parse(global.localStorage.getItem(STATE_KEY) || 'null');
+                var state = JSON.parse(storage.getItem(STATE_KEY) || 'null');
                 return !!state && state.surveyId === POSTHOG.surveyId && state.status === 'submitted';
             } catch (_) {
                 return false;
@@ -98,7 +99,7 @@
 
         function rememberSubmitted() {
             try {
-                global.localStorage.setItem(STATE_KEY, JSON.stringify({
+                storage.setItem(STATE_KEY, JSON.stringify({
                     surveyId: POSTHOG.surveyId,
                     status: 'submitted'
                 }));
@@ -107,10 +108,10 @@
 
         function unavailablePermanently() {
             status('ended', '该调查已结束。');
-            global.parent.postMessage({
+            global.PixivSurveyFrameBridge.post({
                 type: 'pixiv-survey-unavailable',
                 notificationId: notificationId
-            }, global.location.origin);
+            });
         }
 
         function fetchIdentity() {
@@ -263,6 +264,11 @@
         }
 
         try {
+            var bridge = await global.PixivSurveyFrameBridge.ready();
+            storage = bridge.storage;
+            if (global.PixivTheme) {
+                global.PixivTheme.apply(storage.getItem('pixiv_theme'), false, false);
+            }
             i18n = await global.PixivI18n.create({
                 namespaces: ['multi-mode-decision-survey'],
                 lang: params.get('lang') || undefined

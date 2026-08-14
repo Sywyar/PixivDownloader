@@ -2103,6 +2103,7 @@
                     posthog: POSTHOG,
                     trustedApiOrigins: TRUSTED_POSTHOG_API_ORIGINS,
                     distinctId: serverIdentityAvailable && serverDistinctId ? serverDistinctId : '',
+                    storage: storage,
                     beforeSend: beforeSendFilter
                 }).then(function (sdk) {
                     finish(isRuntimeGenerationActive(generation) ? sdk : null);

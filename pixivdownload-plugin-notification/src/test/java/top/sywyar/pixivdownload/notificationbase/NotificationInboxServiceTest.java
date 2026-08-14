@@ -204,6 +204,29 @@ class NotificationInboxServiceTest {
     }
 
     @Test
+    @DisplayName("调查嵌入能力更新时沿用原消息状态并投影当前地址")
+    void projectsCurrentEmbedUrlWithoutReplacingPersistentSurvey() {
+        MemoryMapper mapper = new MemoryMapper();
+        AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(
+                surveySlot("instance-a", "/pixiv-layout-feedback/embed.html?pixivBridgeGet=/api/old")));
+        NotificationInboxService service = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, slots::get,
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        String id = "persistent-survey:download-workbench.layout-survey:instance-a";
+        NotificationMessage read = service.markRead(id);
+
+        String currentUrl = "/pixiv-layout-feedback/embed.html?pixivBridgeGet=/api/current";
+        slots.set(List.of(surveySlot("instance-a", currentUrl)));
+        service.synchronizePersistentSurveys();
+
+        assertThat(service.find(id)).satisfies(message -> {
+            assertThat(message.actionUrl()).isEqualTo(currentUrl);
+            assertThat(message.readTime()).isEqualTo(read.readTime());
+        });
+        assertThat(mapper.messages).singleElement();
+    }
+
+    @Test
     @DisplayName("调查不可用写墓碑且普通删除和重复同步都不能使其复活")
     void tombstonesUnavailablePersistentSurvey() {
         MemoryMapper mapper = new MemoryMapper();
@@ -296,12 +319,16 @@ class NotificationInboxServiceTest {
     }
 
     private static WebUiSlotContribution surveySlot(String instanceKey) {
+        return surveySlot(instanceKey, "/pixiv-layout-feedback/embed.html");
+    }
+
+    private static WebUiSlotContribution surveySlot(String instanceKey, String embedUrl) {
         return new WebUiSlotContribution(
                 "download-workbench.layout-survey", "notification.inbox", null, 10,
                 java.util.Map.of(
                         "notification.category", "survey",
                         "notification.instance-key", instanceKey,
-                        "notification.embed-url", "/pixiv-layout-feedback/embed.html",
+                        "notification.embed-url", embedUrl,
                         "notification.i18n-namespace", "layout-feedback",
                         "notification.title-key", "layout-feedback.inbox-title",
                         "notification.body-key", "layout-feedback.inbox-body"));

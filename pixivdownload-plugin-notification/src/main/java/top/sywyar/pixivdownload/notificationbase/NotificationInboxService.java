@@ -281,12 +281,13 @@ public class NotificationInboxService {
         }
         String title = messages.resolve(survey.namespace(), locale, survey.titleKey()).orElse(message.title());
         String body = messages.resolve(survey.namespace(), locale, survey.bodyKey()).orElse(message.body());
-        if (title.equals(message.title()) && body.equals(message.body())) {
+        if (title.equals(message.title()) && body.equals(message.body())
+                && survey.embedUrl().equals(message.actionUrl())) {
             return message;
         }
         return new NotificationMessage(
                 message.id(), message.category(), message.severity(), message.scenarioId(), title, body,
-                message.contentUrl(), message.contentHtml(), message.actionUrl(),
+                message.contentUrl(), message.contentHtml(), survey.embedUrl(),
                 message.createdTime(), message.readTime());
     }
 

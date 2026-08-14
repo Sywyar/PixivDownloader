@@ -50,6 +50,10 @@ class MultiModeDecisionSurveyPluginTest {
         if (officialRelease) {
             assertThat(slots.get(0).metadata().get("notification.instance-key"))
                     .isEqualTo("multi-mode-decision-v1");
+            assertThat(slots.get(0).metadata().get("notification.embed-url"))
+                    .contains("pixivBridgeGet=/api/multi-mode-decision-survey/identity")
+                    .contains("pixivBridgeRead=pixiv_theme")
+                    .contains("pixivBridgeWrite=pixiv:multi-mode-decision-survey:state:v1");
         }
     }
 
@@ -89,6 +93,13 @@ class MultiModeDecisionSurveyPluginTest {
             assertThat(input).isNotNull();
             embed = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
-        assertThat(embed).contains("/pixiv-multi-mode-decision-survey/posthog-config.js");
+        assertThat(embed)
+                .contains("/js/pixiv-survey-frame-bridge.js")
+                .contains("/pixiv-multi-mode-decision-survey/posthog-config.js");
+        assertThat(script)
+                .contains("global.PixivSurveyFrameBridge.ready()")
+                .contains("global.PixivSurveyFrameBridge.post({")
+                .doesNotContain("parent.postMessage")
+                .doesNotContain("global.localStorage");
     }
 }

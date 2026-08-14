@@ -20,6 +20,13 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
     private static final String PUBLICATION_RESOURCE =
             "static/pixiv-multi-mode-decision-survey/release-publication.properties";
     private static final String SURVEY_INSTANCE_KEY = "multi-mode-decision-v1";
+    private static final String SURVEY_EMBED_URL = "/pixiv-multi-mode-decision-survey/embed.html"
+            + "?pixivBridgeGet=/api/i18n/meta"
+            + "&pixivBridgeGet=/api/i18n/messages/multi-mode-decision-survey"
+            + "&pixivBridgeGet=/api/multi-mode-decision-survey/identity"
+            + "&pixivBridgeRead=pixiv_theme"
+            + "&pixivBridgeRead=pixiv:multi-mode-decision-survey:state:v1"
+            + "&pixivBridgeWrite=pixiv:multi-mode-decision-survey:state:v1";
 
     @Override
     public String id() {
@@ -83,7 +90,7 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
                 Map.of(
                         "notification.category", "survey",
                         "notification.instance-key", SURVEY_INSTANCE_KEY,
-                        "notification.embed-url", "/pixiv-multi-mode-decision-survey/embed.html",
+                        "notification.embed-url", SURVEY_EMBED_URL,
                         "notification.i18n-namespace", ID,
                         "notification.title-key", "inbox-title",
                         "notification.body-key", "inbox-body")));

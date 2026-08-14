@@ -122,11 +122,11 @@
             && left.uiHost === right.uiHost;
     }
 
-    function fallbackDistinctId(ownerKey, surveyId) {
+    function fallbackDistinctId(ownerKey, surveyId, storage) {
         var storageKey = 'pixivdownload.posthog.survey-id.' + JSON.stringify([ownerKey, surveyId]);
         var pattern = /^ps_[0-9a-f]{64}$/;
         try {
-            var stored = global.localStorage && global.localStorage.getItem(storageKey);
+            var stored = storage && storage.getItem(storageKey);
             if (pattern.test(stored || '')) return stored;
         } catch (_) { /* use an in-memory identity */ }
         if (!global.crypto || typeof global.crypto.getRandomValues !== 'function') return '';
@@ -137,7 +137,7 @@
             generated += bytes[i].toString(16).padStart(2, '0');
         }
         try {
-            if (global.localStorage) global.localStorage.setItem(storageKey, generated);
+            if (storage) storage.setItem(storageKey, generated);
         } catch (_) { /* stable for this page through the owner record */ }
         return generated;
     }
@@ -186,20 +186,26 @@
             return Promise.resolve(null);
         }
         var requestedDistinctId = typeof options.distinctId === 'string' ? options.distinctId : '';
+        var identityStorage = options.storage;
+        if (!identityStorage) {
+            try { identityStorage = global.localStorage; } catch (_) { identityStorage = null; }
+        }
         var existing = clients[ownerKey];
         if (existing) {
             if ((requestedDistinctId && existing.distinctId !== requestedDistinctId)
                     || existing.beforeSend !== options.beforeSend
+                    || existing.identityStorage !== identityStorage
                     || !samePostHog(existing.posthog, posthog)) {
                 warn('posthog: survey client already exists with a different configuration; owner disabled for this page');
                 return Promise.resolve(null);
             }
             return existing.promise;
         }
-        var distinctId = requestedDistinctId || fallbackDistinctId(ownerKey, posthog.surveyId);
+        var distinctId = requestedDistinctId || fallbackDistinctId(ownerKey, posthog.surveyId, identityStorage);
         if (!distinctId) return Promise.resolve(null);
         var record = {
             distinctId: distinctId,
+            identityStorage: identityStorage,
             beforeSend: options.beforeSend,
             posthog: posthog,
             promise: null

@@ -6,6 +6,7 @@
     var notificationId = '';
     var opened = false;
     var lastReportedHeight = 0;
+    var storage = null;
 
     function t(key, fallback) {
         return i18n ? i18n.t('layout-feedback:' + key, fallback) : fallback;
@@ -23,12 +24,12 @@
         var height = Math.ceil(Math.max(content.scrollHeight, content.getBoundingClientRect().height));
         if (height <= 0 || height === lastReportedHeight) return;
         lastReportedHeight = height;
-        global.parent.postMessage({type: 'pixiv-content-height', height: height}, global.location.origin);
+        global.PixivSurveyFrameBridge.post({type: 'pixiv-content-height', height: height});
     }
 
     function currentLayoutId() {
         var stored = null;
-        try { stored = global.localStorage.getItem('pixiv:batch-layout:v1'); } catch (_) { stored = null; }
+        try { stored = storage.getItem('pixiv:batch-layout:v1'); } catch (_) { stored = null; }
         if (stored === 'landscape') return 'pixiv-batch-landscape';
         if (stored === 'portrait') return 'pixiv-batch-portrait';
         return 'pixiv-batch-alt';
@@ -50,6 +51,11 @@
         var params = new URLSearchParams(global.location.search);
         notificationId = params.get('notificationId') || '';
         try {
+            var bridge = await global.PixivSurveyFrameBridge.ready();
+            storage = bridge.storage;
+            if (global.PixivTheme) {
+                global.PixivTheme.apply(storage.getItem('pixiv_theme'), false, false);
+            }
             i18n = await global.PixivI18n.create({
                 namespaces: ['layout-feedback'],
                 lang: params.get('lang') || undefined
@@ -59,7 +65,9 @@
             global.PixivLayoutFeedback.init({
                 page: 'embedded',
                 currentLayoutId: currentLayoutId(),
-                i18n: i18n
+                i18n: i18n,
+                storage: storage,
+                fetchImpl: global.fetch
             });
             var result = await global.PixivLayoutFeedback.openEmbedded();
             if (result && result.status === 'opened') {
@@ -67,10 +75,10 @@
                 statusElement.hidden = true;
             } else if (result && result.status === 'removed') {
                 showStatus('embed-unavailable', '该调查已结束。');
-                global.parent.postMessage({
+                global.PixivSurveyFrameBridge.post({
                     type: 'pixiv-survey-unavailable',
                     notificationId: notificationId
-                }, global.location.origin);
+                });
             } else if (result && (result.status === 'ineligible' || result.status === 'blocked')) {
                 showStatus('embed-completed', '该调查已完成或当前无需填写。');
             } else {

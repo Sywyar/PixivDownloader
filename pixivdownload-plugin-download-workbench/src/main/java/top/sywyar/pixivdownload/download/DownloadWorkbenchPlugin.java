@@ -44,6 +44,22 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     private static final String SURVEY_PUBLICATION_RESOURCE =
             "static/pixiv-layout-feedback/release-publication.properties";
     private static final String SURVEY_INSTANCE_KEY = "layout-feedback-v1";
+    private static final String SURVEY_EMBED_URL = "/pixiv-layout-feedback/embed.html"
+            + "?pixivBridgeGet=/api/i18n/meta"
+            + "&pixivBridgeGet=/api/i18n/messages/layout-feedback"
+            + "&pixivBridgeGet=/api/app/info"
+            + "&pixivBridgeGet=/api/layout-feedback/state"
+            + "&pixivBridgePost=/api/layout-feedback/state"
+            + "&pixivBridgeRead=pixiv_theme"
+            + "&pixivBridgeRead=pixiv:batch-layout:v1"
+            + "&pixivBridgeRead=pixiv:layout-feedback:state:v1"
+            + "&pixivBridgeRead=pixiv:layout-feedback:seen:v1"
+            + "&pixivBridgeRead=pixivdownload.posthog.survey-id.%5B%22download-workbench.layout-feedback"
+            + "%22%2C%22019fce31-c9ce-0000-934a-375b3ddbbd6c%22%5D"
+            + "&pixivBridgeWrite=pixiv:layout-feedback:state:v1"
+            + "&pixivBridgeWrite=pixiv:layout-feedback:seen:v1"
+            + "&pixivBridgeWrite=pixivdownload.posthog.survey-id.%5B%22download-workbench.layout-feedback"
+            + "%22%2C%22019fce31-c9ce-0000-934a-375b3ddbbd6c%22%5D";
 
     @Override
     public String id() {
@@ -178,7 +194,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 Map.of(
                         "notification.category", "survey",
                         "notification.instance-key", SURVEY_INSTANCE_KEY,
-                        "notification.embed-url", "/pixiv-layout-feedback/embed.html",
+                        "notification.embed-url", SURVEY_EMBED_URL,
                         "notification.i18n-namespace", "layout-feedback",
                         "notification.title-key", "layout-feedback.inbox-title",
                         "notification.body-key", "layout-feedback.inbox-body")));

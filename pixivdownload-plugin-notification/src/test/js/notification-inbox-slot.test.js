@@ -92,15 +92,17 @@ assert.ok(PAGE_SOURCE.includes("frame.setAttribute('sandbox', 'allow-scripts')")
     && PAGE_SOURCE.includes("camera 'none'; clipboard-read 'none'; clipboard-write 'none'")
     && !PAGE_SOURCE.includes("frame.setAttribute('credentialless', '')")
     && !PAGE_SOURCE.includes('allow-same-origin'),
-    '本地正文 iframe 必须只允许受 nonce 保护的桥接脚本、保持不同源隔离和敏感能力禁用');
+    '所有正文 iframe 必须只允许运行脚本、保持不同源隔离和敏感能力禁用');
 assert.ok(PAGE_SOURCE.includes("data.type !== 'pixiv-external-link'")
-    && PAGE_SOURCE.includes("frame.contentWindow === event.source")
+    && PAGE_SOURCE.includes("candidate.contentWindow === event.source")
+    && PAGE_SOURCE.includes("event.origin !== 'null'")
+    && PAGE_SOURCE.includes("frame.getAttribute('data-embedded-survey') === 'true'")
     && PAGE_SOURCE.includes("window.PixivFeedback.followLink(data.href")
     && PAGE_SOURCE.includes("window.addEventListener('message', handleContentMessage)"),
     'HTML 正文链接只能由当前 iframe 消息桥接到全站外链确认');
 assert.ok(PAGE_SOURCE.includes("data.type === 'pixiv-content-height'")
-    && PAGE_SOURCE.includes("state.selectedId !== frame.getAttribute('data-notification-id') || frame.hidden")
-    && PAGE_SOURCE.includes('Math.min(2000, Math.max(160, Math.ceil(data.height + 2)))')
+    && PAGE_SOURCE.includes('if (!activeContentFrame(frame)')
+    && PAGE_SOURCE.includes('Math.min(2000, Math.max(160, Math.ceil(height + 2)))')
     && PAGE_SOURCE.includes('window.setTimeout(applyHeight, 50)')
     && PAGE_SOURCE.includes('if (frame.style.height !== frameHeight) frame.style.height = frameHeight;')
     && PAGE_SOURCE.includes("frame.setAttribute('scrolling', 'no')")
@@ -109,12 +111,15 @@ assert.ok(PAGE_SOURCE.includes("data.type === 'pixiv-content-height'")
     'HTML 正文必须仅按当前 frame 的限频消息在 160-2000px 内自适应高度且不显示独立滚动框');
 assert.ok(PAGE_SOURCE.includes("frame.setAttribute('data-embedded-survey', 'true')")
     && PAGE_SOURCE.includes("data.type === 'pixiv-survey-unavailable'")
-    && PAGE_SOURCE.includes("event.origin !== location.origin")
+    && PAGE_HTML.includes('src="/js/pixiv-survey-frame-bridge.js"')
+    && PAGE_SOURCE.includes('window.PixivSurveyFrameBridge.createHost({')
+    && PAGE_SOURCE.includes('surveyFrameHost.attach(frame, source)')
+    && PAGE_SOURCE.includes('isActive: activeContentFrame')
     && PAGE_SOURCE.includes("'/survey-unavailable'")
     && PAGE_SOURCE.includes('message.deletable !== false')
     && PAGE_SOURCE.includes("query.set('lang', pageI18n.lang)")
     && SOURCE.includes("query.set('lang', pageI18n.lang)"),
-    '插件调查应以内嵌同源页面展示、校验消息来源、隐藏删除入口并跟随当前语言');
+    '插件调查应在不同源 sandbox 中通过受限通道展示、隐藏删除入口并跟随当前语言');
 assert.ok(PAGE_HTML.includes('id="notificationContentFrames"')
     && PAGE_SOURCE.includes('var contentFrames = new Map();')
     && !PAGE_SOURCE.includes("frame.setAttribute('loading', 'eager')")
