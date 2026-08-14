@@ -28,8 +28,8 @@ async function main() {
     const posthog = {
         projectToken: 'phc_owner_one',
         surveyId: 'survey-one',
-        apiHost: 'https://one.example.test',
-        uiHost: 'https://ui-one.example.test'
+        apiHost: 'https://layout-survey.sywyar.top',
+        uiHost: 'https://us.posthog.com'
     };
     const first = await api.createSurveyClient({
         ownerKey: 'download-workbench.layout-feedback',
@@ -62,7 +62,27 @@ async function main() {
     }), null);
     assert.strictEqual(await api.createSurveyClient({
         ownerKey: 'invalid.insecure-host',
-        posthog: {...posthog, apiHost: 'http://one.example.test'},
+        posthog: {...posthog, apiHost: 'https://attacker.example'},
+        beforeSend: filter
+    }), null);
+    for (const [ownerKey, apiHost] of [
+        ['invalid.http-host', 'http://layout-survey.sywyar.top'],
+        ['invalid.custom-port', 'https://layout-survey.sywyar.top:444'],
+        ['invalid.path', 'https://layout-survey.sywyar.top/capture'],
+        ['invalid.credentials', 'https://user@layout-survey.sywyar.top']
+    ]) {
+        assert.strictEqual(await api.createSurveyClient({
+            ownerKey, posthog: {...posthog, apiHost}, beforeSend: filter
+        }), null);
+    }
+    assert.strictEqual(await api.createSurveyClient({
+        ownerKey: 'invalid.ui-host',
+        posthog: {...posthog, uiHost: 'https://attacker.example'},
+        beforeSend: filter
+    }), null);
+    assert.strictEqual(await api.createSurveyClient({
+        ownerKey: 'invalid.ui-path',
+        posthog: {...posthog, uiHost: 'https://us.posthog.com/project'},
         beforeSend: filter
     }), null);
     assert.strictEqual(await api.createSurveyClient({
@@ -76,8 +96,8 @@ async function main() {
         posthog: {
             projectToken: 'phc_owner_two',
             surveyId: 'survey-two',
-            apiHost: 'https://two.example.test',
-            uiHost: 'https://ui-two.example.test'
+            apiHost: 'https://eu.i.posthog.com',
+            uiHost: 'https://eu.posthog.com'
         },
         beforeSend: filter
     });

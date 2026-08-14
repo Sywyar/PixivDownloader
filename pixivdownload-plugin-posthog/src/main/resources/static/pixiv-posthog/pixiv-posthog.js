@@ -6,6 +6,16 @@
     var SDK_URL = '/vendor/posthog-js/' + SDK_VERSION + '/array.full.js';
     var clients = Object.create(null);
     var sdkPromise = null;
+    var ALLOWED_API_ORIGINS = Object.freeze([
+        'https://layout-survey.sywyar.top',
+        'https://us.i.posthog.com',
+        'https://eu.i.posthog.com'
+    ]);
+    var ALLOWED_UI_ORIGINS = Object.freeze([
+        'https://us.posthog.com',
+        'https://eu.posthog.com',
+        'https://app.posthog.com'
+    ]);
 
     function warn(message) {
         if (global.console && typeof global.console.warn === 'function') {
@@ -68,14 +78,16 @@
         return typeof value === 'string' && value.trim() !== '';
     }
 
-    function httpsUrl(value) {
+    function allowedOrigin(value, allowed) {
         if (!nonBlank(value) || typeof global.URL !== 'function') return false;
         try {
             var parsed = new global.URL(value.trim());
             return parsed.protocol === 'https:' && parsed.hostname !== ''
-                && parsed.username === '' && parsed.password === '';
+                && parsed.username === '' && parsed.password === '' && parsed.port === ''
+                && parsed.pathname === '/' && parsed.search === '' && parsed.hash === ''
+                && allowed.indexOf(parsed.origin) >= 0 ? parsed.origin : null;
         } catch (_) {
-            return false;
+            return null;
         }
     }
 
@@ -83,15 +95,15 @@
         if (!value || typeof value !== 'object'
                 || !nonBlank(value.projectToken)
                 || !nonBlank(value.surveyId)
-                || !httpsUrl(value.apiHost)
-                || !httpsUrl(value.uiHost)) {
+                || !allowedOrigin(value.apiHost, ALLOWED_API_ORIGINS)
+                || !allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)) {
             return null;
         }
         return Object.freeze({
             projectToken: value.projectToken.trim(),
             surveyId: value.surveyId.trim(),
-            apiHost: value.apiHost.trim(),
-            uiHost: value.uiHost.trim()
+            apiHost: allowedOrigin(value.apiHost, ALLOWED_API_ORIGINS),
+            uiHost: allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)
         });
     }
 
