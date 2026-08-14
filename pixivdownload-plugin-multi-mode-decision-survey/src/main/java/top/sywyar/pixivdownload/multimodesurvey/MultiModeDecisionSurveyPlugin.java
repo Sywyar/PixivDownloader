@@ -9,9 +9,6 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -22,8 +19,7 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
     public static final String ID = "multi-mode-decision-survey";
     private static final String PUBLICATION_RESOURCE =
             "static/pixiv-multi-mode-decision-survey/release-publication.properties";
-    private static final String POSTHOG_CONFIG_RESOURCE =
-            "static/pixiv-multi-mode-decision-survey/posthog-config.js";
+    private static final String SURVEY_INSTANCE_KEY = "multi-mode-decision-v1";
 
     @Override
     public String id() {
@@ -79,10 +75,6 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
         if (!officialRelease()) {
             return List.of();
         }
-        String instanceKey = surveyConfigurationFingerprint();
-        if (instanceKey == null) {
-            return List.of();
-        }
         return List.of(new WebUiSlotContribution(
                 "multi-mode-decision-survey.inbox",
                 "notification.inbox",
@@ -90,7 +82,7 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
                 20,
                 Map.of(
                         "notification.category", "survey",
-                        "notification.instance-key", instanceKey,
+                        "notification.instance-key", SURVEY_INSTANCE_KEY,
                         "notification.embed-url", "/pixiv-multi-mode-decision-survey/embed.html",
                         "notification.i18n-namespace", ID,
                         "notification.title-key", "inbox-title",
@@ -111,16 +103,4 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
         }
     }
 
-    private static String surveyConfigurationFingerprint() {
-        try (InputStream input = MultiModeDecisionSurveyPlugin.class.getClassLoader()
-                .getResourceAsStream(POSTHOG_CONFIG_RESOURCE)) {
-            if (input == null) {
-                return null;
-            }
-            return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
-        } catch (IOException | NoSuchAlgorithmException ignored) {
-            return null;
-        }
-    }
 }

@@ -20,9 +20,6 @@ import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivSchedul
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -46,8 +43,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     private static final String PREFERRED_DOWNLOAD_WORKBENCH_MARKER = "preferred-download-workbench";
     private static final String SURVEY_PUBLICATION_RESOURCE =
             "static/pixiv-layout-feedback/release-publication.properties";
-    private static final String SURVEY_POSTHOG_CONFIG_RESOURCE =
-            "static/pixiv-layout-feedback/posthog-config.js";
+    private static final String SURVEY_INSTANCE_KEY = "layout-feedback-v1";
 
     @Override
     public String id() {
@@ -174,10 +170,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         if (!officialSurveyRelease()) {
             return List.of();
         }
-        String instanceKey = surveyConfigurationFingerprint();
-        if (instanceKey == null) {
-            return List.of();
-        }
         return List.of(new WebUiSlotContribution(
                 "download-workbench.layout-survey",
                 "notification.inbox",
@@ -185,7 +177,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 10,
                 Map.of(
                         "notification.category", "survey",
-                        "notification.instance-key", instanceKey,
+                        "notification.instance-key", SURVEY_INSTANCE_KEY,
                         "notification.embed-url", "/pixiv-layout-feedback/embed.html",
                         "notification.i18n-namespace", "layout-feedback",
                         "notification.title-key", "layout-feedback.inbox-title",
@@ -221,19 +213,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
             return "true".equalsIgnoreCase(properties.getProperty("officialReleaseEnabled"));
         } catch (IOException ignored) {
             return false;
-        }
-    }
-
-    private static String surveyConfigurationFingerprint() {
-        try (InputStream input = DownloadWorkbenchPlugin.class.getClassLoader()
-                .getResourceAsStream(SURVEY_POSTHOG_CONFIG_RESOURCE)) {
-            if (input == null) {
-                return null;
-            }
-            return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
-        } catch (IOException | NoSuchAlgorithmException ignored) {
-            return null;
         }
     }
 

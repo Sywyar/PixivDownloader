@@ -10,8 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -258,8 +256,7 @@ class LayoutSurveyContractTest {
         assertThat(slots).hasSize(officialRelease ? 1 : 0);
         if (officialRelease) {
             assertThat(slots.get(0).metadata().get("notification.instance-key"))
-                    .isEqualTo(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                            .digest(postHogConfig.getBytes(StandardCharsets.UTF_8))));
+                    .isEqualTo("layout-feedback-v1");
         }
     }
 
@@ -287,8 +284,9 @@ class LayoutSurveyContractTest {
                 .contains("pixiv:batch-layout:v1");
         assertThat(pluginSource)
                 .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
+                .contains("private static final String SURVEY_INSTANCE_KEY = \"layout-feedback-v1\"")
                 .contains("\"notification.inbox\"")
-                .contains("\"notification.instance-key\", instanceKey")
+                .contains("\"notification.instance-key\", SURVEY_INSTANCE_KEY")
                 .contains("\"notification.embed-url\", \"/pixiv-layout-feedback/embed.html\"")
                 .contains("\"notification.i18n-namespace\", \"layout-feedback\"");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
