@@ -8,6 +8,7 @@
     var STATE_KEY = 'pixiv:multi-mode-decision-survey:state:v1';
     var IDENTITY_URL = '/api/multi-mode-decision-survey/identity';
     var SCOPED_ID = /^pmds_[0-9a-f]{64}$/;
+    var SUBMISSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     var CHOICES = ['Yes', 'No', 'Other'];
     var PROTOCOL_PROPERTIES = [
         'distinct_id', 'token', '$survey_id', '$survey_completed'
@@ -123,8 +124,11 @@
                 if (!response || !response.ok) throw new Error('identity unavailable');
                 return response.json();
             }).then(function (body) {
-                if (!body || !SCOPED_ID.test(body.distinctId)) throw new Error('invalid identity');
-                return body.distinctId;
+                if (!body || !SCOPED_ID.test(body.distinctId)
+                        || !SUBMISSION_ID.test(body.submissionId)) {
+                    throw new Error('invalid identity');
+                }
+                return {distinctId: body.distinctId, submissionId: body.submissionId};
             });
         }
 
@@ -155,7 +159,7 @@
             });
         }
 
-        function renderForm(client, question) {
+        function renderForm(client, question, identity) {
             root.className = 'survey-card';
             root.removeAttribute('role');
             root.textContent = '';
@@ -197,7 +201,7 @@
 
             var privacy = global.document.createElement('p');
             privacy.className = 'survey-privacy';
-            privacy.textContent = t('privacy', '本问卷会发送问卷回答、调查标识、调查专用匿名标识、完成状态、事件时间，以及传输所需的事件名和公开项目令牌。');
+            privacy.textContent = t('privacy', '本问卷会发送问卷回答、调查标识、调查专用匿名标识、用于投递去重的稳定事件标识、完成状态、事件时间，以及传输所需的事件名和公开项目令牌。');
             var error = global.document.createElement('p');
             error.className = 'survey-error';
             error.hidden = true;
@@ -248,7 +252,8 @@
                 submit.textContent = t('submitting', '提交中…');
                 var properties = {'$survey_id': POSTHOG.surveyId, '$survey_completed': true};
                 properties['$survey_response_' + question.id] = response;
-                global.PixivPostHog.captureSurveyWithAck(OWNER_KEY, 'survey sent', properties).then(function () {
+                global.PixivPostHog.captureSurveyWithAck(
+                    OWNER_KEY, 'survey sent', properties, identity.submissionId).then(function () {
                     rememberSubmitted();
                     status('completed', '感谢反馈，您的回答已提交。');
                 }).catch(function () {
@@ -280,16 +285,16 @@
                 status('unavailable', '调查暂时无法加载，请稍后重试。');
                 return;
             }
-            var distinctId = await fetchIdentity();
+            var identity = await fetchIdentity();
             var client = await global.PixivPostHog.createSurveyClient({
                 ownerKey: OWNER_KEY,
                 posthog: POSTHOG,
                 trustedApiOrigins: TRUSTED_POSTHOG_API_ORIGINS,
-                distinctId: distinctId,
+                distinctId: identity.distinctId,
                 beforeSend: beforeSend
             });
             if (!client || typeof client.get_distinct_id !== 'function'
-                    || client.get_distinct_id() !== distinctId) throw new Error('posthog identity mismatch');
+                    || client.get_distinct_id() !== identity.distinctId) throw new Error('posthog identity mismatch');
             var published = await fetchSurvey(client);
             if (published.status === 'removed') {
                 unavailablePermanently();
@@ -300,7 +305,7 @@
             if (submitted()) {
                 status('completed', '感谢反馈，您的回答已提交。');
             } else {
-                renderForm(client, question);
+                renderForm(client, question, identity);
             }
         } catch (_) {
             status('unavailable', '调查暂时无法加载，请稍后重试。');

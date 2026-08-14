@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,6 +27,9 @@ import java.util.regex.Pattern;
  * 或派生后的 scoped ID。
  */
 public final class LayoutFeedbackIdentityDeriver {
+
+    /** 调查内容或回答资格发生不兼容变化时必须递增，使同一安装可以重新回答。 */
+    public static final String CAMPAIGN_VERSION = "layout-feedback-v1";
 
     /** Survey ID 形状：标准 UUID 外形，或 8-128 位安全字母数字令牌（与打包生成器一致）。 */
     public static final Pattern SURVEY_ID_PATTERN = Pattern.compile(
@@ -70,6 +74,25 @@ public final class LayoutFeedbackIdentityDeriver {
                 + NAMESPACE_SEPARATOR + uuid.toString();
         byte[] digest = sha256(input);
         return "plf_" + HexFormat.of().formatHex(digest);
+    }
+
+    /**
+     * 为同一调查、campaign 与匿名安装身份派生稳定 UUIDv8，交给事件接收端做幂等去重。
+     * 回答内容不参与派生，因此重试或修改答案不会创建第二份答卷。
+     */
+    public static String deriveSubmissionId(String surveyId, String campaignVersion,
+                                            String scopedIdentity) {
+        if (!isValidSurveyId(surveyId)
+                || campaignVersion == null || !campaignVersion.matches("[a-z0-9][a-z0-9._-]{0,63}")
+                || scopedIdentity == null || !SCOPED_ID_PATTERN.matcher(scopedIdentity).matches()) {
+            throw new IllegalArgumentException("invalid survey submission scope");
+        }
+        byte[] digest = sha256(SCOPE_NAMESPACE + ":submission" + NAMESPACE_SEPARATOR + surveyId
+                + NAMESPACE_SEPARATOR + campaignVersion + NAMESPACE_SEPARATOR + scopedIdentity);
+        digest[6] = (byte) ((digest[6] & 0x0f) | 0x80);
+        digest[8] = (byte) ((digest[8] & 0x3f) | 0x80);
+        ByteBuffer bytes = ByteBuffer.wrap(digest);
+        return new UUID(bytes.getLong(), bytes.getLong()).toString();
     }
 
     private static byte[] sha256(String input) {

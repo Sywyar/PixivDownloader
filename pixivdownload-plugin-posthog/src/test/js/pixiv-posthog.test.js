@@ -235,33 +235,50 @@ async function main() {
         '$survey_id': posthog.surveyId,
         '$survey_response_q1': 'Yes'
     };
-    await api.captureSurveyWithAck('download-workbench.layout-feedback', 'survey sent', response);
+    const submissionId = '018f35a1-7c40-8abc-8def-0123456789ab';
+    await api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', {
+            ...response,
+            '$survey_response_q1': 'Changed answer'
+        }, submissionId);
     assert.strictEqual(fetchCalls.length, 1);
     assert.strictEqual(fetchCalls[0].url, posthog.apiHost + '/e/');
     assert.strictEqual(fetchCalls[0].options.method, 'POST');
     assert.strictEqual(fetchCalls[0].options.credentials, 'omit');
     assert.ok(fetchCalls[0].options.signal);
-    assert.strictEqual(JSON.parse(fetchCalls[0].options.body).properties.distinct_id,
-        'plf_' + 'a'.repeat(64));
+    const firstPayload = JSON.parse(fetchCalls[0].options.body);
+    assert.strictEqual(firstPayload.properties.distinct_id, 'plf_' + 'a'.repeat(64));
+    assert.strictEqual(firstPayload.uuid, submissionId);
     assert.strictEqual(timeoutCallback, null);
+
+    await api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response, submissionId);
+    assert.strictEqual(JSON.parse(fetchCalls[1].options.body).uuid, submissionId);
+
+    const beforeInvalidSubmission = fetchCalls.length;
+    await assert.rejects(api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response), /id is invalid/);
+    await assert.rejects(api.captureSurveyWithAck(
+        'download-workbench.layout-feedback', 'survey sent', response, 'not-a-uuid'), /id is invalid/);
+    assert.strictEqual(fetchCalls.length, beforeInvalidSubmission);
 
     fetchImpl = () => Promise.resolve({ok: false, status: 429});
     await assert.rejects(api.captureSurveyWithAck(
-        'download-workbench.layout-feedback', 'survey sent', response), /not acknowledged/);
+        'download-workbench.layout-feedback', 'survey sent', response, submissionId), /not acknowledged/);
     fetchImpl = () => Promise.reject(new Error('network unavailable'));
     await assert.rejects(api.captureSurveyWithAck(
-        'download-workbench.layout-feedback', 'survey sent', response), /network unavailable/);
+        'download-workbench.layout-feedback', 'survey sent', response, submissionId), /network unavailable/);
 
     fetchImpl = () => Promise.resolve({ok: true, status: 200});
     optedOut = true;
     const fetchCount = fetchCalls.length;
     await assert.rejects(api.captureSurveyWithAck(
-        'download-workbench.layout-feedback', 'survey sent', response), /disabled/);
+        'download-workbench.layout-feedback', 'survey sent', response, submissionId), /disabled/);
     assert.strictEqual(fetchCalls.length, fetchCount);
     optedOut = false;
     capturing = false;
     await assert.rejects(api.captureSurveyWithAck(
-        'download-workbench.layout-feedback', 'survey sent', response), /disabled/);
+        'download-workbench.layout-feedback', 'survey sent', response, submissionId), /disabled/);
     assert.strictEqual(fetchCalls.length, fetchCount);
     capturing = true;
 
@@ -273,7 +290,7 @@ async function main() {
         options.signal.addEventListener('abort', () => reject(new Error('request aborted')), {once: true});
     });
     const timedOut = api.captureSurveyWithAck(
-        'download-workbench.layout-feedback', 'survey sent', response);
+        'download-workbench.layout-feedback', 'survey sent', response, submissionId);
     await Promise.resolve();
     assert.ok(timeoutCallback);
     timeoutCallback();

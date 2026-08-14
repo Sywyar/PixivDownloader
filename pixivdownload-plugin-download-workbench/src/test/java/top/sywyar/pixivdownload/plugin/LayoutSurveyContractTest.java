@@ -113,6 +113,7 @@ class LayoutSurveyContractTest {
                 "固定版本的 PostHog SDK",
                 "调查标识",
                 "调查专用匿名标识",
+                "用于投递去重的稳定事件标识",
                 "应用版本",
                 "当前布局",
                 "调查结构版本",
@@ -121,13 +122,13 @@ class LayoutSurveyContractTest {
                 "公开项目令牌",
                 "不发送原始安装身份",
                 "Cookie",
-                "本地路径")
-                .doesNotContain("投递去重标识");
+                "本地路径");
 
         assertThat(en).contains(
                 "pinned PostHog SDK",
                 "survey ID",
                 "survey-scoped anonymous identifier",
+                "stable event identifier used for delivery deduplication",
                 "app version",
                 "current layout",
                 "survey schema version",
@@ -136,15 +137,14 @@ class LayoutSurveyContractTest {
                 "public project token",
                 "does not send the raw installation identity",
                 "cookies",
-                "local paths")
-                .doesNotContain("delivery deduplication ID");
+                "local paths");
 
         assertThat(js).contains(
                 "固定版本的 PostHog SDK",
                 "调查专用匿名标识",
+                "用于投递去重的稳定事件标识",
                 "公开项目令牌",
-                "不发送原始安装身份")
-                .doesNotContain("投递去重标识");
+                "不发送原始安装身份");
     }
 
     @Test
@@ -154,11 +154,13 @@ class LayoutSurveyContractTest {
         String changelog = Files.readString(repoRoot.resolve("CHANGELOG.md"), StandardCharsets.UTF_8);
         assertThat(changelog).contains("调查专用匿名标识");
         assertThat(changelog).contains("随机安装身份与当前调查 ID 单向派生");
-        assertThat(changelog).contains("匿名浏览器标识");
+        assertThat(changelog).contains("调查作用域安装匿名标识");
         assertThat(changelog).contains("调查标识");
         assertThat(changelog).contains("当前布局");
         assertThat(changelog).contains("调查结构版本");
         assertThat(changelog).contains("事件时间");
+        assertThat(changelog).contains("用于投递去重的稳定事件标识");
+        assertThat(changelog).contains("稳定事件 UUID");
         assertThat(changelog).contains("最小传输字段");
         assertThat(changelog).contains("原始安装身份");
         assertThat(changelog).doesNotContain("按安装身份去重");
@@ -316,12 +318,12 @@ class LayoutSurveyContractTest {
                 .doesNotContain("parent.postMessage");
         assertThat(pluginSource)
                 .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
-                .contains("private static final String SURVEY_INSTANCE_KEY = \"layout-feedback-v1\"")
+                .contains("LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION")
                 .contains("pixivBridgeGet=/api/layout-feedback/state")
                 .contains("pixivBridgePost=/api/layout-feedback/state")
                 .contains("pixivBridgeRead=pixiv_theme")
                 .contains("\"notification.inbox\"")
-                .contains("\"notification.instance-key\", SURVEY_INSTANCE_KEY")
+                .contains("\"notification.instance-key\", LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION")
                 .contains("\"notification.embed-url\", SURVEY_EMBED_URL")
                 .contains("\"notification.i18n-namespace\", \"layout-feedback\"");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())

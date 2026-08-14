@@ -29,6 +29,13 @@ class MultiModeDecisionSurveyIdentityControllerTest {
         assertThat(response.getHeaders().getCacheControl()).contains("no-store");
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().distinctId()).isEqualTo(first);
+        String submissionId = response.getBody().submissionId();
+        assertThat(submissionId)
+                .isEqualTo(MultiModeDecisionSurveyIdentityController.deriveSubmissionId(
+                        SURVEY_ID, MultiModeDecisionSurveyIdentityController.CAMPAIGN_VERSION, first))
+                .matches("[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}");
+        assertThat(submissionId).isNotEqualTo(MultiModeDecisionSurveyIdentityController
+                .deriveSubmissionId(SURVEY_ID, "multi-mode-decision-v2", first));
     }
 
     @Test

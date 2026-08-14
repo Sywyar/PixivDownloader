@@ -3,6 +3,7 @@
 
     var SDK_LOAD_TIMEOUT_MS = 10000;
     var CAPTURE_ACK_TIMEOUT_MS = 15000;
+    var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     var SDK_VERSION = '1.409.5';
     var SDK_URL = '/vendor/posthog-js/' + SDK_VERSION + '/array.full.js';
     var clients = Object.create(null);
@@ -226,7 +227,10 @@
         return record.promise;
     }
 
-    function captureSurveyWithAck(ownerKey, eventName, properties) {
+    function captureSurveyWithAck(ownerKey, eventName, properties, submissionId) {
+        if (typeof submissionId !== 'string' || !UUID_PATTERN.test(submissionId)) {
+            return Promise.reject(new Error('posthog survey submission id is invalid'));
+        }
         var record = clients[typeof ownerKey === 'string' ? ownerKey.trim() : ''];
         if (!record || !record.promise || typeof global.fetch !== 'function'
                 || typeof global.AbortController !== 'function') {
@@ -255,6 +259,7 @@
             if (!filtered || filtered.event !== eventName || !filtered.properties) {
                 throw new Error('posthog survey event rejected');
             }
+            filtered = Object.assign({}, filtered, {uuid: submissionId.toLowerCase()});
             var controller = new global.AbortController();
             var timeoutId = global.setTimeout(function () {
                 controller.abort();

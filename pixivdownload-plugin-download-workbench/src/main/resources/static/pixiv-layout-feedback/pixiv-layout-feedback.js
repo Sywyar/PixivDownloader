@@ -81,6 +81,7 @@
     // reconciliation 中「服务端已提供至少相同阻断效果」的剩余时长容差。
     var RECONCILE_REMAINING_TOLERANCE_MS = 5 * 1000;
     var SCOPED_ID_PATTERN = /^plf_[0-9a-f]{64}$/;
+    var SUBMISSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     var SUGGESTION_MAX_CODE_POINTS = 1000;
     var SURVEY_SCHEMA_VERSION = '1';
     var FLAGS_TIMEOUT_MS = 10 * 1000;
@@ -299,6 +300,7 @@
     var serverBacked = false;
     var serverIdentityAvailable = false;
     var serverDistinctId = null;
+    var serverSubmissionId = null;
     // 服务端权威展示视图：只允许由成功 GET / POST 200 响应经 applyServerView 写入。
     // 视图只含状态语义（status / canShow / retryAfterMs / seenLayouts），不含任何
     // 服务端绝对时间点；snooze 是否到期由服务端判断，浏览器只消费 retryAfterMs。
@@ -505,15 +507,15 @@
      * </ul>
      *
      * - revision 必须单调：低 revision 永不覆盖；同 revision 持久化字段
-     *   （stateAvailable / distinctId / status / seenLayouts）必须一致，动态字段
+     *   （stateAvailable / distinctId / submissionId / status / seenLayouts）必须一致，动态字段
      *   （canShow / retryAfterMs）允许随服务端时间流逝变化；
-     * - 同一页面 generation 内 scoped 身份必须稳定：identity 变化一律 INVALID；
+     * - 同一页面 generation 内 scoped 身份与提交 UUID 必须稳定：任一变化一律 INVALID；
      * - 任一字段非法或组合非法（status=null 必须 canShow=true / retryAfterMs=0；
      *   submitted / never 必须 canShow=false / retryAfterMs=0；snoozed + canShow=true
      *   必须 retryAfterMs=0；snoozed + canShow=false 必须 retryAfterMs&gt;0；
      *   stateAvailable=false 必须 status=null / canShow=false / retryAfterMs=0）
      *   整份视图拒绝，不使用部分字段；
-     * - 服务端声明可用（available=true）却缺失 / 空 distinctId：整份视图拒绝；
+     * - 服务端声明可用却缺失 distinctId 或合法 submissionId：整份视图拒绝；
      * - 只写 server* / session* 变量，不直接写 localStorage（由 syncServerViewToLocalCache 决定）。
      */
     function applyServerView(data) {
@@ -524,6 +526,8 @@
         if (distinctId && !SCOPED_ID_PATTERN.test(distinctId)) return VIEW_INVALID;
         // 服务端声明可用（available=true）却不下发 scoped 身份：整份视图非法，不得部分使用。
         if (!distinctId) return VIEW_INVALID;
+        var submissionId = typeof data.submissionId === 'string' ? data.submissionId : '';
+        if (!SUBMISSION_ID_PATTERN.test(submissionId)) return VIEW_INVALID;
         if (!isSafeInteger(data.revision) || data.revision < 0) return VIEW_INVALID;
         var status = null;
         if (data.status != null) {
@@ -575,8 +579,9 @@
             }
         }
         // 同一页面 generation 内 scoped 身份必须稳定：不得因 revision 更高而接受身份变化。
-        if (serverSnapshotInitialized && serverDistinctId && distinctId !== serverDistinctId) {
-            warn('layout survey: server scoped identity changed within this page; view rejected');
+        if (serverSnapshotInitialized
+                && (distinctId !== serverDistinctId || submissionId !== serverSubmissionId)) {
+            warn('layout survey: server submission identity changed within this page; view rejected');
             return VIEW_INVALID;
         }
         if (!serverSnapshotInitialized) return VIEW_APPLIED;
@@ -585,6 +590,7 @@
         // 同 revision：持久化字段必须一致，动态字段（canShow / retryAfterMs）允许变化。
         var samePersistent = data.stateAvailable === serverStateAvailable
             && distinctId === serverDistinctId
+            && submissionId === serverSubmissionId
             && status === serverStatus
             && (data.stateAvailable === false || seenLayoutsEqual(seenLayouts, serverSeenLayouts));
         if (!samePersistent) {
@@ -611,6 +617,7 @@
         }
         serverIdentityAvailable = distinctId !== '';
         serverDistinctId = distinctId || null;
+        serverSubmissionId = data.submissionId;
         serverStateAvailable = data.stateAvailable;
         serverBacked = data.stateAvailable && serverIdentityAvailable;
         serverRevision = data.revision;
@@ -639,8 +646,8 @@
      * - 成功且 available=true：启用服务端 scoped 身份；stateAvailable=true 时启用
      *   serverBacked（服务端状态权威），随后先执行有限本地状态回放（必须在覆盖本地
      *   缓存之前读取 localFallback），再用权威视图更新本地协调缓存；
-     * - 403（multi 模式）/ 网络失败 / 超时 / 非法响应：整体回退 local 模式，
-     *   调查仍按浏览器本地去重工作；
+     * - 网络失败 / 超时 / 非法响应：整体回退 local 模式；没有稳定提交 UUID 时远端
+     *   提交会 fail closed；
      * - 超时 abort 并 resolve，不永久 pending；destroy 时 cancel；
      * - GET 超时后 / destroy 后 / re-init 旧 generation 的迟到响应一律不得应用；
      *   同 generation 已进入 reconciliation 后不接受重复 GET callback。
@@ -2171,7 +2178,8 @@
                         finish(false);
                         return;
                     }
-                    manager.captureSurveyWithAck(POSTHOG_OWNER_KEY, name, properties).then(function () {
+                    manager.captureSurveyWithAck(
+                        POSTHOG_OWNER_KEY, name, properties, serverSubmissionId).then(function () {
                         finish(true);
                     }, function () {
                         finish(false);
@@ -2404,7 +2412,7 @@
 
             var privacy = buildElement('p', 'plf-privacy');
             privacy.setAttribute('data-i18n', I18N_NS + ':privacy');
-            privacy.textContent = t('privacy', '本问卷使用固定版本的 PostHog SDK，并向固定的事件接收接口发送问卷回答、调查标识、调查专用匿名标识、应用版本、当前布局、调查结构版本、事件时间，以及传输所需的事件名和公开项目令牌。不发送原始安装身份、账号、Cookie、作品或本地路径。');
+            privacy.textContent = t('privacy', '本问卷使用固定版本的 PostHog SDK，并向固定的事件接收接口发送问卷回答、调查标识、调查专用匿名标识、用于投递去重的稳定事件标识、应用版本、当前布局、调查结构版本、事件时间，以及传输所需的事件名和公开项目令牌。不发送原始安装身份、账号、Cookie、作品或本地路径。');
 
             var error = buildElement('p', 'plf-error');
             error.setAttribute('role', 'alert');
@@ -3540,6 +3548,7 @@
         serverIdentityAvailable = false;
         serverBacked = false;
         serverDistinctId = null;
+        serverSubmissionId = null;
         serverRevision = 0;
         serverStateAvailable = false;
         serverSnapshotInitialized = false;

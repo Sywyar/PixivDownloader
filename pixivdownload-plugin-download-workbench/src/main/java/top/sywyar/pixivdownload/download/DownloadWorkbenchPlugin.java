@@ -43,7 +43,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     private static final String PREFERRED_DOWNLOAD_WORKBENCH_MARKER = "preferred-download-workbench";
     private static final String SURVEY_PUBLICATION_RESOURCE =
             "static/pixiv-layout-feedback/release-publication.properties";
-    private static final String SURVEY_INSTANCE_KEY = "layout-feedback-v1";
     private static final String SURVEY_EMBED_URL = "/pixiv-layout-feedback/embed.html"
             + "?pixivBridgeGet=/api/i18n/meta"
             + "&pixivBridgeGet=/api/i18n/messages/layout-feedback"
@@ -193,7 +192,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 10,
                 Map.of(
                         "notification.category", "survey",
-                        "notification.instance-key", SURVEY_INSTANCE_KEY,
+                        "notification.instance-key", LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION,
                         "notification.embed-url", SURVEY_EMBED_URL,
                         "notification.i18n-namespace", "layout-feedback",
                         "notification.title-key", "layout-feedback.inbox-title",

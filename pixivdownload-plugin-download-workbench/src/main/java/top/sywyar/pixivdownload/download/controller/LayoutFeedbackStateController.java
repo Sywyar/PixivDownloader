@@ -37,11 +37,11 @@ import java.util.Locale;
 
 /**
  * 布局偏好调查的服务端状态端点：{@code GET /api/layout-feedback/state?surveyId=...} 返回
- * 调查作用域匿名身份与权威展示视图（status / canShow / retryAfterMs / seenLayouts），
+ * 调查作用域匿名身份、稳定提交 UUID 与权威展示视图（status / canShow / retryAfterMs / seenLayouts），
  * {@code POST /api/layout-feedback/state} 接收动作式命令并持久化到
  * {@code state/download-workbench/layout-feedback-state.json}（无 CAS：合法命令一律 200）。
- * 仅 solo 模式启用，multi 模式一律 403（不调用 InstallIdentityProvider、不读取 body、
- * 不触发 Store 加载、不读写状态文件）。
+ * solo 模式启用服务端状态；multi 模式的 GET 只返回安装作用域身份与稳定提交 UUID，
+ * 不触发 Store 加载或状态文件读写，POST 仍在读取 body 前返回 403。
  *
  * <p>POST 处理顺序固定为：模式检查 → query surveyId 校验（缺失由 Controller 自行返回
  * 400）→ Content-Type 校验（null / 非 JSON / 非法字符串一律 415，读取 body 之前）→
@@ -53,7 +53,7 @@ import java.util.Locale;
  *
  * <p>全部响应（含缺 surveyId 的 400 与错误 Content-Type 的 415，这些错误不再由 Spring
  * 在进入 Controller 前生成）携带 {@code Cache-Control: no-store, private}：scoped
- * distinct ID / revision / status·canShow·retryAfterMs·seenLayouts 一律不得被代理或浏览器
+ * distinct ID / submission ID / revision / status·canShow·retryAfterMs·seenLayouts 一律不得被代理或浏览器
  * 缓存。原始安装 UUID 只用于派生 scoped ID，绝不进入响应。
  */
 @RestController
@@ -93,11 +93,11 @@ public class LayoutFeedbackStateController {
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<LayoutFeedbackStateResponse> getState(
             @RequestParam(value = "surveyId", required = false) String surveyId) {
-        if (!isSolo()) {
-            return statusResponse(HttpStatus.FORBIDDEN);
-        }
         if (!LayoutFeedbackIdentityDeriver.isValidSurveyId(surveyId)) {
             return statusResponse(HttpStatus.BAD_REQUEST);
+        }
+        if (!isSolo()) {
+            return jsonResponse(HttpStatus.OK, buildIdentityOnlyResponse(surveyId));
         }
         // 同一个请求只读取一次服务端时钟；时钟源返回负值（墙钟回拨 / 异常）按 0 处理。
         // 服务端独立判断 snooze 是否到期，浏览器不参与解释任何服务端绝对时间点。
@@ -334,6 +334,8 @@ public class LayoutFeedbackStateController {
                                                       String surveyId, long serverNow) {
         String scopedIdentity = LayoutFeedbackIdentityDeriver.deriveScopedIdentity(
                 surveyId, installIdentityProvider.get());
+        String submissionId = LayoutFeedbackIdentityDeriver.deriveSubmissionId(
+                surveyId, LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION, scopedIdentity);
         LayoutFeedbackStateEntry state = snapshot.state(surveyId);
         boolean degraded = store.degraded();
         LayoutFeedbackDecisionView view = degraded
@@ -349,11 +351,28 @@ public class LayoutFeedbackStateController {
                 true,
                 !degraded,
                 scopedIdentity,
+                submissionId,
                 snapshot.revision(),
                 view.status(),
                 view.canShow(),
                 view.retryAfterMs(),
                 seenLayouts);
+    }
+
+    private LayoutFeedbackStateResponse buildIdentityOnlyResponse(String surveyId) {
+        String scopedIdentity = LayoutFeedbackIdentityDeriver.deriveScopedIdentity(
+                surveyId, installIdentityProvider.get());
+        return new LayoutFeedbackStateResponse(
+                true,
+                false,
+                scopedIdentity,
+                LayoutFeedbackIdentityDeriver.deriveSubmissionId(
+                        surveyId, LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION, scopedIdentity),
+                0L,
+                null,
+                false,
+                0L,
+                List.of());
     }
 
     /** 带 JSON body 的统一响应：一律 no-store。 */

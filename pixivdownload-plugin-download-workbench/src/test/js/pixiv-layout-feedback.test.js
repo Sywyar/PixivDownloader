@@ -41,6 +41,7 @@ const CONFIG_WINDOW = {};
 vm.runInNewContext(CONFIG_SOURCE, {window: CONFIG_WINDOW});
 vm.runInNewContext(SOURCE, {window: CONFIG_WINDOW});
 const SURVEY_ID = CONFIG_WINDOW.PixivLayoutFeedback._internals.POSTHOG.surveyId;
+const SUBMISSION_ID = '018f35a1-7c40-8abc-8def-0123456789ab';
 
 let passed = 0;
 function ok(label, condition) {
@@ -694,6 +695,7 @@ function createHarness(options) {
             available: true,
             stateAvailable: true,
             distinctId: current.distinctId,
+            submissionId: current.submissionId,
             revision: (typeof current.revision === 'number' ? current.revision : 0) + 1,
             status: simulatedView ? simulatedView.status : null,
             canShow: simulatedView ? simulatedView.canShow : true,
@@ -727,6 +729,8 @@ function createHarness(options) {
             available: true,
             stateAvailable: true,
             distinctId: options.serverScopedId !== undefined ? options.serverScopedId : SERVER_SCOPED_ID,
+            submissionId: options.serverSubmissionId !== undefined
+                ? options.serverSubmissionId : SUBMISSION_ID,
             revision: 0,
             status: null,
             canShow: true,
@@ -819,7 +823,17 @@ function createHarness(options) {
                 if (options.serverState !== undefined || serverStateHolder.value !== undefined) {
                     return Promise.resolve({ok: true, json: () => Promise.resolve(defaultServerGetResponse())});
                 }
-                return Promise.resolve({ok: true, json: () => Promise.resolve({available: false})});
+                return Promise.resolve({ok: true, json: () => Promise.resolve({
+                    available: true,
+                    stateAvailable: false,
+                    distinctId: SERVER_SCOPED_ID,
+                    submissionId: SUBMISSION_ID,
+                    revision: 0,
+                    status: null,
+                    canShow: false,
+                    retryAfterMs: 0,
+                    seenLayouts: []
+                })});
             }
             if (options.fetch === 'no-version') {
                 return Promise.resolve({ok: true, json: () => Promise.resolve({name: 'x'})});
@@ -1305,6 +1319,7 @@ function testSubmitSendsOnceWithQuestionId() {
     }).then(() => {
         const sent = captureEvents(h).filter(e => e === 'survey sent');
         eq('双击 / 重复触发只发一次 survey sent', sent.length, 1);
+        eq('survey sent 使用服务端稳定提交 UUID', ackEvents(h)[0].uuid, SUBMISSION_ID);
         const props = captureProps(h, 'survey sent');
         eq('回答属性使用 question.id', props['$survey_response_q-layout'], 'pixiv-batch-portrait');
         ok('回答属性不以数组位置构造', Object.keys(props).every(k => k !== '$survey_response' && k !== '$survey_response_1'));
@@ -1493,6 +1508,13 @@ function testSubmitFailureAndRetry() {
         const radio = h.radios().find(r => r.checked);
         eq('失败保留布局选择', radio && radio.value, 'pixiv-batch-landscape');
         eq('失败保留建议文本', h.textarea().value, ' 保留的建议 ');
+        const firstSubmissionId = ackEvents(h)[0].uuid;
+        h.adapter.ackOk = true;
+        h.submitButton().click();
+        return waitForFlush().then(() => {
+            eq('远端结果不明确后重试复用同一 UUID', ackEvents(h)[1].uuid, firstSubmissionId);
+            eq('远端确认后才写 submitted', JSON.parse(h.storage.getItem(STATE_KEY)).status, 'submitted');
+        });
     });
 }
 
@@ -2823,6 +2845,7 @@ function serverStateResponse(overrides) {
         available: true,
         stateAvailable: true,
         distinctId: SERVER_SCOPED_ID,
+        submissionId: SUBMISSION_ID,
         revision: 0,
         status: null,
         canShow: true,
@@ -3925,6 +3948,10 @@ function testApplyServerViewRejectsInvalidShapes() {
         eq('NaN revision 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({distinctId: ''})).then(h => {
         eq('available=true 但 distinctId 缺失视图整体拒绝', usesFallbackIdentity(h), true);
+    }).then(() => withServerState({submissionId: ''})).then(h => {
+        eq('submissionId 缺失视图整体拒绝', usesFallbackIdentity(h), true);
+    }).then(() => withServerState({submissionId: 'not-a-uuid'})).then(h => {
+        eq('submissionId 非 UUIDv8 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'bogus', canShow: false, retryAfterMs: 0})).then(h => {
         eq('未知 status 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'submitted', canShow: true, retryAfterMs: 0})).then(h => {

@@ -86,6 +86,7 @@ test('waits for remote acknowledgement before recording completion', () => {
     const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static',
         'pixiv-multi-mode-decision-survey', 'survey.js'), 'utf8');
 
-    assert.match(source, /captureSurveyWithAck\(OWNER_KEY, 'survey sent', properties\)\.then\(function \(\) \{\s*rememberSubmitted\(\)/);
+    assert.match(source, /captureSurveyWithAck\(\s*OWNER_KEY, 'survey sent', properties, identity\.submissionId\)\.then\(function \(\) \{\s*rememberSubmitted\(\)/);
+    assert.match(source, /SUBMISSION_ID\.test\(body\.submissionId\)/);
     assert.doesNotMatch(source, /client\.capture\('survey sent'/);
 });
