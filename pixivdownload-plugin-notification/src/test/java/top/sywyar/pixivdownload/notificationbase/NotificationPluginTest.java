@@ -174,7 +174,7 @@ class NotificationPluginTest {
                     assertThat(table.columns()).extracting(column -> column.name())
                             .containsExactly("id", "category", "severity", "scenario_id", "title", "body",
                                     "content_url", "content_html", "action_url", "created_time", "read_time",
-                                    "deleted_time");
+                                    "deleted_time", "active");
                     assertThat(table.indexes()).extracting(index -> index.name())
                             .containsExactly("idx_notification_messages_created_time",
                                     "idx_notification_messages_unread_created");
@@ -182,6 +182,7 @@ class NotificationPluginTest {
                             .contains("category IN ('download','announcement','survey','system')")
                             .contains("severity IN ('INFO','WARNING','ERROR')")
                             .contains("content_html IS NULL OR length(content_html) > 0")
+                            .contains("active IN (0,1)")
                             .contains("deleted_time IS NULL OR deleted_time >= created_time");
                 }));
         assertThat(plugin.navigation()).isEmpty();
