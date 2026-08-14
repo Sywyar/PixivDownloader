@@ -15,14 +15,16 @@ ARG PIXIVDOWNLOADER_DISTRIBUTION=build/dist/default-downloader
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ffmpeg curl; \
+    groupadd --gid 10001 pixivdownloader; \
+    useradd --uid 10001 --gid 10001 --create-home --no-log-init pixivdownloader; \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar
-COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/
-COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json
-COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS
+COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar
+COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/
+COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json
+COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS
 
 RUN set -eux; \
     required_plugin="$(find plugins -maxdepth 1 -type f -name 'pixivdownload-plugin-download-workbench-*.jar' | head -n 1)"; \
@@ -32,6 +34,8 @@ RUN set -eux; \
     test -f "plugins/provenance/$(basename "$required_plugin").pixiv-plugin-provenance"; \
     test -f plugins-manifest.json; \
     test -f SHA256SUMS
+
+USER 10001:10001
 
 # Default server.port (config.yaml can change it; update probes/compose ports together).
 EXPOSE 6999

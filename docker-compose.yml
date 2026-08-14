@@ -24,7 +24,16 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       # 左侧宿主端口可改；右侧须与 config.yaml 的 server.port（默认 6999）一致。
-      - "6999:6999"
+      - "127.0.0.1:6999:6999"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:size=256m,noexec,nosuid,nodev
     volumes:
       # 运行时配置（首次启动自动生成 config/config.yaml）。
       - ./config:/app/config
