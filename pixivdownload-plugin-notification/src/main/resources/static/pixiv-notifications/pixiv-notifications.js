@@ -52,6 +52,15 @@
         }
     }
 
+    function isoTime(epochMillis) {
+        try {
+            var date = new Date(epochMillis);
+            return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
     function matchesCategory(message) {
         return !!message && (!state.category || message.category === state.category);
     }
@@ -101,7 +110,7 @@
         category.textContent = categoryLabel(message.category);
         var time = document.createElement('time');
         time.className = 'notification-item-time';
-        time.dateTime = new Date(message.createdTime).toISOString();
+        time.dateTime = isoTime(message.createdTime);
         time.textContent = timeText(message.createdTime);
         meta.append(category, time);
 
@@ -252,7 +261,7 @@
         category.textContent = categoryLabel(message.category);
         var time = document.createElement('time');
         time.className = 'notification-detail-time';
-        time.dateTime = new Date(message.createdTime).toISOString();
+        time.dateTime = isoTime(message.createdTime);
         time.textContent = timeText(message.createdTime);
         meta.append(category, time);
 

@@ -47,6 +47,10 @@ assert.ok(PAGE_SOURCE.includes('state.selectedMessage && !matchesCategory(state.
     '切换分类时必须清除不属于新分类的右侧详情');
 assert.ok(/if \(state\.selectedId !== id\) return;[\s\S]*if \(!matchesCategory\(message\)\) \{[\s\S]*clearSelection\(true\);/s.test(PAGE_SOURCE),
     '异步加载完成时必须拒绝过期或分类不匹配的详情');
+assert.ok(PAGE_SOURCE.includes('function isoTime(epochMillis)')
+    && PAGE_SOURCE.includes("Number.isFinite(date.getTime()) ? date.toISOString() : ''")
+    && (PAGE_SOURCE.match(/time\.dateTime = isoTime\(message\.createdTime\);/g) || []).length === 2,
+    '非法公告时间不得中断列表或详情渲染');
 assert.ok(PAGE_SOURCE.includes('snapshot.categoryUnreadCount')
     && PAGE_SOURCE.includes("query.set('unreadOnly', 'true')")
     && PAGE_SOURCE.includes("api('/api/notifications/read-all' + query"),
