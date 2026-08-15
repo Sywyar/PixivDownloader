@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.ConstraintViolation;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -96,6 +97,17 @@ public class GlobalExceptionHandler {
                 "插件正在停用中，暂时不可用，请稍后重试");
         log.warn(logMessage("error.log.request.failed", logDetail + " [queueType=" + e.queueType() + "]"));
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ErrorResponse(message));
+    }
+
+    @ExceptionHandler(TaskRejectedException.class)
+    public ResponseEntity<ErrorResponse> handleQueueFull(
+            TaskRejectedException e, Locale locale) {
+        String message = messages.getOrDefault(locale, "task.queue.full",
+                "任务排队已满，请稍后重试");
+        String logDetail = messages.getOrDefault(Locale.getDefault(), "task.queue.full",
+                "任务排队已满，请稍后重试");
+        log.warn(logMessage("error.log.request.failed", logDetail));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new ErrorResponse(message));
     }
 
     @ExceptionHandler(ResponseStatusException.class)

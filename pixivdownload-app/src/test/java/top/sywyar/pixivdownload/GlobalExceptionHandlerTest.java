@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -92,6 +93,17 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode().value()).isEqualTo(503);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getError()).isEqualTo("插件正在停用中，暂时不可用，请稍后重试");
+    }
+
+    @Test
+    @DisplayName("下载队列已满时应返回本地化 429")
+    void shouldHandleFullDownloadQueueAsTooManyRequests() {
+        ResponseEntity<ErrorResponse> response = handler.handleQueueFull(
+                new TaskRejectedException("full"), Locale.SIMPLIFIED_CHINESE);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(429);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError()).isEqualTo("任务排队已满，请稍后重试");
     }
 
     @Test

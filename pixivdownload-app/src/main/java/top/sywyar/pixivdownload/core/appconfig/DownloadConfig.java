@@ -25,7 +25,7 @@ public class DownloadConfig implements DownloadSettings {
 
     /**
      * 同时下载的图片 / 作品数上限。图片下载任务跑在专用的 {@code downloadTaskExecutor} 线程池上，
-     * 超出该上限的作品会排队等待。调小可降低被 Pixiv 限流的概率。
+     * 超出该上限的作品最多排队 100 个，队列已满时拒绝新任务。调小可降低被 Pixiv 限流的概率。
      * 线程池大小在启动时确定，修改后需重启服务才能生效。
      */
     private int maxConcurrent = 10;
