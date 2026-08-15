@@ -420,4 +420,4 @@
     function buildPixivAuthorHref(authorId) {
         return `https://www.pixiv.net/users/${authorId}`;
     }
-
+
