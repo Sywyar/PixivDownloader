@@ -52,6 +52,7 @@ import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -226,9 +227,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
             } else {
                 // === 普通图片下载 ===
+                AtomicLong remainingImageBytes = new AtomicLong(PixivImageTransferObserver.MAX_TASK_BYTES);
                 for (String url : imageUrls) validatePixivUrl(url);
                 for (int i = 0; i < imageUrls.size(); i++) {
                     ensureNotCancelled(status);
+                    if (remainingImageBytes.get() <= 0) {
+                        break;
+                    }
 
                     String imageUrl = imageUrls.get(i);
 
@@ -247,7 +252,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                         };
                         if (downloadImage(imageUrl, filePath, referer, cookie,
-                                imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled)) {
+                                imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled,
+                                remainingImageBytes)) {
                             successCount.incrementAndGet();
                             status.setDownloadedCount(successCount.get());
                             log.info(logMessage("download.log.progress",
@@ -417,7 +423,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private boolean downloadImage(String imageUrl, Path filePath, String referer, String cookie,
                                   int imageNumber, int totalImages,
                                   Consumer<ImageDownloadProgress> progressListener,
-                                  BooleanSupplier cancellationRequested) {
+                                  BooleanSupplier cancellationRequested,
+                                  AtomicLong remainingImageBytes) {
         int maxRetries = 3;
         int retryCount = 0;
         // 先写入 .part 临时文件，整段下载成功后再重命名为最终文件；失败 / 取消时清理 .part，
@@ -427,9 +434,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         try {
             while (retryCount < maxRetries) {
                 ensureNotCancelled(cancellationRequested);
+                long maximumBytes = Math.min(
+                        PixivImageTransferObserver.MAX_IMAGE_BYTES, remainingImageBytes.get());
+                if (maximumBytes <= 0) {
+                    break;
+                }
+                long[] downloadedBytes = {0L};
                 try {
                     long[] totalBytes = {0L};
-                    long[] downloadedBytes = {0L};
                     int[] lastProgress = {-1};
                     long[] lastBytes = {0L};
                     long[] lastAt = {0L};
@@ -439,6 +451,11 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                     boolean success = pixivImageDownloader.download(
                             URI.create(imageUrl), refererUri, tempPath, cookie,
                             new PixivImageTransferObserver() {
+                                @Override
+                                public long maximumBytes() {
+                                    return maximumBytes;
+                                }
+
                                 @Override
                                 public void checkCancelled() {
                                     ensureNotCancelled(cancellationRequested);
@@ -513,6 +530,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                     retryCount++;
                     logAndBackoffBeforeRetry(
                             imageUrl, e.getMessage(), retryCount, maxRetries, cancellationRequested);
+                } finally {
+                    remainingImageBytes.updateAndGet(
+                            remaining -> Math.max(0L, remaining - downloadedBytes[0]));
                 }
             }
             publishImageProgress(progressListener, ImageDownloadProgress.builder()

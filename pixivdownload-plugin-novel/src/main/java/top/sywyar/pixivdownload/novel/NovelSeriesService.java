@@ -52,6 +52,14 @@ public class NovelSeriesService {
     public void observeWithMetadata(long seriesId, String title, Long authorId,
                                     String description, String coverUrl,
                                     List<WorkTag> tags, String cookie) {
+        observeWithMetadata(seriesId, title, authorId, description, coverUrl, tags, cookie,
+                PixivImageTransferObserver.MAX_IMAGE_BYTES);
+    }
+
+    public void observeWithMetadata(long seriesId, String title, Long authorId,
+                                    String description, String coverUrl,
+                                    List<WorkTag> tags, String cookie,
+                                    long maximumCoverBytes) {
         if (seriesId <= 0) return;
         try {
             novelDatabase.observeSeries(seriesId, StringUtils.hasText(title) ? title : null, authorId);
@@ -66,7 +74,8 @@ public class NovelSeriesService {
             if ((coverExt == null || coverExt.isBlank())
                     && coverUrl != null && !coverUrl.isBlank()) {
                 Path coverDir = resolveCoverDir(seriesId);
-                String downloadedExt = downloadCover(seriesId, coverUrl, coverDir, cookie);
+                String downloadedExt = downloadCover(
+                        seriesId, coverUrl, coverDir, cookie, maximumCoverBytes);
                 if (downloadedExt != null) {
                     coverExt = downloadedExt;
                     coverFolder = coverDir.toString();
@@ -97,7 +106,11 @@ public class NovelSeriesService {
                 .toAbsolutePath().normalize();
     }
 
-    private String downloadCover(long seriesId, String coverUrl, Path coverDir, String cookie) {
+    private String downloadCover(long seriesId, String coverUrl, Path coverDir, String cookie,
+                                 long maximumCoverBytes) {
+        if (maximumCoverBytes <= 0) {
+            return null;
+        }
         try {
             URI source = URI.create(coverUrl.trim());
             String extension = inferCoverExtension(source.getPath());
@@ -107,6 +120,10 @@ public class NovelSeriesService {
                     coverDir.resolve("cover." + extension),
                     cookie,
                     new PixivImageTransferObserver() {
+                        @Override
+                        public long maximumBytes() {
+                            return Math.min(MAX_IMAGE_BYTES, maximumCoverBytes);
+                        }
                     });
             return downloaded ? extension : null;
         } catch (Exception e) {

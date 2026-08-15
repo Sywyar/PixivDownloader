@@ -5,6 +5,16 @@ package top.sywyar.pixivdownload.core.pixiv;
  */
 public interface PixivImageTransferObserver {
 
+    long MAX_IMAGE_BYTES = 100L * 1024L * 1024L;
+    long MAX_TASK_BYTES = 1024L * 1024L * 1024L;
+
+    /**
+     * 本次传输允许写入的最大字节数；实现还必须受 {@link #MAX_IMAGE_BYTES} 硬上限约束。
+     */
+    default long maximumBytes() {
+        return MAX_IMAGE_BYTES;
+    }
+
     /**
      * 每个数据块写入前执行的取消检查；需要取消时可抛出运行期异常。
      */

@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -40,6 +41,10 @@ public class PixivImageDownloadService implements PixivImageDownloader {
         if (!isAllowedImageSource(source) || !isAllowedReferer(referer)) {
             return false;
         }
+        long maximumBytes = Math.min(PixivImageTransferObserver.MAX_IMAGE_BYTES, observer.maximumBytes());
+        if (maximumBytes <= 0) {
+            throw new IOException("Pixiv image transfer byte limit exhausted");
+        }
 
         Path parent = target.toAbsolutePath().normalize().getParent();
         if (parent != null) {
@@ -55,9 +60,12 @@ public class PixivImageDownloadService implements PixivImageDownloader {
                             return Boolean.FALSE;
                         }
                         long contentLength = response.getHeaders().getContentLength();
+                        if (contentLength > maximumBytes) {
+                            throw new IOException("Pixiv image exceeds the transfer byte limit");
+                        }
                         observer.onContentLength(contentLength > 0 ? contentLength : 0);
                         observer.onBytesTransferred(0);
-                        copy(response.getBody(), target, observer);
+                        transfer(response.getBody(), target, maximumBytes, observer);
                         return Boolean.TRUE;
                     });
             return Boolean.TRUE.equals(downloaded);
@@ -90,18 +98,43 @@ public class PixivImageDownloadService implements PixivImageDownloader {
                 && (referer.getPort() == -1 || referer.getPort() == 443);
     }
 
-    private static void copy(
+    private static void transfer(
             InputStream inputStream,
             Path target,
+            long maximumBytes,
+            PixivImageTransferObserver observer
+    ) throws IOException {
+        Path partial = target.resolveSibling(target.getFileName() + ".part");
+        try {
+            copy(inputStream, partial, maximumBytes, observer);
+            Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException | RuntimeException failure) {
+            try {
+                Files.deleteIfExists(partial);
+            } catch (IOException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
+    }
+
+    private static void copy(
+            InputStream inputStream,
+            Path partial,
+            long maximumBytes,
             PixivImageTransferObserver observer
     ) throws IOException {
         try (InputStream in = inputStream;
-             OutputStream out = Files.newOutputStream(target)) {
+             OutputStream out = Files.newOutputStream(partial)) {
             byte[] buffer = new byte[8192];
             int read;
             long transferred = 0;
-            while ((read = in.read(buffer)) != -1) {
+            while ((read = in.read(buffer, 0,
+                    (int) Math.min(buffer.length, maximumBytes - transferred + 1))) != -1) {
                 observer.checkCancelled();
+                if (read > maximumBytes - transferred) {
+                    throw new IOException("Pixiv image exceeds the transfer byte limit");
+                }
                 out.write(buffer, 0, read);
                 transferred += read;
                 observer.onBytesTransferred(transferred);

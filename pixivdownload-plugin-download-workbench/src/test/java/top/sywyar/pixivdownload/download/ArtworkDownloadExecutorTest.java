@@ -986,6 +986,38 @@ class ArtworkDownloadExecutorTest {
             assertThat(succeeded).isTrue();
             assertThat(attempts).hasValue(2);
         }
+
+        @Test
+        @DisplayName("单个多页作品耗尽累计图片预算后不再发起后续传输")
+        void shouldStopAfterArtworkImageBudgetIsExhausted() throws Exception {
+            List<String> imageUrls = java.util.stream.IntStream.range(0, 12)
+                    .mapToObj(index -> "https://i.pximg.net/img-original/budget_p" + index + ".jpg")
+                    .toList();
+            List<Long> maxima = new java.util.ArrayList<>();
+            when(pixivImageDownloader.download(any(URI.class), any(URI.class), any(Path.class),
+                    nullable(String.class), any()))
+                    .thenAnswer(invocation -> {
+                        Path target = invocation.getArgument(2);
+                        PixivImageTransferObserver observer = invocation.getArgument(4);
+                        long maximumBytes = observer.maximumBytes();
+                        maxima.add(maximumBytes);
+                        observer.onContentLength(maximumBytes);
+                        observer.onBytesTransferred(maximumBytes);
+                        Files.write(target, new byte[]{1});
+                        return true;
+                    });
+
+            boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(
+                    52345L, "title", imageUrls, "https://www.pixiv.net/",
+                    new DownloadRequest.Other(), null, null);
+
+            assertThat(succeeded).isFalse();
+            assertThat(maxima).hasSize(11);
+            assertThat(maxima).allMatch(maximum -> maximum <= PixivImageTransferObserver.MAX_IMAGE_BYTES);
+            assertThat(maxima.stream().mapToLong(Long::longValue).sum())
+                    .isEqualTo(PixivImageTransferObserver.MAX_TASK_BYTES);
+            verify(artworkDownloadHistory, never()).record(any());
+        }
     }
 
     @Nested

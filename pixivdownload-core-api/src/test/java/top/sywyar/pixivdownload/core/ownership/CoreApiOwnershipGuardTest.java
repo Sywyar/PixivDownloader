@@ -259,6 +259,10 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#HEADER_NAME:java.lang.String",
                     "X-Acquisition-Credential"),
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#MAX_LENGTH:int", 16_384),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver#MAX_IMAGE_BYTES:long",
+                    100L * 1024L * 1024L),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver#MAX_TASK_BYTES:long",
+                    1024L * 1024L * 1024L),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE:java.lang.String",
                     "{artwork_id}_p{page}"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SUCCESS:java.lang.String", "success"),
@@ -722,6 +726,7 @@ class CoreApiOwnershipGuardTest {
         assertThat(publicDeclaredMethodSignatures(PixivImageTransferObserver.class))
                 .containsExactlyInAnyOrder(
                         "public checkCancelled():void",
+                        "public maximumBytes():long",
                         "public onBytesTransferred(long):void",
                         "public onContentLength(long):void");
         assertThat(publicDeclaredMethodSignatures(PixivProxyAccessPolicy.class))

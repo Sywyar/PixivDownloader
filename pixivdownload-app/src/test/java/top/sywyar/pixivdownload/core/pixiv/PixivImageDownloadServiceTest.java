@@ -94,6 +94,52 @@ class PixivImageDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("声明长度超过观察器预算时应在落盘前拒绝")
+    void shouldRejectOversizedDeclaredContentLength() throws Exception {
+        URI source = URI.create("https://i.pximg.net/oversized.jpg");
+        URI referer = URI.create("https://www.pixiv.net/artworks/42");
+        Path target = tempDir.resolve("oversized.jpg.part");
+        ClientHttpResponse response = mock(ClientHttpResponse.class);
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.setContentLength(5);
+        when(response.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(response.getHeaders()).thenReturn(responseHeaders);
+        when(restTemplate.execute(eq(source), eq(HttpMethod.GET),
+                any(RequestCallback.class), any(ResponseExtractor.class)))
+                .thenAnswer(invocation -> invocation.<ResponseExtractor<?>>getArgument(3).extractData(response));
+
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(
+                source, referer, target, null, observerWithMaximumBytes(4)))
+                .isInstanceOf(java.io.IOException.class);
+        assertThat(target).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("未知声明长度的展开响应超过实际流预算时应删除部分文件")
+    void shouldDeletePartialFileWhenExpandedStreamExceedsLimit() throws Exception {
+        URI source = URI.create("https://i.pximg.net/expanded.jpg");
+        URI referer = URI.create("https://www.pixiv.net/artworks/42");
+        Path target = tempDir.resolve("expanded.jpg");
+        byte[] existing = "existing".getBytes(StandardCharsets.UTF_8);
+        Files.write(target, existing);
+        ClientHttpResponse response = mock(ClientHttpResponse.class);
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.set(HttpHeaders.CONTENT_ENCODING, "gzip");
+        when(response.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(response.getHeaders()).thenReturn(responseHeaders);
+        when(response.getBody()).thenReturn(new ByteArrayInputStream(new byte[5]));
+        when(restTemplate.execute(eq(source), eq(HttpMethod.GET),
+                any(RequestCallback.class), any(ResponseExtractor.class)))
+                .thenAnswer(invocation -> invocation.<ResponseExtractor<?>>getArgument(3).extractData(response));
+
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(
+                source, referer, target, null, observerWithMaximumBytes(4)))
+                .isInstanceOf(java.io.IOException.class);
+        assertThat(Files.readAllBytes(target)).isEqualTo(existing);
+        assertThat(target.resolveSibling("expanded.jpg.part")).doesNotExist();
+    }
+
+    @Test
     @DisplayName("非 pximg 子域名在发起请求前拒绝")
     void shouldRejectDisallowedImageHost() throws Exception {
         Path target = tempDir.resolve("example.jpg");
@@ -206,5 +252,14 @@ class PixivImageDownloadServiceTest {
 
         assertThat(downloaded).isFalse();
         assertThat(target).doesNotExist();
+    }
+
+    private static PixivImageTransferObserver observerWithMaximumBytes(long maximumBytes) {
+        return new PixivImageTransferObserver() {
+            @Override
+            public long maximumBytes() {
+                return maximumBytes;
+            }
+        };
     }
 }

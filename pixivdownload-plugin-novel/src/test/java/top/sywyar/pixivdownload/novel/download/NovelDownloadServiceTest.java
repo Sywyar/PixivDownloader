@@ -37,6 +37,7 @@ import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -44,6 +45,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -237,6 +239,37 @@ class NovelDownloadServiceTest {
         verify(novelDatabase).saveNovelImage(110L, "123", "gif");
         assertThat(service.getStatus(110L).getCoverTotalBytes()).isEqualTo(20);
         assertThat(service.getStatus(110L).getCoverDownloadedBytes()).isEqualTo(12);
+    }
+
+    @Test
+    @DisplayName("小说图片耗尽累计预算后不再下载封面")
+    void shouldStopNovelImagesAfterTaskBudgetIsExhausted() throws Exception {
+        NovelDownloadRequest request = txtRequest(111L, null);
+        StringBuilder content = new StringBuilder();
+        Map<String, String> images = new LinkedHashMap<>();
+        for (int index = 0; index < 11; index++) {
+            content.append("[uploadedimage:").append(index).append("]");
+            images.put(Integer.toString(index),
+                    "https://i.pximg.net/img-original/embed_" + index + ".jpg");
+        }
+        request.setContent(content.toString());
+        request.getOther().setEmbeddedImages(images);
+        request.getOther().setCoverUrl("https://i.pximg.net/novel-cover-master/cover.jpg");
+        AtomicLong transferredBytes = new AtomicLong();
+        when(pixivImageDownloader.download(any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    PixivImageTransferObserver observer = invocation.getArgument(4);
+                    long maximumBytes = observer.maximumBytes();
+                    transferredBytes.addAndGet(maximumBytes);
+                    observer.onBytesTransferred(maximumBytes);
+                    return true;
+                });
+
+        boolean ok = service.downloadBlocking(request, null);
+
+        assertThat(ok).isTrue();
+        assertThat(transferredBytes).hasValue(PixivImageTransferObserver.MAX_TASK_BYTES);
+        verify(pixivImageDownloader, times(11)).download(any(), any(), any(), any(), any());
     }
 
     @Test
