@@ -19,6 +19,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
@@ -84,6 +85,23 @@ public class GlobalExceptionHandler {
                     logTypeName,
                     e.workId());
         };
+        log.warn(logMessage("error.log.request.failed", logDetail));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(message));
+    }
+
+    @ExceptionHandler(UnsafeDeletionPathException.class)
+    public ResponseEntity<ErrorResponse> handleUnsafeDeletionPath(
+            UnsafeDeletionPathException e, Locale locale) {
+        String message = messages.getOrDefault(
+                locale,
+                "work.delete.path-unsafe",
+                "删除目标路径不安全，已中止文件与数据库清理: {0}",
+                e.path());
+        String logDetail = messages.getOrDefault(
+                Locale.getDefault(),
+                "work.delete.path-unsafe",
+                "删除目标路径不安全，已中止文件与数据库清理: {0}",
+                e.path());
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(message));
     }

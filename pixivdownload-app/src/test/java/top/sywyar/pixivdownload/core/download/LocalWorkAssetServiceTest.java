@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
@@ -29,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -328,18 +330,20 @@ class LocalWorkAssetServiceTest {
         }
 
         @Test
-        @DisplayName("deleteLocalFiles 边界守卫：非独占目录 / 等于 root-folder 本身时不触碰磁盘并视为无事可做")
+        @DisplayName("deleteLocalFiles 边界守卫：现存非独占目录 / 下载根明确失败且不触碰磁盘")
         void deleteLocalFilesRefusesGuardedDirectories() throws Exception {
             Path shared = Files.createDirectories(tempDir.resolve("shared"));
             Path keep = Files.writeString(shared.resolve("keep.txt"), "x");
             when(novelMetadataRepository.getNovel(7L)).thenReturn(novel(7L, shared.toString(), null, "jpg"));
             when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
 
-            assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 7L));
+            assertThrows(UnsafeDeletionPathException.class,
+                    () -> service.deleteLocalFiles(WorkType.NOVEL, 7L));
             assertTrue(Files.exists(keep));
 
             when(novelMetadataRepository.getNovel(8L)).thenReturn(novel(8L, tempDir.toString(), null, "jpg"));
-            assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 8L));
+            assertThrows(UnsafeDeletionPathException.class,
+                    () -> service.deleteLocalFiles(WorkType.NOVEL, 8L));
             assertTrue(Files.exists(keep));
         }
 

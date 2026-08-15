@@ -44,19 +44,14 @@ public class StagedFileDeletion {
     private final AppMessages messages;
 
     /**
-     * 原子删除给定文件集合（仅处理磁盘上确实存在的常规文件，{@code null} / 缺失 / 非常规文件忽略，重复路径去重）。
+     * 原子删除给定文件集合。{@code null} / 已确认缺失的路径按幂等 no-op 处理，重复路径去重；
+     * 任一现存目标不是普通文件时在暂存前抛出 {@link UnsafeDeletionPathException}。
      *
      * @return {@code true} 表示全部删除成功（或集合中没有需要删除的文件）；{@code false} 表示有文件删除失败、
      *         已回滚到删除前状态（原文件复原），调用方应据此中止后续清理（如软删数据库）
      */
     public boolean deleteAtomically(Collection<Path> files) {
-        List<Path> targets;
-        try {
-            targets = validatedExistingFiles(files);
-        } catch (IOException e) {
-            log.warn(messages.getForLog("download.delete.log.stage-failed", e.getMessage()));
-            return false;
-        }
+        List<Path> targets = validatedExistingFiles(files);
         if (targets.isEmpty()) {
             return true;
         }
@@ -78,10 +73,13 @@ public class StagedFileDeletion {
             // 先写恢复清单再复制原文件：进程在删除中途崩溃时，下次启动可据清单把已删原文件从暂存复制回原位。
             DeleteStagingManifest.write(stagingDir, manifestEntries);
             for (Map.Entry<Path, Path> staged : stagedByOriginal.entrySet()) {
-                PlainFilePathGuard.requirePlainRegularFile(staged.getKey());
+                requireSafeDeleteTarget(staged.getKey());
                 Files.copy(staged.getKey(), staged.getValue(),
                         StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS);
             }
+        } catch (UnsafeDeletionPathException e) {
+            cleanStaging(stagingDir);
+            throw e;
         } catch (IOException e) {
             // 写清单 / 复制阶段失败：尚未删除任何原文件，回滚 = 仅清理暂存
             log.warn(messages.getForLog("download.delete.log.stage-failed", e.getMessage()));
@@ -94,14 +92,12 @@ public class StagedFileDeletion {
             try {
                 deleteFile(original);
                 deleted.add(original);
+            } catch (UnsafeDeletionPathException e) {
+                finishRollback(deleted, stagedByOriginal, stagingDir);
+                throw e;
             } catch (IOException e) {
                 log.warn(messages.getForLog("download.delete.log.delete-failed", original));
-                if (rollback(deleted, stagedByOriginal, stagingDir)) {
-                    cleanStaging(stagingDir);
-                } else {
-                    // 回滚未完全成功：保留暂存子目录（含恢复清单）作为最后备份，绝不清理；交由启动恢复 / 人工据清单恢复。
-                    log.error(messages.getForLog("download.delete.log.staging-retained", stagingDir));
-                }
+                finishRollback(deleted, stagedByOriginal, stagingDir);
                 return false;
             }
         }
@@ -112,7 +108,7 @@ public class StagedFileDeletion {
 
     /** 删除单个原文件。protected 仅供测试注入删除失败（不要在生产代码中改写其语义）。 */
     protected void deleteFile(Path original) throws IOException {
-        PlainFilePathGuard.requirePlainRegularFile(original);
+        requireSafeDeleteTarget(original);
         Files.deleteIfExists(original);
     }
 
@@ -146,6 +142,15 @@ public class StagedFileDeletion {
         return fullyRestored;
     }
 
+    private void finishRollback(List<Path> deleted, Map<Path, Path> stagedByOriginal, Path stagingDir) {
+        if (rollback(deleted, stagedByOriginal, stagingDir)) {
+            cleanStaging(stagingDir);
+        } else {
+            // 回滚未完全成功：保留暂存子目录（含恢复清单）作为最后备份，绝不清理；交由启动恢复 / 人工据清单恢复。
+            log.error(messages.getForLog("download.delete.log.staging-retained", stagingDir));
+        }
+    }
+
     /** 删除暂存子目录树；仅在删除全部成功、或回滚全部成功后调用。删失败仅记小日志、忽略（不影响删除结果）。 */
     private void cleanStaging(Path stagingDir) {
         if (!PlainFilePathGuard.isPlainDirectory(stagingDir)) {
@@ -164,7 +169,7 @@ public class StagedFileDeletion {
         }
     }
 
-    private static List<Path> validatedExistingFiles(Collection<Path> files) throws IOException {
+    private static List<Path> validatedExistingFiles(Collection<Path> files) {
         if (files == null || files.isEmpty()) {
             return List.of();
         }
@@ -175,14 +180,36 @@ public class StagedFileDeletion {
                 continue;
             }
             Path normalized = path.toAbsolutePath().normalize();
-            if (!seen.add(normalized) || !Files.exists(normalized, LinkOption.NOFOLLOW_LINKS)) {
+            if (!seen.add(normalized) || Files.notExists(normalized, LinkOption.NOFOLLOW_LINKS)) {
                 continue;
             }
-            if (!PlainFilePathGuard.isPlainRegularFile(normalized)) {
-                throw new IOException("unsafe existing delete target: " + normalized);
-            }
+            requireSafeDeleteTarget(normalized);
             targets.add(normalized);
         }
         return targets;
+    }
+
+    private static void requireSafeDeleteTarget(Path path) {
+        if (!PlainFilePathGuard.isPlainRegularFile(path)) {
+            throw new UnsafeDeletionPathException(path);
+        }
+    }
+
+    public static final class UnsafeDeletionPathException extends RuntimeException {
+
+        private final String path;
+
+        public UnsafeDeletionPathException(Path path) {
+            this(path == null ? "" : path.toAbsolutePath().normalize().toString());
+        }
+
+        public UnsafeDeletionPathException(String path) {
+            super("Unsafe deletion path: " + path);
+            this.path = path == null ? "" : path;
+        }
+
+        public String path() {
+            return path;
+        }
     }
 }

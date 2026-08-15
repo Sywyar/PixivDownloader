@@ -6,8 +6,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
@@ -19,6 +22,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("StagedFileDeletion 原子删除（暂存 + 回滚）")
 class StagedFileDeletionTest {
@@ -159,8 +163,11 @@ class StagedFileDeletionTest {
         Path subDir = Files.createDirectories(dir.resolve("subdir"));
         Path missing = dir.resolve("missing.jpg");
 
-        assertFalse(deletion.deleteAtomically(List.of(file, subDir, missing)));
+        UnsafeDeletionPathException exception = assertThrows(
+                UnsafeDeletionPathException.class,
+                () -> deletion.deleteAtomically(List.of(file, subDir, missing)));
 
+        assertEquals(subDir.toAbsolutePath().normalize().toString(), exception.path());
         assertTrue(Files.exists(file), "发现不安全路径后不得删除同批普通文件");
         assertTrue(Files.isDirectory(subDir), "目录不得被当成成功过滤项");
         assertEquals(0, stagingResidueCount(), "暂存目录应无残留");
@@ -177,12 +184,45 @@ class StagedFileDeletionTest {
         createSymbolicLinkOrSkip(fileLink, outsideFile);
         createSymbolicLinkOrSkip(directoryLink, outsideDir);
 
-        assertFalse(deletion.deleteAtomically(List.of(fileLink, directoryLink.resolve("outside.jpg"))));
+        UnsafeDeletionPathException exception = assertThrows(
+                UnsafeDeletionPathException.class,
+                () -> deletion.deleteAtomically(List.of(fileLink, directoryLink.resolve("outside.jpg"))));
 
+        assertEquals(fileLink.toAbsolutePath().normalize().toString(), exception.path());
         assertTrue(Files.exists(outsideFile), "链接指向的外部文件不得被删除");
         assertTrue(Files.exists(fileLink, LinkOption.NOFOLLOW_LINKS), "文件链接本身也不属于作品普通文件");
         assertTrue(Files.exists(directoryLink, LinkOption.NOFOLLOW_LINKS), "链接父目录不得被清理");
         assertEquals(0, stagingResidueCount(), "拒绝链接路径后不应留下暂存残留");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("Windows Junction 使整批删除在暂存前失败")
+    void rejectsWindowsJunctionBeforeStaging() throws Exception {
+        Path outsideDir = Files.createDirectories(tempDir.resolve("junction-target"));
+        Path outsideFile = Files.writeString(outsideDir.resolve("outside.jpg"), "outside");
+        Path work = Files.createDirectories(tempDir.resolve("junction-work"));
+        Path regular = Files.writeString(work.resolve("keep.jpg"), "keep");
+        Path junction = work.resolve("junction");
+        Process process = new ProcessBuilder(
+                "cmd.exe", "/c", "mklink", "/J", junction.toString(), outsideDir.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+        Assumptions.assumeTrue(process.waitFor() == 0, "当前 Windows 环境无法创建 Junction");
+
+        try {
+            UnsafeDeletionPathException exception = assertThrows(
+                    UnsafeDeletionPathException.class,
+                    () -> deletion.deleteAtomically(List.of(regular, junction)));
+
+            assertEquals(junction.toAbsolutePath().normalize().toString(), exception.path());
+            assertTrue(Files.exists(regular), "拒绝 Junction 后不得删除同批普通文件");
+            assertTrue(Files.exists(outsideFile), "Junction 指向的目录不得被触达");
+            assertEquals(0, stagingResidueCount(), "拒绝 Junction 后不应创建暂存内容");
+        } finally {
+            Files.deleteIfExists(junction);
+        }
     }
 
     /** 删除 {@code deletePoison} 时抛 IOException（触发回滚），回滚复原 {@code restorePoison} 时再抛 IOException。 */

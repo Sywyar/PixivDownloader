@@ -3,11 +3,15 @@ package top.sywyar.pixivdownload.core.download;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
@@ -59,12 +63,15 @@ class WorkDeletionFileRollbackTest {
     }
 
     private WorkDeletionService deletionServiceFailingOn(Path poison) {
-        StagedFileDeletion failingHelper = failOn(poison);
+        return deletionService(failOn(poison));
+    }
+
+    private WorkDeletionService deletionService(StagedFileDeletion helper) {
         ArtworkFileLocator locator = new ArtworkFileLocator(
-                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), failingHelper);
+                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), helper);
         LocalWorkAssetService assetService = new LocalWorkAssetService(
                 mock(ArtworkFileService.class), locator, pixivDatabase, novelMetadataRepository,
-                downloadConfig, TestI18nBeans.appMessages(), failingHelper);
+                downloadConfig, TestI18nBeans.appMessages(), helper);
         return new CoreWorkDeletionService(workQueryService, assetService, pixivDatabase,
                 novelMetadataRepository, TestI18nBeans.appMessages());
     }
@@ -122,6 +129,71 @@ class WorkDeletionFileRollbackTest {
         assertThat(sidecar).exists();
         assertThat(dir).isDirectory();
         verify(novelMetadataRepository, never()).markNovelDeleted(anyLong());
+    }
+
+    @Test
+    @DisplayName("小说目录含符号链接时整批拒绝且数据库与普通文件均不变")
+    void novelSymbolicLinkAbortsFilesAndSoftDelete() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("novel-8"));
+        Path body = Files.writeString(dir.resolve("8_p0.txt"), "text");
+        Path outsideDir = Files.createDirectories(tempDir.resolve("outside"));
+        Path outsideFile = Files.writeString(outsideDir.resolve("outside.jpg"), "outside");
+        Path linkedDirectory = dir.resolve("embedded");
+        try {
+            Files.createSymbolicLink(linkedDirectory, outsideDir);
+        } catch (IOException | UnsupportedOperationException | SecurityException unavailable) {
+            Assumptions.assumeTrue(false, "当前文件系统不支持测试符号链接: " + unavailable.getMessage());
+        }
+        when(novelMetadataRepository.getNovel(8L)).thenReturn(new NovelMetadataRow(
+                8L, "小说", dir.toString(), 1, "txt", 1000L, 0, false, 88L, null, null, null,
+                null, null, null, "jpg", false, null));
+        when(workQueryService.hasActiveWork(WorkType.NOVEL, 8L)).thenReturn(true);
+
+        WorkDeletionService deletionService = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages()));
+
+        assertThatThrownBy(() -> deletionService.delete(WorkType.NOVEL, 8L))
+                .isInstanceOfSatisfying(UnsafeDeletionPathException.class, exception ->
+                        assertThat(exception.path()).isEqualTo(linkedDirectory.toAbsolutePath().normalize().toString()));
+
+        assertThat(body).exists();
+        assertThat(linkedDirectory).exists();
+        assertThat(outsideFile).exists();
+        verify(novelMetadataRepository, never()).markNovelDeleted(anyLong());
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("小说目录含 Windows Junction 时整批拒绝且数据库与普通文件均不变")
+    void novelJunctionAbortsFilesAndSoftDelete() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("novel-9"));
+        Path body = Files.writeString(dir.resolve("9_p0.txt"), "text");
+        Path outsideDir = Files.createDirectories(tempDir.resolve("junction-outside"));
+        Path outsideFile = Files.writeString(outsideDir.resolve("outside.jpg"), "outside");
+        Path junction = dir.resolve("embedded-junction");
+        Process process = new ProcessBuilder(
+                "cmd.exe", "/c", "mklink", "/J", junction.toString(), outsideDir.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+        Assumptions.assumeTrue(process.waitFor() == 0, "当前 Windows 环境无法创建 Junction");
+        when(novelMetadataRepository.getNovel(9L)).thenReturn(new NovelMetadataRow(
+                9L, "小说", dir.toString(), 1, "txt", 1000L, 0, false, 88L, null, null, null,
+                null, null, null, "jpg", false, null));
+        when(workQueryService.hasActiveWork(WorkType.NOVEL, 9L)).thenReturn(true);
+
+        WorkDeletionService deletionService = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages()));
+
+        try {
+            assertThatThrownBy(() -> deletionService.delete(WorkType.NOVEL, 9L))
+                    .isInstanceOfSatisfying(UnsafeDeletionPathException.class, exception ->
+                            assertThat(exception.path()).isEqualTo(junction.toAbsolutePath().normalize().toString()));
+
+            assertThat(body).exists();
+            assertThat(outsideFile).exists();
+            verify(novelMetadataRepository, never()).markNovelDeleted(anyLong());
+        } finally {
+            Files.deleteIfExists(junction);
+        }
     }
 
     private static StagedFileDeletion failOn(Path poison) {

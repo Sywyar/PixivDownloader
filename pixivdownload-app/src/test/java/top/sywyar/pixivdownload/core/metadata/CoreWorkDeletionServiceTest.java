@@ -10,6 +10,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
@@ -145,6 +146,20 @@ class CoreWorkDeletionServiceTest {
         verify(pixivDatabase, times(1)).markArtworkDeleted(1L);
         verify(pixivDatabase, never()).markArtworkDeleted(2L);
         verify(pixivDatabase, times(1)).markArtworkDeleted(3L);
+    }
+
+    @Test
+    @DisplayName("批量删除遇到不安全路径时向上报告具体路径且不软删该作品")
+    void shouldPropagateUnsafePathFromBatchDeletion() {
+        UnsafeDeletionPathException failure = new UnsafeDeletionPathException("C:\\unsafe-link");
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 2L)).thenReturn(true);
+        when(workAssetService.deleteLocalFiles(WorkType.ARTWORK, 2L)).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.deleteAll(WorkType.ARTWORK, List.of(2L, 3L)))
+                .isSameAs(failure);
+
+        verify(pixivDatabase, never()).markArtworkDeleted(anyLong());
+        verify(workQueryService, never()).hasActiveWork(WorkType.ARTWORK, 3L);
     }
 
     @Test

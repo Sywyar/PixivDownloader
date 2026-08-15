@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
@@ -139,6 +140,19 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().getError())
                 .isEqualTo("小说 42 的磁盘文件未能全部删除（被锁定或权限不足），"
                         + "已中止数据库清理，请稍后重试或检查文件占用情况");
+    }
+
+    @Test
+    @DisplayName("不安全删除路径应映射为包含具体路径的本地化 409")
+    void shouldMapUnsafeDeletionPathToLocalizedConflict() {
+        ResponseEntity<ErrorResponse> response = handler.handleUnsafeDeletionPath(
+                new UnsafeDeletionPathException("C:\\downloads\\linked"),
+                Locale.SIMPLIFIED_CHINESE);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError())
+                .isEqualTo("删除目标路径不安全，已中止文件与数据库清理: C:\\downloads\\linked");
     }
 
     @Test

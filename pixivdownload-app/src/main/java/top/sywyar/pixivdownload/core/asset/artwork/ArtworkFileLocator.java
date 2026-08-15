@@ -5,7 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
@@ -17,6 +19,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
@@ -25,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Stream;
 
 @Slf4j
 @Component
@@ -135,7 +139,7 @@ public class ArtworkFileLocator {
      *
      * <p>磁盘边界守卫（避免污染的 folder / move_folder 把删除范围扩大到 root 之外或共享目录）：
      * 解析后的目录必须有效、非 OS / 驱动盘根、且不等于配置的 {@code download.root-folder} 本身；
-     * 否则跳过该步并视为"无需处理"（不算失败）。基于已知文件名前缀（{@code stems}）做枚举式匹配而非递归 walk，
+     * 已确认缺失的目录视为幂等 no-op，其它不安全目录会使整次删除失败。基于已知文件名前缀（{@code stems}）做枚举式匹配而非递归 walk，
      * 即使目录指向共享路径也只会触碰当前作品命名空间内的文件。
      *
      * @return 文件层清理结果：{@code true} 表示作品文件全部删除成功（或没有可删的文件），
@@ -150,8 +154,16 @@ public class ArtworkFileLocator {
         String directoryPath = resolveArtworkDirectory(artwork);
         if (StringUtils.hasText(directoryPath)) {
             Path safeDir = resolveSafeArtworkDirectory(directoryPath, artwork.artworkId());
-            if (safeDir != null) {
-                filesDeleted = stagedFileDeletion.deleteAtomically(resolveArtworkFiles(safeDir, artwork));
+            if (!Files.notExists(safeDir, LinkOption.NOFOLLOW_LINKS)) {
+                if (!PlainFilePathGuard.isPlainDirectory(safeDir)) {
+                    throw new UnsafeDeletionPathException(safeDir);
+                }
+                try {
+                    filesDeleted = stagedFileDeletion.deleteAtomically(resolveArtworkFiles(safeDir, artwork));
+                } catch (IOException e) {
+                    log.warn(logMessage("download.file.log.directory-unreadable", artwork.artworkId(), safeDir));
+                    filesDeleted = false;
+                }
                 if (filesDeleted) {
                     removeOwnedEmptyDirectory(safeDir, artwork.artworkId());
                 }
@@ -173,11 +185,11 @@ public class ArtworkFileLocator {
             absolute = Paths.get(directoryPath).toAbsolutePath().normalize();
         } catch (InvalidPathException e) {
             log.warn(logMessage("download.file.log.directory-invalid", artworkId, directoryPath));
-            return null;
+            throw new UnsafeDeletionPathException(directoryPath);
         }
         if (absolute.getNameCount() < 1 || absolute.equals(absolute.getRoot())) {
             log.warn(logMessage("download.file.log.directory-root-refused", artworkId, absolute));
-            return null;
+            throw new UnsafeDeletionPathException(absolute);
         }
         Path downloadRoot;
         try {
@@ -187,7 +199,7 @@ public class ArtworkFileLocator {
         }
         if (downloadRoot != null && absolute.equals(downloadRoot)) {
             log.warn(logMessage("download.file.log.directory-root-folder-refused", artworkId, absolute));
-            return null;
+            throw new UnsafeDeletionPathException(absolute);
         }
         return absolute;
     }
@@ -197,7 +209,7 @@ public class ArtworkFileLocator {
      * 以及作品 meta sidecar {@code {artworkId}.meta.json}。按文件名前缀（{@code stems}）枚举式匹配，
      * 即使目录是共享分类目录也只会匹配到本作品命名空间内的文件。
      */
-    private Set<Path> resolveArtworkFiles(Path directory, ArtworkRecord artwork) {
+    private Set<Path> resolveArtworkFiles(Path directory, ArtworkRecord artwork) throws IOException {
         Set<String> stems = new HashSet<>();
         int count = Math.max(artwork.count(), 1);
         for (int page = 0; page < count; page++) {
@@ -217,19 +229,14 @@ public class ArtworkFileLocator {
         return matchFilesByStems(directory, stems);
     }
 
-    private Set<Path> matchFilesByStems(Path directory, Set<String> stems) {
+    private Set<Path> matchFilesByStems(Path directory, Set<String> stems) throws IOException {
         if (stems.isEmpty()) {
             return Set.of();
         }
-        File[] files = directory.toFile().listFiles();
-        if (files == null) {
-            return Set.of();
-        }
         Set<Path> matched = new LinkedHashSet<>();
-        for (File file : files) {
-            if (file.isFile() && stems.contains(getBaseName(file.getName()))) {
-                matched.add(file.toPath());
-            }
+        try (Stream<Path> entries = Files.list(directory)) {
+            entries.filter(path -> stems.contains(getBaseName(path.getFileName().toString())))
+                    .forEach(matched::add);
         }
         return matched;
     }
