@@ -165,23 +165,17 @@
         renderThumbnailPage();
     }
 
-    async function loadThumbnail(artworkId, page) {
+    function loadThumbnail(artworkId, page) {
         const item = document.getElementById(`thumb-${artworkId}-${page}`);
         if (!item) return;
-        try {
-            const res = await fetch(`/api/downloaded/thumbnail/${artworkId}/${page}`);
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            if (data.success && data.image) {
-                item.innerHTML = `
-                <img src="data:image/${data.extension};base64,${data.image}" class="thumbnail-img" alt="thumb">
-                <div class="thumbnail-index">${page + 1}</div>`;
-            } else throw new Error(data.message);
-        } catch (e) {
+        item.innerHTML = `
+            <img src="/api/downloaded/thumbnail/${artworkId}/${page}" class="thumbnail-img" alt="thumb">
+            <div class="thumbnail-index">${page + 1}</div>`;
+        item.querySelector('img').addEventListener('error', () => {
             item.innerHTML = `<div class="thumbnail-error"><i class="fas fa-exclamation-circle"></i><span>ERR</span></div>`;
             item.style.cursor = 'default';
             item.onclick = null;
-        }
+        }, {once: true});
     }
 
     // ===================== 原图预览 =====================

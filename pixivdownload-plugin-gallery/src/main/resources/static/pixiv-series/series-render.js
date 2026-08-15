@@ -343,21 +343,8 @@
     async function loadThumbnail(img) {
         const url = img.dataset.src;
         img.removeAttribute('data-src');
-        const cached = ImageCache.get(url);
-        if (cached) {
-            img.src = cached;
-            return;
-        }
-        try {
-            const resp = await api(url);
-            if (resp && resp.success && resp.image) {
-                const ext = (resp.extension || 'jpg').toLowerCase();
-                const src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
-                img.src = src;
-                ImageCache.put(url, src);
-            }
-        } catch (_) {
-        }
+        img.addEventListener('load', () => ImageCache.put(url, url), {once: true});
+        img.src = ImageCache.get(url) || url;
     }
 
     function renderPagination() {

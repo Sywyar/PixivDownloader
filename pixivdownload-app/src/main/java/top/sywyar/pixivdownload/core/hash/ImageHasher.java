@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.hash;
 
-import javax.imageio.ImageIO;
+import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
+
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -23,7 +24,7 @@ public final class ImageHasher {
             return Optional.empty();
         }
         try {
-            BufferedImage image = ImageIO.read(imagePath.toFile());
+            BufferedImage image = BoundedImageDecoder.read(imagePath);
             if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
                 return Optional.empty();
             }

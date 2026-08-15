@@ -278,37 +278,34 @@ window.PixivArtwork = window.PixivArtwork || {};
     }
 
     async function loadImageToElement(url, target, {onClick} = {}) {
-        const cached = ImageCache.get(url);
-        if (cached) {
+        const attach = src => {
             const img = document.createElement('img');
-            img.src = cached;
             img.alt = '';
             if (onClick) img.addEventListener('click', onClick);
+            img.src = src;
             target.innerHTML = '';
             target.classList.remove('loading');
             target.appendChild(img);
+            return img;
+        };
+        const cached = ImageCache.get(url);
+        if (cached) {
+            attach(cached);
             return cached;
         }
-        try {
-            const resp = await api(url);
-            if (resp && resp.success && resp.image) {
-                const ext = (resp.extension || 'jpg').toLowerCase();
-                const src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
-                ImageCache.put(url, src);
-                const img = document.createElement('img');
-                img.src = src;
-                img.alt = '';
-                if (onClick) img.addEventListener('click', onClick);
-                target.innerHTML = '';
-                target.classList.remove('loading');
-                target.appendChild(img);
-                return src;
-            }
-            target.innerHTML = '<span style="color:var(--muted); padding:40px">' + escapeHtml(resp && resp.message ? resp.message : wt('status.image-unavailable', 'Image unavailable')) + '</span>';
-        } catch (e) {
-            target.innerHTML = '<span style="color:var(--muted); padding:40px">' + escapeHtml(wt('status.load-failed', 'Load failed')) + '</span>';
-        }
-        return null;
+        return new Promise(resolve => {
+            const image = new Image();
+            image.onload = () => {
+                ImageCache.put(url, url);
+                attach(url);
+                resolve(url);
+            };
+            image.onerror = () => {
+                target.innerHTML = '<span style="color:var(--muted); padding:40px">' + escapeHtml(wt('status.load-failed', 'Load failed')) + '</span>';
+                resolve(null);
+            };
+            image.src = url;
+        });
     }
 
 

@@ -211,28 +211,11 @@
     async function lazyLoadBox(box) {
         const url = box.dataset.src;
         box.removeAttribute('data-src');
-        const cached = ImageCache.get(url);
-        if (cached) {
-            const img = document.createElement('img');
-            img.src = cached;
-            img.alt = '';
-            box.appendChild(img);
-            return;
-        }
-        try {
-            const resp = await api(url);
-            if (resp && resp.success && resp.image) {
-                const ext = (resp.extension || 'jpg').toLowerCase();
-                const src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
-                ImageCache.put(url, src);
-                const img = document.createElement('img');
-                img.src = src;
-                img.alt = '';
-                box.appendChild(img);
-            }
-        } catch (e) {
-            // Silent
-        }
+        const img = document.createElement('img');
+        img.alt = '';
+        img.addEventListener('load', () => ImageCache.put(url, url), {once: true});
+        img.src = ImageCache.get(url) || url;
+        box.appendChild(img);
     }
 
 

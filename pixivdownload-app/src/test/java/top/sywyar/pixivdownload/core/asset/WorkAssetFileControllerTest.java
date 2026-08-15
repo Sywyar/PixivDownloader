@@ -11,7 +11,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
-import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -31,8 +30,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(MockitoExtension.class)
 @DisplayName("WorkAssetFileController 单元测试")
 class WorkAssetFileControllerTest {
-    private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
-
     @TempDir
     Path tempDir;
 
@@ -48,9 +45,9 @@ class WorkAssetFileControllerTest {
     @BeforeEach
     void setUp() throws Exception {
         WorkAssetFileController controller =
-                new WorkAssetFileController(workAssetService, guestAccessGuard, APP_MESSAGES);
+                new WorkAssetFileController(workAssetService, guestAccessGuard);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
+                .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages()))
                 .build();
 
         pngFile = tempDir.resolve("12345_p0.png");
@@ -59,21 +56,19 @@ class WorkAssetFileControllerTest {
         Files.write(webpFile, new byte[]{1, 2, 3, 4});
     }
 
-    // ========== GET /api/downloaded/thumbnail（ImageResponse 内联 base64） ==========
+    // ========== GET /api/downloaded/thumbnail（二进制缩略图） ==========
 
     @Test
-    @DisplayName("获取缩略图成功：返回内联 base64 与图片宽高")
+    @DisplayName("获取缩略图成功：返回可缓存的 image/png 文件流")
     void shouldReturnThumbnail() throws Exception {
         when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0))
                 .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
 
         mockMvc.perform(get("/api/downloaded/thumbnail/12345/0"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.extension").value("png"))
-                .andExpect(jsonPath("$.width").value(4))
-                .andExpect(jsonPath("$.height").value(3))
-                .andExpect(jsonPath("$.image").isNotEmpty());
+                .andExpect(content().contentType(MediaType.IMAGE_PNG))
+                .andExpect(content().bytes(Files.readAllBytes(pngFile)))
+                .andExpect(header().string("Cache-Control", "max-age=2592000, private"));
     }
 
     @Test
@@ -107,7 +102,7 @@ class WorkAssetFileControllerTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ========== GET /api/downloaded/rawfile（原始字节） ==========
+    // ========== GET /api/downloaded/rawfile（原始文件流） ==========
 
     @Test
     @DisplayName("获取原始文件成功：按扩展名返回 image/png 字节")
@@ -129,34 +124,30 @@ class WorkAssetFileControllerTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ========== GET /api/downloaded/image（ImageResponse 内联 base64） ==========
+    // ========== GET /api/downloaded/image（二进制原图） ==========
 
     @Test
-    @DisplayName("获取原始图片成功：非 webp 经重编码返回内联 base64")
+    @DisplayName("获取原始图片成功：不重编码，直接返回 image/png 文件流")
     void shouldReturnImage() throws Exception {
         when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0))
                 .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
 
         mockMvc.perform(get("/api/downloaded/image/12345/0"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.extension").value("png"))
-                .andExpect(jsonPath("$.image").isNotEmpty());
+                .andExpect(content().contentType(MediaType.IMAGE_PNG))
+                .andExpect(content().bytes(Files.readAllBytes(pngFile)));
     }
 
     @Test
-    @DisplayName("获取 webp 原始图片：直接回原始字节、宽高记 0")
+    @DisplayName("获取 webp 原始图片：返回 image/webp 文件流")
     void shouldReturnWebpImageAsRawBytes() throws Exception {
         when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0))
                 .thenReturn(Optional.of(new WorkAssetFile(0, webpFile, "webp")));
 
         mockMvc.perform(get("/api/downloaded/image/12345/0"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.extension").value("webp"))
-                .andExpect(jsonPath("$.width").value(0))
-                .andExpect(jsonPath("$.height").value(0))
-                .andExpect(jsonPath("$.image").isNotEmpty());
+                .andExpect(content().contentType("image/webp"))
+                .andExpect(content().bytes(Files.readAllBytes(webpFile)));
     }
 
     @Test

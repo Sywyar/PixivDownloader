@@ -2,9 +2,9 @@ package top.sywyar.pixivdownload.imageclassifier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
-import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -106,8 +106,13 @@ public class ThumbnailManager {
 
 
     public static BufferedImage getThumbnail(File image, int thumbW, int thumbH) throws IOException {
-        BufferedImage src = ImageIO.read(image);
+        BufferedImage src = BoundedImageDecoder.read(image.toPath());
         if (src == null) throw new IOException("Cannot decode image: " + image);
+
+        return getThumbnail(src, thumbW, thumbH);
+    }
+
+    public static BufferedImage getThumbnail(BufferedImage src, int thumbW, int thumbH) {
 
         if (thumbW == -1) {
             thumbW = src.getWidth() / 3;
@@ -116,8 +121,6 @@ public class ThumbnailManager {
         if (thumbH == -1) {
             thumbH = src.getHeight() / 3;
         }
-
-        if (src == null) throw new IOException("无法解码图片: " + image);
 
         int[] sized = fitTo(src.getWidth(), src.getHeight(), thumbW, thumbH);
         int w = sized[0];
@@ -211,15 +214,7 @@ public class ThumbnailManager {
             if (cache.containsKey(key)) continue;
             executor.submit(() -> {
                 try {
-                    BufferedImage src = ImageIO.read(f);
-                    if (src == null) return;
-                    int[] sized = fitTo(src.getWidth(), src.getHeight(), thumbW, thumbH);
-                    BufferedImage dst = new BufferedImage(sized[0], sized[1], BufferedImage.TYPE_INT_ARGB);
-                    Graphics2D g = dst.createGraphics();
-                    g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                    g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                    g.drawImage(src, 0, 0, sized[0], sized[1], null);
-                    g.dispose();
+                    BufferedImage dst = getThumbnail(f, thumbW, thumbH);
                     cache.put(key, new ImageIcon(dst));
                 } catch (IOException ignored) {
                 }
