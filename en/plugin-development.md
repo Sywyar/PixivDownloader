@@ -293,7 +293,7 @@ If a real use case exceeds these bounds or needs binary data, propose a separate
 
 ## Web routes, static resources, and i18n
 
-Every controller mapping, static directory, and top-level HTML file must be declared by its owning plugin in `routes()`. An undeclared `path + HTTP method` returns 404; hiding a frontend entry point is not authorization.
+Every controller mapping, static directory, and top-level HTML file must be declared by its owning plugin in `routes()`. A controller can be covered only by a declaration from the same plugin owner, not by another plugin's broad prefix. An undeclared `path + HTTP method` returns 404; hiding a frontend entry point is not authorization.
 
 Common named factories:
 
@@ -307,7 +307,7 @@ Common named factories:
 | `local` | Local-process flow exception |
 | `gui` | Both a trusted local request and GUI token are required |
 
-To restrict HTTP methods, use the standard `WebRouteContribution` constructor with an explicit `HttpMethod` set. Conflicting non-PUBLIC policies with equal specificity fail fast.
+To restrict HTTP methods, use the standard `WebRouteContribution` constructor with an explicit `HttpMethod` set. When HTTP method sets overlap, matching paths owned by different plugins must use the same `AccessPolicy`; different policies fail fast during registration and report both plugins and path patterns. Plugins may share a namespace under the same policy, and one plugin may still refine its own broad prefix with a more specific declaration.
 
 Complete declaration for an independent administration page:
 

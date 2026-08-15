@@ -292,7 +292,7 @@ HTML 不会通过网络或进程边界在插件间传输。它在同一个 JVM �
 
 ## Web 路由、静态资源和 i18n
 
-每个 controller 映射、静态目录和顶层 HTML 都必须由所属插件在 `routes()` 中声明。未声明的 `path + HTTP method` 会返回 404；前端隐藏入口不构成鉴权。
+每个 controller 映射、静态目录和顶层 HTML 都必须由所属插件在 `routes()` 中声明。controller 只能由同一插件 owner 的声明覆盖，不能借用其它插件的宽前缀；未声明的 `path + HTTP method` 会返回 404。前端隐藏入口不构成鉴权。
 
 常用命名工厂：
 
@@ -306,7 +306,7 @@ HTML 不会通过网络或进程边界在插件间传输。它在同一个 JVM �
 | `local` | 本机流程特例 |
 | `gui` | 本机可信请求和 GUI token 双重校验 |
 
-需要限制 HTTP 方法时使用 `WebRouteContribution` 标准构造器并显式传 `HttpMethod` 集合。相同特异性的非 PUBLIC 策略冲突会 fail-fast。
+需要限制 HTTP 方法时使用 `WebRouteContribution` 标准构造器并显式传 `HttpMethod` 集合。HTTP 方法集合重叠时，不同插件的可匹配路径必须使用相同 `AccessPolicy`；不同策略会在注册阶段 fail-fast，并报告双方插件与路径模式。相同策略可以共享命名空间；同一插件仍可用更具体的窄声明覆盖自己的宽前缀。
 
 独立管理页的完整声明示例：
 
