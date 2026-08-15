@@ -57,12 +57,12 @@ After a successful action the page refreshes plugin status and the top navigatio
 
 Besides runtime-managing already-installed plugins, this page also gives admins an **Install local plugin** entry to bring a local **external plugin package** into the app:
 
-- **Local upload only**: pick a local `.jar` or `.zip` plugin package and upload it. This local install entry accepts no arbitrary install-from-URL; online browsing and repository installation belong to the separate [Web Plugin Marketplace](#web-plugin-marketplace).
-- **Install = validate + stage to disk**: the package is validated first (archive layout, descriptor, required core-API version, …); on success it is written to the `plugins/` folder of the working directory. Incompatible / invalid packages are rejected and nothing is written.
-- **No hot-load; takes effect after restart**: installing does **not** load the new plugin at runtime; it is discovered and loaded on the **next startup**, so a **restart** is required for it to take effect.
-- **No delete / purge**: this page does **not** offer uninstalling a package, deleting, or purging `plugins/`. To remove an external plugin package, delete it from the `plugins/` folder manually and restart.
+- **Local files only**: select a local `.jar` or compatible `.zip` package together with its detached `.sig` file. This entry accepts no arbitrary install-from-URL; online browsing and repository installation belong to the separate [Web Plugin Marketplace](#web-plugin-marketplace).
+- **Official signature required**: outside explicit plugin development mode, the signature must verify against the built-in official trust root and bind the exact artifact. Missing, malformed, mismatched, or non-official signatures fail closed. Third-party distributions that trust their own key must use a configured custom repository instead of treating local upload as a custom trust-root entry.
+- **Persistent provenance**: a verified local package keeps `LOCAL_UPLOAD` as its source while recording its detached signature and `VERIFIED` provenance for offline verification. Plugin development mode is the only mode that may omit `.sig`; such packages remain `LOCAL_UPLOAD / UNSIGNED_ALLOWED`.
+- **Transactional activation**: installation uses the same validation, atomic replacement, rollback, and lifecycle policy as marketplace installation. `hot-reload` and `backend-restart` packages activate in the current process; `process-restart` packages take effect after a full process restart. Use the `remove` lifecycle action to remove an installed artifact; there is no data-purging action.
 
-!> The install entry is admin-only. Installing only validates and stages the package to disk — it neither goes online nor hot-loads at runtime.
+!> The install entry is admin-only and never goes online. A valid signature establishes publisher and byte integrity only; external plugin code still runs in the host JVM with the host process's OS privileges.
 
 ---
 
@@ -76,7 +76,7 @@ The page supports:
 - Filtering by category, keyword, official source, and current-version compatibility, then sorting by recommendation, update time, downloads, rating, or name
 - Viewing plugin details, version history, dependencies, required core API, package size, SHA-256, signature status, change notes, and homepage
 - Showing local install state as not installed / installed / update available / incompatible / no installable version
-- Installing a version from the repository; success clearly says **effective after restart** and does not pretend to hot-load it
+- Installing a version from the repository and reporting whether its lifecycle policy activates it immediately or requires a process restart
 
 The marketplace itself is provided by the built-in `plugin-market` plugin. With `plugins.plugin-market.enabled=false`, the market page, APIs, static resources, i18n, navigation entry, and the "Market" entry on the Plugin Management page are withdrawn and direct access returns 404.
 
@@ -89,7 +89,7 @@ The network master switch `plugin-catalog.enabled` and the built-in official rep
 - `proxy-trusted`: uses the core outbound proxy and follows at most five redirects only within the built-in GitHub Release asset host allowlist. Every hop is revalidated. The official repository uses this policy.
 - Manifest and package downloads are bound to the same repository and use that repository's proxy policy, timeouts, and manifest / package size limits.
 - Downloaded packages are verified by declared size, SHA-256, and signature before staging. If a signature is declared but no verifier is available, installation fails closed.
-- Installation only validates and safely stages the package to `plugins/`; it is not hot-loaded. Failures clean up temporary files and do not damage old plugins.
+- Installation validates and transactionally replaces the package in `plugins/`, then activates it according to its lifecycle policy. Failures clean up temporary files and restore the old plugin when replacement has begun.
 
 The marketplace does not provide arbitrary URL install, auto update, delete, or purge. The old `/api/plugins/catalog/**` route has been removed; the market uses the separate admin route `/api/plugin-market/**`.
 

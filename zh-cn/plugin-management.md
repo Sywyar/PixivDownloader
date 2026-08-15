@@ -23,9 +23,9 @@
 
 ### 本地上传
 
-在插件管理页上传 `.jar` 或兼容 `.zip`。本地未签名包只有在本地上传策略允许时才接受，并持续记录为 `LOCAL_UPLOAD / UNSIGNED_ALLOWED` provenance；它不会被伪装为官方或远程仓库可信包。
+在插件管理页同时选择 `.jar`（或兼容 `.zip`）与对应的 detached `.sig` 文件。非插件开发模式要求签名通过程序内置的官方信任根验证；缺少签名、签名格式错误、签名对应其它 artifact，或签名来自非官方 key 时都会 fail-closed。需要信任自有 key 的第三方分发应配置自定义仓库，不应把本地上传当成自定义信任根入口。
 
-本地上传适合开发和受控的私有分发。不要把“本机允许 unsigned”理解成市场仓库可以省略签名：远程来源仍 fail-closed。
+通过验签的本地包仍记录为 `LOCAL_UPLOAD` 来源，同时保留签名和 `VERIFIED` provenance，供启动时离线复验；管理页会显示官方验证状态，但不会把来源伪装成远程仓库。只有显式插件开发模式允许省略 `.sig`，此时 provenance 为 `LOCAL_UPLOAD / UNSIGNED_ALLOWED`。远程仓库无论运行模式如何都不能省略签名。
 
 ### 插件市场
 

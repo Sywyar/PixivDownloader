@@ -618,10 +618,11 @@ mvn -f plugin-templates/pom.xml clean verify
 
 1. `mvn clean verify`；
 2. 在 JAR 中确认根 `plugin.properties`、类和资源；
-3. 从管理员插件管理页本地上传 JAR；
-4. 对 `hot-reload` 插件执行事务替换和即时激活；
-5. 刷新页面，验证 controller、route、static、i18n 和下载类型都属于当前 generation；
-6. 修改后重新构建、上传并使用 `reload`，不要在运行时手工覆盖 JAR。
+3. 正式运行时通过已配置的自定义仓库安装；本地上传只接受内置官方信任根签发的 JAR 与对应 `.sig`；
+4. 显式插件开发模式可省略本地上传签名，产生的来源会保持为未验证开发 artifact；
+5. 对 `hot-reload` 插件执行事务替换和即时激活；
+6. 刷新页面，验证 controller、route、static、i18n 和下载类型都属于当前 generation；
+7. 修改后重新构建、上传并使用 `reload`，不要在运行时手工覆盖 JAR。
 
 ```powershell
 jar tf target/example-download-plugin-0.1.0.jar

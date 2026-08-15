@@ -619,10 +619,11 @@ Baseline flow for a standalone third-party project:
 
 1. Run `mvn clean verify`.
 2. Confirm the root `plugin.properties`, classes, and resources inside the JAR.
-3. Upload the JAR from the administrator plugin-management page.
-4. For a `hot-reload` plugin, let the transaction replace and activate it immediately.
-5. Refresh the page and verify that controllers, routes, static resources, i18n, and download types all belong to the current generation.
-6. After changes, rebuild, upload, and use `reload`; do not overwrite the installed JAR by hand while the application is running.
+3. In a formal runtime, install through a configured custom repository. Local upload accepts only a JAR and `.sig` issued by the built-in official trust root.
+4. Explicit plugin development mode may omit the local-upload signature; the artifact remains recorded as an unverified development source.
+5. For a `hot-reload` plugin, let the transaction replace and activate it immediately.
+6. Refresh the page and verify that controllers, routes, static resources, i18n, and download types all belong to the current generation.
+7. After changes, rebuild, upload, and use `reload`; do not overwrite the installed JAR by hand while the application is running.
 
 ```powershell
 jar tf target/example-download-plugin-0.1.0.jar
