@@ -269,6 +269,64 @@ class RouteAccessRegistryTest {
     }
 
     @Test
+    @DisplayName("不同插件不能用不同访问策略声明相互覆盖的路由")
+    void crossPluginPolicyOverlapIsRejectedInEitherRegistrationOrder() {
+        RouteAccessRegistry broadFirst = emptyRegistry();
+        broadFirst.register("plugin-a", List.of(route("/api/shared/**", AccessPolicy.ADMIN)));
+
+        assertThatThrownBy(() -> broadFirst.register("plugin-b", List.of(
+                route("/api/shared/open", AccessPolicy.PUBLIC))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("plugin-a")
+                .hasMessageContaining("plugin-b")
+                .hasMessageContaining("/api/shared/**")
+                .hasMessageContaining("/api/shared/open");
+
+        RouteAccessRegistry narrowFirst = emptyRegistry();
+        narrowFirst.register("plugin-a", List.of(route("/api/shared/open", AccessPolicy.PUBLIC)));
+
+        assertThatThrownBy(() -> narrowFirst.register("plugin-b", List.of(
+                route("/api/shared/**", AccessPolicy.ADMIN))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("plugin-a")
+                .hasMessageContaining("plugin-b");
+
+        RouteAccessRegistry samePolicy = emptyRegistry();
+        samePolicy.register("plugin-a", List.of(route("/api/shared/**", AccessPolicy.ADMIN)));
+        samePolicy.register("plugin-b", List.of(route("/api/shared/status", AccessPolicy.ADMIN)));
+        assertThat(samePolicy.routes()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("不同插件的路径段通配声明只有实际相交时才冲突")
+    void crossPluginSegmentWildcardConflictUsesActualIntersection() {
+        RouteAccessRegistry conflicting = emptyRegistry();
+        conflicting.register("plugin-a", List.of(
+                route("/api/shared/*/details", AccessPolicy.ADMIN)));
+
+        assertThatThrownBy(() -> conflicting.register("plugin-b", List.of(
+                route("/api/shared/account/*", AccessPolicy.PUBLIC))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("conflicting route access policy");
+
+        RouteAccessRegistry prefixAndWildcard = emptyRegistry();
+        prefixAndWildcard.register("plugin-a", List.of(
+                route("/api/shared/account**", AccessPolicy.ADMIN)));
+        assertThatThrownBy(() -> prefixAndWildcard.register("plugin-b", List.of(
+                route("/api/shared/*/details", AccessPolicy.PUBLIC))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("conflicting route access policy");
+
+        RouteAccessRegistry disjoint = emptyRegistry();
+        disjoint.register("plugin-a", List.of(
+                route("/api/shared/*/details", AccessPolicy.ADMIN)));
+        disjoint.register("plugin-b", List.of(
+                route("/api/shared/*/edit", AccessPolicy.PUBLIC)));
+
+        assertThat(disjoint.routes()).hasSize(2);
+    }
+
+    @Test
     @DisplayName("resolve：无任何匹配返回空（AuthFilter 据此统一 404）")
     void resolveNoMatchIsEmpty() {
         assertThat(emptyRegistry().resolve("/api/nope", HttpMethod.GET)).isEmpty();

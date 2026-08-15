@@ -79,6 +79,25 @@ class PluginControllerRegistrarTest {
     }
 
     @Test
+    @DisplayName("启动期 controller 不能借用其它插件的路由声明")
+    void rejectsControllerCoveredOnlyByAnotherPlugin() {
+        PluginAwareRequestMappingHandlerMapping mapping = newInitializedMapping();
+        RouteAccessRegistry routes = new RouteAccessRegistry(new PluginRegistry(List.of()));
+        routes.register("route-owner", List.of(WebRouteContribution.admin("/api/test/**")));
+        PluginControllerRegistrar registrar = new PluginControllerRegistrar(mapping, routes);
+
+        try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext(DeclaredController.class)) {
+            assertThatThrownBy(() -> registrar.registerControllers("controller-owner", child))
+                    .isInstanceOf(PluginControllerRegistrationException.class)
+                    .hasMessageContaining("/api/test/ping")
+                    .hasMessageContaining("controller-owner");
+
+            assertThat(registrar.registeredPluginIds()).doesNotContain("controller-owner");
+            assertThat(mappedPaths(mapping)).doesNotContain("/api/test/ping");
+        }
+    }
+
+    @Test
     @DisplayName("方法不一致：声明仅 GET 但 controller 是 POST → 拒绝注册（与 controller mapping 不一致）")
     void rejectsControllerWhenDeclaredMethodMismatches() {
         PluginAwareRequestMappingHandlerMapping mapping = newInitializedMapping();

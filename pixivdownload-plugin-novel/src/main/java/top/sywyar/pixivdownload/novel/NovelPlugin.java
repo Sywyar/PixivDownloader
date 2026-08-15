@@ -82,6 +82,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/api/novel/translate-lang-probe"),
                 WebRouteContribution.admin("/api/novel/series/*/translate-title"),
                 WebRouteContribution.admin("/api/novel/series/*/novel-ids"),
+                WebRouteContribution.admin("/api/admin/glossary**"),
                 WebRouteContribution.admin("/api/narration/**"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/*/meta"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/*/bookmark-count"),

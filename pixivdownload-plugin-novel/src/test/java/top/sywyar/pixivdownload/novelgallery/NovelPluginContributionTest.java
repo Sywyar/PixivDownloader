@@ -47,6 +47,7 @@ class NovelPluginContributionTest {
                         "/api/novel/translate-lang-probe",
                         "/api/novel/series/*/translate-title",
                         "/api/novel/series/*/novel-ids",
+                        "/api/admin/glossary**",
                         "/api/narration/**",
                         "/api/download/pixiv/novel",
                         "/api/download/novel/status/**",
