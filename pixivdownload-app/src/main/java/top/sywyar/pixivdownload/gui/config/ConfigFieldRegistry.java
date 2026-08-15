@@ -530,6 +530,11 @@ public final class ConfigFieldRegistry {
                         .enabledWhen(snap -> snap.isTrue("server.ssl.enabled") && snap.equals("ssl.type", "jks"))
                         .build(),
 
+                ConfigFieldSpec.builder("server.trusted-proxy-cidrs", message("gui.config.field.server.trusted-proxy-cidrs.label"), STRING, groupHttps)
+                        .defaultValue("")
+                        .help(message("gui.config.field.server.trusted-proxy-cidrs.help"))
+                        .build(),
+
                 ConfigFieldSpec.builder("ssl.http-redirect", message("gui.config.field.ssl.http-redirect.label"), BOOL, groupHttps)
                         .defaultValue("false")
                         .help(message("gui.config.field.ssl.http-redirect.help"))

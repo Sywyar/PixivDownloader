@@ -1094,6 +1094,22 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "gui",
+      "key": "gui.config.field.server.trusted-proxy-cidrs.help",
+      "acceptedSourceHash": "de286cb9c37953a4c3287fd02eb38b297f9f6560f5975397437b480bf9b34618",
+      "acceptedTranslationHash": "6d362f14a660ebcf99f057695a1882131304bbcc49360c166333dd821f9a1267"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "gui",
+      "key": "gui.config.field.server.trusted-proxy-cidrs.label",
+      "acceptedSourceHash": "1bba3a47b0f5628b2168de90da5c3de4f47e70d5f7b39a5c74043935a245947a",
+      "acceptedTranslationHash": "435f050aead31f3220540be677bb47047a5b0e0e3e2ab10729e46a9cd71fe8ed"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "gui",
       "key": "gui.config.field.setup.login-rate-limit-minute.help",
       "acceptedSourceHash": "73bee68d22011dbb5fb140f0dbe542681e7d84b48ce19f6af5ffdfb4203252dc",
       "acceptedTranslationHash": "d49df0ad220eab48528ca64b44073762633a04e2b9c43fabca8b005db12750da"
@@ -8961,6 +8977,14 @@
       "key": "config.template.server.ssl.key-store.comment",
       "acceptedSourceHash": "a390dd1328ad138135a47cee1c753496d8d646b82d27a2883f2e474f0e7e5324",
       "acceptedTranslationHash": "82ea40c16b9da96cf3640f1e05152486aa047c4bead64eccfb76961ec8bb6f57"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "config.template.server.trusted-proxy-cidrs.comment",
+      "acceptedSourceHash": "6e1d20bc0ca339f12601760239b66927a6282c753db242fd6e1384aedf381b64",
+      "acceptedTranslationHash": "033f5f09e06634f3f7804334909f529cee5b30b5f162a4e773474e72e12299a6"
     },
     {
       "locale": "en-US",

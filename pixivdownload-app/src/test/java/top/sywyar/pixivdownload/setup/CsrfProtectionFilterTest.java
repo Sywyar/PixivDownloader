@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.setup;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,6 +107,29 @@ class CsrfProtectionFilterTest {
         assertThat(response.getStatus()).isEqualTo(405);
         assertThat(response.getHeader(HttpHeaders.ALLOW)).doesNotContain("TRACE");
         verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("可信代理规范化后的外部 Origin 可通过同源校验")
+    void normalizedProxyOriginAllowsProtectedWrite() throws Exception {
+        TrustedForwardedRequestFilter forwardedFilter =
+                new TrustedForwardedRequestFilter("172.16.0.0/12");
+        MockHttpServletRequest request = request("POST", "/api/collections/7/icon");
+        request.setRemoteAddr("172.18.0.3");
+        request.addHeader("X-Forwarded-For", "198.51.100.20");
+        request.addHeader("X-Forwarded-Proto", "https");
+        request.addHeader("X-Forwarded-Host", "gallery.example");
+        request.addHeader(HttpHeaders.ORIGIN, "https://gallery.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        forwardedFilter.doFilterInternal(request, response,
+                (normalized, normalizedResponse) -> filter.doFilterInternal(
+                        (HttpServletRequest) normalized,
+                        (HttpServletResponse) normalizedResponse,
+                        filterChain));
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(filterChain).doFilter(any(HttpServletRequest.class), any(HttpServletResponse.class));
     }
 
     @Test

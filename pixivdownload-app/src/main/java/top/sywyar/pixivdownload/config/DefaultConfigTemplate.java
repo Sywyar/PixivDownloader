@@ -127,6 +127,7 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "server.ssl.key-store-type: JKS", "config.template.server.ssl.key-store-type.comment");
         appendSetting(config, messages, "server.ssl.key-store:", "config.template.server.ssl.key-store.comment");
         appendSetting(config, messages, "server.ssl.key-store-password:", "config.template.server.ssl.key-store-password.comment");
+        appendSetting(config, messages, "server.trusted-proxy-cidrs:", "config.template.server.trusted-proxy-cidrs.comment");
         appendSetting(config, messages, "ssl.http-redirect: false", "config.template.ssl.http-redirect.comment");
         appendSetting(config, messages, "ssl.http-redirect-port: 80", "config.template.ssl.http-redirect-port.comment");
         appendBlankLine(config);
