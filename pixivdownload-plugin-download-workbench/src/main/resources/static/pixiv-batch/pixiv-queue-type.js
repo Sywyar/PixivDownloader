@@ -278,7 +278,7 @@
                 const inQueueClass = inQueue.has(String(item.id)) ? ' in-queue' : '';
                 const queueTip = buildQueueToggleTip(inQueue.has(String(item.id)));
                 return `<div class="search-thumb${inQueueClass}" id="user-thumb-${idx}"
-                     onclick="addUserItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${queueTip}">
+                     data-pixiv-click="addUserItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${queueTip}">
           <img id="user-thumb-img-${idx}" src="" alt="${esc(item.title)}">
           <div class="thumb-badge-stack">${r18Badge}${aiBadge}${typeBadge}</div>
           ${pagesLabel}
@@ -307,7 +307,7 @@
                 const inQueueClass = inQueue.has(item.id) ? ' in-queue' : '';
                 const queueTip = buildQueueToggleTip(inQueue.has(item.id));
                 return `<div class="search-thumb${inQueueClass}" id="series-thumb-${idx}"
-                     onclick="addSeriesItemToQueue(${idx})" title="#${seriesOrder} ${esc(item.title)} (${esc(item.userName)})${queueTip}">
+                     data-pixiv-click="addSeriesItemToQueue(${idx})" title="#${seriesOrder} ${esc(item.title)} (${esc(item.userName)})${queueTip}">
           <img id="series-thumb-img-${idx}" src="" alt="${esc(item.title)}">
           <div class="thumb-badge-stack">${orderBadge}${r18Badge}${aiBadge}</div>
           ${pagesLabel}

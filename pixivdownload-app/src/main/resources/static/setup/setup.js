@@ -147,6 +147,10 @@ async function redirectIfComplete() {
 }
 
 (async function initSetupPage() {
+  PixivActions.bind(document, {
+    click: {submitSetup},
+    change: {syncProxyEnabled}
+  });
   await initPageI18n();
   await redirectIfComplete();
 })();

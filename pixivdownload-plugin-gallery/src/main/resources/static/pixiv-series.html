@@ -13,6 +13,7 @@
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-ui-slots.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
+    <script src="/js/pixiv-actions.js"></script>
     <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
@@ -138,7 +139,7 @@
             <section class="series-hero">
                 <div class="series-hero-cover" id="seriesCover" style="display:none">
                     <img id="seriesCoverImg" alt=""
-                         onerror="document.getElementById('seriesCover').style.display='none'">
+                         data-pixiv-error="hideSeriesCover()">
                 </div>
                 <div class="series-hero-main">
                     <div class="series-kicker" data-i18n="page.kicker"></div>

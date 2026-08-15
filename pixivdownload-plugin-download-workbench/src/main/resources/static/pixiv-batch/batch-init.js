@@ -57,7 +57,46 @@
     /* ============================================================
        初始化
     ============================================================ */
+    function installScriptFromElement(button) {
+        installScript(button.dataset.installId);
+    }
+
+    function bindDeclarativeActions() {
+        const actions = {
+            noop: () => {},
+            batchLogin: () => { location.href = '/login.html?redirect=/pixiv-batch.html'; },
+            doLogout, setCookieFmt, toggleUserscripts, switchMode, quickLoad,
+            quickFilterFollowing, togglePreviewCollapse, quickAddCurrentPageToQueue,
+            quickAddAllToQueue, quickInnerAddCurrentPageToQueue, quickInnerAddAllToQueue,
+            quickCloseInner, parseSingleImport, parseSingleImportFresh, loadUserPreview,
+            addCurrentUserPageToQueue, addAllUserResultsToQueue, handleSearchEnter,
+            performSearch, addAllSearchResultsToQueue, handleBatchRangeChange, runBatchFetch,
+            addCurrentBatchPageToQueue, toggleBlurR18, loadSeriesPreview,
+            addCurrentSeriesPageToQueue, addAllSeriesResultsToQueue,
+            closeScheduleSnapshotModal, closeScheduleOverrideModal,
+            onScheduleOverrideToggle, fillScheduleCookieFromSaved, saveScheduleOverride,
+            handleSearchFilterChange, resetSearchFilters, handleStart, handlePause,
+            toggleIntervalUnit, toggleImageDelayUnit, onScheduleTriggerChange,
+            submitScheduleTask, resetScheduleForm, triggerAdminPack, handleRetry,
+            handleClear, handleExport, handleExportFailed, quickJumpPage,
+            quickToggleItemQueue, quickEnterFollowingUser, quickEnterCollection,
+            quickInnerToggleQueue, quickInnerJumpPage, addSearchItemToQueue, goBatchPage,
+            showScheduleSnapshot, runScheduleTask, showScheduleOverrideModal,
+            resumeScheduleTask, pauseScheduleTask, toggleScheduleTask,
+            startEditScheduleTask, togglePendingPanel, deleteScheduleTask,
+            toggleScheduleQueue, loadUserPreviewPage, loadSeriesPreviewPage,
+            addUserItemToQueue, addSeriesItemToQueue, installScriptFromElement
+        };
+        PixivActions.bind(document, {
+            click: actions,
+            change: actions,
+            input: actions,
+            keydown: actions
+        });
+    }
+
     async function init() {
+        bindDeclarativeActions();
         // 检测使用模式，solo 模式则从服务器加载状态
         await detectMode();
         // 下载页扩展点（取得侧 UI 动态装配）：先拉取已启用作品类型、加载其行为模块、把各类型贡献的取得侧

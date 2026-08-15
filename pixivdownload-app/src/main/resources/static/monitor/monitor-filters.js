@@ -26,13 +26,13 @@
                 ${sortedFormats.length ? sortedFormats.map(f => `
                     <label class="fmt-filter-option">
                         <input type="checkbox" value="${f}" ${formatFilter.has(f) ? 'checked' : ''}
-                               onchange="onFormatFilterChange()">
+                               data-pixiv-change="onFormatFilterChange()">
                         <span class="fmt-badge fmt-${f}">${f.toUpperCase()}</span>
                     </label>
                 `).join('') : '<span style="font-size:.7rem;color:var(--text-dim)">' + escapeHtml(t('status.no-data', 'No data')) + '</span>'}
             </div>
             <div class="fmt-filter-actions">
-                <button class="btn-term" style="font-size:.6rem;padding:2px 8px;width:100%;" onclick="clearFormatFilter()">${escapeHtml(t('filter.clear-all', 'CLEAR ALL'))}</button>
+                <button class="btn-term" style="font-size:.6rem;padding:2px 8px;width:100%;" data-pixiv-click="clearFormatFilter()">${escapeHtml(t('filter.clear-all', 'CLEAR ALL'))}</button>
             </div>`;
 
         positionFilterPopup(document.getElementById('th-extensions'), popup);
@@ -75,7 +75,7 @@
         container.innerHTML = authors.length
             ? authors.map(author => `
                 <label class="fmt-filter-option">
-                    <input type="checkbox" value="${author.id}" ${authorFilter.has(author.id) ? 'checked' : ''} onchange="toggleAuthorFilterValue(this.value, this.checked)">
+                    <input type="checkbox" value="${author.id}" ${authorFilter.has(author.id) ? 'checked' : ''} data-pixiv-change="toggleAuthorFilterValueFromInput(this)">
                     <span class="author-filter-row">
                         <span class="author-filter-name">${escapeHtml(author.name)}</span>
                         <span class="author-filter-id">#${author.id}</span>
@@ -90,10 +90,10 @@
         popup.dataset.type = 'author';
         popup.innerHTML = `
             <div class="fmt-filter-header">${escapeHtml(t('filter.author.title', 'AUTHOR FILTER'))}</div>
-            <input type="text" class="search-box filter-popup-search" placeholder="${escapeHtml(t('filter.author.search', 'Search author name / ID'))}" value="${escapeHtml(authorFilterQuery)}" oninput="onAuthorFilterSearch(this.value)">
+            <input type="text" class="search-box filter-popup-search" placeholder="${escapeHtml(t('filter.author.search', 'Search author name / ID'))}" value="${escapeHtml(authorFilterQuery)}" data-pixiv-input="onAuthorFilterSearchFromInput(this)">
             <div id="authorFilterOptions" class="fmt-filter-options"></div>
             <div class="fmt-filter-actions">
-                <button class="btn-term" style="font-size:.6rem;padding:2px 8px;width:100%;" onclick="clearAuthorFilter()">${escapeHtml(t('filter.clear-all', 'CLEAR ALL'))}</button>
+                <button class="btn-term" style="font-size:.6rem;padding:2px 8px;width:100%;" data-pixiv-click="clearAuthorFilter()">${escapeHtml(t('filter.clear-all', 'CLEAR ALL'))}</button>
             </div>`;
         renderAuthorFilterOptions();
         positionFilterPopup(document.getElementById('th-authorId'), popup);
@@ -107,8 +107,7 @@
         }
     }
 
-    function toggleAuthorFilter(evt) {
-        evt.stopPropagation();
+    function toggleAuthorFilter() {
         const popup = document.getElementById('formatFilterPopup');
         if (popup.classList.contains('show') && popup.dataset.type === 'author') {
             popup.classList.remove('show');
@@ -201,7 +200,7 @@
                     <label class="fmt-filter-option">
                         <input type="radio" name="R18opt" value="${o.value}"
                                ${(o.value === 'all' && R18Filter === null) || o.value === R18Filter ? 'checked' : ''}
-                               onchange="onR18FilterChange(this.value)">
+                               data-pixiv-change="onR18FilterChangeFromInput(this)">
                         <span style="font-size:.75rem;">${o.label}</span>
                     </label>
                 `).join('')}
@@ -249,7 +248,7 @@
                     <label class="fmt-filter-option">
                         <input type="radio" name="aiOpt" value="${o.value}"
                                ${(o.value === 'all' && aiFilter === null) || (o.value === 'ai' && aiFilter === true) || (o.value === 'human' && aiFilter === false) ? 'checked' : ''}
-                               onchange="onAiFilterChange(this.value)">
+                               data-pixiv-change="onAiFilterChangeFromInput(this)">
                         <span style="font-size:.75rem;">${o.label}</span>
                     </label>
                 `).join('')}
@@ -318,7 +317,7 @@
         </div><div class="page-grid">`;
         for (let i = 1; i <= totalPages; i++) {
             html += `<button class="page-grid-item ${i === currentPage ? 'pg-active' : ''}"
-                onclick="changePageFromGrid(${i})">${i}</button>`;
+                data-pixiv-click="changePageFromGrid(${i})">${i}</button>`;
         }
         html += `</div>`;
         popup.innerHTML = html;

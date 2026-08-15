@@ -22,6 +22,15 @@ test('前端规范守卫识别 HTML 内联样式和事件', async function () {
     assert.equal(result.inlineHandlers, 1);
 });
 
+test('前端规范守卫识别 JavaScript 模板中的内联事件', async function () {
+    const { analyzeSource } = await import(guardUrl.href);
+    const result = analyzeSource('sample.js', [
+        'root.innerHTML = `<button onclick="run()">Run</button>`;',
+        'button.onclick = run;'
+    ].join('\n'));
+    assert.equal(result.inlineHandlers, 1);
+});
+
 test('前端规范守卫只拦截原生对话框调用', async function () {
     const { analyzeSource } = await import(guardUrl.href);
     const result = analyzeSource('sample.js', [

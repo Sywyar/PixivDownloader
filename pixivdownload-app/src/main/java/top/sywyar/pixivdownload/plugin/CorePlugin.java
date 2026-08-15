@@ -188,6 +188,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/favicon.ico"),
                 WebRouteContribution.publicRoute("/css/pixiv-feedback.css"),
                 WebRouteContribution.publicRoute("/js/pixiv-feedback.js"),
+                WebRouteContribution.publicRoute("/js/pixiv-actions.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-i18n.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-lang-switcher.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-theme.js"),

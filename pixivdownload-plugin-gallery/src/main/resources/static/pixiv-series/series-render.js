@@ -268,7 +268,7 @@
             const isCurrent = state.currentId && String(item.novelId) === String(state.currentId);
             const title = chapterDisplayTitle(item);
             const cover = item.coverExt
-                ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${escapeHtml(title)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'chapter-cover-placeholder',textContent:this.alt}))">`
+                ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${escapeHtml(title)}" loading="lazy" data-pixiv-error="replaceChapterCover(this)">`
                 : `<div class="chapter-cover-placeholder">${escapeHtml(title)}</div>`;
             return `
                 <a class="chapter-card novel ${isCurrent ? 'current' : ''}" href="${escapeHtml(novelChapterHref(item.novelId))}" data-id="${item.novelId}">

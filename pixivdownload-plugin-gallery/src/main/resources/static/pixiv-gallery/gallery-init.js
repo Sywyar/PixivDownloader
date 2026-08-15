@@ -11,6 +11,20 @@
     rememberArtworkGalleryLocation();
     window.addEventListener('pagehide', rememberArtworkGalleryLocation);
 
+    function openCollectionIconPicker() {
+        document.getElementById('collectionFormIconFile').click();
+    }
+
+    PixivActions.bind(document, {
+        click: {
+            closeMobileSidebar,
+            openMobileSidebar,
+            closeCollectionFormModal,
+            openCollectionIconPicker,
+            closeAddToCollectionModal
+        }
+    });
+
     function setupGalleryCrossPageHandoff() {
         // 类型切换链接由 /js/pixiv-navigation.js 异步渲染进 slot，渲染时机不确定：
         //  · 点击：用事件委托（监听 document），无论链接何时生成都能在跳转前写入跨页交接；

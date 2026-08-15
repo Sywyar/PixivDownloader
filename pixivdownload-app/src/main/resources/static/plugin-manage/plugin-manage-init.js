@@ -285,6 +285,7 @@
     }
 
     async function init() {
+        PixivActions.bind(document, { click: { pmLogout: global.pmLogout } });
         wireEvents();
         await ensureI18n([]);   // 初始 i18n（plugins + common）+ 挂载语言 / 主题切换，先把页面 chrome 翻译就位
         await load();           // 拉取状态、按需扩展 namespace、整体渲染

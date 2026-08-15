@@ -518,13 +518,13 @@ const NOVEL_SLOTS = {
     // 快捷获取「我的收藏（小说）」入口按钮（公开 / 不公开）
     'quick-actions-bookmarks':
         '<button class="btn btn-blue quick-action" data-quick="my-novel-bookmarks-show"' +
-        ' onclick="quickLoad(\'my-novel-bookmarks-show\')" data-i18n="quick.action.novel-bookmarks-show">📚 我的收藏（小说，公开）</button>' +
+        ' data-pixiv-click="quickLoad(\'my-novel-bookmarks-show\')" data-i18n="quick.action.novel-bookmarks-show">📚 我的收藏（小说，公开）</button>' +
         '<button class="btn btn-purple quick-action" data-quick="my-novel-bookmarks-hide"' +
-        ' onclick="quickLoad(\'my-novel-bookmarks-hide\')" data-i18n="quick.action.novel-bookmarks-hide">🔒 我的收藏（小说，不公开）</button>',
+        ' data-pixiv-click="quickLoad(\'my-novel-bookmarks-hide\')" data-i18n="quick.action.novel-bookmarks-hide">🔒 我的收藏（小说，不公开）</button>',
     // 快捷获取「我自己的作品（小说）」入口按钮
     'quick-actions-mine':
         '<button class="btn btn-green quick-action" data-quick="my-novels"' +
-        ' onclick="quickLoad(\'my-novels\')" data-i18n="quick.action.my-novels">✍ 我自己的作品（小说，含 hide）</button>',
+        ' data-pixiv-click="quickLoad(\'my-novels\')" data-i18n="quick.action.my-novels">✍ 我自己的作品（小说，含 hide）</button>',
     // 批量导入单作品的小说链接示例
     'import-hint':
         '<div><span data-i18n="label.import-novel-example">小说链接示例：</span>' +
@@ -535,11 +535,11 @@ const NOVEL_SLOTS = {
         '<div class="search-extra-item search-novel-only" style="display:none;">' +
         '<label for="search-words-min" data-i18n="novel:batch.search.words-min">最少字数</label>' +
         '<input type="number" id="search-words-min" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"' +
-        ' onchange="handleSearchFilterChange()"></div>' +
+        ' data-pixiv-change="handleSearchFilterChange()"></div>' +
         '<div class="search-extra-item search-novel-only" style="display:none;">' +
         '<label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>' +
         '<input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"' +
-        ' onchange="handleSearchFilterChange()"></div>',
+        ' data-pixiv-change="handleSearchFilterChange()"></div>',
     // 小说设置卡（格式 / 合订）；下载即自动翻译由 AI 插件追加到本卡片内。
     // id / class 与宿主 loadSettings/syncSettings/applyNovelSettingsVisibility 既有契约一致
     'settings-card':
@@ -976,7 +976,7 @@ function renderNovelSeriesResults(area, ctx) {
         const queueTip = buildQueueToggleTip(inQueue.has(queueId));
         const tagsHtml = renderSeriesNovelTags(item.tags || []);
         return `<div class="novel-series-card${inQueueClass}" id="series-novel-card-${idx}"
-                         onclick="addSeriesItemToQueue(${idx})" title="#${seriesOrder} ${esc(item.title || fallbackTitle)} (${esc(item.userName || fallbackAuthor)})${queueTip}">
+                         data-pixiv-click="addSeriesItemToQueue(${idx})" title="#${seriesOrder} ${esc(item.title || fallbackTitle)} (${esc(item.userName || fallbackAuthor)})${queueTip}">
           <div class="novel-series-cover" id="series-novel-cover-${idx}"><span>${esc(bt('series.cover-placeholder', '封面'))}</span></div>
           <div class="novel-series-info">
             <div class="novel-series-title">#${seriesOrder} ${esc(item.title || fallbackTitle)}</div>
@@ -1038,7 +1038,7 @@ function renderQuickNovelGrid(items, idPrefix, summaryHtml = '') {
         const fallbackTitle = bt('queue.novel-fallback', '小说 {id}', {id: item.id});
         const title = item.title || fallbackTitle;
         return `<div class="novel-search-card${inQueueClass}" id="${idPrefix}-novel-card-${idx}"
-                     onclick="quickToggleItemQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
+                     data-pixiv-click="quickToggleItemQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
           <div class="nsc-title">${esc(title)}</div>
           <div class="nsc-author">${esc(item.userName || '')}</div>
           <div class="nsc-meta">${meta.join('')}</div>
@@ -1060,7 +1060,7 @@ function novelQuickInnerCard(item, idx, inQueue) {
     if (item.isOriginal) meta.push(`<span class="nsc-original">${esc(bt('novel:batch.search.original', '原创'))}</span>`);
     if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
     return `<div class="novel-search-card${inQueueClass}" id="quick-inner-card-${idx}"
-                         onclick="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
+                         data-pixiv-click="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
               <div class="nsc-title">${esc(title)}</div>
               <div class="nsc-author">${esc(item.userName || '')}</div>
               <div class="nsc-meta">${meta.join('')}</div>

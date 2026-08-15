@@ -1,5 +1,18 @@
 'use strict';
 
+    function hideSeriesCover() {
+        document.getElementById('seriesCover').style.display = 'none';
+    }
+
+    function replaceChapterCover(image) {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'chapter-cover-placeholder';
+        placeholder.textContent = image.alt;
+        image.replaceWith(placeholder);
+    }
+
+    PixivActions.bind(document, { error: {hideSeriesCover, replaceChapterCover} });
+
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
     document.getElementById('downloadMergedBtn').addEventListener('click', openDownloadMergedDialog);

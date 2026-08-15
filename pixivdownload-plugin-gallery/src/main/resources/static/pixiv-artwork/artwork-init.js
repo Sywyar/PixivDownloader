@@ -24,6 +24,9 @@
     }
 
     (async function initArtworkPage() {
+        PixivActions.bind(document, {
+            click: {handleLightboxClick, closeLightbox, lightboxNav, closeAddToCollectionModal}
+        });
         bindArtworkGalleryReturn();
         await initPageI18n();
         setupAdminMode();

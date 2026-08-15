@@ -54,7 +54,7 @@
                     '</div>' +
                     '<div class="userscript-card-desc">' + escHtml(s.description) + '</div>' +
                     '<div class="userscript-card-actions">' +
-                        '<button class="btn btn-green userscript-card-btn" data-install-id="' + escHtml(s.id) + '" onclick="installScript(\'' + escHtml(s.id) + '\')">' +
+                        '<button class="btn btn-green userscript-card-btn" data-install-id="' + escHtml(s.id) + '" data-pixiv-click="installScriptFromElement(this)">' +
                             escHtml(bt('userscripts.install', '⬇ 安装')) +
                         '</button>' +
                         '<a class="btn btn-blue userscript-card-btn userscript-card-source" ' +

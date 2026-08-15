@@ -11,6 +11,33 @@ function rememberNovelGalleryLocation() {
 rememberNovelGalleryLocation();
 window.addEventListener('pagehide', rememberNovelGalleryLocation);
 
+function hideFailedCover(image) {
+    image.parentElement.style.display = 'none';
+}
+
+function replaceCover(image, className) {
+    const placeholder = document.createElement('div');
+    placeholder.className = className;
+    placeholder.textContent = image.alt;
+    image.parentElement.replaceWith(placeholder);
+}
+
+function replaceSeriesCover(image) {
+    replaceCover(image, 'series-row-cover');
+}
+
+function replaceAuthorWorkCover(image) {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'author-work-thumb-placeholder';
+    placeholder.textContent = image.alt;
+    image.replaceWith(placeholder);
+}
+
+PixivActions.bind(document, {
+    click: {closeMobileSidebar, openMobileSidebar},
+    error: {hideFailedCover, replaceSeriesCover, replaceAuthorWorkCover}
+});
+
 function setupNovelCrossPageHandoff() {
     // 类型切换链接由 /js/pixiv-navigation.js 异步渲染进 slot，渲染时机不确定：
     //  · 点击：用事件委托（监听 document），无论链接何时生成都能在跳转前写入跨页交接；

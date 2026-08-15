@@ -1623,19 +1623,19 @@
                         : fmtScheduleTime(t.nextRunTime)))}</div>
                 <div>${escHtml(bt('schedule.meta.last', '上次运行：'))}${escHtml(fmtScheduleTime(t.lastRunTime))}</div>
                 <div class="schedule-meta-actions">
-                    <button type="button" class="btn btn-blue" onclick="showScheduleSnapshot(${t.id})">${escHtml(bt('schedule.snapshot.action.view', '查看任务快照信息'))}</button>
+                    <button type="button" class="btn btn-blue" data-pixiv-click="showScheduleSnapshot(${t.id})">${escHtml(bt('schedule.snapshot.action.view', '查看任务快照信息'))}</button>
                 </div>
             </div>
             <div class="schedule-card-actions">
-                <button class="btn btn-cyan" ${runAttr} onclick="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
-                ${credentialUi.showOverride ? `<button class="btn btn-blue" ${busyAttr} onclick="showScheduleOverrideModal(${t.id})">${escHtml(credentialUi.overrideLabel)}</button>` : ''}
+                <button class="btn btn-cyan" ${runAttr} data-pixiv-click="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
+                ${credentialUi.showOverride ? `<button class="btn btn-blue" ${busyAttr} data-pixiv-click="showScheduleOverrideModal(${t.id})">${escHtml(credentialUi.overrideLabel)}</button>` : ''}
                 ${paused
-                    ? `<button class="btn btn-green" ${resumeAttr} onclick="resumeScheduleTask(${t.id})">${escHtml(bt('schedule.action.resume', '▶ 恢复'))}</button>`
-                    : `<button class="btn btn-yellow" ${pauseAttr} onclick="pauseScheduleTask(${t.id})">${escHtml(bt('schedule.action.pause', '⏸ 暂停'))}</button>`}
-                <button class="btn ${t.enabled ? 'btn-red' : 'btn-green'}" ${busyAttr} onclick="toggleScheduleTask(${t.id}, ${t.enabled ? 'false' : 'true'})">${escHtml(t.enabled ? bt('schedule.action.disable', '⏸ 停用') : bt('schedule.action.enable', '✔ 启用'))}</button>
-                <button class="btn btn-purple" ${editAttr} onclick="startEditScheduleTask(${t.id})">${escHtml(bt('schedule.action.edit', '✏ 编辑'))}</button>
-                <button class="btn btn-gray" onclick="togglePendingPanel(${t.id})">${escHtml(bt('schedule.action.pending', '🧩 待重试'))}</button>
-                <button class="btn btn-red" ${busyAttr} onclick="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
+                    ? `<button class="btn btn-green" ${resumeAttr} data-pixiv-click="resumeScheduleTask(${t.id})">${escHtml(bt('schedule.action.resume', '▶ 恢复'))}</button>`
+                    : `<button class="btn btn-yellow" ${pauseAttr} data-pixiv-click="pauseScheduleTask(${t.id})">${escHtml(bt('schedule.action.pause', '⏸ 暂停'))}</button>`}
+                <button class="btn ${t.enabled ? 'btn-red' : 'btn-green'}" ${busyAttr} data-pixiv-click="toggleScheduleTask(${t.id}, ${t.enabled ? 'false' : 'true'})">${escHtml(t.enabled ? bt('schedule.action.disable', '⏸ 停用') : bt('schedule.action.enable', '✔ 启用'))}</button>
+                <button class="btn btn-purple" ${editAttr} data-pixiv-click="startEditScheduleTask(${t.id})">${escHtml(bt('schedule.action.edit', '✏ 编辑'))}</button>
+                <button class="btn btn-gray" data-pixiv-click="togglePendingPanel(${t.id})">${escHtml(bt('schedule.action.pending', '🧩 待重试'))}</button>
+                <button class="btn btn-red" ${busyAttr} data-pixiv-click="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
             </div>
             <div class="schedule-pending-panel" id="schedule-pending-${t.id}" hidden></div>
             ${renderScheduleQueueSection(t)}
@@ -1651,7 +1651,7 @@
         const bodyHtml = expanded ? renderScheduleQueueBody(id) : '';
         return `
             <div class="schedule-queue" data-task-id="${id}">
-                <button type="button" class="schedule-queue-toggle" aria-expanded="${expanded}" onclick="toggleScheduleQueue(${id})">
+                <button type="button" class="schedule-queue-toggle" aria-expanded="${expanded}" data-pixiv-click="toggleScheduleQueue(${id})">
                     <span class="schedule-queue-caret" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
                     <span>${title}</span>
                 </button>

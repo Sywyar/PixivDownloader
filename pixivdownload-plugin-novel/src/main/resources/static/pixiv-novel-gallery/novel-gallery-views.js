@@ -153,7 +153,7 @@ function renderGrid(items) {
         if (readingText) meta.push(esc(readingText));
         if (item.seriesId && item.seriesId > 0 && item.seriesOrder != null) meta.push('#' + item.seriesOrder);
         const cover = item.coverExt
-            ? `<div class="card-cover"><img loading="lazy" src="/api/gallery/novel/${item.novelId}/cover" alt="" onerror="this.parentElement.style.display='none'"></div>`
+            ? `<div class="card-cover"><img loading="lazy" src="/api/gallery/novel/${item.novelId}/cover" alt="" data-pixiv-error="hideFailedCover(this)"></div>`
             : '';
         return `<div class="card" data-novel-id="${item.novelId}">
             <span class="card-select" aria-hidden="true">
@@ -378,7 +378,7 @@ function renderSeriesView(seriesList) {
             ? `<div class="author-row-count">${esc(pageI18n.t('novel-gallery:series.author-prefix', '作者：{name}', { name: author }))}</div>`
             : '';
         const cover = s.coverExt
-            ? `<div class="series-row-cover"><img src="/api/gallery/novel/series/${s.seriesId}/cover" alt="${esc(title)}" loading="lazy" onerror="this.parentElement.replaceWith(Object.assign(document.createElement('div'),{className:'series-row-cover',textContent:this.alt}))"></div>`
+            ? `<div class="series-row-cover"><img src="/api/gallery/novel/series/${s.seriesId}/cover" alt="${esc(title)}" loading="lazy" data-pixiv-error="replaceSeriesCover(this)"></div>`
             : '';
         const tags = Array.isArray(s.tags) ? s.tags : [];
         const tagsHtml = tags.length
@@ -496,7 +496,7 @@ function renderSeriesItemCard(item) {
         ? `<div class="author-work-pages">#${esc(item.seriesOrder)}</div>`
         : '';
     const cover = item.coverExt
-        ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${esc(title)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'author-work-thumb-placeholder',textContent:this.alt}))">`
+        ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${esc(title)}" loading="lazy" data-pixiv-error="replaceAuthorWorkCover(this)">`
         : `<div class="author-work-thumb-placeholder">${esc(title)}</div>`;
     return `
         <div class="author-work-card" data-id="${item.novelId}">
@@ -675,7 +675,7 @@ async function loadAuthorWorks(authorId, strip) {
                 ? `<div class="author-work-pages">#${esc(item.seriesOrder)}</div>`
                 : '';
             const cover = item.coverExt
-                ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${esc(title)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'author-work-thumb-placeholder',textContent:this.alt}))">`
+                ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${esc(title)}" loading="lazy" data-pixiv-error="replaceAuthorWorkCover(this)">`
                 : `<div class="author-work-thumb-placeholder">${esc(title)}</div>`;
             return `
                 <div class="author-work-card" data-id="${item.novelId}">

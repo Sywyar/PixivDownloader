@@ -64,7 +64,7 @@
             ${descriptionHtml}
             ${tagsHtml}
             <div class="mt-3 text-center">
-                <button class="btn-term" onclick="viewThumbnails(${artwork.artworkId})">
+                <button class="btn-term" data-pixiv-click="viewThumbnails(${artwork.artworkId})">
                     <i class="fas fa-images me-1"></i>${escapeHtml(t('button.view-images', 'View Images'))}
                 </button>
             </div>`;
@@ -94,7 +94,7 @@
                     <div style="font-size:.7rem;letter-spacing:.15em;text-transform:uppercase;color:var(--cyan);">${escapeHtml(t('thumbnail.preview', 'Image Preview'))}</div>
                     <div class="thumbnail-count">${escapeHtml(t('thumbnail.count', '{count} images', {count: artwork.count}))}</div>
                 </div>
-                <button class="btn-term" onclick="viewArtworkDetails(${artworkId})">
+                <button class="btn-term" data-pixiv-click="viewArtworkDetails(${artworkId})">
                     <i class="fas fa-arrow-left me-1"></i>${escapeHtml(t('button.back', 'Back'))}
                 </button>
             </div>
@@ -120,7 +120,7 @@
             const idx = start + i;
             return `
             <div class="thumbnail-item" id="thumb-${artworkId}-${idx}"
-                 onclick="viewFullImage(${artworkId}, ${idx})">
+                 data-pixiv-click="viewFullImage(${artworkId}, ${idx})">
                 <div class="thumbnail-loading"><div class="spinner"></div><span style="font-size:.6rem">${escapeHtml(t('status.loading-lower', 'loading'))}</span></div>
                 <div class="thumbnail-index">${idx + 1}</div>
             </div>`;
@@ -145,15 +145,15 @@
 
         let html = `<ul class="pagination pagination-sm mb-0" style="gap:3px;">`;
         html += `<li class="page-item ${thumbCurrentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changeThumbPage(${thumbCurrentPage - 1}); return false;"><i class="fas fa-chevron-left"></i></a>
+            <a class="page-link" href="#" data-pixiv-click="changeThumbPage(${thumbCurrentPage - 1})" data-pixiv-prevent="true"><i class="fas fa-chevron-left"></i></a>
         </li>`;
         for (let i = start; i <= end; i++) {
             html += `<li class="page-item ${i === thumbCurrentPage ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="changeThumbPage(${i}); return false;">${i}</a>
+                <a class="page-link" href="#" data-pixiv-click="changeThumbPage(${i})" data-pixiv-prevent="true">${i}</a>
             </li>`;
         }
         html += `<li class="page-item ${thumbCurrentPage === thumbTotalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changeThumbPage(${thumbCurrentPage + 1}); return false;"><i class="fas fa-chevron-right"></i></a>
+            <a class="page-link" href="#" data-pixiv-click="changeThumbPage(${thumbCurrentPage + 1})" data-pixiv-prevent="true"><i class="fas fa-chevron-right"></i></a>
         </li></ul>`;
 
         container.innerHTML = html;

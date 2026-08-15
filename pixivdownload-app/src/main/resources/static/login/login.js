@@ -217,6 +217,7 @@ async function redirectIfLoggedIn() {
 }
 
 async function initLoginPage() {
+  PixivActions.bind(document, {click: {doLogin, doInviteRedeem}});
   await initPageI18n();
   mountThemeToggle();
   // 若 URL 带 inviteError，直接展开邀请码面板并提示

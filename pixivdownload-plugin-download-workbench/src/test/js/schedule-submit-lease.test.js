@@ -689,7 +689,7 @@ test('NONE、仅代理、仅凭证与来源缺席使用中性动作并只读降�
         suspendReason: 'SOURCE_UNAVAILABLE'
     });
     assert.match(html, /showScheduleSnapshot\(7\)/);
-    assert.match(html, /class="btn btn-purple" disabled[^>]+onclick="startEditScheduleTask\(7\)"/);
+    assert.match(html, /class="btn btn-purple" disabled[^>]+data-pixiv-click="startEditScheduleTask\(7\)"/);
     assert.doesNotMatch(html, /showScheduleOverrideModal\(7\)/);
     assert.match(html, /deleteScheduleTask\(7\)/);
     const snapshot = missing.renderSnapshot({
