@@ -90,7 +90,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.ZipSafety;
  *       {@code REJECTED_INTEGRITY}。</li>
  *   <li><b>校验描述符</b>：{@link PluginDescriptor#externalValidationErrors()} 不通过 → {@code REJECTED_INVALID}。</li>
  *   <li><b>核心 API 兼容门</b>：{@code requires} 不被当前核心满足 → {@code REJECTED_INCOMPATIBLE}（不装为可加载状态）。</li>
- *   <li><b>Zip Slip 校验</b>：对 {@code .zip} 包做 {@link ZipSafety#assertNoTraversal}，含越界 entry → {@code REJECTED_UNSAFE}。</li>
+ *   <li><b>ZIP entry 校验</b>：对 {@code .zip} 包做 {@link ZipSafety#assertSafeArchiveEntries}，含越界、不可移植或规范化重名 entry → {@code REJECTED_UNSAFE}。</li>
  *   <li><b>重复 / 升级 / 降级</b>：按 pluginId 找安装目录内现存同 id 包并比 semver——无→{@code INSTALLED}；
  *       高→{@code UPGRADED}；同→{@code DUPLICATE}（幂等）；低→默认 {@code DOWNGRADE_REJECTED}，
  *       {@code allowDowngrade=true} 时 {@code DOWNGRADED}。</li>
@@ -1634,7 +1634,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     "unsupported package type (expected .zip or .jar): " + packagePath.getFileName());
         }
 
-        // 0. 资源规模安全扫描（.zip / .jar 同等），在任何解压 / 落盘前——防 Zip Bomb / 解压资源耗尽。
+        // 0. 资源与 entry 名安全扫描（.zip / .jar 同等），在任何解压 / 落盘前完成。
         try {
             PluginPackageVerifier.verify(packagePath, limits);
         } catch (PluginPackageException e) {
@@ -1674,10 +1674,10 @@ public class ExternalPluginInstaller implements AutoCloseable {
                             + ", but core provides " + PluginPackageReader.coreApiVersion()));
         }
 
-        // 4. Zip Slip 校验（仅 .zip：runtime 物化为 PF4J 目录前必须先拒绝越界 entry）
+        // 4. 对会整体物化的 .zip 再按中央目录视图校验全部 entry。
         if (isZip) {
             try {
-                ZipSafety.assertNoTraversal(packagePath);
+                ZipSafety.assertSafeArchiveEntries(packagePath);
             } catch (PluginPackageException e) {
                 PluginInstallOutcome outcome = e.reason() == PluginPackageException.Reason.UNSAFE
                         ? PluginInstallOutcome.REJECTED_UNSAFE

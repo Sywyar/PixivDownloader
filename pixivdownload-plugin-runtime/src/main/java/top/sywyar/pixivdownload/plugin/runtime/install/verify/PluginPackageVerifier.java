@@ -7,7 +7,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipInputStream;
@@ -27,7 +29,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  *   <li><b>总解压字节</b>：外层与上述嵌套归档的实际解压字节之和不超过
  *       {@link PluginPackageLimits#maxTotalUncompressedBytes()}；</li>
  *   <li><b>压缩比</b>：外层与嵌套归档中较大 entry 的解压 / 压缩比不超过
- *       {@link PluginPackageLimits#maxCompressionRatio()}。</li>
+ *       {@link PluginPackageLimits#maxCompressionRatio()}；</li>
+ *   <li><b>entry 唯一性</b>：每层归档按可移植文件名语义规范化后不得重名。</li>
  * </ul>
  *
  * <h2>不信任 header</h2>
@@ -96,6 +99,7 @@ public final class PluginPackageVerifier {
                                     boolean scanPrivateLibraries,
                                     String archiveLabel) throws IOException {
         byte[] buffer = new byte[8192];
+        Set<String> entryNames = new HashSet<>();
         try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(input))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
@@ -104,8 +108,9 @@ public final class PluginPackageVerifier {
                     throw tooLarge("too many zip entries including nested plugin jars (limit "
                             + limits.maxEntries() + ")");
                 }
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
                 NestedArchiveKind nestedKind = nestedArchiveKind(
-                        entry.getName(), scanRootPluginJar, scanPrivateLibraries);
+                        entryName, scanRootPluginJar, scanPrivateLibraries);
                 ByteArrayOutputStream nestedBytes = nestedKind == null ? null : new ByteArrayOutputStream();
                 long entryUncompressed = 0;
                 int read;
@@ -113,7 +118,7 @@ public final class PluginPackageVerifier {
                     entryUncompressed += read;
                     budget.totalUncompressed += read;
                     if (entryUncompressed > limits.maxEntryUncompressedBytes()) {
-                        throw tooLarge("zip entry too large when decompressed: " + entry.getName()
+                        throw tooLarge("zip entry too large when decompressed: " + entryName
                                 + " exceeds " + limits.maxEntryUncompressedBytes() + " bytes");
                     }
                     if (budget.totalUncompressed > limits.maxTotalUncompressedBytes()) {
@@ -129,12 +134,12 @@ public final class PluginPackageVerifier {
                 if (nestedBytes != null) {
                     byte[] bytes = nestedBytes.toByteArray();
                     if (bytes.length > limits.maxArchiveBytes()) {
-                        throw tooLarge("nested plugin jar too large: " + entry.getName());
+                        throw tooLarge("nested plugin jar too large: " + entryName);
                     }
-                    requireZipSignature(bytes, archiveLabel + "!/" + entry.getName());
+                    requireZipSignature(bytes, archiveLabel + "!/" + entryName);
                     scanArchive(new ByteArrayInputStream(bytes), limits, budget,
                             false, nestedKind == NestedArchiveKind.ROOT_PLUGIN,
-                            archiveLabel + "!/" + entry.getName());
+                            archiveLabel + "!/" + entryName);
                 }
             }
         }

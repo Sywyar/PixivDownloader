@@ -283,6 +283,19 @@ class PluginPackageReaderTest {
     }
 
     @Test
+    @DisplayName("多个同名 plugin.properties：读取前按 UNSAFE 拒绝而不任选一个")
+    void rejectsDuplicateDescriptors() {
+        Path zip = tempDir.resolve("duplicate-descriptor.zip");
+        PluginPackageFixtures.writeDuplicateEntryZip(zip, PluginPackageReader.PLUGIN_PROPERTIES,
+                PluginPackageFixtures.bytes(PluginPackageFixtures.pluginProperties(
+                        "first", "1.0.0", null, "com.example.First")),
+                PluginPackageFixtures.bytes(PluginPackageFixtures.pluginProperties(
+                        "second", "1.0.0", null, "com.example.Second")));
+
+        assertReason(zip, PluginPackageException.Reason.UNSAFE);
+    }
+
+    @Test
     @DisplayName("非 zip 内容的文件：抛 MALFORMED")
     void rejectsMalformed() throws IOException {
         Path zip = tempDir.resolve("bad.zip");

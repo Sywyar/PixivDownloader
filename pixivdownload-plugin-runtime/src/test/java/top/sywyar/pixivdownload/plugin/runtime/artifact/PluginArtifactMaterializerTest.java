@@ -4,7 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageFormat;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
@@ -16,6 +18,7 @@ import java.nio.file.Path;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("生产插件 artifact 从冻结 snapshot 物化")
 class PluginArtifactMaterializerTest {
@@ -57,5 +60,34 @@ class PluginArtifactMaterializerTest {
 
         snapshot.close();
         assertThat(workspace).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("物化器复用归档唯一名称规则并拒绝重复 entry")
+    void rejectsDuplicateEntriesDuringMaterialization() throws IOException {
+        Path plugins = tempDir.resolve("duplicate-plugins");
+        Files.createDirectory(plugins);
+        Path reference = PluginPackageFixtures.bareJar(tempDir.resolve("reference.jar"),
+                "probe", "1.0.0", "1.0", "com.example.Probe");
+        PluginPackageInspection referenceInspection = PluginPackageReader.inspect(reference);
+        Path artifact = plugins.resolve("probe.jar");
+        PluginPackageFixtures.writeDuplicateEntryZip(artifact, "plugin.properties",
+                "plugin.id=first\n".getBytes(StandardCharsets.UTF_8),
+                "plugin.id=second\n".getBytes(StandardCharsets.UTF_8));
+        PluginRuntimeLayout layout = new PluginRuntimeLayout(plugins);
+        PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
+                layout, artifact, PluginPackageLimits.DEFAULT_MAX_ARCHIVE_BYTES);
+        PluginPackageInspection inspection = new PluginPackageInspection(
+                PluginPackageFormat.SINGLE_JAR, referenceInspection.descriptor(), null, true);
+
+        try {
+            assertThatThrownBy(() -> new PluginArtifactMaterializer(layout).materialize(
+                    snapshot, inspection, PluginPackageIntegrity.sha256Hex(snapshot.snapshotArtifact())))
+                    .isInstanceOfSatisfying(PluginPackageException.class,
+                            failure -> assertThat(failure.reason())
+                                    .isEqualTo(PluginPackageException.Reason.UNSAFE));
+        } finally {
+            snapshot.close();
+        }
     }
 }
