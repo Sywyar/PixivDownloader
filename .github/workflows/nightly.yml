@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '33 18 * * *'
   workflow_dispatch:
+    inputs:
+      skip-changelog-gate:
+        description: '填写 true 可跳过 CHANGELOG 门槛强制构建；CHANGELOG 与上次 nightly 基线无差异时沿用上一次发布说明。默认 false'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   resolve-version:
@@ -36,7 +42,15 @@ jobs:
           # misread as "no changes". First Nightly (no baseline tag yet) uses
           # the [Unreleased] section instead. The decision lives in
           # scripts/nightly-changelog-gate.sh so the exact matrix is tested.
+          # Manual dispatch may pass skip-changelog-gate=true to force a build
+          # without changelog changes (e.g. to pick up republished plugin
+          # artifacts); release notes then fall back to the previous nightly.
           HAS_CHANGES=$(./scripts/nightly-changelog-gate.sh CHANGELOG.md nightly)
+          if [ "$HAS_CHANGES" = "false" ] \
+             && [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             && [ "${{ github.event.inputs.skip-changelog-gate }}" = "true" ]; then
+            HAS_CHANGES=true
+          fi
           echo "has_changes=$HAS_CHANGES" >> "$GITHUB_OUTPUT"
 
       - name: Resolve next version
@@ -339,6 +353,8 @@ jobs:
       - name: Diff changelog since last nightly
         id: changelog
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch --tags origin 2>/dev/null || true
 
@@ -360,6 +376,32 @@ jobs:
           fi
 
           if [ -s CHANGELOG_DIFF.md ]; then
+            has_notes=true
+          else
+            has_notes=false
+          fi
+
+          # skip-changelog-gate dispatch with an unchanged CHANGELOG reuses the
+          # previous nightly release notes (both Release body and update.json),
+          # so a forced rebuild never publishes empty or misleading notes.
+          if [ "$has_notes" = "false" ] \
+             && [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             && [ "${{ github.event.inputs.skip-changelog-gate }}" = "true" ] \
+             && git rev-parse --verify nightly^{commit} >/dev/null 2>&1 \
+             && git diff --quiet nightly -- CHANGELOG.md; then
+            mkdir -p previous-update
+            if gh release download nightly \
+                 --pattern 'update.json' \
+                 --dir previous-update \
+                 --clobber >/dev/null 2>&1; then
+              jq -r '.releaseNotes // empty' previous-update/update.json > CHANGELOG_DIFF.md
+              if [ -s CHANGELOG_DIFF.md ]; then
+                has_notes=true
+              fi
+            fi
+          fi
+
+          if [ "$has_notes" = "true" ]; then
             echo "has_notes=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_notes=false" >> "$GITHUB_OUTPUT"
