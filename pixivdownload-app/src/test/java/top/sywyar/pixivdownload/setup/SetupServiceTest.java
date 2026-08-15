@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.setup;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.*;
@@ -15,6 +16,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -49,11 +57,15 @@ class SetupServiceTest {
     }
 
     private SetupService createSetupServiceWithArgs(String... args) {
+        return createSetupService(new ObjectMapper(), args);
+    }
+
+    private SetupService createSetupService(ObjectMapper mapper, String... args) {
         DownloadConfig config = new DownloadConfig();
         config.setRootFolder(tempDir.resolve("pixiv-download").toString());
         ApplicationArguments arguments = mock(ApplicationArguments.class);
         when(arguments.getSourceArgs()).thenReturn(args);
-        return new SetupService(config, new ObjectMapper(), arguments, TestI18nBeans.appMessages());
+        return new SetupService(config, mapper, arguments, TestI18nBeans.appMessages());
     }
 
     // ========== 初始状态 ==========
@@ -368,6 +380,42 @@ class SetupServiceTest {
     }
 
     @Test
+    @DisplayName("安装状态在持久化完成前不对并发读取发布")
+    void shouldNotExposeSetupStateBeforePersistenceCompletes() throws Exception {
+        BlockingFailingObjectMapper mapper = new BlockingFailingObjectMapper();
+        SetupService service = createSetupService(mapper);
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        Future<Void> write = executor.submit(() -> {
+            service.init("admin", "password1234", "multi");
+            return null;
+        });
+        try {
+            assertThat(mapper.writeStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<Boolean> setupCompleteRead = executor.submit(service::isSetupComplete);
+            Future<String> modeRead = executor.submit(service::getMode);
+            Future<String> displayNameRead = executor.submit(service::getDisplayName);
+
+            assertThatThrownBy(() -> setupCompleteRead.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            assertThatThrownBy(() -> modeRead.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            assertThatThrownBy(() -> displayNameRead.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            mapper.releaseWrite.countDown();
+            assertThatThrownBy(() -> write.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasRootCauseInstanceOf(IOException.class);
+            assertThat(setupCompleteRead.get(5, TimeUnit.SECONDS)).isFalse();
+            assertThat(modeRead.get(5, TimeUnit.SECONDS)).isNull();
+            assertThat(displayNameRead.get(5, TimeUnit.SECONDS)).isNull();
+        } finally {
+            mapper.releaseWrite.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     @DisplayName("损坏的安装状态应保持原文件并阻止重新初始化")
     void shouldFailClosedOnCorruptedConfig() throws IOException {
         Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
@@ -436,5 +484,24 @@ class SetupServiceTest {
     private void restoreStateDirectory(Path backup) throws IOException {
         Files.deleteIfExists(stateDir);
         Files.move(backup, stateDir);
+    }
+
+    private static final class BlockingFailingObjectMapper extends ObjectMapper {
+        private final CountDownLatch writeStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseWrite = new CountDownLatch(1);
+
+        @Override
+        public byte[] writeValueAsBytes(Object value) throws JsonProcessingException {
+            writeStarted.countDown();
+            try {
+                if (!releaseWrite.await(5, TimeUnit.SECONDS)) {
+                    throw new JsonProcessingException("timed out waiting to fail setup persistence") { };
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new JsonProcessingException("interrupted while failing setup persistence", e) { };
+            }
+            throw new JsonProcessingException("forced setup persistence failure") { };
+        }
     }
 }

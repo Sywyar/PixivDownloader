@@ -42,14 +42,11 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     static final int MAX_PERSISTENT_SESSIONS = 32;
     public static final int MIN_PASSWORD_LENGTH = 12;
 
-    @Getter
     private volatile boolean setupComplete = false;
-    @Getter
     private volatile String mode     = null;  // "solo" | "multi"
     @Getter
     private final boolean introMode;  // --intro 启动参数
     private volatile String username = null;
-    @Getter
     private volatile String displayName = null;  // 用户自定义称呼（个性化问候），独立于登录用 username
     private volatile String passwordHash = null;
     private volatile String salt     = null;  // 仅旧 SHA-256 哈希需要（向后兼容用）
@@ -165,6 +162,21 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         sessionStorageMigrationNeeded = false;
     }
 
+    @Override
+    public synchronized boolean isSetupComplete() {
+        return setupComplete;
+    }
+
+    @Override
+    public synchronized String getMode() {
+        return mode;
+    }
+
+    @Override
+    public synchronized String getDisplayName() {
+        return displayName;
+    }
+
     // ---- 初始化配置 -----------------------------------------------------
 
     public synchronized void init(String uname, String pwd, String usageMode) throws IOException {
@@ -269,9 +281,13 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         SetupState before = remember ? snapshot() : null;
         sessions.put(digest, expiry);
         if (remember) {
-            evictPersistentSessionsIfNeeded();
+            int evictedSessions = evictPersistentSessionsIfNeeded();
             persistentSessions.put(digest, expiry);
             saveOrRestore(before);
+            if (evictedSessions > 0) {
+                log.info(message("setup.log.session.limit-evicted",
+                        evictedSessions, MAX_PERSISTENT_SESSIONS));
+            }
         }
         return token;
     }
@@ -318,7 +334,7 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         }
     }
 
-    private void evictPersistentSessionsIfNeeded() {
+    private int evictPersistentSessionsIfNeeded() {
         long now = System.currentTimeMillis();
         persistentSessions.entrySet().removeIf(entry -> {
             if (entry.getValue() > now) {
@@ -327,17 +343,20 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
             sessions.remove(entry.getKey());
             return true;
         });
+        int evictedSessions = 0;
         while (persistentSessions.size() >= MAX_PERSISTENT_SESSIONS) {
             String oldest = persistentSessions.entrySet().stream()
                     .min(Map.Entry.comparingByValue())
                     .map(Map.Entry::getKey)
                     .orElse(null);
             if (oldest == null) {
-                return;
+                break;
             }
             persistentSessions.remove(oldest);
             sessions.remove(oldest);
+            evictedSessions++;
         }
+        return evictedSessions;
     }
 
     private SetupState snapshot() {

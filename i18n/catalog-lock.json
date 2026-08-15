@@ -12638,6 +12638,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "setup.log.session.limit-evicted",
+      "acceptedSourceHash": "44d2d4d4b2c221b17f588d38e55ec22a75923ab2cbe8b18d0dd96fa432add1e2",
+      "acceptedTranslationHash": "112e4d9086136e39c7b2ab64d34169930cc4e545551eb3d6f338890911e57313"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "setup.log.session.remove.failed",
       "acceptedSourceHash": "a3726a2add944d860d3a1a4ce7d4191eb5e3cc80d27cfb660c4845a91590c341",
       "acceptedTranslationHash": "5aeea8d15d37129d3cc68661c08e59c45e4d0e0090717bb8bd18960b8aa2b78f"
