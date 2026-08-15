@@ -27,6 +27,8 @@ Prefer the desktop GUI's Configuration page. On first startup, the current defau
 
 Pixiv artwork images, novel covers, and embedded images have a fixed safety limit of 100 MiB each. These responses are limited to 1 GiB in total within one ordinary artwork or novel download task. The service checks both `Content-Length` and the actual decoded response stream; an over-limit transfer is stopped and its partial file is removed. The final extension is selected from an image allowlist using the URL path, response `Content-Type`, and verified file signature; query parameters never become part of the filename. These limits cannot be raised through configuration.
 
+Ugoira processing limits the ZIP download to 100 MiB, 500 entries, 32 MiB per expanded entry, 200 MiB of expanded data in total, a 100:1 compression ratio per entry, 500 frames, and 25,000,000 pixels per frame. Ugoira conversion runs one ffmpeg process at a time; each process may run for 10 minutes and produce at most 100 MiB. Exceeding a limit terminates processing and removes the ZIP, extracted frames, and partial output.
+
 ### Plugin market
 
 | Key | Default | Description |
