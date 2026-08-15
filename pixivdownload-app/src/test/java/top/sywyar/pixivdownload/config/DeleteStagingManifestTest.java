@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -160,11 +162,64 @@ class DeleteStagingManifestTest {
     }
 
     @Test
+    @DisplayName("恢复：空清单或含未声明字段的清单视为损坏并保留全部暂存文件")
+    void keepsSubdirectoryForEmptyOrUndeclaredManifestEntries() throws IOException {
+        Path stagingRoot = Files.createDirectories(tempDir.resolve("delete-staging"));
+        Path original = tempDir.resolve("300/300_p0.jpg").toAbsolutePath();
+
+        Path emptySubdir = Files.createDirectories(stagingRoot.resolve("empty"));
+        Path emptyBackup = Files.writeString(emptySubdir.resolve("0_x.jpg"), "x", StandardCharsets.UTF_8);
+        Files.writeString(emptySubdir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME),
+                "version=1\ncount=0\n", StandardCharsets.UTF_8);
+
+        Path extraSubdir = Files.createDirectories(stagingRoot.resolve("extra"));
+        Path extraBackup = Files.writeString(extraSubdir.resolve("0_x.jpg"), "x", StandardCharsets.UTF_8);
+        Properties extraManifest = new Properties();
+        extraManifest.setProperty("version", "1");
+        extraManifest.setProperty("count", "1");
+        extraManifest.setProperty("0.original", original.toString());
+        extraManifest.setProperty("0.staged", "0_x.jpg");
+        extraManifest.setProperty("unexpected", "value");
+        try (var writer = Files.newBufferedWriter(
+                extraSubdir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME), StandardCharsets.UTF_8)) {
+            extraManifest.store(writer, "untrusted manifest fixture");
+        }
+
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
+
+        assertThat(DeleteStagingManifest.read(emptySubdir)).isEmpty();
+        assertThat(DeleteStagingManifest.read(extraSubdir)).isEmpty();
+        assertThat(emptyBackup).exists();
+        assertThat(extraBackup).exists();
+    }
+
+    @Test
+    @DisplayName("恢复：暂存目录含清单未声明的文件时完成恢复但保留整个目录")
+    void keepsSubdirectoryWhenItContainsUndeclaredFiles() throws IOException {
+        Path stagingRoot = Files.createDirectories(tempDir.resolve("delete-staging"));
+        Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
+        Path original = tempDir.resolve("300/300_p0.jpg").toAbsolutePath();
+        Path staged = Files.writeString(subdir.resolve("0_x.jpg"), "x", StandardCharsets.UTF_8);
+        Path undeclared = Files.writeString(subdir.resolve("unlisted-backup.jpg"), "backup", StandardCharsets.UTF_8);
+        DeleteStagingManifest.write(subdir, List.of(entry(original, staged.getFileName().toString())));
+
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
+
+        assertThat(original).hasContent("x");
+        assertThat(subdir).isDirectory();
+        assertThat(staged).exists();
+        assertThat(undeclared).hasContent("backup");
+        assertThat(subdir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME)).exists();
+    }
+
+    @Test
     @DisplayName("清单拒绝超限条目数、超长字段和重复目标或暂存项")
     void rejectsResourceLimitAndDuplicateViolations() throws IOException {
         Path stagingDir = Files.createDirectories(tempDir.resolve("bounded"));
         Path original = tempDir.resolve("300/300_p0.jpg").toAbsolutePath();
 
+        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of()))
+                .isInstanceOf(IOException.class);
         assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir,
                 java.util.Collections.nCopies(DeleteStagingManifest.MAX_ENTRIES + 1,
                         entry(original, "0.jpg"))))
@@ -193,8 +248,8 @@ class DeleteStagingManifestTest {
     }
 
     @Test
-    @DisplayName("恢复复制与并发新建目标冲突时原子地拒绝覆盖")
-    void restoreCopyNeverOverwritesConcurrentlyCreatedTarget() throws IOException {
+    @DisplayName("恢复复制拒绝覆盖其它操作已经创建的目标")
+    void restoreCopyNeverOverwritesExistingTarget() throws IOException {
         Path staged = Files.writeString(tempDir.resolve("staged.jpg"), "staged", StandardCharsets.UTF_8);
         Path original = Files.writeString(tempDir.resolve("target.jpg"), "new", StandardCharsets.UTF_8);
 
@@ -242,6 +297,37 @@ class DeleteStagingManifestTest {
 
         assertThat(outside.resolve("restored.jpg")).doesNotExist();
         assertThat(subdir).isDirectory();
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("恢复拒绝经过 Windows Junction 父目录写入授权根外部")
+    void rejectsWindowsJunctionParentDuringRecovery() throws Exception {
+        Path stagingRoot = Files.createDirectories(tempDir.resolve("delete-staging-junction"));
+        Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
+        Path allowedRoot = Files.createDirectories(tempDir.resolve("allowed"));
+        Path outside = Files.createDirectories(tempDir.resolve("outside-junction"));
+        Path junction = allowedRoot.resolve("linked");
+        Process process = new ProcessBuilder(
+                "cmd.exe", "/c", "mklink", "/J", junction.toString(), outside.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+        Assumptions.assumeTrue(process.waitFor() == 0, "当前 Windows 环境无法创建 Junction");
+
+        try {
+            Path staged = Files.writeString(subdir.resolve("0_restored.jpg"), "backup", StandardCharsets.UTF_8);
+            DeleteStagingManifest.write(subdir,
+                    List.of(entry(junction.resolve("restored.jpg"), staged.getFileName().toString())));
+
+            DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(allowedRoot));
+
+            assertThat(outside.resolve("restored.jpg")).doesNotExist();
+            assertThat(subdir).isDirectory();
+            assertThat(staged).hasContent("backup");
+        } finally {
+            Files.deleteIfExists(junction);
+        }
     }
 
     @Test

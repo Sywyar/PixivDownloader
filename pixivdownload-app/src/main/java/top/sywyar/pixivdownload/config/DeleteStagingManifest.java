@@ -4,7 +4,10 @@ import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -16,7 +19,6 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -47,7 +49,7 @@ public final class DeleteStagingManifest {
     private static final String ORIGINAL_SUFFIX = ".original";
     private static final String STAGED_SUFFIX = ".staged";
     private static final int VERSION = 1;
-    static final long MAX_MANIFEST_BYTES = 1024 * 1024;
+    static final int MAX_MANIFEST_BYTES = 1024 * 1024;
     static final int MAX_ENTRIES = 10_000;
     static final int MAX_ORIGINAL_PATH_CHARS = 32_768;
     static final int MAX_STAGED_FILE_NAME_CHARS = 255;
@@ -63,7 +65,10 @@ public final class DeleteStagingManifest {
      * 写出恢复清单（覆盖既有）。由原子删除在「复制原文件之前」调用：清单先于删除落盘，崩溃后启动方能据此恢复。
      */
     public static void write(Path stagingDir, List<Entry> entries) throws IOException {
-        if (entries == null || entries.size() > MAX_ENTRIES) {
+        if (entries == null || entries.isEmpty()) {
+            throw new IOException("delete-staging manifest has no entries");
+        }
+        if (entries.size() > MAX_ENTRIES) {
             throw new IOException("delete-staging manifest has too many entries");
         }
         Properties props = new Properties();
@@ -149,8 +154,11 @@ public final class DeleteStagingManifest {
             log.warn(MessageBundles.get("runtime.log.delete-staging.recovery-incomplete", subdirectory));
             return;
         }
-        deleteDirectoryTree(subdirectory);
-        log.info(MessageBundles.get("runtime.log.delete-staging.recovered", subdirectory));
+        if (cleanRecoveredSubdirectory(subdirectory, entries.get())) {
+            log.info(MessageBundles.get("runtime.log.delete-staging.recovered", subdirectory));
+        } else {
+            log.warn(MessageBundles.get("runtime.log.delete-staging.cleanup-failed", subdirectory));
+        }
     }
 
     private static List<Path> normalizeAllowedRoots(Collection<Path> allowedRoots) {
@@ -214,15 +222,17 @@ public final class DeleteStagingManifest {
         if (!PlainFilePathGuard.isPlainRegularFile(manifest)) {
             return Optional.empty();
         }
-        try {
-            if (Files.size(manifest) > MAX_MANIFEST_BYTES) {
-                return Optional.empty();
-            }
+        byte[] bytes;
+        try (InputStream input = Files.newInputStream(manifest, LinkOption.NOFOLLOW_LINKS)) {
+            bytes = input.readNBytes(MAX_MANIFEST_BYTES + 1);
         } catch (IOException e) {
             return Optional.empty();
         }
+        if (bytes.length > MAX_MANIFEST_BYTES) {
+            return Optional.empty();
+        }
         Properties props = new Properties();
-        try (Reader reader = Files.newBufferedReader(manifest, StandardCharsets.UTF_8)) {
+        try (Reader reader = new InputStreamReader(new ByteArrayInputStream(bytes), StandardCharsets.UTF_8)) {
             props.load(reader);
         } catch (IOException | IllegalArgumentException e) {
             return Optional.empty();
@@ -236,7 +246,7 @@ public final class DeleteStagingManifest {
         } catch (NumberFormatException e) {
             return Optional.empty();
         }
-        if (count < 0 || count > MAX_ENTRIES) {
+        if (count <= 0 || count > MAX_ENTRIES || props.size() != 2 + count * 2) {
             return Optional.empty();
         }
         List<Entry> entries = new ArrayList<>(count);
@@ -295,21 +305,43 @@ public final class DeleteStagingManifest {
         return parent == null || !parent.equals(stagingDir.normalize());
     }
 
-    /** 删除整个暂存子目录树（含恢复清单）；仅在该子目录全部原文件就位后调用。删失败仅记小日志、忽略。 */
-    private static void deleteDirectoryTree(Path directory) {
+    /** 只清理清单声明的暂存副本；存在未知条目时保留整个目录供人工恢复。 */
+    private static boolean cleanRecoveredSubdirectory(Path directory, List<Entry> entries) {
         if (!PlainFilePathGuard.isPlainDirectory(directory)) {
-            return;
+            return false;
         }
-        try (Stream<Path> tree = Files.walk(directory)) {
-            tree.sorted(Comparator.reverseOrder()).forEach(path -> {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (IOException ignored) {
-                    // 单个条目删不掉时继续清理其余
-                }
-            });
+        Path manifest = directory.resolve(MANIFEST_FILE_NAME);
+        Set<Path> expected = new HashSet<>();
+        expected.add(manifest.normalize());
+        for (Entry entry : entries) {
+            expected.add(directory.resolve(entry.stagedFileName()).normalize());
+        }
+        try (Stream<Path> children = Files.list(directory)) {
+            if (children.map(Path::normalize).anyMatch(child -> !expected.contains(child))) {
+                return false;
+            }
         } catch (IOException e) {
-            log.warn(MessageBundles.get("runtime.log.delete-staging.cleanup-failed", directory));
+            return false;
+        }
+        if (!PlainFilePathGuard.isPlainRegularFile(manifest)) {
+            return false;
+        }
+        for (Entry entry : entries) {
+            Path staged = directory.resolve(entry.stagedFileName());
+            if (Files.exists(staged, LinkOption.NOFOLLOW_LINKS)
+                    && !PlainFilePathGuard.isPlainRegularFile(staged)) {
+                return false;
+            }
+        }
+        try {
+            for (Entry entry : entries) {
+                Files.deleteIfExists(directory.resolve(entry.stagedFileName()));
+            }
+            Files.delete(manifest);
+            Files.delete(directory);
+            return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 }
