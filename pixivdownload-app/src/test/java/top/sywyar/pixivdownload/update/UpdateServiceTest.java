@@ -284,6 +284,15 @@ class UpdateServiceTest {
     }
 
     @Test
+    @DisplayName("更新检查结果不暴露可变 setter")
+    void updateCheckResultIsImmutable() {
+        assertThat(java.util.Arrays.stream(UpdateCheckResult.class.getMethods())
+                .map(java.lang.reflect.Method::getName)
+                .filter(name -> name.startsWith("set"))
+                .toList()).isEmpty();
+    }
+
+    @Test
     @DisplayName("安装启动仅使用服务端已验证文件并在启动前重验大小和哈希")
     void shouldBindInstallToVerifiedDownloadSnapshot() throws Exception {
         String oldOsName = System.getProperty("os.name");

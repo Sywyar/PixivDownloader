@@ -1,14 +1,14 @@
 package top.sywyar.pixivdownload.update;
 
 import lombok.Builder;
-import lombok.Data;
+import lombok.Value;
 
 import java.time.Instant;
 
 /**
  * /api/gui/update/check 的响应。
  */
-@Data
+@Value
 @Builder(toBuilder = true)
 public class UpdateCheckResult {
     /** 是否启用了在线更新。 */
