@@ -62,10 +62,11 @@ assert.ok(PAGE_SOURCE.includes("var autoRead = message.category === 'survey' || 
     && !SOURCE.includes("encodeURIComponent(message.id) + '/read'"),
     '调查与公告详情必须自动标记已读且仅看未读时保留已打开详情，弹窗点击不等待冗余请求');
 assert.ok(PAGE_SOURCE.includes('requestSequence !== loadSequence')
-    && (PAGE_SOURCE.match(/\+\+loadSequence;/g) || []).length >= 3
+    && (PAGE_SOURCE.match(/\+\+loadSequence;/g) || []).length >= 4
+    && /response\.status === 401[\s\S]*?\+\+loadSequence;[\s\S]*?location\.href = '\/login\.html/.test(PAGE_SOURCE)
     && (PAGE_SOURCE.match(/\+\+loadSequence;\s*if \(state\.selectedId !== id\) return;/g) || []).length === 2
     && PAGE_SOURCE.includes('if (id) selectMessage(id, false); else clearSelection(false);'),
-    '列表与写操作必须拒绝过期响应，历史导航移除 id 时必须清空详情');
+    '列表、写操作与登录跳转必须拒绝过期响应，历史导航移除 id 时必须清空详情');
 assert.ok(PAGE_SOURCE.includes("window.matchMedia('(max-width: 760px)').matches")
     && PAGE_SOURCE.includes("document.visibilityState === 'visible'")
     && SOURCE.includes('global.clearInterval(refreshTimer)'),

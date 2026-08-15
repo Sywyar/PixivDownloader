@@ -22,6 +22,7 @@
             headers: { 'Accept': 'application/json' }
         }, options || {}));
         if (response.status === 401) {
+            ++loadSequence;
             location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
             throw new Error('Unauthorized');
         }
