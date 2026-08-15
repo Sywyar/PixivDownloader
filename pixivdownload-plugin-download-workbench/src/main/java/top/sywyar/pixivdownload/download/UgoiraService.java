@@ -9,15 +9,22 @@ import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.io.*;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
 import java.util.zip.ZipInputStream;
 
 /**
@@ -28,10 +35,23 @@ import java.util.zip.ZipInputStream;
 public class UgoiraService {
 
     private static final URI DEFAULT_PIXIV_REFERER = URI.create("https://www.pixiv.net/");
+    private static final long MIB = 1024L * 1024L;
+    static final long MAX_ZIP_BYTES = 100L * MIB;
+    // Pixiv 当前两种 Ugoira 投稿方式最多覆盖 500 帧；其余数值是本地固定安全预算。
+    static final int MAX_FRAME_COUNT = 500;
+    static final int MAX_ZIP_ENTRIES = MAX_FRAME_COUNT;
+    static final long MAX_ZIP_ENTRY_BYTES = 32L * MIB;
+    static final long MAX_ZIP_UNCOMPRESSED_BYTES = 2L * MAX_ZIP_BYTES;
+    static final long MAX_ZIP_COMPRESSION_RATIO = 100L;
+    static final long MAX_FRAME_PIXELS = 25_000_000L;
+    static final Duration FFMPEG_TIMEOUT = Duration.ofMinutes(10);
+    static final long MAX_FFMPEG_OUTPUT_BYTES = MAX_ZIP_BYTES;
+    static final int MAX_FFMPEG_PROCESSES = 1;
 
     private final PixivImageDownloader pixivImageDownloader;
     private final FfmpegCommandResolver ffmpegCommandResolver;
     private final MessageResolver messages;
+    private final Semaphore ffmpegPermits = new Semaphore(MAX_FFMPEG_PROCESSES, true);
 
     public UgoiraService(PixivImageDownloader pixivImageDownloader,
                          FfmpegCommandResolver ffmpegCommandResolver,
@@ -66,7 +86,9 @@ public class UgoiraService {
 
         Path zipPath = downloadPath.resolve("_ugoira_frames.zip");
         Path tempDir = downloadPath.resolve("_frames_tmp");
+        Path partialOutput = partialOutputPath(downloadPath, outputBaseName);
         int maxAttempts = 3;
+        cleanup(zipPath, tempDir, partialOutput);
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
@@ -110,18 +132,20 @@ public class UgoiraService {
                 List<Map.Entry<String, Path>> orderedFrames = new ArrayList<>(frameFiles.entrySet());
                 List<Integer> delays = resolveDelays(other.getUgoiraDelays(), orderedFrames.size());
 
-                // 保存第一帧作为缩略图（供后端 thumbnail 接口使用）
-                Files.copy(orderedFrames.get(0).getValue(),
-                        downloadPath.resolve(outputBaseName + "_thumb.jpg"),
-                        StandardCopyOption.REPLACE_EXISTING);
-
                 if (runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath,
                         outputBaseName, attempt, maxAttempts, progressListener, cancellationRequested)) {
+                    // ffmpeg 成功后再发布缩略图，失败路径不会留下半份 Ugoira 产物。
+                    Files.copy(orderedFrames.get(0).getValue(),
+                            downloadPath.resolve(outputBaseName + "_thumb.jpg"),
+                            StandardCopyOption.REPLACE_EXISTING);
                     return 1;
                 }
 
             } catch (CancellationException e) {
                 throw e;
+            } catch (UgoiraResourceLimitException e) {
+                log.warn(message("ugoira.log.processing.failed", id(artworkId), e.getMessage()));
+                break;
             } catch (java.util.zip.ZipException e) {
                 log.warn(message("ugoira.log.zip.invalid",
                         id(artworkId), text(attempt), text(maxAttempts), e.getMessage()));
@@ -129,7 +153,7 @@ public class UgoiraService {
                 log.error(message("ugoira.log.processing.failed", id(artworkId), e.getMessage()), e);
                 break; // 非ZIP格式异常不重试
             } finally {
-                cleanup(zipPath, tempDir);
+                cleanup(zipPath, tempDir, partialOutput);
             }
 
             if (attempt < maxAttempts) {
@@ -151,27 +175,62 @@ public class UgoiraService {
         Path normalizedTempDir = tempDir.normalize();
         int[] lastProgress = {-1};
         long[] lastAt = {0L};
+        int entryCount = 0;
+        long totalUncompressedBytes = 0;
         try (ZipInputStream zis = new ZipInputStream(
                 new FileInputStream(zipPath.toFile()), StandardCharsets.UTF_8)) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 ensureNotCancelled(cancellationRequested);
+                if (++entryCount > MAX_ZIP_ENTRIES) {
+                    throw resourceLimit("ugoira.log.limit.zip.entries", MAX_ZIP_ENTRIES);
+                }
                 if (!entry.isDirectory()) {
-                    // Zip Slip 防护：确保解压路径不逃出 tempDir
+                    if (frameFiles.size() >= MAX_FRAME_COUNT) {
+                        throw resourceLimit("ugoira.log.limit.frames", MAX_FRAME_COUNT);
+                    }
+                    if (!isSafeFrameEntryName(entry.getName())) {
+                        throw new ZipException(message("ugoira.log.zip-entry.unsafe", id(artworkId), entry.getName()));
+                    }
+                    long declaredSize = entry.getSize();
+                    if (declaredSize > MAX_ZIP_ENTRY_BYTES) {
+                        throw resourceLimit("ugoira.log.limit.zip.entry-bytes", MAX_ZIP_ENTRY_BYTES / MIB);
+                    }
+                    if (declaredSize > 0 && declaredSize > MAX_ZIP_UNCOMPRESSED_BYTES - totalUncompressedBytes) {
+                        throw resourceLimit("ugoira.log.limit.zip.total-bytes", MAX_ZIP_UNCOMPRESSED_BYTES / MIB);
+                    }
                     Path framePath = normalizedTempDir.resolve(entry.getName()).normalize();
                     if (!framePath.startsWith(normalizedTempDir)) {
-                        log.warn(message("ugoira.log.zip-entry.unsafe", id(artworkId), entry.getName()));
-                        zis.closeEntry();
-                        continue;
+                        throw new ZipException(message("ugoira.log.zip-entry.unsafe", id(artworkId), entry.getName()));
                     }
-                    try (FileOutputStream fos = new FileOutputStream(framePath.toFile())) {
+                    long entryBytes = 0;
+                    try (OutputStream out = Files.newOutputStream(
+                            framePath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
                         byte[] buf = new byte[8192];
                         int len;
                         while ((len = zis.read(buf)) != -1) {
                             ensureNotCancelled(cancellationRequested);
-                            fos.write(buf, 0, len);
+                            if (len > MAX_ZIP_ENTRY_BYTES - entryBytes) {
+                                throw resourceLimit(
+                                        "ugoira.log.limit.zip.entry-bytes", MAX_ZIP_ENTRY_BYTES / MIB);
+                            }
+                            if (len > MAX_ZIP_UNCOMPRESSED_BYTES - totalUncompressedBytes) {
+                                throw resourceLimit(
+                                        "ugoira.log.limit.zip.total-bytes", MAX_ZIP_UNCOMPRESSED_BYTES / MIB);
+                            }
+                            out.write(buf, 0, len);
+                            entryBytes += len;
+                            totalUncompressedBytes += len;
                         }
                     }
+                    zis.closeEntry();
+                    long compressedBytes = entry.getCompressedSize();
+                    if (entryBytes > 0 && (compressedBytes <= 0
+                            || entryBytes > compressedBytes * MAX_ZIP_COMPRESSION_RATIO)) {
+                        throw resourceLimit(
+                                "ugoira.log.limit.zip.ratio", MAX_ZIP_COMPRESSION_RATIO);
+                    }
+                    validateFrame(framePath);
                     frameFiles.put(entry.getName(), framePath);
                     Integer progress = expectedFrames > 0
                             ? Math.min(100, (int) Math.round(frameFiles.size() * 100.0 / expectedFrames))
@@ -187,6 +246,7 @@ public class UgoiraService {
                                 .totalFrames(expectedFrames > 0 ? expectedFrames : null)
                                 .build());
                     }
+                    continue;
                 }
                 zis.closeEntry();
             }
@@ -262,7 +322,8 @@ public class UgoiraService {
         Files.writeString(listFile, sb.toString(), StandardCharsets.UTF_8);
 
         Path webpPath = downloadPath.resolve(outputBaseName + ".webp");
-        String ffmpegCommand = detectFfmpegCommand();
+        Path partialOutput = partialOutputPath(downloadPath, outputBaseName);
+        Path progressFile = tempDir.resolve("ffmpeg-progress.log");
         long durationMs = Math.max(1L, delays.stream().mapToLong(Integer::longValue).sum());
         publishProgress(progressListener, UgoiraProgress.builder()
                 .phase(UgoiraProgress.PHASE_FFMPEG)
@@ -276,86 +337,95 @@ public class UgoiraService {
                 .ffmpegDurationMs(durationMs)
                 .ffmpegProgress(0)
                 .build());
-        ProcessBuilder pb = new ProcessBuilder(
-                ffmpegCommand, "-y",
-                "-nostats",
-                "-stats_period", "0.5",
-                "-progress", "pipe:1",
-                "-f", "concat", "-safe", "0",
-                "-i", listFile.toAbsolutePath().toString(),
-                "-vcodec", "libwebp",
-                "-quality", "90",
-                "-loop", "0",
-                "-an",
-                webpPath.toAbsolutePath().toString()
-        );
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        int[] lastProgress = {-1};
-        long[] lastAt = {0L};
+        acquireFfmpegPermit(cancellationRequested);
+        Process process = null;
         try {
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    ensureNotCancelled(cancellationRequested, process);
-                    Long outTimeMs = parseFfmpegOutTimeMs(line);
-                    if (outTimeMs == null) {
-                        continue;
-                    }
-                    int progress = Math.min(99, Math.max(0,
-                            (int) Math.round(outTimeMs * 100.0 / durationMs)));
-                    if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
-                        publishProgress(progressListener, UgoiraProgress.builder()
-                                .phase(UgoiraProgress.PHASE_FFMPEG)
-                                .status(UgoiraProgress.STATUS_RUNNING)
-                                .attempt(attempt)
-                                .maxAttempts(maxAttempts)
-                                .zipProgress(100)
-                                .extractedFrames(orderedFrames.size())
-                                .totalFrames(orderedFrames.size())
-                                .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs))
-                                .ffmpegDurationMs(durationMs)
-                                .ffmpegProgress(progress)
-                                .build());
-                    }
+            Files.deleteIfExists(partialOutput);
+            Files.deleteIfExists(progressFile);
+            Files.createFile(progressFile);
+            ProcessBuilder processBuilder = new ProcessBuilder(
+                    detectFfmpegCommand(), "-y",
+                    "-nostats",
+                    "-stats_period", "0.5",
+                    "-progress", "pipe:1",
+                    "-f", "concat", "-safe", "0",
+                    "-i", listFile.toAbsolutePath().toString(),
+                    "-vcodec", "libwebp",
+                    "-quality", "90",
+                    "-loop", "0",
+                    "-an",
+                    "-f", "webp",
+                    partialOutput.toAbsolutePath().toString()
+            );
+            processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(progressFile.toFile()));
+            processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
+            process = startFfmpeg(processBuilder);
+            long deadline = System.nanoTime() + ffmpegTimeoutNanos();
+            int[] lastProgress = {-1};
+            long[] lastAt = {0L};
+            int progressLineCount = 0;
+            while (true) {
+                ensureNotCancelled(cancellationRequested);
+                enforceFfmpegOutputLimit(partialOutput);
+                progressLineCount = publishFfmpegProgress(
+                        progressFile, progressLineCount, durationMs, orderedFrames.size(), attempt,
+                        maxAttempts, progressListener, lastProgress, lastAt);
+                long remainingNanos = deadline - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    throw resourceLimit("ugoira.log.limit.ffmpeg-timeout", FFMPEG_TIMEOUT.toMinutes());
+                }
+                long waitMillis = Math.max(1L, Math.min(200L,
+                        TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
+                if (process.waitFor(waitMillis, TimeUnit.MILLISECONDS)) {
+                    break;
                 }
             }
-            ensureNotCancelled(cancellationRequested, process);
-        } catch (CancellationException e) {
-            process.destroyForcibly();
-            throw e;
-        }
-        int exitCode = process.waitFor();
+            progressLineCount = publishFfmpegProgress(
+                    progressFile, progressLineCount, durationMs, orderedFrames.size(), attempt,
+                    maxAttempts, progressListener, lastProgress, lastAt);
+            enforceFfmpegOutputLimit(partialOutput);
+            int exitCode = process.exitValue();
 
-        if (exitCode != 0) {
-            log.error(message("ugoira.log.ffmpeg.failed", id(artworkId), text(exitCode)));
+            if (exitCode != 0) {
+                log.error(message("ugoira.log.ffmpeg.failed", id(artworkId), text(exitCode)));
+                publishProgress(progressListener, UgoiraProgress.builder()
+                        .phase(UgoiraProgress.PHASE_FFMPEG)
+                        .status(UgoiraProgress.STATUS_FAILED)
+                        .attempt(attempt)
+                        .maxAttempts(maxAttempts)
+                        .zipProgress(100)
+                        .extractedFrames(orderedFrames.size())
+                        .totalFrames(orderedFrames.size())
+                        .ffmpegDurationMs(durationMs)
+                        .ffmpegProgress(Math.max(lastProgress[0], 0))
+                        .build());
+                return false;
+            }
+            Files.move(partialOutput, webpPath, StandardCopyOption.REPLACE_EXISTING);
             publishProgress(progressListener, UgoiraProgress.builder()
                     .phase(UgoiraProgress.PHASE_FFMPEG)
-                    .status(UgoiraProgress.STATUS_FAILED)
+                    .status(UgoiraProgress.STATUS_COMPLETED)
                     .attempt(attempt)
                     .maxAttempts(maxAttempts)
                     .zipProgress(100)
                     .extractedFrames(orderedFrames.size())
                     .totalFrames(orderedFrames.size())
+                    .ffmpegOutTimeMs(durationMs)
                     .ffmpegDurationMs(durationMs)
-                    .ffmpegProgress(Math.max(lastProgress[0], 0))
+                    .ffmpegProgress(100)
                     .build());
-            return false;
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CancellationException("download cancelled");
+        } finally {
+            if (process != null && process.isAlive()) {
+                terminateProcessTree(process);
+            }
+            Files.deleteIfExists(partialOutput);
+            Files.deleteIfExists(progressFile);
+            ffmpegPermits.release();
         }
-        publishProgress(progressListener, UgoiraProgress.builder()
-                .phase(UgoiraProgress.PHASE_FFMPEG)
-                .status(UgoiraProgress.STATUS_COMPLETED)
-                .attempt(attempt)
-                .maxAttempts(maxAttempts)
-                .zipProgress(100)
-                .extractedFrames(orderedFrames.size())
-                .totalFrames(orderedFrames.size())
-                .ffmpegOutTimeMs(durationMs)
-                .ffmpegDurationMs(durationMs)
-                .ffmpegProgress(100)
-                .build());
-        return true;
     }
 
     boolean downloadZip(String url, Path path, String referer, String cookie,
@@ -382,12 +452,20 @@ public class UgoiraService {
                         cookie,
                         new PixivImageTransferObserver() {
                             @Override
+                            public long maximumBytes() {
+                                return Long.MAX_VALUE;
+                            }
+
+                            @Override
                             public void checkCancelled() {
                                 ensureNotCancelled(cancellationRequested);
                             }
 
                             @Override
                             public void onContentLength(long contentLength) {
+                                if (contentLength > MAX_ZIP_BYTES) {
+                                    throw resourceLimit("ugoira.log.limit.zip.download", MAX_ZIP_BYTES / MIB);
+                                }
                                 totalBytes[0] = contentLength;
                             }
 
@@ -395,6 +473,9 @@ public class UgoiraService {
                             public void onBytesTransferred(long transferredBytes) {
                                 if (transferredBytes <= 0) {
                                     return;
+                                }
+                                if (transferredBytes > MAX_ZIP_BYTES) {
+                                    throw resourceLimit("ugoira.log.limit.zip.download", MAX_ZIP_BYTES / MIB);
                                 }
                                 downloadedBytes[0] = transferredBytes;
                                 Integer progress = totalBytes[0] > 0
@@ -428,6 +509,8 @@ public class UgoiraService {
                 }
             } catch (CancellationException e) {
                 throw e;
+            } catch (UgoiraResourceLimitException e) {
+                throw e;
             } catch (Exception e) {
                 log.error(message("ugoira.log.zip.retry", url, e.getMessage(), attempt, maxRetries));
                 if (attempt < maxRetries) {
@@ -446,15 +529,6 @@ public class UgoiraService {
 
     private void ensureNotCancelled(BooleanSupplier cancellationRequested) {
         if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
-            throw new CancellationException("download cancelled");
-        }
-    }
-
-    private void ensureNotCancelled(BooleanSupplier cancellationRequested, Process process) {
-        if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
-            if (process != null) {
-                process.destroyForcibly();
-            }
             throw new CancellationException("download cancelled");
         }
     }
@@ -531,14 +605,176 @@ public class UgoiraService {
         }
     }
 
-    private void cleanup(Path zipPath, Path tempDir) {
+    private void validateFrame(Path framePath) throws IOException {
+        try (ImageInputStream input = ImageIO.createImageInputStream(framePath.toFile())) {
+            if (input == null) {
+                throw new ZipException(message("ugoira.log.zip.frame.invalid", framePath.getFileName()));
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) {
+                throw new ZipException(message("ugoira.log.zip.frame.invalid", framePath.getFileName()));
+            }
+            ImageReader reader = readers.next();
+            try {
+                String fileName = framePath.getFileName().toString().toLowerCase(Locale.ROOT);
+                String format = reader.getFormatName();
+                boolean expectedFormat = (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg"))
+                        ? "JPEG".equalsIgnoreCase(format)
+                        : "PNG".equalsIgnoreCase(format);
+                if (!expectedFormat) {
+                    throw new ZipException(message("ugoira.log.zip.frame.invalid", framePath.getFileName()));
+                }
+                reader.setInput(input, true, true);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                if (width <= 0 || height <= 0 || (long) width * height > MAX_FRAME_PIXELS) {
+                    throw resourceLimit("ugoira.log.limit.frame-pixels", MAX_FRAME_PIXELS);
+                }
+            } finally {
+                reader.dispose();
+            }
+        }
+    }
+
+    private boolean isSafeFrameEntryName(String entryName) {
+        if (entryName == null || entryName.isBlank() || entryName.length() > 128
+                || ".".equals(entryName) || "..".equals(entryName)) {
+            return false;
+        }
+        for (int i = 0; i < entryName.length(); i++) {
+            char c = entryName.charAt(i);
+            if (!(c >= 'a' && c <= 'z')
+                    && !(c >= 'A' && c <= 'Z')
+                    && !(c >= '0' && c <= '9')
+                    && c != '.' && c != '_' && c != '-') {
+                return false;
+            }
+        }
+        String normalized = entryName.toLowerCase(Locale.ROOT);
+        return normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")
+                || normalized.endsWith(".png");
+    }
+
+    private void acquireFfmpegPermit(BooleanSupplier cancellationRequested) {
+        while (true) {
+            ensureNotCancelled(cancellationRequested);
+            try {
+                if (ffmpegPermits.tryAcquire(200, TimeUnit.MILLISECONDS)) {
+                    return;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException("download cancelled");
+            }
+        }
+    }
+
+    Process startFfmpeg(ProcessBuilder processBuilder) throws IOException {
+        return processBuilder.start();
+    }
+
+    long ffmpegTimeoutNanos() {
+        return FFMPEG_TIMEOUT.toNanos();
+    }
+
+    long maxFfmpegOutputBytes() {
+        return MAX_FFMPEG_OUTPUT_BYTES;
+    }
+
+    private void enforceFfmpegOutputLimit(Path partialOutput) throws IOException {
+        if (Files.exists(partialOutput) && Files.size(partialOutput) > maxFfmpegOutputBytes()) {
+            throw resourceLimit(
+                    "ugoira.log.limit.ffmpeg-output", MAX_FFMPEG_OUTPUT_BYTES / MIB);
+        }
+    }
+
+    private int publishFfmpegProgress(
+            Path progressFile,
+            int consumedLines,
+            long durationMs,
+            int frameCount,
+            int attempt,
+            int maxAttempts,
+            Consumer<UgoiraProgress> progressListener,
+            int[] lastProgress,
+            long[] lastAt
+    ) throws IOException {
+        List<String> lines = Files.readAllLines(progressFile, StandardCharsets.UTF_8);
+        for (int i = consumedLines; i < lines.size(); i++) {
+            Long outTimeMs = parseFfmpegOutTimeMs(lines.get(i));
+            if (outTimeMs == null) {
+                continue;
+            }
+            int progress = Math.min(99, Math.max(0,
+                    (int) Math.round(outTimeMs * 100.0 / durationMs)));
+            if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
+                publishProgress(progressListener, UgoiraProgress.builder()
+                        .phase(UgoiraProgress.PHASE_FFMPEG)
+                        .status(UgoiraProgress.STATUS_RUNNING)
+                        .attempt(attempt)
+                        .maxAttempts(maxAttempts)
+                        .zipProgress(100)
+                        .extractedFrames(frameCount)
+                        .totalFrames(frameCount)
+                        .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs))
+                        .ffmpegDurationMs(durationMs)
+                        .ffmpegProgress(progress)
+                        .build());
+            }
+        }
+        return lines.size();
+    }
+
+    private void terminateProcessTree(Process process) {
+        ProcessHandle parent = process.toHandle();
+        List<ProcessHandle> descendants;
+        try {
+            descendants = parent.descendants().toList();
+        } catch (RuntimeException ignored) {
+            descendants = List.of();
+        }
+        parent.destroyForcibly();
+        for (int i = descendants.size() - 1; i >= 0; i--) {
+            descendants.get(i).destroyForcibly();
+        }
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline
+                && (parent.isAlive() || descendants.stream().anyMatch(ProcessHandle::isAlive))) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private static Path partialOutputPath(Path downloadPath, String outputBaseName) {
+        return downloadPath.resolve(outputBaseName + ".webp.part");
+    }
+
+    private UgoiraResourceLimitException resourceLimit(String code, Object... args) {
+        return new UgoiraResourceLimitException(message(code, args));
+    }
+
+    private void cleanup(Path zipPath, Path tempDir, Path partialOutput) {
         try { Files.deleteIfExists(zipPath); } catch (Exception ignored) {}
+        try { Files.deleteIfExists(partialOutput); } catch (Exception ignored) {}
         try {
             if (Files.exists(tempDir)) {
-                Files.walk(tempDir).sorted(Comparator.reverseOrder())
-                        .map(Path::toFile).forEach(File::delete);
+                try (var paths = Files.walk(tempDir)) {
+                    paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                        try { Files.deleteIfExists(path); } catch (Exception ignored) {}
+                    });
+                }
             }
         } catch (Exception ignored) {}
+    }
+
+    private static final class UgoiraResourceLimitException extends RuntimeException {
+        private UgoiraResourceLimitException(String message) {
+            super(message);
+        }
     }
 
     private String message(String code, Object... args) {

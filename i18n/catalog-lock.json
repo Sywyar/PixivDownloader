@@ -36862,6 +36862,78 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.ffmpeg-output",
+      "acceptedSourceHash": "6b3f51179f8bb0349449373e426c93895a5d43e3ec0804657e618c9cc43742f7",
+      "acceptedTranslationHash": "dcb5b62d97ca22dec48385ceb66b8123d4fac04000ceddf642b59780257ec819"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.ffmpeg-timeout",
+      "acceptedSourceHash": "b8945dd91a90c7d23525938309d6d6315cb41f3cdafaf03c948cede468145e64",
+      "acceptedTranslationHash": "6dec96900cf53b09627f15480aa4b0868884c1c388267b7c821076e7a473d3b8"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.frame-pixels",
+      "acceptedSourceHash": "ca348ec00c50f021a46981f069bffbc545688f7c14987686f7fec2cf437b1b82",
+      "acceptedTranslationHash": "72cb864fe1370ba85e635f4ae0be7fb5eb71f08d4491526a08fe69ccefddecfc"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.frames",
+      "acceptedSourceHash": "e595ff416208d39db5a6aa2c2f31bce5e80b89359db22db79aa275e94b5b238d",
+      "acceptedTranslationHash": "e8e0e82b3bfdad1d1d3ccf57c8bfa01fe5fa60184f0ce96b0dfc565534b01013"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.zip.download",
+      "acceptedSourceHash": "2962e863b8c5c6337407b353500da43498402608e05ac3ed444fcd20e26dc20e",
+      "acceptedTranslationHash": "d66cc6c2f8d816df55c0dda06e106c8a78095f1003e98012aea8ab3f7b7c886f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.zip.entries",
+      "acceptedSourceHash": "7923959e5b5eb3d756d702ae3d9f5a7ed4277310f9c8bafab997b2ee3ed73134",
+      "acceptedTranslationHash": "7b43c87ea824817c9ba446c045e94451750538b8082dc3f250de858632e5e20f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.zip.entry-bytes",
+      "acceptedSourceHash": "89decf035d20f8d2ddb4c5031fe3fddcb6e0088be0579e1d7dc932d52d61ebd9",
+      "acceptedTranslationHash": "bd59c2f36060502fe82cb8d1de1f0888c62737d245481a6bffe78bd6f6df72d3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.zip.ratio",
+      "acceptedSourceHash": "0dd0367d22c149e5b455c439585d2884b7b5666b89b10d5aea24c92cc6b53ef3",
+      "acceptedTranslationHash": "ae02272e4a31ff046cdd474b27a1e952601f89be8f7ba4d3a46fdb7606e7559e"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.limit.zip.total-bytes",
+      "acceptedSourceHash": "520cc445a8b0b743da1938414323aab923ae13220dcb597f8c27ff766cdc31fb",
+      "acceptedTranslationHash": "8a71d29d8c050f66d125c292b5f76b66414dffe3adc24b9f014825733dbd9899"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
       "key": "ugoira.log.processing.failed",
       "acceptedSourceHash": "266f5130ddf237f3be21bfc1001d7b9b7603ea3e453e0a88dc2e68027bb0fa1b",
       "acceptedTranslationHash": "68a2497e434f7e959ab87c3249a5152dade8a927e6a52137b76ee0fe6066f739"
@@ -36871,8 +36943,8 @@
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
       "key": "ugoira.log.zip-entry.unsafe",
-      "acceptedSourceHash": "d11cb1043b69d23668131a4b72ce6501530aaf07ae98554bd88031295bf80734",
-      "acceptedTranslationHash": "2dc5b600c08f8283c3d95f2392d4ff410773deb1072d8fe8a7b43fc46d7609ca"
+      "acceptedSourceHash": "dcd7226bd580911f00cd7ecde6b36121337c2e3383b4ca943e6259c80e654767",
+      "acceptedTranslationHash": "f8c790109b277eb1ee8a3a9767051f41bd59e158ca60eaf1baf24ddee761901b"
     },
     {
       "locale": "en-US",
@@ -36897,6 +36969,14 @@
       "key": "ugoira.log.zip.empty",
       "acceptedSourceHash": "10e0c28e8d464b1b27d88ccc6e2b5e0cef3679c41399a8721a87e8ce27bd515d",
       "acceptedTranslationHash": "76c709588e2fab2db652dae2285abd61d3d3ed3716cc53ecaa26d7b9a40ff82d"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "ugoira.log.zip.frame.invalid",
+      "acceptedSourceHash": "111855a3d7c8cf06d1db87f9c47a5f11700ead98ad2b3e28f89482568dd66635",
+      "acceptedTranslationHash": "1e3dbc1f827dc1e452171fc1dd71045954e2c13aabffc258c3b0efcf75ac06d3"
     },
     {
       "locale": "en-US",
