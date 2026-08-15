@@ -689,7 +689,6 @@ class PluginReleaseScriptsTest {
                 "git show \"$BASE_SHA:$rel\"",
                 "--signature",
                 "trusted-gate-contract:",
-                "uses: actions/setup-node@v7",
                 "node-version: '24'",
                 "run: npm run test:js",
                 "run: npm run test:web-standards",
@@ -700,14 +699,12 @@ class PluginReleaseScriptsTest {
                 "npm run i18n:generate-static",
                 "git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static",
                 "$GATE_DIR/scripts/ci/gate-parity.mjs",
-                "GATE_DIR",
-                "actions/checkout@v7");
+                "GATE_DIR");
         assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(6);
         assertThat(workflow).doesNotContain("branches: [master]");
         assertThat(workflow).doesNotContain("-Dmaven.test.skip");
         assertThat(workflow).doesNotContain("LEGACY_BOOTSTRAP_REF");
         assertThat(workflow).doesNotContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24");
-        assertThat(workflow).doesNotContain("actions/checkout@v4", "actions/setup-node@v4", "actions/upload-artifact@v4");
         assertThat(workflow.indexOf("run: npm run test:web-standards"))
                 .isGreaterThan(workflow.indexOf("run: npm run test:js"));
         assertThat(packageJson.path("private").asBoolean()).isTrue();
@@ -719,6 +716,45 @@ class PluginReleaseScriptsTest {
         assertThat(packageJson.has("dependencies")).isFalse();
         assertThat(packageJson.path("devDependencies").path("yaml").asText())
                 .isNotBlank();
+    }
+
+    @Test
+    @DisplayName("所有外部 Action 固定完整提交并由 Dependabot 每周检查更新")
+    void externalActionsUseReviewedCommitPins() throws Exception {
+        Pattern usesPattern = Pattern.compile(
+                "(?m)^\\s*uses:\\s*([^\\s#]+)(?:\\s+#\\s*(\\S+))?\\s*$");
+        for (String name : List.of(
+                "quality-gate.yml",
+                "shared-snippets-check.yml",
+                "release.yml",
+                "nightly.yml",
+                "publish-plugins.yml")) {
+            Matcher matcher = usesPattern.matcher(workflow(name));
+            int externalActions = 0;
+            while (matcher.find()) {
+                String target = matcher.group(1);
+                if (target.startsWith("./")) {
+                    continue;
+                }
+                externalActions++;
+                int separator = target.lastIndexOf('@');
+                assertThat(separator).as("%s external action %s", name, target).isGreaterThan(0);
+                assertThat(target.substring(separator + 1))
+                        .as("%s external action %s must use a full commit SHA", name, target)
+                        .matches("[0-9a-f]{40}");
+                assertThat(matcher.group(2))
+                        .as("%s external action %s must keep a readable major version comment", name, target)
+                        .matches("v[1-9][0-9]*");
+            }
+            assertThat(externalActions).as("%s external actions", name).isPositive();
+        }
+
+        String dependabot = Files.readString(repoRoot().resolve(".github/dependabot.yml"), StandardCharsets.UTF_8);
+        assertThat(dependabot).contains(
+                "version: 2",
+                "package-ecosystem: \"github-actions\"",
+                "directory: \"/\"",
+                "interval: \"weekly\"");
     }
 
     @Test
