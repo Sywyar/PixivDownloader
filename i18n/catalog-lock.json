@@ -11887,8 +11887,8 @@
       "module": "pixivdownload-app",
       "baseName": "messages",
       "key": "plugin.install.outcome.rejected-integrity",
-      "acceptedSourceHash": "3f0769dcbd1b90459e1b415f1bd039f99ec21d35e598467167dda7911179feaa",
-      "acceptedTranslationHash": "681b807d1ec9927ebf0085514fe5257e6b83f0cf6626f19b123408c380ab12dd"
+      "acceptedSourceHash": "1e56b29b46bfee94b8fb50f879700901b4f642631bfb60f7c67338a75c741550",
+      "acceptedTranslationHash": "fab751e7589ea5bd74010c081cfeebcc46ef87179ada89fb39860133a7722b7d"
     },
     {
       "locale": "en-US",
@@ -19278,6 +19278,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "web/plugins",
+      "key": "install.invalid-signature-extension",
+      "acceptedSourceHash": "6a1a1618e8fffbf574132d41b661285cbe353584b5a5ea0a79e4dc8fcf5abb54",
+      "acceptedTranslationHash": "16f0dca80ea3dffb800fdd4f8086644820106995847514985349ac66ec704960"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/plugins",
       "key": "install.no-file",
       "acceptedSourceHash": "ce2a58ab4ccf924b7e484b5e59265a1e4b9d6f6dc324a9806b26552983ebcdb4",
       "acceptedTranslationHash": "26bfbd5c83f90db3ee4a1b33af4cff15c547a14f0e41b544b811f4c41b477b22"
@@ -19329,6 +19337,30 @@
       "key": "install.rollback-note",
       "acceptedSourceHash": "9b39064b3f4cabce3c6c679d29c45bf9f476687442346009c34ee666a7a032ad",
       "acceptedTranslationHash": "cd4df73faea8b0c730295675f7ba9a7d6b8b0e3a7e853b98f4173f5fbc3afb01"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/plugins",
+      "key": "install.signature.help",
+      "acceptedSourceHash": "95aa1f76b03e6d06c84508033d80c44a5f7c12c944add54ee7ca405ea1aade76",
+      "acceptedTranslationHash": "8e72e1bc97d41afea0cec0fdf392d391c555fdca480ff9b6af93f14d2fdb8401"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/plugins",
+      "key": "install.signature.no-file",
+      "acceptedSourceHash": "2febc4511ebc8a8ce515dc34c21095f61f86a3e887c38e3337c8712bc5835bb0",
+      "acceptedTranslationHash": "d80238390a57d15555ed2681d299513a49380ba0c9876dc30fb7b47f117e6f6f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/plugins",
+      "key": "install.signature.pick",
+      "acceptedSourceHash": "8caeffb0f7bcc41c3bb4896c5aa05ffdc2c86aa3f7a53c6ac74a1e41cf0d20a4",
+      "acceptedTranslationHash": "4e63960ba9abebf190e08d22f5b3a70a6ee50ed2cda1f85efb9567b0218f3199"
     },
     {
       "locale": "en-US",

@@ -84,7 +84,7 @@ class PluginManagePageGuardTest {
         assertThat(html).as("顶部应用导航栏 slot").contains("data-nav-slot=\"app.top\"");
         assertThat(html).as("语言 / 主题切换锚点").contains("id=\"langSwitcherAnchor\"");
         assertThat(html).as("刷新按钮").contains("id=\"refreshBtn\"");
-        assertThat(html).as("从 URL 安装按钮").contains("id=\"installBtn\"");
+        assertThat(html).as("本地安装按钮").contains("id=\"installBtn\"");
         assertThat(html).as("概览统计容器").contains("id=\"pm-stats\"");
         assertThat(html).as("筛选标签容器").contains("id=\"pm-tabs\"");
         assertThat(html).as("搜索输入").contains("id=\"pm-search-input\"");
@@ -114,6 +114,8 @@ class PluginManagePageGuardTest {
                 .contains("JSON.stringify({ enabled: enabled === true })");
         assertThat(api).as("后端重启使用专用端点")
                 .contains("PM.BACKEND_RESTART_URL");
+        assertThat(api).as("本地安装附带可选 detached 签名")
+                .contains("form.append('signature', signature)");
         assertThat(api).as("失败携后端稳定机器码 code").contains("err.code");
     }
 
@@ -149,7 +151,9 @@ class PluginManagePageGuardTest {
                 "restart.backend.message", "restart.backend.confirm", "restart.backend.later",
                 "restart.process.message", "restart.process.done",
                 "verification.io-error", "verification.provenance-invalid",
-                "security.notice.title", "security.notice.desc"}) {
+                "security.notice.title", "security.notice.desc",
+                "install.signature.pick", "install.signature.no-file", "install.signature.help",
+                "install.invalid-signature-extension"}) {
             assertThat(zh.getProperty(key)).as("中文文案 " + key).isNotBlank();
             assertThat(en.getProperty(key)).as("英文文案 " + key).isNotBlank();
         }
@@ -160,6 +164,9 @@ class PluginManagePageGuardTest {
         assertThat(read(HTML)).as("插件列表与本地安装弹窗都必须直接展示权限说明")
                 .containsOnlyOnce("data-i18n=\"security.notice.title\"")
                 .contains("data-i18n=\"security.notice.desc\"");
+        assertThat(read(HTML)).as("本地安装必须提供 detached 签名选择入口与正式运行提示")
+                .contains("id=\"pm-install-signature\"", "accept=\".sig\"",
+                        "data-i18n=\"install.signature.help\"");
     }
 
     @Test

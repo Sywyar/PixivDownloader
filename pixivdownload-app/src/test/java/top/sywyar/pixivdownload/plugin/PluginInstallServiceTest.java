@@ -275,7 +275,7 @@ class PluginInstallServiceTest {
                 loadedPackage(installer, invocation.getArgument(0)));
         ExternalPluginLifecycleCoordinator coordinator = new ExternalPluginLifecycleCoordinator(
                 runtimeManager, lifecycleService, installer, recoveryModeService, dependencyResolver);
-        return new PluginInstallService(coordinator, dependencyResolver);
+        return new PluginInstallService(coordinator, dependencyResolver, true);
     }
 
     private static LoadedPluginPackage loadedPackage(ExternalPluginInstaller installer, Path artifact) {

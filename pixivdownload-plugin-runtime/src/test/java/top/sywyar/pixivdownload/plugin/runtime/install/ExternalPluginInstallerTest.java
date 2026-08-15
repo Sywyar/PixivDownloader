@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -366,7 +367,7 @@ class ExternalPluginInstallerTest {
         }
     }
 
-    // ---------- 完整性校验（受信目录来源；本地上传无期望） ----------
+    // ---------- 完整性校验（受信目录与带签名本地来源） ----------
 
     @Test
     @DisplayName("受信目录来源 + 正确 SHA-256/大小：正常安装为 INSTALLED")
@@ -385,6 +386,50 @@ class ExternalPluginInstallerTest {
             assertThat(signedInstaller.listInstalled())
                     .extracting(installed -> installed.path().getFileName().toString())
                     .containsExactly("ext-1.0.0.zip");
+        }
+    }
+
+    @Test
+    @DisplayName("带可信 detached 签名的本地包验签后安装并持久化签名来源")
+    void signedLocalUploadInstallsAndPersistsSignature() throws IOException {
+        Path src = exploded("signed-local", "1.0.0");
+        PluginSigningTestSupport signing = PluginSigningTestSupport.createOfficial();
+        SignatureMetadata signature = signing.artifactSignature(src, "signed-local", "1.0.0");
+        installer.close();
+        try (ExternalPluginInstaller signedInstaller = new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(), signing.verifier())) {
+            assertThat(signedInstaller.recoverPendingTransactions().safeToScan()).isTrue();
+
+            PluginInstallResult result = installFully(
+                    signedInstaller, src, false, PluginPackageOrigin.localUpload(signature));
+
+            assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+            var provenance = new PluginProvenanceStore(pluginsDir).read(result.installedPath()).orElseThrow();
+            assertThat(provenance.source()).isEqualTo(
+                    top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD);
+            assertThat(provenance.signature()).isEqualTo(signature);
+            assertThat(provenance.status()).isEqualTo(VerificationStatus.VERIFIED);
+            assertThat(provenance.originForOfflineVerification()).isEqualTo(
+                    PluginPackageOrigin.localUpload(signature));
+        }
+    }
+
+    @Test
+    @DisplayName("本地包签名未链到官方信任根时拒绝安装")
+    void signedLocalUploadRejectsNonOfficialKey() throws IOException {
+        Path src = exploded("custom-signed-local", "1.0.0");
+        PluginSigningTestSupport signing = PluginSigningTestSupport.create();
+        SignatureMetadata signature = signing.artifactSignature(src, "custom-signed-local", "1.0.0");
+        installer.close();
+        try (ExternalPluginInstaller signedInstaller = new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(), signing.verifier())) {
+            assertThat(signedInstaller.recoverPendingTransactions().safeToScan()).isTrue();
+
+            PluginInstallResult result = installFully(
+                    signedInstaller, src, false, PluginPackageOrigin.localUpload(signature));
+
+            assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+            assertThat(signedInstaller.listInstalled()).isEmpty();
         }
     }
 

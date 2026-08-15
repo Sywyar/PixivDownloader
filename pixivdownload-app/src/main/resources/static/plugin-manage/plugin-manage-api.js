@@ -96,11 +96,11 @@
         return body;
     }
 
-    // POST /api/plugins/install（multipart/form-data：file + allowDowngrade）。
+    // POST /api/plugins/install（multipart/form-data：file + 可选 signature + allowDowngrade）。
     // 后端对所有「已决结局」（accepted / 各类拒绝 / 失败）都返回结构化 PluginInstallResponse（带稳定 outcome + 本地化
     // message），HTTP 状态由 outcome 派生。故只要响应体带 outcome 就<b>原样返回</b>（即便 4xx / 5xx）交结果区按
     // outcome 渲染；只有缺文件（不发请求）或拿不到结构化响应（如 401 跳登录 / 413 过大 / 网关 HTML）才抛错。
-    async function installPackage(file, allowDowngrade) {
+    async function installPackage(file, signature, allowDowngrade) {
         if (!file) {
             // 防御性：绝不发送无文件的 multipart 安装请求（与提交前的本地校验一致）。
             var localError = new Error('no plugin package selected');
@@ -114,8 +114,15 @@
             extError.invalidExtension = true;
             throw extError;
         }
+        if (signature && !PM.hasAcceptedSignatureExtension(signature.name)) {
+            var signatureExtError = new Error('unsupported detached signature extension');
+            signatureExtError.localValidation = true;
+            signatureExtError.invalidSignatureExtension = true;
+            throw signatureExtError;
+        }
         var form = new FormData();
         form.append('file', file);
+        if (signature) form.append('signature', signature);
         form.append('allowDowngrade', allowDowngrade ? 'true' : 'false');
         var res = await fetch(PM.INSTALL_URL, {
             method: 'POST',

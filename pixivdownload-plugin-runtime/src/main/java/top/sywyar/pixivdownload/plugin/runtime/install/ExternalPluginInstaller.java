@@ -1650,10 +1650,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
         PluginDescriptor descriptor = inspection.descriptor();
 
-        if (origin.source() == PluginPackageSource.MARKET_CATALOG && origin.signature() != null
-                && inspection.innerJarEntry() != null) {
+        if (origin.signature() != null && inspection.innerJarEntry() != null) {
             return rejected(PluginInstallOutcome.REJECTED_INTEGRITY,
-                    "signed catalog package must be the artifact loaded by the runtime");
+                    "signed package must be the artifact loaded by the runtime");
         }
         VerificationResult verification = verificationService.verifyForInstall(packagePath, descriptor, origin);
         if (!verification.accepted()) {

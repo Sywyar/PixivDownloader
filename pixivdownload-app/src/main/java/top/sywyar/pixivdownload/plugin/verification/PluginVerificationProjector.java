@@ -62,7 +62,8 @@ public final class PluginVerificationProjector {
         if (record == null) {
             return missingProvenance();
         }
-        if (!hasCompatibleStatusSemantics(record.source(), record.status(), record.offlineStatus())) {
+        if (!hasCompatibleStatusSemantics(
+                record.source(), record.signature() != null, record.status(), record.offlineStatus())) {
             return invalidProvenance();
         }
         VerificationStatus offline = record.offlineStatus();
@@ -96,7 +97,8 @@ public final class PluginVerificationProjector {
                             ? result.diagnosticCode() : result.status().name());
         }
         PluginPackageSource source = provenance.source();
-        if (!hasCompatibleStatusSemantics(source, provenance.status(), result.status())) {
+        if (!hasCompatibleStatusSemantics(
+                source, provenance.signature() != null, provenance.status(), result.status())) {
             return invalidProvenance();
         }
         boolean official = provenance.officialRepository();
@@ -118,17 +120,20 @@ public final class PluginVerificationProjector {
                         ? result.diagnosticCode() : result.status().name());
     }
 
-    static boolean hasCompatibleStatusSemantics(PluginPackageSource source, VerificationStatus installed,
-                                                VerificationStatus offline) {
+    static boolean hasCompatibleStatusSemantics(PluginPackageSource source, boolean signed,
+                                                VerificationStatus installed, VerificationStatus offline) {
         if (source == null || installed == null) {
             return false;
         }
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
-            return installed == VerificationStatus.UNSIGNED_ALLOWED
+            return signed
+                    ? installed == VerificationStatus.VERIFIED
+                    && offline != VerificationStatus.UNSIGNED_ALLOWED
+                    : installed == VerificationStatus.UNSIGNED_ALLOWED
                     && offline != VerificationStatus.VERIFIED;
         }
         if (source == PluginPackageSource.MARKET_CATALOG) {
-            return installed == VerificationStatus.VERIFIED
+            return signed && installed == VerificationStatus.VERIFIED
                     && offline != VerificationStatus.UNSIGNED_ALLOWED;
         }
         return false;
@@ -174,7 +179,8 @@ public final class PluginVerificationProjector {
 
     private static String statusFrom(VerificationStatus status, boolean official, PluginPackageSource source) {
         if (status == VerificationStatus.VERIFIED) {
-            return official ? VERIFIED_OFFICIAL : VERIFIED_CUSTOM;
+            return official || source == PluginPackageSource.LOCAL_UPLOAD
+                    ? VERIFIED_OFFICIAL : VERIFIED_CUSTOM;
         }
         if (status == VerificationStatus.UNSIGNED_ALLOWED) {
             return source == PluginPackageSource.LOCAL_UPLOAD ? UNSIGNED_ALLOWED : UNVERIFIED_LOCAL;

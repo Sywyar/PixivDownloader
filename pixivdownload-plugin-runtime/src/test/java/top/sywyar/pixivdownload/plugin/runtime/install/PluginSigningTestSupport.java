@@ -32,6 +32,14 @@ final class PluginSigningTestSupport {
     }
 
     static PluginSigningTestSupport create() {
+        return create(false);
+    }
+
+    static PluginSigningTestSupport createOfficial() {
+        return create(true);
+    }
+
+    private static PluginSigningTestSupport create(boolean official) {
         try {
             KeyPairGenerator generator = KeyPairGenerator.getInstance(SignatureMetadata.ED25519);
             KeyPair keyPair = generator.generateKeyPair();
@@ -43,7 +51,7 @@ final class PluginSigningTestSupport {
                     TrustedPluginKey.State.ACTIVE,
                     "Test Publisher",
                     "Test Trust",
-                    false);
+                    official);
             return new PluginSigningTestSupport(keyId, keyPair.getPrivate(), trustedKey);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("无法生成测试签名密钥", e);

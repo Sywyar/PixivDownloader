@@ -61,17 +61,30 @@ public record PluginProvenanceRecord(
 
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
             if (officialRepository || repositoryId != null || expectedSizeBytes != null
-                    || expectedSha256 != null || signature != null) {
+                    || expectedSha256 != null) {
                 throw new IllegalArgumentException("local provenance must not claim catalog source bindings");
             }
-            if (status != VerificationStatus.UNSIGNED_ALLOWED) {
-                throw new IllegalArgumentException("local provenance initial status must be UNSIGNED_ALLOWED");
-            }
-            if (offlineStatus == VerificationStatus.VERIFIED) {
-                throw new IllegalArgumentException("local provenance offline success must be UNSIGNED_ALLOWED");
-            }
-            if (keyId != null || publisher != null || trustLabel != null) {
-                throw new IllegalArgumentException("local provenance must not claim trusted signer metadata");
+            if (signature == null) {
+                if (status != VerificationStatus.UNSIGNED_ALLOWED) {
+                    throw new IllegalArgumentException("unsigned local provenance must be UNSIGNED_ALLOWED");
+                }
+                if (offlineStatus == VerificationStatus.VERIFIED) {
+                    throw new IllegalArgumentException("unsigned local provenance cannot become VERIFIED");
+                }
+                if (keyId != null || publisher != null || trustLabel != null) {
+                    throw new IllegalArgumentException("unsigned local provenance must not claim signer metadata");
+                }
+            } else {
+                validateSignatureEnvelope(signature);
+                if (status != VerificationStatus.VERIFIED) {
+                    throw new IllegalArgumentException("signed local provenance initial status must be VERIFIED");
+                }
+                if (offlineStatus == VerificationStatus.UNSIGNED_ALLOWED) {
+                    throw new IllegalArgumentException("signed local provenance cannot become UNSIGNED_ALLOWED");
+                }
+                if (!signature.keyId().equals(keyId)) {
+                    throw new IllegalArgumentException("signed local provenance keyId must match signature.keyId");
+                }
             }
         } else if (source == PluginPackageSource.MARKET_CATALOG) {
             if (repositoryId == null || expectedSizeBytes == null || expectedSizeBytes <= 0L
@@ -81,7 +94,7 @@ public record PluginProvenanceRecord(
             if (expectedSizeBytes != artifactSizeBytes || !expectedSha256.equals(artifactSha256)) {
                 throw new IllegalArgumentException("catalog provenance observed artifact binding changed");
             }
-            validateCatalogSignature(signature);
+            validateSignatureEnvelope(signature);
             if (status != VerificationStatus.VERIFIED) {
                 throw new IllegalArgumentException("catalog provenance initial status must be VERIFIED");
             }
@@ -101,7 +114,7 @@ public record PluginProvenanceRecord(
             return PluginPackageOrigin.forTrustedCatalog(repositoryId, officialRepository, expectedSizeBytes,
                     expectedSha256, signature);
         }
-        return PluginPackageOrigin.localUpload();
+        return signature != null ? PluginPackageOrigin.localUpload(signature) : PluginPackageOrigin.localUpload();
     }
 
     public static PluginProvenanceRecord from(PluginPackageOrigin origin, VerificationResult result) {
@@ -180,17 +193,17 @@ public record PluginProvenanceRecord(
         }
     }
 
-    private static void validateCatalogSignature(SignatureMetadata signature) {
+    private static void validateSignatureEnvelope(SignatureMetadata signature) {
         if (signature.formatVersion() != SignatureMetadata.FORMAT_VERSION
                 || !SignatureMetadata.ED25519.equals(signature.algorithm())) {
-            throw new IllegalArgumentException("catalog provenance signature envelope is unsupported");
+            throw new IllegalArgumentException("provenance signature envelope is unsupported");
         }
         String signatureKeyId = requiredText(signature.keyId(), "signature.keyId");
         String signatureValue = requiredText(signature.value(), "signature.value");
         try {
             Base64.getDecoder().decode(signatureValue);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("catalog provenance signature.value is not valid Base64", e);
+            throw new IllegalArgumentException("provenance signature.value is not valid Base64", e);
         }
         if (!signatureKeyId.equals(signature.keyId())) {
             throw new IllegalArgumentException("signature.keyId must not contain surrounding whitespace");

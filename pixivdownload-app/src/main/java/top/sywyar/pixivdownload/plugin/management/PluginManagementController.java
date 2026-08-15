@@ -39,8 +39,9 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
  *       委托 {@link PluginManagementService}（含必选插件停用守卫、内置 / 未激活 / 未知 id 拒绝）。</li>
  *   <li>开关：{@code PUT /api/plugins/{id}/enabled} —— 持久化外置可选插件的期望启用态；
  *       {@code POST /api/plugins/backend-restart} —— 仅在桌面生命周期管理器持有 RUNNING 上下文时延迟重启后端。</li>
- *   <li>装：{@code POST /api/plugins/install}（{@code multipart/form-data}，{@code file} 部分）—— 上传本地
- *       {@code .jar} / {@code .zip} 插件包，委托 {@link PluginInstallService} 校验后安全落盘到 {@code plugins/}。
+ *   <li>装：{@code POST /api/plugins/install}（{@code multipart/form-data}，{@code file} + 可选 {@code signature}
+ *       部分）—— 上传本地 {@code .jar} / {@code .zip} 插件包，委托 {@link PluginInstallService} 校验后安全落盘到
+ *       {@code plugins/}。正式运行时必须提供官方 detached 签名，开发模式可省略。
  *       安装走统一事务编排：校验后物理卸载旧代、原子替换并即时激活，失败时恢复旧版本。结果分类经
  *       {@link PluginInstallOutcomeMapping} 派生 HTTP 状态与 i18n 文案——accepted（新装 / 升级 / 降级 / 已存在）
  *       返回 200，各类拒绝 / 失败返回对应 4xx / 5xx，响应体始终携带稳定 {@code outcome} + 本地化 {@code message}。</li>
@@ -152,14 +153,16 @@ public class PluginManagementController {
      * 派生 HTTP 状态与 i18n 文案，响应体始终携带稳定机器码 {@code outcome} + 本地化 {@code message} + 依赖诊断。
      *
      * @param file           上传的插件包（multipart {@code file} 部分；空 / 缺失 → REJECTED_EMPTY → 400）
+     * @param signature      官方 detached 签名 JSON（正式运行时必需，开发模式可省略）
      * @param allowDowngrade 是否允许覆盖更高版本（force；默认 false）
      */
     @PostMapping(value = "/install", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<PluginInstallResponse> install(
             @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "signature", required = false) MultipartFile signature,
             @RequestParam(value = "allowDowngrade", defaultValue = "false") boolean allowDowngrade,
             HttpServletRequest request) {
-        PluginInstallReport report = pluginInstallService.install(file, allowDowngrade);
+        PluginInstallReport report = pluginInstallService.install(file, signature, allowDowngrade);
         return installResponseMapper.toResponse(report, request);
     }
 

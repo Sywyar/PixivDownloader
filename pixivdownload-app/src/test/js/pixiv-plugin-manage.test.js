@@ -11,7 +11,7 @@
  * 二、启停 API——HOT_RELOAD 继续保留运行期动词；需重启策略通过 PUT /enabled 持久化，后端重启走独立 POST。
  *
  * 三、本地插件包安装（消费 POST /api/plugins/install 的 PluginInstallResponse）：
- *   A) API 层 installPackage：multipart 请求路径 / 方法 / file 字段 / allowDowngrade 默认 false；4xx 仍返回结构化体；
+ *   A) API 层 installPackage：multipart 请求路径 / 方法 / 插件包与 detached 签名字段 / allowDowngrade；4xx 仍返回结构化体；
  *      未选文件不发请求（抛 localValidation）；拿不到结构化响应才抛 httpStatus。
  *   B) 视图模型 buildInstallResult：outcome → 色调（恢复阻断优先为 bad、accepted=ok、DUPLICATE=info）、字段映射。
  *   C) 结果渲染 renderInstallResultHtml：REJECTED_EMPTY 稳定显示；事务成功显示即时激活；
@@ -402,16 +402,21 @@ const ACTIVATED_NOTE = '插件已安装并在当前进程中激活。';
     ok('双后缀 .jar.exe 拒绝', PM.hasAcceptedExtension('a.jar.exe') === false);
     ok('null 拒绝', PM.hasAcceptedExtension(null) === false);
     ok('空串拒绝', PM.hasAcceptedExtension('') === false);
+    ok('小写 .sig 签名通过', PM.hasAcceptedSignatureExtension('plugin.sig') === true);
+    ok('大写 .SIG 签名通过', PM.hasAcceptedSignatureExtension('PLUGIN.SIG') === true);
+    ok('普通 .json 不作为 detached 签名', PM.hasAcceptedSignatureExtension('plugin.json') === false);
+    ok('双后缀 .sig.exe 拒绝', PM.hasAcceptedSignatureExtension('plugin.sig.exe') === false);
 })();
 
 // —— A) installPackage：multipart 请求 / 默认 false / 结构化 4xx / 无文件不发请求 / 非结构化抛错 ——
 async function apiTests() {
     const fileStub = { name: 'ext-demo.zip' };
+    const signatureStub = { name: 'ext-demo.sig' };
 
     // A-1) 正常安装：multipart POST 到 INSTALL_URL，file 字段 + allowDowngrade 默认 false。
     fetchCalls.length = 0;
     nextFetchResponse = { ok: true, status: 200, body: installResponse({ outcome: 'INSTALLED' }) };
-    const resp = await PM.installPackage(fileStub, false);
+    const resp = await PM.installPackage(fileStub, signatureStub, false);
     eq('installPackage 返回结构化体', resp.outcome, 'INSTALLED');
     eq('installPackage 只调一次 fetch', fetchCalls.length, 1);
     eq('installPackage 请求路径 = /api/plugins/install', fetchCalls[0].url, '/api/plugins/install');
@@ -419,20 +424,22 @@ async function apiTests() {
     const form = fetchCalls[0].opts.body;
     ok('installPackage body 是 FormData', form && typeof form.get === 'function');
     eq('installPackage form 的 file 字段 = 上传文件', form.get('file'), fileStub);
+    eq('installPackage form 的 signature 字段 = detached 签名', form.get('signature'), signatureStub);
     eq('installPackage allowDowngrade 默认 false', form.get('allowDowngrade'), 'false');
     eq('installPackage 带 same-origin 凭据', fetchCalls[0].opts.credentials, 'same-origin');
 
     // A-2) allowDowngrade=true → 'true'
     fetchCalls.length = 0;
     nextFetchResponse = { ok: true, status: 200, body: installResponse({ outcome: 'DOWNGRADED' }) };
-    await PM.installPackage(fileStub, true);
+    await PM.installPackage(fileStub, null, true);
     eq('installPackage allowDowngrade=true', fetchCalls[0].opts.body.get('allowDowngrade'), 'true');
+    ok('installPackage 未提供签名时不发送空 signature 字段', !fetchCalls[0].opts.body.has('signature'));
 
     // A-3) 4xx 仍返回结构化体（不抛）：结果区据 outcome 渲染。
     fetchCalls.length = 0;
     nextFetchResponse = { ok: false, status: 400, body: installResponse(
         { outcome: 'REJECTED_EMPTY', accepted: false, effectiveAfterRestart: false, status: 400 }) };
-    const rej = await PM.installPackage(fileStub, false);
+    const rej = await PM.installPackage(fileStub, null, false);
     eq('installPackage 4xx 返回结构化 outcome', rej.outcome, 'REJECTED_EMPTY');
 
     // A-3b) 503 recovery-blocked 也是已决结构化结果，必须保留后端 message 交给结果模型，不能按普通 HTTP 错误丢弃。
@@ -441,14 +448,14 @@ async function apiTests() {
     nextFetchResponse = { ok: false, status: 503, body: installResponse({
         accepted: true, activated: true, recoveryBlocked: true, status: 503, message: blockedMessage
     }) };
-    const blocked = await PM.installPackage(fileStub, false);
+    const blocked = await PM.installPackage(fileStub, null, false);
     ok('installPackage 503 返回 recoveryBlocked 结构化体', blocked.recoveryBlocked === true);
     eq('installPackage 503 保留后端 message', blocked.message, blockedMessage);
 
     // A-4) 未选文件 → 不发请求、抛 localValidation。
     fetchCalls.length = 0;
     let localThrew = false;
-    try { await PM.installPackage(null, false); } catch (e) { localThrew = !!(e && e.localValidation); }
+    try { await PM.installPackage(null, null, false); } catch (e) { localThrew = !!(e && e.localValidation); }
     ok('installPackage 无文件 → 抛 localValidation', localThrew);
     eq('installPackage 无文件 → 不发请求', fetchCalls.length, 0);
 
@@ -456,13 +463,13 @@ async function apiTests() {
     fetchCalls.length = 0;
     nextFetchResponse = { ok: false, status: 413, body: null };
     let httpErr = null;
-    try { await PM.installPackage(fileStub, false); } catch (e) { httpErr = e; }
+    try { await PM.installPackage(fileStub, null, false); } catch (e) { httpErr = e; }
     ok('installPackage 非结构化响应 → 抛 httpStatus', httpErr && httpErr.httpStatus === 413);
 
     // A-6) 非法扩展名（.exe）→ 本地拦截：不发请求、抛 localValidation(invalidExtension)。
     fetchCalls.length = 0;
     let extThrew = false;
-    try { await PM.installPackage({ name: 'evil.exe' }, false); }
+    try { await PM.installPackage({ name: 'evil.exe' }, null, false); }
     catch (e) { extThrew = !!(e && e.localValidation && e.invalidExtension); }
     ok('installPackage 非法扩展名 → 抛 localValidation(invalidExtension)', extThrew);
     eq('installPackage 非法扩展名 → 不发请求', fetchCalls.length, 0);
@@ -470,15 +477,23 @@ async function apiTests() {
     // A-7) 大小写 .JAR / .ZIP 视为合法扩展 → 通过本地校验并发请求。
     fetchCalls.length = 0;
     nextFetchResponse = { ok: true, status: 200, body: installResponse({ outcome: 'INSTALLED' }) };
-    await PM.installPackage({ name: 'PLUGIN.JAR' }, false);
+    await PM.installPackage({ name: 'PLUGIN.JAR' }, null, false);
     eq('installPackage 大写 .JAR 通过本地校验并发请求', fetchCalls.length, 1);
 
     fetchCalls.length = 0;
     nextFetchResponse = { ok: true, status: 200, body: installResponse({ outcome: 'INSTALLED' }) };
-    await PM.installPackage({ name: 'Archive.ZIP' }, false);
+    await PM.installPackage({ name: 'Archive.ZIP' }, null, false);
     eq('installPackage 大写 .ZIP 通过本地校验并发请求', fetchCalls.length, 1);
 
-    // A-8) 持久化启停：PUT /api/plugins/{id}/enabled + JSON {enabled}。
+    // A-8) detached 签名扩展名本地校验；非法文件不发请求。
+    fetchCalls.length = 0;
+    let signatureExtThrew = false;
+    try { await PM.installPackage(fileStub, { name: 'plugin.json' }, false); }
+    catch (e) { signatureExtThrew = !!(e && e.localValidation && e.invalidSignatureExtension); }
+    ok('installPackage 非法签名扩展名 → 抛 localValidation(invalidSignatureExtension)', signatureExtThrew);
+    eq('installPackage 非法签名扩展名 → 不发请求', fetchCalls.length, 0);
+
+    // A-9) 持久化启停：PUT /api/plugins/{id}/enabled + JSON {enabled}。
     fetchCalls.length = 0;
     nextFetchResponse = { ok: true, status: 200, body: { id: 'demo plugin', enabled: false } };
     const disabled = await PM.setEnabled('demo plugin', false);

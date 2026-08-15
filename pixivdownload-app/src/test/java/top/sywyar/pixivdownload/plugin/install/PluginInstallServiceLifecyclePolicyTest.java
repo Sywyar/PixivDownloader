@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
@@ -15,11 +16,17 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -83,8 +90,93 @@ class PluginInstallServiceLifecyclePolicyTest {
         assertThat(report.effectiveAfterRestart()).isFalse();
     }
 
+    @Test
+    @DisplayName("正式运行时缺少 detached 签名时在暂存前拒绝本地安装")
+    void formalRuntimeRejectsUnsignedLocalUploadBeforeStaging() {
+        PluginInstallReport report = service(false).install(packageUpload(), null, false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        verify(coordinator, never()).installOrUpdate(any(), eq(false), any());
+    }
+
+    @Test
+    @DisplayName("开发模式允许未签名本地安装并保留未验证来源")
+    void developmentModeAllowsUnsignedLocalUpload() {
+        PluginDescriptor descriptor = descriptor("dev-plugin", PluginLifecyclePolicy.HOT_RELOAD);
+        PluginPackageOrigin origin = PluginPackageOrigin.localUpload();
+        when(coordinator.installOrUpdate(any(Path.class), eq(false), eq(origin)))
+                .thenReturn(activation(descriptor, true, PluginRuntimePhase.STARTED));
+        when(dependencyResolver.installedProblems(descriptor)).thenReturn(List.of());
+
+        PluginInstallReport report = service(true).install(packageUpload(), null, false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        verify(coordinator).installOrUpdate(any(Path.class), eq(false), eq(origin));
+    }
+
+    @Test
+    @DisplayName("正式运行时解析有界 detached 签名并随本地来源交给安装器验签")
+    void formalRuntimeForwardsDetachedSignatureForVerification() {
+        PluginDescriptor descriptor = descriptor("signed-plugin", PluginLifecyclePolicy.HOT_RELOAD);
+        SignatureMetadata metadata = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "official-key", "c2ln");
+        PluginPackageOrigin origin = PluginPackageOrigin.localUpload(metadata);
+        when(coordinator.installOrUpdate(any(Path.class), eq(false), eq(origin)))
+                .thenReturn(activation(descriptor, true, PluginRuntimePhase.STARTED));
+        when(dependencyResolver.installedProblems(descriptor)).thenReturn(List.of());
+        MockMultipartFile signature = new MockMultipartFile(
+                "signature", "signed-plugin.sig", "application/json",
+                ("{\"formatVersion\":1,\"algorithm\":\"Ed25519\","
+                        + "\"keyId\":\"official-key\",\"value\":\"c2ln\"}")
+                        .getBytes(StandardCharsets.UTF_8));
+
+        PluginInstallReport report = service(false).install(packageUpload(), signature, false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        verify(coordinator).installOrUpdate(any(Path.class), eq(false), eq(origin));
+    }
+
+    @Test
+    @DisplayName("畸形、重复字段或超限 detached 签名在插件包暂存前拒绝")
+    void invalidDetachedSignatureIsRejectedBeforeStaging() {
+        MockMultipartFile malformed = new MockMultipartFile(
+                "signature", "plugin.sig", "application/json", "{".getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile duplicateKey = new MockMultipartFile(
+                "signature", "plugin.sig", "application/json",
+                ("{\"formatVersion\":1,\"algorithm\":\"Ed25519\","
+                        + "\"keyId\":\"first\",\"keyId\":\"second\",\"value\":\"c2ln\"}")
+                        .getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile trailingToken = new MockMultipartFile(
+                "signature", "plugin.sig", "application/json",
+                ("{\"formatVersion\":1,\"algorithm\":\"Ed25519\","
+                        + "\"keyId\":\"official-key\",\"value\":\"c2ln\"} true")
+                        .getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile oversized = new MockMultipartFile(
+                "signature", "plugin.sig", "application/json",
+                new byte[PluginInstallService.MAX_SIGNATURE_BYTES + 1]);
+
+        assertThat(service(false).install(packageUpload(), malformed, false).outcome())
+                .isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(service(false).install(packageUpload(), duplicateKey, false).outcome())
+                .isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(service(false).install(packageUpload(), trailingToken, false).outcome())
+                .isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(service(false).install(packageUpload(), oversized, false).outcome())
+                .isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        verify(coordinator, never()).installOrUpdate(any(), eq(false), any());
+    }
+
     private PluginInstallService service() {
         return new PluginInstallService(coordinator, dependencyResolver);
+    }
+
+    private PluginInstallService service(boolean unsignedLocalUploadAllowed) {
+        return new PluginInstallService(coordinator, dependencyResolver, unsignedLocalUploadAllowed);
+    }
+
+    private static MockMultipartFile packageUpload() {
+        return new MockMultipartFile(
+                "file", "plugin.zip", "application/zip", new byte[]{1, 2, 3});
     }
 
     private static PluginActivationResult activation(

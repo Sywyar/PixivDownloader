@@ -351,18 +351,26 @@
 
     // 文件名标签：选中文件 → 显示文件名并摘掉 data-i18n（避免语言切换时被 apply 覆盖回「未选择文件」）；
     // 清空 → 还原 data-i18n + 当前语言的「未选择文件」文案。
-    function setInstallFilename(name) {
-        var el = document.getElementById('pm-install-filename');
+    function setPickedFilename(elementId, i18nKey, fallback, name) {
+        var el = document.getElementById(elementId);
         if (!el) return;
         if (name) {
             el.removeAttribute('data-i18n');
             el.textContent = name;
             el.classList.add('has-file');
         } else {
-            el.setAttribute('data-i18n', 'install.no-file');
-            el.textContent = PM.t('install.no-file', '未选择文件');
+            el.setAttribute('data-i18n', i18nKey);
+            el.textContent = PM.t(i18nKey, fallback);
             el.classList.remove('has-file');
         }
+    }
+
+    function setInstallFilename(name) {
+        setPickedFilename('pm-install-filename', 'install.no-file', '未选择文件', name);
+    }
+
+    function setInstallSignatureFilename(name) {
+        setPickedFilename('pm-install-signature-filename', 'install.signature.no-file', '未选择签名文件', name);
     }
 
     function setInstallSubmitting(busy) {
@@ -377,11 +385,14 @@
         if (!modal) return;
         var fileInput = document.getElementById('pm-install-file');
         if (fileInput) fileInput.value = '';
+        var signatureInput = document.getElementById('pm-install-signature');
+        if (signatureInput) signatureInput.value = '';
         var allow = document.getElementById('pm-install-allow-downgrade');
         if (allow) allow.checked = false;
         var advanced = modal.querySelector('.pm-advanced');
         if (advanced) advanced.removeAttribute('open');
         setInstallFilename(null);
+        setInstallSignatureFilename(null);
         clearInstallResult();
         setInstallSubmitting(false);
         modal.hidden = false;
@@ -402,6 +413,7 @@
     PM.showInstallResult = showInstallResult;
     PM.clearInstallResult = clearInstallResult;
     PM.setInstallFilename = setInstallFilename;
+    PM.setInstallSignatureFilename = setInstallSignatureFilename;
     PM.setInstallSubmitting = setInstallSubmitting;
     PM.openInstallModal = openInstallModal;
     PM.closeInstallModal = closeInstallModal;

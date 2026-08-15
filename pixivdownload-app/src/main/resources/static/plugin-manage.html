@@ -104,7 +104,7 @@
 
 </div>
 
-<!-- 本地插件包安装弹窗（默认隐藏，由 installBtn 打开）：只做本地 .jar / .zip 文件选择 + 提交，消费
+<!-- 本地插件包安装弹窗（默认隐藏，由 installBtn 打开）：只做本地 .jar / .zip 与 detached 签名文件选择 + 提交，消费
      POST /api/plugins/install。安装经统一事务编排校验、卸下旧代、原子替换并按生命周期策略激活；只有
      process-restart 插件延后到完整进程重启生效，失败时恢复旧版本。本弹窗不提供 URL 安装、插件市场或更新检查；
      删除由插件卡片的 remove 生命周期动作处理。 -->
@@ -130,6 +130,12 @@
             <span class="pm-file-btn"><i class="fa-solid fa-folder-open"></i><span data-i18n="install.pick">选择插件包…</span></span>
             <span class="pm-file-name" id="pm-install-filename" data-i18n="install.no-file">未选择文件</span>
         </label>
+        <label class="pm-file">
+            <input type="file" id="pm-install-signature" accept=".sig">
+            <span class="pm-file-btn"><i class="fa-solid fa-key"></i><span data-i18n="install.signature.pick">选择 detached 签名…</span></span>
+            <span class="pm-file-name" id="pm-install-signature-filename" data-i18n="install.signature.no-file">未选择签名文件</span>
+        </label>
+        <p class="pm-modal-desc" data-i18n="install.signature.help">非插件开发模式必须提供由官方信任根签发的 .sig 文件。</p>
 
         <details class="pm-advanced">
             <summary><i class="fa-solid fa-sliders"></i><span data-i18n="install.advanced">高级选项</span></summary>

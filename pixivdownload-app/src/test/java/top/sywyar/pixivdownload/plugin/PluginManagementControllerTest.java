@@ -248,14 +248,15 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 返回事务、包身份与运行阶段")
     void installAcceptedReturns200() throws Exception {
-        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), any(), anyBoolean())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, false, "ext-demo", "1.0.0", null,
                 List.of(), List.of(), List.of(), List.of("INSTALLED ext-demo 1.0.0"),
                 "tx-install", true, false, null,
                 ExternalPluginOperation.INSTALLING, PluginRuntimePhase.STARTED, false, false));
 
         mockMvc.perform(multipart("/api/plugins/install")
-                        .file(new MockMultipartFile("file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3})))
+                        .file(new MockMultipartFile("file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3}))
+                        .file(new MockMultipartFile("signature", "ext-demo.sig", "application/json", new byte[]{4, 5})))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("INSTALLED"))
                 .andExpect(jsonPath("$.accepted").value(true))
@@ -273,13 +274,13 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.updated").value(false))
                 .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.installed"));
 
-        verify(installService).install(any(), anyBoolean());
+        verify(installService).install(any(), any(), eq(false));
     }
 
     @Test
     @DisplayName("POST /api/plugins/install 留下恢复事务时强制返回 503 阻断机器态")
     void installRecoveryBlockedReturns503() throws Exception {
-        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, false, "ext-demo", "1.0.0", null,
                 List.of(), List.of(), List.of(), List.of("transaction recovery required"),
                 "tx-blocked", true, false, null,
@@ -301,7 +302,7 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 不兼容 → 409 + 稳定 outcome（REJECTED_INCOMPATIBLE）+ 本地化 message，not accepted")
     void installIncompatibleReturns409() throws Exception {
-        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_INCOMPATIBLE, false, false, "ext-demo", "1.0.0", null,
                 List.of(), List.of(), List.of("requires core API 2.0")));
 
@@ -318,7 +319,7 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 资源超限 → 413 + 稳定 outcome（REJECTED_TOO_LARGE）+ 本地化 message，not accepted")
     void installTooLargeReturns413() throws Exception {
-        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_TOO_LARGE, false, false, null, null, null,
                 List.of(), List.of(), List.of("too many zip entries")));
 
@@ -334,7 +335,7 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 缺失 file 部分 → 委托 install(null, false) → 400 + 稳定 outcome（REJECTED_EMPTY），not accepted")
     void installMissingFileReturns400() throws Exception {
-        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(isNull(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_EMPTY, false, false, null, null, null,
                 List.of(), List.of(), List.of("no plugin package uploaded")));
 
@@ -346,6 +347,6 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.rejected-empty"));
 
-        verify(installService).install(isNull(), eq(false));
+        verify(installService).install(isNull(), isNull(), eq(false));
     }
 }

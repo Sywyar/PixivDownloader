@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.install;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -8,9 +11,11 @@ import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -40,15 +45,27 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 public class PluginInstallService {
 
     private static final Logger log = LoggerFactory.getLogger(PluginInstallService.class);
+    static final int MAX_SIGNATURE_BYTES = 16 * 1024;
+    private static final ObjectMapper SIGNATURE_MAPPER = new ObjectMapper()
+            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final PluginDependencyResolver dependencyResolver;
+    private final boolean unsignedLocalUploadAllowed;
 
     @Autowired
     public PluginInstallService(ExternalPluginLifecycleCoordinator coordinator,
                                 PluginDependencyResolver dependencyResolver) {
+        this(coordinator, dependencyResolver, PluginDevelopmentArtifacts.enabled());
+    }
+
+    public PluginInstallService(ExternalPluginLifecycleCoordinator coordinator,
+                                PluginDependencyResolver dependencyResolver,
+                                boolean unsignedLocalUploadAllowed) {
         this.coordinator = coordinator;
         this.dependencyResolver = dependencyResolver;
+        this.unsignedLocalUploadAllowed = unsignedLocalUploadAllowed;
     }
 
     /**
@@ -60,8 +77,30 @@ public class PluginInstallService {
      *                       {@link PluginInstallOutcome#DOWNGRADE_REJECTED}）
      */
     public PluginInstallReport install(MultipartFile file, boolean allowDowngrade) {
+        return install(file, null, allowDowngrade);
+    }
+
+    /**
+     * 安装本地插件包及其可选 detached 签名。正式运行时签名必需；只有显式插件开发模式允许省略。
+     */
+    public PluginInstallReport install(MultipartFile file, MultipartFile signatureFile, boolean allowDowngrade) {
         if (file == null || file.isEmpty()) {
             return terminal(PluginInstallOutcome.REJECTED_EMPTY, "no plugin package uploaded");
+        }
+        SignatureMetadata signature;
+        if (signatureFile == null) {
+            if (!unsignedLocalUploadAllowed) {
+                return terminal(PluginInstallOutcome.REJECTED_INTEGRITY,
+                        "official detached signature is required outside plugin development mode");
+            }
+            signature = null;
+        } else {
+            try {
+                signature = readSignature(signatureFile);
+            } catch (IOException | RuntimeException e) {
+                return terminal(PluginInstallOutcome.REJECTED_INTEGRITY,
+                        "detached signature is malformed or exceeds the size limit");
+            }
         }
         Path temp;
         try {
@@ -78,10 +117,25 @@ public class PluginInstallService {
                 return terminal(PluginInstallOutcome.FAILED, "failed to stage uploaded package: " + e.getMessage());
             }
             return toReport(coordinator.installOrUpdate(
-                    temp, allowDowngrade, PluginPackageOrigin.localUpload()));
+                    temp, allowDowngrade, signature != null
+                            ? PluginPackageOrigin.localUpload(signature) : PluginPackageOrigin.localUpload()));
         } finally {
             deleteQuietly(temp);
         }
+    }
+
+    private static SignatureMetadata readSignature(MultipartFile signatureFile) throws IOException {
+        if (signatureFile.isEmpty() || signatureFile.getSize() > MAX_SIGNATURE_BYTES) {
+            throw new IOException("detached signature is empty or too large");
+        }
+        byte[] bytes;
+        try (InputStream in = signatureFile.getInputStream()) {
+            bytes = in.readNBytes(MAX_SIGNATURE_BYTES + 1);
+        }
+        if (bytes.length > MAX_SIGNATURE_BYTES) {
+            throw new IOException("detached signature is too large");
+        }
+        return SIGNATURE_MAPPER.readValue(bytes, SignatureMetadata.class);
     }
 
     /**
