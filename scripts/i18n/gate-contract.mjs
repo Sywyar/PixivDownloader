@@ -2071,7 +2071,7 @@ function runHookContentChecks(candidateRoot) {
 
 function runFirstAdmissionBridgeContract(candidateRoot) {
     const checks = [];
-    const specName = 'epoch-2-first-admission.json';
+    const specName = 'epoch-3-first-admission.json';
     const trustedSpec = path.join(OWN_DIR, specName);
     if (!fs.existsSync(trustedSpec)) {
         return checks;
@@ -2081,7 +2081,7 @@ function runFirstAdmissionBridgeContract(candidateRoot) {
         const candidateFile = path.join(candidateRoot, 'scripts', 'i18n', rel);
         const identical = fs.existsSync(candidateFile)
             && fs.readFileSync(candidateFile).equals(fs.readFileSync(trustedFile));
-        pushCheck(checks, 'Epoch 2 first-admission ' + rel + ' is frozen to the trusted bundle',
+        pushCheck(checks, 'Epoch 3 first-admission ' + rel + ' is frozen to the trusted bundle',
             identical, identical ? '' : 'candidate changed or removed the one-time trusted bridge; fail closed');
     }
     return checks;
