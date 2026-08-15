@@ -1216,10 +1216,10 @@ class PluginReleaseScriptsTest {
 
         assertThat(dockerfile).contains(
                 "ARG PIXIVDOWNLOADER_DISTRIBUTION=build/dist/default-downloader",
-                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar",
-                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/",
-                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json",
-                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS",
+                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar",
+                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/",
+                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json",
+                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS",
                 "pixivdownload-plugin-download-workbench-*.jar",
                 "test -f \"$required_plugin.sha256\"",
                 "test -f \"$required_plugin.sig\"",
@@ -1229,6 +1229,35 @@ class PluginReleaseScriptsTest {
                 "COPY --from=builder /build/pixivdownload-plugin-download-workbench",
                 "mvn -B -DskipTests package",
                 "COPY . .");
+    }
+
+    @Test
+    @DisplayName("Docker 默认使用非特权只读运行边界")
+    void dockerDefaultsUseConstrainedRuntime() throws Exception {
+        String dockerfile = dockerfile();
+        String compose = dockerCompose();
+
+        assertThat(dockerfile).contains(
+                "groupadd --gid 10001 pixivdownloader",
+                "useradd --uid 10001 --gid 10001",
+                "USER 10001:10001");
+        assertThat(compose).contains(
+                "127.0.0.1:6999:6999",
+                "cap_drop:",
+                "- ALL",
+                "no-new-privileges:true",
+                "read_only: true",
+                "pids_limit: 256",
+                "mem_limit: 2g",
+                "cpus: 2.0",
+                "/tmp:size=256m,noexec,nosuid,nodev",
+                "plugins:/app/plugins:rw",
+                "./config:/app/config:rw",
+                "./state:/app/state:rw",
+                "./data:/app/data:rw",
+                "./pixiv-download:/app/pixiv-download:rw",
+                "./log:/app/log:rw");
+        assertThat(compose).doesNotContain("- \"6999:6999\"", "privileged: true");
     }
 
     @Test
@@ -1764,6 +1793,10 @@ class PluginReleaseScriptsTest {
 
     private static String dockerfile() throws IOException {
         return Files.readString(repoRoot().resolve("Dockerfile"), StandardCharsets.UTF_8);
+    }
+
+    private static String dockerCompose() throws IOException {
+        return Files.readString(repoRoot().resolve("docker-compose.yml"), StandardCharsets.UTF_8);
     }
 
     private static String pluginDescriptor(String module) throws IOException {
