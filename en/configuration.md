@@ -119,7 +119,7 @@ Invited guests use separate limits in both solo and multi mode:
 | Saturday | `maintenance.saturday.enabled=false` | `maintenance.saturday.time=10:00` |
 | Sunday | `maintenance.sunday.enabled=false` | `maintenance.sunday.time=10:00` |
 
-### HTTPS
+### HTTPS and reverse proxies
 
 | Key | Default |
 | --- | --- |
@@ -131,10 +131,26 @@ Invited guests use separate limits in both solo and multi mode:
 | `server.ssl.key-store-type` | `JKS` |
 | `server.ssl.key-store` | empty |
 | `server.ssl.key-store-password` | empty |
+| `server.trusted-proxy-cidrs` | empty |
 | `ssl.http-redirect` | `false` |
 | `ssl.http-redirect-port` | `80` |
 
 Use certificate and private-key paths for `ssl.type=pem`, or a key store for `ssl.type=jks`. Never commit private keys or key-store passwords.
+
+`server.trusted-proxy-cidrs` defines the trust boundary for reverse-proxy deployments. It accepts only comma-separated numeric IPv4/IPv6 CIDRs, for example:
+
+```yaml
+server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
+```
+
+List only the proxy egress addresses or container subnets that actually connect to the backend. Do not list client networks, and never trust `0.0.0.0/0` or `::/0`. When the value is empty, the application runs in direct mode and rejects every `Forwarded`, `X-Forwarded-*`, or `X-Real-IP` request header.
+
+A trusted proxy must provide exactly one complete header family on every request:
+
+- RFC `Forwarded`: the selected trust-boundary element must contain `for`, `proto`, and `host`;
+- legacy headers: `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host`, with optional `X-Forwarded-Port`.
+
+The application walks a proxy chain from right to left, selects the first untrusted address as the client, and normalizes the client address plus external scheme, host, and port before authentication, rate limiting, and CSRF same-origin checks. A request receives HTTP 400 if an untrusted peer supplies forwarding headers, the chain contains no untrusted client address, or a trusted proxy supplies missing, mixed, misaligned, or malformed metadata. The proxy must cover every path to the backend: if `127.0.0.1/32` is trusted, direct requests from that same address without forwarding headers are rejected as well.
 
 ### Language and desktop UI
 

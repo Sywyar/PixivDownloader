@@ -119,7 +119,7 @@ plugin-catalog.repositories:
 | 星期六 | `maintenance.saturday.enabled=false` | `maintenance.saturday.time=10:00` |
 | 星期日 | `maintenance.sunday.enabled=false` | `maintenance.sunday.time=10:00` |
 
-### HTTPS
+### HTTPS 与反向代理
 
 | 键 | 默认值 |
 | --- | --- |
@@ -131,10 +131,26 @@ plugin-catalog.repositories:
 | `server.ssl.key-store-type` | `JKS` |
 | `server.ssl.key-store` | 空 |
 | `server.ssl.key-store-password` | 空 |
+| `server.trusted-proxy-cidrs` | 空 |
 | `ssl.http-redirect` | `false` |
 | `ssl.http-redirect-port` | `80` |
 
 `ssl.type=pem` 使用证书和私钥路径；`ssl.type=jks` 使用 key store。不要把证书私钥或 key store 密码提交到仓库。
+
+`server.trusted-proxy-cidrs` 是使用反向代理时的信任边界。它只接受逗号分隔的数字 IPv4/IPv6 CIDR，例如：
+
+```yaml
+server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
+```
+
+只填写实际连接后端的反向代理出口地址或容器网段，不要填写客户端网段，也不要信任 `0.0.0.0/0` 或 `::/0`。留空时应用按直连模式运行，并拒绝任何 `Forwarded`、`X-Forwarded-*` 或 `X-Real-IP` 请求头。
+
+受信代理必须为每个请求提供以下一种完整格式，不能混用：
+
+- RFC `Forwarded`：所选代理边界必须同时包含 `for`、`proto` 和 `host`；
+- 传统格式：`X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Host`，可选 `X-Forwarded-Port`。
+
+应用从代理链右侧向左查找首个非受信地址作为客户端地址，并在鉴权、限流和 CSRF 同源判断前统一规范化客户端地址、外部协议、主机与端口。未受信来源提供转发头，代理链没有非受信客户端地址，或受信代理缺少、混用、错位、伪造格式的代理元数据时，请求会返回 400。代理必须覆盖所有到后端的请求；如果把 `127.0.0.1/32` 设为受信代理，同一地址发起但没有代理头的直连请求也会被拒绝。
 
 ### 语言与桌面界面
 

@@ -80,14 +80,15 @@ java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --reset-password
 
 ### Q: 多人模式部署在反向代理后，所有用户被限流
 
-**A**: 后端的 API 和静态资源限流都基于 TCP 源 IP（`request.getRemoteAddr()`）。部署在反向代理后，所有请求的源 IP 都是反代节点 IP。
+**A**: 未配置可信代理时，后端只使用 TCP 源 IP。所有请求都来自同一个反代节点时，会共享同一限流身份。
 
-**解决方案**：在反代层根据 `X-Forwarded-For` / `X-Real-IP` 做限流，并将后端限流调高或设为 `0` 关闭：
+**解决方案**：把实际反代出口地址或容器网段加入 `server.trusted-proxy-cidrs`，并让反代为每个请求发送完整的 `Forwarded`，或 `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`：
 
 ```yaml
-multi-mode.request-limit-minute: 0
-multi-mode.static-resource-request-limit-minute: 0
+server.trusted-proxy-cidrs: 172.18.0.0/16
 ```
+
+后端会使用规范化后的真实客户端地址限流。不要信任公网或客户端网段；转发头缺失或来源不受信时请求会返回 400。完整安全边界见[配置参考](/zh-cn/configuration#https-与反向代理)。
 
 ### Q: 局域网内其他设备无法访问
 

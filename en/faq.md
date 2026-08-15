@@ -80,14 +80,15 @@ The wizard asks for the new password twice (≥ 6 characters). After a successfu
 
 ### Q: All users rate-limited when deployed behind reverse proxy
 
-**A**: Backend API and static resource rate limiting are based on TCP source IP (`request.getRemoteAddr()`). Behind a reverse proxy, all requests share the same source IP.
+**A**: Without a trusted-proxy configuration, the backend uses only the TCP source address. Requests from one reverse-proxy node therefore share the same rate-limit identity.
 
-**Solution**: Implement rate limiting at the reverse proxy layer using `X-Forwarded-For` / `X-Real-IP`, and disable backend limits:
+**Solution**: Add the actual proxy egress address or container subnet to `server.trusted-proxy-cidrs`, and make the proxy send either a complete `Forwarded` header or `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host` on every request:
 
 ```yaml
-multi-mode.request-limit-minute: 0
-multi-mode.static-resource-request-limit-minute: 0
+server.trusted-proxy-cidrs: 172.18.0.0/16
 ```
+
+The backend then rate-limits by the normalized client address. Never trust public or client networks; requests receive HTTP 400 when forwarding metadata is missing or comes from an untrusted peer. See the full boundary in the [configuration reference](/en/configuration#https-and-reverse-proxies).
 
 ### Q: Cannot access from other devices on LAN
 
