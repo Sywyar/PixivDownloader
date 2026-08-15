@@ -25,6 +25,8 @@ Prefer the desktop GUI's Configuration page. On first startup, the current defau
 
 `download.root-folder` contains downloaded works only. Configuration, databases, plugin state, and caches are stored elsewhere. Private settings for novel, Douyin, and other download types belong to their plugins and are exposed after installation.
 
+Pixiv artwork images, novel covers, and embedded images have a fixed safety limit of 100 MiB each. These responses are limited to 1 GiB in total within one ordinary artwork or novel download task. The service checks both `Content-Length` and the actual decoded response stream; an over-limit transfer is stopped and its partial file is removed. These limits cannot be raised through configuration.
+
 ### Plugin market
 
 | Key | Default | Description |
