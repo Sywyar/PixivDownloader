@@ -1462,7 +1462,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Nightly 更新清单序号在工作流重试时严格递增")
+    @DisplayName("Nightly 更新清单序号按工作流运行号和重试次数严格递增")
     void nightlyManifestSequenceIncludesRunAttempt() throws Exception {
         Path sequenceScript = repoRoot().resolve("scripts").resolve("ci").resolve("nightly-manifest-sequence.sh");
         String nightly = workflow("nightly.yml");
@@ -1470,9 +1470,11 @@ class PluginReleaseScriptsTest {
 
         assertThat(nightly)
                 .contains(
-                        "SEQUENCE=$(./scripts/ci/nightly-manifest-sequence.sh \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\")",
+                        "SEQUENCE=$(./scripts/ci/nightly-manifest-sequence.sh \"$GITHUB_RUN_NUMBER\" \"$GITHUB_RUN_ATTEMPT\")",
                         "--argjson sequence \"$SEQUENCE\"")
-                .doesNotContain("--argjson sequence \"$GITHUB_RUN_ID\"");
+                .doesNotContain(
+                        "nightly-manifest-sequence.sh \"$GITHUB_RUN_ID\"",
+                        "--argjson sequence \"$GITHUB_RUN_ID\"");
 
         long firstAttempt = Long.parseLong(runBash(repoRoot(), sequenceScript, "9000000000", "1"));
         long secondAttempt = Long.parseLong(runBash(repoRoot(), sequenceScript, "9000000000", "2"));
@@ -1488,6 +1490,39 @@ class PluginReleaseScriptsTest {
         String invalidOutput = new String(invalidAttempt.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertThat(invalidAttempt.waitFor()).as(invalidOutput).isNotEqualTo(0);
         assertAsciiWithoutBom(sequenceScript);
+    }
+
+    @Test
+    @DisplayName("Nightly 部分发布失败时不会暴露可验签的新清单")
+    void nightlyPublishesSignedManifestAfterAllRequiredAssets() throws Exception {
+        String nightly = workflow("nightly.yml");
+        String releaseJob = workflowJob(nightly, "release-nightly");
+        String releaseStep = releaseJob.substring(
+                releaseJob.indexOf("name: Create/Update Nightly Release"),
+                releaseJob.indexOf("name: Advance nightly tag after successful release"));
+
+        assertThat(nightly).contains("workflow_dispatch:");
+        assertThat(releaseJob)
+                .contains(
+                        "needs: [resolve-version, publish-plugins, build-jar, build-windows-installer]",
+                        "if: needs.resolve-version.outputs.has_changes == 'true'")
+                .doesNotContain("always()");
+        assertThat(releaseStep).contains(
+                "fail_on_unmatched_files: true",
+                "preserve_order: true",
+                "artifacts/*-setup.exe",
+                "artifacts/java-distributions/*-java.zip",
+                "artifacts/java-distributions/*-full-offline.zip",
+                "artifacts/update.json",
+                "artifacts/update.json.sig");
+        assertThat(releaseStep.indexOf("artifacts/*-setup.exe"))
+                .isLessThan(releaseStep.indexOf("artifacts/update.json"));
+        assertThat(releaseStep.indexOf("artifacts/java-distributions/*-java.zip"))
+                .isLessThan(releaseStep.indexOf("artifacts/update.json"));
+        assertThat(releaseStep.indexOf("artifacts/java-distributions/*-full-offline.zip"))
+                .isLessThan(releaseStep.indexOf("artifacts/update.json"));
+        assertThat(releaseStep.indexOf("artifacts/update.json"))
+                .isLessThan(releaseStep.indexOf("artifacts/update.json.sig"));
     }
 
     @Test

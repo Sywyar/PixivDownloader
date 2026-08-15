@@ -114,13 +114,15 @@ class UpdateServiceTest {
     @DisplayName("缺少 detached 签名时拒绝更新清单")
     void shouldRejectMissingSignature() throws Exception {
         SigningSupport signing = new SigningSupport();
+        Path state = tempDir.resolve("trust.json");
         byte[] manifest = manifest(10, "stable", "999.0.0", "2099-01-01T00:00:00Z",
                 "notes", ASSET_SHA256);
-        UpdateCheckResult result = service(signing, manifest, new byte[0], tempDir.resolve("trust.json"))
+        UpdateCheckResult result = service(signing, manifest, new byte[0], state)
                 .checkForUpdate(true);
 
         assertThat(result.isCheckSucceeded()).isFalse();
         assertThat(result.isUpdateAvailable()).isFalse();
+        assertThat(state).doesNotExist();
     }
 
     @Test
@@ -168,6 +170,13 @@ class UpdateServiceTest {
         assertThat(service(signing, first, signing.signature(first), state)
                 .checkForUpdate(true).isCheckSucceeded()).isTrue();
 
+        byte[] reusedSequence = manifest(20, "stable", "999.0.1", "2099-01-01T00:00:00Z",
+                "rerun", ASSET_SHA256);
+        UpdateCheckResult reusedSequenceResult = service(
+                signing, reusedSequence, signing.signature(reusedSequence), state).checkForUpdate(true);
+        assertThat(reusedSequenceResult.isCheckSucceeded()).isFalse();
+        assertThat(reusedSequenceResult.getError()).contains("sequence was reused with different content");
+
         byte[] rollback = manifest(19, "stable", "998.0.0", "2099-01-01T00:00:00Z",
                 "old", ASSET_SHA256);
         UpdateCheckResult rollbackResult = service(signing, rollback, signing.signature(rollback), state)
@@ -181,6 +190,24 @@ class UpdateServiceTest {
                 .checkForUpdate(true);
         assertThat(replacementResult.isCheckSucceeded()).isFalse();
         assertThat(replacementResult.getError()).contains("replaced with different content");
+    }
+
+    @Test
+    @DisplayName("正式版与每夜版分别维护更新清单高水位")
+    void shouldTrackStableAndNightlySequencesIndependently() throws Exception {
+        Path state = tempDir.resolve("trust.json");
+        UpdateTrustState stable = new UpdateTrustState(
+                100, "999.0.0", "a".repeat(64), 0, null, null);
+        UpdateTrustState withNightly = stable.accept("nightly", 1, "999.0.1-nightly", "b".repeat(64));
+        withNightly.writeIfChanged(state, stable, MAPPER);
+
+        UpdateTrustState persisted = UpdateTrustState.read(state, MAPPER);
+        assertThat(persisted.stableSequence()).isEqualTo(100);
+        assertThat(persisted.nightlySequence()).isEqualTo(1);
+
+        UpdateTrustState nextStable = persisted.accept("stable", 101, "999.0.2", "c".repeat(64));
+        assertThat(nextStable.stableSequence()).isEqualTo(101);
+        assertThat(nextStable.nightlySequence()).isEqualTo(1);
     }
 
     @Test

@@ -413,7 +413,7 @@ jobs:
           EXPIRES_AT=$(date -u -d '+14 days' +%Y-%m-%dT%H:%M:%SZ)
           ASSET_URL="https://github.com/${GH_REPOSITORY}/releases/download/nightly/${FILENAME}"
           NOTES_URL="https://github.com/${GH_REPOSITORY}/releases/tag/nightly"
-          SEQUENCE=$(./scripts/ci/nightly-manifest-sequence.sh "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")
+          SEQUENCE=$(./scripts/ci/nightly-manifest-sequence.sh "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT")
 
           jq -n \
             --arg latestVersion "$LATEST_VERSION" \
@@ -567,6 +567,8 @@ jobs:
           name: "Nightly Build ${{ needs.resolve-version.outputs.version }}"
           body_path: RELEASE_BODY.md
           prerelease: true
+          fail_on_unmatched_files: true
+          preserve_order: true
           files: |
             artifacts/*-setup.exe
             artifacts/java-distributions/*-java.zip
