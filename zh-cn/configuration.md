@@ -20,7 +20,7 @@ PixivDownloader 的配置按所有权分为三类，不能混用：
 | `debug.enabled` | `false` | 调试模式 |
 | `download.root-folder` | `pixiv-download` | 作品产物根目录 |
 | `download.user-flat-folder` | `false` | 画师目录是否使用平铺布局 |
-| `download.max-concurrent` | `10` | 宿主下载并发上限 |
+| `download.max-concurrent` | `10` | 宿主下载并发上限；最多另排队 100 个作品，队列已满时新任务返回 429 |
 | `database.maximum-pool-size` | `28` | SQLite 连接池上限 |
 
 `download.root-folder` 只存放下载作品。配置、数据库、插件状态和缓存不会写入该目录。小说、Douyin 等下载类型的私有设置不属于宿主配置；安装插件后由插件自己的配置贡献管理。

@@ -20,7 +20,7 @@ Prefer the desktop GUI's Configuration page. On first startup, the current defau
 | `debug.enabled` | `false` | Debug mode |
 | `download.root-folder` | `pixiv-download` | Downloaded-work root |
 | `download.user-flat-folder` | `false` | Flat artist-directory layout |
-| `download.max-concurrent` | `10` | Host download concurrency |
+| `download.max-concurrent` | `10` | Host download concurrency; up to 100 more works queue, then new tasks return 429 |
 | `database.maximum-pool-size` | `28` | SQLite connection-pool limit |
 
 `download.root-folder` contains downloaded works only. Configuration, databases, plugin state, and caches are stored elsewhere. Private settings for novel, Douyin, and other download types belong to their plugins and are exposed after installation.
