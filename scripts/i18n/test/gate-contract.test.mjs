@@ -241,11 +241,11 @@ test('gate-contract：candidate 删除 first-admission source/parent/tree 精确
 });
 
 test('gate-contract：candidate 修改 first-admission bridge spec 或 launcher → 拒绝', () => {
-    if (!fs.existsSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'epoch-2-first-admission.json'))) return;
+    if (!fs.existsSync(path.join(REPO_ROOT, 'scripts', 'i18n', 'epoch-3-first-admission.json'))) return;
     const root = makeCandidateRepo();
     const trusted = makeTrustedCopy(root);
     try {
-        for (const rel of ['scripts/i18n/epoch-2-first-admission.json',
+        for (const rel of ['scripts/i18n/epoch-3-first-admission.json',
             'scripts/i18n/trust-gate.mjs']) {
             const file = path.join(root, ...rel.split('/'));
             fs.appendFileSync(file, '\n', 'utf8');
@@ -255,7 +255,7 @@ test('gate-contract：candidate 修改 first-admission bridge spec 或 launcher 
         const run = runContract(trusted, root, ['--repo-root', root, '--candidate-ref', sha]);
         assert.notEqual(run.status, 0, 'bridge spec/launcher 被修改时 trusted contract 必须拒绝');
         assert.match(run.stdout + run.stderr,
-            /first-admission epoch-2-first-admission\.json is frozen/);
+            /first-admission epoch-3-first-admission\.json is frozen/);
         assert.match(run.stdout + run.stderr, /first-admission trust-gate\.mjs is frozen/);
     } finally {
         cleanRepo(root);

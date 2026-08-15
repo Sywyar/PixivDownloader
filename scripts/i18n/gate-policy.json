@@ -18,6 +18,7 @@
   "i18nEnforcementStartCommit": "05f4ebed7ce00f0b923fe48ec2e0971610511547",
   "requiredPaths": [
     "scripts/i18n/check.mjs",
+    "scripts/i18n/epoch-3-first-admission.json",
     "scripts/i18n/gate-contract.mjs",
     "scripts/i18n/gate-policy.json",
     "scripts/i18n/lib/repository-snapshot.mjs",
