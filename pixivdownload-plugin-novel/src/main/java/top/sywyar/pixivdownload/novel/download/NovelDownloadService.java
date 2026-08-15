@@ -77,8 +77,6 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    private static final Set<String> COVER_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
-    private static final Set<String> IMAGE_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp", "gif");
     /** 单本小说最多下载多少张内嵌图，避免极端情况吃满磁盘。 */
     private static final int MAX_EMBEDDED_IMAGES_PER_NOVEL = 200;
 
@@ -612,18 +610,17 @@ public class NovelDownloadService implements NovelDownloader {
             log.warn("novel cover skipped — host not pximg.net: {}", host);
             return null;
         }
-        String ext = inferCoverExt(uri.getPath());
-        Path target = downloadPath.resolve(baseName + "_thumb." + ext);
+        Path targetStem = downloadPath.resolve(baseName + "_thumb");
         try {
-            boolean downloaded = downloadWithinImageBudget(
+            String extension = downloadImageWithinBudget(
                     uri,
                     referer,
-                    target,
+                    targetStem,
                     cookie,
                     coverTransferObserver(status),
                     remainingImageBytes);
-            if (downloaded) {
-                return ext;
+            if (extension != null) {
+                return extension;
             }
             log.warn("novel cover download non-2xx: {}", coverUrl);
             return null;
@@ -631,19 +628,6 @@ public class NovelDownloadService implements NovelDownloader {
             log.warn("novel cover download failed: {} — {}", coverUrl, e.getMessage());
             return null;
         }
-    }
-
-    private static String inferCoverExt(String path) {
-        if (path == null) return "jpg";
-        int slash = path.lastIndexOf('/');
-        String last = slash >= 0 ? path.substring(slash + 1) : path;
-        int dot = last.lastIndexOf('.');
-        if (dot < 0 || dot == last.length() - 1) return "jpg";
-        String candidate = last.substring(dot + 1).toLowerCase(Locale.ROOT);
-        // 去掉可能的查询串残余
-        int q = candidate.indexOf('?');
-        if (q >= 0) candidate = candidate.substring(0, q);
-        return COVER_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
     }
 
     private void writeTxt(Path file, String raw) throws IOException {
@@ -767,19 +751,18 @@ public class NovelDownloadService implements NovelDownloader {
             log.warn("novel embed image skipped — host not pximg.net: novelId={}, id={}, host={}", novelId, imageId, host);
             return null;
         }
-        String ext = inferImageExt(uri.getPath());
-        Path target = downloadPath.resolve("embed_" + imageId + "." + ext);
+        Path targetStem = downloadPath.resolve("embed_" + imageId);
         try {
-            boolean downloaded = downloadWithinImageBudget(
+            String extension = downloadImageWithinBudget(
                     uri,
                     referer,
-                    target,
+                    targetStem,
                     cookie,
                     cancellationObserver(status),
                     remainingImageBytes);
-            if (downloaded) {
-                novelDatabase.saveNovelImage(novelId, imageId, ext);
-                return ext;
+            if (extension != null) {
+                novelDatabase.saveNovelImage(novelId, imageId, extension);
+                return extension;
             }
             log.warn("novel embed image non-2xx: novelId={}, id={}", novelId, imageId);
             return null;
@@ -788,18 +771,6 @@ public class NovelDownloadService implements NovelDownloader {
                     novelId, imageId, url, e.getMessage());
             return null;
         }
-    }
-
-    private static String inferImageExt(String path) {
-        if (path == null) return "jpg";
-        int slash = path.lastIndexOf('/');
-        String last = slash >= 0 ? path.substring(slash + 1) : path;
-        int dot = last.lastIndexOf('.');
-        if (dot < 0 || dot == last.length() - 1) return "jpg";
-        String candidate = last.substring(dot + 1).toLowerCase(Locale.ROOT);
-        int q = candidate.indexOf('?');
-        if (q >= 0) candidate = candidate.substring(0, q);
-        return IMAGE_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
     }
 
     private static URI novelPageReferer(long novelId) {
@@ -838,16 +809,17 @@ public class NovelDownloadService implements NovelDownloader {
         };
     }
 
-    private boolean downloadWithinImageBudget(URI source, URI referer, Path target, String cookie,
-                                              PixivImageTransferObserver delegate,
-                                              AtomicLong remainingImageBytes) throws IOException {
+    private String downloadImageWithinBudget(URI source, URI referer, Path targetStem, String cookie,
+                                             PixivImageTransferObserver delegate,
+                                             AtomicLong remainingImageBytes) throws IOException {
         long maximumBytes = Math.min(PixivImageTransferObserver.MAX_IMAGE_BYTES, remainingImageBytes.get());
         if (maximumBytes <= 0) {
-            return false;
+            return null;
         }
         AtomicLong transferredBytes = new AtomicLong();
         try {
-            return pixivImageDownloader.download(source, referer, target, cookie, new PixivImageTransferObserver() {
+            return pixivImageDownloader.downloadImage(
+                    source, referer, targetStem, cookie, new PixivImageTransferObserver() {
                 @Override
                 public long maximumBytes() {
                     return maximumBytes;

@@ -22,6 +22,12 @@ public interface PixivImageTransferObserver {
     }
 
     /**
+     * 收到响应后报告 Content-Type；缺失时报告 {@code null}。
+     */
+    default void onContentType(String contentType) {
+    }
+
+    /**
      * 收到响应后报告内容长度；未知或非正值统一报告为 {@code 0}。
      */
     default void onContentLength(long contentLength) {

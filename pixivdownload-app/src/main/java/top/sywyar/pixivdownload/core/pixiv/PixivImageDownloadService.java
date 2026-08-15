@@ -63,6 +63,7 @@ public class PixivImageDownloadService implements PixivImageDownloader {
                         if (contentLength > maximumBytes) {
                             throw new IOException("Pixiv image exceeds the transfer byte limit");
                         }
+                        observer.onContentType(response.getHeaders().getFirst("Content-Type"));
                         observer.onContentLength(contentLength > 0 ? contentLength : 0);
                         observer.onBytesTransferred(0);
                         transfer(response.getBody(), target, maximumBytes, observer);

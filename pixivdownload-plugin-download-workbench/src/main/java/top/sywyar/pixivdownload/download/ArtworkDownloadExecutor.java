@@ -46,7 +46,6 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CancellationException;
@@ -242,18 +241,17 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                     eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
                     try {
-                        String extension = getFileExtension(imageUrl);
-                        fileExtensions.add(extension);
-                        String filename = fileNamePlan.baseName(i) + "." + extension;
-                        Path filePath = downloadPath.resolve(filename);
+                        Path fileStem = downloadPath.resolve(fileNamePlan.baseName(i));
                         int imageNumber = i + 1;
                         Consumer<ImageDownloadProgress> imageProgressListener = progress -> {
                             status.setImageProgress(progress);
                             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                         };
-                        if (downloadImage(imageUrl, filePath, referer, cookie,
+                        String extension = downloadImage(imageUrl, fileStem, referer, cookie,
                                 imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled,
-                                remainingImageBytes)) {
+                                remainingImageBytes);
+                        if (extension != null) {
+                            fileExtensions.add(extension);
                             successCount.incrementAndGet();
                             status.setDownloadedCount(successCount.get());
                             log.info(logMessage("download.log.progress",
@@ -420,36 +418,31 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         }
     }
 
-    private boolean downloadImage(String imageUrl, Path filePath, String referer, String cookie,
-                                  int imageNumber, int totalImages,
-                                  Consumer<ImageDownloadProgress> progressListener,
-                                  BooleanSupplier cancellationRequested,
-                                  AtomicLong remainingImageBytes) {
+    private String downloadImage(String imageUrl, Path fileStem, String referer, String cookie,
+                                 int imageNumber, int totalImages,
+                                 Consumer<ImageDownloadProgress> progressListener,
+                                 BooleanSupplier cancellationRequested,
+                                 AtomicLong remainingImageBytes) {
         int maxRetries = 3;
         int retryCount = 0;
-        // 先写入 .part 临时文件，整段下载成功后再重命名为最终文件；失败 / 取消时清理 .part，
-        // 避免半截文件污染下载目录或在重试 / 重新下载时被误判为已完成。
-        Path tempPath = filePath.resolveSibling(filePath.getFileName().toString() + ".part");
-
-        try {
-            while (retryCount < maxRetries) {
-                ensureNotCancelled(cancellationRequested);
-                long maximumBytes = Math.min(
-                        PixivImageTransferObserver.MAX_IMAGE_BYTES, remainingImageBytes.get());
-                if (maximumBytes <= 0) {
-                    break;
-                }
-                long[] downloadedBytes = {0L};
-                try {
-                    long[] totalBytes = {0L};
-                    int[] lastProgress = {-1};
-                    long[] lastBytes = {0L};
-                    long[] lastAt = {0L};
-                    URI refererUri = StringUtils.hasText(referer)
-                            ? URI.create(referer)
-                            : DEFAULT_PIXIV_REFERER;
-                    boolean success = pixivImageDownloader.download(
-                            URI.create(imageUrl), refererUri, tempPath, cookie,
+        while (retryCount < maxRetries) {
+            ensureNotCancelled(cancellationRequested);
+            long maximumBytes = Math.min(
+                    PixivImageTransferObserver.MAX_IMAGE_BYTES, remainingImageBytes.get());
+            if (maximumBytes <= 0) {
+                break;
+            }
+            long[] downloadedBytes = {0L};
+            try {
+                long[] totalBytes = {0L};
+                int[] lastProgress = {-1};
+                long[] lastBytes = {0L};
+                long[] lastAt = {0L};
+                URI refererUri = StringUtils.hasText(referer)
+                        ? URI.create(referer)
+                        : DEFAULT_PIXIV_REFERER;
+                String extension = pixivImageDownloader.downloadImage(
+                        URI.create(imageUrl), refererUri, fileStem, cookie,
                             new PixivImageTransferObserver() {
                                 @Override
                                 public long maximumBytes() {
@@ -494,61 +487,52 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                                 .build());
                                     }
                                 }
-                            });
-                    if (success) {
-                        if (imageNumber < totalImages) {
-                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                            .status(ImageDownloadProgress.STATUS_RUNNING)
-                                            .imageNumber(imageNumber + 1)
-                                            .totalImages(totalImages)
-                                            .downloadedBytes(0L)
-                                            .progress(0)
-                                            .build());
-                        } else {
-                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                            .status(ImageDownloadProgress.STATUS_COMPLETED)
-                                            .imageNumber(imageNumber)
-                                            .totalImages(totalImages)
-                                            .downloadedBytes(downloadedBytes[0])
-                                            .totalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
-                                            .progress(100)
-                                            .build());
-                        }
-                        Files.move(tempPath, filePath, StandardCopyOption.REPLACE_EXISTING);
-                        return true;
+                        });
+                if (extension != null) {
+                    if (imageNumber < totalImages) {
+                        publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                .status(ImageDownloadProgress.STATUS_RUNNING)
+                                .imageNumber(imageNumber + 1)
+                                .totalImages(totalImages)
+                                .downloadedBytes(0L)
+                                .progress(0)
+                                .build());
+                    } else {
+                        publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                .status(ImageDownloadProgress.STATUS_COMPLETED)
+                                .imageNumber(imageNumber)
+                                .totalImages(totalImages)
+                                .downloadedBytes(downloadedBytes[0])
+                                .totalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
+                                .progress(100)
+                                .build());
                     }
-                    retryCount++;
-                    logAndBackoffBeforeRetry(
-                            imageUrl,
-                            messages.get("download.image.transfer-unsuccessful"),
-                            retryCount,
-                            maxRetries,
-                            cancellationRequested);
-                } catch (CancellationException e) {
-                    throw e;
-                } catch (Exception e) {
-                    retryCount++;
-                    logAndBackoffBeforeRetry(
-                            imageUrl, e.getMessage(), retryCount, maxRetries, cancellationRequested);
-                } finally {
-                    remainingImageBytes.updateAndGet(
-                            remaining -> Math.max(0L, remaining - downloadedBytes[0]));
+                    return extension;
                 }
-            }
-            publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                    .status(ImageDownloadProgress.STATUS_FAILED)
-                    .imageNumber(imageNumber)
-                    .totalImages(totalImages)
-                    .build());
-            return false;
-        } finally {
-            // 成功路径已把 .part 重命名为最终文件，这里只清理失败 / 取消遗留的半截文件。
-            try {
-                Files.deleteIfExists(tempPath);
-            } catch (IOException ex) {
-                log.warn(logMessage("download.log.temp-cleanup.failed", tempPath, ex.getMessage()));
+                retryCount++;
+                logAndBackoffBeforeRetry(
+                        imageUrl,
+                        messages.get("download.image.transfer-unsuccessful"),
+                        retryCount,
+                        maxRetries,
+                        cancellationRequested);
+            } catch (CancellationException e) {
+                throw e;
+            } catch (Exception e) {
+                retryCount++;
+                logAndBackoffBeforeRetry(
+                        imageUrl, e.getMessage(), retryCount, maxRetries, cancellationRequested);
+            } finally {
+                remainingImageBytes.updateAndGet(
+                        remaining -> Math.max(0L, remaining - downloadedBytes[0]));
             }
         }
+        publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                .status(ImageDownloadProgress.STATUS_FAILED)
+                .imageNumber(imageNumber)
+                .totalImages(totalImages)
+                .build());
+        return null;
     }
 
     private void logAndBackoffBeforeRetry(
@@ -829,12 +813,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private String statusKey(Long artworkId, String ownerUuid) {
         return (ownerUuid == null ? "admin" : ownerUuid) + ":" + artworkId;
-    }
-
-    private String getFileExtension(String url) {
-        if (!StringUtils.hasText(url)) return "jpg";
-        String[] parts = url.split("\\.");
-        return parts.length > 1 ? parts[parts.length - 1] : "jpg";
     }
 
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
