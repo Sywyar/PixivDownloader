@@ -687,9 +687,13 @@
             s = s.replace(/\[\[jumpuri:([^>\]]+)>([^\]]+)\]\]/g, (_, text, rawUrl) => {
                 const label = escapeXml(text.trim());
                 try {
-                    const url = new URL(rawUrl.trim());
+                    const candidate = rawUrl.trim();
+                    if (!/^https?:\/\//i.test(candidate) || /[\u0000-\u001F\u007F]/.test(candidate)) {
+                        return ph(label);
+                    }
+                    const url = new URL(candidate);
                     if ((url.protocol === 'http:' || url.protocol === 'https:')
-                            && !url.username && !url.password) {
+                            && url.hostname && !url.username && !url.password) {
                         return ph(`<a href="${escapeXml(url.href)}">${label}</a>`);
                     }
                 } catch (_) {
