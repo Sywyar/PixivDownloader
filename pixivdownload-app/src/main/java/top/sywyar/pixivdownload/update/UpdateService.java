@@ -109,7 +109,7 @@ public class UpdateService {
 
     /**
      * 下载安装包时的实时进度；null 表示当前没有进行中的下载。
-     * done=true 时 installerPath 携带落盘后的绝对路径，供 GUI 直接传给安装步骤。
+     * done=true 时 installerPath 仅用于状态展示；安装步骤只使用服务端保存的 VerifiedInstaller。
      */
     public record DownloadProgress(long received, long total, boolean done, boolean failed, String error, String installerPath) {}
 
