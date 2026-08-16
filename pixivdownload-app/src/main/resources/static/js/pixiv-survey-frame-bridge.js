@@ -293,6 +293,74 @@
             send(record, {type: FETCH_RESPONSE_TYPE, id: id, ok: false, error: error});
         }
 
+        function cancelRequest(request) {
+            var reader = request.reader;
+            request.reader = null;
+            request.controller.abort();
+            if (!reader) return;
+            try {
+                Promise.resolve(reader.cancel()).catch(function () {});
+            } catch (_) { /* the body is already closed */ }
+        }
+
+        function cancelBody(body) {
+            if (!body || typeof body.cancel !== 'function') return;
+            try {
+                Promise.resolve(body.cancel()).catch(function () {});
+            } catch (_) { /* the body is already closed */ }
+        }
+
+        function readResponseBody(response, request) {
+            var declaredLength = response.headers.get('content-length');
+            if (declaredLength !== null && /^[0-9]+$/.test(declaredLength)
+                    && Number(declaredLength) > MAX_RESPONSE_BYTES) {
+                cancelBody(response.body);
+                return Promise.reject(new Error('response exceeds size limit'));
+            }
+            if (!response.body) return Promise.resolve(new ArrayBuffer(0));
+            if (typeof response.body.getReader !== 'function') {
+                cancelBody(response.body);
+                return Promise.reject(new Error('response stream unavailable'));
+            }
+
+            var reader = response.body.getReader();
+            var chunks = [];
+            var total = 0;
+            request.reader = reader;
+
+            function readNext() {
+                return reader.read().then(function (result) {
+                    if (result.done) {
+                        var buffer = new ArrayBuffer(total);
+                        var target = new Uint8Array(buffer);
+                        var offset = 0;
+                        chunks.forEach(function (chunk) {
+                            target.set(chunk, offset);
+                            offset += chunk.byteLength;
+                        });
+                        return buffer;
+                    }
+                    if (!(result.value instanceof Uint8Array)) {
+                        throw new Error('invalid response stream');
+                    }
+                    total += result.value.byteLength;
+                    if (total > MAX_RESPONSE_BYTES) {
+                        throw new Error('response exceeds size limit');
+                    }
+                    chunks.push(result.value);
+                    return readNext();
+                });
+            }
+
+            return readNext().catch(function (error) {
+                cancelRequest(request);
+                throw error;
+            }).finally(function () {
+                if (request.reader === reader) request.reader = null;
+                try { reader.releaseLock(); } catch (_) { /* the body is already closed */ }
+            });
+        }
+
         function handleStorageSet(record, data) {
             if (typeof data.key !== 'string' || data.key.length > MAX_STORAGE_KEY_LENGTH
                     || !record.capabilities.writeKeys.has(data.key)
@@ -356,20 +424,19 @@
                 rejectRequest(record, id, 'request capability denied');
                 return;
             }
-            var controller = new AbortController();
-            record.inflight.set(id, controller);
+            var request = {controller: new AbortController(), reader: null};
+            record.inflight.set(id, request);
             var init = {
                 method: method,
                 headers: headers,
                 credentials: 'same-origin',
                 cache: 'no-store',
                 redirect: 'error',
-                signal: controller.signal
+                signal: request.controller.signal
             };
             if (body !== null) init.body = body;
             global.fetch(url.pathname + url.search, init).then(function (response) {
-                return response.arrayBuffer().then(function (buffer) {
-                    if (buffer.byteLength > MAX_RESPONSE_BYTES) throw new Error('response exceeds size limit');
+                return readResponseBody(response, request).then(function (buffer) {
                     var responseHeaders = {};
                     var contentType = response.headers.get('content-type');
                     if (contentType) responseHeaders['content-type'] = contentType;
@@ -395,8 +462,8 @@
             var data = event && event.data;
             if (!active(record) || !data || typeof data !== 'object') return;
             if (data.type === FETCH_CANCEL_TYPE && typeof data.id === 'string' && data.id.length <= 64) {
-                var controller = record.inflight.get(data.id);
-                if (controller) controller.abort();
+                var request = record.inflight.get(data.id);
+                if (request) cancelRequest(request);
                 return;
             }
             if (data.type === FETCH_TYPE) {
@@ -413,7 +480,7 @@
         }
 
         function closeConnection(record) {
-            record.inflight.forEach(function (controller) { controller.abort(); });
+            record.inflight.forEach(cancelRequest);
             record.inflight.clear();
             if (record.port) {
                 try { record.port.close(); } catch (_) { /* already closed */ }

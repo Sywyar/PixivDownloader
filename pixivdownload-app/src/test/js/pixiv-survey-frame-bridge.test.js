@@ -68,6 +68,13 @@ async function tick() {
 async function testHostCapabilities() {
     const stored = new Map([['allowed-key', 'initial'], ['private-key', 'secret']]);
     const fetchCalls = [];
+    let declaredBodyReads = 0;
+    let declaredBodyCancels = 0;
+    let chunkedBodyReads = 0;
+    let chunkedBodyCancels = 0;
+    let slowBodyReads = 0;
+    let slowBodyCancels = 0;
+    let resolveSlowRead;
     const sandbox = baseSandbox();
     sandbox.localStorage = {
         getItem(key) { return stored.has(key) ? stored.get(key) : null; },
@@ -76,6 +83,60 @@ async function testHostCapabilities() {
     };
     sandbox.fetch = async (url, init) => {
         fetchCalls.push({url, init});
+        if (url === '/api/declared-large') {
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: new Headers({'Content-Length': String(1024 * 1024 + 1)}),
+                body: {
+                    cancel() { declaredBodyCancels++; return Promise.resolve(); },
+                    getReader() { declaredBodyReads++; throw new Error('body must not be read'); }
+                }
+            };
+        }
+        if (url === '/api/chunked-large') {
+            const chunks = [new Uint8Array(1024 * 1024), new Uint8Array(1)];
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: new Headers(),
+                body: {
+                    getReader() {
+                        return {
+                            read() {
+                                const value = chunks[chunkedBodyReads++];
+                                return Promise.resolve(value ? {done: false, value} : {done: true});
+                            },
+                            cancel() { chunkedBodyCancels++; return Promise.resolve(); },
+                            releaseLock() {}
+                        };
+                    }
+                }
+            };
+        }
+        if (url === '/api/slow') {
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: new Headers(),
+                body: {
+                    getReader() {
+                        return {
+                            read() {
+                                slowBodyReads++;
+                                return new Promise(resolve => { resolveSlowRead = resolve; });
+                            },
+                            cancel() {
+                                slowBodyCancels++;
+                                if (resolveSlowRead) resolveSlowRead({done: true});
+                                return Promise.resolve();
+                            },
+                            releaseLock() {}
+                        };
+                    }
+                }
+            };
+        }
         return new Response(JSON.stringify({ok: true}), {
             status: 200,
             headers: {'Content-Type': 'application/json'}
@@ -110,6 +171,9 @@ async function testHostCapabilities() {
     });
     assert.strictEqual(host.attach(frame,
         '/survey.html?pixivBridgeGet=/api/allowed'
+        + '&pixivBridgeGet=/api/declared-large'
+        + '&pixivBridgeGet=/api/chunked-large'
+        + '&pixivBridgeGet=/api/slow'
         + '&pixivBridgePost=/api/write'
         + '&pixivBridgeRead=allowed-key'
         + '&pixivBridgeWrite=allowed-key'), true);
@@ -157,6 +221,22 @@ async function testHostCapabilities() {
     assert.ok(responses.some(item => item.type === 'pixiv-survey-bridge-storage-update'
         && item.key === 'allowed-key' && item.value === 'changed'));
 
+    childPort.postMessage({
+        type: 'pixiv-survey-bridge-fetch', id: 'declared-large', url: '/api/declared-large',
+        method: 'GET', headers: {}, body: null
+    });
+    childPort.postMessage({
+        type: 'pixiv-survey-bridge-fetch', id: 'chunked-large', url: '/api/chunked-large',
+        method: 'GET', headers: {}, body: null
+    });
+    await tick();
+    assert.strictEqual(responses.find(item => item.id === 'declared-large').ok, false);
+    assert.strictEqual(declaredBodyReads, 0);
+    assert.strictEqual(declaredBodyCancels, 1);
+    assert.strictEqual(responses.find(item => item.id === 'chunked-large').ok, false);
+    assert.strictEqual(chunkedBodyReads, 2);
+    assert.strictEqual(chunkedBodyCancels, 1);
+
     childPort.postMessage({type: 'pixiv-content-height', height: 320});
     await tick();
     assert.deepStrictEqual(uiMessages, [{type: 'pixiv-content-height', height: 320}]);
@@ -166,8 +246,17 @@ async function testHostCapabilities() {
         type: 'pixiv-survey-bridge-fetch', id: 'inactive', url: '/api/allowed',
         method: 'GET', headers: {}, body: null
     });
-    assert.strictEqual(fetchCalls.length, 1);
+    assert.strictEqual(fetchCalls.length, 3);
+    active = true;
+    childPort.postMessage({
+        type: 'pixiv-survey-bridge-fetch', id: 'slow', url: '/api/slow',
+        method: 'GET', headers: {}, body: null
+    });
+    await tick();
+    assert.strictEqual(slowBodyReads, 1);
     host.detach(frame);
+    await tick();
+    assert.strictEqual(slowBodyCancels, 1);
 }
 
 async function testChildHandshakeAndFetch() {
