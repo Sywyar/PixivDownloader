@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -177,8 +178,7 @@ class DownloadedArtworkServiceTest {
             ArtworkRecord result = downloadedArtworkService.getDownloadedRecord(11111L, false);
 
             assertThat(result).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
         }
 
         @Test
@@ -188,8 +188,7 @@ class DownloadedArtworkServiceTest {
             when(pixivDatabase.getArtwork(22222L)).thenReturn(null);
 
             assertThat(downloadedArtworkService.getDownloadedRecord(22222L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
         }
 
         @Test
@@ -198,8 +197,7 @@ class DownloadedArtworkServiceTest {
             when(pixivDatabase.getArtwork(33333L)).thenReturn(null);
 
             assertThat(downloadedArtworkService.getDownloadedRecord(33333L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
         }
 
         @Test
@@ -214,8 +212,7 @@ class DownloadedArtworkServiceTest {
             when(pixivDatabase.getArtwork(44444L)).thenReturn(null);
 
             assertThat(downloadedArtworkService.getDownloadedRecord(44444L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
         }
 
         @Test
@@ -232,8 +229,7 @@ class DownloadedArtworkServiceTest {
             ArtworkRecord result = downloadedArtworkService.getDownloadedRecord(artworkId, true);
 
             assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
-                    1700000200L, null, null, null, "");
+            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 1, "jpg"));
         }
 
         @Test
@@ -251,8 +247,7 @@ class DownloadedArtworkServiceTest {
 
             downloadedArtworkService.getDownloadedRecord(artworkId, true);
 
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 3, "png",
-                    1700000200L, null, null, null, "");
+            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 3, "png"));
         }
 
         @Test
@@ -270,8 +265,7 @@ class DownloadedArtworkServiceTest {
             downloadedArtworkService.getDownloadedRecord(artworkId, true);
 
             // 按页号升序拼接 extensions（p0=jpg, p1=png）
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 2, "jpg,png",
-                    1700000200L, null, null, null, "");
+            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 2, "jpg,png"));
         }
 
         @Test
@@ -284,8 +278,7 @@ class DownloadedArtworkServiceTest {
             when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
 
             assertThat(downloadedArtworkService.getDownloadedRecord(artworkId, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
         }
 
         @Test
@@ -298,8 +291,7 @@ class DownloadedArtworkServiceTest {
             when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
 
             assertThat(downloadedArtworkService.getDownloadedRecord(artworkId, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
         }
 
         @Test
@@ -315,8 +307,7 @@ class DownloadedArtworkServiceTest {
 
             downloadedArtworkService.getDownloadedRecord(artworkId, true);
 
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
-                    1700000200L, null, null, null, "");
+            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 1, "jpg"));
         }
     }
 
@@ -359,5 +350,18 @@ class DownloadedArtworkServiceTest {
         List<String> result = downloadedArtworkService.getDownloadedRecord();
 
         assertThat(result).containsExactly("1", "2", "3");
+    }
+
+    private static InsertArtworkArgument recoveredArtwork(long artworkId, String folder,
+                                                            int count, String extensions) {
+        return InsertArtworkArgument.builder()
+                .artworkId(artworkId)
+                .title("")
+                .folder(folder)
+                .count(count)
+                .extensions(extensions)
+                .time(1700000200L)
+                .description("")
+                .build();
     }
 }

@@ -12,6 +12,7 @@ import org.springframework.context.i18n.LocaleContextHolder;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.request.RecoverMetadataRequest;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -71,8 +72,7 @@ class ArtworkMetadataRecoveryServiceTest {
 
             assertThat(result).isSameAs(existing);
             verify(pixivDatabase, never()).fillArtworkMetadataIfMissing(anyLong(), any(), any(), any(), any(), any());
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
             verify(authorService, never()).observe(anyLong(), any());
         }
 
@@ -92,8 +92,7 @@ class ArtworkMetadataRecoveryServiceTest {
             assertThat(result).isSameAs(enriched);
             verify(pixivDatabase).fillArtworkMetadataIfMissing(eq(22222L), eq("新标题"),
                     eq(1), eq(true), eq(1234L), eq("新简介"));
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
             verify(authorService).observe(1234L, "newauthor");
         }
 
@@ -114,8 +113,18 @@ class ArtworkMetadataRecoveryServiceTest {
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, req);
 
             assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(artworkId, "Pixiv 标题", absolute, 2, "jpg",
-                    1700000300L, 1, true, 5678L, "简介");
+            verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
+                    .artworkId(artworkId)
+                    .title("Pixiv 标题")
+                    .folder(absolute)
+                    .count(2)
+                    .extensions("jpg")
+                    .time(1700000300L)
+                    .xRestrict(1)
+                    .isAi(true)
+                    .authorId(5678L)
+                    .description("简介")
+                    .build());
             verify(authorService).observe(5678L, "auth");
         }
 
@@ -130,8 +139,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     "标题", 1234L, "auth", 0, false, "简介");
 
             assertThat(recoveryService.recoverMetadata(artworkId, req)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
             verify(authorService, never()).observe(anyLong(), any());
         }
 
@@ -143,8 +151,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     "标题", 1234L, "auth", 0, false, "简介");
 
             assertThat(recoveryService.recoverMetadata(44444L, req)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
             verify(authorService, never()).observe(anyLong(), any());
         }
 
@@ -162,8 +169,15 @@ class ArtworkMetadataRecoveryServiceTest {
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, null);
 
             assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
-                    1700000300L, null, null, null, "");
+            verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
+                    .artworkId(artworkId)
+                    .title("")
+                    .folder(absolute)
+                    .count(1)
+                    .extensions("jpg")
+                    .time(1700000300L)
+                    .description("")
+                    .build());
         }
     }
 }

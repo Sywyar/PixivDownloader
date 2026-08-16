@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.ArtworkMetadataQuality;
@@ -63,20 +64,22 @@ public class ArtworkDownloadHistoryAdapter implements ArtworkDownloadHistory {
             fileAuthorNameId = resolvedFileAuthorNameId;
         }
         pixivDatabase.insertArtwork(
-                completion.artworkId(),
-                title,
-                completion.folder().toAbsolutePath().toString(),
-                completion.imageCount(),
-                String.join(",", completion.extensions()),
-                completion.recordTime(),
-                restriction,
-                aiGenerated,
-                authorId,
-                description,
-                fileNameTemplateId,
-                fileAuthorNameId,
-                seriesId,
-                seriesOrder
+                InsertArtworkArgument.builder()
+                        .artworkId(completion.artworkId())
+                        .title(title)
+                        .folder(completion.folder().toAbsolutePath().toString())
+                        .count(completion.imageCount())
+                        .extensions(String.join(",", completion.extensions()))
+                        .time(completion.recordTime())
+                        .xRestrict(restriction)
+                        .isAi(aiGenerated)
+                        .authorId(authorId)
+                        .description(description)
+                        .fileName(fileNameTemplateId)
+                        .fileAuthorNameId(fileAuthorNameId)
+                        .seriesId(seriesId)
+                        .seriesOrder(seriesOrder)
+                        .build()
         );
         pixivDatabase.refreshArtworkMetadataAfterDownload(
                 completion.artworkId(),

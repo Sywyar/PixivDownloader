@@ -7,6 +7,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
@@ -18,7 +19,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -53,22 +53,22 @@ class ArtworkDownloadPortsAdapterTest {
 
         verify(pixivDatabase).getOrCreateFileNameTemplateId("{artwork_title}_p{page}");
         verify(pixivDatabase).getOrCreateFileAuthorNameId("author");
-        verify(pixivDatabase).insertArtwork(
-                42L,
-                "title",
-                tempDir.resolve("42").toAbsolutePath().toString(),
-                2,
-                "png,jpg",
-                303L,
-                1,
-                true,
-                84L,
-                "description",
-                5L,
-                6L,
-                7L,
-                8L
-        );
+        verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
+                .artworkId(42L)
+                .title("title")
+                .folder(tempDir.resolve("42").toAbsolutePath().toString())
+                .count(2)
+                .extensions("png,jpg")
+                .time(303L)
+                .xRestrict(1)
+                .isAi(true)
+                .authorId(84L)
+                .description("description")
+                .fileName(5L)
+                .fileAuthorNameId(6L)
+                .seriesId(7L)
+                .seriesOrder(8L)
+                .build());
         verify(pixivDatabase).refreshArtworkMetadataAfterDownload(
                 42L, "title", 1, true, 84L, "description", 5L, 6L, 7L, 8L);
         @SuppressWarnings("unchecked")
@@ -87,9 +87,7 @@ class ArtworkDownloadPortsAdapterTest {
         PixivDatabase pixivDatabase = mock(PixivDatabase.class);
         ArtworkDownloadHistoryAdapter adapter = new ArtworkDownloadHistoryAdapter(pixivDatabase);
         RuntimeException failure = new RuntimeException("insert failed");
-        doThrow(failure).when(pixivDatabase).insertArtwork(
-                anyLong(), any(), any(), anyInt(), any(), anyLong(), any(), any(),
-                any(), any(), anyLong(), any(), any(), any());
+        doThrow(failure).when(pixivDatabase).insertArtwork(any(InsertArtworkArgument.class));
 
         assertThatThrownBy(() -> adapter.record(sampleCompletion())).isSameAs(failure);
 
@@ -106,9 +104,7 @@ class ArtworkDownloadPortsAdapterTest {
 
         assertThatThrownBy(() -> adapter.record(sampleCompletion())).isSameAs(failure);
 
-        verify(pixivDatabase).insertArtwork(
-                anyLong(), any(), any(), anyInt(), any(), anyLong(), any(), any(),
-                any(), any(), anyLong(), any(), any(), any());
+        verify(pixivDatabase).insertArtwork(any(InsertArtworkArgument.class));
     }
 
     @Test
@@ -127,10 +123,22 @@ class ArtworkDownloadPortsAdapterTest {
                 0, false, null, " ", "{artwork_id}_p{page}", null,
                 null, null, null));
 
-        verify(pixivDatabase).insertArtwork(
-                42L, "旧标题", tempDir.resolve("42").toAbsolutePath().toString(),
-                2, "png,jpg", 303L, 2, true, 84L, "旧简介",
-                5L, 6L, 7L, 8L);
+        verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
+                .artworkId(42L)
+                .title("旧标题")
+                .folder(tempDir.resolve("42").toAbsolutePath().toString())
+                .count(2)
+                .extensions("png,jpg")
+                .time(303L)
+                .xRestrict(2)
+                .isAi(true)
+                .authorId(84L)
+                .description("旧简介")
+                .fileName(5L)
+                .fileAuthorNameId(6L)
+                .seriesId(7L)
+                .seriesOrder(8L)
+                .build());
         verify(pixivDatabase).refreshArtworkMetadataAfterDownload(
                 42L, null, null, null, null, null, 5L, null, null, null);
         verify(pixivDatabase).replaceArtworkTagsAfterDownload(42L, List.of());

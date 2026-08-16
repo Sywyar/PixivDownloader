@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
@@ -187,8 +188,17 @@ class WorkMetaBridgeConsistencyTest {
         @DisplayName("插画：捕获后 upload_time/is_original 列投影与 sidecar normalized 逐字段一致")
         void artworkColumnAndSidecarAgree() {
             long id = 7L;
-            pixivDatabase.insertArtwork(id, "作品", artworkDir(id).toString(), 1, "jpg",
-                    1000L, 0, false, null, null, 1L);
+            pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
+                    .artworkId(id)
+                    .title("作品")
+                    .folder(artworkDir(id).toString())
+                    .count(1)
+                    .extensions("jpg")
+                    .time(1000L)
+                    .xRestrict(0)
+                    .isAi(false)
+                    .fileName(1L)
+                    .build());
 
             captureService.captureArtwork(id, json("{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true,"
                     + "\"description\":\"d\"}"), null, "schedule");
@@ -237,7 +247,17 @@ class WorkMetaBridgeConsistencyTest {
         void artworkSoftDeleteKeepsSidecarButFiltersColumnRead() {
             long id = 8L;
             Path dir = artworkDir(id);
-            pixivDatabase.insertArtwork(id, "作品", dir.toString(), 1, "jpg", 1000L, 0, false, null, null, 1L);
+            pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
+                    .artworkId(id)
+                    .title("作品")
+                    .folder(dir.toString())
+                    .count(1)
+                    .extensions("jpg")
+                    .time(1000L)
+                    .xRestrict(0)
+                    .isAi(false)
+                    .fileName(1L)
+                    .build());
             captureService.captureArtwork(id, json("{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true}"),
                     null, "schedule");
             assertThat(Files.exists(dir.resolve(id + ".meta.json"))).isTrue();
