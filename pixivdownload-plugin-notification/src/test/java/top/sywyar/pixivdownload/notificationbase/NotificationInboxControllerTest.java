@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletResponse;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 
 import java.util.List;
@@ -90,17 +91,21 @@ class NotificationInboxControllerTest {
                 null,
                 new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>Survey body</p>"));
         NotificationInboxController controller = new NotificationInboxController(service);
+        MockHttpServletResponse servletResponse = new MockHttpServletResponse();
+        servletResponse.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'");
 
-        ResponseEntity<String> response = controller.htmlContent(message.id(), null);
+        ResponseEntity<String> response = controller.htmlContent(message.id(), null, servletResponse);
 
         assertThat(response.getHeaders().getContentType().toString()).isEqualTo("text/html;charset=UTF-8");
         assertThat(response.getHeaders().getCacheControl()).contains("no-store", "private");
-        String csp = response.getHeaders().getFirst("Content-Security-Policy");
+        String csp = servletResponse.getHeader("Content-Security-Policy");
         Matcher nonceMatcher = Pattern.compile("script-src 'nonce-([a-f0-9]{32})'").matcher(csp);
         assertThat(nonceMatcher.find()).isTrue();
         String nonce = nonceMatcher.group(1);
         assertThat(csp).contains("default-src 'none'", "sandbox allow-scripts")
-                .doesNotContain("allow-same-origin", "script-src 'none'");
+                .doesNotContain("allow-same-origin", "script-src 'none'", "script-src 'self'");
+        assertThat(servletResponse.getHeaders("Content-Security-Policy")).containsExactly(csp);
+        assertThat(response.getHeaders()).doesNotContainKey("Content-Security-Policy");
         assertThat(response.getBody())
                 .startsWith("<!doctype html><script nonce=\"" + nonce + "\" data-source=\"" + CONTENT_URL + "\">")
                 .contains("parent.postMessage({", "type: 'pixiv-external-link'",
@@ -128,8 +133,10 @@ class NotificationInboxControllerTest {
                 1)).isTrue();
         NotificationInboxController controller = new NotificationInboxController(service);
 
-        ResponseEntity<String> chinese = controller.htmlContent("remote-announcement:localized", "zh-CN");
-        ResponseEntity<String> english = controller.htmlContent("remote-announcement:localized", "en-US");
+        ResponseEntity<String> chinese = controller.htmlContent(
+                "remote-announcement:localized", "zh-CN", new MockHttpServletResponse());
+        ResponseEntity<String> english = controller.htmlContent(
+                "remote-announcement:localized", "en-US", new MockHttpServletResponse());
 
         assertThat(chinese.getBody()).contains("<p>中文正文</p>").doesNotContain("<p>English body</p>");
         assertThat(english.getBody()).contains("<p>English body</p>").doesNotContain("<p>中文正文</p>");

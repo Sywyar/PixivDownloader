@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -110,16 +111,17 @@ public class NotificationInboxController {
 
     @GetMapping(value = "/{id}/content", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> htmlContent(@PathVariable String id,
-                                              @RequestParam(required = false) String lang) {
+                                              @RequestParam(required = false) String lang,
+                                              HttpServletResponse response) {
         NotificationHtmlContent content = inbox.htmlContent(id, lang);
         if (content == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
         String nonce = UUID.randomUUID().toString().replace("-", "");
+        response.setHeader("Content-Security-Policy", HTML_CONTENT_SECURITY_POLICY.formatted(nonce));
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore().cachePrivate())
                 .contentType(new MediaType("text", "html", StandardCharsets.UTF_8))
-                .header("Content-Security-Policy", HTML_CONTENT_SECURITY_POLICY.formatted(nonce))
                 .header("Referrer-Policy", "no-referrer")
                 .header("X-Content-Type-Options", "nosniff")
                 .body(withContentBridge(content, nonce));
