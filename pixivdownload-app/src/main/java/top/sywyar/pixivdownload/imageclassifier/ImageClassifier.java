@@ -134,24 +134,6 @@ public class ImageClassifier extends JFrame {
     private void loadConfig() {
         config = new Properties();
 
-        String[] defaultTargetFolders = {
-                "S:\\z\\Ovo\\小特",
-                "S:\\z\\Ovo\\气象学家",
-                "S:\\z\\Ovo\\小女孩",
-                "S:\\z\\Ovo\\0",
-                "S:\\z\\Ovo\\0\\idv",
-                "S:\\Temp"
-        };
-
-        String[] defaultFolderRemarks = {
-                message("gui.image-classifier.default-remark.0"),
-                message("gui.image-classifier.default-remark.1"),
-                message("gui.image-classifier.default-remark.2"),
-                message("gui.image-classifier.default-remark.3"),
-                message("gui.image-classifier.default-remark.4"),
-                message("gui.image-classifier.default-remark.5"),
-        };
-
         try {
             if (configFile.exists()) {
                 try (FileInputStream input = new FileInputStream(configFile)) {
@@ -171,13 +153,6 @@ public class ImageClassifier extends JFrame {
             if (folder != null && remark != null) {
                 targetFolders.add(stripTrailingSlash(folder));
                 folderRemarks.add(remark);
-            }
-        }
-
-        if (targetFolders.isEmpty()) {
-            for (int i = 0; i < defaultTargetFolders.length; i++) {
-                targetFolders.add(defaultTargetFolders[i]);
-                folderRemarks.add(defaultFolderRemarks[i]);
             }
         }
     }
@@ -373,7 +348,7 @@ public class ImageClassifier extends JFrame {
         numLabel.setForeground(C_TEXT_MUTED);
         targetFolderField = new JTextField(4);
         targetFolderField.setFont(new Font("微软雅黑", Font.PLAIN, 14));
-        remarkLabel = new JLabel(message("gui.image-classifier.hint.number.range-short", targetFolders.size() - 1));
+        remarkLabel = new JLabel(targetFolderHint("gui.image-classifier.hint.number.range-short"));
         remarkLabel.setFont(new Font("微软雅黑", Font.PLAIN, 12));
         remarkLabel.setForeground(C_TEXT_MUTED);
         inputRow.add(numLabel);
@@ -575,7 +550,7 @@ public class ImageClassifier extends JFrame {
             saveConfig();
             skipFolderButton.setVisible(showSkipCheckBox.isSelected());
             updateCategoriesPanel();
-            remarkLabel.setText(message("gui.image-classifier.hint.number.range", targetFolders.size() - 1));
+            remarkLabel.setText(targetFolderHint("gui.image-classifier.hint.number.range"));
             settingsDialog.dispose();
             JOptionPane.showMessageDialog(
                     this,
@@ -1162,8 +1137,8 @@ public class ImageClassifier extends JFrame {
 
     private void updateRemarkLabel() {
         String input = targetFolderField.getText().trim();
-        if (input.isEmpty()) {
-            remarkLabel.setText(message("gui.image-classifier.hint.number.range", targetFolders.size() - 1));
+        if (targetFolders.isEmpty() || input.isEmpty()) {
+            remarkLabel.setText(targetFolderHint("gui.image-classifier.hint.number.range"));
             return;
         }
         try {
@@ -1174,6 +1149,12 @@ public class ImageClassifier extends JFrame {
         } catch (NumberFormatException ex) {
             remarkLabel.setText(message("gui.image-classifier.validation.invalid-number"));
         }
+    }
+
+    private String targetFolderHint(String rangeKey) {
+        return targetFolders.isEmpty()
+                ? message("gui.image-classifier.validation.target-folders-not-configured")
+                : message(rangeKey, targetFolders.size() - 1);
     }
 
     // =========================================================================
@@ -1188,6 +1169,12 @@ public class ImageClassifier extends JFrame {
                     message("gui.dialog.error.title"),
                     JOptionPane.ERROR_MESSAGE
             );
+            return;
+        }
+
+        if (targetFolders.isEmpty()) {
+            remarkLabel.setText(message("gui.image-classifier.validation.target-folders-not-configured"));
+            targetFolderField.requestFocusInWindow();
             return;
         }
 
