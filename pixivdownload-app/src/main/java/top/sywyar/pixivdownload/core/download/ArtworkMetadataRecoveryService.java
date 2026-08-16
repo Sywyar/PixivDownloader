@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.request.RecoverMetadataRequest;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -106,12 +107,18 @@ public class ArtworkMetadataRecoveryService {
         String absoluteFolder = flatDir.toAbsolutePath().toString();
         log.info(logMessage("download.log.stale-record.restored",
                 id(artworkId), absoluteFolder));
-        pixivDatabase.insertArtwork(artworkId,
-                StringUtils.hasText(meta.getTitle()) ? meta.getTitle() : "",
-                absoluteFolder, count, extensions,
-                pixivDatabase.getUniqueTime(), meta.getXRestrict(), meta.getIsAi(),
-                meta.getAuthorId(),
-                normalizedDescription == null ? "" : normalizedDescription);
+        pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
+                .artworkId(artworkId)
+                .title(StringUtils.hasText(meta.getTitle()) ? meta.getTitle() : "")
+                .folder(absoluteFolder)
+                .count(count)
+                .extensions(extensions)
+                .time(pixivDatabase.getUniqueTime())
+                .xRestrict(meta.getXRestrict())
+                .isAi(meta.getIsAi())
+                .authorId(meta.getAuthorId())
+                .description(normalizedDescription == null ? "" : normalizedDescription)
+                .build());
         observeAuthorIfPresent(artworkId, meta);
         return pixivDatabase.getArtwork(artworkId);
     }
@@ -158,8 +165,15 @@ public class ArtworkMetadataRecoveryService {
         String absoluteFolder = flatDir.toAbsolutePath().toString();
         log.info(logMessage("download.log.stale-record.restored",
                 id(artworkId), absoluteFolder));
-        pixivDatabase.insertArtwork(artworkId, "", absoluteFolder, count, extensions,
-                pixivDatabase.getUniqueTime(), null, null, null, "");
+        pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
+                .artworkId(artworkId)
+                .title("")
+                .folder(absoluteFolder)
+                .count(count)
+                .extensions(extensions)
+                .time(pixivDatabase.getUniqueTime())
+                .description("")
+                .build());
         return pixivDatabase.getArtwork(artworkId);
     }
 

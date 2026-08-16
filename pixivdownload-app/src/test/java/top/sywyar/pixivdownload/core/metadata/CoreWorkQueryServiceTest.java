@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -112,7 +113,16 @@ class CoreWorkQueryServiceTest {
     }
 
     private void insertArtwork(long id, long time, Long authorId) {
-        pixivDatabase.insertArtwork(id, "作品" + id, "/p/" + id, 1, "jpg", time, 0, null, authorId, null);
+        pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
+                .artworkId(id)
+                .title("作品" + id)
+                .folder("/p/" + id)
+                .count(1)
+                .extensions("jpg")
+                .time(time)
+                .xRestrict(0)
+                .authorId(authorId)
+                .build());
     }
 
     private void insertNovel(long id, long time, Long authorId, Long seriesId) {

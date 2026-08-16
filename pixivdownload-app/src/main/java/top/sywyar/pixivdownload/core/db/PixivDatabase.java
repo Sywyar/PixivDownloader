@@ -83,53 +83,14 @@ public class PixivDatabase {
     }
 
     @Transactional
-    public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
-                              String description, long fileName, Long fileAuthorNameId,
-                              Long seriesId, Long seriesOrder) {
+    public void insertArtwork(InsertArtworkArgument argument) {
         // 软删除残留行的 folder/time 已失效，先清掉再写入全新行，重新下载即复位 deleted 标记；
         // 普通已下载行不受影响（INSERT OR IGNORE 保持原有的不覆盖语义）。
-        pixivMapper.deleteIfMarkedDeleted(artworkId);
-        pixivMapper.insertOrIgnore(artworkId, title, encodePath(folder),
-                count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId,
-                seriesId, seriesOrder);
-    }
-
-    public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
-                              String description, long fileName, Long fileAuthorNameId) {
-        insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, isAi, authorId,
-                description, fileName, fileAuthorNameId, null, null);
-    }
-
-    public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
-                              String description, long fileName) {
-        insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, isAi,
-                authorId, description, fileName, null);
-    }
-
-    public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
-                              String description) {
-        insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, isAi,
-                authorId, description, DEFAULT_FILE_NAME_TEMPLATE_ID);
-    }
-
-    public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Integer xRestrict, Long authorId,
-                              String description) {
-        insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, null, authorId, description);
-    }
-
-    public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Integer xRestrict, Long authorId) {
-        insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, authorId, null);
-    }
-
-    public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Integer xRestrict) {
-        insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, null, null);
+        pixivMapper.deleteIfMarkedDeleted(argument.artworkId());
+        pixivMapper.insertOrIgnore(argument.artworkId(), argument.title(), encodePath(argument.folder()),
+                argument.count(), argument.extensions(), argument.time(), argument.xRestrict(), argument.isAi(),
+                argument.authorId(), argument.description(), argument.fileName(), argument.fileAuthorNameId(),
+                argument.seriesId(), argument.seriesOrder());
     }
 
     @Transactional

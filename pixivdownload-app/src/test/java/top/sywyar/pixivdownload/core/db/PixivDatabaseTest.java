@@ -76,7 +76,7 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("插入作品后应能查询到")
         void shouldInsertAndRetrieveArtwork() {
-            pixivDatabase.insertArtwork(12345L, "测试作品", "/path/to/12345", 3, "jpg", 1700000001L, 0);
+            insertArtwork(12345L, "测试作品", "/path/to/12345", 3, "jpg", 1700000001L, 0);
 
             ArtworkRecord record = pixivDatabase.getArtwork(12345L);
 
@@ -90,14 +90,29 @@ class PixivDatabaseTest {
             assertThat(record.xRestrict()).isEqualTo(0);
             assertThat(record.isAi()).isNull();
             assertThat(record.authorId()).isNull();
+            assertThat(record.fileName()).isEqualTo(PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID);
             assertThat(record.moved()).isFalse();
+        }
+
+        @Test
+        @DisplayName("缺少必填字段时应拒绝构建作品写入参数")
+        void shouldRejectMissingRequiredInsertArgumentField() {
+            assertThatThrownBy(() -> InsertArtworkArgument.builder()
+                    .title("test")
+                    .folder("/path")
+                    .count(1)
+                    .extensions("jpg")
+                    .time(1L)
+                    .build())
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessage("artworkId");
         }
 
         @Test
         @DisplayName("插入作品时应写入 authorId")
         void shouldInsertArtworkWithAuthorId() {
-            pixivDatabase.insertArtwork(12346L, "author test", "/path/to/12346",
-                    1, "png", 1700000007L, 0, 777L);
+            pixivDatabase.insertArtwork(artwork(12346L, "author test", "/path/to/12346",
+                    1, "png", 1700000007L, 0).authorId(777L).build());
 
             ArtworkRecord record = pixivDatabase.getArtwork(12346L);
 
@@ -108,8 +123,12 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("插入作品时应写入 isAi")
         void shouldInsertArtworkWithIsAi() {
-            pixivDatabase.insertArtwork(12347L, "ai test", "/path/to/12347",
-                    1, "png", 1700000008L, 0, true, 888L, "desc");
+            pixivDatabase.insertArtwork(artwork(12347L, "ai test", "/path/to/12347",
+                    1, "png", 1700000008L, 0)
+                    .isAi(true)
+                    .authorId(888L)
+                    .description("desc")
+                    .build());
 
             ArtworkRecord record = pixivDatabase.getArtwork(12347L);
 
@@ -125,8 +144,13 @@ class PixivDatabaseTest {
         void shouldInsertArtworkWithFileNameTemplateId() {
             long templateId = pixivDatabase.getOrCreateFileNameTemplateId("{artwork_title}_p{page}");
 
-            pixivDatabase.insertArtwork(12348L, "file name test", "/path/to/12348",
-                    1, "png", 1700000012L, 0, false, 888L, "desc", templateId);
+            pixivDatabase.insertArtwork(artwork(12348L, "file name test", "/path/to/12348",
+                    1, "png", 1700000012L, 0)
+                    .isAi(false)
+                    .authorId(888L)
+                    .description("desc")
+                    .fileName(templateId)
+                    .build());
 
             ArtworkRecord record = pixivDatabase.getArtwork(12348L);
 
@@ -139,7 +163,7 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("插入 R18 作品")
         void shouldInsertR18Artwork() {
-            pixivDatabase.insertArtwork(11111L, "R18作品", "/path/r18", 1, "png", 1700000002L, 1);
+            insertArtwork(11111L, "R18作品", "/path/r18", 1, "png", 1700000002L, 1);
 
             ArtworkRecord record = pixivDatabase.getArtwork(11111L);
 
@@ -150,7 +174,7 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("插入 R18G 作品")
         void shouldInsertR18GArtwork() {
-            pixivDatabase.insertArtwork(11112L, "R18G作品", "/path/r18g", 1, "png", 1700000009L, 2);
+            insertArtwork(11112L, "R18G作品", "/path/r18g", 1, "png", 1700000009L, 2);
 
             ArtworkRecord record = pixivDatabase.getArtwork(11112L);
 
@@ -161,7 +185,7 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("xRestrict 为 null 的作品")
         void shouldHandleNullXRestrict() {
-            pixivDatabase.insertArtwork(22222L, "普通作品", "/path/normal", 1, "jpg", 1700000003L, (Integer) null);
+            insertArtwork(22222L, "普通作品", "/path/normal", 1, "jpg", 1700000003L, null);
 
             ArtworkRecord record = pixivDatabase.getArtwork(22222L);
 
@@ -172,8 +196,8 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("INSERT OR IGNORE 重复插入不应覆盖")
         void shouldIgnoreDuplicateInsert() {
-            pixivDatabase.insertArtwork(12345L, "原始标题", "/path/1", 1, "jpg", 1700000004L, 0);
-            pixivDatabase.insertArtwork(12345L, "新标题", "/path/2", 2, "png", 1700000005L, 1);
+            insertArtwork(12345L, "原始标题", "/path/1", 1, "jpg", 1700000004L, 0);
+            insertArtwork(12345L, "新标题", "/path/2", 2, "png", 1700000005L, 1);
 
             ArtworkRecord record = pixivDatabase.getArtwork(12345L);
             assertThat(record.title()).isEqualTo("原始标题");
@@ -185,8 +209,14 @@ class PixivDatabaseTest {
         void shouldRefreshDownloadedArtworkMetadataWithoutReplacingWithEmptyValues() {
             long fileNameId = pixivDatabase.getOrCreateFileNameTemplateId("{artwork_title}_p{page}");
             long fileAuthorNameId = pixivDatabase.getOrCreateFileAuthorNameId("新作者");
-            pixivDatabase.insertArtwork(12345L, "旧标题", "/path/1", 1, "jpg", 1700000004L,
-                    0, false, 10L, "旧简介", 1L, null, 7L, 1L);
+            pixivDatabase.insertArtwork(artwork(12345L, "旧标题", "/path/1", 1, "jpg", 1700000004L, 0)
+                    .isAi(false)
+                    .authorId(10L)
+                    .description("旧简介")
+                    .fileName(1L)
+                    .seriesId(7L)
+                    .seriesOrder(1L)
+                    .build());
             pixivDatabase.saveArtworkTags(12345L, List.of(new TagDto(null, "旧标签", null)));
 
             pixivDatabase.refreshArtworkMetadataAfterDownload(12345L, "新标题", 2, true,
@@ -221,7 +251,7 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("文件夹路径末尾斜杠应被去除")
         void shouldStripTrailingSlash() {
-            pixivDatabase.insertArtwork(33333L, "test", "/path/to/folder/", 1, "jpg", 1700000006L, 0);
+            insertArtwork(33333L, "test", "/path/to/folder/", 1, "jpg", 1700000006L, 0);
 
             ArtworkRecord record = pixivDatabase.getArtwork(33333L);
             assertThat(record.folder()).isEqualTo("/path/to/folder");
@@ -235,7 +265,7 @@ class PixivDatabaseTest {
     void shouldCheckArtworkExistence() {
         assertThat(pixivDatabase.hasArtwork(12345L)).isFalse();
 
-        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000010L, 0);
+        insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000010L, 0);
 
         assertThat(pixivDatabase.hasArtwork(12345L)).isTrue();
     }
@@ -245,7 +275,7 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("删除作品后应查询不到")
     void shouldDeleteArtwork() {
-        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
+        insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
         assertThat(pixivDatabase.hasArtwork(12345L)).isTrue();
 
         pixivDatabase.deleteArtwork(12345L);
@@ -255,7 +285,7 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("删除作品应一并清理标签关联与收藏夹关联")
     void shouldDeleteArtworkSatelliteRows() throws Exception {
-        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
+        insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
         pixivDatabase.saveArtworkTags(12345L, List.of(new TagDto(null, "tag-a", null)));
         try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
             st.execute("INSERT INTO artwork_collections(collection_id, artwork_id, added_time) VALUES (1, 12345, 0)");
@@ -276,7 +306,7 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("软删除标记后主行保留：hasArtwork 仍命中、hasActiveArtwork 不命中、记录带 deleted 标志")
     void shouldMarkArtworkDeletedKeepingRow() {
-        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
+        insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
         assertThat(pixivDatabase.hasActiveArtwork(12345L)).isTrue();
         assertThat(pixivDatabase.isArtworkDeleted(12345L)).isFalse();
 
@@ -293,7 +323,7 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("软删除标记应照旧清理标签关联与收藏夹关联")
     void shouldMarkArtworkDeletedAndCleanSatelliteRows() throws Exception {
-        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
+        insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
         pixivDatabase.saveArtworkTags(12345L, List.of(new TagDto(null, "tag-a", null)));
         try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
             st.execute("INSERT INTO artwork_collections(collection_id, artwork_id, added_time) VALUES (1, 12345, 0)");
@@ -312,10 +342,10 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("软删除的作品被重新下载落库后删除标记复位，记录被全新行替换")
     void shouldReviveDeletedArtworkOnReinsert() {
-        pixivDatabase.insertArtwork(12345L, "old", "/old", 1, "jpg", 1700000011L, 0);
+        insertArtwork(12345L, "old", "/old", 1, "jpg", 1700000011L, 0);
         pixivDatabase.markArtworkDeleted(12345L);
 
-        pixivDatabase.insertArtwork(12345L, "new", "/new", 2, "png", 1700000012L, 1);
+        insertArtwork(12345L, "new", "/new", 2, "png", 1700000012L, 1);
 
         ArtworkRecord record = pixivDatabase.getArtwork(12345L);
         assertThat(record).isNotNull();
@@ -328,9 +358,9 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("未被软删除的已有记录重新插入时保持原行不被覆盖（INSERT OR IGNORE 语义不变）")
     void shouldKeepActiveRowOnReinsert() {
-        pixivDatabase.insertArtwork(12345L, "old", "/old", 1, "jpg", 1700000011L, 0);
+        insertArtwork(12345L, "old", "/old", 1, "jpg", 1700000011L, 0);
 
-        pixivDatabase.insertArtwork(12345L, "new", "/new", 2, "png", 1700000012L, 1);
+        insertArtwork(12345L, "new", "/new", 2, "png", 1700000012L, 1);
 
         ArtworkRecord record = pixivDatabase.getArtwork(12345L);
         assertThat(record).isNotNull();
@@ -341,8 +371,8 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("软删除的作品不再出现在历史 ID 列表中")
     void shouldExcludeDeletedFromIdLists() {
-        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", 1700000020L, 0);
-        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", 1700000021L, 0);
+        insertArtwork(1L, "a", "/a", 1, "jpg", 1700000020L, 0);
+        insertArtwork(2L, "b", "/b", 1, "jpg", 1700000021L, 0);
         pixivDatabase.markArtworkDeleted(2L);
 
         assertThat(pixivDatabase.getAllArtworkIds()).containsExactly(1L);
@@ -354,9 +384,9 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("获取所有作品ID")
     void shouldReturnAllArtworkIds() {
-        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", 1700000020L, 0);
-        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", 1700000021L, 0);
-        pixivDatabase.insertArtwork(3L, "c", "/c", 1, "jpg", 1700000022L, 0);
+        insertArtwork(1L, "a", "/a", 1, "jpg", 1700000020L, 0);
+        insertArtwork(2L, "b", "/b", 1, "jpg", 1700000021L, 0);
+        insertArtwork(3L, "c", "/c", 1, "jpg", 1700000022L, 0);
 
         List<Long> ids = pixivDatabase.getAllArtworkIds();
         assertThat(ids).containsExactlyInAnyOrder(1L, 2L, 3L);
@@ -367,9 +397,9 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("按时间倒序排列")
     void shouldReturnIdsSortedByTimeDesc() {
-        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", 1700000030L, 0);
-        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", 1700000032L, 0);
-        pixivDatabase.insertArtwork(3L, "c", "/c", 1, "jpg", 1700000031L, 0);
+        insertArtwork(1L, "a", "/a", 1, "jpg", 1700000030L, 0);
+        insertArtwork(2L, "b", "/b", 1, "jpg", 1700000032L, 0);
+        insertArtwork(3L, "c", "/c", 1, "jpg", 1700000031L, 0);
 
         List<Long> ids = pixivDatabase.getArtworkIdsSortedByTimeDesc();
         assertThat(ids).containsExactly(2L, 3L, 1L);
@@ -381,7 +411,7 @@ class PixivDatabaseTest {
     @DisplayName("分页查询按时间倒序")
     void shouldReturnPagedResults() {
         for (int i = 1; i <= 20; i++) {
-            pixivDatabase.insertArtwork(i, "art" + i, "/path/" + i, 1, "jpg", 1700000040L + i, 0);
+            insertArtwork((long) i, "art" + i, "/path/" + i, 1, "jpg", 1700000040L + i, 0);
         }
 
         List<Long> page0 = pixivDatabase.getArtworkIdsSortedByTimeDescPaged(0, 5);
@@ -396,9 +426,9 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("按作者排序分页时应将 null authorId 排在最后")
     void shouldReturnPagedResultsSortedByAuthorId() {
-        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", 100L, 0, 20L);
-        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", 200L, 0, null);
-        pixivDatabase.insertArtwork(3L, "c", "/c", 1, "jpg", 150L, 0, 10L);
+        pixivDatabase.insertArtwork(artwork(1L, "a", "/a", 1, "jpg", 100L, 0).authorId(20L).build());
+        pixivDatabase.insertArtwork(artwork(2L, "b", "/b", 1, "jpg", 200L, 0).build());
+        pixivDatabase.insertArtwork(artwork(3L, "c", "/c", 1, "jpg", 150L, 0).authorId(10L).build());
 
         List<Long> ids = pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged(0, 10);
 
@@ -408,8 +438,8 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("应更新作品 authorId 并查询缺失 authorId 的记录")
     void shouldUpdateAndQueryMissingAuthorIds() {
-        pixivDatabase.insertArtwork(10L, "a", "/a", 1, "jpg", 1000L, 0, null);
-        pixivDatabase.insertArtwork(11L, "b", "/b", 1, "jpg", 1001L, 0, 88L);
+        pixivDatabase.insertArtwork(artwork(10L, "a", "/a", 1, "jpg", 1000L, 0).build());
+        pixivDatabase.insertArtwork(artwork(11L, "b", "/b", 1, "jpg", 1001L, 0).authorId(88L).build());
 
         assertThat(pixivDatabase.getArtworkIdsMissingAuthor()).containsExactly(10L);
 
@@ -426,8 +456,8 @@ class PixivDatabaseTest {
     void shouldCountArtworks() {
         assertThat(pixivDatabase.countArtworks()).isZero();
 
-        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", 1700000050L, 0);
-        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", 1700000051L, 0);
+        insertArtwork(1L, "a", "/a", 1, "jpg", 1700000050L, 0);
+        insertArtwork(2L, "b", "/b", 1, "jpg", 1700000051L, 0);
 
         assertThat(pixivDatabase.countArtworks()).isEqualTo(2);
     }
@@ -441,7 +471,7 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("更新移动信息")
         void shouldUpdateMoveInfo() {
-            pixivDatabase.insertArtwork(12345L, "test", "/original/path", 1, "jpg", 1700000060L, 0);
+            insertArtwork(12345L, "test", "/original/path", 1, "jpg", 1700000060L, 0);
 
             pixivDatabase.updateArtworkMove(12345L, "/new/path", 1700000070L);
 
@@ -454,7 +484,7 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("移动路径末尾斜杠应被去除")
         void shouldStripTrailingSlashOnMove() {
-            pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000061L, 0);
+            insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000061L, 0);
 
             pixivDatabase.updateArtworkMove(12345L, "/new/path/", 1700000071L);
 
@@ -465,8 +495,8 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("传入 classifierTargetFolder 应把它注册为前缀，子目录共用 {N}/<seq>")
         void shouldRegisterClassifierTargetFolderAsPrefix() {
-            pixivDatabase.insertArtwork(701001L, "a", "/orig/a", 1, "jpg", 1700000400L, 0);
-            pixivDatabase.insertArtwork(701002L, "b", "/orig/b", 1, "jpg", 1700000401L, 0);
+            insertArtwork(701001L, "a", "/orig/a", 1, "jpg", 1700000400L, 0);
+            insertArtwork(701002L, "b", "/orig/b", 1, "jpg", 1700000401L, 0);
 
             String preset = "/cls/preset-root";
             // 多图先落到编号子目录，应被编码到同一个 preset 前缀下
@@ -483,8 +513,8 @@ class PixivDatabaseTest {
         @Test
         @DisplayName("移动到未注册路径时应自动注册前缀，下次同前缀子目录直接编码")
         void shouldAutoRegisterUnknownMoveTargetAsPrefix() {
-            pixivDatabase.insertArtwork(700001L, "a", "/orig/a", 1, "jpg", 1700000200L, 0);
-            pixivDatabase.insertArtwork(700002L, "b", "/orig/b", 1, "jpg", 1700000201L, 0);
+            insertArtwork(700001L, "a", "/orig/a", 1, "jpg", 1700000200L, 0);
+            insertArtwork(700002L, "b", "/orig/b", 1, "jpg", 1700000201L, 0);
 
             String firstTarget = "/dyn/added-after-startup";
             pixivDatabase.updateArtworkMove(700001L, firstTarget, 1700000300L);
@@ -506,7 +536,7 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("通过移动路径查找作品")
     void shouldFindArtworkByMoveFolder() {
-        pixivDatabase.insertArtwork(12345L, "test", "/original", 1, "jpg", 1700000080L, 0);
+        insertArtwork(12345L, "test", "/original", 1, "jpg", 1700000080L, 0);
         pixivDatabase.updateArtworkMove(12345L, "/moved/12345", 1700000090L);
 
         ArtworkRecord record = pixivDatabase.getArtworkByMoveFolder("/moved/12345");
@@ -530,8 +560,8 @@ class PixivDatabaseTest {
     @Test
     @DisplayName("查找早于指定时间的作品")
     void shouldReturnArtworksOlderThan() {
-        pixivDatabase.insertArtwork(1L, "old", "/old", 1, "jpg", 1000L, 0);
-        pixivDatabase.insertArtwork(2L, "new", "/new", 1, "jpg", 2000L, 0);
+        insertArtwork(1L, "old", "/old", 1, "jpg", 1000L, 0);
+        insertArtwork(2L, "new", "/new", 1, "jpg", 2000L, 0);
 
         List<ArtworkRecord> old = pixivDatabase.getArtworksOlderThan(1500L);
         assertThat(old).hasSize(1);
@@ -588,15 +618,34 @@ class PixivDatabaseTest {
     @DisplayName("getUniqueTime 应返回不与已有记录冲突的时间戳")
     void shouldReturnUniqueTime() {
         long time1 = pixivDatabase.getUniqueTime();
-        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", time1, 0);
+        insertArtwork(1L, "a", "/a", 1, "jpg", time1, 0);
 
         long time2 = pixivDatabase.getUniqueTime();
         assertThat(time2).isGreaterThanOrEqualTo(time1);
 
         // 确保 time2 与 time1 不冲突
-        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", time2, 0);
+        insertArtwork(2L, "b", "/b", 1, "jpg", time2, 0);
         assertThat(pixivDatabase.hasArtwork(2L)).isTrue();
     }
+
+    private void insertArtwork(long artworkId, String title, String folder, int count,
+                               String extensions, long time, Integer xRestrict) {
+        pixivDatabase.insertArtwork(artwork(artworkId, title, folder, count, extensions, time, xRestrict).build());
+    }
+
+    private static InsertArtworkArgument.InsertArtworkArgumentBuilder artwork(
+            long artworkId, String title, String folder, int count,
+            String extensions, long time, Integer xRestrict) {
+        return InsertArtworkArgument.builder()
+                .artworkId(artworkId)
+                .title(title)
+                .folder(folder)
+                .count(count)
+                .extensions(extensions)
+                .time(time)
+                .xRestrict(xRestrict);
+    }
+
     @Test
     @DisplayName("重复初始化时不应因 authorId 列迁移失败")
     void shouldAllowRepeatedInit() {
