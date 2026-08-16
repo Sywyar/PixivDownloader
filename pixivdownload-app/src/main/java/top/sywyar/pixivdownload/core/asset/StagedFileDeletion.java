@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -116,9 +117,15 @@ public class StagedFileDeletion {
     protected void restoreFile(Path staged, Path original) throws IOException {
         PlainFilePathGuard.requirePlainRegularFile(staged);
         PlainFilePathGuard.requirePlainParent(original, true);
-        Files.copy(staged, original,
-                StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING,
-                LinkOption.NOFOLLOW_LINKS);
+        try {
+            Files.copy(staged, original,
+                    StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS);
+        } catch (FileAlreadyExistsException conflict) {
+            PlainFilePathGuard.requirePlainRegularFile(original);
+            if (Files.mismatch(staged, original) != -1L) {
+                throw conflict;
+            }
+        }
         PlainFilePathGuard.requirePlainRegularFile(original);
     }
 

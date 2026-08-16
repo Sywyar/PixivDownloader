@@ -103,6 +103,62 @@ class StagedFileDeletionTest {
     }
 
     @Test
+    @DisplayName("回滚目标被并发创建为相同内容时视为已复原且清理暂存")
+    void acceptsConcurrentSameContentRecreation() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("same-content"));
+        Path restored = Files.writeString(dir.resolve("a.jpg"), "a");
+        Path poison = Files.writeString(dir.resolve("b.jpg"), "b");
+
+        assertFalse(failAfterRecreating(poison, restored, "a")
+                .deleteAtomically(List.of(restored, poison)));
+
+        assertEquals("a", Files.readString(restored));
+        assertEquals(0, stagingResidueCount(), "相同内容已就位时暂存目录应无残留");
+    }
+
+    @Test
+    @DisplayName("回滚目标被并发创建为不同内容时不覆盖并保留恢复清单")
+    void retainsStagingForConcurrentDifferentContent() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("different-content"));
+        Path restored = Files.writeString(dir.resolve("a.jpg"), "old");
+        Path poison = Files.writeString(dir.resolve("b.jpg"), "b");
+
+        assertFalse(failAfterRecreating(poison, restored, "new")
+                .deleteAtomically(List.of(restored, poison)));
+
+        assertEquals("new", Files.readString(restored), "并发创建的新内容不得被回滚覆盖");
+        Path stagingDir = stagingSubdirectories().get(0);
+        assertTrue(Files.exists(stagingDir.resolve("manifest.properties")), "恢复清单应保留");
+        assertEquals("old", Files.readString(stagingDir.resolve("0_a.jpg")), "原内容应保留在暂存备份中");
+    }
+
+    @Test
+    @DisplayName("回滚目标被并发创建为非普通文件时不触碰并保留恢复清单")
+    void retainsStagingForConcurrentUnsafeTarget() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("unsafe-target"));
+        Path restored = Files.writeString(dir.resolve("a.jpg"), "a");
+        Path poison = Files.writeString(dir.resolve("b.jpg"), "b");
+        Path normalizedPoison = poison.toAbsolutePath().normalize();
+        StagedFileDeletion failing = new StagedFileDeletion(TestI18nBeans.appMessages()) {
+            @Override
+            protected void deleteFile(Path original) throws IOException {
+                if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
+                    Files.createDirectory(restored);
+                    throw new IOException("simulated delete lock");
+                }
+                super.deleteFile(original);
+            }
+        };
+
+        assertFalse(failing.deleteAtomically(List.of(restored, poison)));
+
+        assertTrue(Files.isDirectory(restored), "并发创建的目录不得被回滚替换");
+        Path stagingDir = stagingSubdirectories().get(0);
+        assertTrue(Files.exists(stagingDir.resolve("manifest.properties")), "恢复清单应保留");
+        assertEquals("a", Files.readString(stagingDir.resolve("0_a.jpg")), "原内容应保留在暂存备份中");
+    }
+
+    @Test
     @DisplayName("回滚中某文件复制失败：返回 false，暂存子目录与恢复清单保留，未复原文件留有暂存备份")
     void retainsStagingWhenRollbackCopyFails() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("work"));
@@ -244,6 +300,20 @@ class StagedFileDeletionTest {
                     throw new IOException("simulated restore lock on " + original);
                 }
                 super.restoreFile(staged, original);
+            }
+        };
+    }
+
+    private static StagedFileDeletion failAfterRecreating(Path deletePoison, Path restoreTarget, String content) {
+        Path normalizedPoison = deletePoison.toAbsolutePath().normalize();
+        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+            @Override
+            protected void deleteFile(Path original) throws IOException {
+                if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
+                    Files.writeString(restoreTarget, content);
+                    throw new IOException("simulated delete lock");
+                }
+                super.deleteFile(original);
             }
         };
     }

@@ -184,10 +184,16 @@ public final class DeleteStagingManifest {
      */
     private static boolean restoreIfMissing(Path subdirectory, Entry entry) {
         Path original = entry.originalFile();
-        if (Files.exists(original, LinkOption.NOFOLLOW_LINKS)) {
-            return PlainFilePathGuard.isPlainRegularFile(original);
-        }
         Path staged = subdirectory.resolve(entry.stagedFileName());
+        if (Files.exists(original, LinkOption.NOFOLLOW_LINKS)) {
+            try {
+                return PlainFilePathGuard.isPlainRegularFile(original)
+                        && PlainFilePathGuard.isPlainRegularFile(staged)
+                        && Files.mismatch(staged, original) == -1L;
+            } catch (IOException e) {
+                return false;
+            }
+        }
         if (!PlainFilePathGuard.isPlainRegularFile(staged)) {
             // 原文件已删且暂存副本也不可用：这一份无法恢复，记 error 并据此保留子目录。
             log.error(MessageBundles.get("runtime.log.delete-staging.staged-missing", original, staged));

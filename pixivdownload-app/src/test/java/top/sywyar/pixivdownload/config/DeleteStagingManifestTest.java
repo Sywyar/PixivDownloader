@@ -62,8 +62,8 @@ class DeleteStagingManifestTest {
     }
 
     @Test
-    @DisplayName("恢复：原文件仍在时不覆盖（按现有文件为准），但仍清理暂存子目录")
-    void doesNotOverwriteExistingOriginal() throws IOException {
+    @DisplayName("恢复：原文件内容与暂存副本不同时不覆盖并保留暂存子目录")
+    void keepsStagingWhenExistingOriginalDiffers() throws IOException {
         Path stagingRoot = Files.createDirectories(tempDir.resolve("delete-staging"));
         Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
         Path original = Files.writeString(
@@ -75,6 +75,25 @@ class DeleteStagingManifestTest {
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
         assertThat(Files.readString(original, StandardCharsets.UTF_8)).isEqualTo("current");
+        assertThat(subdir).isDirectory();
+        assertThat(subdir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME)).exists();
+        assertThat(subdir.resolve("0_300_p0.jpg")).hasContent("stale-staged");
+    }
+
+    @Test
+    @DisplayName("恢复：原文件内容与暂存副本相同时视为已就位并清理暂存子目录")
+    void cleansStagingWhenExistingOriginalMatches() throws IOException {
+        Path stagingRoot = Files.createDirectories(tempDir.resolve("delete-staging"));
+        Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
+        Path original = Files.writeString(
+                Files.createDirectories(tempDir.resolve("300")).resolve("300_p0.jpg"),
+                "same", StandardCharsets.UTF_8);
+        Files.writeString(subdir.resolve("0_300_p0.jpg"), "same", StandardCharsets.UTF_8);
+        DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
+
+        DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
+
+        assertThat(Files.readString(original, StandardCharsets.UTF_8)).isEqualTo("same");
         assertThat(subdir).doesNotExist();
     }
 
