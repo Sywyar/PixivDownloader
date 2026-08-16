@@ -48,6 +48,10 @@ function validMasterDetail() {
                     required_status_checks: REQUIRED.map((context) => ({ context })),
                 },
             },
+            {
+                type: 'pull_request',
+                parameters: { required_approving_review_count: 0 },
+            },
             { type: 'deletion', parameters: {} },
             { type: 'non_fast_forward', parameters: {} },
         ],
@@ -71,7 +75,7 @@ function validTagDetail(epoch = 3) {
 }
 
 function validTagDetails(epoch3 = validTagDetail()) {
-    return [validTagDetail(2), epoch3];
+    return [validTagDetail(2), epoch3, validTagDetail(4)];
 }
 
 /** 摘要只含 id / name / target / enforcement；真实 API 的摘要 conditions 为 null（必须用 detail 分类）。 */
@@ -145,7 +149,8 @@ test('doctor：list endpoint 摘要 → 必须 follow detail endpoint（摘要�
     assert.ok(calls.some((u) => /\/rulesets\/101$/.test(u)), '必须请求 master detail endpoint');
     assert.ok(calls.some((u) => /\/rulesets\/202$/.test(u)), '必须请求 tag detail endpoint');
     assert.ok(calls.some((u) => /\/rulesets\/203$/.test(u)), '必须请求全部 tag detail endpoint');
-    assert.ok(calls.filter((u) => /\/rulesets\/\d+$/.test(u)).length >= 3,
+    assert.ok(calls.some((u) => /\/rulesets\/204$/.test(u)), '必须请求当前 root detail endpoint');
+    assert.ok(calls.filter((u) => /\/rulesets\/\d+$/.test(u)).length >= 4,
         'list 之后必须逐个 follow detail（用 detail 的 conditions 分类）');
 });
 
@@ -156,22 +161,23 @@ test('doctor：master + root tag detail 完全正确 → success (exit 0)', asyn
 
 test('doctor：声明多个 Epoch root 时逐个要求受保护 ruleset', async () => {
     const master = validMasterDetail();
-    const [epoch2, epoch3] = validTagDetails();
+    const [epoch2, epoch3, epoch4] = validTagDetails();
     const completeFetch = makeFetch(
-        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3)],
-        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3 });
+        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3), summaryOf(epoch4)],
+        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3, [epoch4.id]: epoch4 });
     const complete = await runDoctor({
         fetchJson: completeFetch.fetchJson, token: 't', repo: REPO, invariants,
     });
     assert.equal(complete.exitCode, 0, JSON.stringify(complete.problems));
 
     const missingFetch = makeFetch(
-        [summaryOf(master), summaryOf(epoch2)], { [master.id]: master, [epoch2.id]: epoch2 });
+        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3)],
+        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3 });
     const missing = await runDoctor({
         fetchJson: missingFetch.fetchJson, token: 't', repo: REPO, invariants,
     });
     assert.equal(missing.exitCode, 1);
-    assert.ok(missing.problems.some((p) => /refs\/tags\/i18n-gate-epoch-3-root/.test(p)));
+    assert.ok(missing.problems.some((p) => /refs\/tags\/i18n-gate-epoch-4-root/.test(p)));
 });
 
 test('doctor：strict_required_status_checks_policy=false → violation (exit 1)', async () => {

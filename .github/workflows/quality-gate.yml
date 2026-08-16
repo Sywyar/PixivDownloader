@@ -2,24 +2,22 @@ name: Quality Gate
 
 on:
   push:
-    # 任意代码分支 push 都触发完整 Quality Gate（不再限定 master）；
-    # gh-pages 是纯文档分支，历史不包含 Epoch 3 root，触发只会确定性失败，因此排除
     branches-ignore: [gh-pages]
   pull_request:
   merge_group:
   workflow_dispatch:
     inputs:
       trusted_base_sha:
-        description: 'Explicit trusted base commit for this dispatch (optional; falls back to the protected default branch remote ref)'
+        description: 'Protected predecessor commit (optional)'
         required: false
         type: string
       root_admission:
-        description: 'ROOT ADMISSION mode (human-only): treat this dispatch as the Gate Epoch 3 root admission run'
+        description: 'Admit the dispatched commit as the Gate Epoch 4 root'
         required: false
         type: boolean
         default: false
       root_candidate_sha:
-        description: 'Root candidate commit that must equal the dispatched github.sha for ROOT_ADMISSION'
+        description: 'Root commit; must equal the dispatched commit'
         required: false
         type: string
   workflow_call:
@@ -35,1157 +33,129 @@ jobs:
   java-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: temurin
           cache: maven
-
       - name: Compile external plugin test fixtures
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
-
       - name: Run Java tests
         run: mvn -B -ntp test -Dexec.skip=true -Duser.language=en -Duser.country=US
+
+  javascript-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run JavaScript tests
+        run: npm run test:js
+      - name: Run web standards guard
+        run: npm run test:web-standards
 
   signature-guard:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-
-      # Gate Epoch 3 bootstrap（三个 gate job 共用同一份语义，镜像 scripts/ci/resolve-trusted-base.mjs）：
-      # - 解析 root tag refs/tags/i18n-gate-epoch-3-root：缺失 → 仅显式 workflow_dispatch
-      #   root_admission=true + root_candidate_sha == github.sha 可进入 ROOT_ADMISSION，否则 fail closed；
-      # - candidate == root → ROOT_ADMISSION（root 自身 gate + 全量 root self-protection）；
-      # - candidate 是 root 后代 → NORMAL：trusted base 优先级 = inputs.trusted_base_sha
-      #   （reusable workflow 的 github.event_name 是调用方原始 event，不能依赖它）→
-      #   pull_request base.sha / merge_group base_sha / protected push event.before /
-      #   other push merge-base(candidate, protected default branch) /
-      #   workflow_dispatch 默认分支远端；base 必须 != candidate、必须包含 Epoch 3 root；
-      # - 其它 candidate（不包含 root）→ fail closed，不尝试任何 v1 / legacy / transition 路径；
-      # - 物化路径含 package-lock.json；物化结果与 trusted helper
-      #   （resolve-trusted-base.mjs --mode + materialize-trusted-gate.sh）交叉验证。
-      - name: Resolve Gate Epoch 3 root and trusted base
+      - name: Resolve protected predecessor
         run: |
-          set -euo pipefail
-          zero="0000000000000000000000000000000000000000"
-          candidate="$GITHUB_SHA"
-          pr_head="${{ github.event.pull_request.head.sha }}"
-          pr_base="${{ github.event.pull_request.base.sha }}"
-          default_branch="${{ github.event.repository.default_branch }}"
-          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-3-root^{commit}" 2>/dev/null || printf '%s' '')"
-          admission=""
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
-            admission="1"
-          fi
-          if [ -n "$admission" ]; then
-            root_candidate="${{ inputs.root_candidate_sha }}"
-            if [ -n "$root_candidate" ] && [ "$root_candidate" != "$GITHUB_SHA" ]; then
-              echo "root_candidate_sha $root_candidate does not equal the dispatched commit $GITHUB_SHA; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ -n "$root" ]; then
-            if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$pr_head" = "$root" ]; then
-              git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch"
-              default_tip="$(git rev-parse --verify "refs/remotes/origin/$default_branch^{commit}")"
-              root_line="$(git rev-list --parents -n 1 "$root")"
-              merge_line="$(git rev-list --parents -n 1 "$GITHUB_SHA")"
-              root_tree="$(git rev-parse --verify "$root^{tree}")"
-              merge_tree="$(git rev-parse --verify "$GITHUB_SHA^{tree}")"
-              if [ "$default_tip" != "$pr_base" ] || [ "$root_line" != "$root $pr_base" ] \
-                  || [ "$merge_line" != "$GITHUB_SHA $pr_base $root" ] || [ "$merge_tree" != "$root_tree" ]; then
-                echo "exact root pull request admission requires live base == root parent, merge parents == [base, root], and merge tree == root tree; fail closed" >&2
-                exit 1
-              fi
-              candidate="$root"
-              mode="ROOT_ADMISSION"
-            elif [ "$root" = "$candidate" ]; then
-              mode="ROOT_ADMISSION"
-            elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
-              mode="NORMAL"
-            else
-              echo "candidate does not descend from the Gate Epoch 3 trust root" >&2
-              exit 1
-            fi
-          else
-            if [ -n "$admission" ]; then
-              mode="ROOT_ADMISSION"
-              root="$candidate"
-            else
-              echo "Gate Epoch 3 trust root has not been installed." >&2
-              echo "refs/tags/i18n-gate-epoch-3-root is missing; only an explicit workflow_dispatch" >&2
-              echo "root_admission=true with root_candidate_sha may enter ROOT_ADMISSION; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ "$mode" = "NORMAL" ]; then
-            base=""
-            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              base="${{ inputs.trusted_base_sha }}"
-            else
-              case "$GITHUB_EVENT_NAME" in
-                pull_request)
-                  base="${{ github.event.pull_request.base.sha }}"
-                  ;;
-                merge_group)
-                  base="${{ github.event.merge_group.base_sha }}"
-                  ;;
-                push)
-                  default_branch="${{ github.event.repository.default_branch }}"
-                  if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
-                    echo "warning: cannot fetch the protected default branch; continuing (may fail closed later)" >&2
-                  fi
-                  default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                  if [ -z "$default_tip" ]; then
-                    echo "cannot resolve the protected default branch remote ref; fail closed" >&2
-                    exit 1
-                  fi
-                  if [ "$GITHUB_REF" = "refs/heads/$default_branch" ]; then
-                    before="${{ github.event.before }}"
-                    if [ -z "$before" ] || [ "$before" = "$zero" ] \
-                        || ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
-                      echo "protected branch push has no valid event.before; fail closed" >&2
-                      exit 1
-                    fi
-                    root_line="$(git rev-list --parents -n 1 "$root")"
-                    candidate_line="$(git rev-list --parents -n 1 "$candidate")"
-                    root_tree="$(git rev-parse --verify "$root^{tree}")"
-                    candidate_tree="$(git rev-parse --verify "$candidate^{tree}")"
-                    if [ "$root_line" = "$root $before" ] \
-                        && [ "$candidate_line" = "$candidate $before $root" ] \
-                        && [ "$candidate_tree" = "$root_tree" ]; then
-                      base="$root"
-                    else
-                      base="$before"
-                    fi
-                  else
-                    # Feature branch event.before is not trusted: it may be a previously failed verifier.
-                    fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
-                    if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
-                      echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
-                      exit 1
-                    fi
-                    base="$fork_base"
-                  fi
-                  ;;
-                workflow_dispatch)
-                  default_branch="${{ github.event.repository.default_branch }}"
-                  if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
-                    echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
-                  fi
-                  base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                  ;;
-                *)
-                  echo "cannot determine a trusted base for event $GITHUB_EVENT_NAME; fail closed" >&2
-                  exit 1
-                  ;;
-              esac
-            fi
-            if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "cannot determine a valid trusted base for $candidate (event $GITHUB_EVENT_NAME); fail closed" >&2
-              exit 1
-            fi
-            if [ "$base" = "$candidate" ]; then
-              echo "trusted base $base equals the candidate $candidate; fail closed" >&2
-              exit 1
-            fi
-            if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-              echo "trusted base $base is not present in the local object database; fail closed" >&2
-              exit 1
-            fi
-            if ! git merge-base --is-ancestor "$root" "$base" >/dev/null 2>&1; then
-              echo "trusted base $base does not descend from the Gate Epoch 3 trust root $root; fail closed" >&2
-              exit 1
-            fi
-            if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
-              echo "signature-guard trusted base $base is not an ancestor of candidate $candidate; fail closed" >&2
-              exit 1
-            fi
-            default_branch="${{ github.event.repository.default_branch }}"
-            if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
-              echo "warning: cannot fetch the protected default branch; continuing (will fail closed if unavailable)" >&2
-            fi
-            default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-            if [ -z "$default_tip" ] || ! git merge-base --is-ancestor "$base" "$default_tip" >/dev/null 2>&1; then
-              echo "trusted base $base is not in the protected default branch history; fail closed" >&2
-              exit 1
-            fi
-            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              if [ "$default_tip" = "$candidate" ]; then
-                protected_predecessor="$(git rev-parse --verify --quiet "$candidate^{commit}^" 2>/dev/null || printf '%s' '')"
-              else
-                protected_predecessor="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
-              fi
-              if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
-                echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
-                exit 1
-              fi
-            fi
-          else
-            base="$root"
-            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 3 trust root candidate; running the root gate with the full root self-protection suite." >&2
-          fi
-          # Candidate policy proposes the next monotonic minimum. The protected predecessor must
-          # satisfy it before any verifier code is materialized or executed.
-          minimum_json="$(node -e 'const fs=require("fs"),p=JSON.parse(fs.readFileSync("scripts/i18n/gate-policy.json","utf8")),m=p.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||m.contractVersion<1||!Number.isInteger(m.schemaVersion)||m.schemaVersion<1||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length||m.requiredFiles.some(r=>typeof r!=="string"||!r||r.startsWith("/")||r.includes("\\")||r.split("/").includes("..")))process.exit(1);process.stdout.write(JSON.stringify(m))' 2>/dev/null || printf '%s' '')"
-          if [ -z "$minimum_json" ]; then
-            echo "candidate gate-policy.json has no valid minimumTrustedVerifier; fail closed" >&2
-            exit 1
-          fi
-          base_policy="$(git show "$base:scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
-          if [ -z "$base_policy" ]; then
-            echo "trusted base $base has no gate-policy.json; fail closed" >&2
-            exit 1
-          fi
-          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.contractVersion)?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.schemaVersion)?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          minimum_contract="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).contractVersion))' "$minimum_json")"
-          minimum_schema="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).schemaVersion))' "$minimum_json")"
-          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt "$minimum_contract" ]; then
-            echo "trusted base $base contractVersion ($base_contract) is below minimumTrustedVerifier $minimum_contract; verifier rollback is refused; fail closed" >&2
-            exit 1
-          fi
-          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt "$minimum_schema" ]; then
-            echo "trusted base $base schemaVersion ($base_schema) is below minimumTrustedVerifier $minimum_schema; fail closed" >&2
-            exit 1
-          fi
-          minimum_files="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).requiredFiles.join("\n"))' "$minimum_json")"
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "${{ github.event.before }}" --ref "$GITHUB_REF" --pr-head "${{ github.event.pull_request.head.sha }}" --pr-base "${{ github.event.pull_request.base.sha }}" --merge-group-base "${{ github.event.merge_group.base_sha }}" --input-base "${{ inputs.trusted_base_sha }}" --default-branch "${{ github.event.repository.default_branch }}" --root-admission "${{ inputs.root_admission }}" --root-candidate-sha "${{ inputs.root_candidate_sha }}" --mode > "$RUNNER_TEMP/gate-base.json"
+          node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
+      - name: Materialize protected verifier
+        run: |
+          GATE_DIR="$RUNNER_TEMP/trusted-gate"
+          mkdir -p "$GATE_DIR"
           while IFS= read -r rel; do
-            if [ -z "$rel" ] || ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
-              echo "trusted base $base is missing minimumTrustedVerifier file $rel; fail closed" >&2
-              exit 1
-            fi
-          done <<< "$minimum_files"
-          # 物化 trusted gate bundle（checkout-index --stdin 必须显式提供 < paths-file）
-          gate="$RUNNER_TEMP/gate"
-          paths_file="$gate/paths.txt"
-          index_file="$gate/index"
-          out="$gate/out"
-          mkdir -p "$gate" "$out"
-          rm -f "$paths_file" "$index_file"
-          git ls-tree -r --name-only "$base" -- \
-            scripts/i18n \
-            scripts/hooks \
-            scripts/ci \
-            scripts/sync-shared-snippets.ps1 \
-            .github/workflows/quality-gate.yml \
-            .github/workflows/shared-snippets-check.yml \
-            .github/workflows/release.yml \
-            .github/workflows/nightly.yml \
-            .github/workflows/publish-plugins.yml \
-            package.json \
-            package-lock.json \
-            > "$paths_file"
-          test -s "$paths_file" || { echo "trusted base $base has no gate paths; fail closed" >&2; exit 1; }
-          GIT_INDEX_FILE="$index_file" git read-tree "$base"
-          GIT_INDEX_FILE="$index_file" git -c core.autocrlf=false checkout-index \
-            --stdin \
-            --prefix="$out/" \
-            < "$paths_file"
-          test -f "$out/scripts/i18n/check.mjs" || { echo "gate materialization is empty; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/hooks/pre-push-guard.sh" || { echo "gate materialization misses the guard; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/i18n/gate-contract.mjs" || { echo "gate materialization misses the contract; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
-          # trusted base 必须满足当前 verifier baseline：gate-surface.json 是强制物化合同。
-          # 旧 verifier（predates 清单 / 旧 contract）一律无资格审核新标准候选 → FAIL CLOSED
-          test -f "$out/scripts/ci/gate-surface.json" || {
-            echo "trusted base $base does not satisfy the current Gate Epoch 3 verifier baseline; fail closed" >&2
-            exit 1
-          }
-          # 与 trusted helper 交叉验证（helper 来自 trusted base；候选不能自我批准）
-          if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
-            helper_default_branch="${{ github.event.repository.default_branch }}"
-            helper_before="${{ github.event.before }}"
-            if [ "$GITHUB_EVENT_NAME" = "push" ] \
-                && [ "$GITHUB_REF" != "refs/heads/$helper_default_branch" ]; then
-              helper_before="$zero"
-            fi
-            helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$candidate" \
-              --before "$helper_before" \
-              --pr-base "${{ github.event.pull_request.base.sha }}" \
-              --merge-group-base "${{ github.event.merge_group.base_sha }}" \
-              --input-base "${{ inputs.trusted_base_sha }}" \
-              --root-admission "${{ inputs.root_admission }}" \
-              --root-candidate-sha "${{ inputs.root_candidate_sha }}" \
-              --default-branch "${{ github.event.repository.default_branch }}" \
-              --mode)"
-            printf '%s' "$helper" > "$gate/helper.json"
-            helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
-            helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ -f "$out/scripts/ci/materialize-trusted-gate.sh" ]; then
-            out2="$gate/out2"
-            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
-              --repo-root "$PWD" --base "$base" \
-              --output "$out2" --index "$gate/index2" --paths-file "$gate/paths2.txt" \
-              --paths 'scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml .github/workflows/release.yml .github/workflows/nightly.yml .github/workflows/publish-plugins.yml package.json package-lock.json'
-            if ! diff -r "$out" "$out2" >/dev/null 2>&1; then
-              echo "materialized gate differs from the trusted helper output; fail closed" >&2
-              exit 1
-            fi
-          fi
-          # gate-surface.json 单一事实来源交叉检查：trusted manifest 驱动的物化必须与
-          # bootstrap 硬编码 gate surface 完全一致（manifest 与硬编码列表漂移 → fail closed；
-          # candidate manifest 只作为被检查对象，不能决定检查范围）
-          if [ -f "$out/scripts/ci/gate-surface.json" ]; then
-            manifest_paths="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").join(" "))' "$out/scripts/ci/gate-surface.json")"
-            out3="$gate/out3"
-            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
-              --repo-root "$PWD" --base "$base" \
-              --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
-              --paths "$manifest_paths"
-            if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
-              echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
-              exit 1
-            fi
-          fi
-          echo "GATE_MODE=$mode" >> "$GITHUB_ENV"
-          echo "ROOT_SHA=$root" >> "$GITHUB_ENV"
-          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
-          echo "CANDIDATE_SHA=$candidate" >> "$GITHUB_ENV"
-          echo "GATE_DIR=$out" >> "$GITHUB_ENV"
-          echo "gate mode: $mode; candidate: $candidate; trusted base: $base; root: $root"
-
-      # 签名守卫必须来自 trusted base（NORMAL）或 root 自身（ROOT_ADMISSION，唯一人工例外）：
-      # 候选提交不能用自己的 guard 自我批准
-      - name: Reject reverse-engineered Douyin signature code (trusted guard)
+            mkdir -p "$GATE_DIR/$(dirname "$rel")"
+            git show "$BASE_SHA:$rel" > "$GATE_DIR/$rel"
+          done < <(node -e 'const p=require("./scripts/i18n/gate-policy.json"); console.log(p.minimumTrustedVerifier.requiredFiles.join("\n"))')
+          echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
+      - name: Run trusted signature guard
         run: |
-          set -euo pipefail
-          event_candidate="${{ github.sha }}"
-          if [ "$CANDIDATE_SHA" != "$event_candidate" ] \
-              && { [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
-                || [ "$GATE_MODE" != "ROOT_ADMISSION" ] \
-                || [ "$CANDIDATE_SHA" != "${{ github.event.pull_request.head.sha }}" ]; }; then
-            echo "resolved candidate differs from the event SHA outside exact root PR admission; fail closed" >&2
-            exit 1
-          fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: running the root guard (candidate == Epoch 3 root candidate)."
+            node scripts/ci/gate-parity.mjs --repo-root . --candidate-ref "$CANDIDATE_SHA" --invariants --signature
+          else
+            node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root . --trusted-dir "$GATE_DIR" --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA" --signature
           fi
-          bash "$GATE_DIR/scripts/hooks/pre-push-guard.sh" --repo-root "$PWD" --ref "$CANDIDATE_SHA"
 
-  javascript-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout tested commit
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run JavaScript tests
-        run: npm run test:js
-
-      - name: Run web standards guard
-        run: npm run test:web-standards
-
-  # 升级链：trusted base 的 gate 审核候选（github.sha）。
-  # 仓库内 workflow 不能被描述为绝对不可修改；真正的最终门禁必须由 GitHub Ruleset /
-  # 分支保护 / required check 提供，且可信检查器不能由同一个候选提交自行批准。
   trusted-gate-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-
       - name: Set up Node.js 24
         uses: actions/setup-node@v7
         with:
           node-version: '24'
-
-      - name: Install dependencies (yaml parser for the workflow contract)
+          cache: npm
+      - name: Install dependencies
         run: npm ci
-
-      - name: Resolve Gate Epoch 3 root and trusted base
+      - name: Resolve protected predecessor
         run: |
-          set -euo pipefail
-          zero="0000000000000000000000000000000000000000"
-          candidate="$GITHUB_SHA"
-          pr_head="${{ github.event.pull_request.head.sha }}"
-          pr_base="${{ github.event.pull_request.base.sha }}"
-          default_branch="${{ github.event.repository.default_branch }}"
-          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-3-root^{commit}" 2>/dev/null || printf '%s' '')"
-          admission=""
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
-            admission="1"
-          fi
-          if [ -n "$admission" ]; then
-            root_candidate="${{ inputs.root_candidate_sha }}"
-            if [ -n "$root_candidate" ] && [ "$root_candidate" != "$GITHUB_SHA" ]; then
-              echo "root_candidate_sha $root_candidate does not equal the dispatched commit $GITHUB_SHA; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ -n "$root" ]; then
-            if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$pr_head" = "$root" ]; then
-              git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch"
-              default_tip="$(git rev-parse --verify "refs/remotes/origin/$default_branch^{commit}")"
-              root_line="$(git rev-list --parents -n 1 "$root")"
-              merge_line="$(git rev-list --parents -n 1 "$GITHUB_SHA")"
-              root_tree="$(git rev-parse --verify "$root^{tree}")"
-              merge_tree="$(git rev-parse --verify "$GITHUB_SHA^{tree}")"
-              if [ "$default_tip" != "$pr_base" ] || [ "$root_line" != "$root $pr_base" ] \
-                  || [ "$merge_line" != "$GITHUB_SHA $pr_base $root" ] || [ "$merge_tree" != "$root_tree" ]; then
-                echo "exact root pull request admission requires live base == root parent, merge parents == [base, root], and merge tree == root tree; fail closed" >&2
-                exit 1
-              fi
-              candidate="$root"
-              mode="ROOT_ADMISSION"
-            elif [ "$root" = "$candidate" ]; then
-              mode="ROOT_ADMISSION"
-            elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
-              mode="NORMAL"
-            else
-              echo "candidate does not descend from the Gate Epoch 3 trust root" >&2
-              exit 1
-            fi
-          else
-            if [ -n "$admission" ]; then
-              mode="ROOT_ADMISSION"
-              root="$candidate"
-            else
-              echo "Gate Epoch 3 trust root has not been installed." >&2
-              echo "refs/tags/i18n-gate-epoch-3-root is missing; only an explicit workflow_dispatch" >&2
-              echo "root_admission=true with root_candidate_sha may enter ROOT_ADMISSION; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ "$mode" = "NORMAL" ]; then
-            base=""
-            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              base="${{ inputs.trusted_base_sha }}"
-            else
-              case "$GITHUB_EVENT_NAME" in
-                pull_request)
-                  base="${{ github.event.pull_request.base.sha }}"
-                  ;;
-                merge_group)
-                  base="${{ github.event.merge_group.base_sha }}"
-                  ;;
-                push)
-                  default_branch="${{ github.event.repository.default_branch }}"
-                  if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
-                    echo "warning: cannot fetch the protected default branch; continuing (may fail closed later)" >&2
-                  fi
-                  default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                  if [ -z "$default_tip" ]; then
-                    echo "cannot resolve the protected default branch remote ref; fail closed" >&2
-                    exit 1
-                  fi
-                  if [ "$GITHUB_REF" = "refs/heads/$default_branch" ]; then
-                    before="${{ github.event.before }}"
-                    if [ -z "$before" ] || [ "$before" = "$zero" ] \
-                        || ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
-                      echo "protected branch push has no valid event.before; fail closed" >&2
-                      exit 1
-                    fi
-                    root_line="$(git rev-list --parents -n 1 "$root")"
-                    candidate_line="$(git rev-list --parents -n 1 "$candidate")"
-                    root_tree="$(git rev-parse --verify "$root^{tree}")"
-                    candidate_tree="$(git rev-parse --verify "$candidate^{tree}")"
-                    if [ "$root_line" = "$root $before" ] \
-                        && [ "$candidate_line" = "$candidate $before $root" ] \
-                        && [ "$candidate_tree" = "$root_tree" ]; then
-                      base="$root"
-                    else
-                      base="$before"
-                    fi
-                  else
-                    # Feature branch event.before is not trusted: it may be a previously failed verifier.
-                    fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
-                    if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
-                      echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
-                      exit 1
-                    fi
-                    base="$fork_base"
-                  fi
-                  ;;
-                workflow_dispatch)
-                  default_branch="${{ github.event.repository.default_branch }}"
-                  if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
-                    echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
-                  fi
-                  base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                  ;;
-                *)
-                  echo "cannot determine a trusted base for event $GITHUB_EVENT_NAME; fail closed" >&2
-                  exit 1
-                  ;;
-              esac
-            fi
-            if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "cannot determine a valid trusted base for $candidate (event $GITHUB_EVENT_NAME); fail closed" >&2
-              exit 1
-            fi
-            if [ "$base" = "$candidate" ]; then
-              echo "trusted base $base equals the candidate $candidate; fail closed" >&2
-              exit 1
-            fi
-            if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-              echo "trusted base $base is not present in the local object database; fail closed" >&2
-              exit 1
-            fi
-            if ! git merge-base --is-ancestor "$root" "$base" >/dev/null 2>&1; then
-              echo "trusted base $base does not descend from the Gate Epoch 3 trust root $root; fail closed" >&2
-              exit 1
-            fi
-            if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
-              echo "trusted-gate-contract base $base is not an ancestor of candidate $candidate; fail closed" >&2
-              exit 1
-            fi
-            default_branch="${{ github.event.repository.default_branch }}"
-            if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
-              echo "warning: cannot fetch the protected default branch; continuing (will fail closed if unavailable)" >&2
-            fi
-            default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-            if [ -z "$default_tip" ] || ! git merge-base --is-ancestor "$base" "$default_tip" >/dev/null 2>&1; then
-              echo "trusted base $base is not in the protected default branch history; fail closed" >&2
-              exit 1
-            fi
-            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              if [ "$default_tip" = "$candidate" ]; then
-                protected_predecessor="$(git rev-parse --verify --quiet "$candidate^{commit}^" 2>/dev/null || printf '%s' '')"
-              else
-                protected_predecessor="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
-              fi
-              if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
-                echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
-                exit 1
-              fi
-            fi
-          else
-            base="$root"
-            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 3 trust root candidate; running the root gate with the full root self-protection suite." >&2
-          fi
-          # Candidate policy proposes the next monotonic minimum. The protected predecessor must
-          # satisfy it before any verifier code is materialized or executed.
-          minimum_json="$(node -e 'const fs=require("fs"),p=JSON.parse(fs.readFileSync("scripts/i18n/gate-policy.json","utf8")),m=p.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||m.contractVersion<1||!Number.isInteger(m.schemaVersion)||m.schemaVersion<1||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length||m.requiredFiles.some(r=>typeof r!=="string"||!r||r.startsWith("/")||r.includes("\\")||r.split("/").includes("..")))process.exit(1);process.stdout.write(JSON.stringify(m))' 2>/dev/null || printf '%s' '')"
-          if [ -z "$minimum_json" ]; then
-            echo "candidate gate-policy.json has no valid minimumTrustedVerifier; fail closed" >&2
-            exit 1
-          fi
-          base_policy="$(git show "$base:scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
-          if [ -z "$base_policy" ]; then
-            echo "trusted base $base has no gate-policy.json; fail closed" >&2
-            exit 1
-          fi
-          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.contractVersion)?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.schemaVersion)?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          minimum_contract="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).contractVersion))' "$minimum_json")"
-          minimum_schema="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).schemaVersion))' "$minimum_json")"
-          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt "$minimum_contract" ]; then
-            echo "trusted base $base contractVersion ($base_contract) is below minimumTrustedVerifier $minimum_contract; verifier rollback is refused; fail closed" >&2
-            exit 1
-          fi
-          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt "$minimum_schema" ]; then
-            echo "trusted base $base schemaVersion ($base_schema) is below minimumTrustedVerifier $minimum_schema; fail closed" >&2
-            exit 1
-          fi
-          minimum_files="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).requiredFiles.join("\n"))' "$minimum_json")"
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "${{ github.event.before }}" --ref "$GITHUB_REF" --pr-head "${{ github.event.pull_request.head.sha }}" --pr-base "${{ github.event.pull_request.base.sha }}" --merge-group-base "${{ github.event.merge_group.base_sha }}" --input-base "${{ inputs.trusted_base_sha }}" --default-branch "${{ github.event.repository.default_branch }}" --root-admission "${{ inputs.root_admission }}" --root-candidate-sha "${{ inputs.root_candidate_sha }}" --mode > "$RUNNER_TEMP/gate-base.json"
+          node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
+      - name: Materialize protected verifier
+        run: |
+          GATE_DIR="$RUNNER_TEMP/trusted-gate"
+          mkdir -p "$GATE_DIR"
           while IFS= read -r rel; do
-            if [ -z "$rel" ] || ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
-              echo "trusted base $base is missing minimumTrustedVerifier file $rel; fail closed" >&2
-              exit 1
-            fi
-          done <<< "$minimum_files"
-          gate="$RUNNER_TEMP/gate"
-          paths_file="$gate/paths.txt"
-          index_file="$gate/index"
-          out="$gate/out"
-          mkdir -p "$gate" "$out"
-          rm -f "$paths_file" "$index_file"
-          git ls-tree -r --name-only "$base" -- \
-            scripts/i18n \
-            scripts/hooks \
-            scripts/ci \
-            scripts/sync-shared-snippets.ps1 \
-            .github/workflows/quality-gate.yml \
-            .github/workflows/shared-snippets-check.yml \
-            .github/workflows/release.yml \
-            .github/workflows/nightly.yml \
-            .github/workflows/publish-plugins.yml \
-            package.json \
-            package-lock.json \
-            > "$paths_file"
-          test -s "$paths_file" || { echo "trusted base $base has no gate paths; fail closed" >&2; exit 1; }
-          GIT_INDEX_FILE="$index_file" git read-tree "$base"
-          GIT_INDEX_FILE="$index_file" git -c core.autocrlf=false checkout-index \
-            --stdin \
-            --prefix="$out/" \
-            < "$paths_file"
-          test -f "$out/scripts/i18n/check.mjs" || { echo "gate materialization is empty; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/hooks/pre-push-guard.sh" || { echo "gate materialization misses the guard; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/i18n/gate-contract.mjs" || { echo "gate materialization misses the contract; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
-          # trusted base 必须满足当前 verifier baseline：gate-surface.json 是强制物化合同。
-          # 旧 verifier（predates 清单 / 旧 contract）一律无资格审核新标准候选 → FAIL CLOSED
-          test -f "$out/scripts/ci/gate-surface.json" || {
-            echo "trusted base $base does not satisfy the current Gate Epoch 3 verifier baseline; fail closed" >&2
-            exit 1
-          }
-          if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
-            helper_default_branch="${{ github.event.repository.default_branch }}"
-            helper_before="${{ github.event.before }}"
-            if [ "$GITHUB_EVENT_NAME" = "push" ] \
-                && [ "$GITHUB_REF" != "refs/heads/$helper_default_branch" ]; then
-              helper_before="$zero"
-            fi
-            helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$candidate" \
-              --before "$helper_before" \
-              --pr-base "${{ github.event.pull_request.base.sha }}" \
-              --merge-group-base "${{ github.event.merge_group.base_sha }}" \
-              --input-base "${{ inputs.trusted_base_sha }}" \
-              --root-admission "${{ inputs.root_admission }}" \
-              --root-candidate-sha "${{ inputs.root_candidate_sha }}" \
-              --default-branch "${{ github.event.repository.default_branch }}" \
-              --mode)"
-            printf '%s' "$helper" > "$gate/helper.json"
-            helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
-            helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ -f "$out/scripts/ci/materialize-trusted-gate.sh" ]; then
-            out2="$gate/out2"
-            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
-              --repo-root "$PWD" --base "$base" \
-              --output "$out2" --index "$gate/index2" --paths-file "$gate/paths2.txt" \
-              --paths 'scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml .github/workflows/release.yml .github/workflows/nightly.yml .github/workflows/publish-plugins.yml package.json package-lock.json'
-            if ! diff -r "$out" "$out2" >/dev/null 2>&1; then
-              echo "materialized gate differs from the trusted helper output; fail closed" >&2
-              exit 1
-            fi
-          fi
-          # gate-surface.json 单一事实来源交叉检查：trusted manifest 驱动的物化必须与
-          # bootstrap 硬编码 gate surface 完全一致（manifest 与硬编码列表漂移 → fail closed；
-          # candidate manifest 只作为被检查对象，不能决定检查范围）
-          if [ -f "$out/scripts/ci/gate-surface.json" ]; then
-            manifest_paths="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").join(" "))' "$out/scripts/ci/gate-surface.json")"
-            out3="$gate/out3"
-            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
-              --repo-root "$PWD" --base "$base" \
-              --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
-              --paths "$manifest_paths"
-            if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
-              echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
-              exit 1
-            fi
-          fi
-          echo "GATE_MODE=$mode" >> "$GITHUB_ENV"
-          echo "ROOT_SHA=$root" >> "$GITHUB_ENV"
-          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
-          echo "CANDIDATE_SHA=$candidate" >> "$GITHUB_ENV"
-          echo "GATE_DIR=$out" >> "$GITHUB_ENV"
-          echo "gate mode: $mode; candidate: $candidate; trusted base: $base; root: $root"
-
-      - name: Trusted base contract validates the candidate
+            mkdir -p "$GATE_DIR/$(dirname "$rel")"
+            git show "$BASE_SHA:$rel" > "$GATE_DIR/$rel"
+          done < <(node -e 'const p=require("./scripts/i18n/gate-policy.json"); console.log(p.minimumTrustedVerifier.requiredFiles.join("\n"))')
+          echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
+      - name: Verify trusted release contract
         run: |
-          set -euo pipefail
-          event_candidate="${{ github.sha }}"
-          if [ "$CANDIDATE_SHA" != "$event_candidate" ] \
-              && { [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
-                || [ "$GATE_MODE" != "ROOT_ADMISSION" ] \
-                || [ "$CANDIDATE_SHA" != "${{ github.event.pull_request.head.sha }}" ]; }; then
-            echo "resolved candidate differs from the event SHA outside exact root PR admission; fail closed" >&2
-            exit 1
-          fi
           if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 3 root; running the root gate with the full root self-protection suite."
-          fi
-          node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
-            --repo-root "$PWD" --report-root "$PWD" \
-            --candidate-ref "$CANDIDATE_SHA" \
-            --force-self-protection
-          echo "trusted base checker checks the candidate ref..."
-          node "$GATE_DIR/scripts/i18n/check.mjs" --repo-root "$PWD" --report-root "$PWD" \
-            --snapshot ref --ref "$CANDIDATE_SHA"
-
-      - name: Gate parity audit (no gate may be weakened)
-        run: |
-          set -euo pipefail
-          if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --candidate-ref "$CANDIDATE_SHA" --invariants
+            node scripts/ci/gate-parity.mjs --repo-root . --candidate-ref "$CANDIDATE_SHA" --invariants
           else
-            node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --trusted-dir "$GATE_DIR" --candidate-ref "$CANDIDATE_SHA"
+            node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root . --trusted-dir "$GATE_DIR" --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA"
           fi
-
-      - name: Upload gate contract report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: gate-contract-report
-          path: build/reports/i18n/
-          if-no-files-found: ignore
-
-      # 仓库管理员最终门禁提示：仅靠仓库内 workflow 不能建立绝对不可变的信任根。
-      - name: Manual gate notes for repository admins
-        if: always()
-        run: |
-          set -euo pipefail
-          echo "REMINDER for repository admins:"
-          echo "  - Do NOT allow bypassing branch protection."
-          echo "  - Configure Quality Gate jobs (java-tests, javascript-tests, signature-guard,"
-          echo "    trusted-gate-contract, i18n-check) as required checks."
-          echo "  - Configure 'check-shared-snippets' as a required external check"
-          echo "    (strict required status checks, no bypass actors)."
-          echo "  - Create the annotated tag i18n-gate-epoch-3-root at the reviewed Epoch 3 root"
-          echo "    commit and protect it with a Ruleset (no delete, no force update, no bypass)."
-          echo "  - Gate surface (.github/workflows/quality-gate.yml, shared-snippets-check.yml,"
-          echo "    release.yml, nightly.yml, publish-plugins.yml, scripts/i18n/**, scripts/hooks/**,"
-          echo "    scripts/ci/**, scripts/sync-shared-snippets.ps1, package.json,"
-          echo "    package-lock.json; see scripts/ci/gate-surface.json) must go through"
-          echo "    protected review."
-          echo "  - A stronger setup is an external workflow / separate repository checker that"
-          echo "    the candidate commit cannot modify."
-          echo "  - A repository-internal workflow cannot establish an absolutely immutable trust root."
 
   i18n-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
+    timeout-minutes: 30
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-          # 物化非 tip commit 的 tree 需要完整对象库，浅克隆会碰巧可用但不可依赖
           fetch-depth: 0
-
       - name: Set up Node.js 24
         uses: actions/setup-node@v7
         with:
           node-version: '24'
-
-      - name: Install dependencies (yaml parser for the workflow contract)
+          cache: npm
+      - name: Install dependencies
         run: npm ci
-
-      - name: Set up JDK 17 (properties oracle differential tests)
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: temurin
-          cache: maven
-
-      - name: Resolve Gate Epoch 3 root and trusted base
-        run: |
-          set -euo pipefail
-          zero="0000000000000000000000000000000000000000"
-          candidate="$GITHUB_SHA"
-          pr_head="${{ github.event.pull_request.head.sha }}"
-          pr_base="${{ github.event.pull_request.base.sha }}"
-          default_branch="${{ github.event.repository.default_branch }}"
-          root="$(git rev-parse --verify --quiet "refs/tags/i18n-gate-epoch-3-root^{commit}" 2>/dev/null || printf '%s' '')"
-          admission=""
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.root_admission }}" = "true" ]; then
-            admission="1"
-          fi
-          if [ -n "$admission" ]; then
-            root_candidate="${{ inputs.root_candidate_sha }}"
-            if [ -n "$root_candidate" ] && [ "$root_candidate" != "$GITHUB_SHA" ]; then
-              echo "root_candidate_sha $root_candidate does not equal the dispatched commit $GITHUB_SHA; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ -n "$root" ]; then
-            if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$pr_head" = "$root" ]; then
-              git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch"
-              default_tip="$(git rev-parse --verify "refs/remotes/origin/$default_branch^{commit}")"
-              root_line="$(git rev-list --parents -n 1 "$root")"
-              merge_line="$(git rev-list --parents -n 1 "$GITHUB_SHA")"
-              root_tree="$(git rev-parse --verify "$root^{tree}")"
-              merge_tree="$(git rev-parse --verify "$GITHUB_SHA^{tree}")"
-              if [ "$default_tip" != "$pr_base" ] || [ "$root_line" != "$root $pr_base" ] \
-                  || [ "$merge_line" != "$GITHUB_SHA $pr_base $root" ] || [ "$merge_tree" != "$root_tree" ]; then
-                echo "exact root pull request admission requires live base == root parent, merge parents == [base, root], and merge tree == root tree; fail closed" >&2
-                exit 1
-              fi
-              candidate="$root"
-              mode="ROOT_ADMISSION"
-            elif [ "$root" = "$candidate" ]; then
-              mode="ROOT_ADMISSION"
-            elif git merge-base --is-ancestor "$root" "$candidate" >/dev/null 2>&1; then
-              mode="NORMAL"
-            else
-              echo "candidate does not descend from the Gate Epoch 3 trust root" >&2
-              exit 1
-            fi
-          else
-            if [ -n "$admission" ]; then
-              mode="ROOT_ADMISSION"
-              root="$candidate"
-            else
-              echo "Gate Epoch 3 trust root has not been installed." >&2
-              echo "refs/tags/i18n-gate-epoch-3-root is missing; only an explicit workflow_dispatch" >&2
-              echo "root_admission=true with root_candidate_sha may enter ROOT_ADMISSION; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ "$mode" = "NORMAL" ]; then
-            base=""
-            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              base="${{ inputs.trusted_base_sha }}"
-            else
-              case "$GITHUB_EVENT_NAME" in
-                pull_request)
-                  base="${{ github.event.pull_request.base.sha }}"
-                  ;;
-                merge_group)
-                  base="${{ github.event.merge_group.base_sha }}"
-                  ;;
-                push)
-                  default_branch="${{ github.event.repository.default_branch }}"
-                  if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
-                    echo "warning: cannot fetch the protected default branch; continuing (may fail closed later)" >&2
-                  fi
-                  default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                  if [ -z "$default_tip" ]; then
-                    echo "cannot resolve the protected default branch remote ref; fail closed" >&2
-                    exit 1
-                  fi
-                  if [ "$GITHUB_REF" = "refs/heads/$default_branch" ]; then
-                    before="${{ github.event.before }}"
-                    if [ -z "$before" ] || [ "$before" = "$zero" ] \
-                        || ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null 2>&1; then
-                      echo "protected branch push has no valid event.before; fail closed" >&2
-                      exit 1
-                    fi
-                    root_line="$(git rev-list --parents -n 1 "$root")"
-                    candidate_line="$(git rev-list --parents -n 1 "$candidate")"
-                    root_tree="$(git rev-parse --verify "$root^{tree}")"
-                    candidate_tree="$(git rev-parse --verify "$candidate^{tree}")"
-                    if [ "$root_line" = "$root $before" ] \
-                        && [ "$candidate_line" = "$candidate $before $root" ] \
-                        && [ "$candidate_tree" = "$root_tree" ]; then
-                      base="$root"
-                    else
-                      base="$before"
-                    fi
-                  else
-                    # Feature branch event.before is not trusted: it may be a previously failed verifier.
-                    fork_base="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
-                    if ! [[ "$fork_base" =~ ^[0-9a-f]{40}$ ]]; then
-                      echo "cannot determine a fork base between the candidate and the protected default branch; fail closed" >&2
-                      exit 1
-                    fi
-                    base="$fork_base"
-                  fi
-                  ;;
-                workflow_dispatch)
-                  default_branch="${{ github.event.repository.default_branch }}"
-                  if ! git fetch -q origin "refs/heads/$default_branch" 2>/dev/null; then
-                    echo "warning: cannot fetch the default branch; continuing (may fail closed later)" >&2
-                  fi
-                  base="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-                  ;;
-                *)
-                  echo "cannot determine a trusted base for event $GITHUB_EVENT_NAME; fail closed" >&2
-                  exit 1
-                  ;;
-              esac
-            fi
-            if ! [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "cannot determine a valid trusted base for $candidate (event $GITHUB_EVENT_NAME); fail closed" >&2
-              exit 1
-            fi
-            if [ "$base" = "$candidate" ]; then
-              echo "trusted base $base equals the candidate $candidate; fail closed" >&2
-              exit 1
-            fi
-            if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-              echo "trusted base $base is not present in the local object database; fail closed" >&2
-              exit 1
-            fi
-            if ! git merge-base --is-ancestor "$root" "$base" >/dev/null 2>&1; then
-              echo "trusted base $base does not descend from the Gate Epoch 3 trust root $root; fail closed" >&2
-              exit 1
-            fi
-            if ! git merge-base --is-ancestor "$base" "$candidate" >/dev/null 2>&1; then
-              echo "trusted base $base is not an ancestor of the candidate $candidate; sibling / unrelated / descendant / pre-root trusted bases are refused; fail closed" >&2
-              exit 1
-            fi
-            default_branch="${{ github.event.repository.default_branch }}"
-            if ! git fetch -q origin "refs/heads/$default_branch:refs/remotes/origin/$default_branch" 2>/dev/null; then
-              echo "warning: cannot fetch the protected default branch; continuing (will fail closed if unavailable)" >&2
-            fi
-            default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" 2>/dev/null || printf '%s' '')"
-            if [ -z "$default_tip" ] || ! git merge-base --is-ancestor "$base" "$default_tip" >/dev/null 2>&1; then
-              echo "trusted base $base is not in the protected default branch history; fail closed" >&2
-              exit 1
-            fi
-            if [ -n "${{ inputs.trusted_base_sha }}" ]; then
-              if [ "$default_tip" = "$candidate" ]; then
-                protected_predecessor="$(git rev-parse --verify --quiet "$candidate^{commit}^" 2>/dev/null || printf '%s' '')"
-              else
-                protected_predecessor="$(git merge-base "$candidate" "$default_tip" 2>/dev/null || printf '%s' '')"
-              fi
-              if [ -z "$protected_predecessor" ] || [ "$base" != "$protected_predecessor" ]; then
-                echo "explicit trusted_base_sha $base is not the protected predecessor $protected_predecessor; fail closed" >&2
-                exit 1
-              fi
-            fi
-          else
-            base="$root"
-            echo "ROOT ADMISSION MODE: candidate is the Gate Epoch 3 trust root candidate; running the root gate with the full root self-protection suite." >&2
-          fi
-          # Candidate policy proposes the next monotonic minimum. The protected predecessor must
-          # satisfy it before any verifier code is materialized or executed.
-          minimum_json="$(node -e 'const fs=require("fs"),p=JSON.parse(fs.readFileSync("scripts/i18n/gate-policy.json","utf8")),m=p.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||m.contractVersion<1||!Number.isInteger(m.schemaVersion)||m.schemaVersion<1||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length||m.requiredFiles.some(r=>typeof r!=="string"||!r||r.startsWith("/")||r.includes("\\")||r.split("/").includes("..")))process.exit(1);process.stdout.write(JSON.stringify(m))' 2>/dev/null || printf '%s' '')"
-          if [ -z "$minimum_json" ]; then
-            echo "candidate gate-policy.json has no valid minimumTrustedVerifier; fail closed" >&2
-            exit 1
-          fi
-          base_policy="$(git show "$base:scripts/i18n/gate-policy.json" 2>/dev/null || printf '%s' '')"
-          if [ -z "$base_policy" ]; then
-            echo "trusted base $base has no gate-policy.json; fail closed" >&2
-            exit 1
-          fi
-          base_contract="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.contractVersion)?String(j.contractVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          base_schema="$(printf '%s' "$base_policy" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(Number.isInteger(j.schemaVersion)?String(j.schemaVersion):"")}catch(e){process.stdout.write("")}})' 2>/dev/null || printf '%s' '')"
-          minimum_contract="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).contractVersion))' "$minimum_json")"
-          minimum_schema="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).schemaVersion))' "$minimum_json")"
-          if ! [[ "$base_contract" =~ ^[0-9]+$ ]] || [ "$base_contract" -lt "$minimum_contract" ]; then
-            echo "trusted base $base contractVersion ($base_contract) is below minimumTrustedVerifier $minimum_contract; verifier rollback is refused; fail closed" >&2
-            exit 1
-          fi
-          if ! [[ "$base_schema" =~ ^[0-9]+$ ]] || [ "$base_schema" -lt "$minimum_schema" ]; then
-            echo "trusted base $base schemaVersion ($base_schema) is below minimumTrustedVerifier $minimum_schema; fail closed" >&2
-            exit 1
-          fi
-          minimum_files="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).requiredFiles.join("\n"))' "$minimum_json")"
-          while IFS= read -r rel; do
-            if [ -z "$rel" ] || ! git cat-file -e "$base:$rel" >/dev/null 2>&1; then
-              echo "trusted base $base is missing minimumTrustedVerifier file $rel; fail closed" >&2
-              exit 1
-            fi
-          done <<< "$minimum_files"
-          gate="$RUNNER_TEMP/gate"
-          paths_file="$gate/paths.txt"
-          index_file="$gate/index"
-          out="$gate/out"
-          mkdir -p "$gate" "$out"
-          rm -f "$paths_file" "$index_file"
-          git ls-tree -r --name-only "$base" -- \
-            scripts/i18n \
-            scripts/hooks \
-            scripts/ci \
-            scripts/sync-shared-snippets.ps1 \
-            .github/workflows/quality-gate.yml \
-            .github/workflows/shared-snippets-check.yml \
-            .github/workflows/release.yml \
-            .github/workflows/nightly.yml \
-            .github/workflows/publish-plugins.yml \
-            package.json \
-            package-lock.json \
-            > "$paths_file"
-          test -s "$paths_file" || { echo "trusted base $base has no gate paths; fail closed" >&2; exit 1; }
-          GIT_INDEX_FILE="$index_file" git read-tree "$base"
-          GIT_INDEX_FILE="$index_file" git -c core.autocrlf=false checkout-index \
-            --stdin \
-            --prefix="$out/" \
-            < "$paths_file"
-          test -f "$out/scripts/i18n/check.mjs" || { echo "gate materialization is empty; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/hooks/pre-push-guard.sh" || { echo "gate materialization misses the guard; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/i18n/gate-contract.mjs" || { echo "gate materialization misses the contract; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/i18n/gate-policy.json" || { echo "gate materialization misses the policy; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-parity.mjs" || { echo "gate materialization misses gate-parity; fail closed" >&2; exit 1; }
-          test -f "$out/scripts/ci/gate-invariants.json" || { echo "gate materialization misses gate-invariants; fail closed" >&2; exit 1; }
-          # trusted base 必须满足当前 verifier baseline：gate-surface.json 是强制物化合同。
-          # 旧 verifier（predates 清单 / 旧 contract）一律无资格审核新标准候选 → FAIL CLOSED
-          test -f "$out/scripts/ci/gate-surface.json" || {
-            echo "trusted base $base does not satisfy the current Gate Epoch 3 verifier baseline; fail closed" >&2
-            exit 1
-          }
-          if [ -f "$out/scripts/ci/resolve-trusted-base.mjs" ]; then
-            helper_default_branch="${{ github.event.repository.default_branch }}"
-            helper_before="${{ github.event.before }}"
-            if [ "$GITHUB_EVENT_NAME" = "push" ] \
-                && [ "$GITHUB_REF" != "refs/heads/$helper_default_branch" ]; then
-              helper_before="$zero"
-            fi
-            helper="$(node "$out/scripts/ci/resolve-trusted-base.mjs" \
-              --repo-root "$PWD" --event-name "$GITHUB_EVENT_NAME" --candidate "$candidate" \
-              --before "$helper_before" \
-              --pr-base "${{ github.event.pull_request.base.sha }}" \
-              --merge-group-base "${{ github.event.merge_group.base_sha }}" \
-              --input-base "${{ inputs.trusted_base_sha }}" \
-              --root-admission "${{ inputs.root_admission }}" \
-              --root-candidate-sha "${{ inputs.root_candidate_sha }}" \
-              --default-branch "${{ github.event.repository.default_branch }}" \
-              --mode)"
-            printf '%s' "$helper" > "$gate/helper.json"
-            helper_mode="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.mode)' "$gate/helper.json")"
-            helper_base="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.base)' "$gate/helper.json")"
-            if [ "$helper_mode" != "$mode" ] || [ "$helper_base" != "$base" ]; then
-              echo "trusted helper resolved $helper_mode/$helper_base but the bootstrap resolved $mode/$base; fail closed" >&2
-              exit 1
-            fi
-          fi
-          if [ -f "$out/scripts/ci/materialize-trusted-gate.sh" ]; then
-            out2="$gate/out2"
-            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
-              --repo-root "$PWD" --base "$base" \
-              --output "$out2" --index "$gate/index2" --paths-file "$gate/paths2.txt" \
-              --paths 'scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml .github/workflows/release.yml .github/workflows/nightly.yml .github/workflows/publish-plugins.yml package.json package-lock.json'
-            if ! diff -r "$out" "$out2" >/dev/null 2>&1; then
-              echo "materialized gate differs from the trusted helper output; fail closed" >&2
-              exit 1
-            fi
-          fi
-          # gate-surface.json 单一事实来源交叉检查：trusted manifest 驱动的物化必须与
-          # bootstrap 硬编码 gate surface 完全一致（manifest 与硬编码列表漂移 → fail closed；
-          # candidate manifest 只作为被检查对象，不能决定检查范围）
-          if [ -f "$out/scripts/ci/gate-surface.json" ]; then
-            manifest_paths="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").join(" "))' "$out/scripts/ci/gate-surface.json")"
-            out3="$gate/out3"
-            bash "$out/scripts/ci/materialize-trusted-gate.sh" \
-              --repo-root "$PWD" --base "$base" \
-              --output "$out3" --index "$gate/index3" --paths-file "$gate/paths3.txt" \
-              --paths "$manifest_paths"
-            if ! diff -r "$out" "$out3" >/dev/null 2>&1; then
-              echo "gate-surface.json does not match the bootstrap gate surface; fail closed" >&2
-              exit 1
-            fi
-          fi
-          echo "GATE_MODE=$mode" >> "$GITHUB_ENV"
-          echo "ROOT_SHA=$root" >> "$GITHUB_ENV"
-          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
-          echo "CANDIDATE_SHA=$candidate" >> "$GITHUB_ENV"
-          echo "GATE_DIR=$out" >> "$GITHUB_ENV"
-          echo "gate mode: $mode; candidate: $candidate; trusted base: $base; root: $root"
-
-      # 各独立检查尽量都执行：某一项失败不跳过其余项（continue-on-error 收集 outcome，
-      # 最后一步统一传播）。不得因为 tests 失败就跳过 trusted / ref / worktree / static。
-      - name: Run i18n tests (incl. JVM properties oracle differential)
-        id: tests
-        continue-on-error: true
+      - name: Run i18n tests
         run: npm run test:i18n
-        env:
-          CI: 'true'
-
-      - name: Trusted base contract validates the candidate
-        id: trusted
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          event_candidate="${{ github.sha }}"
-          if [ "$CANDIDATE_SHA" != "$event_candidate" ] \
-              && { [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
-                || [ "$GATE_MODE" != "ROOT_ADMISSION" ] \
-                || [ "$CANDIDATE_SHA" != "${{ github.event.pull_request.head.sha }}" ]; }; then
-            echo "resolved candidate differs from the event SHA outside exact root PR admission; fail closed" >&2
-            exit 1
-          fi
-          if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            echo "ROOT ADMISSION MODE: candidate $CANDIDATE_SHA == Epoch 3 root; running the root gate."
-          fi
-          node "$GATE_DIR/scripts/i18n/gate-contract.mjs" \
-            --repo-root "$PWD" --report-root "$PWD" \
-            --candidate-ref "$CANDIDATE_SHA"
-
-      - name: Run i18n check on the tested commit (ref snapshot)
-        id: ref
-        continue-on-error: true
-        run: node scripts/i18n/check.mjs --snapshot ref --ref "$CANDIDATE_SHA"
-
-      - name: Run i18n worktree check
-        id: worktree
-        continue-on-error: true
+      - name: Run i18n checks
         run: npm run i18n:check
-
-      - name: Generate static i18n resources (defense-in-depth diff)
-        id: static-generate
-        continue-on-error: true
-        run: npm run i18n:generate-static
-
-      - name: Verify generated resources are in sync
-        id: static-diff
-        continue-on-error: true
-        run: git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static
-
-      - name: Gate parity audit (no gate may be weakened)
-        id: parity
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
-            node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --candidate-ref "$CANDIDATE_SHA" --invariants
-          else
-            node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root "$PWD" --report-root "$PWD" \
-              --trusted-dir "$GATE_DIR" --candidate-ref "$CANDIDATE_SHA"
-          fi
-
-      - name: Upload i18n report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: i18n-report
-          path: |
-            build/reports/i18n/
-            pixivdownload-app/src/main/resources/static/i18n-static/
-          if-no-files-found: ignore
-
-      - name: Propagate result
-        if: always()
-        run: |
-          failed=0
-          check_outcome() {
-            name="$1"
-            value="$2"
-            echo "- $name: $value" >> "$GITHUB_STEP_SUMMARY"
-            if [ "$value" != "success" ]; then
-              failed=1
-            fi
-          }
-          check_outcome tests "${{ steps.tests.outcome }}"
-          check_outcome trusted "${{ steps.trusted.outcome }}"
-          check_outcome ref "${{ steps.ref.outcome }}"
-          check_outcome worktree "${{ steps.worktree.outcome }}"
-          check_outcome static-generate "${{ steps.static-generate.outcome }}"
-          check_outcome static-diff "${{ steps.static-diff.outcome }}"
-          check_outcome parity "${{ steps.parity.outcome }}"
-          exit "$failed"
+      - name: Verify generated static resources
+        run: npm run i18n:generate-static && git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static

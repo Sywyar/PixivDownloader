@@ -58,15 +58,12 @@ jobs:
   publish-plugins:
     if: github.event_name == 'push'
     uses: ./.github/workflows/publish-plugins.yml
-    secrets:
-      PLUGINS_REPO_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
-      PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
-      PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
 
   build-jar:
     needs: publish-plugins
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
 
@@ -124,14 +121,6 @@ jobs:
           REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
           test -n "$REPORT"
           grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
-
-      - name: Remove production plugin credential key filter
-        if: always()
-        shell: pwsh
-        run: |
-          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_CREDENTIAL_FILTER)) {
-            Remove-Item -LiteralPath $env:PLUGIN_CREDENTIAL_FILTER -Force -ErrorAction SilentlyContinue
-          }
 
       - name: Stage executable JAR
         run: |
@@ -230,6 +219,7 @@ jobs:
     needs: build-jar
     if: github.event_name == 'push'
     runs-on: windows-latest
+    environment: release
     permissions:
       contents: write
 
@@ -313,6 +303,7 @@ jobs:
     needs: [build-jar, build-windows-installer]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
 
@@ -464,21 +455,15 @@ jobs:
       - name: Sign update manifest
         shell: pwsh
         env:
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
+          UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
         run: |
           $privateKeyFile = Join-Path $env:RUNNER_TEMP "pixivdownloader-update-signing-key.pem"
           try {
-            if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64) -and [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM)) {
-              throw "Missing update signing private key secret."
+            if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
+              throw "Missing release Environment secret UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64."
             }
-            if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
-              [System.IO.File]::WriteAllBytes($privateKeyFile,
-                [System.Convert]::FromBase64String(($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')))
-            } else {
-              $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM.Replace('\r\n', "`n").Replace('\n', "`n").Replace('\r', "`n")
-              [System.IO.File]::WriteAllText($privateKeyFile, $pem.Trim() + "`n", (New-Object System.Text.UTF8Encoding($false)))
-            }
+            [System.IO.File]::WriteAllBytes($privateKeyFile,
+              [System.Convert]::FromBase64String(($env:UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')))
             & chmod 600 -- $privateKeyFile
             if ($LASTEXITCODE -ne 0) { throw "Failed to restrict update signing private key permissions." }
             $tools = @(Get-ChildItem tools/update-signature/pixivdownload-plugin-signature-*.jar -File |
@@ -488,7 +473,7 @@ jobs:
             }
             & java -cp $tools[0].FullName top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
               manifest --manifest artifacts/update.json --repository-id pixivdownloader-update `
-              --key-id pixivdownloader-official-root-2026-07 `
+              --key-id pixivdownloader-update-root-2026-08 `
               --private-key $privateKeyFile --out artifacts/update.json.sig
             if ($LASTEXITCODE -ne 0) { throw "Update manifest signing failed." }
           } finally {
@@ -511,6 +496,7 @@ jobs:
     needs: draft-quality-gate
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
 

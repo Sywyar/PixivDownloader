@@ -1,42 +1,33 @@
 {
-  "schemaVersion": 3,
-  "gateEpoch": 3,
-  "contractVersion": 4,
+  "schemaVersion": 4,
+  "gateEpoch": 4,
+  "contractVersion": 5,
   "minimumTrustedVerifier": {
-    "contractVersion": 4,
-    "schemaVersion": 3,
+    "contractVersion": 5,
+    "schemaVersion": 4,
     "requiredFiles": [
-      "scripts/ci/gate-surface.json",
       "scripts/ci/gate-invariants.json",
       "scripts/ci/gate-parity.mjs",
       "scripts/ci/resolve-trusted-base.mjs",
-      "scripts/ci/materialize-trusted-gate.sh",
-      "scripts/ci/doctor-github-ruleset.mjs",
+      "scripts/i18n/gate-policy.json",
       "scripts/i18n/trust-gate.mjs"
     ]
   },
   "i18nEnforcementStartCommit": "05f4ebed7ce00f0b923fe48ec2e0971610511547",
   "requiredPaths": [
-    "scripts/i18n/check.mjs",
-    "scripts/i18n/epoch-3-first-admission.json",
-    "scripts/i18n/gate-contract.mjs",
-    "scripts/i18n/gate-policy.json",
-    "scripts/i18n/lib/repository-snapshot.mjs",
-    "scripts/i18n/lib/trusted-gate.mjs",
-    "scripts/i18n/trust-gate.mjs",
+    "scripts/ci/gate-invariants.json",
+    "scripts/ci/gate-parity.mjs",
+    "scripts/ci/resolve-trusted-base.mjs",
     "scripts/hooks/pre-commit",
     "scripts/hooks/pre-push",
     "scripts/hooks/pre-push-guard.sh",
-    "scripts/ci/resolve-trusted-base.mjs",
-    "scripts/ci/materialize-trusted-gate.sh",
-    "scripts/ci/gate-parity.mjs",
-    "scripts/ci/gate-invariants.json",
-    "scripts/ci/gate-surface.json",
-    "scripts/ci/github-ruleset-invariants.json",
-    "scripts/ci/doctor-github-ruleset.mjs",
+    "scripts/i18n/gate-policy.json",
+    "scripts/i18n/trust-gate.mjs",
     ".github/workflows/quality-gate.yml",
-    "package.json",
-    "package-lock.json"
+    ".github/workflows/shared-snippets-check.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/nightly.yml",
+    ".github/workflows/publish-plugins.yml"
   ],
   "protectedBranches": [
     "refs/heads/master"
@@ -54,17 +45,6 @@
     ".github/workflows/release.yml",
     ".github/workflows/nightly.yml",
     ".github/workflows/publish-plugins.yml"
-  ],
-  "requiredPackageScripts": [
-    "test:i18n",
-    "i18n:check",
-    "i18n:generate-static",
-    "i18n:trust-gate",
-    "i18n:gate-contract",
-    "i18n:gate-parity",
-    "test:js",
-    "test:web-standards",
-    "doctor:github-gate"
   ],
   "requiredExternalChecks": [
     "Shared Snippet Drift Check"

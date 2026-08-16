@@ -12,13 +12,6 @@ on:
         required: false
         type: string
         default: ''
-    secrets:
-      PLUGINS_REPO_TOKEN:
-        required: true
-      PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64:
-        required: false
-      PLUGIN_SIGNING_PRIVATE_KEY_PEM:
-        required: false
   workflow_dispatch:
     inputs:
       publish_args:
@@ -81,9 +74,10 @@ jobs:
 
   publish:
     needs: quality-gate
-    if: ${{ !cancelled() && needs.quality-gate.result == 'success' && github.repository == 'Sywyar/PixivDownloader' }}
+    if: ${{ github.repository == 'Sywyar/PixivDownloader' }}
     # Windows runner：插件分发脚本面向 Windows PowerShell（plugin-distribution-common.ps1 用 System.IO.Compression / Get-FileHash）。
     runs-on: windows-latest
+    environment: release
     steps:
       - name: Checkout main repo
         uses: actions/checkout@v7
@@ -105,27 +99,20 @@ jobs:
         shell: powershell
         env:
           PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64) -and [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM)) {
-            throw "Missing GitHub Actions secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 or PLUGIN_SIGNING_PRIVATE_KEY_PEM."
+          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
+            throw "Missing release Environment secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64."
           }
           $signingDir = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-signing"
           New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
           $privateKeyFile = Join-Path $signingDir "official-ed25519-private-key.pem"
-          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
-            $privateKeyPemBase64 = ($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')
-            try {
-              $privateKeyBytes = [System.Convert]::FromBase64String($privateKeyPemBase64)
-            } catch {
-              throw "GitHub Actions secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64. Regenerate it from the original PEM bytes and upload it with: `$privateKeyPemBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('.\official-ed25519-private.pem')); gh secret set PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 --repo Sywyar/PixivDownloader --body `$privateKeyPemBase64"
-            }
-            [System.IO.File]::WriteAllBytes($privateKeyFile, $privateKeyBytes)
-          } else {
-            $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM
-            $pem = $pem.Replace('\r\n', "`n").Replace('\n', "`n").Replace('\r', "`n")
-            [System.IO.File]::WriteAllText($privateKeyFile, $pem.Trim() + "`n", (New-Object System.Text.UTF8Encoding($false)))
+          $privateKeyPemBase64 = ($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')
+          try {
+            $privateKeyBytes = [System.Convert]::FromBase64String($privateKeyPemBase64)
+          } catch {
+            throw "Release Environment secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64."
           }
+          [System.IO.File]::WriteAllBytes($privateKeyFile, $privateKeyBytes)
           $privateKeyText = [System.IO.File]::ReadAllText($privateKeyFile, [System.Text.Encoding]::UTF8)
           if ($privateKeyText.Contains("?")) {
             throw "Prepared plugin signing private key contains '?' characters. Re-upload it as PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 from the original PEM bytes."
@@ -197,12 +184,4 @@ jobs:
             git push
           } else {
             Write-Host "manifest.json unchanged; nothing to commit"
-          }
-
-      - name: Cleanup plugin signing private key
-        if: always()
-        shell: powershell
-        run: |
-          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_FILE)) {
-            Remove-Item -LiteralPath $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE -Force -ErrorAction SilentlyContinue
           }
