@@ -40,7 +40,8 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     private static final SecureRandom SESSION_RANDOM = new SecureRandom();
     private static final int MAX_TOKEN_LENGTH = 128;
     static final int MAX_PERSISTENT_SESSIONS = 32;
-    public static final int MIN_PASSWORD_LENGTH = 12;
+    public static final int MIN_PASSWORD_LENGTH = 8;
+    public static final int RECOMMENDED_PASSWORD_LENGTH = 12;
 
     private volatile boolean setupComplete = false;
     private volatile String mode     = null;  // "solo" | "multi"
