@@ -105,20 +105,6 @@ textarea {
     max-width: 100%;
 }
 
-::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 999px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
 /* ── 顶部应用导航栏（与下载页同款 chrome） ── */
 .app-nav {
     background: #28a745;

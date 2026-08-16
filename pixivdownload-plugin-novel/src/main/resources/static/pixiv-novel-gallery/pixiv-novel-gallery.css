@@ -22,7 +22,6 @@
             --hover-bg: #f5f5f5;
             --soft-bg: #f7fbff;
             --pink-soft-bg: #fff0f6;
-            --scrollbar-thumb: #dddddd;
         }
         html[data-theme="dark"] {
             --bg: #101216;
@@ -46,7 +45,6 @@
             --hover-bg: #222838;
             --soft-bg: rgba(75, 179, 255, 0.1);
             --pink-soft-bg: #3a2035;
-            --scrollbar-thumb: #3b4352;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }

@@ -23,7 +23,6 @@
             --hover-bg: #f5f5f5;
             --soft-bg: #f7fbff;
             --pink-soft-bg: #fff0f6;
-            --scrollbar-thumb: #dddddd;
             --thumb-loading-bg: #f5f8fb;
             --thumb-spinner-track: #d8e7f3;
         }
@@ -50,7 +49,6 @@
             --hover-bg: #222838;
             --soft-bg: rgba(75, 179, 255, 0.1);
             --pink-soft-bg: #3a2035;
-            --scrollbar-thumb: #3b4352;
             --thumb-loading-bg: #202633;
             --thumb-spinner-track: #354154;
         }
@@ -2092,7 +2090,7 @@
         }
 
         .author-works-strip::-webkit-scrollbar-thumb {
-            background: #ddd;
+            background: var(--scrollbar-thumb);
             border-radius: 3px;
         }
 
@@ -2313,10 +2311,6 @@
         html[data-theme="dark"] .thumb-heart svg,
         html[data-theme="dark"] .mobile-menu-btn svg {
             stroke: var(--text-secondary);
-        }
-
-        html[data-theme="dark"] .author-works-strip::-webkit-scrollbar-thumb {
-            background: var(--scrollbar-thumb);
         }
 
         html[data-theme="dark"] #filterTagChips:not(.expanded).has-overflow::after,

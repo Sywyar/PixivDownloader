@@ -222,6 +222,7 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/js/pixiv-feedback.js", "core", AccessPolicy.PUBLIC);
         assertOwnerPolicy("/js/pixiv-actions.js", "core", AccessPolicy.PUBLIC);
         assertOwnerPolicy("/css/pixiv-feedback.css", "core", AccessPolicy.PUBLIC);
+        assertOwnerPolicy("/css/pixiv-scrollbar.css", "core", AccessPolicy.PUBLIC);
         // 插件管理页（admin-only）+ 其页面专属静态资源；与 /api/plugins/** 同归核心、同 ADMIN。
         assertOwnerPolicy("/plugin-manage.html", "core", AccessPolicy.ADMIN);
         assertOwnerPolicy("/plugin-manage/**", "core", AccessPolicy.ADMIN);
