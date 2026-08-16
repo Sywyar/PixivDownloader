@@ -77,7 +77,7 @@ public class UpdateService {
     static final String UPDATE_MANIFEST_REPOSITORY_ID = "pixivdownloader-update";
     static final String UPDATE_SIGNING_KEY_ID = "pixivdownloader-update-root-2026-08";
     static final String UPDATE_SIGNING_PUBLIC_KEY_SPKI_BASE64 =
-            "MCowBQYDK2VwAyEAxU04MszKsRvOOe4F95FW8mbwLtUjvQ56E6740wWeFSI=";
+            "MCowBQYDK2VwAyEAeMnkM0bMsOyWkfugXxyWTHI2GikTUxFeXt5ss+KTaaY=";
     static final String CHANNEL_STABLE = "stable";
     static final String CHANNEL_NIGHTLY = "nightly";
 
