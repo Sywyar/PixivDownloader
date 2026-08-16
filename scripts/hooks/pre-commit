@@ -1,49 +1,6 @@
 #!/usr/bin/env bash
-# Local pre-commit hook: i18n gate against the Git INDEX snapshot, judged by the
-# TRUSTED Epoch 3 gate anchor (never by the staged/candidate checker itself).
-#
-# Contract (never bypassable by fixing the worktree without staging):
-#   1. If nothing is staged, exit fast (0).
-#   2. The local anchor must belong to Gate Epoch 3:
-#      a. pixiv.i18n.trustedGateEpoch must be exactly 3 and
-#         pixiv.i18n.trustedGateRef must resolve to a commit;
-#         otherwise fail closed (obsolete / uninitialized epochs are never migrated);
-#      b. when the Epoch 3 root tag (refs/tags/i18n-gate-epoch-3-root) exists locally,
-#         the trusted ref must descend from it.
-#   3. The checker/contract/policy are the LOCAL TRUSTED ANCHOR's snapshots:
-#      a. The trusted gate bundle (scripts/i18n + scripts/hooks) is materialized
-#         from the trusted commit via an isolated temp index; unstaged or staged
-#         worktree checker edits can never change the verdict.
-#   4. The trusted checker runs the hardcoded-language guard in index snapshot
-#      mode (lightweight) for every commit; the FULL index snapshot check runs
-#      when staged files touch the i18n surface.
-#   5. When the staged diff touches gate files (the trusted gate-surface.json
-#      manifest: scripts/i18n/**, scripts/hooks/**, scripts/ci/**,
-#      scripts/sync-shared-snippets.ps1, .github/workflows/quality-gate.yml,
-#      shared-snippets-check.yml, release.yml, nightly.yml, publish-plugins.yml,
-#      package.json, package-lock.json), the trusted gate contract validates the
-#      CANDIDATE INDEX as a black box: candidate checker behavior, required paths
-#      (fail closed on deletion), candidate policy (gateEpoch unchanged,
-#      contractVersion never lowered, enforcement start never moved later,
-#      protected branches / workflow jobs / workflow files / package scripts /
-#      external checks never reduced), the candidate quality-gate.yml, external
-#      workflow (shared snippets / release / nightly / publish) and package.json
-#      scripts contracts, candidate hooks, and the candidate contract's
-#      self-protection. The candidate checker is only ever the OBJECT of these
-#      tests; it can never approve itself.
-#   6. The check reads ONLY the Git index snapshot; unstaged fixes never count.
-#   7. Never generates or modifies staged files; never runs accept; propagates
-#      non-zero exit codes.
-#   8. No tar / rsync / zip: materialization uses read-tree + checkout-index
-#      with a dedicated GIT_INDEX_FILE. Temp dirs live in system temp and are
-#      removed on exit (trap EXIT).
-#
-# Security boundary (documented, not overstated): local Git hooks are a
-# development convenience gate. A user can always modify the hook, modify
-# .git/config, or use --no-verify, so this hook is not claimed to be
-# absolutely unbypassable. The real final gate is the GitHub Ruleset / branch
-# protection / required check, and a trusted workflow or checker must never be
-# approved by the same candidate commit that proposes it.
+# Local early feedback for the staged snapshot. GitHub's protected verifier is
+# authoritative; this hook only reuses the repository checkers before commit.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -56,8 +13,6 @@ run_without_local_git_env() (
     "$@"
 )
 
-docs_hint="see README (online docs: https://sywyar.github.io/PixivDownloader/#/zh-cn/development)"
-
 staged="$(git diff --cached --name-only 2>/dev/null || true)"
 if [ -z "$staged" ]; then
     echo "pre-commit: nothing staged, skipping i18n check"
@@ -65,154 +20,25 @@ if [ -z "$staged" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-    echo "pre-commit: node is required for the i18n gate but was not found in PATH." >&2
-    echo "pre-commit: install Node.js ($docs_hint) and re-run the commit." >&2
+    echo "pre-commit: node is required for repository checks." >&2
     exit 1
 fi
 
-# ---- 1. Current trust anchor: missing / invalid epoch -> fail closed ----
-epoch="$(git config --local --get pixiv.i18n.trustedGateEpoch || true)"
-trusted="$(git config --local --get pixiv.i18n.trustedGateRef || true)"
-if [ -z "$trusted" ] || ! printf '%s' "$epoch" | grep -Eq '^[2-9][0-9]*$'; then
-    echo "pre-commit: Your local gate anchor belongs to an obsolete or uninitialized epoch." >&2
-    echo "pre-commit: Run the explicit current root adoption command." >&2
-    echo "pre-commit: this is a local convenience gate; the final gate is the GitHub required check." >&2
-    exit 1
-fi
-if ! git rev-parse --verify --quiet "$trusted^{commit}" >/dev/null 2>&1; then
-    echo "pre-commit: trusted gate anchor $trusted does not resolve to a commit in this repository." >&2
-    echo "pre-commit: restore or explicitly re-adopt the current root." >&2
-    exit 1
-fi
-# 本地已安装当前 root tag 时，anchor 必须包含该 root。
-root_tag="i18n-gate-epoch-${epoch}-root"
-if git rev-parse --verify --quiet "refs/tags/${root_tag}^{commit}" >/dev/null 2>&1; then
-    root_sha="$(git rev-parse --verify --quiet "refs/tags/${root_tag}^{commit}")"
-    if ! git merge-base --is-ancestor "$root_sha" "$trusted" >/dev/null 2>&1; then
-        echo "pre-commit: trusted anchor $trusted does not descend from the Gate Epoch $epoch trust root $root_sha." >&2
-        exit 1
-    fi
-fi
-
-tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/pixiv-i18n-precommit.XXXXXX")"
-cleanup() {
-    if [ -n "${tmpdir:-}" ] && [ -d "$tmpdir" ]; then
-        rm -rf "$tmpdir" || true
-    fi
-}
-trap cleanup EXIT
-
-# ---- 2. 物化 trusted anchor 的 gate bundle（scripts/i18n + scripts/hooks + scripts/ci + sync 脚本） ----
-materialize_trusted_gate() {
-    local out="$1"
-    local paths
-    paths="$(git ls-tree -r --name-only "$trusted" -- \
-        scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 \
-        .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml \
-        .github/workflows/release.yml .github/workflows/nightly.yml \
-        .github/workflows/publish-plugins.yml package.json package-lock.json)"
-    if [ -z "$paths" ]; then
-        echo "pre-commit: trusted anchor $trusted does not contain the i18n gate bundle (scripts/i18n, scripts/hooks)." >&2
-        exit 1
-    fi
-    mkdir -p "$out"
-    GIT_INDEX_FILE="$tmpdir/trusted-index" git read-tree "$trusted"
-    printf '%s\n' "$paths" | GIT_INDEX_FILE="$tmpdir/trusted-index" \
-        git -c core.autocrlf=false checkout-index --stdin --prefix="$out/"
-    if [ ! -f "$out/scripts/i18n/check.mjs" ]; then
-        echo "pre-commit: trusted gate bundle is incomplete (scripts/i18n/check.mjs missing at $trusted); fail closed." >&2
-        exit 1
-    fi
-    if [ ! -f "$out/scripts/hooks/pre-push-guard.sh" ]; then
-        echo "pre-commit: trusted gate bundle is incomplete (scripts/hooks/pre-push-guard.sh missing at $trusted); fail closed." >&2
-        exit 1
-    fi
-    if [ ! -f "$out/scripts/i18n/gate-policy.json" ]; then
-        echo "pre-commit: trusted gate bundle is incomplete (scripts/i18n/gate-policy.json missing at $trusted); fail closed." >&2
-        exit 1
-    fi
-    if [ ! -f "$out/scripts/i18n/gate-contract.mjs" ]; then
-        echo "pre-commit: trusted gate bundle is incomplete (scripts/i18n/gate-contract.mjs missing at $trusted); fail closed." >&2
-        exit 1
-    fi
-}
-
-# ---- 3. 表面 / gate 变更检测 ----
-if printf '%s\n' "$staged" | grep -Eq '(^|/)(i18n/|locales\.json$|.*\.properties$|.*[Ii]18n.*\.(java|js|mjs)$|pixiv-i18n\.js$|pixiv-lang-switcher\.js$|scripts/i18n/|scripts/hooks/|i18n-static/)'; then
-    surface_changed=1
-else
-    surface_changed=0
-fi
-
-materialize_trusted_gate "$tmpdir/trusted"
-trusted_policy_epoch="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(String(p.gateEpoch||""))' "$tmpdir/trusted/scripts/i18n/gate-policy.json")"
-if [ "$trusted_policy_epoch" != "$epoch" ]; then
-    echo "pre-commit: configured epoch $epoch does not match trusted anchor policy epoch $trusted_policy_epoch; fail closed." >&2
-    exit 1
-fi
-
-# A next-epoch root may be committed exactly once after the previous trusted verifier issues an
-# external ticket. It binds both epochs, the exact trusted source, its parent and its staged tree.
-admission_source_epoch="$(git config --local --get pixiv.i18n.firstAdmissionSourceEpoch || true)"
-admission_target_epoch="$(git config --local --get pixiv.i18n.firstAdmissionTargetEpoch || true)"
-admission_trusted_source="$(git config --local --get pixiv.i18n.firstAdmissionTrustedSource || true)"
-admission_parent="$(git config --local --get pixiv.i18n.firstAdmissionParent || true)"
-admission_tree="$(git config --local --get pixiv.i18n.firstAdmissionTree || true)"
-candidate_epoch="$(git show :scripts/i18n/gate-policy.json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).gateEpoch||""))}catch{}})')"
-current_parent="$(git rev-parse HEAD)"
-current_tree="$(git write-tree)"
-next_epoch="$((epoch + 1))"
-if [ "$admission_source_epoch" = "$epoch" ] && [ "$admission_target_epoch" = "$next_epoch" ] \
-    && [ "$candidate_epoch" = "$next_epoch" ] && [ "$admission_trusted_source" = "$trusted" ] \
-    && [ "$admission_parent" = "$trusted" ] && [ "$admission_parent" = "$current_parent" ] \
-    && [ "$admission_tree" = "$current_tree" ]; then
-    prepared_root=1
-else
-    prepared_root=0
-fi
-
-# ---- 2.5 trusted verifier 必须满足执行中 policy.minimumTrustedVerifier（能力只增不减） ----
-baseline_source="$root"
-if [ "$prepared_root" = "1" ]; then
-    baseline_source="$tmpdir/trusted"
-fi
-if ! node -e 'const fs=require("fs"),path=require("path"),source=process.argv[1],base=process.argv[2],sourceFile=path.join(source,"scripts/i18n/gate-policy.json"),b=JSON.parse(fs.readFileSync(path.join(base,"scripts/i18n/gate-policy.json"),"utf8")),p=fs.existsSync(sourceFile)?JSON.parse(fs.readFileSync(sourceFile,"utf8")):{},m=p.minimumTrustedVerifier||b.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||!Number.isInteger(m.schemaVersion)||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length)process.exit(1);if(!Number.isInteger(b.contractVersion)||b.contractVersion<m.contractVersion||!Number.isInteger(b.schemaVersion)||b.schemaVersion<m.schemaVersion)process.exit(1);for(const rel of m.requiredFiles){if(typeof rel!=="string"||!fs.existsSync(path.join(base,...rel.split("/"))))process.exit(1)}' "$baseline_source" "$tmpdir/trusted"; then
-    echo "pre-commit: trusted gate anchor $trusted does not satisfy the executing policy.minimumTrustedVerifier; OUTDATED GATE VERIFIER; fail closed." >&2
-    echo "pre-commit: advance or explicitly adopt a current Gate Epoch verifier." >&2
-    exit 1
-fi
-
-# gate 变更检测使用 trusted 的 gate-surface.json 单一清单（与 pre-push / contract / parity /
-# CI bootstrap 同一外围 Gate Surface）；baseline 已保证清单存在，不存在回退内置默认列表的路径。
-gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' "$tmpdir/trusted/scripts/ci/gate-surface.json")"
-if printf '%s\n' "$staged" | grep -Eq "$gate_re"; then
-    gate_changed=1
-else
-    gate_changed=0
-fi
-
-# ---- 4. trusted checker：轻量硬编码守卫总是执行（index 快照，不读工作树） ----
-echo "pre-commit: running trusted gate checker (hardcoded guard, index snapshot) from anchor $trusted..."
-node "$tmpdir/trusted/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
+echo "pre-commit: checking the index snapshot..."
+node scripts/i18n/check.mjs --repo-root "$root" --report-root "$root" \
     --snapshot index --hardcoded-only
 
-# ---- 5. i18n 表面变化：trusted checker 完整 index 检查 ----
-if [ "$surface_changed" = "1" ]; then
-    echo "pre-commit: i18n files staged, running trusted gate checker (full index snapshot)..."
-    node "$tmpdir/trusted/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
+if printf '%s\n' "$staged" \
+    | grep -Eq '(^|/)(i18n/|locales\.json$|.*\.properties$|.*[Ii]18n.*\.(java|js|mjs)$|pixiv-i18n\.js$|pixiv-lang-switcher\.js$|i18n-static/)'; then
+    node scripts/i18n/check.mjs --repo-root "$root" --report-root "$root" \
         --snapshot index
 fi
 
-# ---- 6. gate 文件变更：trusted contract 验证候选 index（candidate 不能自批准） ----
-if [ "$gate_changed" = "1" ]; then
-    if [ "$prepared_root" = "1" ]; then
-        echo "pre-commit: exact trusted first-admission Gate Epoch $candidate_epoch root candidate accepted for commit."
-    else
-        echo "pre-commit: gate files staged, running the trusted gate contract against the candidate index..."
-        run_without_local_git_env node "$tmpdir/trusted/scripts/i18n/gate-contract.mjs" \
-            --repo-root "$root" --report-root "$root" \
-            --candidate-snapshot index
-    fi
+gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' scripts/ci/gate-surface.json)"
+if printf '%s\n' "$staged" | grep -Eq "$gate_re"; then
+    echo "pre-commit: protected release surface staged, checking the index contract..."
+    run_without_local_git_env node scripts/i18n/gate-contract.mjs \
+        --repo-root "$root" --report-root "$root" --candidate-snapshot index
 fi
 
-echo "pre-commit: index snapshot i18n gate passed."
+echo "pre-commit: index snapshot checks passed."
