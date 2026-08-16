@@ -6,8 +6,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
@@ -19,6 +22,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("StagedFileDeletion 原子删除（暂存 + 回滚）")
 class StagedFileDeletionTest {
@@ -99,6 +103,62 @@ class StagedFileDeletionTest {
     }
 
     @Test
+    @DisplayName("回滚目标被并发创建为相同内容时视为已复原且清理暂存")
+    void acceptsConcurrentSameContentRecreation() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("same-content"));
+        Path restored = Files.writeString(dir.resolve("a.jpg"), "a");
+        Path poison = Files.writeString(dir.resolve("b.jpg"), "b");
+
+        assertFalse(failAfterRecreating(poison, restored, "a")
+                .deleteAtomically(List.of(restored, poison)));
+
+        assertEquals("a", Files.readString(restored));
+        assertEquals(0, stagingResidueCount(), "相同内容已就位时暂存目录应无残留");
+    }
+
+    @Test
+    @DisplayName("回滚目标被并发创建为不同内容时不覆盖并保留恢复清单")
+    void retainsStagingForConcurrentDifferentContent() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("different-content"));
+        Path restored = Files.writeString(dir.resolve("a.jpg"), "old");
+        Path poison = Files.writeString(dir.resolve("b.jpg"), "b");
+
+        assertFalse(failAfterRecreating(poison, restored, "new")
+                .deleteAtomically(List.of(restored, poison)));
+
+        assertEquals("new", Files.readString(restored), "并发创建的新内容不得被回滚覆盖");
+        Path stagingDir = stagingSubdirectories().get(0);
+        assertTrue(Files.exists(stagingDir.resolve("manifest.properties")), "恢复清单应保留");
+        assertEquals("old", Files.readString(stagingDir.resolve("0_a.jpg")), "原内容应保留在暂存备份中");
+    }
+
+    @Test
+    @DisplayName("回滚目标被并发创建为非普通文件时不触碰并保留恢复清单")
+    void retainsStagingForConcurrentUnsafeTarget() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("unsafe-target"));
+        Path restored = Files.writeString(dir.resolve("a.jpg"), "a");
+        Path poison = Files.writeString(dir.resolve("b.jpg"), "b");
+        Path normalizedPoison = poison.toAbsolutePath().normalize();
+        StagedFileDeletion failing = new StagedFileDeletion(TestI18nBeans.appMessages()) {
+            @Override
+            protected void deleteFile(Path original) throws IOException {
+                if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
+                    Files.createDirectory(restored);
+                    throw new IOException("simulated delete lock");
+                }
+                super.deleteFile(original);
+            }
+        };
+
+        assertFalse(failing.deleteAtomically(List.of(restored, poison)));
+
+        assertTrue(Files.isDirectory(restored), "并发创建的目录不得被回滚替换");
+        Path stagingDir = stagingSubdirectories().get(0);
+        assertTrue(Files.exists(stagingDir.resolve("manifest.properties")), "恢复清单应保留");
+        assertEquals("a", Files.readString(stagingDir.resolve("0_a.jpg")), "原内容应保留在暂存备份中");
+    }
+
+    @Test
     @DisplayName("回滚中某文件复制失败：返回 false，暂存子目录与恢复清单保留，未复原文件留有暂存备份")
     void retainsStagingWhenRollbackCopyFails() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("work"));
@@ -135,7 +195,7 @@ class StagedFileDeletionTest {
         assertEquals(1, stagingSubdirectories().size(), "前置：暂存子目录被保留");
 
         // 模拟下次启动：恢复入口据清单把仍缺失的 b 从暂存复原
-        RuntimeFiles.recoverDeleteStagingLeftovers();
+        RuntimeFiles.recoverDeleteStagingLeftovers(tempDir.toString());
 
         assertTrue(Files.exists(b), "启动恢复应复原 b");
         assertEquals("b", Files.readString(b), "复原内容应一致");
@@ -152,22 +212,25 @@ class StagedFileDeletionTest {
     }
 
     @Test
-    @DisplayName("只删除存在的常规文件，忽略缺失路径与目录")
-    void onlyDeletesExistingRegularFiles() throws Exception {
+    @DisplayName("缺失路径是幂等 no-op，但存在的非普通文件使整批删除失败")
+    void rejectsExistingUnsafeFilesBeforeDeletingAnything() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("work"));
         Path file = Files.writeString(dir.resolve("keep.jpg"), "x");
         Path subDir = Files.createDirectories(dir.resolve("subdir"));
         Path missing = dir.resolve("missing.jpg");
 
-        assertTrue(deletion.deleteAtomically(List.of(file, subDir, missing)));
+        UnsafeDeletionPathException exception = assertThrows(
+                UnsafeDeletionPathException.class,
+                () -> deletion.deleteAtomically(List.of(file, subDir, missing)));
 
-        assertFalse(Files.exists(file), "存在的常规文件应被删除");
-        assertTrue(Files.isDirectory(subDir), "目录不应被删除");
+        assertEquals(subDir.toAbsolutePath().normalize().toString(), exception.path());
+        assertTrue(Files.exists(file), "发现不安全路径后不得删除同批普通文件");
+        assertTrue(Files.isDirectory(subDir), "目录不得被当成成功过滤项");
         assertEquals(0, stagingResidueCount(), "暂存目录应无残留");
     }
 
     @Test
-    @DisplayName("符号链接文件和符号链接父目录均不进入删除集合")
+    @DisplayName("符号链接文件和符号链接父目录使删除失败且不触达链接目标")
     void doesNotDeleteThroughSymbolicLinks() throws Exception {
         Path outsideDir = Files.createDirectories(tempDir.resolve("outside"));
         Path outsideFile = Files.writeString(outsideDir.resolve("outside.jpg"), "outside");
@@ -177,12 +240,45 @@ class StagedFileDeletionTest {
         createSymbolicLinkOrSkip(fileLink, outsideFile);
         createSymbolicLinkOrSkip(directoryLink, outsideDir);
 
-        assertTrue(deletion.deleteAtomically(List.of(fileLink, directoryLink.resolve("outside.jpg"))));
+        UnsafeDeletionPathException exception = assertThrows(
+                UnsafeDeletionPathException.class,
+                () -> deletion.deleteAtomically(List.of(fileLink, directoryLink.resolve("outside.jpg"))));
 
+        assertEquals(fileLink.toAbsolutePath().normalize().toString(), exception.path());
         assertTrue(Files.exists(outsideFile), "链接指向的外部文件不得被删除");
         assertTrue(Files.exists(fileLink, LinkOption.NOFOLLOW_LINKS), "文件链接本身也不属于作品普通文件");
         assertTrue(Files.exists(directoryLink, LinkOption.NOFOLLOW_LINKS), "链接父目录不得被清理");
         assertEquals(0, stagingResidueCount(), "拒绝链接路径后不应留下暂存残留");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("Windows Junction 使整批删除在暂存前失败")
+    void rejectsWindowsJunctionBeforeStaging() throws Exception {
+        Path outsideDir = Files.createDirectories(tempDir.resolve("junction-target"));
+        Path outsideFile = Files.writeString(outsideDir.resolve("outside.jpg"), "outside");
+        Path work = Files.createDirectories(tempDir.resolve("junction-work"));
+        Path regular = Files.writeString(work.resolve("keep.jpg"), "keep");
+        Path junction = work.resolve("junction");
+        Process process = new ProcessBuilder(
+                "cmd.exe", "/c", "mklink", "/J", junction.toString(), outsideDir.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+        Assumptions.assumeTrue(process.waitFor() == 0, "当前 Windows 环境无法创建 Junction");
+
+        try {
+            UnsafeDeletionPathException exception = assertThrows(
+                    UnsafeDeletionPathException.class,
+                    () -> deletion.deleteAtomically(List.of(regular, junction)));
+
+            assertEquals(junction.toAbsolutePath().normalize().toString(), exception.path());
+            assertTrue(Files.exists(regular), "拒绝 Junction 后不得删除同批普通文件");
+            assertTrue(Files.exists(outsideFile), "Junction 指向的目录不得被触达");
+            assertEquals(0, stagingResidueCount(), "拒绝 Junction 后不应创建暂存内容");
+        } finally {
+            Files.deleteIfExists(junction);
+        }
     }
 
     /** 删除 {@code deletePoison} 时抛 IOException（触发回滚），回滚复原 {@code restorePoison} 时再抛 IOException。 */
@@ -204,6 +300,20 @@ class StagedFileDeletionTest {
                     throw new IOException("simulated restore lock on " + original);
                 }
                 super.restoreFile(staged, original);
+            }
+        };
+    }
+
+    private static StagedFileDeletion failAfterRecreating(Path deletePoison, Path restoreTarget, String content) {
+        Path normalizedPoison = deletePoison.toAbsolutePath().normalize();
+        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+            @Override
+            protected void deleteFile(Path original) throws IOException {
+                if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
+                    Files.writeString(restoreTarget, content);
+                    throw new IOException("simulated delete lock");
+                }
+                super.deleteFile(original);
             }
         };
     }

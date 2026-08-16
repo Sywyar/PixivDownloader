@@ -23,7 +23,7 @@ class PluginPackageIntegrityTest {
     Path dir;
 
     @Test
-    @DisplayName("本地上传来源：无完整性期望，verify 直接通过")
+    @DisplayName("未签名本地上传来源：无完整性期望，verify 直接通过")
     void localUploadHasNoExpectations() throws IOException {
         Path file = writeFile("p.zip", "abc");
         PluginPackageOrigin origin = PluginPackageOrigin.localUpload();
@@ -34,11 +34,25 @@ class PluginPackageIntegrityTest {
     }
 
     @Test
-    @DisplayName("本地上传来源携带完整性期望：构造期即拒绝（无可信清单背书）")
-    void localUploadRejectsExpectations() {
+    @DisplayName("本地上传来源携带目录绑定：构造期即拒绝（无可信清单背书）")
+    void localUploadRejectsCatalogBindings() {
         assertThatThrownBy(() -> new PluginPackageOrigin(
                 PluginPackageSource.LOCAL_UPLOAD, null, false, 10L, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("带签名本地上传来源使用官方信任根策略")
+    void signedLocalUploadRequiresOfficialTrust() {
+        SignatureMetadata metadata = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "test-key", "c2ln");
+
+        PluginPackageOrigin origin = PluginPackageOrigin.localUpload(metadata);
+
+        assertThat(origin.signature()).isEqualTo(metadata);
+        assertThat(origin.verificationPolicy().signatureRequired()).isTrue();
+        assertThat(origin.verificationPolicy().officialTrustRequired()).isTrue();
+        assertThat(origin.installedVerificationPolicy().retiredKeysAllowed()).isTrue();
     }
 
     @Test

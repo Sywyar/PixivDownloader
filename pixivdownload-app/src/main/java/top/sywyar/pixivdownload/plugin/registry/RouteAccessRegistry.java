@@ -182,6 +182,21 @@ public class RouteAccessRegistry {
         return false;
     }
 
+    /** 是否由指定插件声明了同时命中路径和方法的路由。供插件自有 controller 的注册边界校验。 */
+    public boolean isDeclaredBy(String pluginId, String path, HttpMethod method) {
+        if (pluginId == null || pluginId.isBlank()) {
+            return false;
+        }
+        for (RegisteredRoute registered : snapshot) {
+            if (registered.pluginId().equals(pluginId)
+                    && registered.route().matches(path)
+                    && registered.route().acceptsMethod(method)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * 解析当前请求（path + HTTP 方法）命中的<b>有效</b>路由：在全部「路径匹配且接受该方法」的已注册路由中，
      * 按特异性择一。供 {@code AuthFilter} 把「最具体声明 + 方法」解析为有效访问策略——更具体的窄声明覆盖更宽的
@@ -276,15 +291,13 @@ public class RouteAccessRegistry {
                 continue;
             }
             boolean samePattern = existing.pathPattern().equals(proposed.pathPattern());
-            boolean conflictsWithCoreBoundary = !CORE_PLUGIN_ID.equals(pluginId)
-                    && CORE_PLUGIN_ID.equals(registered.pluginId())
-                    && isProtectedCorePolicy(existing.accessPolicy())
-                    && isWithin(proposed.pathPattern(), existing.pathPattern());
-            if (samePattern || conflictsWithCoreBoundary) {
+            boolean crossPluginOverlap = !registered.pluginId().equals(pluginId)
+                    && pathPatternsOverlap(existing.pathPattern(), proposed.pathPattern());
+            if (samePattern || crossPluginOverlap) {
                 throw new IllegalStateException("conflicting route access policy: "
-                        + proposed.pathPattern() + "=" + proposed.accessPolicy()
-                        + " overlaps " + existing.pathPattern() + "=" + existing.accessPolicy()
-                        + " (plugin: " + pluginId + ")");
+                        + "plugin '" + pluginId + "' " + proposed.pathPattern() + "=" + proposed.accessPolicy()
+                        + " overlaps plugin '" + registered.pluginId() + "' "
+                        + existing.pathPattern() + "=" + existing.accessPolicy());
             }
         }
     }
@@ -294,18 +307,69 @@ public class RouteAccessRegistry {
                 || left.methods().stream().anyMatch(right.methods()::contains);
     }
 
-    private static boolean isProtectedCorePolicy(AccessPolicy policy) {
-        return policy == AccessPolicy.ADMIN
-                || policy == AccessPolicy.LOCAL
-                || policy == AccessPolicy.GUI
-                || policy == AccessPolicy.ACTUATOR_PUBLIC;
+    private static boolean pathPatternsOverlap(String left, String right) {
+        boolean leftPrefix = left.endsWith("**");
+        boolean rightPrefix = right.endsWith("**");
+        if (leftPrefix && rightPrefix) {
+            String leftValue = left.substring(0, left.length() - 2);
+            String rightValue = right.substring(0, right.length() - 2);
+            return leftValue.startsWith(rightValue) || rightValue.startsWith(leftValue);
+        }
+        if (leftPrefix) {
+            return canMatchPrefix(right, left.substring(0, left.length() - 2));
+        }
+        if (rightPrefix) {
+            return canMatchPrefix(left, right.substring(0, right.length() - 2));
+        }
+        if (!left.contains("*") && !right.contains("*")) {
+            return left.equals(right);
+        }
+        String[] leftSegments = left.split("/");
+        String[] rightSegments = right.split("/");
+        if (leftSegments.length != rightSegments.length) {
+            return false;
+        }
+        for (int i = 0; i < leftSegments.length; i++) {
+            if (!leftSegments[i].equals(rightSegments[i])
+                    && !leftSegments[i].equals("*")
+                    && !rightSegments[i].equals("*")) {
+                return false;
+            }
+        }
+        return true;
     }
 
-    private static boolean isWithin(String proposedPattern, String protectedPattern) {
-        if (!protectedPattern.endsWith("**")) {
-            return proposedPattern.equals(protectedPattern);
+    private static boolean canMatchPrefix(String pattern, String prefix) {
+        return canMatchPrefix(pattern, 0, prefix, 0,
+                new Boolean[pattern.length() + 1][prefix.length() + 1]);
+    }
+
+    private static boolean canMatchPrefix(
+            String pattern, int patternIndex, String prefix, int prefixIndex, Boolean[][] memo) {
+        if (prefixIndex == prefix.length()) {
+            return true;
         }
-        return proposedPattern.startsWith(protectedPattern.substring(0, protectedPattern.length() - 2));
+        if (patternIndex == pattern.length()) {
+            return false;
+        }
+        Boolean cached = memo[patternIndex][prefixIndex];
+        if (cached != null) {
+            return cached;
+        }
+        boolean wildcardSegment = pattern.charAt(patternIndex) == '*'
+                && (patternIndex == 0 || pattern.charAt(patternIndex - 1) == '/')
+                && (patternIndex + 1 == pattern.length() || pattern.charAt(patternIndex + 1) == '/');
+        boolean result;
+        if (wildcardSegment) {
+            result = canMatchPrefix(pattern, patternIndex + 1, prefix, prefixIndex, memo)
+                    || (prefix.charAt(prefixIndex) != '/'
+                    && canMatchPrefix(pattern, patternIndex, prefix, prefixIndex + 1, memo));
+        } else {
+            result = pattern.charAt(patternIndex) == prefix.charAt(prefixIndex)
+                    && canMatchPrefix(pattern, patternIndex + 1, prefix, prefixIndex + 1, memo);
+        }
+        memo[patternIndex][prefixIndex] = result;
+        return result;
     }
 
     /** 同一（模式, 方法集, 访问策略）三元组视为重复声明；方法集排序后参与键值。 */

@@ -11,6 +11,7 @@
     <!-- Vue 槽位挂载共享 helper（加性、加载即无副作用；导航由其挂 Vue 主渲染，缺失 / 加载失败即命令式回退）。 -->
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
+    <script src="/js/pixiv-actions.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link href="/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
@@ -106,13 +107,13 @@
                         </colgroup>
                         <thead>
                         <tr>
-                            <th id="th-artworkId"   class="sortable-th" onclick="sortBy('artworkId')"><span data-i18n="table.artwork-id">ARTWORK ID</span> <i id="sort-artworkId" class="sort-icon">↕</i></th>
-                            <th id="th-title"       class="sortable-th" onclick="sortBy('title')"><span data-i18n="table.title">TITLE</span> <i id="sort-title" class="sort-icon">↕</i></th>
-                            <th id="th-count"       class="sortable-th" onclick="sortBy('count')"><span data-i18n="table.images">IMGS</span> <i id="sort-count" class="sort-icon">↕</i></th>
+                            <th id="th-artworkId"   class="sortable-th" data-pixiv-click="sortBy('artworkId')"><span data-i18n="table.artwork-id">ARTWORK ID</span> <i id="sort-artworkId" class="sort-icon">↕</i></th>
+                            <th id="th-title"       class="sortable-th" data-pixiv-click="sortBy('title')"><span data-i18n="table.title">TITLE</span> <i id="sort-title" class="sort-icon">↕</i></th>
+                            <th id="th-count"       class="sortable-th" data-pixiv-click="sortBy('count')"><span data-i18n="table.images">IMGS</span> <i id="sort-count" class="sort-icon">↕</i></th>
                             <th id="th-extensions"  class="sortable-th"><span data-i18n="table.format">FORMAT</span> <i id="sort-extensions" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
-                            <th id="th-authorId"    class="sortable-th" onclick="sortBy('authorId')"><span data-i18n="table.author">AUTHOR</span> <i id="sort-authorId" class="sort-icon">↕</i><i id="filter-authorId" class="fas fa-filter header-filter-icon" onclick="toggleAuthorFilter(event)"></i></th>
-                            <th id="th-time"        class="sortable-th sort-active" onclick="sortBy('time')"><span data-i18n="table.date">DATE</span> <i id="sort-time" class="sort-icon">↓</i></th>
-                            <th id="th-moved"       class="sortable-th" onclick="sortBy('moved')"><span data-i18n="table.status">STATUS</span> <i id="sort-moved" class="sort-icon">↕</i></th>
+                            <th id="th-authorId"    class="sortable-th" data-pixiv-click="sortBy('authorId')"><span data-i18n="table.author">AUTHOR</span> <i id="sort-authorId" class="sort-icon">↕</i><i id="filter-authorId" class="fas fa-filter header-filter-icon" data-pixiv-click="toggleAuthorFilter()" data-pixiv-stop="true"></i></th>
+                            <th id="th-time"        class="sortable-th sort-active" data-pixiv-click="sortBy('time')"><span data-i18n="table.date">DATE</span> <i id="sort-time" class="sort-icon">↓</i></th>
+                            <th id="th-moved"       class="sortable-th" data-pixiv-click="sortBy('moved')"><span data-i18n="table.status">STATUS</span> <i id="sort-moved" class="sort-icon">↕</i></th>
                             <th id="th-R18"         class="sortable-th">R18 <i id="sort-R18" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
                             <th id="th-isAi"        class="sortable-th">AI <i id="sort-isAi" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
                             <th data-i18n="table.ops">OPS</th>
@@ -206,12 +207,12 @@
             <div class="modal-body">
                 <div id="imgCounter" class="img-counter"></div>
                 <button type="button" class="btn-close img-close-btn" data-bs-dismiss="modal" aria-label="Close"></button>
-                <button id="imgPrevBtn" class="img-nav-btn prev" onclick="navigateFullImg(-1)">
+                <button id="imgPrevBtn" class="img-nav-btn prev" data-pixiv-click="navigateFullImg(-1)">
                     <i class="fas fa-chevron-left"></i>
                 </button>
                 <div id="imgSpinner" class="img-spinner"></div>
                 <img id="modalImage" src="" alt="preview">
-                <button id="imgNextBtn" class="img-nav-btn next" onclick="navigateFullImg(1)">
+                <button id="imgNextBtn" class="img-nav-btn next" data-pixiv-click="navigateFullImg(1)">
                     <i class="fas fa-chevron-right"></i>
                 </button>
             </div>

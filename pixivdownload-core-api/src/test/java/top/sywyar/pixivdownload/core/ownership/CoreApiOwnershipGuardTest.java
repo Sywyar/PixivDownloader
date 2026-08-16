@@ -259,6 +259,10 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#HEADER_NAME:java.lang.String",
                     "X-Acquisition-Credential"),
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#MAX_LENGTH:int", 16_384),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver#MAX_IMAGE_BYTES:long",
+                    100L * 1024L * 1024L),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver#MAX_TASK_BYTES:long",
+                    1024L * 1024L * 1024L),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE:java.lang.String",
                     "{artwork_id}_p{page}"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SUCCESS:java.lang.String", "success"),
@@ -324,7 +328,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome",
                     List.of("ALLOWED", "OWNER_REQUIRED", "RATE_LIMITED")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure",
-                    List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
+                    List.of("INVALID_TARGET", "HTTP_STATUS", "RESPONSE_TOO_LARGE", "TRANSPORT")),
             Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome",
                     List.of("NEVER", "OK", "ERROR", "CANCELLED", "INTERRUPTED")),
             Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState",
@@ -703,7 +707,9 @@ class CoreApiOwnershipGuardTest {
                         "public abstract bookmarkArtwork(java.lang.Long,java.lang.String):top.sywyar.pixivdownload.core.work.WorkActionResult",
                         "public abstract bookmarkNovel(java.lang.Long,java.lang.String):top.sywyar.pixivdownload.core.work.WorkActionResult");
         assertThat(publicDeclaredMethodSignatures(PixivImageDownloader.class))
-                .containsExactly("public abstract download(java.net.URI,java.net.URI,java.nio.file.Path,java.lang.String,top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver):boolean");
+                .containsExactlyInAnyOrder(
+                        "public abstract download(java.net.URI,java.net.URI,java.nio.file.Path,java.lang.String,top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver):boolean",
+                        "public downloadImage(java.net.URI,java.net.URI,java.nio.file.Path,java.lang.String,top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver):java.lang.String");
         assertThat(publicDeclaredMethodSignatures(PixivThumbnailFetcher.class))
                 .containsExactly("public abstract fetch(java.net.URI):[B");
         assertThat(publicDeclaredMethodSignatures(PixivThumbnailFetchException.class))
@@ -722,7 +728,9 @@ class CoreApiOwnershipGuardTest {
         assertThat(publicDeclaredMethodSignatures(PixivImageTransferObserver.class))
                 .containsExactlyInAnyOrder(
                         "public checkCancelled():void",
+                        "public maximumBytes():long",
                         "public onBytesTransferred(long):void",
+                        "public onContentType(java.lang.String):void",
                         "public onContentLength(long):void");
         assertThat(publicDeclaredMethodSignatures(PixivProxyAccessPolicy.class))
                 .containsExactlyInAnyOrder(

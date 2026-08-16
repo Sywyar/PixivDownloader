@@ -10,8 +10,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -77,11 +79,11 @@ public final class PluginArtifactMaterializer {
 
     private static void extractExplodedZip(Path zip, Path target) throws IOException {
         try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+            Set<String> entryNames = new HashSet<>();
             var entries = zipFile.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                String entryName = entry.getName().replace('\\', '/');
-                ZipSafety.requireSafeEntryName(entryName);
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
                 if (entry.isDirectory()) {
                     Files.createDirectories(safeResolve(target, entryName));
                     continue;
@@ -95,14 +97,14 @@ public final class PluginArtifactMaterializer {
 
     private static void extractJarAsDirectory(Path jar, Path target) throws IOException {
         try (ZipFile zipFile = new ZipFile(jar.toFile())) {
+            Set<String> entryNames = new HashSet<>();
             var entries = zipFile.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
                 if (entry.isDirectory()) {
                     continue;
                 }
-                String entryName = entry.getName().replace('\\', '/');
-                ZipSafety.requireSafeEntryName(entryName);
                 try (InputStream in = zipFile.getInputStream(entry)) {
                     copyJarEntry(in, entryName, target);
                 }

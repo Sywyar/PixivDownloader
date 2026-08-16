@@ -4,9 +4,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
@@ -169,6 +171,55 @@ class PluginPackageVerifierTest {
         assertTooLarge(zip, limits(64 << 20, 3, 256L << 20, 64 << 20, 1 << 20, Long.MAX_VALUE));
     }
 
+    @Test
+    @DisplayName("重复 entry：逐字相同的归档名称按 UNSAFE 拒绝")
+    void rejectsExactDuplicateEntries() throws IOException {
+        Path jar = dir.resolve("duplicate.jar");
+        PluginPackageFixtures.writeDuplicateEntryZip(jar, "plugin.properties",
+                PluginPackageFixtures.bytes("plugin.id=first\n"),
+                PluginPackageFixtures.bytes("plugin.id=second\n"));
+        assertUnsafe(jar);
+
+        Path zip = dir.resolve("nested-duplicate.zip");
+        PluginPackageFixtures.writeZip(zip, Map.of("plugin.jar", Files.readAllBytes(jar)));
+        assertUnsafe(zip);
+    }
+
+    @Test
+    @DisplayName("可移植名称冲突：分隔符、Unicode、大小写与 Windows 文件名语义统一拒绝")
+    void rejectsPortableEntryNameCollisions() {
+        List<CollisionCase> cases = List.of(
+                new CollisionCase("case", "plugin.properties", "Plugin.Properties"),
+                new CollisionCase("separator", "classes/Marker.class", "classes\\Marker.class"),
+                new CollisionCase("unicode", "classes/caf\u00e9.class", "classes/cafe\u0301.class"),
+                new CollisionCase("trailing-dot", "classes/Marker.class", "classes/Marker.class."),
+                new CollisionCase("trailing-space", "classes/Marker.class", "classes/Marker.class ")
+        );
+        for (CollisionCase collision : cases) {
+            Path zip = dir.resolve(collision.label() + ".zip");
+            Map<String, byte[]> entries = new LinkedHashMap<>();
+            entries.put(collision.first(), PluginPackageFixtures.bytes("first"));
+            entries.put(collision.second(), PluginPackageFixtures.bytes("second"));
+            PluginPackageFixtures.writeZip(zip, entries);
+
+            assertThatThrownBy(() -> PluginPackageVerifier.verify(zip, PluginPackageLimits.defaults()))
+                    .as(collision.label())
+                    .isInstanceOfSatisfying(PluginPackageException.class,
+                            failure -> assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.UNSAFE));
+        }
+    }
+
+    @Test
+    @DisplayName("Windows 保留设备名：普通扩展名与兼容数字写法均按 UNSAFE 拒绝")
+    void rejectsWindowsReservedDeviceNames() {
+        for (String entryName : List.of("classes/NUL.txt", "classes/COM\u00b9.log")) {
+            Path zip = dir.resolve(entryName.contains("NUL") ? "nul.zip" : "com-superscript.zip");
+            PluginPackageFixtures.writeZip(zip, Map.of(entryName, PluginPackageFixtures.bytes("payload")));
+
+            assertUnsafe(zip);
+        }
+    }
+
     // ---------- helpers ----------
 
     private void assertTooLarge(Path archive, PluginPackageLimits limits) {
@@ -178,8 +229,17 @@ class PluginPackageVerifierTest {
                         .isEqualTo(PluginPackageException.Reason.TOO_LARGE));
     }
 
+    private void assertUnsafe(Path archive) {
+        assertThatThrownBy(() -> PluginPackageVerifier.verify(archive, PluginPackageLimits.defaults()))
+                .isInstanceOfSatisfying(PluginPackageException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.UNSAFE));
+    }
+
     private static PluginPackageLimits limits(long archive, int entries, long total, long entry,
                                               long descriptor, long ratio) {
         return new PluginPackageLimits(archive, entries, total, entry, descriptor, ratio);
+    }
+
+    private record CollisionCase(String label, String first, String second) {
     }
 }

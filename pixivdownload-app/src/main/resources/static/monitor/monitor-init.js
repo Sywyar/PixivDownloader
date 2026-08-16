@@ -1,6 +1,39 @@
 'use strict';
     // ===================== 初始化 =====================
+    function toggleAuthorFilterValueFromInput(input) {
+        toggleAuthorFilterValue(input.value, input.checked);
+    }
+
+    function onAuthorFilterSearchFromInput(input) {
+        onAuthorFilterSearch(input.value);
+    }
+
+    function onR18FilterChangeFromInput(input) {
+        onR18FilterChange(input.value);
+    }
+
+    function onAiFilterChangeFromInput(input) {
+        onAiFilterChange(input.value);
+    }
+
+    function bindDeclarativeActions() {
+        const actions = {
+            sortBy, toggleAuthorFilter, navigateFullImg, clearFormatFilter,
+            clearAuthorFilter, changePageFromGrid, viewThumbnails,
+            viewArtworkDetails, viewFullImage, changeThumbPage,
+            toggleAuthorInFilter, changePage, toggleAuthorFilterValueFromInput,
+            onAuthorFilterSearchFromInput, onR18FilterChangeFromInput,
+            onAiFilterChangeFromInput, onFormatFilterChange
+        };
+        PixivActions.bind(document, {
+            click: actions,
+            change: actions,
+            input: actions
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
+        bindDeclarativeActions();
         artworkModal = new bootstrap.Modal(document.getElementById('artworkModal'));
         imageModal   = new bootstrap.Modal(document.getElementById('imageModal'));
 

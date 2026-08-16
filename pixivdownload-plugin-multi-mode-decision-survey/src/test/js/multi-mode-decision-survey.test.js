@@ -52,18 +52,41 @@ test('validates the fixed PostHog schema and open-choice response', () => {
 test('beforeSend keeps only survey protocol and response properties', () => {
     const api = internals();
     const result = api.beforeSend({
+        uuid: 'event-1',
         event: 'survey sent',
+        timestamp: '2026-08-14T00:00:00.000Z',
         properties: {
             distinct_id: 'pmds_test',
+            token: 'phc_test',
             '$survey_id': api.POSTHOG.surveyId,
+            '$survey_completed': true,
             ['$survey_response_' + api.QUESTION_ID]: 'Yes',
+            '$device_id': 'device-1',
+            '$session_id': 'session-1',
+            '$window_id': 'window-1',
+            '$pageview_id': 'pageview-1',
+            '$lib': 'web',
+            '$lib_version': '1.409.5',
             '$current_url': 'https://private.example/path',
             account: 'admin'
         }
     });
 
     assert.deepEqual(Object.keys(result.properties).sort(), [
-        '$survey_id', '$survey_response_' + api.QUESTION_ID, 'distinct_id'
+        '$survey_completed', '$survey_id', '$survey_response_' + api.QUESTION_ID,
+        'distinct_id', 'token'
     ].sort());
+    assert.equal(result.uuid, undefined);
+    assert.equal(result.timestamp, '2026-08-14T00:00:00.000Z');
+    assert.deepEqual(Object.keys(result).sort(), ['event', 'properties', 'timestamp']);
     assert.equal(api.beforeSend({event: '$pageview', properties: {}}), null);
+});
+
+test('waits for remote acknowledgement before recording completion', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static',
+        'pixiv-multi-mode-decision-survey', 'survey.js'), 'utf8');
+
+    assert.match(source, /captureSurveyWithAck\(\s*OWNER_KEY, 'survey sent', properties, identity\.submissionId\)\.then\(function \(\) \{\s*rememberSubmitted\(\)/);
+    assert.match(source, /SUBMISSION_ID\.test\(body\.submissionId\)/);
+    assert.doesNotMatch(source, /client\.capture\('survey sent'/);
 });

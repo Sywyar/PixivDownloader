@@ -32,6 +32,12 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-signature</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.pf4j</groupId>
             <artifactId>pf4j</artifactId>
             <scope>provided</scope>

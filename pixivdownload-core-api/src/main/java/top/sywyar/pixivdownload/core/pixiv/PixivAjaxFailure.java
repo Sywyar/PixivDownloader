@@ -6,5 +6,6 @@ package top.sywyar.pixivdownload.core.pixiv;
 public enum PixivAjaxFailure {
     INVALID_TARGET,
     HTTP_STATUS,
+    RESPONSE_TOO_LARGE,
     TRANSPORT
 }

@@ -26,6 +26,23 @@ class LayoutFeedbackIdentityDeriverTest {
     }
 
     @Test
+    @DisplayName("相同调查、campaign 与匿名身份派生同一个 UUID，任一作用域变化都会生成新 UUID")
+    void submissionIdIsStableAndCampaignScoped() {
+        String scoped = LayoutFeedbackIdentityDeriver.deriveScopedIdentity(SURVEY_ID, INSTALL_ID);
+        String first = LayoutFeedbackIdentityDeriver.deriveSubmissionId(
+                SURVEY_ID, LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION, scoped);
+
+        assertThat(first)
+                .isEqualTo(LayoutFeedbackIdentityDeriver.deriveSubmissionId(
+                        SURVEY_ID, LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION, scoped))
+                .matches("[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}");
+        assertThat(first).isNotEqualTo(LayoutFeedbackIdentityDeriver.deriveSubmissionId(
+                SURVEY_ID, "layout-feedback-v2", scoped));
+        assertThat(first).isNotEqualTo(LayoutFeedbackIdentityDeriver.deriveSubmissionId(
+                OTHER_SURVEY_ID, LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION, scoped));
+    }
+
+    @Test
     @DisplayName("不同 surveyId 输出不同（调查作用域隔离）")
     void differentSurveyIdsProduceDifferentOutput() {
         assertThat(LayoutFeedbackIdentityDeriver.deriveScopedIdentity(SURVEY_ID, INSTALL_ID))

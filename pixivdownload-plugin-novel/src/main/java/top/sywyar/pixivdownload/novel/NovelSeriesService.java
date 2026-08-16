@@ -16,8 +16,6 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 /**
  * 下载流程中持久化 Pixiv 小说系列的标题/简介/封面到 {@code novel_series} 表，
@@ -27,8 +25,6 @@ import java.util.Set;
 @Service
 @Slf4j
 public class NovelSeriesService {
-
-    private static final Set<String> COVER_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
 
     private final NovelDatabase novelDatabase;
     private final DownloadSettings downloadConfig;
@@ -52,6 +48,14 @@ public class NovelSeriesService {
     public void observeWithMetadata(long seriesId, String title, Long authorId,
                                     String description, String coverUrl,
                                     List<WorkTag> tags, String cookie) {
+        observeWithMetadata(seriesId, title, authorId, description, coverUrl, tags, cookie,
+                PixivImageTransferObserver.MAX_IMAGE_BYTES);
+    }
+
+    public void observeWithMetadata(long seriesId, String title, Long authorId,
+                                    String description, String coverUrl,
+                                    List<WorkTag> tags, String cookie,
+                                    long maximumCoverBytes) {
         if (seriesId <= 0) return;
         try {
             novelDatabase.observeSeries(seriesId, StringUtils.hasText(title) ? title : null, authorId);
@@ -66,7 +70,8 @@ public class NovelSeriesService {
             if ((coverExt == null || coverExt.isBlank())
                     && coverUrl != null && !coverUrl.isBlank()) {
                 Path coverDir = resolveCoverDir(seriesId);
-                String downloadedExt = downloadCover(seriesId, coverUrl, coverDir, cookie);
+                String downloadedExt = downloadCover(
+                        seriesId, coverUrl, coverDir, cookie, maximumCoverBytes);
                 if (downloadedExt != null) {
                     coverExt = downloadedExt;
                     coverFolder = coverDir.toString();
@@ -97,35 +102,28 @@ public class NovelSeriesService {
                 .toAbsolutePath().normalize();
     }
 
-    private String downloadCover(long seriesId, String coverUrl, Path coverDir, String cookie) {
+    private String downloadCover(long seriesId, String coverUrl, Path coverDir, String cookie,
+                                 long maximumCoverBytes) {
+        if (maximumCoverBytes <= 0) {
+            return null;
+        }
         try {
             URI source = URI.create(coverUrl.trim());
-            String extension = inferCoverExtension(source.getPath());
-            boolean downloaded = imageDownloader.download(
+            return imageDownloader.downloadImage(
                     source,
                     URI.create("https://www.pixiv.net/novel/series/" + seriesId),
-                    coverDir.resolve("cover." + extension),
+                    coverDir.resolve("cover"),
                     cookie,
                     new PixivImageTransferObserver() {
+                        @Override
+                        public long maximumBytes() {
+                            return Math.min(MAX_IMAGE_BYTES, maximumCoverBytes);
+                        }
                     });
-            return downloaded ? extension : null;
         } catch (Exception e) {
             log.warn(messages.getForLog("novel.series.log.refresh.failed.exception", seriesId), e);
             return null;
         }
     }
 
-    private static String inferCoverExtension(String path) {
-        if (path == null) {
-            return "jpg";
-        }
-        int slash = path.lastIndexOf('/');
-        String fileName = slash >= 0 ? path.substring(slash + 1) : path;
-        int dot = fileName.lastIndexOf('.');
-        if (dot < 0 || dot == fileName.length() - 1) {
-            return "jpg";
-        }
-        String candidate = fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
-        return COVER_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
-    }
 }

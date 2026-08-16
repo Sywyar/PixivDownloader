@@ -73,6 +73,39 @@ class NovelMarkupParserTest {
     }
 
     @Test
+    @DisplayName("jumpuri 只把无凭据的 HTTP(S) 绝对地址渲染为链接")
+    void jumpUriUsesHttpSchemeAllowlist() {
+        String raw = """
+                [[jumpuri:安全 HTTPS > https://example.com/path?a=1&b=2]]
+                [[jumpuri:安全 HTTP > http://example.org/path]]
+                [[jumpuri:脚本 > javascript:alert(1)]]
+                [[jumpuri:数据 > data:text/html,x]]
+                [[jumpuri:文件 > file:///tmp/private]]
+                [[jumpuri:VBScript > vbscript:msgbox(1)]]
+                [[jumpuri:邮件 > mailto:user@example.com]]
+                [[jumpuri:自定义 > custom://example.com/path]]
+                [[jumpuri:相对 > /relative/path]]
+                [[jumpuri:凭据 > https://user@example.com/path]]
+                [[jumpuri:畸形 > https://exa mple.com/path]]
+                [[jumpuri:控制字符 > https://exa\tmple.com/path]]
+                """;
+
+        for (NovelMarkupParser.Format format : new NovelMarkupParser.Format[]{
+                NovelMarkupParser.Format.HTML, NovelMarkupParser.Format.XHTML}) {
+            String rendered = NovelMarkupParser.render(raw, format);
+            assertThat(rendered).contains(
+                    "href=\"https://example.com/path?a=1&amp;b=2\"",
+                    "href=\"http://example.org/path\"");
+            assertThat(rendered.split("<a href=", -1).length - 1).isEqualTo(2);
+            assertThat(rendered).doesNotContain(
+                    "javascript:", "data:text", "file:///", "vbscript:", "mailto:",
+                    "custom://", "/relative/path", "user@example.com", "exa mple.com", "exa\tmple.com");
+            assertThat(rendered).contains(
+                    "脚本", "数据", "文件", "VBScript", "邮件", "自定义", "相对", "凭据", "畸形", "控制字符");
+        }
+    }
+
+    @Test
     @DisplayName("XHTML 模式：epub:type 命名空间前缀存在；img placeholder 存在")
     void xhtmlEpubTypeAndImage() {
         String raw = "[uploadedimage:99]\n[pixivimage:777]";

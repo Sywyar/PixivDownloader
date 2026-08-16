@@ -51,6 +51,51 @@ public final class PluginPackageFixtures {
         }
     }
 
+    /** 写出两个同名 entry；JDK writer 会拒绝重复名，所以先写大小写占位名再修正中央目录与本地头。 */
+    public static void writeDuplicateEntryZip(Path file, String entryName, byte[] first, byte[] second) {
+        if (entryName == null || entryName.isEmpty()) {
+            throw new IllegalArgumentException("entryName must not be empty");
+        }
+        char initial = entryName.charAt(0);
+        char replacement = Character.isLowerCase(initial)
+                ? Character.toUpperCase(initial) : Character.toLowerCase(initial);
+        String placeholder = replacement + entryName.substring(1);
+        if (placeholder.equals(entryName)) {
+            throw new IllegalArgumentException("entryName must start with a cased character");
+        }
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(entryName, first);
+        entries.put(placeholder, second);
+        writeZip(file, entries);
+
+        try {
+            byte[] archive = Files.readAllBytes(file);
+            byte[] from = placeholder.getBytes(StandardCharsets.UTF_8);
+            byte[] to = entryName.getBytes(StandardCharsets.UTF_8);
+            int replacements = 0;
+            for (int i = 0; i <= archive.length - from.length; i++) {
+                boolean matches = true;
+                for (int j = 0; j < from.length; j++) {
+                    if (archive[i + j] != from[j]) {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches) {
+                    System.arraycopy(to, 0, archive, i, to.length);
+                    replacements++;
+                    i += from.length - 1;
+                }
+            }
+            if (replacements != 2) {
+                throw new IllegalStateException("unexpected duplicate entry placeholder count: " + replacements);
+            }
+            Files.write(file, archive);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     /** 同 {@link #writeZip}，但返回 zip 字节（用于嵌套成内层 jar）。 */
     public static byte[] zipBytes(Map<String, byte[]> entries) {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();

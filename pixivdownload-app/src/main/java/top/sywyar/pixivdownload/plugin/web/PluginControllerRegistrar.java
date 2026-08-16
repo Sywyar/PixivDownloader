@@ -84,7 +84,8 @@ public class PluginControllerRegistrar {
      * @throws PluginControllerRegistrationException 该 pluginId 已注册过，或任一 controller 映射缺路由声明（整插件不注册）
      */
     public int registerControllers(String pluginId, ApplicationContext context) {
-        return registerControllers(pluginId, context, routeAccessRegistry::isDeclared);
+        return registerControllers(pluginId, context,
+                (path, method) -> routeAccessRegistry.isDeclaredBy(pluginId, path, method));
     }
 
     /**
@@ -116,8 +117,8 @@ public class PluginControllerRegistrar {
             if (!undeclared.isEmpty()) {
                 throw new PluginControllerRegistrationException(
                         "refusing to register controllers for plugin '" + pluginId
-                                + "': the following mapping(s) have no matching WebRouteContribution and would be "
-                                + "404'd by AuthFilter — declare them in the plugin's routes(): " + undeclared);
+                                + "': the following mapping(s) have no matching owner WebRouteContribution and would "
+                                + "be 404'd by AuthFilter — declare them in the plugin's routes(): " + undeclared);
             }
             List<RequestMappingInfo> registered = new ArrayList<>();
             for (HandlerMethodMapping mapping : detected) {

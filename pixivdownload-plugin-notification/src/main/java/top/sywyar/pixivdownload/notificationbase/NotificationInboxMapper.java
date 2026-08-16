@@ -29,7 +29,7 @@ public interface NotificationInboxMapper {
             "<script>",
             SELECT_MESSAGE,
             "<where>",
-            "deleted_time IS NULL",
+            "deleted_time IS NULL AND active = 1",
             "<if test='category != null'>AND category = #{category}</if>",
             "<if test='unreadOnly'>AND read_time IS NULL</if>",
             "</where>",
@@ -40,42 +40,121 @@ public interface NotificationInboxMapper {
                                          @Param("unreadOnly") boolean unreadOnly,
                                          @Param("limit") int limit);
 
-    @Select(SELECT_MESSAGE + " WHERE id = #{id} AND deleted_time IS NULL")
+    @Select(SELECT_MESSAGE + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1")
     NotificationMessage findById(@Param("id") String id);
 
     @Select("SELECT content_url AS sourceUrl, content_html AS html"
             + " FROM notification_messages"
-            + " WHERE id = #{id} AND deleted_time IS NULL AND content_html IS NOT NULL")
+            + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1 AND content_html IS NOT NULL")
     NotificationHtmlContent findHtmlContent(@Param("id") String id);
 
-    @Select("SELECT NOT EXISTS(SELECT 1 FROM notification_messages"
+    @Select("SELECT EXISTS(SELECT 1 FROM notification_messages"
             + " WHERE id = #{id} AND (category <> 'announcement'"
-            + " OR deleted_time IS NOT NULL OR content_html IS NOT NULL))")
-    boolean needsRemoteAnnouncementImport(@Param("id") String id);
+            + " OR deleted_time IS NOT NULL OR active <> 1))")
+    boolean blocksRemoteAnnouncementImport(@Param("id") String id);
 
-    @Update("UPDATE notification_messages SET content_url = #{contentUrl}, content_html = #{contentHtml}"
+    @Update("UPDATE notification_messages"
+            + " SET severity = #{severity}, title = #{title}, body = #{body},"
+            + " content_url = #{contentUrl}, content_html = #{contentHtml}"
             + " WHERE id = #{id} AND category = 'announcement'"
-            + " AND deleted_time IS NULL AND content_html IS NULL")
-    int restoreRemoteAnnouncementHtml(@Param("id") String id,
-                                      @Param("contentUrl") String contentUrl,
-                                      @Param("contentHtml") String contentHtml);
+            + " AND deleted_time IS NULL AND active = 1 AND created_time = #{createdTime}")
+    int updateRemoteAnnouncement(NotificationMessage message);
+
+    @Select("SELECT t.locale, t.title, t.summary, t.content_url AS contentUrl,"
+            + " t.content_sha256 AS contentSha256,"
+            + " CASE WHEN t.content_html IS NULL THEN NULL ELSE '' END AS contentHtml"
+            + " FROM notification_announcement_translations t"
+            + " JOIN notification_messages m ON m.id = t.announcement_id"
+            + " WHERE t.announcement_id = #{announcementId} AND m.category = 'announcement'"
+            + " AND m.deleted_time IS NULL AND m.active = 1 ORDER BY t.locale")
+    List<RemoteAnnouncementTranslation> findRemoteAnnouncementTranslations(
+            @Param("announcementId") String announcementId);
+
+    @Select("SELECT t.content_url AS sourceUrl, t.content_html AS html"
+            + " FROM notification_announcement_translations t"
+            + " JOIN notification_messages m ON m.id = t.announcement_id"
+            + " WHERE t.announcement_id = #{announcementId} AND t.locale = #{locale}"
+            + " AND m.category = 'announcement' AND m.deleted_time IS NULL AND m.active = 1")
+    NotificationHtmlContent findRemoteAnnouncementHtml(@Param("announcementId") String announcementId,
+                                                       @Param("locale") String locale);
+
+    @Insert("INSERT INTO notification_announcement_translations"
+            + " (announcement_id, locale, title, summary, content_url, content_sha256, content_html)"
+            + " VALUES (#{announcementId}, #{translation.locale}, #{translation.title},"
+            + " #{translation.summary}, #{translation.contentUrl}, #{translation.contentSha256},"
+            + " #{translation.contentHtml})"
+            + " ON CONFLICT(announcement_id, locale) DO UPDATE SET"
+            + " title = excluded.title, summary = excluded.summary,"
+            + " content_url = excluded.content_url, content_sha256 = excluded.content_sha256,"
+            + " content_html = excluded.content_html")
+    int upsertRemoteAnnouncementTranslation(
+            @Param("announcementId") String announcementId,
+            @Param("translation") RemoteAnnouncementTranslation translation);
+
+    @Delete({
+            "<script>",
+            "DELETE FROM notification_announcement_translations WHERE announcement_id = #{announcementId}",
+            "<if test='locales != null and !locales.isEmpty()'>",
+            "AND locale NOT IN",
+            "<foreach collection='locales' item='locale' open='(' separator=',' close=')'>#{locale}</foreach>",
+            "</if>",
+            "</script>"
+    })
+    int deleteStaleRemoteAnnouncementTranslations(@Param("announcementId") String announcementId,
+                                                  @Param("locales") List<String> locales);
+
+    @Delete("DELETE FROM notification_announcement_translations WHERE announcement_id = #{announcementId}")
+    int deleteRemoteAnnouncementTranslations(@Param("announcementId") String announcementId);
+
+    @Insert("INSERT INTO notification_remote_index_state"
+            + " (id, sequence, manifest_sha256, generated_time, expires_time)"
+            + " VALUES (1, #{sequence}, #{manifestSha256}, #{generatedTime}, #{expiresTime})"
+            + " ON CONFLICT(id) DO UPDATE SET sequence = excluded.sequence,"
+            + " manifest_sha256 = excluded.manifest_sha256, generated_time = excluded.generated_time,"
+            + " expires_time = excluded.expires_time,"
+            + " etag = CASE WHEN excluded.manifest_sha256"
+            + " = notification_remote_index_state.manifest_sha256"
+            + " THEN notification_remote_index_state.etag ELSE NULL END,"
+            + " last_modified = CASE WHEN excluded.manifest_sha256"
+            + " = notification_remote_index_state.manifest_sha256"
+            + " THEN notification_remote_index_state.last_modified ELSE NULL END"
+            + " WHERE excluded.sequence > notification_remote_index_state.sequence"
+            + " OR (excluded.sequence = notification_remote_index_state.sequence"
+            + " AND excluded.manifest_sha256 = notification_remote_index_state.manifest_sha256)")
+    int acceptRemoteAnnouncementIndex(@Param("sequence") long sequence,
+                                      @Param("manifestSha256") String manifestSha256,
+                                      @Param("generatedTime") long generatedTime,
+                                      @Param("expiresTime") long expiresTime);
+
+    @Select("SELECT manifest_sha256 AS manifestSha256, expires_time AS expiresTime,"
+            + " etag, last_modified AS lastModified"
+            + " FROM notification_remote_index_state WHERE id = 1")
+    RemoteAnnouncementValidators findRemoteAnnouncementValidators();
+
+    @Update("UPDATE notification_remote_index_state SET etag = #{etag},"
+            + " last_modified = #{lastModified}"
+            + " WHERE id = 1 AND manifest_sha256 = #{manifestSha256}")
+    int saveRemoteAnnouncementValidators(@Param("manifestSha256") String manifestSha256,
+                                         @Param("etag") String etag,
+                                         @Param("lastModified") String lastModified);
 
     @Select({
             "<script>",
-            "SELECT COUNT(*) FROM notification_messages WHERE deleted_time IS NULL AND read_time IS NULL",
+            "SELECT COUNT(*) FROM notification_messages"
+                    + " WHERE deleted_time IS NULL AND active = 1 AND read_time IS NULL",
             "<if test='category != null'>AND category = #{category}</if>",
             "</script>"
     })
     long countUnread(@Param("category") String category);
 
     @Update("UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})"
-            + " WHERE id = #{id} AND deleted_time IS NULL AND read_time IS NULL")
+            + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1 AND read_time IS NULL")
     int markRead(@Param("id") String id, @Param("readTime") long readTime);
 
     @Update({
             "<script>",
             "UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})",
-            "WHERE deleted_time IS NULL AND read_time IS NULL",
+            "WHERE deleted_time IS NULL AND active = 1 AND read_time IS NULL",
             "<if test='category != null'>AND category = #{category}</if>",
             "</script>"
     })
@@ -84,29 +163,34 @@ public interface NotificationInboxMapper {
     @Update("UPDATE notification_messages"
             + " SET deleted_time = MAX(created_time, #{deletedTime}),"
             + " content_url = NULL, content_html = NULL, action_url = NULL"
-            + " WHERE id = #{id} AND category = 'announcement' AND deleted_time IS NULL")
+            + " WHERE id = #{id} AND category = 'announcement' AND deleted_time IS NULL AND active = 1")
     int dismissAnnouncement(@Param("id") String id, @Param("deletedTime") long deletedTime);
 
     @Update("UPDATE notification_messages"
             + " SET deleted_time = MAX(created_time, #{deletedTime}),"
             + " content_url = NULL, content_html = NULL, action_url = NULL"
             + " WHERE id = #{id} AND category = 'survey'"
-            + " AND id LIKE 'persistent-survey:%' AND deleted_time IS NULL")
+            + " AND id LIKE 'persistent-survey:%' AND deleted_time IS NULL AND active = 1")
     int dismissPersistentSurvey(@Param("id") String id, @Param("deletedTime") long deletedTime);
 
-    @Delete({
+    @Update({
             "<script>",
-            "DELETE FROM notification_messages WHERE id LIKE 'persistent-survey:%'",
-            "<if test='activeIds != null and !activeIds.isEmpty()'>",
-            "AND id NOT IN",
+            "UPDATE notification_messages SET active =",
+            "<choose>",
+            "<when test='activeIds != null and !activeIds.isEmpty()'>",
+            "CASE WHEN id IN",
             "<foreach collection='activeIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
-            "</if>",
+            "THEN 1 ELSE 0 END",
+            "</when>",
+            "<otherwise>0</otherwise>",
+            "</choose>",
+            "WHERE id LIKE 'persistent-survey:%'",
             "</script>"
     })
-    int deleteStalePersistentSurveys(@Param("activeIds") List<String> activeIds);
+    int setActivePersistentSurveys(@Param("activeIds") List<String> activeIds);
 
     @Delete("DELETE FROM notification_messages"
-            + " WHERE id = #{id} AND category <> 'announcement' AND deleted_time IS NULL")
+            + " WHERE id = #{id} AND category <> 'announcement' AND deleted_time IS NULL AND active = 1")
     int deleteNonAnnouncement(@Param("id") String id);
 
     @Delete("DELETE FROM notification_messages"

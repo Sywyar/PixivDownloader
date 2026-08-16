@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.setup;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -92,6 +94,42 @@ class CsrfProtectionFilterTest {
 
         verify(filterChain).doFilter(request, response);
         assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("TRACE 在过滤器层直接返回 405")
+    void traceIsAlwaysRejected() throws Exception {
+        MockHttpServletRequest request = request("TRACE", "/api/collections/7/icon");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(405);
+        assertThat(response.getHeader(HttpHeaders.ALLOW)).doesNotContain("TRACE");
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("可信代理规范化后的外部 Origin 可通过同源校验")
+    void normalizedProxyOriginAllowsProtectedWrite() throws Exception {
+        TrustedForwardedRequestFilter forwardedFilter =
+                new TrustedForwardedRequestFilter("172.16.0.0/12");
+        MockHttpServletRequest request = request("POST", "/api/collections/7/icon");
+        request.setRemoteAddr("172.18.0.3");
+        request.addHeader("X-Forwarded-For", "198.51.100.20");
+        request.addHeader("X-Forwarded-Proto", "https");
+        request.addHeader("X-Forwarded-Host", "gallery.example");
+        request.addHeader(HttpHeaders.ORIGIN, "https://gallery.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        forwardedFilter.doFilterInternal(request, response,
+                (normalized, normalizedResponse) -> filter.doFilterInternal(
+                        (HttpServletRequest) normalized,
+                        (HttpServletResponse) normalizedResponse,
+                        filterChain));
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(filterChain).doFilter(any(HttpServletRequest.class), any(HttpServletResponse.class));
     }
 
     @Test
@@ -220,6 +258,31 @@ class CsrfProtectionFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("Pixiv 油猴来源可把小说响应导入本机一次性票据端点")
+    void pixivUserscriptCanImportNovelResponseWithoutAmbientCredential() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/novel/browser-import/42");
+        request.addHeader(HttpHeaders.ORIGIN, "https://www.pixiv.net");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("小说响应导入例外只接受十进制作品 ID 路径")
+    void pixivUserscriptCannotImportNovelResponseToNonNumericPath() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/novel/browser-import/not-a-number");
+        request.addHeader(HttpHeaders.ORIGIN, "https://www.pixiv.net");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
     }
 
     @Test

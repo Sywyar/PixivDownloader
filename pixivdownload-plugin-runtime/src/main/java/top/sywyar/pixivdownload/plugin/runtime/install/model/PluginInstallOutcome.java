@@ -53,7 +53,7 @@ public enum PluginInstallOutcome {
 
     /**
      * 未通过完整性校验：来源声明的期望大小 / SHA-256 / 签名与实际不符（或声明了签名但当前无可用校验器，
-     * fail-closed 拒绝）。本地上传无此类期望、永不触发；仅受信 catalog 元数据驱动的来源才带完整性期望。
+     * fail-closed 拒绝）。正式运行时缺少本地上传签名或本地 detached 签名验签失败也归入此类。
      */
     REJECTED_INTEGRITY(false),
 

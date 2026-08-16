@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.novel.schedule;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.net.URI;
 import java.time.OffsetDateTime;
@@ -36,6 +38,8 @@ public record PixivNovelMetadata(
         String coverUrl,
         Long uploadTimestamp,
         Map<String, String> embeddedImages) {
+
+    public static final int MAX_EMBEDDED_IMAGES = 512;
 
     public static PixivNovelMetadata parse(long novelId, JsonNode body) {
         Long seriesId = null;
@@ -315,6 +319,9 @@ public record PixivNovelMetadata(
         JsonNode values = body.path("textEmbeddedImages");
         if (!values.isObject() || values.isEmpty()) {
             return Map.of();
+        }
+        if (values.size() > MAX_EMBEDDED_IMAGES) {
+            throw new PixivAjaxException(PixivAjaxFailure.RESPONSE_TOO_LARGE, 0);
         }
         Map<String, String> images = new LinkedHashMap<>();
         values.fields().forEachRemaining(entry -> {

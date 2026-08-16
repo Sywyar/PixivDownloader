@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
 import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
@@ -45,6 +46,7 @@ import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import java.io.IOException;
 import java.net.URI;
@@ -86,6 +88,7 @@ public class NovelDownloadController {
     private final PixivAjaxClient pixivAjaxClient;
     private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final MessageResolver messages;
+    private final NovelBrowserFetchTicketStore browserFetchTicketStore;
 
     @PostMapping("/novel/download")
     public ResponseEntity<?> downloadNovel(
@@ -123,7 +126,7 @@ public class NovelDownloadController {
 
         NovelDownloadRequest request;
         try {
-            request = resolveDownloadRequest(command, httpRequest);
+            request = resolveDownloadRequest(command, httpRequest, ownerIdentity);
         } catch (IllegalArgumentException invalid) {
             return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
                     .success(false)
@@ -183,9 +186,33 @@ public class NovelDownloadController {
 
     private NovelDownloadRequest resolveDownloadRequest(
             NovelDownloadCommand command,
-            HttpServletRequest httpRequest) throws IOException {
+            HttpServletRequest httpRequest,
+            RequestOwnerIdentity ownerIdentity) throws IOException {
         String credential = AcquisitionCredentialResolver.resolve(
                 httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME), null);
+        if (command.getFetchToken() != null && !command.getFetchToken().isBlank()) {
+            boolean allowBrowserImport = "solo".equals(applicationModeProvider.getMode())
+                    && LocalRequestTrust.isLocalRequest(
+                    httpRequest.getRemoteAddr(),
+                    httpRequest.getHeader("Host"),
+                    httpRequest.getHeader("X-Forwarded-For"),
+                    httpRequest.getHeader("X-Real-IP"),
+                    httpRequest.getHeader("Forwarded"));
+            NovelBrowserFetchTicketStore.ImportedNovel imported = browserFetchTicketStore
+                    .consumeFetchTicket(command.getFetchToken(), command.getNovelId(),
+                            ownerIdentity, credential, allowBrowserImport)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            messages.get("novel.browser-import.fetch-ticket-invalid")));
+            boolean fromPreview = imported.origin()
+                    == NovelBrowserFetchTicketStore.FetchOrigin.WEB_PREVIEW;
+            PixivNovelMetadata.SeriesMetadata series = fromPreview
+                    ? fetchSeriesBestEffort(imported.metadata().seriesId(), credential)
+                    : null;
+            NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(
+                    imported.metadata(), series, fromPreview ? credential : null, imported.rawMetaJson());
+            command.getOther().applyTo(request.getOther());
+            return request;
+        }
         long novelId = command.getNovelId();
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
@@ -197,7 +224,8 @@ public class NovelDownloadController {
         PixivNovelMetadata metadata = PixivNovelMetadata.parse(novelId, body);
         PixivNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(metadata.seriesId(), credential);
         NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(
-                metadata, series, credential, body.toString());
+                metadata, series, credential,
+                NovelDownloadRequestFactory.boundedRawMetadata(objectMapper, body));
         command.getOther().applyTo(request.getOther());
         return request;
     }

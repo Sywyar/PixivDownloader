@@ -37,8 +37,8 @@ class ScheduleUiContractTest {
                 .contains("schedule.meta.next-capability")
                 .contains("const runAttr = (t.enabled && !busy && !suspended)")
                 .contains("const sourceEditable = t.sourceAvailable !== false")
-                .contains("${editAttr} onclick=\"startEditScheduleTask(${t.id})\"")
-                .contains("${busyAttr} onclick=\"deleteScheduleTask(${t.id})\"");
+                .contains("${editAttr} data-pixiv-click=\"startEditScheduleTask(${t.id})\"")
+                .contains("${busyAttr} data-pixiv-click=\"deleteScheduleTask(${t.id})\"");
     }
 
     @Test

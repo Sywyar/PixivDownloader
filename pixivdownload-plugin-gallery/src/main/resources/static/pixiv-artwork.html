@@ -9,6 +9,7 @@
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/pixiv-onboarding.js"></script>
+    <script src="/js/pixiv-actions.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
     <link rel="stylesheet" href="/css/pixiv-onboarding.css">
@@ -145,11 +146,11 @@
     </div>
 </div>
 
-<div class="lightbox" id="lightbox" onclick="handleLightboxClick(event)">
-    <button class="lightbox-close" onclick="closeLightbox()">×</button>
-    <button class="lightbox-nav prev" onclick="lightboxNav(-1); event.stopPropagation()">‹</button>
+<div class="lightbox" id="lightbox" data-pixiv-click="handleLightboxClick(event)">
+    <button class="lightbox-close" data-pixiv-click="closeLightbox()">×</button>
+    <button class="lightbox-nav prev" data-pixiv-click="lightboxNav(-1)" data-pixiv-stop="true">‹</button>
     <img id="lightboxImage" alt="">
-    <button class="lightbox-nav next" onclick="lightboxNav(1); event.stopPropagation()">›</button>
+    <button class="lightbox-nav next" data-pixiv-click="lightboxNav(1)" data-pixiv-stop="true">›</button>
     <div class="lightbox-info" id="lightboxInfo"></div>
 </div>
 
@@ -157,7 +158,7 @@
     <div class="modal">
         <div class="modal-head">
             <span class="modal-title" id="addToCollectionTitle">添加到收藏夹</span>
-            <button class="modal-close" onclick="closeAddToCollectionModal()">×</button>
+            <button class="modal-close" data-pixiv-click="closeAddToCollectionModal()">×</button>
         </div>
         <div class="modal-body">
             <div style="display:flex; gap:6px; margin-bottom:16px">
@@ -168,7 +169,7 @@
             <div class="collection-list" id="addToCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="addToCollectionDoneBtn" onclick="closeAddToCollectionModal()">完成</button>
+            <button class="btn" id="addToCollectionDoneBtn" data-pixiv-click="closeAddToCollectionModal()">完成</button>
         </div>
     </div>
 </div>

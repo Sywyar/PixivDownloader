@@ -168,13 +168,15 @@ class NotificationPluginTest {
             assertThat(slot.target()).isEqualTo("topbar-actions");
             assertThat(slot.moduleUrl()).isEqualTo("/pixiv-notifications/batch-inbox-slot.js");
         });
-        assertThat(plugin.schema()).singleElement().satisfies(schema ->
-                assertThat(schema.tables()).singleElement().satisfies(table -> {
+        assertThat(plugin.schema()).singleElement().satisfies(schema -> {
+            assertThat(schema.tables()).hasSize(3);
+            assertThat(schema.tables()).filteredOn(table -> table.name().equals("notification_messages"))
+                    .singleElement().satisfies(table -> {
                     assertThat(table.name()).isEqualTo("notification_messages");
                     assertThat(table.columns()).extracting(column -> column.name())
                             .containsExactly("id", "category", "severity", "scenario_id", "title", "body",
                                     "content_url", "content_html", "action_url", "created_time", "read_time",
-                                    "deleted_time");
+                                    "deleted_time", "active");
                     assertThat(table.indexes()).extracting(index -> index.name())
                             .containsExactly("idx_notification_messages_created_time",
                                     "idx_notification_messages_unread_created");
@@ -182,8 +184,29 @@ class NotificationPluginTest {
                             .contains("category IN ('download','announcement','survey','system')")
                             .contains("severity IN ('INFO','WARNING','ERROR')")
                             .contains("content_html IS NULL OR length(content_html) > 0")
+                            .contains("active IN (0,1)")
                             .contains("deleted_time IS NULL OR deleted_time >= created_time");
-                }));
+                    });
+            assertThat(schema.tables())
+                    .filteredOn(table -> table.name().equals("notification_announcement_translations"))
+                    .singleElement().satisfies(table -> {
+                        assertThat(table.columns()).extracting(column -> column.name())
+                                .containsExactly("announcement_id", "locale", "title", "summary",
+                                        "content_url", "content_sha256", "content_html");
+                        assertThat(table.columns()).extracting(column -> column.primaryKeyPosition())
+                                .containsExactly(1, 2, 0, 0, 0, 0, 0);
+                        assertThat(table.columns()).filteredOn(column -> column.name().equals("content_sha256"))
+                                .singleElement().satisfies(column -> assertThat(column.notNull()).isFalse());
+                        assertThat(table.indexes()).isEmpty();
+                    });
+            assertThat(schema.tables())
+                    .filteredOn(table -> table.name().equals("notification_remote_index_state"))
+                    .singleElement()
+                    .satisfies(table -> assertThat(table.columns())
+                            .extracting(column -> column.name())
+                            .containsExactly("id", "sequence", "manifest_sha256",
+                                    "generated_time", "expires_time", "etag", "last_modified"));
+        });
         assertThat(plugin.navigation()).isEmpty();
         assertThat(pf4j.configurationClasses()).containsExactly(NotificationPluginConfiguration.class);
         assertThat(NotificationSink.class).isAssignableFrom(InboxNotificationSink.class);

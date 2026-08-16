@@ -4,6 +4,7 @@
     var pageI18n = null;
     var emptyDetail = null;
     var contentFrameHost = null;
+    var surveyFrameHost = null;
     var contentFrames = new Map();
     var loadSequence = 0;
     var markingReadIds = new Set();
@@ -21,6 +22,7 @@
             headers: { 'Accept': 'application/json' }
         }, options || {}));
         if (response.status === 401) {
+            ++loadSequence;
             location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
             throw new Error('Unauthorized');
         }
@@ -52,6 +54,15 @@
         }
     }
 
+    function isoTime(epochMillis) {
+        try {
+            var date = new Date(epochMillis);
+            return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
     function matchesCategory(message) {
         return !!message && (!state.category || message.category === state.category);
     }
@@ -73,9 +84,14 @@
     }
 
     function clearSelection(updateHistory) {
+        var selectedId = state.selectedId;
         state.selectedId = '';
         state.selectedMessage = null;
         var detail = resetDetail();
+        var selectedFrame = contentFrames.get(selectedId);
+        if (selectedFrame && selectedFrame.getAttribute('data-embedded-survey') === 'true') {
+            discardContentFrame(selectedId);
+        }
         if (emptyDetail) {
             detail.insertBefore(emptyDetail, contentFrameHost);
             if (pageI18n) pageI18n.apply(detail);
@@ -101,7 +117,7 @@
         category.textContent = categoryLabel(message.category);
         var time = document.createElement('time');
         time.className = 'notification-item-time';
-        time.dateTime = new Date(message.createdTime).toISOString();
+        time.dateTime = isoTime(message.createdTime);
         time.textContent = timeText(message.createdTime);
         meta.append(category, time);
 
@@ -156,12 +172,16 @@
             if (pageI18n && pageI18n.lang) embeddedUrl.searchParams.set('lang', pageI18n.lang);
             return embeddedUrl.pathname + embeddedUrl.search;
         }
-        return '/api/notifications/' + encodeURIComponent(message.id) + '/content';
+        return withLanguage('/api/notifications/' + encodeURIComponent(message.id) + '/content');
     }
 
     function discardContentFrame(id) {
         var frame = contentFrames.get(id);
-        if (frame) frame.remove();
+        if (frame) {
+            if (frame._notificationHeightTimer) window.clearTimeout(frame._notificationHeightTimer);
+            if (surveyFrameHost) surveyFrameHost.detach(frame);
+            frame.remove();
+        }
         contentFrames.delete(id);
     }
 
@@ -180,46 +200,49 @@
         frame.src = source;
         frame.setAttribute('data-content-source', source);
         frame.setAttribute('data-notification-id', message.id);
+        frame.setAttribute('sandbox', 'allow-scripts');
+        frame.setAttribute('loading', 'lazy');
         if (message.embeddedContentUrl) {
             frame.setAttribute('data-embedded-survey', 'true');
-            frame.setAttribute('loading', 'eager');
-        } else {
-            frame.setAttribute('sandbox', 'allow-scripts');
-            frame.setAttribute('loading', 'lazy');
         }
         frame.title = t('inbox.html-content', '消息 HTML 正文') + '：' + message.title;
         frame.setAttribute('referrerpolicy', 'no-referrer');
         frame.setAttribute('scrolling', 'no');
         frame.setAttribute('allow', "camera 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'");
         contentFrames.set(message.id, frame);
+        if (message.embeddedContentUrl && surveyFrameHost) surveyFrameHost.attach(frame, source);
         contentFrameHost.appendChild(frame);
         return frame;
     }
 
-    function preloadEmbeddedFrames(messages) {
-        messages.forEach(function (message) {
-            if (message.embeddedContentUrl) contentFrame(message);
-        });
+    function activeContentFrame(frame) {
+        return !!frame && contentFrames.get(frame.getAttribute('data-notification-id')) === frame
+            && state.selectedId === frame.getAttribute('data-notification-id') && !frame.hidden;
     }
 
-    async function handleContentMessage(event) {
-        var data = event.data;
-        if (!data) return;
-        var frames = document.querySelectorAll('.notification-detail-content-frame');
-        var frame = Array.prototype.find.call(frames, function (frame) {
-            return frame.contentWindow === event.source;
-        });
-        if (!frame) return;
-        if (data.type === 'pixiv-content-height') {
-            if (typeof data.height !== 'number' || !Number.isFinite(data.height) || data.height <= 0) return;
-            var frameHeight = Math.ceil(data.height + 2) + 'px';
+    function applyContentHeight(frame, height) {
+        if (!activeContentFrame(frame) || typeof height !== 'number' || !Number.isFinite(height)) return;
+        frame._notificationPendingHeight = Math.min(2000, Math.max(160, Math.ceil(height + 2)));
+        if (frame._notificationHeightTimer) return;
+        var applyHeight = function () {
+            frame._notificationHeightTimer = null;
+            if (!activeContentFrame(frame)) return;
+            var frameHeight = frame._notificationPendingHeight + 'px';
             if (frame.style.height !== frameHeight) frame.style.height = frameHeight;
+        };
+        applyHeight();
+        frame._notificationHeightTimer = window.setTimeout(applyHeight, 50);
+    }
+
+    async function handleSurveyFrameMessage(frame, data) {
+        if (!activeContentFrame(frame) || !data) return;
+        if (data.type === 'pixiv-content-height') {
+            applyContentHeight(frame, data.height);
             return;
         }
         if (data.type === 'pixiv-survey-unavailable') {
             var notificationId = frame.getAttribute('data-notification-id');
-            if (event.origin !== location.origin
-                    || frame.getAttribute('data-embedded-survey') !== 'true'
+            if (frame.getAttribute('data-embedded-survey') !== 'true'
                     || typeof data.notificationId !== 'string'
                     || data.notificationId !== notificationId) return;
             try {
@@ -231,6 +254,19 @@
             } catch (error) {
                 // 临时错误保留站内信，稍后重新验证调查发布状态。
             }
+        }
+    }
+
+    function handleContentMessage(event) {
+        var data = event.data;
+        if (!data || event.origin !== 'null') return;
+        var frames = document.querySelectorAll('.notification-detail-content-frame');
+        var frame = Array.prototype.find.call(frames, function (candidate) {
+            return candidate.contentWindow === event.source;
+        });
+        if (!activeContentFrame(frame) || frame.getAttribute('data-embedded-survey') === 'true') return;
+        if (data.type === 'pixiv-content-height') {
+            applyContentHeight(frame, data.height);
             return;
         }
         if (data.type !== 'pixiv-external-link' || typeof data.href !== 'string'
@@ -252,7 +288,7 @@
         category.textContent = categoryLabel(message.category);
         var time = document.createElement('time');
         time.className = 'notification-detail-time';
-        time.dateTime = new Date(message.createdTime).toISOString();
+        time.dateTime = isoTime(message.createdTime);
         time.textContent = timeText(message.createdTime);
         meta.append(category, time);
 
@@ -320,6 +356,7 @@
         try {
             var updated = await api(withLanguage('/api/notifications/' + encodeURIComponent(id) + '/read'),
                 { method: 'POST' });
+            ++loadSequence;
             if (state.selectedId !== id) return;
             state.unreadCount = Math.max(0, state.unreadCount - 1);
             if (state.unreadOnly) {
@@ -361,6 +398,7 @@
         if (button) button.disabled = true;
         try {
             await api('/api/notifications/' + encodeURIComponent(id), { method: 'DELETE' });
+            ++loadSequence;
             if (state.selectedId !== id) return;
             discardContentFrame(id);
             if (!message.readTime) state.unreadCount = Math.max(0, state.unreadCount - 1);
@@ -374,6 +412,11 @@
     }
 
     async function selectMessage(id, updateHistory) {
+        var previousFrame = contentFrames.get(state.selectedId);
+        if (state.selectedId !== id && previousFrame
+                && previousFrame.getAttribute('data-embedded-survey') === 'true') {
+            discardContentFrame(state.selectedId);
+        }
         state.selectedId = id;
         state.selectedMessage = state.messages.find(function (message) { return message.id === id; }) || null;
         renderList();
@@ -427,7 +470,6 @@
             if (requestSequence !== loadSequence) return false;
             state.messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
             state.unreadCount = Math.max(0, Number(snapshot.categoryUnreadCount) || 0);
-            preloadEmbeddedFrames(state.messages);
             renderList();
             return true;
         } catch (error) {
@@ -464,6 +506,7 @@
             var query = category ? '?category=' + encodeURIComponent(category) : '';
             try {
                 await api('/api/notifications/read-all' + query, { method: 'POST' });
+                ++loadSequence;
                 if (state.category !== category || !await loadMessages()) return;
                 if (state.unreadOnly) clearSelection(true);
                 else if (state.selectedId) selectMessage(state.selectedId, false);
@@ -502,6 +545,17 @@
     document.addEventListener('DOMContentLoaded', async function () {
         emptyDetail = el('notificationDetail').firstElementChild;
         contentFrameHost = el('notificationContentFrames');
+        if (window.PixivSurveyFrameBridge) {
+            surveyFrameHost = window.PixivSurveyFrameBridge.createHost({
+                isActive: activeContentFrame,
+                onMessage: handleSurveyFrameMessage
+            });
+            window.addEventListener('storage', surveyFrameHost.handleStorageEvent);
+            window.addEventListener('pixiv-theme-change', function (event) {
+                var theme = event && event.detail ? event.detail.theme : null;
+                if (typeof theme === 'string') surveyFrameHost.publishStorage('pixiv_theme', theme);
+            });
+        }
         window.addEventListener('message', handleContentMessage);
         bindFilters();
         bindListTools();

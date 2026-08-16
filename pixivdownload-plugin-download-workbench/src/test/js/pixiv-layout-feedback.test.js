@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
+const {webcrypto} = require('crypto');
 
 const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-layout-feedback', 'pixiv-layout-feedback.js');
@@ -40,6 +41,7 @@ const CONFIG_WINDOW = {};
 vm.runInNewContext(CONFIG_SOURCE, {window: CONFIG_WINDOW});
 vm.runInNewContext(SOURCE, {window: CONFIG_WINDOW});
 const SURVEY_ID = CONFIG_WINDOW.PixivLayoutFeedback._internals.POSTHOG.surveyId;
+const SUBMISSION_ID = '018f35a1-7c40-8abc-8def-0123456789ab';
 
 let passed = 0;
 function ok(label, condition) {
@@ -455,6 +457,7 @@ function createFakeAdapter(overrides) {
     let sdkDistinctId = null;
     const adapter = {
         calls,
+        ackOk: !['throw', 'undefined', 'null', 'false', 'reject'].includes(overrides.capture),
         surveys: overrides.surveys || [],
         lastSurveyCallback: null,
         sdkConfig() { return sdkConfig; },
@@ -692,6 +695,7 @@ function createHarness(options) {
             available: true,
             stateAvailable: true,
             distinctId: current.distinctId,
+            submissionId: current.submissionId,
             revision: (typeof current.revision === 'number' ? current.revision : 0) + 1,
             status: simulatedView ? simulatedView.status : null,
             canShow: simulatedView ? simulatedView.canShow : true,
@@ -725,6 +729,8 @@ function createHarness(options) {
             available: true,
             stateAvailable: true,
             distinctId: options.serverScopedId !== undefined ? options.serverScopedId : SERVER_SCOPED_ID,
+            submissionId: options.serverSubmissionId !== undefined
+                ? options.serverSubmissionId : SUBMISSION_ID,
             revision: 0,
             status: null,
             canShow: true,
@@ -817,10 +823,23 @@ function createHarness(options) {
                 if (options.serverState !== undefined || serverStateHolder.value !== undefined) {
                     return Promise.resolve({ok: true, json: () => Promise.resolve(defaultServerGetResponse())});
                 }
-                return Promise.resolve({ok: true, json: () => Promise.resolve({available: false})});
+                return Promise.resolve({ok: true, json: () => Promise.resolve({
+                    available: true,
+                    stateAvailable: false,
+                    distinctId: SERVER_SCOPED_ID,
+                    submissionId: SUBMISSION_ID,
+                    revision: 0,
+                    status: null,
+                    canShow: false,
+                    retryAfterMs: 0,
+                    seenLayouts: []
+                })});
             }
             if (options.fetch === 'no-version') {
                 return Promise.resolve({ok: true, json: () => Promise.resolve({name: 'x'})});
+            }
+            if (url === publicConfig.apiHost + '/e/') {
+                return Promise.resolve({ok: !sandbox.posthog || sandbox.posthog.ackOk !== false});
             }
             return Promise.resolve({ok: true, json: () => Promise.resolve({name: 'x', version: '1.2.3'})});
         },
@@ -844,6 +863,8 @@ function createHarness(options) {
         CustomEvent: MiniCustomEvent,
         AbortController,
         URL,
+        Uint8Array,
+        crypto: webcrypto,
         setTimeout: timers.setTimeout,
         clearTimeout: timers.clearTimeout
     };
@@ -1059,12 +1080,21 @@ function testEmbeddedSurveyPublicationStates() {
 }
 
 function captureEvents(harness) {
-    return (harness.adapter && harness.adapter.calls.capture || []).map(c => c.name);
+    return (harness.adapter && harness.adapter.calls.capture || []).map(c => c.name)
+        .concat(ackEvents(harness).map(event => event.event));
 }
 
 function captureProps(harness, name) {
     const call = (harness.adapter.calls.capture || []).find(c => c.name === name);
-    return call ? call.properties : null;
+    if (call) return call.properties;
+    const event = ackEvents(harness).find(item => item.event === name);
+    return event ? event.properties : null;
+}
+
+function ackEvents(harness) {
+    return harness.fetchCalls
+        .filter(call => call.url === harness.config.apiHost + '/e/' && call.init && call.init.body)
+        .map(call => JSON.parse(call.init.body));
 }
 
 function waitForFlush() {
@@ -1289,6 +1319,7 @@ function testSubmitSendsOnceWithQuestionId() {
     }).then(() => {
         const sent = captureEvents(h).filter(e => e === 'survey sent');
         eq('双击 / 重复触发只发一次 survey sent', sent.length, 1);
+        eq('survey sent 使用服务端稳定提交 UUID', ackEvents(h)[0].uuid, SUBMISSION_ID);
         const props = captureProps(h, 'survey sent');
         eq('回答属性使用 question.id', props['$survey_response_q-layout'], 'pixiv-batch-portrait');
         ok('回答属性不以数组位置构造', Object.keys(props).every(k => k !== '$survey_response' && k !== '$survey_response_1'));
@@ -1477,6 +1508,13 @@ function testSubmitFailureAndRetry() {
         const radio = h.radios().find(r => r.checked);
         eq('失败保留布局选择', radio && radio.value, 'pixiv-batch-landscape');
         eq('失败保留建议文本', h.textarea().value, ' 保留的建议 ');
+        const firstSubmissionId = ackEvents(h)[0].uuid;
+        h.adapter.ackOk = true;
+        h.submitButton().click();
+        return waitForFlush().then(() => {
+            eq('远端结果不明确后重试复用同一 UUID', ackEvents(h)[1].uuid, firstSubmissionId);
+            eq('远端确认后才写 submitted', JSON.parse(h.storage.getItem(STATE_KEY)).status, 'submitted');
+        });
     });
 }
 
@@ -1537,8 +1575,16 @@ function testBeforeSendFilter() {
             time: 123,
             $lib: 'web',
             $lib_version: '1.409.5',
+            $lib_variant: 'full',
+            $device_id: 'device-1',
+            $session_id: 'session-1',
+            $window_id: 'window-1',
+            $pageview_id: 'pageview-1',
             '$survey_id': 's1',
             '$survey_response_q-layout': 'pixiv-batch-landscape',
+            app_version: '1.0.0',
+            current_layout: 'landscape',
+            survey_schema_version: 1,
             '$current_url': 'http://localhost:6999/pixiv-batch.html',
             '$referrer': 'http://evil.example',
             '$referring_domain': 'evil.example',
@@ -1550,10 +1596,14 @@ function testBeforeSendFilter() {
         }
     };
     const filtered = filter(base);
-    ok('保留 distinct_id', filtered.properties.distinct_id === 'anon-123');
-    ok('保留 $lib / $lib_version 协议字段', filtered.properties.$lib === 'web');
-    ok('保留 $survey_id', filtered.properties.$survey_id === 's1');
-    ok('保留 $survey_response_*', filtered.properties['$survey_response_q-layout'] === 'pixiv-batch-landscape');
+    ok('仅保留调查必需字段', Object.keys(filtered.properties).sort().join('|') === [
+        '$survey_id', '$survey_response_q-layout', 'app_version', 'current_layout',
+        'distinct_id', 'survey_schema_version', 'token'
+    ].sort().join('|'));
+    ok('删除 SDK 设备、会话、页面和版本属性', [
+        'time', '$lib', '$lib_version', '$lib_variant', '$device_id', '$session_id',
+        '$window_id', '$pageview_id'
+    ].every(key => filtered.properties[key] === undefined));
     ok('删除 $current_url', filtered.properties.$current_url === undefined);
     ok('删除 $referrer', filtered.properties.$referrer === undefined);
     ok('删除 $referring_domain', filtered.properties.$referring_domain === undefined);
@@ -1595,7 +1645,8 @@ function testSdkInitConfigPrivacy() {
         eq('dead clicks 关闭', c.capture_dead_clicks, false);
         eq('surveys 保持启用', c.disable_surveys, false);
         eq('person_profiles 不创建匿名 Person', c.person_profiles, 'identified_only');
-        eq('persistence 使用 localStorage', c.persistence, 'localStorage');
+        eq('persistence 仅使用内存', c.persistence, 'memory');
+        eq('SDK persistence 显式关闭', c.disable_persistence, true);
         eq('cross_subdomain_cookie 关闭', c.cross_subdomain_cookie, false);
         eq('DNT 尊重', c.respect_dnt, true);
         eq('campaign params 关闭', c.save_campaign_params, false);
@@ -2083,35 +2134,6 @@ function testCaptureResultAcceptanceMatrix() {
     }).then(() => submitWithCaptureOverride('throw')).then(h => {
         eq('capture 同步抛错 → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
         eq('capture 同步抛错 → 保留弹窗可重试', h.document.querySelectorAll('.plf-backdrop').length, 1);
-    }).then(() => {
-        // before_send 返回 null → SDK 丢弃事件 → capture 返回 undefined（真实 1.409.5 语义）
-        const h = initHarness({
-            adapter: (() => {
-                const a = createFakeAdapter({surveys: [defaultSurvey()]});
-                a.capture = function (name, properties) {
-                    const event = {
-                        uuid: 'evt-x', event: name, timestamp: 't',
-                        properties: Object.assign({}, properties)
-                    };
-                    const config = this.sdkConfig();
-                    if (config && typeof config.before_send === 'function') {
-                        config.before_send(event);
-                    }
-                    // 模拟 before_send 链中后续过滤器返回 null：
-                    // SDK 丢弃整个事件，capture() 返回 undefined。
-                    return undefined;
-                };
-                return a;
-            })(),
-            batchLayout: 'landscape'
-        });
-        return h.api.open().then(() => waitForFlush()).then(() => {
-            selectChoice(h, 'pixiv-batch-landscape');
-            h.submitButton().click();
-            return waitForFlush();
-        }).then(() => {
-            eq('before_send 返回 null → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
-        });
     });
 }
 
@@ -2137,7 +2159,7 @@ function testBeforeSendTopLevelFields() {
     eq('顶层 $set 被删除', out.$set, undefined);
     eq('顶层 $set_once 被删除', out.$set_once, undefined);
     eq('顶层 $unset 被删除', out.$unset, undefined);
-    eq('保留 uuid', out.uuid, 'evt-1');
+    eq('删除 uuid', out.uuid, undefined);
     eq('保留 event', out.event, 'survey sent');
     eq('保留 timestamp', out.timestamp, '2026-01-01T00:00:00.000Z');
     ok('保留 distinct_id / token / $survey_id', out.properties.distinct_id === 'anon-1'
@@ -2145,7 +2167,7 @@ function testBeforeSendTopLevelFields() {
     eq('Survey response 不丢失', out.properties['$survey_response_q-layout'], 'pixiv-batch-portrait');
     eq('建议响应不丢失', out.properties['$survey_response_q-suggestion'], 'keep me');
     eq('环境属性仍被过滤', out.properties.$current_url, undefined);
-    ok('输出不携带多余顶层字段', Object.keys(out).every(k => ['uuid', 'event', 'timestamp', 'properties'].indexOf(k) >= 0));
+    ok('输出不携带多余顶层字段', Object.keys(out).every(k => ['event', 'timestamp', 'properties'].indexOf(k) >= 0));
     eq('非 Survey 事件仍返回 null', filter({uuid: 'e', event: '$pageview', properties: {}}), null);
 }
 
@@ -2735,8 +2757,9 @@ function testBeforeSendTimestampMatrix() {
     eq('普通对象 timestamp 省略', filter(Object.assign({}, base, {timestamp: {evil: true}})).timestamp, undefined);
     eq('非法 Date 省略', filter(Object.assign({}, base, {timestamp: new Date('invalid')})).timestamp, undefined);
 
-    ok('Date timestamp 不影响 uuid / event / properties',
-        outDate.uuid === 'evt-1' && outDate.event === 'survey sent' && outDate.properties.distinct_id === 'anon');
+    ok('Date timestamp 不影响 event / properties 且 uuid 被删除',
+        outDate.uuid === undefined && outDate.event === 'survey sent'
+        && outDate.properties.distinct_id === 'anon');
 }
 
 function testBeforeSendDateTimestampWithSurveyFields() {
@@ -2762,8 +2785,8 @@ function testBeforeSendDateTimestampWithSurveyFields() {
     eq('$survey_id 保留', out.properties['$survey_id'], 's1');
     eq('$survey_response_* 保留', out.properties['$survey_response_q-layout'], 'pixiv-batch-portrait');
     ok('Date timestamp 与其他顶层字段并存', out.timestamp === timestamp);
-    ok('输出顶层字段仅 uuid / event / timestamp / properties',
-        Object.keys(out).every(k => ['uuid', 'event', 'timestamp', 'properties'].indexOf(k) >= 0));
+    ok('输出顶层字段仅 event / timestamp / properties',
+        Object.keys(out).every(k => ['event', 'timestamp', 'properties'].indexOf(k) >= 0));
 }
 
 function testFakeAdapterDefaultTimestampIsDate() {
@@ -2822,6 +2845,7 @@ function serverStateResponse(overrides) {
         available: true,
         stateAvailable: true,
         distinctId: SERVER_SCOPED_ID,
+        submissionId: SUBMISSION_ID,
         revision: 0,
         status: null,
         canShow: true,
@@ -3051,7 +3075,7 @@ function testServerModeUnavailableFallsBackToLocal() {
         return waitForFlush().then(() => {
             eq('403（multi 模式）回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
             const cfg = h.adapter.sdkConfig();
-            eq('回退模式 sdk config 不包含 bootstrap', cfg.bootstrap === undefined, true);
+            ok('回退模式使用调查隔离匿名 ID', /^ps_[0-9a-f]{64}$/.test(cfg.bootstrap.distinctID));
             eq('回退模式不包含 distinct_id 初始化字段', cfg.distinct_id, undefined);
         });
     }).then(() => {
@@ -3062,7 +3086,8 @@ function testServerModeUnavailableFallsBackToLocal() {
         h.dispatchFirstDownload();
         return waitForFlush().then(() => {
             eq('服务端不可达回退 localStorage 展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
-            eq('服务端不可达不设置 bootstrap', h.adapter.sdkConfig().bootstrap === undefined, true);
+            ok('服务端不可达使用调查隔离匿名 ID',
+                /^ps_[0-9a-f]{64}$/.test(h.adapter.sdkConfig().bootstrap.distinctID));
         });
     }).then(() => {
         const h = initHarness({
@@ -3526,7 +3551,8 @@ function testOpenWaitsForServer403Fallback() {
     });
     return h.api.open().then(() => waitForFlush()).then(() => {
         eq('403 后浏览器匿名模式初始化', h.adapter.sdkConfig() !== null, true);
-        eq('403 后不设置 bootstrap', h.adapter.sdkConfig().bootstrap === undefined, true);
+        ok('403 后使用调查隔离匿名 ID',
+            /^ps_[0-9a-f]{64}$/.test(h.adapter.sdkConfig().bootstrap.distinctID));
         eq('403 后本地模式可展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
     });
 }
@@ -3912,49 +3938,55 @@ function testApplyServerViewRejectsInvalidShapes() {
         });
         return h.api.open().then(() => waitForFlush()).then(() => h);
     };
+    const usesFallbackIdentity = h => /^ps_[0-9a-f]{64}$/.test(
+        h.adapter.sdkConfig().bootstrap.distinctID);
     return withServerState({revision: 1.5}).then(h => {
-        eq('非整数 revision 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('非整数 revision 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({revision: -1})).then(h => {
-        eq('负数 revision 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('负数 revision 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({revision: Number.NaN})).then(h => {
-        eq('NaN revision 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('NaN revision 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({distinctId: ''})).then(h => {
-        eq('available=true 但 distinctId 缺失视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('available=true 但 distinctId 缺失视图整体拒绝', usesFallbackIdentity(h), true);
+    }).then(() => withServerState({submissionId: ''})).then(h => {
+        eq('submissionId 缺失视图整体拒绝', usesFallbackIdentity(h), true);
+    }).then(() => withServerState({submissionId: 'not-a-uuid'})).then(h => {
+        eq('submissionId 非 UUIDv8 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'bogus', canShow: false, retryAfterMs: 0})).then(h => {
-        eq('未知 status 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('未知 status 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'submitted', canShow: true, retryAfterMs: 0})).then(h => {
-        eq('submitted + canShow=true 组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('submitted + canShow=true 组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'snoozed', canShow: true, retryAfterMs: 100})).then(h => {
-        eq('snoozed canShow=true + retryAfterMs>0 组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('snoozed canShow=true + retryAfterMs>0 组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: 'snoozed', canShow: false, retryAfterMs: 0})).then(h => {
-        eq('snoozed canShow=false + retryAfterMs=0 组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('snoozed canShow=false + retryAfterMs=0 组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: null, canShow: false, retryAfterMs: 0})).then(h => {
-        eq('status=null 必须 canShow=true：组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('status=null 必须 canShow=true：组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({status: null, canShow: true, retryAfterMs: 50})).then(h => {
-        eq('status=null 必须 retryAfterMs=0：组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('status=null 必须 retryAfterMs=0：组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         stateAvailable: false, status: 'never', canShow: false, retryAfterMs: 0
     })).then(h => {
-        eq('stateAvailable=false 必须 status=null：组合非法拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('stateAvailable=false 必须 status=null：组合非法拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         status: 'submitted', canShow: false, retryAfterMs: 0,
         seenLayouts: ['pixiv-batch-landscape', 'pixiv-batch-landscape']
     })).then(h => {
-        eq('seenLayouts 重复视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('seenLayouts 重复视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         status: 'submitted', canShow: false, retryAfterMs: 0,
         seenLayouts: ['pixiv-batch-unknown']
     })).then(h => {
-        eq('seenLayouts 未知布局视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('seenLayouts 未知布局视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({
         status: 'submitted', canShow: false, retryAfterMs: 0,
         seenLayouts: ['pixiv-batch-landscape', 'pixiv-batch-portrait', 'pixiv-batch-alt', 'pixiv-batch-landscape']
     })).then(h => {
-        eq('seenLayouts 超过三个视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('seenLayouts 超过三个视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({canShow: 'yes'})).then(h => {
-        eq('canShow 非 boolean 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('canShow 非 boolean 视图整体拒绝', usesFallbackIdentity(h), true);
     }).then(() => withServerState({retryAfterMs: -1})).then(h => {
-        eq('负数 retryAfterMs 视图整体拒绝', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('负数 retryAfterMs 视图整体拒绝', usesFallbackIdentity(h), true);
     });
 }
 
@@ -6577,19 +6609,21 @@ function testRevisionSafeIntegerBoundary() {
         });
         return h.api.open().then(() => waitForFlush()).then(() => h);
     };
+    const usesFallbackIdentity = h => /^ps_[0-9a-f]{64}$/.test(
+        h.adapter.sdkConfig().bootstrap.distinctID);
     return withRevision(MAX_SAFE).then(h => {
         ok('revision=Number.MAX_SAFE_INTEGER 合法',
             !!(h.adapter.sdkConfig() && h.adapter.sdkConfig().bootstrap));
     }).then(() => withRevision(MAX_SAFE + 1)).then(h => {
-        eq('revision=MAX_SAFE_INTEGER+1 → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=MAX_SAFE_INTEGER+1 → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision(1.5)).then(h => {
-        eq('revision=非整数 → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=非整数 → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision(Infinity)).then(h => {
-        eq('revision=Infinity → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=Infinity → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision(NaN)).then(h => {
-        eq('revision=NaN → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=NaN → VIEW_INVALID', usesFallbackIdentity(h), true);
     }).then(() => withRevision('5')).then(h => {
-        eq('revision=string → VIEW_INVALID', h.adapter.sdkConfig().bootstrap === undefined, true);
+        eq('revision=string → VIEW_INVALID', usesFallbackIdentity(h), true);
     });
 }
 

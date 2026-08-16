@@ -257,13 +257,13 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
         assert(modesSource.includes(altMode));
     });
     [
-        ['onclick="handleStart()"', "startBtn.addEventListener('click', handleStart)"],
-        ['onclick="handlePause()"', "pauseBtn.addEventListener('click', handlePause)"],
-        ['onclick="handleRetry()"', "retryBtn.addEventListener('click', handleRetry)"],
-        ['onclick="handleClear()"', "clearBtn.addEventListener('click', handleClear)"],
-        ['onclick="handleExport()"', "exportAllBtn.addEventListener('click', handleExport)"],
-        ['onclick="handleExportFailed()"', "exportUndlBtn.addEventListener('click', handleExportFailed)"],
-        ['onclick="triggerAdminPack()"', "packBtn.addEventListener('click', triggerAdminPack)"]
+        ['data-pixiv-click="handleStart()"', "startBtn.addEventListener('click', handleStart)"],
+        ['data-pixiv-click="handlePause()"', "pauseBtn.addEventListener('click', handlePause)"],
+        ['data-pixiv-click="handleRetry()"', "retryBtn.addEventListener('click', handleRetry)"],
+        ['data-pixiv-click="handleClear()"', "clearBtn.addEventListener('click', handleClear)"],
+        ['data-pixiv-click="handleExport()"', "exportAllBtn.addEventListener('click', handleExport)"],
+        ['data-pixiv-click="handleExportFailed()"', "exportUndlBtn.addEventListener('click', handleExportFailed)"],
+        ['data-pixiv-click="triggerAdminPack()"', "packBtn.addEventListener('click', triggerAdminPack)"]
     ].forEach(([classicAction, altAction]) => {
         assert(classicPageSource.includes(classicAction));
         assert(queueSource.includes(altAction));

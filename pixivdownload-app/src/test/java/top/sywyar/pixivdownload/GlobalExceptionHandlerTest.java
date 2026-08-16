@@ -2,8 +2,10 @@ package top.sywyar.pixivdownload;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
@@ -95,6 +97,17 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("下载队列已满时应返回本地化 429")
+    void shouldHandleFullDownloadQueueAsTooManyRequests() {
+        ResponseEntity<ErrorResponse> response = handler.handleQueueFull(
+                new TaskRejectedException("full"), Locale.SIMPLIFIED_CHINESE);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(429);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError()).isEqualTo("任务排队已满，请稍后重试");
+    }
+
+    @Test
     @DisplayName("插画与小说可见性领域失败应映射为各自本地化 403")
     void shouldMapWorkVisibilityDeniedToLocalizedForbidden() {
         ResponseEntity<ErrorResponse> artwork = handler.handleWorkVisibilityDenied(
@@ -130,6 +143,19 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("不安全删除路径应映射为包含具体路径的本地化 409")
+    void shouldMapUnsafeDeletionPathToLocalizedConflict() {
+        ResponseEntity<ErrorResponse> response = handler.handleUnsafeDeletionPath(
+                new UnsafeDeletionPathException("C:\\downloads\\linked"),
+                Locale.SIMPLIFIED_CHINESE);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError())
+                .isEqualTo("删除目标路径不安全，已中止文件与数据库清理: C:\\downloads\\linked");
+    }
+
+    @Test
     @DisplayName("Pixiv 稳定端口的上游状态应保持本地化 502 映射")
     void shouldMapPixivAjaxHttpFailureToLocalizedBadGateway() {
         ResponseEntity<ErrorResponse> response = handler.handlePixivAjax(
@@ -141,5 +167,18 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().getError())
                 .contains("Pixiv 拒绝了请求")
                 .doesNotContain("403");
+    }
+
+    @Test
+    @DisplayName("Pixiv 响应超过安全上限时应返回明确的本地化 502")
+    void shouldMapOversizedPixivResponseToLocalizedBadGateway() {
+        ResponseEntity<ErrorResponse> response = handler.handlePixivAjax(
+                new PixivAjaxException(PixivAjaxFailure.RESPONSE_TOO_LARGE, 0),
+                Locale.US);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(502);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError())
+                .isEqualTo("The Pixiv response exceeded the safe size limit and was rejected.");
     }
 }

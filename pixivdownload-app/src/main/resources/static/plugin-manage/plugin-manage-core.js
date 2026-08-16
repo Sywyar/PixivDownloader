@@ -343,6 +343,11 @@
         return name.endsWith('.jar') || name.endsWith('.zip');
     }
 
+    function hasAcceptedSignatureExtension(filename) {
+        var name = filename == null ? '' : String(filename).toLowerCase();
+        return name.endsWith('.sig');
+    }
+
     // 安装结果色调：恢复阻断优先于 accepted（落盘存在）与 activated（运行时已加载），必须作为失败态展示；其余 accepted
     // 结果里 DUPLICATE（已存在、无改动）记为中性 info，新装 / 升级 / 降级记为成功 ok，未 accepted 记为 bad。
     function installTone(outcome, accepted, recoveryBlocked) {
@@ -446,6 +451,7 @@
         filterModels: filterModels,
         stats: stats,
         hasAcceptedExtension: hasAcceptedExtension,
+        hasAcceptedSignatureExtension: hasAcceptedSignatureExtension,
         buildInstallResult: buildInstallResult,
         installFeedback: installFeedback,
         localInstallNotice: localInstallNotice

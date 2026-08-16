@@ -19,7 +19,7 @@ jobs:
       sha: ${{ steps.base.outputs.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -72,12 +72,12 @@ jobs:
         run: git config --global core.quotepath false
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -107,13 +107,8 @@ jobs:
 
       - name: Build JAR
         run: >
-          mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
+          mvn package -Pofficial-surveys -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
           "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
-          "-Dpixiv.layout-survey.project-token=${{ vars.PIXIV_LAYOUT_SURVEY_PROJECT_TOKEN }}"
-          "-Dpixiv.layout-survey.survey-id=${{ vars.PIXIV_LAYOUT_SURVEY_ID }}"
-          "-Dpixiv.layout-survey.api-host=${{ vars.PIXIV_LAYOUT_SURVEY_API_HOST }}"
-          "-Dpixiv.layout-survey.ui-host=${{ vars.PIXIV_LAYOUT_SURVEY_UI_HOST }}"
-          "-Dpixiv.layout-survey.require-config=${{ github.repository == 'Sywyar/PixivDownloader' }}"
 
       - name: Verify packaged distribution boundaries
         run: |
@@ -149,17 +144,10 @@ jobs:
           ls -l build/release-jars/
 
       - name: Upload internal app-shell JAR
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: app-shell-jar
           path: build/release-jars/*.jar
-          if-no-files-found: error
-
-      - name: Upload update signature tool
-        uses: actions/upload-artifact@v7
-        with:
-          name: update-signature-tool
-          path: pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar
           if-no-files-found: error
 
       - name: Stage official plugin inputs from signed catalog
@@ -200,14 +188,14 @@ jobs:
             -OutputDir build/plugin-distributions
 
       - name: Upload plugin inputs artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: plugin-inputs
           path: build/plugin-inputs/*
           if-no-files-found: error
 
       - name: Upload java distributions artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: java-distributions
           path: |
@@ -228,12 +216,12 @@ jobs:
         run: git config --global core.quotepath false
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -253,13 +241,13 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download internal app-shell JAR
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: app-shell-jar
           path: artifacts/app-shell-jar
 
       - name: Download plugin inputs artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: plugin-inputs
           path: artifacts/plugin-inputs
@@ -294,13 +282,13 @@ jobs:
             -SkipOfflinePortable
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-installer
           path: build/out/*-setup.exe
 
   release:
-    needs: [build-jar, build-windows-installer]
+    needs: [publish-plugins, build-jar, build-windows-installer]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: release
@@ -309,30 +297,32 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout trusted update signature tool source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.publish-plugins.outputs.trusted_base_sha }}
+          path: trusted-update-signature-tool-source
+          persist-credentials: false
 
       - name: Download Windows installer artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: windows-installer
           path: artifacts/
 
       - name: Download java distribution artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: java-distributions
           path: artifacts/java-distributions
 
-      - name: Download update signature tool
-        uses: actions/download-artifact@v7
-        with:
-          name: update-signature-tool
-          path: tools/update-signature
-
       - name: Set up JDK 17 for update signing
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -452,6 +442,38 @@ jobs:
           echo "Generated update.json:"
           cat artifacts/update.json
 
+      - name: Build trusted update signature tool
+        shell: bash
+        working-directory: trusted-update-signature-tool-source
+        env:
+          TRUSTED_BASE_SHA: ${{ needs.publish-plugins.outputs.trusted_base_sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TRUSTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$TRUSTED_BASE_SHA" = "$GITHUB_SHA" ]; then
+            echo "Invalid trusted update signature tool source: $TRUSTED_BASE_SHA" >&2
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$TRUSTED_BASE_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          mvn -B -ntp -pl pixivdownload-plugin-signature -am package -DskipTests -Dexec.skip=true
+          tools=(pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar)
+          filtered=()
+          for tool in "${tools[@]}"; do
+            case "$tool" in
+              *-sources.jar|*-javadoc.jar) ;;
+              *) filtered+=("$tool") ;;
+            esac
+          done
+          if [ "${#filtered[@]}" -ne 1 ] || [ ! -s "${filtered[0]}" ]; then
+            echo "Expected exactly one trusted update signature tool." >&2
+            exit 1
+          fi
+          destination="$RUNNER_TEMP/pixivdownloader-trusted-update-signature-tool.jar"
+          cp "${filtered[0]}" "$destination"
+          sha256="$(sha256sum "$destination" | awk '{print $1}')"
+          echo "TRUSTED_UPDATE_SIGNATURE_TOOL=$destination" >> "$GITHUB_ENV"
+          echo "TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256=$sha256" >> "$GITHUB_ENV"
+
       - name: Sign update manifest
         shell: pwsh
         env:
@@ -466,12 +488,16 @@ jobs:
               [System.Convert]::FromBase64String(($env:UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')))
             & chmod 600 -- $privateKeyFile
             if ($LASTEXITCODE -ne 0) { throw "Failed to restrict update signing private key permissions." }
-            $tools = @(Get-ChildItem tools/update-signature/pixivdownload-plugin-signature-*.jar -File |
-              Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" })
-            if ($tools.Count -ne 1) {
-              throw "Expected exactly one update signature tool, found $($tools.Count)."
+            if ([string]::IsNullOrWhiteSpace($env:TRUSTED_UPDATE_SIGNATURE_TOOL) -or
+                [string]::IsNullOrWhiteSpace($env:TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256) -or
+                -not (Test-Path -LiteralPath $env:TRUSTED_UPDATE_SIGNATURE_TOOL -PathType Leaf)) {
+              throw "Trusted update signature tool is unavailable."
             }
-            & java -cp $tools[0].FullName top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
+            $toolSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:TRUSTED_UPDATE_SIGNATURE_TOOL).Hash.ToLowerInvariant()
+            if ($toolSha256 -ne $env:TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256) {
+              throw "Trusted update signature tool checksum mismatch."
+            }
+            & java -cp $env:TRUSTED_UPDATE_SIGNATURE_TOOL top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
               manifest --manifest artifacts/update.json --repository-id pixivdownloader-update `
               --key-id pixivdownloader-update-root-2026-08 `
               --private-key $privateKeyFile --out artifacts/update.json.sig
@@ -481,7 +507,7 @@ jobs:
           }
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           prerelease: ${{ contains(github.ref_name, '-beta') }}
           files: |
@@ -502,7 +528,7 @@ jobs:
 
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -518,7 +544,7 @@ jobs:
           fi
 
       - name: Create draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ inputs.tag_name }}
           target_commitish: ${{ github.sha }}

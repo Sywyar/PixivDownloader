@@ -2,16 +2,16 @@
     'use strict';
 
     var OWNER_KEY = 'multi-mode-decision-survey.removal-decision';
+    var TRUSTED_POSTHOG_API_ORIGINS = Object.freeze(['https://layout-survey.sywyar.top']);
     var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({});
     var QUESTION_ID = '0ac24f7c-abeb-4405-8c9c-916e4ca904ac';
     var STATE_KEY = 'pixiv:multi-mode-decision-survey:state:v1';
     var IDENTITY_URL = '/api/multi-mode-decision-survey/identity';
     var SCOPED_ID = /^pmds_[0-9a-f]{64}$/;
+    var SUBMISSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     var CHOICES = ['Yes', 'No', 'Other'];
     var PROTOCOL_PROPERTIES = [
-        'distinct_id', 'token', 'time', '$lib', '$lib_version', '$lib_variant',
-        '$device_id', '$session_id', '$window_id', '$pageview_id', '$survey_id',
-        '$survey_completed'
+        'distinct_id', 'token', '$survey_id', '$survey_completed'
     ];
 
     function beforeSend(event) {
@@ -24,7 +24,6 @@
             }
         });
         var result = {event: event.event, properties: properties};
-        if (typeof event.uuid === 'string') result.uuid = event.uuid;
         if (typeof event.timestamp === 'string'
                 || Object.prototype.toString.call(event.timestamp) === '[object Date]') {
             result.timestamp = event.timestamp;
@@ -51,18 +50,13 @@
         return text && Array.from(text).length <= 1000 ? text : null;
     }
 
-    function acceptedCapture(result, eventName) {
-        return !!result && typeof result === 'object' && result.event === eventName;
-    }
-
     global.PixivMultiModeDecisionSurvey = Object.freeze({
         _internals: Object.freeze({
             POSTHOG: POSTHOG,
             QUESTION_ID: QUESTION_ID,
             beforeSend: beforeSend,
             resolveQuestion: resolveQuestion,
-            responseValue: responseValue,
-            acceptedCapture: acceptedCapture
+            responseValue: responseValue
         })
     });
 
@@ -75,6 +69,7 @@
         var notificationId = params.get('notificationId') || '';
         var i18n = null;
         var lastHeight = 0;
+        var storage = null;
 
         function t(key, fallback) {
             return i18n ? i18n.t('multi-mode-decision-survey:' + key, fallback) : fallback;
@@ -84,7 +79,7 @@
             var height = Math.ceil(Math.max(root.scrollHeight, root.getBoundingClientRect().height));
             if (height <= 0 || height === lastHeight) return;
             lastHeight = height;
-            global.parent.postMessage({type: 'pixiv-content-height', height: height}, global.location.origin);
+            global.PixivSurveyFrameBridge.post({type: 'pixiv-content-height', height: height});
         }
 
         function status(key, fallback) {
@@ -96,7 +91,7 @@
 
         function submitted() {
             try {
-                var state = JSON.parse(global.localStorage.getItem(STATE_KEY) || 'null');
+                var state = JSON.parse(storage.getItem(STATE_KEY) || 'null');
                 return !!state && state.surveyId === POSTHOG.surveyId && state.status === 'submitted';
             } catch (_) {
                 return false;
@@ -105,7 +100,7 @@
 
         function rememberSubmitted() {
             try {
-                global.localStorage.setItem(STATE_KEY, JSON.stringify({
+                storage.setItem(STATE_KEY, JSON.stringify({
                     surveyId: POSTHOG.surveyId,
                     status: 'submitted'
                 }));
@@ -114,10 +109,10 @@
 
         function unavailablePermanently() {
             status('ended', '该调查已结束。');
-            global.parent.postMessage({
+            global.PixivSurveyFrameBridge.post({
                 type: 'pixiv-survey-unavailable',
                 notificationId: notificationId
-            }, global.location.origin);
+            });
         }
 
         function fetchIdentity() {
@@ -129,8 +124,11 @@
                 if (!response || !response.ok) throw new Error('identity unavailable');
                 return response.json();
             }).then(function (body) {
-                if (!body || !SCOPED_ID.test(body.distinctId)) throw new Error('invalid identity');
-                return body.distinctId;
+                if (!body || !SCOPED_ID.test(body.distinctId)
+                        || !SUBMISSION_ID.test(body.submissionId)) {
+                    throw new Error('invalid identity');
+                }
+                return {distinctId: body.distinctId, submissionId: body.submissionId};
             });
         }
 
@@ -161,7 +159,7 @@
             });
         }
 
-        function renderForm(client, question) {
+        function renderForm(client, question, identity) {
             root.className = 'survey-card';
             root.removeAttribute('role');
             root.textContent = '';
@@ -203,7 +201,7 @@
 
             var privacy = global.document.createElement('p');
             privacy.className = 'survey-privacy';
-            privacy.textContent = t('privacy', '本问卷使用 PostHog SDK 提交，只收集您的回答和匿名标识。');
+            privacy.textContent = t('privacy', '本问卷会发送问卷回答、调查标识、调查专用匿名标识、用于投递去重的稳定事件标识、完成状态、事件时间，以及传输所需的事件名和公开项目令牌。');
             var error = global.document.createElement('p');
             error.className = 'survey-error';
             error.hidden = true;
@@ -254,43 +252,49 @@
                 submit.textContent = t('submitting', '提交中…');
                 var properties = {'$survey_id': POSTHOG.surveyId, '$survey_completed': true};
                 properties['$survey_response_' + question.id] = response;
-                var capture = null;
-                try { capture = client.capture('survey sent', properties); } catch (_) { capture = null; }
-                if (acceptedCapture(capture, 'survey sent')) {
+                global.PixivPostHog.captureSurveyWithAck(
+                    OWNER_KEY, 'survey sent', properties, identity.submissionId).then(function () {
                     rememberSubmitted();
                     status('completed', '感谢反馈，您的回答已提交。');
-                } else {
+                }).catch(function () {
                     submit.textContent = t('submit', '提交');
                     submit.disabled = false;
                     error.textContent = t('submit-failed', '提交失败，请稍后重试。');
                     error.hidden = false;
                     reportHeight();
-                }
+                });
             });
             try { client.capture('survey shown', {'$survey_id': POSTHOG.surveyId}); } catch (_) { /* best effort */ }
             reportHeight();
         }
 
         try {
+            var bridge = await global.PixivSurveyFrameBridge.ready();
+            storage = bridge.storage;
+            if (global.PixivTheme) {
+                global.PixivTheme.apply(storage.getItem('pixiv_theme'), false, false);
+            }
             i18n = await global.PixivI18n.create({
                 namespaces: ['multi-mode-decision-survey'],
                 lang: params.get('lang') || undefined
             });
             status('loading', '正在加载调查…');
             if (global.PixivMultiModeDecisionSurveyOfficialRelease !== true
-                    || !global.PixivPostHog || typeof global.PixivPostHog.createSurveyClient !== 'function') {
+                    || !global.PixivPostHog || typeof global.PixivPostHog.createSurveyClient !== 'function'
+                    || typeof global.PixivPostHog.captureSurveyWithAck !== 'function') {
                 status('unavailable', '调查暂时无法加载，请稍后重试。');
                 return;
             }
-            var distinctId = await fetchIdentity();
+            var identity = await fetchIdentity();
             var client = await global.PixivPostHog.createSurveyClient({
                 ownerKey: OWNER_KEY,
                 posthog: POSTHOG,
-                distinctId: distinctId,
+                trustedApiOrigins: TRUSTED_POSTHOG_API_ORIGINS,
+                distinctId: identity.distinctId,
                 beforeSend: beforeSend
             });
             if (!client || typeof client.get_distinct_id !== 'function'
-                    || client.get_distinct_id() !== distinctId) throw new Error('posthog identity mismatch');
+                    || client.get_distinct_id() !== identity.distinctId) throw new Error('posthog identity mismatch');
             var published = await fetchSurvey(client);
             if (published.status === 'removed') {
                 unavailablePermanently();
@@ -301,7 +305,7 @@
             if (submitted()) {
                 status('completed', '感谢反馈，您的回答已提交。');
             } else {
-                renderForm(client, question);
+                renderForm(client, question, identity);
             }
         } catch (_) {
             status('unavailable', '调查暂时无法加载，请稍后重试。');

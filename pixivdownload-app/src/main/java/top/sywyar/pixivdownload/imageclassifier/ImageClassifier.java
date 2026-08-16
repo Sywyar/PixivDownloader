@@ -5,6 +5,7 @@ import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
@@ -1530,12 +1531,7 @@ public class ImageClassifier extends JFrame {
 
             new Thread(() -> {
                 try {
-                    java.awt.image.BufferedImage src = javax.imageio.ImageIO.read(loadFile);
-                    if (src == null) {
-                        // webp 等 ImageIO 不支持的格式，回退到 ImageIcon
-                        ImageIcon raw = new ImageIcon(loadFile.getAbsolutePath());
-                        src = toBufferedImage(raw.getImage());
-                    }
+                    java.awt.image.BufferedImage src = BoundedImageDecoder.read(loadFile.toPath());
                     if (src == null) throw new IOException(message("gui.image-classifier.error.decode-image"));
 
                     int imgW = src.getWidth();
@@ -1546,7 +1542,7 @@ public class ImageClassifier extends JFrame {
                     if (scale < 1.0) {
                         int newW = (int) (imgW * scale);
                         int newH = (int) (imgH * scale);
-                        display = ThumbnailManager.getThumbnail(loadFile, newW, newH);
+                        display = ThumbnailManager.getThumbnail(src, newW, newH);
                     } else {
                         display = src; // 原图不放大
                     }
@@ -1606,19 +1602,6 @@ public class ImageClassifier extends JFrame {
         } catch (Exception e) {
             log.error(logMessage("gui.image-classifier.log.delete-residual-failed", file.getAbsolutePath()));
         }
-    }
-
-    /** 将任意 Image 转为 BufferedImage（用于 webp 等 ImageIO 不直接支持的格式回退路径）*/
-    private static java.awt.image.BufferedImage toBufferedImage(Image img) {
-        if (img instanceof java.awt.image.BufferedImage bi) return bi;
-        // 等待图片完全加载
-        new ImageIcon(img); // 触发同步加载
-        java.awt.image.BufferedImage bimage = new java.awt.image.BufferedImage(
-                img.getWidth(null), img.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_RGB);
-        Graphics2D g2d = bimage.createGraphics();
-        g2d.drawImage(img, 0, 0, null);
-        g2d.dispose();
-        return bimage;
     }
 
     // =========================================================================

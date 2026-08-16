@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
@@ -23,6 +25,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -210,9 +213,10 @@ public class LocalWorkAssetService implements WorkAssetService {
      * 失败时小说文件原样保留、不会半损坏。文件全删成功后再移除清空的目录壳（子目录 + {@code novel-{id}} 本身），
      * 目录壳可再生，移除失败仅记日志、不影响删除成败。守卫逻辑自小说画廊服务下沉，无下载记录视为「无事可做」（{@code true}）。
      *
-     * @return 文件层清理结果：{@code true} 表示文件全部删除成功（或没有可删的文件 / 被边界守卫跳过），
+     * @return 文件层清理结果：{@code true} 表示文件全部删除成功（或没有可删的文件），
      *         调用方可继续删 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败、已回滚复原，
-     *         调用方必须中止 DB 清理。
+     *         调用方必须中止 DB 清理；现存但不安全的目录或条目会抛出
+     *         {@link UnsafeDeletionPathException}。
      */
     private boolean deleteNovelFiles(long workId) {
         NovelMetadataRow record = novelMetadataRepository.getNovel(workId);
@@ -225,7 +229,10 @@ public class LocalWorkAssetService implements WorkAssetService {
         }
         List<Path> files;
         try (var stream = Files.walk(dir)) {
-            files = stream.filter(Files::isRegularFile).toList();
+            files = stream
+                    .filter(path -> !path.equals(dir))
+                    .filter(path -> !PlainFilePathGuard.isPlainDirectory(path))
+                    .toList();
         } catch (IOException e) {
             log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
             return false;
@@ -256,7 +263,8 @@ public class LocalWorkAssetService implements WorkAssetService {
      * 解析小说独占目录并执行磁盘边界守卫（避免污染的 folder 把递归操作范围扩大到 root 之外、
      * 共享目录或 OS 根）：解析后的目录必须非空、可解析、是已存在目录、非 OS / 驱动盘根、
      * 且不等于配置的 {@code download.root-folder} 本身；同时目录名必须等于 {@code novel-{novelId}}
-     * 才视为本小说独占目录。任何一条不满足都返回 {@code null}（视为「无可操作目录」）。
+     * 才视为本小说独占目录。枚举链路遇到不满足项时返回 {@code null}；删除链路只有已确认不存在的目录
+     * 视为「无可操作目录」，现存或无法判定安全的目录抛出 {@link UnsafeDeletionPathException}。
      *
      * @param logRefusals 删除链路传 {@code true}（守卫拒绝时记日志，polluted folder 行可由管理员
      *                    据此排查）；枚举链路传 {@code false}（与原导出路径的静默跳过一致）
@@ -272,15 +280,23 @@ public class LocalWorkAssetService implements WorkAssetService {
         } catch (InvalidPathException e) {
             if (logRefusals) {
                 log.warn(logMessage("novel.gallery.log.directory-invalid", record.novelId(), folder));
+                throw new UnsafeDeletionPathException(folder);
             }
             return null;
         }
-        if (!Files.isDirectory(dir)) {
+        if (Files.notExists(dir, LinkOption.NOFOLLOW_LINKS)) {
+            return null;
+        }
+        if (!PlainFilePathGuard.isPlainDirectory(dir)) {
+            if (logRefusals) {
+                throw new UnsafeDeletionPathException(dir);
+            }
             return null;
         }
         if (dir.getNameCount() < 1 || dir.equals(dir.getRoot())) {
             if (logRefusals) {
                 log.warn(logMessage("novel.gallery.log.directory-root-refused", record.novelId(), dir));
+                throw new UnsafeDeletionPathException(dir);
             }
             return null;
         }
@@ -290,6 +306,7 @@ public class LocalWorkAssetService implements WorkAssetService {
                 if (logRefusals) {
                     log.warn(logMessage("novel.gallery.log.directory-root-folder-refused",
                             record.novelId(), dir));
+                    throw new UnsafeDeletionPathException(dir);
                 }
                 return null;
             }
@@ -302,6 +319,7 @@ public class LocalWorkAssetService implements WorkAssetService {
             if (logRefusals) {
                 log.warn(logMessage("novel.gallery.log.directory-not-exclusive",
                         record.novelId(), dir, expectedName));
+                throw new UnsafeDeletionPathException(dir);
             }
             return null;
         }

@@ -996,7 +996,7 @@ function douyinQuickInnerCard(item, idx, inQueue) {
     const title = item.title || douyinText('queue.fallback', 'Douyin {id}', {id: item.id});
     const author = item.userName || item.authorName || '';
     return `<div class="search-thumb${inQueue.has(queueId) ? ' in-queue' : ''}" id="quick-inner-card-${idx}"
-                 onclick="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(author)})">
+                 data-pixiv-click="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(author)})">
       <div class="thumb-title">${esc(title)}</div>
       <div class="thumb-title" style="font-size:12px;color:var(--muted);">${esc(author || item.id || '')}</div>
       <span class="thumb-in-queue-mark">✓</span>
@@ -1014,14 +1014,14 @@ const DOUYIN_SLOTS = {
         '<label data-quick-kind="douyin"><input type="radio" name="quick-inner-kind" value="douyin">' +
         '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
     'quick-actions-bookmarks':
-        '<button type="button" class="btn btn-blue quick-action" data-quick="douyin-liked" onclick="quickLoad(\'douyin-liked\')" ' +
+        '<button type="button" class="btn btn-blue quick-action" data-quick="douyin-liked" data-pixiv-click="quickLoad(\'douyin-liked\')" ' +
         'data-i18n="douyin:quick.liked">Liked works</button>' +
-        '<button type="button" class="btn btn-purple quick-action" data-quick="douyin-favorites" onclick="quickLoad(\'douyin-favorites\')" ' +
+        '<button type="button" class="btn btn-purple quick-action" data-quick="douyin-favorites" data-pixiv-click="quickLoad(\'douyin-favorites\')" ' +
         'data-i18n="douyin:quick.favorites">Favorite works</button>' +
-        '<button type="button" class="btn btn-yellow quick-action" data-quick="douyin-favorite-collections" onclick="quickLoad(\'douyin-favorite-collections\')" ' +
+        '<button type="button" class="btn btn-yellow quick-action" data-quick="douyin-favorite-collections" data-pixiv-click="quickLoad(\'douyin-favorite-collections\')" ' +
         'data-i18n="douyin:quick.favorite-collections">Favorite collections</button>',
     'quick-actions-mine':
-        '<button type="button" class="btn btn-green quick-action" data-quick="douyin-own-works" onclick="quickLoad(\'douyin-own-works\')" ' +
+        '<button type="button" class="btn btn-green quick-action" data-quick="douyin-own-works" data-pixiv-click="quickLoad(\'douyin-own-works\')" ' +
         'data-i18n="douyin:quick.own-works">My works</button>',
     'import-hint':
         '<div><span data-i18n="douyin:import.example">Douyin URL: https://www.douyin.com/video/...</span></div>',

@@ -1,4 +1,11 @@
 'use strict';
+
+function hideNovelCover() {
+    document.getElementById('novel-cover').style.display = 'none';
+}
+
+PixivActions.bind(document, { error: {hideNovelCover} });
+
 bindNovelGalleryReturn();
 document.getElementById('heartBtn').addEventListener('click', openAddToCollectionModal);
 document.getElementById('addToCollectionClose').addEventListener('click', closeAddToCollectionModal);

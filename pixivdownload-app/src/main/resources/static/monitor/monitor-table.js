@@ -30,7 +30,7 @@
                 <td class="author-cell">
                     ${authorId === null
                         ? '<span class="author-chip author-empty">—</span>'
-                        : `<button type="button" class="author-chip ${authorFilter.has(authorId) ? 'active' : ''}" onclick="toggleAuthorInFilter(${authorId})" title="${escapeHtml(t('author.filter', 'Filter by author'))}">${authorName}</button>
+                        : `<button type="button" class="author-chip ${authorFilter.has(authorId) ? 'active' : ''}" data-pixiv-click="toggleAuthorInFilter(${authorId})" title="${escapeHtml(t('author.filter', 'Filter by author'))}">${authorName}</button>
                            <div class="author-id-sub">${authorId}</div>`}
                 </td>
                 <td class="time-cell">
@@ -50,10 +50,10 @@
                     : `<span class="ai-badge ${artwork.isAi ? 'ai-yes' : 'ai-no'}">${artwork.isAi ? 'AI' : escapeHtml(t('value.human', 'Human'))}</span>`}</td>
                 <td>
                     <div class="action-buttons">
-                        <button class="btn-term" onclick="viewArtworkDetails(${artwork.artworkId})" title="${escapeHtml(t('button.details', 'Details'))}">
+                        <button class="btn-term" data-pixiv-click="viewArtworkDetails(${artwork.artworkId})" title="${escapeHtml(t('button.details', 'Details'))}">
                             <i class="fas fa-eye"></i>
                         </button>
-                        <button class="btn-term btn-info-term" onclick="viewThumbnails(${artwork.artworkId})" title="${escapeHtml(t('button.images', 'Images'))}">
+                        <button class="btn-term btn-info-term" data-pixiv-click="viewThumbnails(${artwork.artworkId})" title="${escapeHtml(t('button.images', 'Images'))}">
                             <i class="fas fa-images"></i>
                         </button>
                     </div>
@@ -80,20 +80,20 @@
 
         let html = `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;">
+            <a class="page-link" href="#" data-pixiv-click="changePage(${currentPage - 1})" data-pixiv-prevent="true">
                 <i class="fas fa-chevron-left"></i></a>
         </li>`;
 
         for (let i = start; i <= end; i++) {
             html += `
             <li class="page-item ${i === currentPage ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
+                <a class="page-link" href="#" data-pixiv-click="changePage(${i})" data-pixiv-prevent="true">${i}</a>
             </li>`;
         }
 
         html += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;">
+            <a class="page-link" href="#" data-pixiv-click="changePage(${currentPage + 1})" data-pixiv-prevent="true">
                 <i class="fas fa-chevron-right"></i></a>
         </li>`;
 

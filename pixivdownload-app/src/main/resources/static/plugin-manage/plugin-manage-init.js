@@ -164,6 +164,9 @@
         if (PM.state.installBusy) return;
         var fileInput = document.getElementById('pm-install-file');
         var file = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+        var signatureInput = document.getElementById('pm-install-signature');
+        var signature = signatureInput && signatureInput.files && signatureInput.files.length
+            ? signatureInput.files[0] : null;
         if (!file) {
             // 未选文件：本地校验，不发请求。
             PM.showInstallResult(PM.localInstallNotice(
@@ -176,19 +179,27 @@
                 PM.t('install.invalid-extension', '仅支持 .jar / .zip 插件包，请重新选择。'), 'warn'));
             return;
         }
+        if (signature && !PM.hasAcceptedSignatureExtension(signature.name)) {
+            PM.showInstallResult(PM.localInstallNotice(
+                PM.t('install.invalid-signature-extension', '仅支持 .sig detached 签名文件，请重新选择。'), 'warn'));
+            return;
+        }
         var allow = document.getElementById('pm-install-allow-downgrade');
         var allowDowngrade = !!(allow && allow.checked);
 
         PM.setInstallSubmitting(true);
         PM.clearInstallResult();
         try {
-            var response = await PM.installPackage(file, allowDowngrade);
+            var response = await PM.installPackage(file, signature, allowDowngrade);
             var model = PM.buildInstallResult(response);
             PM.showInstallResult(model);
             var feedback = PM.installFeedback(model);
             PM.toast(feedback.message, feedback.tone);
         } catch (e) {
-            if (e && e.localValidation) {
+            if (e && e.invalidSignatureExtension) {
+                PM.showInstallResult(PM.localInstallNotice(
+                    PM.t('install.invalid-signature-extension', '仅支持 .sig detached 签名文件，请重新选择。'), 'warn'));
+            } else if (e && e.localValidation) {
                 PM.showInstallResult(PM.localInstallNotice(
                     PM.t('install.choose-file', '请先选择要安装的插件包（.jar / .zip）。'), 'warn'));
             } else {
@@ -211,6 +222,12 @@
             var f = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
             PM.setInstallFilename(f ? f.name : null);
             PM.clearInstallResult();   // 换选文件后清掉上一次结果，避免误读
+        });
+        var signatureInput = document.getElementById('pm-install-signature');
+        signatureInput.addEventListener('change', function () {
+            var f = signatureInput.files && signatureInput.files.length ? signatureInput.files[0] : null;
+            PM.setInstallSignatureFilename(f ? f.name : null);
+            PM.clearInstallResult();
         });
 
         var modal = document.getElementById('pm-install-modal');
@@ -268,6 +285,7 @@
     }
 
     async function init() {
+        PixivActions.bind(document, { click: { pmLogout: global.pmLogout } });
         wireEvents();
         await ensureI18n([]);   // 初始 i18n（plugins + common）+ 挂载语言 / 主题切换，先把页面 chrome 翻译就位
         await load();           // 拉取状态、按需扩展 namespace、整体渲染

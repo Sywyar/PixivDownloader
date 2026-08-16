@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.ConstraintViolation;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -18,6 +19,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
@@ -87,6 +89,23 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(message));
     }
 
+    @ExceptionHandler(UnsafeDeletionPathException.class)
+    public ResponseEntity<ErrorResponse> handleUnsafeDeletionPath(
+            UnsafeDeletionPathException e, Locale locale) {
+        String message = messages.getOrDefault(
+                locale,
+                "work.delete.path-unsafe",
+                "删除目标路径不安全，已中止文件与数据库清理: {0}",
+                e.path());
+        String logDetail = messages.getOrDefault(
+                Locale.getDefault(),
+                "work.delete.path-unsafe",
+                "删除目标路径不安全，已中止文件与数据库清理: {0}",
+                e.path());
+        log.warn(logMessage("error.log.request.failed", logDetail));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(message));
+    }
+
     @ExceptionHandler(QueueNotAcceptingException.class)
     public ResponseEntity<ErrorResponse> handleQueueNotAccepting(
             QueueNotAcceptingException e, Locale locale) {
@@ -96,6 +115,17 @@ public class GlobalExceptionHandler {
                 "插件正在停用中，暂时不可用，请稍后重试");
         log.warn(logMessage("error.log.request.failed", logDetail + " [queueType=" + e.queueType() + "]"));
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ErrorResponse(message));
+    }
+
+    @ExceptionHandler(TaskRejectedException.class)
+    public ResponseEntity<ErrorResponse> handleQueueFull(
+            TaskRejectedException e, Locale locale) {
+        String message = messages.getOrDefault(locale, "task.queue.full",
+                "任务排队已满，请稍后重试");
+        String logDetail = messages.getOrDefault(Locale.getDefault(), "task.queue.full",
+                "任务排队已满，请稍后重试");
+        log.warn(logMessage("error.log.request.failed", logDetail));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new ErrorResponse(message));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -185,6 +215,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(PixivAjaxException.class)
     public ResponseEntity<ErrorResponse> handlePixivAjax(PixivAjaxException e, Locale locale) {
+        if (e.failure() == PixivAjaxFailure.RESPONSE_TOO_LARGE) {
+            String message = messages.getOrDefault(locale, "error.pixiv.response.too-large",
+                    "Pixiv 响应超过安全大小上限，已拒绝处理");
+            log.warn(logMessage("error.log.request.failed", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(message));
+        }
         if (e.failure() != PixivAjaxFailure.HTTP_STATUS) {
             return handleGeneric(e, locale);
         }

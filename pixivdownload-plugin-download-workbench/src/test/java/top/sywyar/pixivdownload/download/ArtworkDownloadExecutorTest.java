@@ -145,17 +145,17 @@ class ArtworkDownloadExecutorTest {
     }
 
     private void stubSuccessfulImageDownload(String sourceUrl, byte[] payload) throws Exception {
-        when(pixivImageDownloader.download(
+        when(pixivImageDownloader.downloadImage(
                 eq(URI.create(sourceUrl)), any(URI.class), any(Path.class), nullable(String.class), any()))
                 .thenAnswer(invocation -> {
-                    Path target = invocation.getArgument(2);
+                    Path fileStem = invocation.getArgument(2);
                     PixivImageTransferObserver observer = invocation.getArgument(4);
                     observer.checkCancelled();
                     observer.onContentLength(payload.length);
                     observer.onBytesTransferred(0L);
-                    Files.write(target, payload);
+                    Files.write(fileStem.resolveSibling(fileStem.getFileName() + ".jpg"), payload);
                     observer.onBytesTransferred(payload.length);
-                    return true;
+                    return "jpg";
                 });
     }
 
@@ -886,7 +886,7 @@ class ArtworkDownloadExecutorTest {
     }
 
     @Nested
-    @DisplayName("普通图片下载 .part 临时文件")
+    @DisplayName("普通图片下载落盘")
     class PartTempFileTests {
 
         private static final String IMAGE_URL =
@@ -900,7 +900,7 @@ class ArtworkDownloadExecutorTest {
         }
 
         @Test
-        @DisplayName("下载成功后最终文件就位且不残留 .part")
+        @DisplayName("下载成功后最终文件就位且不残留临时文件")
         void shouldRenamePartToFinalAndLeaveNoTempFile() throws Exception {
             byte[] payload = {1, 2, 3, 4, 5};
             stubSuccessfulImageDownload(IMAGE_URL, payload);
@@ -913,7 +913,7 @@ class ArtworkDownloadExecutorTest {
                 List<Path> files = stream.toList();
                 assertThat(files).hasSize(1);
                 Path finalFile = files.get(0);
-                assertThat(finalFile.getFileName().toString()).doesNotEndWith(".part");
+                assertThat(finalFile.getFileName().toString()).endsWith(".jpg");
                 assertThat(Files.readAllBytes(finalFile)).containsExactly(payload);
             }
         }
@@ -931,7 +931,7 @@ class ArtworkDownloadExecutorTest {
                     new DownloadRequest.Other(), null, null);
 
             assertThat(succeeded).isTrue();
-            verify(pixivImageDownloader).download(
+            verify(pixivImageDownloader).downloadImage(
                     eq(URI.create(IMAGE_URL)),
                     eq(URI.create("https://www.pixiv.net/")),
                     any(Path.class), isNull(), any());
@@ -942,16 +942,16 @@ class ArtworkDownloadExecutorTest {
         void shouldRetryWhenImagePortReturnsFalse() throws Exception {
             byte[] payload = {9, 10};
             AtomicInteger attempts = new AtomicInteger();
-            when(pixivImageDownloader.download(
+            when(pixivImageDownloader.downloadImage(
                     eq(URI.create(IMAGE_URL)), any(URI.class), any(Path.class),
                     nullable(String.class), any()))
                     .thenAnswer(invocation -> {
                         if (attempts.incrementAndGet() == 1) {
-                            return false;
+                            return null;
                         }
-                        Path target = invocation.getArgument(2);
-                        Files.write(target, payload);
-                        return true;
+                        Path fileStem = invocation.getArgument(2);
+                        Files.write(fileStem.resolveSibling(fileStem.getFileName() + ".jpg"), payload);
+                        return "jpg";
                     });
 
             boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(
@@ -967,16 +967,16 @@ class ArtworkDownloadExecutorTest {
         void shouldRetryAfterTransientImagePortException() throws Exception {
             byte[] payload = {11, 12};
             AtomicInteger attempts = new AtomicInteger();
-            when(pixivImageDownloader.download(
+            when(pixivImageDownloader.downloadImage(
                     eq(URI.create(IMAGE_URL)), any(URI.class), any(Path.class),
                     nullable(String.class), any()))
                     .thenAnswer(invocation -> {
                         if (attempts.incrementAndGet() == 1) {
                             throw new IOException("transient");
                         }
-                        Path target = invocation.getArgument(2);
-                        Files.write(target, payload);
-                        return true;
+                        Path fileStem = invocation.getArgument(2);
+                        Files.write(fileStem.resolveSibling(fileStem.getFileName() + ".jpg"), payload);
+                        return "jpg";
                     });
 
             boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(
@@ -985,6 +985,36 @@ class ArtworkDownloadExecutorTest {
 
             assertThat(succeeded).isTrue();
             assertThat(attempts).hasValue(2);
+        }
+
+        @Test
+        @DisplayName("单个多页作品耗尽累计图片预算后不再发起后续传输")
+        void shouldStopAfterArtworkImageBudgetIsExhausted() throws Exception {
+            List<String> imageUrls = java.util.stream.IntStream.range(0, 12)
+                    .mapToObj(index -> "https://i.pximg.net/img-original/budget_p" + index + ".jpg")
+                    .toList();
+            List<Long> maxima = new java.util.ArrayList<>();
+            when(pixivImageDownloader.downloadImage(any(URI.class), any(URI.class), any(Path.class),
+                    nullable(String.class), any()))
+                    .thenAnswer(invocation -> {
+                        PixivImageTransferObserver observer = invocation.getArgument(4);
+                        long maximumBytes = observer.maximumBytes();
+                        maxima.add(maximumBytes);
+                        observer.onContentLength(maximumBytes);
+                        observer.onBytesTransferred(maximumBytes);
+                        return "jpg";
+                    });
+
+            boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(
+                    52345L, "title", imageUrls, "https://www.pixiv.net/",
+                    new DownloadRequest.Other(), null, null);
+
+            assertThat(succeeded).isFalse();
+            assertThat(maxima).hasSize(11);
+            assertThat(maxima).allMatch(maximum -> maximum <= PixivImageTransferObserver.MAX_IMAGE_BYTES);
+            assertThat(maxima.stream().mapToLong(Long::longValue).sum())
+                    .isEqualTo(PixivImageTransferObserver.MAX_TASK_BYTES);
+            verify(artworkDownloadHistory, never()).record(any());
         }
     }
 
@@ -1165,9 +1195,9 @@ class ArtworkDownloadExecutorTest {
             lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000200L);
             byte[] payload = {1, 2, 3};
             stubSuccessfulImageDownload(OK_URL, payload);
-            when(pixivImageDownloader.download(
+            when(pixivImageDownloader.downloadImage(
                     eq(URI.create(FAIL_URL)), any(URI.class), any(Path.class), nullable(String.class), any()))
-                    .thenReturn(false);
+                    .thenReturn(null);
 
             boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(67890L, "title",
                     List.of(OK_URL, FAIL_URL), "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);

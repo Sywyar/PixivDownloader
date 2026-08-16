@@ -137,6 +137,9 @@ class LayoutFeedbackStateControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.distinctId").value(
                         org.hamcrest.Matchers.matchesPattern("^plf_[0-9a-f]{64}$")))
+                .andExpect(jsonPath("$.submissionId").value(
+                        org.hamcrest.Matchers.matchesPattern(
+                                "^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")))
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -344,22 +347,34 @@ class LayoutFeedbackStateControllerTest {
     }
 
     @Test
-    @DisplayName("multi GET / POST 一律 403，不调用 InstallIdentityProvider、不写状态文件、不读取 body、不触发 Store 加载")
-    void multiRejectsEverything() throws Exception {
+    @DisplayName("multi GET 只返回稳定身份与提交 UUID，POST 仍在读取 body 前拒绝且不触发 Store 加载")
+    void multiReturnsIdentityWithoutLoadingState() throws Exception {
         Path file = tempDir.resolve("state/download-workbench/layout-feedback-state.json");
         Files.createDirectories(file.getParent());
         Files.writeString(file, "{not json", StandardCharsets.UTF_8);
         InstallIdentityProvider identityProvider = mock(InstallIdentityProvider.class);
+        when(identityProvider.get()).thenReturn(INSTALL_ID);
         MockMvc mockMvc = mockMvc(MULTI, store(), identityProvider);
 
         mockMvc.perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.stateAvailable").value(false))
+                .andExpect(jsonPath("$.distinctId").value(
+                        org.hamcrest.Matchers.matchesPattern("^plf_[0-9a-f]{64}$")))
+                .andExpect(jsonPath("$.submissionId").value(
+                        org.hamcrest.Matchers.matchesPattern(
+                                "^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")))
+                .andExpect(jsonPath("$.revision").value(0))
+                .andExpect(jsonPath("$.status").doesNotExist())
+                .andExpect(jsonPath("$.canShow").value(false))
+                .andExpect(jsonPath("$.retryAfterMs").value(0));
         mockMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(commandBody("submitted")))
                 .andExpect(status().isForbidden());
 
-        verify(identityProvider, never()).get();
+        verify(identityProvider).get();
         assertThat(Files.exists(file))
                 .as("multi 模式不得读取或隔离状态文件")
                 .isTrue();
@@ -1165,7 +1180,7 @@ class LayoutFeedbackStateControllerTest {
 
         MockMvc multiMvc = mockMvc(MULTI);
         multiMvc.perform(get(ENDPOINT).param("surveyId", SURVEY_ID))
-                .andExpect(status().isForbidden())
+                .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
         multiMvc.perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
                         .contentType(MediaType.APPLICATION_JSON)

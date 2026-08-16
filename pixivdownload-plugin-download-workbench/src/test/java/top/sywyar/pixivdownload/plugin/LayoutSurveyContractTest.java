@@ -6,12 +6,11 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -104,59 +103,48 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("中英文隐私文案与身份模型一致：仅收集填写内容与随机安装身份（去重），不发送其他信息")
+    @DisplayName("中英文隐私文案准确列出调查事件字段并排除原始身份与本地数据")
     void privacyCopyMatchesIdentityModel() throws IOException {
         String zh = read(I18N_ZH);
         String en = read(I18N_EN);
         String js = read(SURVEY_JS);
 
-        // 中文简短声明：PostHog SDK + 只收集填写内容与随机安装身份的单向散列匿名标识
-        assertThat(zh).contains("PostHog SDK");
-        assertThat(zh).contains("只收集您填写的内容");
-        assertThat(zh).contains("单向散列");
-        assertThat(zh).contains("不可逆");
-        assertThat(zh).contains("随机安装身份");
-        assertThat(zh).contains("避免重复弹窗");
-        assertThat(zh).contains("不会发送其他任何信息");
+        assertThat(zh).contains(
+                "固定版本的 PostHog SDK",
+                "调查标识",
+                "调查专用匿名标识",
+                "用于投递去重的稳定事件标识",
+                "应用版本",
+                "当前布局",
+                "调查结构版本",
+                "事件时间",
+                "事件名",
+                "公开项目令牌",
+                "不发送原始安装身份",
+                "Cookie",
+                "本地路径");
 
-        // 英文语义一致
-        assertThat(en).contains("PostHog SDK");
-        assertThat(en).contains("what you fill in");
-        assertThat(en).contains("installation identity");
-        assertThat(en).contains("duplicate pop-ups");
-        assertThat(en).contains("No other information is sent");
+        assertThat(en).contains(
+                "pinned PostHog SDK",
+                "survey ID",
+                "survey-scoped anonymous identifier",
+                "stable event identifier used for delivery deduplication",
+                "app version",
+                "current layout",
+                "survey schema version",
+                "event time",
+                "event name",
+                "public project token",
+                "does not send the raw installation identity",
+                "cookies",
+                "local paths");
 
-        // JS 弹窗 fallback 与中文 i18n 语义一致
-        assertThat(js).contains("PostHog SDK");
-        assertThat(js).contains("随机安装身份");
-        assertThat(js).doesNotContain("匿名浏览器标识；");
-    }
-
-    @Test
-    @DisplayName("CHANGELOG 调查条目与实际身份模型一致")
-    void changelogMatchesIdentityModel() throws IOException {
-        Path repoRoot = repoRoot();
-        String changelog = Files.readString(repoRoot.resolve("CHANGELOG.md"), StandardCharsets.UTF_8);
-        assertThat(changelog).contains("匿名调查标识");
-        assertThat(changelog).contains("随机安装身份与当前调查 ID 单向派生");
-        assertThat(changelog).contains("匿名浏览器标识");
-        assertThat(changelog).contains("原始安装身份");
-        assertThat(changelog).doesNotContain("按安装身份去重");
-    }
-
-    @Test
-    @DisplayName("调查脚本把 scoped identity 交给 PostHog 插件并验证实际 SDK identity")
-    void surveyDelegatesAndVerifiesScopedIdentity() throws IOException {
-        String js = read(SURVEY_JS);
-        assertThat(js).contains("createSurveyClient")
-                .contains("ownerKey: POSTHOG_OWNER_KEY")
-                .contains("posthog: POSTHOG")
-                .contains("distinctId: serverIdentityAvailable && serverDistinctId ? serverDistinctId : ''")
-                .contains("get_distinct_id");
-        assertThat(js).doesNotContain("sdkConfig.distinct_id =");
-        assertThat(js).doesNotContain("posthog.identify(");
-        assertThat(js).doesNotContain("posthog.reset(");
-        assertThat(js).doesNotContain("opt_out_capturing(");
+        assertThat(js).contains(
+                "固定版本的 PostHog SDK",
+                "调查专用匿名标识",
+                "用于投递去重的稳定事件标识",
+                "公开项目令牌",
+                "不发送原始安装身份");
     }
 
     @Test
@@ -178,15 +166,6 @@ class LayoutSurveyContractTest {
         // 命令字面量同样与小写 wire 对齐：submitted / never / snooze / record_seen。
         assertThat(js).contains("'record_seen'").contains("'snooze'")
                 .contains("command === 'submitted'").contains("command === 'never'");
-    }
-
-    @Test
-    @DisplayName("前端所有状态 GET 的 fetch init 携带 cache: 'no-store'")
-    void frontendStateGetsUseNoStore() throws IOException {
-        String js = read(SURVEY_JS);
-        int noStoreUses = countOccurrences(js, "cache: 'no-store'");
-        assertThat(noStoreUses).as("loadServerContext / refreshServerContext 至少两处 no-store").isGreaterThanOrEqualTo(2);
-        assertThat(js).contains("SERVER_STATE_URL");
     }
 
     @Test
@@ -258,8 +237,7 @@ class LayoutSurveyContractTest {
         assertThat(slots).hasSize(officialRelease ? 1 : 0);
         if (officialRelease) {
             assertThat(slots.get(0).metadata().get("notification.instance-key"))
-                    .isEqualTo(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                            .digest(postHogConfig.getBytes(StandardCharsets.UTF_8))));
+                    .isEqualTo("layout-feedback-v1");
         }
     }
 
@@ -268,13 +246,19 @@ class LayoutSurveyContractTest {
     void inboxEmbedUsesPublisherOwnedSurveyResources() throws IOException {
         String html = read(EMBED_HTML);
         String embedJs = read(EMBED_JS);
+        String posthogConfig = read(POSTHOG_CONFIG);
         String pluginSource = Files.readString(pluginModuleRoot().resolve(
                 "src/main/java/top/sywyar/pixivdownload/download/DownloadWorkbenchPlugin.java"),
                 StandardCharsets.UTF_8);
+        Matcher surveyId = Pattern.compile("surveyId: '([^']+)'").matcher(posthogConfig);
+        assertThat(surveyId.find()).isTrue();
+        String fallbackIdentityKey = "pixivdownload.posthog.survey-id."
+                + "[\"download-workbench.layout-feedback\",\"" + surveyId.group(1) + "\"]";
 
         assertThat(html)
                 .contains("frame-ancestors 'self'")
                 .contains("connect-src 'self' https://layout-survey.sywyar.top")
+                .contains("/js/pixiv-survey-frame-bridge.js")
                 .contains("/pixiv-layout-feedback/release-activation.js")
                 .contains("/pixiv-posthog/pixiv-posthog.js")
                 .contains("/pixiv-layout-feedback/posthog-config.js")
@@ -282,20 +266,36 @@ class LayoutSurveyContractTest {
                 .contains("/pixiv-layout-feedback/embed.js");
         assertThat(embedJs)
                 .contains("openEmbedded()")
+                .contains("global.PixivSurveyFrameBridge.ready()")
+                .contains("storage: storage")
+                .contains("fetchImpl: global.fetch")
                 .contains("type: 'pixiv-survey-unavailable'")
                 .contains("notificationId: notificationId")
-                .contains("pixiv:batch-layout:v1");
+                .contains("pixiv:batch-layout:v1")
+                .doesNotContain("parent.postMessage");
         assertThat(pluginSource)
                 .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
+                .contains("LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION")
+                .contains("pixivBridgeGet=/api/layout-feedback/state")
+                .contains("pixivBridgePost=/api/layout-feedback/state")
+                .contains("pixivBridgeRead=pixiv_theme")
                 .contains("\"notification.inbox\"")
-                .contains("\"notification.instance-key\", instanceKey")
-                .contains("\"notification.embed-url\", \"/pixiv-layout-feedback/embed.html\"")
+                .contains("\"notification.instance-key\", LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION")
+                .contains("\"notification.embed-url\", SURVEY_EMBED_URL")
                 .contains("\"notification.i18n-namespace\", \"layout-feedback\"");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
                 .filteredOn(route -> "/pixiv-layout-feedback/embed.html".equals(route.pathPattern()))
                 .singleElement()
                 .extracting(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution::accessPolicy)
                 .isEqualTo(top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.ADMIN);
+        var slots = new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().uiSlots();
+        if (!slots.isEmpty()) {
+            assertThat(slots.get(0).metadata().get("notification.embed-url"))
+                    .contains("pixivBridgeRead="
+                            + URLEncoder.encode(fallbackIdentityKey, StandardCharsets.UTF_8))
+                    .contains("pixivBridgeWrite="
+                            + URLEncoder.encode(fallbackIdentityKey, StandardCharsets.UTF_8));
+        }
     }
 
     @Test

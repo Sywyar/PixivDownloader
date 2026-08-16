@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
@@ -22,11 +23,14 @@ import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
+import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 
 import java.net.URI;
 import java.util.Optional;
@@ -36,6 +40,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -63,15 +68,18 @@ class NovelPixivProxyControllerTest {
     private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock
     private WorkVisibilityService workVisibilityService;
+    @Mock
+    private NovelBrowserFetchTicketStore browserFetchTicketStore;
 
     @BeforeEach
     void setUp() {
         lenient().when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.empty());
+        lenient().when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         lenient().when(accessPolicy.evaluate(any(), anyBoolean())).thenReturn(
                 new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0));
         controller = new NovelPixivProxyController(
                 objectMapper, pixivAjaxClient, accessPolicy, requestOwnerIdentityResolver,
-                workVisibilityService, NOVEL_MESSAGES);
+                workVisibilityService, browserFetchTicketStore, NOVEL_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
                 .build();
@@ -184,15 +192,22 @@ class NovelPixivProxyControllerTest {
                     {
                       "error": false,
                       "body": {
+                        "id": "789012",
                         "title": "R18G Novel",
                         "xRestrict": 2,
                         "aiType": 2,
                         "isOriginal": true,
-                        "content": "body"
+                        "content": "body",
+                        "userId": "7",
+                        "userName": "author"
                       }
                     }
                     """;
             when(pixivAjaxClient.get(any(URI.class), any())).thenReturn(body);
+            when(browserFetchTicketStore.issuePreviewFetchTicket(
+                    eq(789012L), any(PixivNovelMetadata.class), any(String.class),
+                    eq(RequestOwnerIdentity.adminScope()), isNull()))
+                    .thenReturn("p".repeat(43));
 
             mockMvc.perform(get("/api/pixiv/novel/789012/meta"))
                     .andExpect(status().isOk())
@@ -201,9 +216,30 @@ class NovelPixivProxyControllerTest {
                     .andExpect(jsonPath("$.isAi").value(true))
                     .andExpect(jsonPath("$.ai").doesNotExist())
                     .andExpect(jsonPath("$.isOriginal").value(true))
-                    .andExpect(jsonPath("$.original").doesNotExist());
+                    .andExpect(jsonPath("$.original").doesNotExist())
+                    .andExpect(jsonPath("$.fetchToken").value("p".repeat(43)));
 
+            ArgumentCaptor<String> rawMetadata = ArgumentCaptor.forClass(String.class);
+            verify(browserFetchTicketStore).issuePreviewFetchTicket(
+                    eq(789012L), any(PixivNovelMetadata.class), rawMetadata.capture(),
+                    eq(RequestOwnerIdentity.adminScope()), isNull());
+            org.assertj.core.api.Assertions.assertThat(rawMetadata.getValue())
+                    .doesNotContain("content", "textEmbeddedImages")
+                    .contains("\"title\":\"R18G Novel\"");
             verify(workVisibilityService).requireVisible(VISIBILITY_SCOPE, WorkType.NOVEL, 789012L);
+        }
+
+        @Test
+        @DisplayName("小说响应作品 ID 不匹配时不签发下载票据")
+        void shouldRejectMismatchedNovelIdBeforeIssuingTicket() throws Exception {
+            when(pixivAjaxClient.get(any(URI.class), any())).thenReturn("""
+                    {"error":false,"body":{"id":"789013","title":"other"}}
+                    """);
+
+            mockMvc.perform(get("/api/pixiv/novel/789012/meta"))
+                    .andExpect(status().isBadRequest());
+
+            verifyNoInteractions(browserFetchTicketStore);
         }
     }
 

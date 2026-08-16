@@ -9,6 +9,7 @@
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
+    <script src="/js/pixiv-actions.js"></script>
     <!-- 共享 Vue 挂载助手（按需懒加载核心 Vue 运行时；加载即无副作用）。 -->
     <script src="/js/pixiv-vue.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
@@ -40,7 +41,7 @@
           data-nav-active-class="active" data-nav-target="_blank" data-nav-rel="noopener"></span>
     <div class="app-nav-spacer"></div>
     <div class="app-nav-actions" id="langSwitcherAnchor"></div>
-    <button class="app-nav-logout" id="logout-btn" onclick="pmkLogout()" data-i18n="logout">退出</button>
+    <button class="app-nav-logout" id="logout-btn" data-pixiv-click="pmkLogout()" data-i18n="logout">退出</button>
 </nav>
 
 <!-- 市场页内容挂载点：主路径由 plugin-market-vue.js 用 Vue reactive 渲染；Vue 不可用时由 plugin-market-fallback.js

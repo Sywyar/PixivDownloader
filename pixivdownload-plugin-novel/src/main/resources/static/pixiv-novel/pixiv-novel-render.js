@@ -21,6 +21,18 @@
         }[c]));
     }
 
+    function safeExternalHref(value) {
+        const candidate = String(value == null ? '' : value).trim();
+        if (!/^https?:\/\//i.test(candidate) || /[\u0000-\u001F\u007F]/.test(candidate)) return null;
+        try {
+            const url = new URL(candidate);
+            return url.hostname && !url.username && !url.password
+                && (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
     function imageFigure(dataAttr, id, label, url, hideMissing) {
         if (!url) {
             // 缺失资源：hideMissing 时完全不渲染（本地离线模式），否则保留占位提示。
@@ -48,7 +60,10 @@
             if (m[1] !== undefined) {
                 out += `<ruby>${escapeHtml(m[1].trim())}<rt>${escapeHtml(m[2].trim())}</rt></ruby>`;
             } else if (m[3] !== undefined) {
-                out += `<a href="${escapeHtml(m[4].trim())}" rel="noopener noreferrer" target="_blank">${escapeHtml(m[3].trim())}</a>`;
+                const label = escapeHtml(m[3].trim());
+                const href = safeExternalHref(m[4]);
+                out += href == null ? label
+                    : `<a href="${escapeHtml(href)}" rel="noopener noreferrer" target="_blank">${label}</a>`;
             } else if (m[5] !== undefined) {
                 out += `<span class="novel-jump">↗ p.${escapeHtml(m[5])}</span>`;
             } else if (m[6] !== undefined) {

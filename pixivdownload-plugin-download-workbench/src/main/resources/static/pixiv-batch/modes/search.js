@@ -470,7 +470,7 @@
             const queueTip = buildQueueToggleTip(inQueue.has(item.id));
             const bookmarkTip = buildBookmarkTip(bookmarkCount);
             return `<div class="search-thumb${inQueueClass}" id="thumb-${idx}"
-                     onclick="addSearchItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${bookmarkTip}${queueTip}">
+                     data-pixiv-click="addSearchItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${bookmarkTip}${queueTip}">
           <img id="thumb-img-${idx}" src="" alt="${esc(item.title)}" class="${blurClass}">
           <div class="thumb-badge-stack">${r18Badge}${aiBadge}${typeBadge}</div>
           ${pagesLabel}
@@ -643,13 +643,13 @@
             pages.push(p);
         }
         pag.innerHTML =
-            `<button onclick="performSearch(1)" ${cur === 1 ? 'disabled' : ''}>«</button>` +
-            `<button onclick="performSearch(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>‹</button>` +
+            `<button data-pixiv-click="performSearch(1)" ${cur === 1 ? 'disabled' : ''}>«</button>` +
+            `<button data-pixiv-click="performSearch(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>‹</button>` +
             pages.map(p =>
-                `<button onclick="${p === cur ? '' : `performSearch(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
+                `<button data-pixiv-click="${p === cur ? '' : `performSearch(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
             ).join('') +
-            `<button onclick="performSearch(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>›</button>` +
-            `<button onclick="performSearch(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>»</button>` +
+            `<button data-pixiv-click="performSearch(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>›</button>` +
+            `<button data-pixiv-click="performSearch(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>»</button>` +
             `<span class="pg-info">${esc(bt('search.pagination.info', '第 {current} / {total} 页 · 共 {count} 个', {
                 current: cur,
                 total: totalPages,
@@ -675,13 +675,13 @@
             pages.push(p);
         }
         pag.innerHTML =
-            `<button onclick="goBatchPage(1)" ${cur === 1 ? 'disabled' : ''}>«</button>` +
-            `<button onclick="goBatchPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>‹</button>` +
+            `<button data-pixiv-click="goBatchPage(1)" ${cur === 1 ? 'disabled' : ''}>«</button>` +
+            `<button data-pixiv-click="goBatchPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>‹</button>` +
             pages.map(p =>
-                `<button onclick="${p === cur ? '' : `goBatchPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
+                `<button data-pixiv-click="${p === cur ? '' : `goBatchPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
             ).join('') +
-            `<button onclick="goBatchPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>›</button>` +
-            `<button onclick="goBatchPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>»</button>` +
+            `<button data-pixiv-click="goBatchPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>›</button>` +
+            `<button data-pixiv-click="goBatchPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>»</button>` +
             `<span class="pg-info">${esc(bt('search.pagination.info', '第 {current} / {total} 页 · 共 {count} 个', {
                 current: cur,
                 total: totalPages,

@@ -28,5 +28,6 @@ public record NovelMetaResponse(
         String coverUrl,
         Long uploadTimestamp,
         /** [uploadedimage:id] → 原图 URL（pximg.net）。可能为空。 */
-        Map<String, String> textEmbeddedImages
+        Map<String, String> textEmbeddedImages,
+        String fetchToken
 ) {}

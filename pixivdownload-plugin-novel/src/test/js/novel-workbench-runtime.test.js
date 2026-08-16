@@ -266,6 +266,8 @@ async function waitUntil(predicate) {
     assert.strictEqual(descriptor.canonicalUrl({id: 'invalid'}), '');
     assert.ok(SOURCE.includes('item.liveStatus = {')
         && SOURCE.includes('queueLiveStatus: novelQueueLiveStatus'));
+    assert.ok(SOURCE.includes('fetchToken: meta.fetchToken || null'),
+        '小说下载请求应复用元数据响应中的一次性抓取票据');
     assert.ok(!SOURCE.includes('translatePhase')
         && !SOURCE.includes('translateElapsed')
         && !SOURCE.includes('translateSeriesPending'));

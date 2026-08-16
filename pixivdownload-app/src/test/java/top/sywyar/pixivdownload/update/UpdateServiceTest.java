@@ -9,10 +9,14 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
+import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.OfficialPluginTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 
 import java.io.IOException;
@@ -24,6 +28,8 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.Signature;
 import java.util.Base64;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.LongConsumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -62,6 +68,32 @@ class UpdateServiceTest {
     }
 
     @Test
+    @DisplayName("生产更新信任根与官方插件信任根相互隔离")
+    void productionUpdateTrustRootIsIsolatedFromPluginRoot() {
+        byte[] manifest = "{}".getBytes(StandardCharsets.UTF_8);
+        String invalidSignature = Base64.getEncoder().encodeToString(new byte[64]);
+        SignatureMetadata updateSignature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519,
+                UpdateService.UPDATE_SIGNING_KEY_ID, invalidSignature);
+        SignatureMetadata pluginSignature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519,
+                OfficialPluginTrustRoots.OFFICIAL_KEY_ID, invalidSignature);
+
+        assertThat(UpdateService.updateManifestVerifier().verifyManifest(new ManifestVerificationRequest(
+                manifest, UpdateService.UPDATE_MANIFEST_REPOSITORY_ID,
+                updateSignature, VerificationPolicy.officialRepository())).status())
+                .isEqualTo(VerificationStatus.INVALID_SIGNATURE);
+        assertThat(UpdateService.updateManifestVerifier().verifyManifest(new ManifestVerificationRequest(
+                manifest, UpdateService.UPDATE_MANIFEST_REPOSITORY_ID,
+                pluginSignature, VerificationPolicy.officialRepository())).status())
+                .isEqualTo(VerificationStatus.UNKNOWN_KEY);
+        assertThat(new PluginSupplyChainVerifier().verifyManifest(new ManifestVerificationRequest(
+                manifest, UpdateService.UPDATE_MANIFEST_REPOSITORY_ID,
+                updateSignature, VerificationPolicy.officialRepository())).status())
+                .isEqualTo(VerificationStatus.UNKNOWN_KEY);
+    }
+
+    @Test
     @DisplayName("已签名 manifest 按 UTF-8 解析并保存防回滚高水位")
     void shouldVerifyAndParseManifestAsUtf8Bytes() throws Exception {
         SigningSupport signing = new SigningSupport();
@@ -82,13 +114,15 @@ class UpdateServiceTest {
     @DisplayName("缺少 detached 签名时拒绝更新清单")
     void shouldRejectMissingSignature() throws Exception {
         SigningSupport signing = new SigningSupport();
+        Path state = tempDir.resolve("trust.json");
         byte[] manifest = manifest(10, "stable", "999.0.0", "2099-01-01T00:00:00Z",
                 "notes", ASSET_SHA256);
-        UpdateCheckResult result = service(signing, manifest, new byte[0], tempDir.resolve("trust.json"))
+        UpdateCheckResult result = service(signing, manifest, new byte[0], state)
                 .checkForUpdate(true);
 
         assertThat(result.isCheckSucceeded()).isFalse();
         assertThat(result.isUpdateAvailable()).isFalse();
+        assertThat(state).doesNotExist();
     }
 
     @Test
@@ -136,6 +170,13 @@ class UpdateServiceTest {
         assertThat(service(signing, first, signing.signature(first), state)
                 .checkForUpdate(true).isCheckSucceeded()).isTrue();
 
+        byte[] reusedSequence = manifest(20, "stable", "999.0.1", "2099-01-01T00:00:00Z",
+                "rerun", ASSET_SHA256);
+        UpdateCheckResult reusedSequenceResult = service(
+                signing, reusedSequence, signing.signature(reusedSequence), state).checkForUpdate(true);
+        assertThat(reusedSequenceResult.isCheckSucceeded()).isFalse();
+        assertThat(reusedSequenceResult.getError()).contains("sequence was reused with different content");
+
         byte[] rollback = manifest(19, "stable", "998.0.0", "2099-01-01T00:00:00Z",
                 "old", ASSET_SHA256);
         UpdateCheckResult rollbackResult = service(signing, rollback, signing.signature(rollback), state)
@@ -149,6 +190,24 @@ class UpdateServiceTest {
                 .checkForUpdate(true);
         assertThat(replacementResult.isCheckSucceeded()).isFalse();
         assertThat(replacementResult.getError()).contains("replaced with different content");
+    }
+
+    @Test
+    @DisplayName("正式版与每夜版分别维护更新清单高水位")
+    void shouldTrackStableAndNightlySequencesIndependently() throws Exception {
+        Path state = tempDir.resolve("trust.json");
+        UpdateTrustState stable = new UpdateTrustState(
+                100, "999.0.0", "a".repeat(64), 0, null, null);
+        UpdateTrustState withNightly = stable.accept("nightly", 1, "999.0.1-nightly", "b".repeat(64));
+        withNightly.writeIfChanged(state, stable, MAPPER);
+
+        UpdateTrustState persisted = UpdateTrustState.read(state, MAPPER);
+        assertThat(persisted.stableSequence()).isEqualTo(100);
+        assertThat(persisted.nightlySequence()).isEqualTo(1);
+
+        UpdateTrustState nextStable = persisted.accept("stable", 101, "999.0.2", "c".repeat(64));
+        assertThat(nextStable.stableSequence()).isEqualTo(101);
+        assertThat(nextStable.nightlySequence()).isEqualTo(1);
     }
 
     @Test
@@ -199,6 +258,109 @@ class UpdateServiceTest {
             restoreProperty("os.name", oldOsName);
             restoreProperty("os.arch", oldOsArch);
             Files.deleteIfExists(part);
+        }
+    }
+
+    @Test
+    @DisplayName("异步下载固定启动时选中的更新对象")
+    void shouldKeepSelectedUpdateSnapshotForAsyncDownload() throws Exception {
+        CountDownLatch received = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        UpdateCheckResult selected = UpdateCheckResult.builder()
+                .updateAvailable(true)
+                .latestVersion("999.0.4-selected")
+                .assetUrl("https://example.com/selected.exe")
+                .assetSha256(ASSET_SHA256)
+                .assetSizeBytes(1)
+                .build();
+        UpdateCheckResult replacement = UpdateCheckResult.builder()
+                .updateAvailable(true)
+                .latestVersion("999.0.5-replacement")
+                .assetUrl("https://example.com/replacement.exe")
+                .assetSha256(ASSET_SHA256)
+                .assetSizeBytes(1)
+                .build();
+        java.util.concurrent.atomic.AtomicReference<UpdateCheckResult> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(PluginCatalogClientProvider.class)) {
+            @Override
+            UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
+                captured.set(check);
+                received.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new IOException("timed out waiting for test release");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+                return UpdateDownloadResult.builder().version(check.getLatestVersion()).build();
+            }
+        };
+        var lastResult = UpdateService.class.getDeclaredField("lastResult");
+        lastResult.setAccessible(true);
+        lastResult.set(service, selected);
+
+        service.startDownloadAsync(false);
+        assertThat(received.await(5, TimeUnit.SECONDS)).isTrue();
+        lastResult.set(service, replacement);
+        release.countDown();
+
+        assertThat(captured.get()).isSameAs(selected);
+    }
+
+    @Test
+    @DisplayName("更新检查结果不暴露可变 setter")
+    void updateCheckResultIsImmutable() {
+        assertThat(java.util.Arrays.stream(UpdateCheckResult.class.getMethods())
+                .map(java.lang.reflect.Method::getName)
+                .filter(name -> name.startsWith("set"))
+                .toList()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("安装启动仅使用服务端已验证文件并在启动前重验大小和哈希")
+    void shouldBindInstallToVerifiedDownloadSnapshot() throws Exception {
+        String oldOsName = System.getProperty("os.name");
+        String oldOsArch = System.getProperty("os.arch");
+        byte[] payload = {1, 2, 3};
+        String hash = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(payload));
+        String version = "999.0.4-verified-installer-test";
+        Path target = Path.of("update-cache", "PixivDownload-" + version + "-win-x64-setup.exe");
+        try {
+            System.setProperty("os.name", "Windows 11");
+            System.setProperty("os.arch", "amd64");
+            PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+            doAnswer(invocation -> {
+                Path output = invocation.getArgument(2);
+                Files.write(output, payload);
+                invocation.<LongConsumer>getArgument(3).accept(payload.length);
+                return (long) payload.length;
+            }).when(client).streamToFile(anyString(), anyLong(), any(Path.class), any(LongConsumer.class));
+            PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+            when(provider.clientFor(any())).thenReturn(client);
+            UpdateService service = new UpdateService(config(), APP_MESSAGES, provider);
+            UpdateCheckResult selected = UpdateCheckResult.builder()
+                    .updateAvailable(true)
+                    .latestVersion(version)
+                    .assetUrl("https://example.com/" + target.getFileName())
+                    .assetSha256(hash)
+                    .assetSizeBytes(payload.length)
+                    .nightly(false)
+                    .build();
+
+            service.downloadInstaller(selected);
+            assertThat(service.verifiedInstallerForLaunch()).isEqualTo(target.toAbsolutePath().normalize());
+
+            Files.write(target, new byte[]{9, 9, 9});
+            assertThatThrownBy(service::verifiedInstallerForLaunch)
+                    .isInstanceOf(IOException.class);
+        } finally {
+            restoreProperty("os.name", oldOsName);
+            restoreProperty("os.arch", oldOsArch);
+            Files.deleteIfExists(target);
         }
     }
 

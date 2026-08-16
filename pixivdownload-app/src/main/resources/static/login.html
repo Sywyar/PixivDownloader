@@ -8,6 +8,7 @@
 <script src="/js/pixiv-feedback.js"></script>
 <script src="/js/pixiv-lang-switcher.js"></script>
 <script src="/js/pixiv-theme.js"></script>
+<script src="/js/pixiv-actions.js"></script>
 <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
 <link rel="stylesheet" href="/css/pixiv-motion.css">
 <link rel="stylesheet" href="/css/pixiv-feedback.css">
@@ -38,7 +39,7 @@
       <label for="remember" data-i18n="remember">保持登录状态（30 天）</label>
     </div>
     <div id="error-msg"></div>
-    <button class="btn btn-green" id="login-btn" onclick="doLogin()" data-i18n="button.login">登录</button>
+    <button class="btn btn-green" id="login-btn" data-pixiv-click="doLogin()" data-i18n="button.login">登录</button>
     <div class="invite-link-row">
       <a id="useInviteCode" data-i18n="invite.use-code">使用邀请码</a>
     </div>
@@ -51,7 +52,7 @@
       <input type="text" id="inviteCodeInput" data-i18n-placeholder="invite.placeholder" placeholder="邀请码" autocomplete="off">
     </div>
     <div id="invite-error"></div>
-    <button class="btn btn-green" id="invite-btn" onclick="doInviteRedeem()" data-i18n="invite.submit">进入</button>
+    <button class="btn btn-green" id="invite-btn" data-pixiv-click="doInviteRedeem()" data-i18n="invite.submit">进入</button>
     <div class="invite-link-row">
       <a id="backToLogin" data-i18n="invite.back">返回管理员登录</a>
     </div>

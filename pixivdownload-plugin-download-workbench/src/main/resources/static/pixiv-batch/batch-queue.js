@@ -1160,7 +1160,7 @@
             ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelDisplayId)}`
             : '');
         const linkBtn = linkHref
-            ? `<a href="${esc(linkHref)}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`
+            ? `<a href="${esc(linkHref)}" target="_blank" data-pixiv-click="noop()" data-pixiv-stop="true" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`
             : '';
         return `<div class="queue-item"${queueKeyAttr} style="border-left-color:${statusColor(q.status)}">
       <div class="q-title">

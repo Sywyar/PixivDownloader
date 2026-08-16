@@ -1910,16 +1910,7 @@ public class StatusPanel extends JPanel {
                                     err.isBlank() ? message("gui.dialog.error.no-detail") : err));
                     return;
                 }
-                String installerPath = result.path("installerPath").asText("");
-                if (installerPath.isBlank()) {
-                    restoreBannerAfterInstallFailure();
-                    log.error(logMessage("gui.status.log.update.download-failed-no-installer"));
-                    GuiErrorDialog.show(StatusPanel.this,
-                            message("gui.dialog.error.title"),
-                            message("gui.update.dialog.download-failed.message", "installer path missing"));
-                    return;
-                }
-                launchInstaller(installerPath);
+                launchInstaller();
             }
         };
         worker.execute();
@@ -2070,10 +2061,9 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private void launchInstaller(String installerPath) {
+    private void launchInstaller() {
         Thread worker = new Thread(() -> {
-            String body = "installerPath=" + java.net.URLEncoder.encode(installerPath, java.nio.charset.StandardCharsets.UTF_8);
-            JsonNode node = callUpdateEndpoint("POST", "/api/gui/update/install", body);
+            JsonNode node = callUpdateEndpoint("POST", "/api/gui/update/install", "");
             SwingUtilities.invokeLater(() -> {
                 if (node == null || node.hasNonNull("error")) {
                     restoreBannerAfterInstallFailure();

@@ -47,6 +47,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.export.NovelEpubWriter;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
@@ -76,8 +77,6 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    private static final Set<String> COVER_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
-    private static final Set<String> IMAGE_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp", "gif");
     /** 单本小说最多下载多少张内嵌图，避免极端情况吃满磁盘。 */
     private static final int MAX_EMBEDDED_IMAGES_PER_NOVEL = 200;
 
@@ -183,6 +182,7 @@ public class NovelDownloadService implements NovelDownloader {
         String title = request.getTitle() == null ? String.valueOf(novelId) : request.getTitle();
         NovelDownloadStatus status = new NovelDownloadStatus(novelId, title, format.ext(), userUuid);
         String statusKey = statusKey(novelId, userUuid);
+        AtomicLong remainingImageBytes = new AtomicLong(PixivImageTransferObserver.MAX_TASK_BYTES);
         task.onCancellation(() -> cancelTrackedStatus(statusKey, status));
         if (!task.publishIfActive(() -> statusMap.put(statusKey, status))) {
             return false;
@@ -231,7 +231,8 @@ public class NovelDownloadService implements NovelDownloader {
             // Best-effort 内嵌图片下载（与正文同目录、embed_{id}.{ext}）；
             // 写入 HTML/EPUB 之前完成，使写入时即可解析为本地图片链接。
             Map<String, String> embeddedExts = downloadEmbeddedImages(
-                    novelId, rawContent, other.getEmbeddedImages(), downloadPath, request.getCookie(), status);
+                    novelId, rawContent, other.getEmbeddedImages(), downloadPath, request.getCookie(), status,
+                    remainingImageBytes);
             ensureNotCancelled(status);
 
             // Best-effort 封面下载（与正文同目录、_thumb.{ext}）。
@@ -240,7 +241,8 @@ public class NovelDownloadService implements NovelDownloader {
                 status.setStage("downloading-cover");
             }
             String coverExt = downloadCover(
-                    novelId, other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status);
+                    novelId, other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status,
+                    remainingImageBytes);
             ensureNotCancelled(status);
 
             // Write file
@@ -287,7 +289,7 @@ public class NovelDownloadService implements NovelDownloader {
                     novelSeriesService.observeWithMetadata(
                             other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId(),
                             other.getSeriesDescription(), other.getSeriesCoverUrl(),
-                            other.getSeriesTags(), request.getCookie());
+                            other.getSeriesTags(), request.getCookie(), remainingImageBytes.get());
                 } else {
                     novelDatabase.observeSeries(other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId());
                 }
@@ -579,13 +581,13 @@ public class NovelDownloadService implements NovelDownloader {
      * Best-effort：URL 缺失、host 非 .pximg.net、网络失败一律返回 null，调用方据此把 cover_ext 置 NULL。
      */
     private String downloadCover(long novelId, String coverUrl, Path downloadPath, String baseName, String cookie,
-                                 NovelDownloadStatus status) {
+                                 NovelDownloadStatus status, AtomicLong remainingImageBytes) {
         if (coverUrl == null || coverUrl.isBlank()) return null;
         URI referer = novelPageReferer(novelId);
         for (String candidateUrl : PixivCoverUrlResolver.downloadCandidates(coverUrl)) {
             ensureNotCancelled(status);
             String ext = downloadCoverCandidate(
-                    candidateUrl, referer, downloadPath, baseName, cookie, status);
+                    candidateUrl, referer, downloadPath, baseName, cookie, status, remainingImageBytes);
             if (ext != null) {
                 return ext;
             }
@@ -595,7 +597,7 @@ public class NovelDownloadService implements NovelDownloader {
 
     private String downloadCoverCandidate(String coverUrl, URI referer, Path downloadPath,
                                           String baseName, String cookie,
-                                          NovelDownloadStatus status) {
+                                          NovelDownloadStatus status, AtomicLong remainingImageBytes) {
         URI uri;
         try {
             uri = URI.create(coverUrl);
@@ -608,17 +610,17 @@ public class NovelDownloadService implements NovelDownloader {
             log.warn("novel cover skipped — host not pximg.net: {}", host);
             return null;
         }
-        String ext = inferCoverExt(uri.getPath());
-        Path target = downloadPath.resolve(baseName + "_thumb." + ext);
+        Path targetStem = downloadPath.resolve(baseName + "_thumb");
         try {
-            boolean downloaded = pixivImageDownloader.download(
+            String extension = downloadImageWithinBudget(
                     uri,
                     referer,
-                    target,
+                    targetStem,
                     cookie,
-                    coverTransferObserver(status));
-            if (downloaded) {
-                return ext;
+                    coverTransferObserver(status),
+                    remainingImageBytes);
+            if (extension != null) {
+                return extension;
             }
             log.warn("novel cover download non-2xx: {}", coverUrl);
             return null;
@@ -626,19 +628,6 @@ public class NovelDownloadService implements NovelDownloader {
             log.warn("novel cover download failed: {} — {}", coverUrl, e.getMessage());
             return null;
         }
-    }
-
-    private static String inferCoverExt(String path) {
-        if (path == null) return "jpg";
-        int slash = path.lastIndexOf('/');
-        String last = slash >= 0 ? path.substring(slash + 1) : path;
-        int dot = last.lastIndexOf('.');
-        if (dot < 0 || dot == last.length() - 1) return "jpg";
-        String candidate = last.substring(dot + 1).toLowerCase(Locale.ROOT);
-        // 去掉可能的查询串残余
-        int q = candidate.indexOf('?');
-        if (q >= 0) candidate = candidate.substring(0, q);
-        return COVER_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
     }
 
     private void writeTxt(Path file, String raw) throws IOException {
@@ -701,7 +690,8 @@ public class NovelDownloadService implements NovelDownloader {
     private Map<String, String> downloadEmbeddedImages(long novelId, String rawContent,
                                                        Map<String, String> urlMap,
                                                        Path downloadPath, String cookie,
-                                                       NovelDownloadStatus status) {
+                                                       NovelDownloadStatus status,
+                                                       AtomicLong remainingImageBytes) {
         Set<String> ids = NovelMarkupParser.findUploadedImageIds(rawContent);
         if (ids.isEmpty() || urlMap == null || urlMap.isEmpty()) {
             // 没有占位符或者前端没传 URL（可能为公开 API 限制等），直接跳过
@@ -726,6 +716,9 @@ public class NovelDownloadService implements NovelDownloader {
         int budget = MAX_EMBEDDED_IMAGES_PER_NOVEL;
         for (String id : ids) {
             ensureNotCancelled(status);
+            if (remainingImageBytes.get() <= 0) {
+                break;
+            }
             if (budget-- <= 0) {
                 log.warn("novel embedded image budget exhausted: novelId={}", novelId);
                 break;
@@ -733,7 +726,7 @@ public class NovelDownloadService implements NovelDownloader {
             String url = urlMap.get(id);
             if (url == null || url.isBlank()) continue;
             String ext = downloadOneEmbeddedImage(
-                    novelId, id, url, referer, downloadPath, cookie, status);
+                    novelId, id, url, referer, downloadPath, cookie, status, remainingImageBytes);
             if (ext != null) success.put(id, ext);
             if (status != null) status.setEmbeddedDone(status.getEmbeddedDone() + 1);
         }
@@ -745,7 +738,7 @@ public class NovelDownloadService implements NovelDownloader {
 
     private String downloadOneEmbeddedImage(long novelId, String imageId, String url, URI referer,
                                             Path downloadPath, String cookie,
-                                            NovelDownloadStatus status) {
+                                            NovelDownloadStatus status, AtomicLong remainingImageBytes) {
         URI uri;
         try {
             uri = URI.create(url);
@@ -758,18 +751,18 @@ public class NovelDownloadService implements NovelDownloader {
             log.warn("novel embed image skipped — host not pximg.net: novelId={}, id={}, host={}", novelId, imageId, host);
             return null;
         }
-        String ext = inferImageExt(uri.getPath());
-        Path target = downloadPath.resolve("embed_" + imageId + "." + ext);
+        Path targetStem = downloadPath.resolve("embed_" + imageId);
         try {
-            boolean downloaded = pixivImageDownloader.download(
+            String extension = downloadImageWithinBudget(
                     uri,
                     referer,
-                    target,
+                    targetStem,
                     cookie,
-                    cancellationObserver(status));
-            if (downloaded) {
-                novelDatabase.saveNovelImage(novelId, imageId, ext);
-                return ext;
+                    cancellationObserver(status),
+                    remainingImageBytes);
+            if (extension != null) {
+                novelDatabase.saveNovelImage(novelId, imageId, extension);
+                return extension;
             }
             log.warn("novel embed image non-2xx: novelId={}, id={}", novelId, imageId);
             return null;
@@ -778,18 +771,6 @@ public class NovelDownloadService implements NovelDownloader {
                     novelId, imageId, url, e.getMessage());
             return null;
         }
-    }
-
-    private static String inferImageExt(String path) {
-        if (path == null) return "jpg";
-        int slash = path.lastIndexOf('/');
-        String last = slash >= 0 ? path.substring(slash + 1) : path;
-        int dot = last.lastIndexOf('.');
-        if (dot < 0 || dot == last.length() - 1) return "jpg";
-        String candidate = last.substring(dot + 1).toLowerCase(Locale.ROOT);
-        int q = candidate.indexOf('?');
-        if (q >= 0) candidate = candidate.substring(0, q);
-        return IMAGE_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
     }
 
     private static URI novelPageReferer(long novelId) {
@@ -826,6 +807,44 @@ public class NovelDownloadService implements NovelDownloader {
                 ensureNotCancelled(status);
             }
         };
+    }
+
+    private String downloadImageWithinBudget(URI source, URI referer, Path targetStem, String cookie,
+                                             PixivImageTransferObserver delegate,
+                                             AtomicLong remainingImageBytes) throws IOException {
+        long maximumBytes = Math.min(PixivImageTransferObserver.MAX_IMAGE_BYTES, remainingImageBytes.get());
+        if (maximumBytes <= 0) {
+            return null;
+        }
+        AtomicLong transferredBytes = new AtomicLong();
+        try {
+            return pixivImageDownloader.downloadImage(
+                    source, referer, targetStem, cookie, new PixivImageTransferObserver() {
+                @Override
+                public long maximumBytes() {
+                    return maximumBytes;
+                }
+
+                @Override
+                public void checkCancelled() {
+                    delegate.checkCancelled();
+                }
+
+                @Override
+                public void onContentLength(long contentLength) {
+                    delegate.onContentLength(contentLength);
+                }
+
+                @Override
+                public void onBytesTransferred(long transferred) {
+                    transferredBytes.set(transferred);
+                    delegate.onBytesTransferred(transferred);
+                }
+            });
+        } finally {
+            remainingImageBytes.updateAndGet(
+                    remaining -> Math.max(0L, remaining - transferredBytes.get()));
+        }
     }
 
     private void writeEpub(Path file, long novelId, String title, NovelDownloadRequest.Other other,

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -17,13 +18,14 @@ import java.util.HexFormat;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-/** Returns only a survey-scoped anonymous hash, never the raw installation identity. */
+/** Returns a survey-scoped anonymous hash and deterministic submission UUID, never the raw installation identity. */
 @PluginManagedBean
 @RestController
 @RequestMapping("/api/multi-mode-decision-survey/identity")
 public class MultiModeDecisionSurveyIdentityController {
 
     private static final String NAMESPACE = "pixivdownload:multi-mode-decision-survey:v1";
+    static final String CAMPAIGN_VERSION = "multi-mode-decision-v1";
     private static final Pattern SURVEY_ID_PATTERN = Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
@@ -40,9 +42,11 @@ public class MultiModeDecisionSurveyIdentityController {
             return ResponseEntity.badRequest().cacheControl(CacheControl.noStore()).build();
         }
         try {
+            String scopedIdentity = deriveScopedIdentity(surveyId, installIdentityProvider.get());
             return ResponseEntity.ok()
                     .cacheControl(CacheControl.noStore())
-                    .body(new IdentityResponse(deriveScopedIdentity(surveyId, installIdentityProvider.get())));
+                    .body(new IdentityResponse(scopedIdentity,
+                            deriveSubmissionId(surveyId, CAMPAIGN_VERSION, scopedIdentity)));
         } catch (RuntimeException ignored) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .cacheControl(CacheControl.noStore())
@@ -68,6 +72,26 @@ public class MultiModeDecisionSurveyIdentityController {
         }
     }
 
-    public record IdentityResponse(String distinctId) {
+    static String deriveSubmissionId(String surveyId, String campaignVersion, String scopedIdentity) {
+        if (surveyId == null || !SURVEY_ID_PATTERN.matcher(surveyId).matches()
+                || campaignVersion == null || !campaignVersion.matches("[a-z0-9][a-z0-9._-]{0,63}")
+                || scopedIdentity == null || !scopedIdentity.matches("pmds_[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("invalid survey submission scope");
+        }
+        byte[] digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256").digest(
+                    (NAMESPACE + ":submission\0" + surveyId + '\0' + campaignVersion + '\0'
+                            + scopedIdentity).getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
+        }
+        digest[6] = (byte) ((digest[6] & 0x0f) | 0x80);
+        digest[8] = (byte) ((digest[8] & 0x3f) | 0x80);
+        ByteBuffer bytes = ByteBuffer.wrap(digest);
+        return new UUID(bytes.getLong(), bytes.getLong()).toString();
+    }
+
+    public record IdentityResponse(String distinctId, String submissionId) {
     }
 }

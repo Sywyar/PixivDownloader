@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.client.ClientHttpRequest;
 import org.springframework.http.client.ClientHttpResponse;
@@ -24,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,7 +46,7 @@ class PixivImageDownloadServiceTest {
     private RestTemplate restTemplate;
 
     @Test
-    @DisplayName("校验 pximg 来源后使用统一图片请求头流式写入并报告进度")
+    @DisplayName("校验 pximg 来源后使用统一图片请求头流式写入并报告响应信息")
     void shouldDownloadAllowedImageWithHeadersAndProgress() throws Exception {
         URI source = URI.create("https://i.pximg.net/img-original/example.jpg");
         URI referer = URI.create("https://www.pixiv.net/novel/show.php?id=42");
@@ -56,6 +58,7 @@ class PixivImageDownloadServiceTest {
         ClientHttpResponse response = mock(ClientHttpResponse.class);
         HttpHeaders responseHeaders = new HttpHeaders();
         responseHeaders.setContentLength(body.length);
+        responseHeaders.setContentType(MediaType.IMAGE_JPEG);
         when(response.getStatusCode()).thenReturn(HttpStatus.OK);
         when(response.getHeaders()).thenReturn(responseHeaders);
         when(response.getBody()).thenReturn(new ByteArrayInputStream(body));
@@ -69,7 +72,13 @@ class PixivImageDownloadServiceTest {
                 });
         AtomicLong contentLength = new AtomicLong(-1);
         AtomicLong transferred = new AtomicLong(-1);
+        AtomicReference<String> contentType = new AtomicReference<>();
         PixivImageTransferObserver observer = new PixivImageTransferObserver() {
+            @Override
+            public void onContentType(String value) {
+                contentType.set(value);
+            }
+
             @Override
             public void onContentLength(long value) {
                 contentLength.set(value);
@@ -88,9 +97,56 @@ class PixivImageDownloadServiceTest {
         assertThat(Files.readAllBytes(target)).isEqualTo(body);
         assertThat(contentLength).hasValue(body.length);
         assertThat(transferred).hasValue(body.length);
+        assertThat(contentType).hasValue(MediaType.IMAGE_JPEG_VALUE);
         assertThat(requestHeaders.getFirst(HttpHeaders.USER_AGENT)).isEqualTo(PixivRequestHeaders.USER_AGENT);
         assertThat(requestHeaders.getFirst(HttpHeaders.REFERER)).isEqualTo(referer.toString());
         assertThat(requestHeaders.getFirst(HttpHeaders.COOKIE)).isEqualTo("PHPSESSID=test");
+    }
+
+    @Test
+    @DisplayName("声明长度超过观察器预算时应在落盘前拒绝")
+    void shouldRejectOversizedDeclaredContentLength() throws Exception {
+        URI source = URI.create("https://i.pximg.net/oversized.jpg");
+        URI referer = URI.create("https://www.pixiv.net/artworks/42");
+        Path target = tempDir.resolve("oversized.jpg.part");
+        ClientHttpResponse response = mock(ClientHttpResponse.class);
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.setContentLength(5);
+        when(response.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(response.getHeaders()).thenReturn(responseHeaders);
+        when(restTemplate.execute(eq(source), eq(HttpMethod.GET),
+                any(RequestCallback.class), any(ResponseExtractor.class)))
+                .thenAnswer(invocation -> invocation.<ResponseExtractor<?>>getArgument(3).extractData(response));
+
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(
+                source, referer, target, null, observerWithMaximumBytes(4)))
+                .isInstanceOf(java.io.IOException.class);
+        assertThat(target).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("未知声明长度的展开响应超过实际流预算时应删除部分文件")
+    void shouldDeletePartialFileWhenExpandedStreamExceedsLimit() throws Exception {
+        URI source = URI.create("https://i.pximg.net/expanded.jpg");
+        URI referer = URI.create("https://www.pixiv.net/artworks/42");
+        Path target = tempDir.resolve("expanded.jpg");
+        byte[] existing = "existing".getBytes(StandardCharsets.UTF_8);
+        Files.write(target, existing);
+        ClientHttpResponse response = mock(ClientHttpResponse.class);
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.set(HttpHeaders.CONTENT_ENCODING, "gzip");
+        when(response.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(response.getHeaders()).thenReturn(responseHeaders);
+        when(response.getBody()).thenReturn(new ByteArrayInputStream(new byte[5]));
+        when(restTemplate.execute(eq(source), eq(HttpMethod.GET),
+                any(RequestCallback.class), any(ResponseExtractor.class)))
+                .thenAnswer(invocation -> invocation.<ResponseExtractor<?>>getArgument(3).extractData(response));
+
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(
+                source, referer, target, null, observerWithMaximumBytes(4)))
+                .isInstanceOf(java.io.IOException.class);
+        assertThat(Files.readAllBytes(target)).isEqualTo(existing);
+        assertThat(target.resolveSibling("expanded.jpg.part")).doesNotExist();
     }
 
     @Test
@@ -206,5 +262,14 @@ class PixivImageDownloadServiceTest {
 
         assertThat(downloaded).isFalse();
         assertThat(target).doesNotExist();
+    }
+
+    private static PixivImageTransferObserver observerWithMaximumBytes(long maximumBytes) {
+        return new PixivImageTransferObserver() {
+            @Override
+            public long maximumBytes() {
+                return maximumBytes;
+            }
+        };
     }
 }

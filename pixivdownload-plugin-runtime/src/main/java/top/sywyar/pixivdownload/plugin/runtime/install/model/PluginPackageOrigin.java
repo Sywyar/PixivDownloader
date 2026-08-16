@@ -10,10 +10,9 @@ import java.util.Objects;
  * 是否在落盘前做统一供应链验签。
  *
  * <h2>完整性期望只来自受信来源</h2>
- * 完整性期望（{@link #expectedSizeBytes()} / {@link #expectedSha256()} / {@link #signature()}）一律来自
- * <b>受信插件目录元数据</b>（{@link PluginPackageSource#MARKET_CATALOG}），<b>绝不</b>来自用户输入。本地上传
- * （{@link PluginPackageSource#LOCAL_UPLOAD}）没有可信清单背书、不携带任何期望——其安全性由安装器的结构校验、
- * 资源规模上限与 Zip Slip 防护承担。本类只建模来源与期望，<b>不</b>发起任何下载 / 网络访问。
+ * 期望大小与 SHA-256 一律来自<b>受信插件目录元数据</b>（{@link PluginPackageSource#MARKET_CATALOG}）。本地上传
+ * （{@link PluginPackageSource#LOCAL_UPLOAD}）不得自行声明这两项期望，但可以携带 detached 签名；签名只有通过宿主
+ * 官方信任根验证后才会被接受。本类只建模来源与期望，<b>不</b>发起任何下载 / 网络访问。
  *
  * @param source            来源类别
  * @param expectedSizeBytes 受信清单声明的期望文件字节数（无则 {@code null}）
@@ -33,18 +32,23 @@ public record PluginPackageOrigin(
     public PluginPackageOrigin {
         Objects.requireNonNull(source, "source");
         if (source == PluginPackageSource.LOCAL_UPLOAD
-                && (expectedSizeBytes != null || hasText(expectedSha256) || signature != null
+                && (expectedSizeBytes != null || hasText(expectedSha256)
                 || hasText(repositoryId) || officialRepository)) {
-            // 本地上传无可信清单背书，不得携带完整性期望（防止把不可信的「期望」当成已校验）。
-            throw new IllegalArgumentException("LOCAL_UPLOAD must not carry integrity expectations");
+            throw new IllegalArgumentException("LOCAL_UPLOAD must not carry catalog source bindings");
         }
         repositoryId = trimToNull(repositoryId);
         expectedSha256 = trimToNull(expectedSha256);
     }
 
-    /** 本地上传来源：无任何完整性期望（当前唯一接入的来源）。 */
+    /** 开发模式允许的未签名本地上传来源。 */
     public static PluginPackageOrigin localUpload() {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, null, null, null);
+    }
+
+    /** 带 detached 签名的本地上传来源；验签策略只接受宿主官方信任根。 */
+    public static PluginPackageOrigin localUpload(SignatureMetadata signature) {
+        return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, null, null,
+                Objects.requireNonNull(signature, "signature"));
     }
 
     /**
@@ -58,21 +62,23 @@ public record PluginPackageOrigin(
                 expectedSizeBytes, expectedSha256, signature);
     }
 
-    /** 是否带至少一项完整性期望（本地上传恒 {@code false}）。 */
+    /** 是否带至少一项完整性期望。 */
     public boolean hasIntegrityExpectations() {
         return expectedSizeBytes != null || expectedSha256 != null || signature != null;
     }
 
     public VerificationPolicy verificationPolicy() {
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
-            return VerificationPolicy.localUnsignedAllowed();
+            return signature != null
+                    ? VerificationPolicy.officialRepository() : VerificationPolicy.localUnsignedAllowed();
         }
         return officialRepository ? VerificationPolicy.officialRepository() : VerificationPolicy.customRepository();
     }
 
     public VerificationPolicy installedVerificationPolicy() {
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
-            return VerificationPolicy.localUnsignedAllowed();
+            return signature != null
+                    ? VerificationPolicy.installedOfficial() : VerificationPolicy.localUnsignedAllowed();
         }
         return officialRepository ? VerificationPolicy.installedOfficial() : VerificationPolicy.installedCustom();
     }

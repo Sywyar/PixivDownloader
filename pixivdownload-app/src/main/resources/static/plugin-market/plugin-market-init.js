@@ -62,6 +62,7 @@
     };
 
     async function init() {
+        PixivActions.bind(document, { click: { pmkLogout: global.pmkLogout } });
         await ensureI18n();   // 初始 i18n（plugin-market + common）+ 挂载语言 / 主题切换
         var root = document.getElementById('pmk-app-root');
         var mounted = false;

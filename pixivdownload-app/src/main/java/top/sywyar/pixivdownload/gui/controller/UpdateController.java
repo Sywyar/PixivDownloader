@@ -86,17 +86,14 @@ public class UpdateController {
         return progress == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(progress);
     }
 
-    /**
-     * 启动 installer 并请求当前 JVM 退出。请求体中传入下载阶段返回的 installerPath。
-     */
+    /** 启动服务端当前已验证的 installer 并请求当前 JVM 退出。 */
     @PostMapping("/install")
-    public ResponseEntity<?> install(HttpServletRequest req,
-                                     @RequestParam("installerPath") String installerPath) {
+    public ResponseEntity<?> install(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         try {
-            updateService.launchInstallerAndExit(installerPath);
+            updateService.launchInstallerAndExit();
             return ResponseEntity.ok(Map.of("started", true));
         } catch (IOException e) {
             log.warn("Launching installer failed", e);

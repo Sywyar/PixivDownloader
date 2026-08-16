@@ -187,16 +187,15 @@ function rerenderLocalizedContent() {
     async function loadImage(url) {
         const cached = ImageCache.get(url);
         if (cached) return cached;
-        try {
-            const resp = await api(url);
-            if (resp && resp.success && resp.image) {
-                const ext = (resp.extension || 'jpg').toLowerCase();
-                const src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
-                ImageCache.put(url, src);
-                return src;
-            }
-        } catch (e) {}
-        return null;
+        return new Promise(resolve => {
+            const image = new Image();
+            image.onload = () => {
+                ImageCache.put(url, url);
+                resolve(url);
+            };
+            image.onerror = () => resolve(null);
+            image.src = url;
+        });
     }
 
     async function setImage(element, url) {

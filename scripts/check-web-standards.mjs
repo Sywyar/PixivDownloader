@@ -31,7 +31,9 @@ export function analyzeSource(relativePath, source) {
     return {
         hardcodedColors: countHardcodedColors(source),
         inlineStyles: extension === '.html' ? countMatches(source, /\sstyle\s*=/gi) : 0,
-        inlineHandlers: extension === '.html' ? countMatches(source, /\son[a-z]+\s*=/gi) : 0,
+        inlineHandlers: extension === '.html' || extension === '.js'
+            ? countMatches(source, /\son[a-z]+\s*=\s*["']/gi)
+            : 0,
         nativeDialogs: extension === '.js'
             ? countMatches(source, /(^|[^\w$.])(?:(?:window|globalThis)\s*\.\s*)?(?:alert|confirm|prompt)\s*\(/gm)
             : 0

@@ -22,6 +22,8 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
@@ -29,6 +31,7 @@ import top.sywyar.pixivdownload.novel.response.NovelProxyRateLimitResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
 import top.sywyar.pixivdownload.novel.response.UserNovelsResponse;
+import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -62,6 +65,7 @@ public class NovelPixivProxyController {
     private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final WorkVisibilityService workVisibilityService;
+    private final NovelBrowserFetchTicketStore browserFetchTicketStore;
     private final MessageResolver messages;
 
     private String proxyGet(String url, String cookie) {
@@ -137,6 +141,14 @@ public class NovelPixivProxyController {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
         JsonNode b = root.path("body");
+        if (!b.isObject() || !matchesNovelId(b.path("id"), parsedId)) {
+            return ResponseEntity.badRequest()
+                    .body(new NovelErrorResponse(messages.get("pixiv.proxy.novel.response.invalid")));
+        }
+        PixivNovelMetadata metadata = PixivNovelMetadata.parse(parsedId, b);
+        String fetchToken = browserFetchTicketStore.issuePreviewFetchTicket(
+                parsedId, metadata, NovelDownloadRequestFactory.boundedRawMetadata(objectMapper, b),
+                requestOwnerIdentityResolver.resolve(request), cookie);
         Long seriesId = null;
         Long seriesOrder = null;
         String seriesTitle = null;
@@ -177,8 +189,16 @@ public class NovelPixivProxyController {
                 b.path("language").asText(""),
                 extractNovelCoverUrl(b),
                 uploadTimestamp,
-                extractTextEmbeddedImages(b)
+                extractTextEmbeddedImages(b),
+                fetchToken
         ));
+    }
+
+    private static boolean matchesNovelId(JsonNode value, long expected) {
+        if (value.isIntegralNumber()) {
+            return value.canConvertToLong() && value.longValue() == expected;
+        }
+        return value.isTextual() && Long.toString(expected).equals(value.textValue());
     }
 
     @GetMapping("/novel/{novelId}/bookmark-count")

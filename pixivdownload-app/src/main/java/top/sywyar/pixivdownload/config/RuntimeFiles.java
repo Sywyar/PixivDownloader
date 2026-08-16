@@ -7,7 +7,9 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -157,7 +159,7 @@ public final class RuntimeFiles {
      * 作品删除的暂存目录：{@code data/delete-staging/}。原子删除时先把待删文件复制到本目录下的独立子目录
      * （并写一份恢复清单 {@code manifest.properties}），删原文件失败再从这里复制回滚；放在 {@code data/} 下而非
      * 系统临时目录，避免跨卷拷贝、不受 OS 临时清理影响、位置可预测。进程中途崩溃残留的子目录由
-     * {@link #recoverDeleteStagingLeftovers()} 在启动时按清单恢复或保留（不再无条件清扫）。
+     * {@link #recoverDeleteStagingLeftovers(String)} 在启动时按清单恢复或保留（不再无条件清扫）。
      */
     public static Path deleteStagingDirectory() {
         Path target = dataDirectory().resolve(DELETE_STAGING_DIR);
@@ -175,8 +177,9 @@ public final class RuntimeFiles {
      * 并记日志，供人工恢复。<b>不再无条件清扫</b>——避免在「已删部分原文件、尚未完成回滚或软删」之间崩溃时误删
      * 唯一备份、把半删除状态永久化。恢复细节见 {@link DeleteStagingManifest}。
      */
-    public static void recoverDeleteStagingLeftovers() {
-        DeleteStagingManifest.recoverLeftovers(deleteStagingDirectory());
+    public static void recoverDeleteStagingLeftovers(String rootFolder) {
+        Path allowedRoot = Path.of(normalizeRootFolder(rootFolder)).toAbsolutePath().normalize();
+        DeleteStagingManifest.recoverLeftovers(deleteStagingDirectory(), List.of(allowedRoot));
     }
 
     /**
@@ -240,7 +243,7 @@ public final class RuntimeFiles {
         resolveDatabasePath(rootFolder);
         collectionIconsDirectory();
         guiStateDirectory();
-        recoverDeleteStagingLeftovers();
+        recoverDeleteStagingLeftovers(rootFolder);
     }
 
     public static String readDownloadRootFromConfig(Path configPath, String defaultRootFolder) {
@@ -432,8 +435,29 @@ public final class RuntimeFiles {
             }
         }
 
-        deleteDirectoryTree(legacy);
-        log.info(message("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
+        deleteEmptyDirectories(legacy);
+        if (Files.exists(legacy, LinkOption.NOFOLLOW_LINKS)) {
+            log.warn(message("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+        } else {
+            log.info(message("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
+        }
+    }
+
+    private static void deleteEmptyDirectories(Path directory) throws IOException {
+        List<Path> directories;
+        try (Stream<Path> stream = Files.walk(directory)) {
+            directories = stream
+                    .filter(path -> Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+                    .sorted(Comparator.comparingInt(Path::getNameCount).reversed())
+                    .toList();
+        }
+        for (Path candidate : directories) {
+            try {
+                Files.deleteIfExists(candidate);
+            } catch (DirectoryNotEmptyException ignored) {
+                // 冲突或未知文件必须留在旧目录，避免迁移时丢失数据。
+            }
+        }
     }
 
     private static void deleteDirectoryTree(Path directory) throws IOException {

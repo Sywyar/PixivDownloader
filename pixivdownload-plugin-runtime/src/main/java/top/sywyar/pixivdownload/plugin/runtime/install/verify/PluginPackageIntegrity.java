@@ -17,8 +17,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource
  *
  * <h2>用途与边界</h2>
  * 这是旧调用点保留的薄校验器：受信目录清单提供期望大小 / 哈希时，本类据此校验本地文件。实际签名算法校验由统一
- * 供应链 verifier 执行。<b>本地上传</b>来源（{@link PluginPackageSource#LOCAL_UPLOAD}）不带任何期望，
- * {@link #verify} 直接通过（无可信清单可比对）。
+ * 供应链 verifier 执行。未签名<b>本地上传</b>来源（{@link PluginPackageSource#LOCAL_UPLOAD}）不带完整性期望，
+ * {@link #verify} 直接通过；带 detached 签名的本地来源必须交统一供应链 verifier 验证，本兼容校验器会 fail-closed。
  *
  * <p>校验<b>fail-closed</b>：声明了期望就必须匹配；声明了签名但调用方仍落到本兼容校验器时，<b>拒绝</b>而非放行，
  * 避免结构化签名被静默跳过。本类不接受任何 URL、不下载、不解压。
@@ -40,7 +40,7 @@ public final class PluginPackageIntegrity {
     }
 
     /**
-     * 按来源声明的期望校验本地文件：本地上传 / 无期望 → 直接通过；声明期望大小 / SHA-256 → 必须一致；声明签名 →
+     * 按来源声明的期望校验本地文件：无期望 → 直接通过；声明期望大小 / SHA-256 → 必须一致；声明签名 →
      * 当前无校验器、fail-closed 拒绝。读取失败按拒绝处理。
      */
     public static Result verify(PluginPackageOrigin origin, Path file) {

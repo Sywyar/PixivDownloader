@@ -18,10 +18,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
@@ -52,7 +54,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  *       或唯一根 jar 内无 {@value #PLUGIN_PROPERTIES}；</li>
  *   <li>{@link PluginPackageException.Reason#AMBIGUOUS}：根同时有 {@value #PLUGIN_PROPERTIES} 与插件 jar，
  *       或有多个根插件 jar 候选；</li>
- *   <li>{@link PluginPackageException.Reason#MALFORMED}：不是合法 zip / 读取失败。</li>
+ *   <li>{@link PluginPackageException.Reason#MALFORMED}：不是合法 zip / 读取失败；</li>
+ *   <li>{@link PluginPackageException.Reason#UNSAFE}：entry 名不安全、不可移植或规范化后重名。</li>
  * </ul>
  *
  * <p>本读取器只统一了「描述符的位置 / 形态」。描述符<b>内容</b>是否合法（id / 版本 semver / 主类等）由
@@ -139,14 +142,15 @@ public final class PluginPackageReader {
         List<String> rootJars = new ArrayList<>();
         int entryCount = 0;
         try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+            Set<String> entryNames = new HashSet<>();
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 entryCount++;
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
                 if (entry.isDirectory()) {
                     continue;
                 }
-                String entryName = entry.getName().replace('\\', '/');
                 if (entryName.equals(PLUGIN_PROPERTIES)) {
                     rootProperties = true;
                 } else if (isRootJar(entryName)) {
@@ -202,13 +206,14 @@ public final class PluginPackageReader {
         Properties properties = null;
         boolean containsPrivateLibraries = false;
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
+            Set<String> entryNames = new HashSet<>();
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
                 if (entry.isDirectory()) {
                     continue;
                 }
-                String entryName = entry.getName().replace('\\', '/');
                 if (entryName.equals(PLUGIN_PROPERTIES)) {
                     properties = loadProperties(zipFile, PLUGIN_PROPERTIES, maxDescriptorBytes);
                 } else if (isLibJar(entryName)) {
@@ -245,14 +250,15 @@ public final class PluginPackageReader {
         }
         Properties properties = null;
         boolean containsPrivateLibraries = false;
+        Set<String> entryNames = new HashSet<>();
         try (ZipInputStream jarStream = new ZipInputStream(
                 new BufferedInputStream(zipFile.getInputStream(jarEntry)))) {
             ZipEntry inner;
             while ((inner = jarStream.getNextEntry()) != null) {
+                String entryName = ZipSafety.requireUniqueEntryName(inner.getName(), entryNames);
                 if (inner.isDirectory()) {
                     continue;
                 }
-                String entryName = inner.getName().replace('\\', '/');
                 if (entryName.equals(PLUGIN_PROPERTIES)) {
                     properties = parseDescriptor(jarStream, jarEntryName + "!" + PLUGIN_PROPERTIES,
                             maxDescriptorBytes);

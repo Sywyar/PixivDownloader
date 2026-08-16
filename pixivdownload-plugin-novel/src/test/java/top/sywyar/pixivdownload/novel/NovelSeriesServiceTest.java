@@ -40,12 +40,13 @@ class NovelSeriesServiceTest {
     private PixivImageDownloader imageDownloader;
 
     @Test
-    @DisplayName("系列封面路径、扩展名和数据库投影由小说插件决定")
+    @DisplayName("系列封面使用经验证的扩展名更新数据库投影")
     void shouldOwnSeriesCoverPathExtensionAndProjection() throws Exception {
         when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
         when(novelDatabase.getSeries(42L)).thenReturn(
                 new NovelSeries(42L, "系列", 7L, 1L, null, null, null));
-        when(imageDownloader.download(any(), any(), any(), eq("PHPSESSID=test"), any())).thenReturn(true);
+        when(imageDownloader.downloadImage(any(), any(), any(), eq("PHPSESSID=test"), any()))
+                .thenReturn("webp");
         NovelSeriesService service = new NovelSeriesService(
                 novelDatabase, downloadSettings, imageDownloader, NovelTestMessages.messageResolver());
 
@@ -61,12 +62,12 @@ class NovelSeriesServiceTest {
         ArgumentCaptor<URI> source = ArgumentCaptor.forClass(URI.class);
         ArgumentCaptor<URI> referer = ArgumentCaptor.forClass(URI.class);
         ArgumentCaptor<Path> target = ArgumentCaptor.forClass(Path.class);
-        verify(imageDownloader).download(
+        verify(imageDownloader).downloadImage(
                 source.capture(), referer.capture(), target.capture(), eq("PHPSESSID=test"), any());
         assertThat(source.getValue()).isEqualTo(URI.create("https://i.pximg.net/series/cover.webp"));
         assertThat(referer.getValue()).isEqualTo(URI.create("https://www.pixiv.net/novel/series/42"));
         Path expectedFolder = tempDir.resolve("novel-series-42").toAbsolutePath().normalize();
-        assertThat(target.getValue()).isEqualTo(expectedFolder.resolve("cover.webp"));
+        assertThat(target.getValue()).isEqualTo(expectedFolder.resolve("cover"));
         verify(novelDatabase).updateSeriesMetadata(42L, "简介", "webp", expectedFolder.toString());
     }
 }

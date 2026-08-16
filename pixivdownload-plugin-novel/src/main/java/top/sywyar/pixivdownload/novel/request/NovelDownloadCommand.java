@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/** 公开下载端点只接受作品标识与用户选择，作品内容由服务端向 Pixiv 获取。 */
+/** 公开下载端点只接受作品标识、短期本机导入票据与用户选择。 */
 @Data
 @JsonIgnoreProperties({"title", "cookie", "content"})
 public class NovelDownloadCommand {
@@ -18,6 +18,9 @@ public class NovelDownloadCommand {
     @NotNull
     @Positive
     private Long novelId;
+
+    @Pattern(regexp = "[A-Za-z0-9_-]{43}")
+    private String fetchToken;
 
     @Valid
     private Other other = new Other();

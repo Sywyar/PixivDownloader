@@ -224,22 +224,49 @@ class PluginVerificationProjectorTest {
     }
 
     @Test
+    @DisplayName("provenance：本地官方签名包保留 local 来源并投影为官方已验证")
+    void signedLocalUploadProjectsAsVerifiedOfficial() {
+        PluginProvenanceRecord record = new PluginProvenanceRecord(
+                PluginPackageSource.LOCAL_UPLOAD, null, false, null, null,
+                123L, ARTIFACT_SHA256, signature("official-key"), VerificationStatus.VERIFIED,
+                "official-key", "PixivDownloader", "Official Root",
+                Instant.parse("2026-07-01T00:00:00Z"), VerificationStatus.VERIFIED,
+                Instant.parse("2026-07-01T00:01:00Z"), "VERIFIED");
+
+        PluginVerificationView view = PluginVerificationProjector.fromProvenance(record);
+
+        assertThat(view.status()).isEqualTo(PluginVerificationProjector.VERIFIED_OFFICIAL);
+        assertThat(view.source()).isEqualTo("local");
+        assertThat(view.keyId()).isEqualTo("official-key");
+        assertThat(view.offlineReverifySuccess()).isTrue();
+    }
+
+    @Test
     @DisplayName("provenance：防御性拒绝跨来源成功状态")
     void rejectsCrossSourceSuccessStates() {
         assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
                 PluginPackageSource.LOCAL_UPLOAD,
+                false,
                 VerificationStatus.VERIFIED,
                 null)).isFalse();
         assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
                 PluginPackageSource.LOCAL_UPLOAD,
+                false,
                 VerificationStatus.UNSIGNED_ALLOWED,
                 VerificationStatus.VERIFIED)).isFalse();
         assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
+                PluginPackageSource.LOCAL_UPLOAD,
+                true,
+                VerificationStatus.VERIFIED,
+                VerificationStatus.VERIFIED)).isTrue();
+        assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
                 PluginPackageSource.MARKET_CATALOG,
+                true,
                 VerificationStatus.UNSIGNED_ALLOWED,
                 null)).isFalse();
         assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
                 PluginPackageSource.MARKET_CATALOG,
+                true,
                 VerificationStatus.VERIFIED,
                 VerificationStatus.UNSIGNED_ALLOWED)).isFalse();
     }

@@ -6,6 +6,10 @@ name: Publish plugins
 # 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
 on:
   workflow_call:
+    outputs:
+      trusted_base_sha:
+        description: 'Protected predecessor approved by the reusable quality gate'
+        value: ${{ jobs.trusted-base.outputs.sha }}
     inputs:
       publish_args:
         description: '可选发布参数；填写 -f 时强制重编译并覆盖上传所有插件资产'
@@ -36,7 +40,7 @@ jobs:
       sha: ${{ steps.base.outputs.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -80,12 +84,12 @@ jobs:
     environment: release
     steps:
       - name: Checkout main repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
@@ -163,7 +167,7 @@ jobs:
           -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
 
       - name: Checkout plugins repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Sywyar/PixivDownloader-plugins
           token: ${{ secrets.PLUGINS_REPO_TOKEN }}

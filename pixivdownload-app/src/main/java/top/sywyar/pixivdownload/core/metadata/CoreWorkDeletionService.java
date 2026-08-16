@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.metadata;
 
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -63,6 +64,8 @@ public class CoreWorkDeletionService implements WorkDeletionService {
             if (id == null) continue;
             try {
                 if (delete(workType, id)) deleted++;
+            } catch (UnsafeDeletionPathException e) {
+                throw e;
             } catch (Exception e) {
                 log.warn(messages.getForLog("work.delete.log.delete-failed",
                         typeNounForLog(workType), id, deletionFailureForLog(e, workType, id)));

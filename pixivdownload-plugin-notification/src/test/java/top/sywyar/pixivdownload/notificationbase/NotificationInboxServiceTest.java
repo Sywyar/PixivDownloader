@@ -7,8 +7,10 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -126,22 +128,91 @@ class NotificationInboxServiceTest {
     }
 
     @Test
+    @DisplayName("远程公告刷新主元数据和翻译时保留发布时间与已读状态")
+    void refreshesRemoteAnnouncementWithoutResettingLocalState() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper);
+        List<RemoteAnnouncementTranslation> initial = List.of(
+                new RemoteAnnouncementTranslation(
+                        "en-US", "Initial", "Initial body", CONTENT_URL,
+                        "0".repeat(64), "<!doctype html><p>Initial</p>"),
+                new RemoteAnnouncementTranslation(
+                        "zh-CN", "初始", "初始正文", CONTENT_URL,
+                        "1".repeat(64), "<!doctype html><p>初始</p>"));
+        List<RemoteAnnouncementTranslation> refreshed = List.of(new RemoteAnnouncementTranslation(
+                "en-US", "Refreshed", "Refreshed body", CONTENT_URL,
+                "2".repeat(64), "<!doctype html><p>Refreshed</p>"));
+
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.INFO, initial, 100)).isTrue();
+        Long readTime = service.markRead("remote-announcement:stable").readTime();
+        assertThat(service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.ERROR, 100, refreshed)).isTrue();
+
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.ERROR, refreshed, 100)).isTrue();
+
+        assertThat(service.find("remote-announcement:stable", "en-US")).satisfies(message -> {
+            assertThat(message.severity()).isEqualTo("ERROR");
+            assertThat(message.title()).isEqualTo("Refreshed");
+            assertThat(message.body()).isEqualTo("Refreshed body");
+            assertThat(message.createdTime()).isEqualTo(100);
+            assertThat(message.readTime()).isEqualTo(readTime);
+        });
+        assertThat(mapper.findRemoteAnnouncementTranslations("remote-announcement:stable"))
+                .extracting(RemoteAnnouncementTranslation::locale)
+                .containsExactly("en-US");
+        assertThat(service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.ERROR, 100, refreshed)).isFalse();
+    }
+
+    @Test
+    @DisplayName("远程公告稳定编号不允许改变发布时间")
+    void rejectsRemoteAnnouncementPublishedTimeChanges() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper);
+        List<RemoteAnnouncementTranslation> translations = List.of(new RemoteAnnouncementTranslation(
+                "en-US", "Title", "Body", CONTENT_URL,
+                "0".repeat(64), "<!doctype html><p>Body</p>"));
+
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.INFO, translations, 100)).isTrue();
+
+        assertThatThrownBy(() -> service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.WARNING, 101, translations))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.WARNING, translations, 101))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(service.find("remote-announcement:stable", "en-US")).satisfies(message -> {
+            assertThat(message.severity()).isEqualTo("INFO");
+            assertThat(message.createdTime()).isEqualTo(100);
+        });
+    }
+
+    @Test
     @DisplayName("显式删除远程公告后同一稳定编号不会被重新拉取复活")
     void keepsRemoteAnnouncementDismissedAcrossRefetch() {
         MemoryMapper mapper = new MemoryMapper();
         NotificationInboxService service = new NotificationInboxService(mapper);
+        List<RemoteAnnouncementTranslation> firstTranslations = List.of(new RemoteAnnouncementTranslation(
+                "en-US", "Title", "Body", CONTENT_URL,
+                "0".repeat(64), "<!doctype html><p>First</p>"));
 
         assertThat(service.storeRemoteAnnouncement(
-                "stable", NotificationSeverity.INFO, "Title", "Body",
-                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>First</p>"), 1)).isTrue();
+                "stable", NotificationSeverity.INFO, firstTranslations, 1)).isTrue();
         assertThat(service.delete("remote-announcement:stable")).isTrue();
 
         assertThat(service.find("remote-announcement:stable")).isNull();
         assertThat(service.htmlContent("remote-announcement:stable")).isNull();
         assertThat(service.storeRemoteAnnouncement(
-                "stable", NotificationSeverity.WARNING, "Changed", "Changed",
-                new NotificationHtmlContent(CONTENT_URL, "<!doctype html><p>Changed</p>"), 2)).isFalse();
-        assertThat(service.needsRemoteAnnouncementImport("stable")).isFalse();
+                "stable", NotificationSeverity.WARNING,
+                List.of(new RemoteAnnouncementTranslation(
+                        "en-US", "Changed", "Changed", CONTENT_URL,
+                        "1".repeat(64), "<!doctype html><p>Changed</p>")),
+                2)).isFalse();
+        assertThat(service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.INFO, 1, firstTranslations)).isFalse();
     }
 
     @Test
@@ -168,16 +239,62 @@ class NotificationInboxServiceTest {
                 "persistent-survey:download-workbench.layout-survey:instance-a", "en-US").title())
                 .isEqualTo("EN layout-feedback.inbox-title");
         assertThat(mapper.insertCalls).isEqualTo(1);
-        assertThat(mapper.deleteStaleCalls).isEqualTo(1);
+        assertThat(mapper.activeSyncCalls).isEqualTo(1);
 
         service.synchronizePersistentSurveys();
         assertThat(mapper.insertCalls).isEqualTo(1);
-        assertThat(mapper.deleteStaleCalls).isEqualTo(1);
+        assertThat(mapper.activeSyncCalls).isEqualTo(1);
 
         slots.set(List.of());
         service.synchronizePersistentSurveys();
         assertThat(service.find(
                 "persistent-survey:download-workbench.layout-survey:instance-a")).isNull();
+    }
+
+    @Test
+    @DisplayName("调查插件停用后隐藏记录，重新启用时保留已读状态")
+    void preservesPersistentSurveyStateWhilePluginIsInactive() {
+        MemoryMapper mapper = new MemoryMapper();
+        AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(surveySlot()));
+        NotificationInboxService service = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, slots::get,
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        String id = "persistent-survey:download-workbench.layout-survey:instance-a";
+
+        NotificationMessage read = service.markRead(id);
+        slots.set(List.of());
+        service.synchronizePersistentSurveys();
+        assertThat(service.find(id)).isNull();
+        assertThat(mapper.messages).filteredOn(message -> message.id().equals(id))
+                .singleElement().extracting(NotificationMessage::readTime).isEqualTo(read.readTime());
+
+        slots.set(List.of(surveySlot()));
+        service.synchronizePersistentSurveys();
+        assertThat(service.find(id).readTime()).isEqualTo(read.readTime());
+        assertThat(mapper.insertCalls).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("调查嵌入能力更新时沿用原消息状态并投影当前地址")
+    void projectsCurrentEmbedUrlWithoutReplacingPersistentSurvey() {
+        MemoryMapper mapper = new MemoryMapper();
+        AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(
+                surveySlot("instance-a", "/pixiv-layout-feedback/embed.html?pixivBridgeGet=/api/old")));
+        NotificationInboxService service = new NotificationInboxService(
+                mapper, () -> 500, () -> 90, slots::get,
+                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        String id = "persistent-survey:download-workbench.layout-survey:instance-a";
+        NotificationMessage read = service.markRead(id);
+
+        String currentUrl = "/pixiv-layout-feedback/embed.html?pixivBridgeGet=/api/current";
+        slots.set(List.of(surveySlot("instance-a", currentUrl)));
+        service.synchronizePersistentSurveys();
+
+        assertThat(service.find(id)).satisfies(message -> {
+            assertThat(message.actionUrl()).isEqualTo(currentUrl);
+            assertThat(message.readTime()).isEqualTo(read.readTime());
+        });
+        assertThat(mapper.messages).singleElement();
     }
 
     @Test
@@ -273,12 +390,16 @@ class NotificationInboxServiceTest {
     }
 
     private static WebUiSlotContribution surveySlot(String instanceKey) {
+        return surveySlot(instanceKey, "/pixiv-layout-feedback/embed.html");
+    }
+
+    private static WebUiSlotContribution surveySlot(String instanceKey, String embedUrl) {
         return new WebUiSlotContribution(
                 "download-workbench.layout-survey", "notification.inbox", null, 10,
                 java.util.Map.of(
                         "notification.category", "survey",
                         "notification.instance-key", instanceKey,
-                        "notification.embed-url", "/pixiv-layout-feedback/embed.html",
+                        "notification.embed-url", embedUrl,
                         "notification.i18n-namespace", "layout-feedback",
                         "notification.title-key", "layout-feedback.inbox-title",
                         "notification.body-key", "layout-feedback.inbox-body"));
@@ -287,13 +408,16 @@ class NotificationInboxServiceTest {
     static final class MemoryMapper implements NotificationInboxMapper {
         private final List<NotificationMessage> messages = new ArrayList<>();
         private final Set<String> dismissedIds = new HashSet<>();
+        private final Set<String> activePersistentIds = new HashSet<>();
+        private final Map<String, List<RemoteAnnouncementTranslation>> remoteTranslations = new HashMap<>();
         private int insertCalls;
-        private int deleteStaleCalls;
+        private int activeSyncCalls;
 
         @Override
         public int insert(NotificationMessage message) {
             insertCalls++;
-            if (dismissedIds.contains(message.id()) || findById(message.id()) != null) {
+            if (dismissedIds.contains(message.id())
+                    || messages.stream().anyMatch(existing -> existing.id().equals(message.id()))) {
                 return 0;
             }
             messages.add(message);
@@ -303,6 +427,7 @@ class NotificationInboxServiceTest {
         @Override
         public List<NotificationMessage> findLatest(String category, boolean unreadOnly, int limit) {
             return messages.stream()
+                    .filter(this::visible)
                     .filter(message -> category == null || category.equals(message.category()))
                     .filter(message -> !unreadOnly || message.readTime() == null)
                     .sorted(Comparator.comparingLong(NotificationMessage::createdTime).reversed())
@@ -312,7 +437,8 @@ class NotificationInboxServiceTest {
 
         @Override
         public NotificationMessage findById(String id) {
-            return messages.stream().filter(message -> message.id().equals(id)).findFirst().orElse(null);
+            return messages.stream().filter(this::visible)
+                    .filter(message -> message.id().equals(id)).findFirst().orElse(null);
         }
 
         @Override
@@ -324,32 +450,107 @@ class NotificationInboxServiceTest {
         }
 
         @Override
-        public boolean needsRemoteAnnouncementImport(String id) {
-            NotificationMessage message = findById(id);
-            return !dismissedIds.contains(id)
-                    && (message == null
-                    || NotificationCategory.ANNOUNCEMENT.token().equals(message.category())
-                    && message.contentHtml() == null);
+        public boolean blocksRemoteAnnouncementImport(String id) {
+            NotificationMessage message = messages.stream()
+                    .filter(candidate -> candidate.id().equals(id))
+                    .findFirst()
+                    .orElse(null);
+            return dismissedIds.contains(id)
+                    || message != null && !NotificationCategory.ANNOUNCEMENT.token().equals(message.category());
         }
 
         @Override
-        public int restoreRemoteAnnouncementHtml(String id, String contentUrl, String contentHtml) {
+        public int updateRemoteAnnouncement(NotificationMessage replacement) {
+            String id = replacement.id();
             NotificationMessage current = findById(id);
-            if (current == null || current.contentHtml() != null
+            if (current == null || current.createdTime() != replacement.createdTime()
                     || !NotificationCategory.ANNOUNCEMENT.token().equals(current.category())) {
                 return 0;
             }
             messages.remove(current);
             messages.add(new NotificationMessage(
-                    current.id(), current.category(), current.severity(), current.scenarioId(),
-                    current.title(), current.body(), contentUrl, contentHtml, current.actionUrl(),
+                    current.id(), current.category(), replacement.severity(), current.scenarioId(),
+                    replacement.title(), replacement.body(), replacement.contentUrl(), replacement.contentHtml(),
+                    current.actionUrl(),
                     current.createdTime(), current.readTime()));
             return 1;
         }
 
         @Override
+        public List<RemoteAnnouncementTranslation> findRemoteAnnouncementTranslations(String announcementId) {
+            if (findById(announcementId) == null) {
+                return List.of();
+            }
+            return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
+                    .map(translation -> new RemoteAnnouncementTranslation(
+                            translation.locale(), translation.title(), translation.summary(),
+                            translation.contentUrl(), translation.contentSha256(), ""))
+                    .sorted(Comparator.comparing(RemoteAnnouncementTranslation::locale))
+                    .toList();
+        }
+
+        @Override
+        public NotificationHtmlContent findRemoteAnnouncementHtml(String announcementId, String locale) {
+            if (findById(announcementId) == null) {
+                return null;
+            }
+            return remoteTranslations.getOrDefault(announcementId, List.of()).stream()
+                    .filter(translation -> translation.locale().equals(locale))
+                    .findFirst()
+                    .map(translation -> new NotificationHtmlContent(
+                            translation.contentUrl(), translation.contentHtml()))
+                    .orElse(null);
+        }
+
+        @Override
+        public int upsertRemoteAnnouncementTranslation(
+                String announcementId,
+                RemoteAnnouncementTranslation translation) {
+            List<RemoteAnnouncementTranslation> current = new ArrayList<>(
+                    remoteTranslations.getOrDefault(announcementId, List.of()));
+            current.removeIf(existing -> existing.locale().equals(translation.locale()));
+            current.add(translation);
+            remoteTranslations.put(announcementId, List.copyOf(current));
+            return 1;
+        }
+
+        @Override
+        public int deleteStaleRemoteAnnouncementTranslations(String announcementId, List<String> locales) {
+            List<RemoteAnnouncementTranslation> current = new ArrayList<>(
+                    remoteTranslations.getOrDefault(announcementId, List.of()));
+            int before = current.size();
+            current.removeIf(translation -> !locales.contains(translation.locale()));
+            remoteTranslations.put(announcementId, List.copyOf(current));
+            return before - current.size();
+        }
+
+        @Override
+        public int deleteRemoteAnnouncementTranslations(String announcementId) {
+            List<RemoteAnnouncementTranslation> removed = remoteTranslations.remove(announcementId);
+            return removed == null ? 0 : removed.size();
+        }
+
+        @Override
+        public int acceptRemoteAnnouncementIndex(long sequence, String manifestSha256,
+                                                 long generatedTime, long expiresTime) {
+            return 1;
+        }
+
+        @Override
+        public RemoteAnnouncementValidators findRemoteAnnouncementValidators() {
+            return null;
+        }
+
+        @Override
+        public int saveRemoteAnnouncementValidators(
+                String manifestSha256, String etag, String lastModified) {
+            return 0;
+        }
+
+        @Override
         public long countUnread(String category) {
             return messages.stream()
+                    .filter(this::visible)
                     .filter(message -> category == null || category.equals(message.category()))
                     .filter(message -> message.readTime() == null)
                     .count();
@@ -406,14 +607,19 @@ class NotificationInboxServiceTest {
         }
 
         @Override
-        public int deleteStalePersistentSurveys(List<String> activeIds) {
-            deleteStaleCalls++;
+        public int setActivePersistentSurveys(List<String> activeIds) {
+            activeSyncCalls++;
             Set<String> active = Set.copyOf(activeIds);
-            int before = messages.size() + dismissedIds.size();
-            messages.removeIf(message -> message.persistentSurvey() && !active.contains(message.id()));
-            dismissedIds.removeIf(id -> id.startsWith(NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX)
-                    && !active.contains(id));
-            return before - messages.size() - dismissedIds.size();
+            int changed = (int) messages.stream().filter(NotificationMessage::persistentSurvey)
+                    .filter(message -> active.contains(message.id()) != activePersistentIds.contains(message.id()))
+                    .count();
+            activePersistentIds.clear();
+            activePersistentIds.addAll(active);
+            return changed;
+        }
+
+        private boolean visible(NotificationMessage message) {
+            return !message.persistentSurvey() || activePersistentIds.contains(message.id());
         }
 
         @Override

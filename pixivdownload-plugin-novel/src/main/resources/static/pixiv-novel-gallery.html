@@ -12,6 +12,7 @@
     <!-- Vue 槽位挂载共享 helper（加性、加载即无副作用；导航由其挂 Vue 主渲染，缺失 / 加载失败即命令式回退）。 -->
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
+    <script src="/js/pixiv-actions.js"></script>
     <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
@@ -103,11 +104,11 @@
         </div>
     </aside>
 
-    <div class="mobile-overlay" id="mobileOverlay" onclick="closeMobileSidebar()"></div>
+    <div class="mobile-overlay" id="mobileOverlay" data-pixiv-click="closeMobileSidebar()"></div>
 
     <main class="main-content">
         <div class="topbar">
-            <button class="mobile-menu-btn" onclick="openMobileSidebar()">
+            <button class="mobile-menu-btn" data-pixiv-click="openMobileSidebar()">
                 <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
             <select class="search-type-select" id="searchType" data-i18n-title="search.type.label" title="搜索范围">

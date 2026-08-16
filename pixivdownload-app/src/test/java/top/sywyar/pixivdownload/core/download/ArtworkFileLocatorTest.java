@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
@@ -18,6 +19,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -106,6 +108,20 @@ class ArtworkFileLocatorTest {
         assertTrue(failingCacheLocator.deleteArtworkFiles(artwork(200L, dir.toString(), 1)),
                 "缓存删失败不应导致整体失败");
         assertFalse(Files.exists(dir.resolve("200.jpg")), "图片仍应被删除");
+    }
+
+    @Test
+    @DisplayName("现存作品目录等于下载根时明确拒绝删除")
+    void rejectsExistingDownloadRootAsArtworkDirectory() throws Exception {
+        Path keep = Files.writeString(tempDir.resolve("keep.txt"), "keep");
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+
+        UnsafeDeletionPathException exception = assertThrows(
+                UnsafeDeletionPathException.class,
+                () -> locator.deleteArtworkFiles(artwork(400L, tempDir.toString(), 1)));
+
+        assertTrue(exception.path().contains(tempDir.getFileName().toString()));
+        assertTrue(Files.exists(keep), "拒绝下载根后不得触碰其中内容");
     }
 
     private static StagedFileDeletion failOn(Path poison) {

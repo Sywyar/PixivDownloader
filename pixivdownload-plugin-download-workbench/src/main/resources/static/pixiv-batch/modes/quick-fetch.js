@@ -944,10 +944,10 @@
         pag.style.display = 'flex';
         quickState._jumpFn = p => loadQuickFollowingNew(kind, p);
         pag.innerHTML =
-            `<button onclick="quickJumpPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
-            `<button onclick="quickJumpPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
+            `<button data-pixiv-click="quickJumpPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
+            `<button data-pixiv-click="quickJumpPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
             `<button class="pg-active" disabled>${cur}</button>` +
-            `<button onclick="quickJumpPage(${cur + 1})" ${hasNext ? '' : 'disabled'}>&rsaquo;</button>` +
+            `<button data-pixiv-click="quickJumpPage(${cur + 1})" ${hasNext ? '' : 'disabled'}>&rsaquo;</button>` +
             `<span class="pg-info">${esc(bt('quick.title.page', '第 {page} 页', {page: cur}))}</span>`;
     }
 
@@ -1007,7 +1007,7 @@
             const fallbackTitle = bt('queue.artwork-fallback', '作品 {id}', {id: item.id});
             const title = item.title || fallbackTitle;
             return `<div class="search-thumb${inQueueClass}" id="${idPrefix}-thumb-${idx}"
-                     onclick="quickToggleItemQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
+                     data-pixiv-click="quickToggleItemQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
           <img id="${idPrefix}-thumb-img-${idx}" src="" alt="${esc(title)}">
           <div class="thumb-badge-stack">${r18Badge}${aiBadge}${typeBadge}</div>
           ${pagesLabel}
@@ -1028,7 +1028,7 @@
         // 渲染的列表（可能是过滤后的子集）单独缓存，供索引点击时取回原始对象，避免把用户名拼进内联 onclick
         quickState.followingRendered = users;
         area.innerHTML = `<div class="quick-following-grid">${users.map((u, idx) => `
-            <div class="quick-following-card" onclick="quickEnterFollowingUser(${idx})"
+            <div class="quick-following-card" data-pixiv-click="quickEnterFollowingUser(${idx})"
                  title="${esc(u.userName || u.userId)} (ID: ${esc(u.userId)})">
                 <div class="quick-following-avatar" id="quick-follow-ava-${idx}"></div>
                 <div class="quick-following-meta">
@@ -1067,7 +1067,7 @@
             const bmLine = bm > 0
                 ? `<div class="quick-collection-count">${esc(bt('search.summary.bookmark-badge', '收藏 {count}', {count: bm.toLocaleString()}))}</div>`
                 : '';
-            return `<div class="quick-collection-card" onclick="quickEnterCollection(${idx})" title="${esc(c.title || c.id)}">
+            return `<div class="quick-collection-card" data-pixiv-click="quickEnterCollection(${idx})" title="${esc(c.title || c.id)}">
                 <div class="quick-collection-cover" id="quick-col-cover-${idx}">${r18Badge ? `<div class="thumb-badge-stack">${r18Badge}</div>` : ''}</div>
                 <div class="quick-collection-meta">
                     <div class="quick-collection-name">${esc(c.title || c.id)}</div>
@@ -1104,11 +1104,11 @@
         for (let p = Math.max(1, cur - radius); p <= Math.min(totalPages, cur + radius); p++) pages.push(p);
         quickState._jumpFn = jumpFn;
         pag.innerHTML =
-            `<button onclick="quickJumpPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
-            `<button onclick="quickJumpPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
-            pages.map(p => `<button onclick="${p === cur ? '' : `quickJumpPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`).join('') +
-            `<button onclick="quickJumpPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>&rsaquo;</button>` +
-            `<button onclick="quickJumpPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>&raquo;</button>` +
+            `<button data-pixiv-click="quickJumpPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
+            `<button data-pixiv-click="quickJumpPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
+            pages.map(p => `<button data-pixiv-click="${p === cur ? '' : `quickJumpPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`).join('') +
+            `<button data-pixiv-click="quickJumpPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>&rsaquo;</button>` +
+            `<button data-pixiv-click="quickJumpPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>&raquo;</button>` +
             `<span class="pg-info">${esc(bt('search.pagination.info', '第 {current} / {total} 页 · 共 {count} 个',
                 {current: cur, total: totalPages, count: quickState.total.toLocaleString()}))}</span>`;
     }
@@ -1574,7 +1574,7 @@
             const pagesLabel = item.pageCount > 1 ? `<span class="thumb-pages">${item.pageCount}P</span>` : '';
             const inQueueClass = inQueue.has(String(item.id)) ? ' in-queue' : '';
             return `<div class="search-thumb${inQueueClass}" id="quick-inner-card-${idx}"
-                     onclick="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
+                     data-pixiv-click="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
           <img id="quick-inner-img-${idx}" src="" alt="${esc(title)}">
           <div class="thumb-badge-stack">${r18Badge}${aiBadge}${typeBadge}</div>
           ${pagesLabel}
@@ -1619,11 +1619,11 @@
         for (let p = Math.max(1, cur - radius); p <= Math.min(totalPages, cur + radius); p++) pages.push(p);
         quickInner._jumpFn = jumpFn;
         pag.innerHTML =
-            `<button onclick="quickInnerJumpPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
-            `<button onclick="quickInnerJumpPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
-            pages.map(p => `<button onclick="${p === cur ? '' : `quickInnerJumpPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`).join('') +
-            `<button onclick="quickInnerJumpPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>&rsaquo;</button>` +
-            `<button onclick="quickInnerJumpPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>&raquo;</button>` +
+            `<button data-pixiv-click="quickInnerJumpPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
+            `<button data-pixiv-click="quickInnerJumpPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
+            pages.map(p => `<button data-pixiv-click="${p === cur ? '' : `quickInnerJumpPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`).join('') +
+            `<button data-pixiv-click="quickInnerJumpPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>&rsaquo;</button>` +
+            `<button data-pixiv-click="quickInnerJumpPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>&raquo;</button>` +
             `<span class="pg-info">${esc(bt('search.pagination.info', '第 {current} / {total} 页 · 共 {count} 个',
                 {current: cur, total: totalPages, count: quickInner.total.toLocaleString()}))}</span>`;
     }

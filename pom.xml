@@ -138,12 +138,6 @@
     <profiles>
         <profile>
             <id>official-surveys</id>
-            <activation>
-                <property>
-                    <name>pixiv.layout-survey.require-config</name>
-                    <value>true</value>
-                </property>
-            </activation>
             <properties>
                 <layout-survey.official-release-enabled>true</layout-survey.official-release-enabled>
                 <multi-mode-decision-survey.official-release-enabled>true</multi-mode-decision-survey.official-release-enabled>

@@ -7,8 +7,6 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,15 +48,12 @@ class MultiModeDecisionSurveyPluginTest {
         var slots = plugin.uiSlots();
         assertThat(slots).hasSize(officialRelease ? 1 : 0);
         if (officialRelease) {
-            byte[] config;
-            try (InputStream input = getClass().getResourceAsStream(
-                    "/static/pixiv-multi-mode-decision-survey/posthog-config.js")) {
-                assertThat(input).isNotNull();
-                config = input.readAllBytes();
-            }
             assertThat(slots.get(0).metadata().get("notification.instance-key"))
-                    .isEqualTo(HexFormat.of().formatHex(
-                            MessageDigest.getInstance("SHA-256").digest(config)));
+                    .isEqualTo("multi-mode-decision-v1");
+            assertThat(slots.get(0).metadata().get("notification.embed-url"))
+                    .contains("pixivBridgeGet=/api/multi-mode-decision-survey/identity")
+                    .contains("pixivBridgeRead=pixiv_theme")
+                    .contains("pixivBridgeWrite=pixiv:multi-mode-decision-survey:state:v1");
         }
     }
 
@@ -98,6 +93,13 @@ class MultiModeDecisionSurveyPluginTest {
             assertThat(input).isNotNull();
             embed = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
-        assertThat(embed).contains("/pixiv-multi-mode-decision-survey/posthog-config.js");
+        assertThat(embed)
+                .contains("/js/pixiv-survey-frame-bridge.js")
+                .contains("/pixiv-multi-mode-decision-survey/posthog-config.js");
+        assertThat(script)
+                .contains("global.PixivSurveyFrameBridge.ready()")
+                .contains("global.PixivSurveyFrameBridge.post({")
+                .doesNotContain("parent.postMessage")
+                .doesNotContain("global.localStorage");
     }
 }

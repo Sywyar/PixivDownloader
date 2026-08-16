@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
@@ -75,7 +76,8 @@ class NovelDownloadControllerMergeDownloadTest {
                 new ObjectMapper(),
                 mock(PixivAjaxClient.class),
                 mock(PixivProxyAccessPolicy.class),
-                messages);
+                messages,
+                new NovelBrowserFetchTicketStore());
     }
 
     @Test

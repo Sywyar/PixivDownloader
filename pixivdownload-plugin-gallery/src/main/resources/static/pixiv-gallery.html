@@ -12,6 +12,7 @@
     <!-- Vue 槽位挂载共享 helper（加性、加载即无副作用；导航由其挂 Vue 主渲染，缺失 / 加载失败即命令式回退）。 -->
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
+    <script src="/js/pixiv-actions.js"></script>
     <script src="/js/invite-modals.js"></script>
     <script src="/js/pixiv-onboarding.js"></script>
     <link rel="stylesheet" href="/css/admin-visibility.css">
@@ -128,11 +129,11 @@
         </div>
     </aside>
 
-    <div class="mobile-overlay" id="mobileOverlay" onclick="closeMobileSidebar()"></div>
+    <div class="mobile-overlay" id="mobileOverlay" data-pixiv-click="closeMobileSidebar()"></div>
 
     <main class="main-content">
         <div class="topbar">
-            <button class="mobile-menu-btn" onclick="openMobileSidebar()">
+            <button class="mobile-menu-btn" data-pixiv-click="openMobileSidebar()">
                 <svg viewBox="0 0 24 24">
                     <line x1="3" y1="12" x2="21" y2="12"/>
                     <line x1="3" y1="6" x2="21" y2="6"/>
@@ -313,7 +314,7 @@
     <div class="modal">
         <div class="modal-head">
             <span class="modal-title" id="collectionFormTitle" data-i18n="collection.form.create">新建收藏夹</span>
-            <button class="modal-close" onclick="closeCollectionFormModal()">×</button>
+            <button class="modal-close" data-pixiv-click="closeCollectionFormModal()">×</button>
         </div>
         <div class="modal-body">
             <div class="form-field">
@@ -330,7 +331,7 @@
                         </svg>
                     </div>
                     <div style="flex:1">
-                        <button class="btn" onclick="document.getElementById('collectionFormIconFile').click()" data-i18n="button.choose-image">
+                        <button class="btn" data-pixiv-click="openCollectionIconPicker()" data-i18n="button.choose-image">
                             选择图片
                         </button>
                         <button class="btn" id="collectionFormIconClear" style="display:none; margin-left:8px" data-i18n="button.clear">清除
@@ -365,7 +366,7 @@
             </div>
         </div>
         <div class="modal-foot">
-            <button class="btn" onclick="closeCollectionFormModal()" data-i18n="common:button.cancel">取消</button>
+            <button class="btn" data-pixiv-click="closeCollectionFormModal()" data-i18n="common:button.cancel">取消</button>
             <button class="btn btn-primary" id="collectionFormSubmit" data-i18n="common:button.save">保存</button>
         </div>
     </div>
@@ -375,7 +376,7 @@
     <div class="modal">
         <div class="modal-head">
             <span class="modal-title" data-i18n="collection.add">添加到收藏夹</span>
-            <button class="modal-close" onclick="closeAddToCollectionModal()">×</button>
+            <button class="modal-close" data-pixiv-click="closeAddToCollectionModal()">×</button>
         </div>
         <div class="modal-body">
             <div class="form-field" style="margin-bottom:16px">
@@ -388,7 +389,7 @@
             <div class="collection-list" id="addToCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" onclick="closeAddToCollectionModal()" data-i18n="common:button.done">完成</button>
+            <button class="btn" data-pixiv-click="closeAddToCollectionModal()" data-i18n="common:button.done">完成</button>
         </div>
     </div>
 </div>

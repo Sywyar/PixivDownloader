@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.plugin.runtime.install;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 
 import java.nio.file.Files;
@@ -13,11 +13,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Properties;
 import java.util.Random;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -38,27 +36,14 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtu
 @DisplayName("外置插件文件事务：预校验、提交、回滚与启动恢复")
 class ExternalPluginTransactionTest {
 
+    @TempDir
     Path temp;
     private final List<ExternalPluginInstaller> installers = new ArrayList<>();
 
-    @BeforeEach
-    void createWorkspaceTemp() throws IOException {
-        temp = Path.of("target", "test-transactions", UUID.randomUUID().toString());
-        Files.createDirectories(temp);
-    }
-
     @AfterEach
-    void cleanWorkspaceTemp() throws IOException {
+    void closeInstallers() {
         for (int i = installers.size() - 1; i >= 0; i--) {
             installers.get(i).close();
-        }
-        if (!Files.exists(temp)) {
-            return;
-        }
-        try (var walk = Files.walk(temp)) {
-            for (Path path : walk.sorted(Comparator.comparingInt(Path::getNameCount).reversed()).toList()) {
-                Files.deleteIfExists(path);
-            }
         }
     }
 

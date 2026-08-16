@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.setup;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.*;
@@ -15,6 +16,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -49,11 +57,15 @@ class SetupServiceTest {
     }
 
     private SetupService createSetupServiceWithArgs(String... args) {
+        return createSetupService(new ObjectMapper(), args);
+    }
+
+    private SetupService createSetupService(ObjectMapper mapper, String... args) {
         DownloadConfig config = new DownloadConfig();
         config.setRootFolder(tempDir.resolve("pixiv-download").toString());
         ApplicationArguments arguments = mock(ApplicationArguments.class);
         when(arguments.getSourceArgs()).thenReturn(args);
-        return new SetupService(config, new ObjectMapper(), arguments, TestI18nBeans.appMessages());
+        return new SetupService(config, mapper, arguments, TestI18nBeans.appMessages());
     }
 
     // ========== 初始状态 ==========
@@ -192,7 +204,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("创建的短期 session 应有效")
-        void shouldCreateValidShortSession() {
+        void shouldCreateValidShortSession() throws IOException {
             String token = setupService.createSession(false);
 
             assertThat(token).isNotNull().isNotBlank();
@@ -201,7 +213,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("创建的长期 session 应有效")
-        void shouldCreateValidLongSession() {
+        void shouldCreateValidLongSession() throws IOException {
             String token = setupService.createSession(true);
 
             assertThat(token).isNotNull().isNotBlank();
@@ -242,7 +254,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("短期 session 不应在重启后保留")
-        void shouldNotPersistShortSession() {
+        void shouldNotPersistShortSession() throws IOException {
             String token = setupService.createSession(false);
 
             SetupService reloaded = createSetupService();
@@ -251,7 +263,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("移除 session 后应失效")
-        void shouldInvalidateRemovedSession() {
+        void shouldInvalidateRemovedSession() throws IOException {
             String token = setupService.createSession(false);
             assertThat(setupService.isValidSession(token)).isTrue();
 
@@ -282,7 +294,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("多个 session 应独立管理")
-        void shouldManageMultipleSessions() {
+        void shouldManageMultipleSessions() throws IOException {
             String token1 = setupService.createSession(false);
             String token2 = setupService.createSession(false);
 
@@ -292,6 +304,114 @@ class SetupServiceTest {
             setupService.removeSession(token1);
             assertThat(setupService.isValidSession(token1)).isFalse();
             assertThat(setupService.isValidSession(token2)).isTrue();
+        }
+
+        @Test
+        @DisplayName("长期 session 持久化失败时不发布到内存")
+        void shouldRollbackRememberedSessionWhenSaveFails() throws IOException {
+            Path backup = blockStateDirectory();
+            try {
+                assertThatThrownBy(() -> setupService.createSession(true))
+                        .isInstanceOf(IOException.class);
+            } finally {
+                restoreStateDirectory(backup);
+            }
+
+            setupService.updateDisplayName("after-failure");
+            SetupConfig persisted = new ObjectMapper().readValue(
+                    stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
+            assertThat(persisted.getSessions()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("长期 session 注销持久化失败时保持原登录态")
+        void shouldRollbackLogoutWhenSaveFails() throws IOException {
+            String token = setupService.createSession(true);
+            Path backup = blockStateDirectory();
+            try {
+                assertThatThrownBy(() -> setupService.removeSession(token))
+                        .isInstanceOf(IOException.class);
+                assertThat(setupService.isValidSession(token)).isTrue();
+            } finally {
+                restoreStateDirectory(backup);
+            }
+        }
+
+        @Test
+        @DisplayName("长期 session 超过上限时淘汰最早到期项")
+        void shouldCapPersistentSessions() throws IOException {
+            String first = null;
+            String latest = null;
+            for (int i = 0; i <= SetupService.MAX_PERSISTENT_SESSIONS; i++) {
+                latest = setupService.createSession(true);
+                if (i == 0) {
+                    first = latest;
+                }
+            }
+
+            assertThat(setupService.isValidSession(first)).isFalse();
+            assertThat(setupService.isValidSession(latest)).isTrue();
+            SetupConfig persisted = new ObjectMapper().readValue(
+                    stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
+            assertThat(persisted.getSessions()).hasSize(SetupService.MAX_PERSISTENT_SESSIONS);
+        }
+    }
+
+    @Test
+    @DisplayName("密码和称呼持久化失败时回滚内存状态")
+    void shouldRollbackAccountMutationsWhenSaveFails() throws IOException {
+        setupService.init("admin", "password1234", "solo");
+        setupService.updateDisplayName("Before");
+        String token = setupService.createSession(true);
+        Path backup = blockStateDirectory();
+        try {
+            assertThatThrownBy(() -> setupService.changePassword("password1234", "new-password-1234"))
+                    .isInstanceOf(IOException.class);
+            assertThat(setupService.checkLogin("admin", "password1234")).isTrue();
+            assertThat(setupService.checkLogin("admin", "new-password-1234")).isFalse();
+            assertThat(setupService.isValidSession(token)).isTrue();
+
+            assertThatThrownBy(() -> setupService.updateDisplayName("After"))
+                    .isInstanceOf(IOException.class);
+            assertThat(setupService.getDisplayName()).isEqualTo("Before");
+        } finally {
+            restoreStateDirectory(backup);
+        }
+    }
+
+    @Test
+    @DisplayName("安装状态在持久化完成前不对并发读取发布")
+    void shouldNotExposeSetupStateBeforePersistenceCompletes() throws Exception {
+        BlockingFailingObjectMapper mapper = new BlockingFailingObjectMapper();
+        SetupService service = createSetupService(mapper);
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        Future<Void> write = executor.submit(() -> {
+            service.init("admin", "password1234", "multi");
+            return null;
+        });
+        try {
+            assertThat(mapper.writeStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<Boolean> setupCompleteRead = executor.submit(service::isSetupComplete);
+            Future<String> modeRead = executor.submit(service::getMode);
+            Future<String> displayNameRead = executor.submit(service::getDisplayName);
+
+            assertThatThrownBy(() -> setupCompleteRead.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            assertThatThrownBy(() -> modeRead.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            assertThatThrownBy(() -> displayNameRead.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            mapper.releaseWrite.countDown();
+            assertThatThrownBy(() -> write.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasRootCauseInstanceOf(IOException.class);
+            assertThat(setupCompleteRead.get(5, TimeUnit.SECONDS)).isFalse();
+            assertThat(modeRead.get(5, TimeUnit.SECONDS)).isNull();
+            assertThat(displayNameRead.get(5, TimeUnit.SECONDS)).isNull();
+        } finally {
+            mapper.releaseWrite.countDown();
+            executor.shutdownNow();
         }
     }
 
@@ -336,7 +456,7 @@ class SetupServiceTest {
 
         @Test
         @DisplayName("有效 session cookie 应识别为已登录")
-        void shouldRecognizeValidSessionCookie() {
+        void shouldRecognizeValidSessionCookie() throws IOException {
             String token = setupService.createSession(false);
             MockHttpServletRequest request = new MockHttpServletRequest();
             request.setCookies(new Cookie("pixiv_session", token));
@@ -351,6 +471,37 @@ class SetupServiceTest {
             request.setCookies(new Cookie("pixiv_session", "invalid-token"));
 
             assertThat(setupService.isAdminLoggedIn(request)).isFalse();
+        }
+    }
+
+    private Path blockStateDirectory() throws IOException {
+        Path backup = tempDir.resolve("state-backup");
+        Files.move(stateDir, backup);
+        Files.writeString(stateDir, "blocked", StandardCharsets.UTF_8);
+        return backup;
+    }
+
+    private void restoreStateDirectory(Path backup) throws IOException {
+        Files.deleteIfExists(stateDir);
+        Files.move(backup, stateDir);
+    }
+
+    private static final class BlockingFailingObjectMapper extends ObjectMapper {
+        private final CountDownLatch writeStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseWrite = new CountDownLatch(1);
+
+        @Override
+        public byte[] writeValueAsBytes(Object value) throws JsonProcessingException {
+            writeStarted.countDown();
+            try {
+                if (!releaseWrite.await(5, TimeUnit.SECONDS)) {
+                    throw new JsonProcessingException("timed out waiting to fail setup persistence") { };
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new JsonProcessingException("interrupted while failing setup persistence", e) { };
+            }
+            throw new JsonProcessingException("forced setup persistence failure") { };
         }
     }
 }

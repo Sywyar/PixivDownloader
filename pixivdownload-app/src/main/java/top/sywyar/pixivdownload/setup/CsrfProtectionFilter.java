@@ -39,7 +39,8 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
     private static final Pattern USERSCRIPT_WRITE_PATH = Pattern.compile(
             "^/api/(?:download/pixiv|download/status|download/queue/[^/]+/cancel|download/queue/clear"
                     + "|sse/close/aggregated/[^/]+|quota/(?:init|pack)|batch/state|novel/download"
-                    + "|novel/series/[^/]+/merge|downloaded/batch|gallery/novels/downloaded-batch)$");
+                    + "|novel/browser-import/[0-9]+|novel/series/[^/]+/merge"
+                    + "|downloaded/batch|gallery/novels/downloaded-batch)$");
     private static final String SESSION_COOKIE = "pixiv_session";
     private static final String VISITOR_COOKIE = "pixiv_user_id";
 
@@ -50,6 +51,11 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        if ("TRACE".equalsIgnoreCase(request.getMethod())) {
+            response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            response.setHeader(HttpHeaders.ALLOW, "GET, HEAD, OPTIONS, POST, PUT, DELETE, PATCH");
+            return;
+        }
         if (!requiresSameOriginCheck(request)) {
             filterChain.doFilter(request, response);
             return;
@@ -86,7 +92,7 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return false;
         }
         String normalizedMethod = method.toUpperCase(Locale.ROOT);
-        return !Set.of("GET", "HEAD", "OPTIONS", "TRACE").contains(normalizedMethod);
+        return !Set.of("GET", "HEAD", "OPTIONS").contains(normalizedMethod);
     }
 
     private static boolean requiresExplicitOriginSignal(HttpServletRequest request) {

@@ -71,12 +71,57 @@ class NotificationInboxMapperTest {
                     "https://sywyar.github.io/PixivDownloader-Remote-Content/legacy.html",
                     null, null, 25, 30L);
             assertThat(mapper.insert(legacy)).isEqualTo(1);
-            assertThat(mapper.needsRemoteAnnouncementImport("legacy")).isTrue();
-            assertThat(mapper.restoreRemoteAnnouncementHtml(
-                    "legacy", legacy.contentUrl(), "<!doctype html><p>legacy</p>"))
-                    .isEqualTo(1);
-            assertThat(mapper.needsRemoteAnnouncementImport("legacy")).isFalse();
+            assertThat(mapper.blocksRemoteAnnouncementImport("legacy")).isFalse();
+            NotificationMessage refreshed = new NotificationMessage(
+                    "legacy", "announcement", "ERROR", null,
+                    "Refreshed", "Refreshed body", legacy.contentUrl(),
+                    "<!doctype html><p>legacy</p>", null, 25, null);
+            assertThat(mapper.updateRemoteAnnouncement(refreshed)).isEqualTo(1);
+            assertThat(mapper.findById("legacy")).satisfies(message -> {
+                assertThat(message.severity()).isEqualTo("ERROR");
+                assertThat(message.title()).isEqualTo("Refreshed");
+                assertThat(message.body()).isEqualTo("Refreshed body");
+                assertThat(message.createdTime()).isEqualTo(25);
+                assertThat(message.readTime()).isEqualTo(30);
+            });
+            assertThat(mapper.updateRemoteAnnouncement(new NotificationMessage(
+                    "legacy", "announcement", "WARNING", null,
+                    "Conflict", "Conflict", legacy.contentUrl(),
+                    "<!doctype html><p>conflict</p>", null, 26, null))).isZero();
+            RemoteAnnouncementTranslation translation = new RemoteAnnouncementTranslation(
+                    "en-US", "English legacy", "English summary", legacy.contentUrl(),
+                    "0".repeat(64),
+                    "<!doctype html><p>English legacy</p>");
+            assertThat(mapper.upsertRemoteAnnouncementTranslation("legacy", translation)).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementTranslations("legacy"))
+                    .containsExactly(new RemoteAnnouncementTranslation(
+                            "en-US", "English legacy", "English summary", legacy.contentUrl(),
+                            "0".repeat(64), ""));
+            assertThat(mapper.findRemoteAnnouncementHtml("legacy", "en-US"))
+                    .isEqualTo(new NotificationHtmlContent(
+                            legacy.contentUrl(), "<!doctype html><p>English legacy</p>"));
             assertThat(mapper.findById("legacy").readTime()).isEqualTo(30);
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    2, "a".repeat(64), 100, 200)).isEqualTo(1);
+            assertThat(mapper.saveRemoteAnnouncementValidators(
+                    "a".repeat(64), "\"announcement-v1\"",
+                    "Wed, 12 Aug 2026 09:22:58 GMT")).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementValidators()).isEqualTo(
+                    new RemoteAnnouncementValidators(
+                            "a".repeat(64), 200, "\"announcement-v1\"",
+                            "Wed, 12 Aug 2026 09:22:58 GMT"));
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    1, "b".repeat(64), 100, 200)).isZero();
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    2, "b".repeat(64), 100, 200)).isZero();
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    2, "a".repeat(64), 100, 200)).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementValidators().etag())
+                    .isEqualTo("\"announcement-v1\"");
+            assertThat(mapper.acceptRemoteAnnouncementIndex(
+                    3, "c".repeat(64), 200, 300)).isEqualTo(1);
+            assertThat(mapper.findRemoteAnnouncementValidators()).isEqualTo(
+                    new RemoteAnnouncementValidators("c".repeat(64), 300, null, null));
             assertThat(mapper.findLatest(null, true, 10)).extracting(NotificationMessage::id)
                     .containsExactly("newer");
             assertThat(mapper.markAllRead("announcement", 40)).isEqualTo(1);
@@ -113,8 +158,9 @@ class NotificationInboxMapperTest {
             assertThat(mapper.dismissAnnouncement("announcement", 110)).isEqualTo(1);
             assertThat(mapper.findById("announcement")).isNull();
             assertThat(mapper.findHtmlContent("announcement")).isNull();
-            assertThat(mapper.needsRemoteAnnouncementImport("announcement")).isFalse();
+            assertThat(mapper.blocksRemoteAnnouncementImport("announcement")).isTrue();
             assertThat(mapper.insert(message("announcement", "announcement", 120))).isZero();
+            assertThat(mapper.updateRemoteAnnouncement(message("announcement", "announcement", 5))).isZero();
             assertThat(mapper.deleteNonAnnouncement("survey")).isEqualTo(1);
             assertThat(mapper.findById("survey")).isNull();
 
@@ -122,11 +168,13 @@ class NotificationInboxMapperTest {
                     "persistent-survey:layout", "survey", "INFO", "layout",
                     "title.key", "body.key", null, null, "/survey/embed.html", 130, null);
             assertThat(mapper.insert(persistent)).isEqualTo(1);
-            assertThat(mapper.deleteStalePersistentSurveys(List.of(persistent.id()))).isZero();
+            assertThat(mapper.setActivePersistentSurveys(List.of(persistent.id()))).isEqualTo(1);
             assertThat(mapper.dismissPersistentSurvey(persistent.id(), 140)).isEqualTo(1);
             assertThat(mapper.insert(persistent)).isZero();
-            assertThat(mapper.deleteStalePersistentSurveys(List.of())).isEqualTo(1);
-            assertThat(mapper.insert(persistent)).isEqualTo(1);
+            assertThat(mapper.setActivePersistentSurveys(List.of())).isEqualTo(1);
+            assertThat(mapper.setActivePersistentSurveys(List.of(persistent.id()))).isEqualTo(1);
+            assertThat(mapper.insert(persistent)).isZero();
+            assertThat(mapper.findById(persistent.id())).isNull();
         }
     }
 
@@ -152,7 +200,31 @@ class NotificationInboxMapperTest {
                         action_url TEXT,
                         created_time INTEGER NOT NULL,
                         read_time INTEGER,
-                        deleted_time INTEGER
+                        deleted_time INTEGER,
+                        active INTEGER NOT NULL DEFAULT 1
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE notification_announcement_translations (
+                        announcement_id TEXT NOT NULL,
+                        locale TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        content_url TEXT NOT NULL,
+                        content_sha256 TEXT NOT NULL,
+                        content_html TEXT NOT NULL,
+                        PRIMARY KEY (announcement_id, locale)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE notification_remote_index_state (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        sequence INTEGER NOT NULL,
+                        manifest_sha256 TEXT NOT NULL,
+                        generated_time INTEGER NOT NULL,
+                        expires_time INTEGER NOT NULL,
+                        etag TEXT,
+                        last_modified TEXT
                     )
                     """);
         }

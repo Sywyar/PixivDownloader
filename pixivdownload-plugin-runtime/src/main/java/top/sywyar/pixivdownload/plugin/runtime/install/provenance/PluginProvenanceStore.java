@@ -662,7 +662,7 @@ public final class PluginProvenanceStore {
                 throw new IllegalArgumentException("catalog provenance observed artifact binding changed");
             }
         } else if (officialRepository || repositoryId != null || expectedSize != null
-                || expectedSha256 != null || signature != null) {
+                || expectedSha256 != null) {
             throw new IllegalArgumentException("local provenance must not claim catalog source bindings");
         }
 

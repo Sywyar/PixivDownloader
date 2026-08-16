@@ -1,9 +1,20 @@
 package top.sywyar.pixivdownload.novel.request;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
+
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /** 从服务端获取的 Pixiv 数据构造内部下载请求。 */
 public final class NovelDownloadRequestFactory {
+
+    private static final int MAX_RAW_METADATA_BYTES = 256 * 1024;
 
     private NovelDownloadRequestFactory() {
     }
@@ -46,5 +57,16 @@ public final class NovelDownloadRequestFactory {
         }
         request.setOther(other);
         return request;
+    }
+
+    public static String boundedRawMetadata(ObjectMapper objectMapper, JsonNode body)
+            throws JsonProcessingException {
+        ObjectNode raw = body.deepCopy();
+        raw.remove(List.of("content", "textEmbeddedImages"));
+        String json = objectMapper.writeValueAsString(raw);
+        if (json.getBytes(StandardCharsets.UTF_8).length > MAX_RAW_METADATA_BYTES) {
+            throw new PixivAjaxException(PixivAjaxFailure.RESPONSE_TOO_LARGE, 0);
+        }
+        return json;
     }
 }

@@ -37,6 +37,7 @@ class NovelPluginContributionTest {
                 .extracting(route -> route.pathPattern())
                 .containsExactlyInAnyOrder(
                         "/api/novel/download",
+                        "/api/novel/browser-import/**",
                         "/api/novel/status/**",
                         "/api/novel/translate-status/**",
                         "/api/novel/*/downloaded",
@@ -46,6 +47,7 @@ class NovelPluginContributionTest {
                         "/api/novel/translate-lang-probe",
                         "/api/novel/series/*/translate-title",
                         "/api/novel/series/*/novel-ids",
+                        "/api/admin/glossary**",
                         "/api/narration/**",
                         "/api/download/pixiv/novel",
                         "/api/download/novel/status/**",
@@ -105,6 +107,11 @@ class NovelPluginContributionTest {
                 "pixiv.proxy.novel.id.invalid",
                 "pixiv.proxy.novel.response.invalid",
                 "pixiv.proxy.novel.series.id.invalid",
+                "novel.browser-import.unavailable",
+                "novel.browser-import.token-invalid",
+                "novel.browser-import.payload-too-large",
+                "novel.browser-import.response-invalid",
+                "novel.browser-import.fetch-ticket-invalid",
                 "novel.translate.success",
                 "novel.translate.skipped",
                 "novel.translate.same-language",

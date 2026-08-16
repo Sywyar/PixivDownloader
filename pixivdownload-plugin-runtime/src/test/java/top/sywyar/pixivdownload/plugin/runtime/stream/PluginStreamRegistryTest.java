@@ -264,10 +264,12 @@ class PluginStreamRegistryTest {
         PluginStreamRegistry registry = new PluginStreamRegistry();
         PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         CountDownLatch existingCloseEntered = new CountDownLatch(1);
+        CountDownLatch existingCloseExited = new CountDownLatch(1);
         CountDownLatch releaseExistingClose = new CountDownLatch(1);
         streams.register("existing", () -> {
             existingCloseEntered.countDown();
             await(releaseExistingClose);
+            existingCloseExited.countDown();
         });
 
         AtomicReference<Throwable> closeFailure = new AtomicReference<>();
@@ -300,8 +302,8 @@ class PluginStreamRegistryTest {
         assertThat(lateCloseEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
         releaseExistingClose.countDown();
-        Thread.sleep(50L);
-        assertThat(closer.isAlive()).isTrue();
+        assertThat(existingCloseExited.await(5, TimeUnit.SECONDS)).isTrue();
+        awaitWaiting(closer);
         releaseLateClose.countDown();
         closer.join(5_000L);
         register.join(5_000L);
@@ -340,5 +342,16 @@ class PluginStreamRegistryTest {
             Thread.currentThread().interrupt();
             throw new AssertionError("test latch wait interrupted", failure);
         }
+    }
+
+    private static void awaitWaiting(Thread thread) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (thread.isAlive() && System.nanoTime() < deadline) {
+            if (thread.getState() == Thread.State.WAITING) {
+                return;
+            }
+            Thread.onSpinWait();
+        }
+        throw new AssertionError("stream closer did not wait for the concurrent close callback");
     }
 }

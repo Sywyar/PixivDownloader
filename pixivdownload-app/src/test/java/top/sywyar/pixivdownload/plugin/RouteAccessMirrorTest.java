@@ -220,6 +220,7 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/js/pixiv-drilldowns.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/favicon.ico", "core", AccessPolicy.PUBLIC);
         assertOwnerPolicy("/js/pixiv-feedback.js", "core", AccessPolicy.PUBLIC);
+        assertOwnerPolicy("/js/pixiv-actions.js", "core", AccessPolicy.PUBLIC);
         assertOwnerPolicy("/css/pixiv-feedback.css", "core", AccessPolicy.PUBLIC);
         // 插件管理页（admin-only）+ 其页面专属静态资源；与 /api/plugins/** 同归核心、同 ADMIN。
         assertOwnerPolicy("/plugin-manage.html", "core", AccessPolicy.ADMIN);
@@ -265,6 +266,7 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/pixiv/me/novel-bookmarks", "novel", AccessPolicy.VISITOR);
         // 小说下载端点归小说插件、新址 + 旧址兼容垫片一律 VISITOR（复刻 /api/download/pixiv 现状）。
         assertOwnerPolicy("/api/novel/download", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/browser-import/**", "novel", AccessPolicy.LOCAL);
         assertOwnerPolicy("/api/novel/status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/translate-status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/*/downloaded", "novel", AccessPolicy.VISITOR);

@@ -2,10 +2,21 @@
     'use strict';
 
     var SDK_LOAD_TIMEOUT_MS = 10000;
+    var CAPTURE_ACK_TIMEOUT_MS = 15000;
+    var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     var SDK_VERSION = '1.409.5';
     var SDK_URL = '/vendor/posthog-js/' + SDK_VERSION + '/array.full.js';
     var clients = Object.create(null);
     var sdkPromise = null;
+    var ALLOWED_API_ORIGINS = Object.freeze([
+        'https://us.i.posthog.com',
+        'https://eu.i.posthog.com'
+    ]);
+    var ALLOWED_UI_ORIGINS = Object.freeze([
+        'https://us.posthog.com',
+        'https://eu.posthog.com',
+        'https://app.posthog.com'
+    ]);
 
     function warn(message) {
         if (global.console && typeof global.console.warn === 'function') {
@@ -18,7 +29,7 @@
             return Promise.resolve(global.posthog);
         }
         if (sdkPromise) return sdkPromise;
-        sdkPromise = new Promise(function (resolve) {
+        var attempt = new Promise(function (resolve) {
             var script;
             var settled = false;
             var timeoutId = null;
@@ -29,6 +40,9 @@
                 if (script) {
                     script.removeEventListener('load', onLoad);
                     script.removeEventListener('error', onError);
+                }
+                if (!sdk) {
+                    if (script && script.parentNode) script.parentNode.removeChild(script);
                 }
                 resolve(sdk);
             }
@@ -46,14 +60,17 @@
                 script.addEventListener('error', onError);
                 timeoutId = global.setTimeout(function () {
                     finish(null);
-                    if (script.parentNode) script.parentNode.removeChild(script);
                 }, SDK_LOAD_TIMEOUT_MS);
                 (global.document.head || global.document.documentElement).appendChild(script);
             } catch (_) {
                 finish(null);
             }
         });
-        return sdkPromise;
+        sdkPromise = attempt;
+        attempt.then(function (sdk) {
+            if (!sdk && sdkPromise === attempt) sdkPromise = null;
+        });
+        return attempt;
     }
 
     function instanceName(ownerKey) {
@@ -68,30 +85,34 @@
         return typeof value === 'string' && value.trim() !== '';
     }
 
-    function httpsUrl(value) {
+    function allowedOrigin(value, allowed) {
         if (!nonBlank(value) || typeof global.URL !== 'function') return false;
         try {
             var parsed = new global.URL(value.trim());
             return parsed.protocol === 'https:' && parsed.hostname !== ''
-                && parsed.username === '' && parsed.password === '';
+                && parsed.username === '' && parsed.password === '' && parsed.port === ''
+                && parsed.pathname === '/' && parsed.search === '' && parsed.hash === ''
+                && allowed.indexOf(parsed.origin) >= 0 ? parsed.origin : null;
         } catch (_) {
-            return false;
+            return null;
         }
     }
 
-    function normalizePostHog(value) {
+    function normalizePostHog(value, trustedApiOrigins) {
+        var apiOrigins = ALLOWED_API_ORIGINS.concat(
+            Array.isArray(trustedApiOrigins) ? trustedApiOrigins : []);
         if (!value || typeof value !== 'object'
                 || !nonBlank(value.projectToken)
                 || !nonBlank(value.surveyId)
-                || !httpsUrl(value.apiHost)
-                || !httpsUrl(value.uiHost)) {
+                || !allowedOrigin(value.apiHost, apiOrigins)
+                || !allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)) {
             return null;
         }
         return Object.freeze({
             projectToken: value.projectToken.trim(),
             surveyId: value.surveyId.trim(),
-            apiHost: value.apiHost.trim(),
-            uiHost: value.uiHost.trim()
+            apiHost: allowedOrigin(value.apiHost, apiOrigins),
+            uiHost: allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)
         });
     }
 
@@ -100,6 +121,26 @@
             && left.surveyId === right.surveyId
             && left.apiHost === right.apiHost
             && left.uiHost === right.uiHost;
+    }
+
+    function fallbackDistinctId(ownerKey, surveyId, storage) {
+        var storageKey = 'pixivdownload.posthog.survey-id.' + JSON.stringify([ownerKey, surveyId]);
+        var pattern = /^ps_[0-9a-f]{64}$/;
+        try {
+            var stored = storage && storage.getItem(storageKey);
+            if (pattern.test(stored || '')) return stored;
+        } catch (_) { /* use an in-memory identity */ }
+        if (!global.crypto || typeof global.crypto.getRandomValues !== 'function') return '';
+        var bytes = new Uint8Array(32);
+        global.crypto.getRandomValues(bytes);
+        var generated = 'ps_';
+        for (var i = 0; i < bytes.length; i++) {
+            generated += bytes[i].toString(16).padStart(2, '0');
+        }
+        try {
+            if (storage) storage.setItem(storageKey, generated);
+        } catch (_) { /* stable for this page through the owner record */ }
+        return generated;
     }
 
     function sdkConfig(options, posthog) {
@@ -116,7 +157,8 @@
             disable_session_recording: true,
             disable_surveys: false,
             person_profiles: 'identified_only',
-            persistence: 'localStorage',
+            persistence: 'memory',
+            disable_persistence: true,
             cross_subdomain_cookie: false,
             respect_dnt: true,
             save_campaign_params: false,
@@ -140,22 +182,31 @@
     function createSurveyClient(options) {
         options = options || {};
         var ownerKey = typeof options.ownerKey === 'string' ? options.ownerKey.trim() : '';
-        var posthog = normalizePostHog(options.posthog);
+        var posthog = normalizePostHog(options.posthog, options.trustedApiOrigins);
         if (!ownerKey || !posthog || typeof options.beforeSend !== 'function') {
             return Promise.resolve(null);
         }
-        var distinctId = typeof options.distinctId === 'string' ? options.distinctId : '';
+        var requestedDistinctId = typeof options.distinctId === 'string' ? options.distinctId : '';
+        var identityStorage = options.storage;
+        if (!identityStorage) {
+            try { identityStorage = global.localStorage; } catch (_) { identityStorage = null; }
+        }
         var existing = clients[ownerKey];
         if (existing) {
-            if (existing.distinctId !== distinctId || existing.beforeSend !== options.beforeSend
+            if ((requestedDistinctId && existing.distinctId !== requestedDistinctId)
+                    || existing.beforeSend !== options.beforeSend
+                    || existing.identityStorage !== identityStorage
                     || !samePostHog(existing.posthog, posthog)) {
                 warn('posthog: survey client already exists with a different configuration; owner disabled for this page');
                 return Promise.resolve(null);
             }
             return existing.promise;
         }
+        var distinctId = requestedDistinctId || fallbackDistinctId(ownerKey, posthog.surveyId, identityStorage);
+        if (!distinctId) return Promise.resolve(null);
         var record = {
             distinctId: distinctId,
+            identityStorage: identityStorage,
             beforeSend: options.beforeSend,
             posthog: posthog,
             promise: null
@@ -169,11 +220,72 @@
             }, posthog), instanceName(ownerKey)) || null;
         }).catch(function () {
             return null;
+        }).then(function (client) {
+            if (!client && clients[ownerKey] === record) delete clients[ownerKey];
+            return client;
         });
         return record.promise;
     }
 
+    function captureSurveyWithAck(ownerKey, eventName, properties, submissionId) {
+        if (typeof submissionId !== 'string' || !UUID_PATTERN.test(submissionId)) {
+            return Promise.reject(new Error('posthog survey submission id is invalid'));
+        }
+        var record = clients[typeof ownerKey === 'string' ? ownerKey.trim() : ''];
+        if (!record || !record.promise || typeof global.fetch !== 'function'
+                || typeof global.AbortController !== 'function') {
+            return Promise.reject(new Error('posthog survey client unavailable'));
+        }
+        return record.promise.then(function (client) {
+            if (!client) throw new Error('posthog survey client unavailable');
+            var capturing = true;
+            try {
+                capturing = !(typeof client.has_opted_out_capturing === 'function'
+                        && client.has_opted_out_capturing())
+                    && !(typeof client.is_capturing === 'function' && client.is_capturing() === false);
+            } catch (_) {
+                capturing = false;
+            }
+            if (!capturing) throw new Error('posthog capture is disabled');
+            var event = {
+                event: eventName,
+                properties: Object.assign({}, properties || {}, {
+                    distinct_id: record.distinctId,
+                    token: record.posthog.projectToken
+                }),
+                timestamp: new Date().toISOString()
+            };
+            var filtered = record.beforeSend(event);
+            if (!filtered || filtered.event !== eventName || !filtered.properties) {
+                throw new Error('posthog survey event rejected');
+            }
+            filtered = Object.assign({}, filtered, {uuid: submissionId.toLowerCase()});
+            var controller = new global.AbortController();
+            var timeoutId = global.setTimeout(function () {
+                controller.abort();
+            }, CAPTURE_ACK_TIMEOUT_MS);
+            return Promise.resolve().then(function () {
+                return global.fetch(record.posthog.apiHost + '/e/', {
+                        method: 'POST',
+                        credentials: 'omit',
+                        cache: 'no-store',
+                        referrerPolicy: 'no-referrer',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(filtered),
+                        signal: controller.signal
+                    });
+                }).then(function (response) {
+                    if (!response || response.ok !== true) {
+                        throw new Error('posthog capture was not acknowledged');
+                    }
+                }).finally(function () {
+                    global.clearTimeout(timeoutId);
+                });
+        });
+    }
+
     global.PixivPostHog = Object.freeze({
-        createSurveyClient: createSurveyClient
+        createSurveyClient: createSurveyClient,
+        captureSurveyWithAck: captureSurveyWithAck
     });
 })(window);

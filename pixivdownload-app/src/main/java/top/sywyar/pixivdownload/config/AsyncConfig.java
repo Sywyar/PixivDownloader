@@ -22,6 +22,8 @@ import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 @EnableScheduling
 public class AsyncConfig {
 
+    private static final int DOWNLOAD_QUEUE_CAPACITY = 100;
+
     @Bean
     public TaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
@@ -60,7 +62,10 @@ public class AsyncConfig {
      */
     @Bean("downloadTaskExecutor")
     public TaskExecutor downloadTaskExecutor(DownloadConfig downloadConfig) {
-        return fixedPool(downloadConfig.getMaxConcurrent(), "pixiv-download-");
+        ThreadPoolTaskExecutor executor = fixedPool(downloadConfig.getMaxConcurrent(), "pixiv-download-");
+        executor.setQueueCapacity(DOWNLOAD_QUEUE_CAPACITY);
+        executor.initialize();
+        return executor;
     }
 
     /**
@@ -75,12 +80,14 @@ public class AsyncConfig {
     /** 配额归档打包专用线程池，并发上限由 {@code multi-mode.quota.archive-max-concurrent} 控制。 */
     @Bean("archiveTaskExecutor")
     public TaskExecutor archiveTaskExecutor(MultiModeConfig multiModeConfig) {
-        return fixedPool(multiModeConfig.getQuota().getArchiveMaxConcurrent(), "pixiv-archive-");
+        ThreadPoolTaskExecutor executor = fixedPool(
+                multiModeConfig.getQuota().getArchiveMaxConcurrent(), "pixiv-archive-");
+        executor.initialize();
+        return executor;
     }
 
     /**
-     * 固定大小线程池：corePoolSize == maxPoolSize + 无界队列，稳定保持 {@code concurrency}
-     * 个工作线程，超出的任务排队，降低同时打外部服务触发限流的概率。
+     * 配置固定大小线程池；调用方必须先设置自己的队列策略，再初始化执行器。
      */
     private static ThreadPoolTaskExecutor fixedPool(int concurrency, String threadNamePrefix) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -88,7 +95,6 @@ public class AsyncConfig {
         executor.setMaxPoolSize(concurrency);
         executor.setThreadNamePrefix(threadNamePrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
-        executor.initialize();
         return executor;
     }
 }
