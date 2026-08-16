@@ -1,23 +1,23 @@
 'use strict';
 /**
- * 本地可信 Gate Anchor 库（Gate Epoch 3 单一标准）。
+ * 本地可信 Gate Anchor 库（Gate Epoch 4 单一标准）。
  *
  * 信任模型：
  * - 本地 Git hooks 是开发便利性门禁：用户始终可以主动修改 hook、修改 .git/config 或使用
  *   --no-verify，因此不能宣称其绝对不可绕过。真正的最终门禁必须由 GitHub Ruleset /
  *   分支保护 / required check 提供，并且可信 workflow / 检查器不能由同一个候选提交自行批准。
- * - 候选提交不能作为自己的唯一检查者。Epoch 3 信任根是仓库外的受保护 annotated tag
- *   `refs/tags/i18n-gate-epoch-3-root`（由仓库管理员人工创建，代码不写 root SHA）。
+ * - 候选提交不能作为自己的唯一检查者。Epoch 4 信任根是受保护 annotated tag
+ *   `refs/tags/i18n-gate-epoch-4-root`（由仓库管理员人工创建，代码不写 root SHA）。
  *   本地锚点由 `git config --local pixiv.i18n.trustedGateEpoch <epoch>` 与
  *   `git config --local pixiv.i18n.trustedGateRef <commit-sha>` 持有：
  *   - 配置存在于 .git/config，不提交到仓库，候选提交不能修改；
  *   - hooks 只从该 commit 物化可信 checker、contract、policy 与 signature guard；
  *   - 锚点不随 HEAD 自动更新，只有显式信任命令（trust-gate.mjs）才能推进；
- *   - Epoch 3 root 采用显式人工 root adoption（--adopt-root）：没有任何提交能自动证明
+ *   - Epoch 4 root 采用显式人工 root adoption（--adopt-root）：没有任何提交能自动证明
  *     自己可信，root 由人工 review + 全量自动检查 + root admission 门禁共同建立；
- *   - 之后只能 --advance，advance 由「当前 Epoch 3 trusted contract 审核候选」完成，
- *     候选不能自我批准；Epoch 2 及更早 anchor 不迁移、不兼容、无自动升级权。
- * - Epoch 2 → 3 first admission 另由 Epoch 2 trusted bundle 中的一次性 bridge 审核；
+ *   - 之后只能 --advance，advance 由当前 Epoch 4 可信发布核心审核候选，
+ *     候选不能自我批准；Epoch 3 及更早 anchor 不迁移、不兼容、无自动升级权。
+ * - Epoch 3 → 4 first admission 另由 Epoch 3 trusted bundle 中的一次性 bridge 审核；
  *   ticket 存在共享 Git config，精确绑定 source/target epoch、trusted source、parent 与 tree。
  *
  * 门禁事实来源只允许：
@@ -43,11 +43,11 @@ export const FIRST_ADMISSION_PARENT_KEY = 'pixiv.i18n.firstAdmissionParent';
 export const FIRST_ADMISSION_TREE_KEY = 'pixiv.i18n.firstAdmissionTree';
 export const FIRST_ADMISSION_CANDIDATE_KEY = 'pixiv.i18n.firstAdmissionCandidate';
 
-/** 当前唯一受支持的 Gate Epoch。epoch < 2 视为 obsolete；epoch > 2 视为 unsupported future。 */
-export const CURRENT_GATE_EPOCH = 3;
+/** 当前唯一受支持的 Gate Epoch；更早版本 obsolete，更晚版本视为 unsupported future。 */
+export const CURRENT_GATE_EPOCH = 4;
 
-/** Epoch 3 信任根 tag（仓库内容之外的不可自我修改锚点，由管理员人工创建并受 Ruleset 保护）。 */
-export const ROOT_TAG_NAME = 'i18n-gate-epoch-3-root';
+/** Epoch 4 信任根 tag（由管理员人工创建并受 Ruleset 保护）。 */
+export const ROOT_TAG_NAME = 'i18n-gate-epoch-4-root';
 
 export function rootTagNameForEpoch(epoch) {
     if (!Number.isInteger(Number(epoch)) || Number(epoch) < 2) {
@@ -179,7 +179,7 @@ export function getTrustedEpoch(repoRoot) {
 }
 
 /**
- * 写本地 Epoch 3 trust anchor（epoch + ref 一起写，只写 local 配置）并回读验证。
+ * 写本地 Epoch 4 trust anchor（epoch + ref 一起写，只写 local 配置）并回读验证。
  * 这是 root adoption / advance 的唯一写入路径。
  */
 export function setTrustedAnchor(repoRoot, sha, epoch = CURRENT_GATE_EPOCH) {
@@ -200,14 +200,14 @@ export function setTrustedAnchor(repoRoot, sha, epoch = CURRENT_GATE_EPOCH) {
 }
 
 /**
- * 解析本地 Epoch 3 root tag（refs/tags/i18n-gate-epoch-3-root^{commit}）。
+ * 解析本地 Epoch 4 root tag（refs/tags/i18n-gate-epoch-4-root^{commit}）。
  * tag 不存在 / 不是 commit / 不是完整 SHA → 返回 null（fail closed 由调用方处理）。
  */
 export function resolveRootTag(repoRoot, epoch = CURRENT_GATE_EPOCH) {
     return resolveCommit(repoRoot, 'refs/tags/' + rootTagNameForEpoch(epoch));
 }
 
-/** 本地仓库中是否存在 Epoch 3 root tag。 */
+/** 本地仓库中是否存在 Epoch 4 root tag。 */
 export function hasRootTag(repoRoot, epoch = CURRENT_GATE_EPOCH) {
     try {
         git(['rev-parse', '--verify', '--quiet',
@@ -290,7 +290,7 @@ export function validatePolicyStructure(policy, expectedEpoch = CURRENT_GATE_EPO
     if (!Number.isInteger(policy.schemaVersion) || policy.schemaVersion < 1) {
         throw new Error('gate-policy.json: schemaVersion must be an integer >= 1');
     }
-    // Epoch 单一标准：只支持 CURRENT_GATE_EPOCH；epoch < 2 是 obsolete，epoch > 2 是 unsupported
+    // Epoch 单一标准：只支持 CURRENT_GATE_EPOCH；更早版本 obsolete，更晚版本 unsupported
     if (policy.gateEpoch !== expectedEpoch) {
         throw new Error('gate-policy.json: gateEpoch must be exactly ' + expectedEpoch
             + ' (obsolete / unsupported future epochs fail closed; got ' + policy.gateEpoch + ')');
@@ -457,7 +457,7 @@ export function loadPolicyFromRef(repoRoot, ref) {
 }
 
 /**
- * 校验物化后的 verifier 目录是否满足当前 verifier baseline（Gate Epoch 3 新标准）。
+ * 校验物化后的 verifier 目录是否满足当前 verifier baseline（Gate Epoch 4 标准）。
  * 低于最低能力（contract / schema / 缺 verifier 本体文件）→ 抛错 fail closed；
  * 兼容 / fallback / predates / legacy 分支一律不存在。
  * @param {string} dir 物化后的 trusted verifier bundle 根目录
@@ -523,11 +523,11 @@ export function materializeTrustedGate(repoRoot, trustedSha, outDir) {
         throw new Error('trusted gate anchor ' + trustedSha
             + ' has no complete gate bundle (scripts/hooks/pre-push-guard.sh missing)');
     }
-    // Epoch 3 单一标准：policy 是强制组成，缺 policy 的 anchor 一律 fail closed
+    // Epoch 4 单一标准：policy 是强制组成，缺 policy 的 anchor 一律 fail closed
     if (!fs.existsSync(path.join(materialized.root, 'scripts', 'i18n', 'gate-policy.json'))) {
         materialized.cleanup();
         throw new Error('trusted gate anchor ' + trustedSha
-            + ' has no Epoch 3 gate policy (scripts/i18n/gate-policy.json missing);'
+            + ' has no Epoch 4 gate policy (scripts/i18n/gate-policy.json missing);'
             + ' obsolete-epoch anchors are not migrated');
     }
     if (fs.existsSync(outDir)) {

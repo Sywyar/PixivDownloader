@@ -11,6 +11,8 @@
       "check-shared-snippets"
     ],
     "requireStrict": true,
+    "requirePullRequest": true,
+    "requiredApprovals": 0,
     "allowBypass": false,
     "allowDeletion": false,
     "allowNonFastForward": false
@@ -21,6 +23,11 @@
     "allowBypass": false
   },
   "i18n-gate-epoch-3-root": {
+    "allowDeletion": false,
+    "allowNonFastForward": false,
+    "allowBypass": false
+  },
+  "i18n-gate-epoch-4-root": {
     "allowDeletion": false,
     "allowNonFastForward": false,
     "allowBypass": false

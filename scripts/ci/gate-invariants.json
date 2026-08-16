@@ -1,118 +1,101 @@
 {
-  "gateEpoch": 3,
-  "contractVersion": 4,
-  "minimumTrustedVerifier": {
-    "contractVersion": 4,
-    "schemaVersion": 3,
-    "requiredFiles": [
-      "scripts/ci/gate-surface.json",
-      "scripts/ci/gate-invariants.json",
-      "scripts/ci/gate-parity.mjs",
-      "scripts/ci/resolve-trusted-base.mjs",
-      "scripts/ci/materialize-trusted-gate.sh",
-      "scripts/ci/doctor-github-ruleset.mjs",
-      "scripts/i18n/trust-gate.mjs"
-    ]
-  },
-  "qualityGatePushCoverage": {
-    "exclude": [
+  "schemaVersion": 1,
+  "gateEpoch": 4,
+  "contractVersion": 5,
+  "protectedPaths": [
+    "scripts/ci/gate-invariants.json",
+    "scripts/ci/gate-parity.mjs",
+    "scripts/ci/resolve-trusted-base.mjs",
+    "scripts/i18n/gate-policy.json",
+    "scripts/i18n/trust-gate.mjs"
+  ],
+  "qualityGate": {
+    "workflow": ".github/workflows/quality-gate.yml",
+    "workflowName": "Quality Gate",
+    "requiredJobs": [
+      "java-tests",
+      "javascript-tests",
+      "signature-guard",
+      "trusted-gate-contract",
+      "i18n-check"
+    ],
+    "requiredTriggers": [
+      "push",
+      "pull_request",
+      "merge_group",
+      "workflow_dispatch",
+      "workflow_call"
+    ],
+    "trustedJob": "trusted-gate-contract",
+    "signatureJob": "signature-guard",
+    "allowedPushExclusions": [
       "gh-pages"
     ]
   },
-  "requiredJobs": [
-    "java-tests",
-    "javascript-tests",
-    "signature-guard",
-    "trusted-gate-contract",
-    "i18n-check"
-  ],
-  "requiredTriggers": [
-    "push",
-    "pull_request",
-    "merge_group",
-    "workflow_dispatch",
-    "workflow_call"
-  ],
-  "requiredCommands": [
-    "mvn compile",
-    "mvn test",
-    "npm run test:js",
-    "npm run test:web-standards",
-    "npm run test:i18n",
-    "npm run i18n:check",
-    "npm run i18n:generate-static",
-    "gate-parity.mjs"
-  ],
-  "requiredFiles": [
-    "scripts/i18n/check.mjs",
-    "scripts/i18n/gate-contract.mjs",
-    "scripts/i18n/gate-policy.json",
-    "scripts/i18n/trust-gate.mjs",
-    "scripts/hooks/pre-commit",
-    "scripts/hooks/pre-push",
-    "scripts/hooks/pre-push-guard.sh",
-    "scripts/ci/gate-parity.mjs",
-    "scripts/ci/gate-invariants.json",
-    "scripts/ci/gate-surface.json",
-    "scripts/ci/github-ruleset-invariants.json",
-    "scripts/ci/doctor-github-ruleset.mjs",
-    ".github/workflows/quality-gate.yml"
-  ],
-  "requiredWorkflowFiles": [
-    ".github/workflows/quality-gate.yml",
-    ".github/workflows/shared-snippets-check.yml",
+  "workflows": {
+    ".github/workflows/shared-snippets-check.yml": {
+      "workflowName": "Shared Snippet Drift Check",
+      "requiredJobs": [
+        "check-shared-snippets"
+      ],
+      "requiredTriggers": [
+        "push",
+        "pull_request",
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/release.yml": {
+      "workflowName": "Release",
+      "requiredJobs": [
+        "trusted-base",
+        "draft-quality-gate",
+        "publish-plugins",
+        "build-jar",
+        "build-windows-installer",
+        "release",
+        "create-draft-release"
+      ],
+      "requiredTriggers": [
+        "push",
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/nightly.yml": {
+      "workflowName": "Nightly Build",
+      "requiredJobs": [
+        "resolve-version",
+        "publish-plugins",
+        "build-jar",
+        "build-windows-installer",
+        "release-nightly"
+      ],
+      "requiredTriggers": [
+        "schedule",
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/publish-plugins.yml": {
+      "workflowName": "Publish plugins",
+      "requiredJobs": [
+        "trusted-base",
+        "quality-gate",
+        "publish"
+      ],
+      "requiredTriggers": [
+        "workflow_call",
+        "workflow_dispatch"
+      ]
+    }
+  },
+  "publicationWorkflows": [
     ".github/workflows/release.yml",
     ".github/workflows/nightly.yml",
     ".github/workflows/publish-plugins.yml"
   ],
-  "requiredExternalWorkflowJobs": {
-    ".github/workflows/shared-snippets-check.yml": [
-      "check-shared-snippets"
-    ],
-    ".github/workflows/release.yml": [
-      "trusted-base",
-      "draft-quality-gate",
-      "publish-plugins",
-      "build-jar",
-      "build-windows-installer",
-      "release",
-      "create-draft-release"
-    ],
-    ".github/workflows/nightly.yml": [
-      "resolve-version",
-      "publish-plugins",
-      "build-jar",
-      "build-windows-installer",
-      "release-nightly"
-    ],
-    ".github/workflows/publish-plugins.yml": [
-      "trusted-base",
-      "quality-gate",
-      "publish"
-    ]
-  },
-  "requiredExternalWorkflowTriggers": {
-    ".github/workflows/shared-snippets-check.yml": [
-      "push",
-      "pull_request",
-      "workflow_dispatch"
-    ],
-    ".github/workflows/release.yml": [
-      "push",
-      "workflow_dispatch"
-    ],
-    ".github/workflows/nightly.yml": [
-      "schedule",
-      "workflow_dispatch"
-    ],
-    ".github/workflows/publish-plugins.yml": [
-      "workflow_call",
-      "workflow_dispatch"
-    ]
-  },
-  "requiredPublicationDependencies": [
-    ".github/workflows/publish-plugins.yml",
-    ".github/workflows/release.yml",
-    ".github/workflows/nightly.yml"
-  ]
+  "releaseEnvironment": "release",
+  "forbiddenExpressions": [
+    "always()",
+    "!cancelled()"
+  ],
+  "forbidContinueOnError": true
 }

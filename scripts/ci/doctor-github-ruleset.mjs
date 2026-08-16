@@ -121,6 +121,18 @@ function auditMasterDetail(detail, invariants, problems, report) {
     } else {
         problems.push('master ruleset ' + name + ' has no required_status_checks rule');
     }
+    const pullRequestRule = rules.find((r) => r && r.type === 'pull_request');
+    if (invariants.requirePullRequest) {
+        if (!pullRequestRule) {
+            problems.push('master ruleset ' + name + ' has no pull_request rule');
+        } else {
+            const approvals = pullRequestRule.parameters?.required_approving_review_count;
+            if (approvals !== invariants.requiredApprovals) {
+                problems.push('master ruleset ' + name + ' requires ' + approvals
+                    + ' approvals instead of ' + invariants.requiredApprovals);
+            }
+        }
+    }
     for (const expectedRule of ['deletion', 'non_fast_forward']) {
         const present = rules.some((r) => r && r.type === expectedRule);
         const shouldDisable = expectedRule === 'deletion'

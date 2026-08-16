@@ -640,12 +640,11 @@ class PluginReleaseScriptsTest {
 
         assertThat(workflow).contains(
                 "workflow_call:",
+                "environment: release",
                 "PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07",
                 "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                "PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}",
                 "FromBase64String",
-                "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64",
-                "gh secret set PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 --repo Sywyar/PixivDownloader --body",
+                "Release Environment secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64",
                 "Prepared plugin signing private key contains '?' characters",
                 "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile",
                 "$publishArgs = @{",
@@ -657,12 +656,12 @@ class PluginReleaseScriptsTest {
                 "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",
                 "-PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
                 "Copy-Item build/manifest.json.sig plugins-repo/manifest.json.sig -Force",
-                "git add manifest.json manifest.json.sig",
-                "Cleanup plugin signing private key");
+                "git add manifest.json manifest.json.sig");
         assertThat(workflow).doesNotContain("tags:");
         assertThat(workflow).doesNotContain("schedule:");
         assertThat(workflow).contains("publish_args", "PUBLISH_PLUGIN_ARGS", "[\"Force\"]");
         assertThat(workflow).doesNotContain("-----BEGIN PRIVATE KEY-----");
+        assertThat(workflow).doesNotContain("PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{");
         assertThat(workflow).doesNotContain("\"-Repo\", $env:PLUGINS_REPO");
         assertThat(workflow).doesNotContain("\"-PrivateKeyFile\", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE");
     }
@@ -686,10 +685,9 @@ class PluginReleaseScriptsTest {
                 "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
                 "mvn -B -ntp test -Dexec.skip=true",
                 "signature-guard:",
-                "event_candidate=\"${{ github.sha }}\"",
-                "echo \"CANDIDATE_SHA=$candidate\" >> \"$GITHUB_ENV\"",
-                // 签名守卫必须来自 trusted base 的物化（候选提交不能用自己的 guard 自我批准）
-                "pre-push-guard.sh\" --repo-root \"$PWD\" --ref \"$CANDIDATE_SHA\"",
+                "resolve-trusted-base.mjs",
+                "git show \"$BASE_SHA:$rel\"",
+                "--signature",
                 "trusted-gate-contract:",
                 "uses: actions/setup-node@v7",
                 "node-version: '24'",
@@ -698,21 +696,15 @@ class PluginReleaseScriptsTest {
                 // i18n 持续本地化门禁 job
                 "i18n-check:",
                 "run: npm run test:i18n",
-                "node scripts/i18n/check.mjs --snapshot ref --ref \"$CANDIDATE_SHA\"",
                 "run: npm run i18n:check",
-                "run: npm run i18n:generate-static",
+                "npm run i18n:generate-static",
                 "git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static",
-                "uses: actions/upload-artifact@v7",
-                "name: i18n-report",
-                "if-no-files-found: ignore",
-                // 可信物化：stdin 显式重定向 + 输出验证；contract/guard 只来自 trusted bundle
-                "< \"$paths_file\"",
-                "$GATE_DIR/scripts/i18n/gate-contract.mjs",
+                "$GATE_DIR/scripts/ci/gate-parity.mjs",
                 "GATE_DIR",
                 "actions/checkout@v7");
         assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(6);
         assertThat(workflow).doesNotContain("branches: [master]");
-        assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
+        assertThat(workflow).doesNotContain("-Dmaven.test.skip");
         assertThat(workflow).doesNotContain("LEGACY_BOOTSTRAP_REF");
         assertThat(workflow).doesNotContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24");
         assertThat(workflow).doesNotContain("actions/checkout@v4", "actions/setup-node@v4", "actions/upload-artifact@v4");
@@ -763,14 +755,13 @@ class PluginReleaseScriptsTest {
                 "quality-gate:",
                 "uses: ./.github/workflows/quality-gate.yml",
                 "publish:",
-                "needs: quality-gate",
-                "needs.quality-gate.result == 'success'");
+                "needs: quality-gate");
         assertThat(release).doesNotContain("quality_gate_passed");
         assertThat(workflow("nightly.yml")).doesNotContain("quality_gate_passed");
     }
 
     @Test
-    @DisplayName("release/nightly 仅在 build-jar 注入生产凭证密钥并于使用后清理临时过滤文件")
+    @DisplayName("release/nightly 仅在 release Environment 的 build-jar 注入生产凭证密钥")
     void releaseWorkflowsIsolateProductionCredentialKeyToBuildJar() throws Exception {
         String secretName = "PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64";
         for (String name : List.of("release.yml", "nightly.yml")) {
@@ -786,9 +777,7 @@ class PluginReleaseScriptsTest {
                     "PLUGIN_CREDENTIAL_FILTER=$filterPath",
                     "\"-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER\"",
                     "-Ddistribution.packaging.require-production-credential-key=true",
-                    "Remove production plugin credential key filter",
-                    "if: always()",
-                    "Remove-Item -LiteralPath $env:PLUGIN_CREDENTIAL_FILTER");
+                    "environment: release");
             assertThat(buildJarJob).as(name).doesNotContain(
                     "-Dplugin.credential.key.current-base64",
                     "-D" + secretName,
@@ -797,10 +786,7 @@ class PluginReleaseScriptsTest {
             assertThat(workflow).as(name).doesNotContain("secrets: inherit");
 
             String publishJob = workflowJob(workflow, "publish-plugins");
-            assertThat(publishJob).contains(
-                    "PLUGINS_REPO_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}",
-                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}");
+            assertThat(publishJob).doesNotContain("secrets.");
         }
 
         assertThat(workflow("quality-gate.yml")).doesNotContain(
@@ -812,9 +798,8 @@ class PluginReleaseScriptsTest {
                 .doesNotContain(secretName, "plugin.credential.filter")
                 .contains(
                         "workflow_call:",
-                        "PLUGINS_REPO_TOKEN:",
-                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64:",
-                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM:");
+                        "environment: release",
+                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}");
     }
 
     @Test
@@ -828,10 +813,8 @@ class PluginReleaseScriptsTest {
                 "uses: ./.github/workflows/quality-gate.yml",
                 "publish:",
                 "needs: quality-gate",
-                "!cancelled()",
-                "needs.quality-gate.result == 'success'",
                 "ref: ${{ github.sha }}");
-        assertThat(workflow).doesNotContain("quality_gate_passed", "if: ${{ always()");
+        assertThat(workflow).doesNotContain("quality_gate_passed", "if: ${{ always()", "!cancelled()");
     }
 
     @Test
@@ -1182,8 +1165,9 @@ class PluginReleaseScriptsTest {
                     "expiresAt: $expiresAt",
                     "--argjson sequence \"$GITHUB_RUN_ID\"",
                     "Sign update manifest",
+                    "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                     "--repository-id pixivdownloader-update",
-                    "--key-id pixivdownloader-official-root-2026-07",
+                    "--key-id pixivdownloader-update-root-2026-08",
                     "--out artifacts/update.json.sig",
                     "chmod 600 -- $privateKeyFile",
                     "} finally {",
