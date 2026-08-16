@@ -1,64 +1,6 @@
 #!/usr/bin/env bash
-# Local pre-push hook: i18n gate + signature guard against the ACTUAL commits
-# being pushed (not the worktree), judged by the LOCAL TRUSTED EPOCH 4 ANCHOR.
-#
-# Git invokes pre-push with: $1 = remote name, $2 = remote URL; ref lines on
-# stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>
-#
-# Trust model:
-# - The local anchor must belong to Gate Epoch 4 (pixiv.i18n.trustedGateEpoch == 4 +
-#   pixiv.i18n.trustedGateRef); obsolete / uninitialized epochs fail closed and are
-#   never migrated (no v1 / legacy / transition compatibility paths).
-# - When the Epoch 4 root tag (refs/tags/i18n-gate-epoch-4-root) exists locally,
-#   the trusted ref must descend from it.
-# - ALL pushed commits are checked by the TRUSTED anchor's checker, contract,
-#   policy and signature guard (materialized once from the trusted commit via
-#   an isolated temp index). A candidate ref's own checker/contract/guard is
-#   only ever the OBJECT of the trusted contract's black-box tests; it can
-#   never approve itself.
-# - When a pushed commit changes gate paths (scripts/i18n/**, scripts/hooks/**,
-#   scripts/ci/**, scripts/sync-shared-snippets.ps1, .github/workflows/*.yml in the
-#   gate surface, package.json, package-lock.json; the exact list comes from the
-#   trusted gate-surface.json manifest) relative to ANY parent, the trusted gate
-#   contract validates that commit (--candidate-ref). Intermediate commits that
-#   introduce a no-op checker fail even when a later commit fixes it; the branch
-#   tip's gate bundle is never the only thing checked.
-# - Enforcement boundary: only commits at/after the trusted policy's
-#   i18nEnforcementStartCommit run the i18n gate; a branch whose history does
-#   not include the enforcement root fails closed. Eligibility is decided PER
-#   COMMIT with `git merge-base --is-ancestor` (never by rev-list set
-#   inference). Tags pointing at pre-start history are exempt from the i18n
-#   gate but still run the signature guard.
-# - The final local tip of every ref line is ALWAYS checked, even when the
-#   computed range is empty (e.g. a non-fast-forward push after a remote
-#   advance): an empty range must never mean "nothing to check".
-# - Protected branches (trusted policy protectedBranches, e.g.
-#   refs/heads/master): the candidate tip must contain the current trusted
-#   anchor and the enforcement start; when the remote branch exists the push
-#   must be a fast-forward; force pushes (rewinding master to an old gate
-#   commit) are refused by default. Non-protected branches may rewrite history
-#   but still use the real remote state, check every actually-new commit, and
-#   always check the final tip.
-# - Real remote state: refs/remotes/<remote>/* are never trusted as remote
-#   truth. The hook queries the real remote (git ls-remote --heads --tags
-#   <remote_url>) and fetches needed refs into a unique temporary namespace
-#   refs/pixiv-i18n-prepush/<nonce>/; commit ranges are computed ONLY from
-#   that namespace (plus the server-provided remote sha from stdin). All temp
-#   refs are deleted on exit (including abnormal exit). If the remote cannot
-#   be queried or fetched, the hook conservatively scans ALL reachable commits
-#   of each pushed tip (never fewer checks).
-# - Commit SHAs are deduplicated by exact sha; every unique commit runs the
-#   trusted i18n check (when eligible) and the trusted signature guard, plus
-#   the trusted contract when it proposes gate changes.
-# - Deletions are skipped; refs that cannot be peeled to a commit are refused.
-# - Never invokes --no-verify; never pushes anything; no tar / rsync / zip.
-#
-# Security boundary (documented, not overstated): local Git hooks are a
-# development convenience gate. A user can always modify the hook, modify
-# .git/config, or use --no-verify, so this hook is not claimed to be
-# absolutely unbypassable. The real final gate is the GitHub Ruleset / branch
-# protection / required check, and a trusted workflow or checker must never be
-# approved by the same candidate commit that proposes it.
+# Local early feedback for refs being pushed. GitHub's protected verifier is
+# authoritative; this hook checks only each distinct pushed tip.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -71,147 +13,15 @@ run_without_local_git_env() (
     "$@"
 )
 
-remote_name="${1:-}"
-remote_url="${2:-}"
-if [ -z "$remote_name" ]; then
-    echo "pre-push: missing remote name argument ($# args received)." >&2
-    exit 1
-fi
-
-docs_hint="see README (online docs: https://sywyar.github.io/PixivDownloader/#/zh-cn/development)"
 zero="0000000000000000000000000000000000000000"
+saw_ref=0
+tips=()
 
-if ! command -v node >/dev/null 2>&1; then
-    echo "pre-push: node is required for the i18n gate but was not found in PATH." >&2
-    echo "pre-push: install Node.js ($docs_hint) and re-run the push." >&2
-    exit 1
-fi
-
-# ---- 1. Current trust anchor: missing / invalid epoch -> fail closed ----
-epoch="$(git config --local --get pixiv.i18n.trustedGateEpoch || true)"
-trusted="$(git config --local --get pixiv.i18n.trustedGateRef || true)"
-if [ -z "$trusted" ] || ! printf '%s' "$epoch" | grep -Eq '^[2-9][0-9]*$'; then
-    echo "pre-push: Your local gate anchor belongs to an obsolete or uninitialized epoch." >&2
-    echo "pre-push: Run the explicit current root adoption command." >&2
-    echo "pre-push: this is a local convenience gate; the final gate is the GitHub required check." >&2
-    exit 1
-fi
-if ! git rev-parse --verify --quiet "$trusted^{commit}" >/dev/null 2>&1; then
-    echo "pre-push: trusted gate anchor $trusted does not resolve to a commit in this repository." >&2
-    echo "pre-push: restore or explicitly re-adopt the current root." >&2
-    exit 1
-fi
-# 本地已安装当前 root tag 时，anchor 必须包含该 root
-root_tag="i18n-gate-epoch-${epoch}-root"
-if git rev-parse --verify --quiet "refs/tags/${root_tag}^{commit}" >/dev/null 2>&1; then
-    root_sha="$(git rev-parse --verify --quiet "refs/tags/${root_tag}^{commit}")"
-    if ! git merge-base --is-ancestor "$root_sha" "$trusted" >/dev/null 2>&1; then
-        echo "pre-push: trusted anchor $trusted does not descend from the Gate Epoch $epoch trust root $root_sha." >&2
-        exit 1
-    fi
-fi
-
-tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/pixiv-i18n-prepush.XXXXXX")"
-nonce="$$-$(date +%s)-$RANDOM"
-ns="refs/pixiv-i18n-prepush/$nonce"
-cleanup() {
-    if [ -n "$ns" ]; then
-        git for-each-ref --format='%(refname)' "$ns/" 2>/dev/null | while read -r r; do
-            git update-ref -d "$r" >/dev/null 2>&1 || true
-        done
-    fi
-    if [ -n "${tmpdir:-}" ] && [ -d "$tmpdir" ]; then
-        rm -rf "$tmpdir" || true
-    fi
-}
-trap cleanup EXIT
-
-# ---- 2. 物化 trusted anchor 的 gate bundle（一次） ----
-trusted_dir="$tmpdir/trusted"
-trusted_paths="$(git ls-tree -r --name-only "$trusted" -- \
-    scripts/i18n scripts/hooks scripts/ci scripts/sync-shared-snippets.ps1 \
-    .github/workflows/quality-gate.yml .github/workflows/shared-snippets-check.yml \
-    .github/workflows/release.yml .github/workflows/nightly.yml \
-    .github/workflows/publish-plugins.yml package.json package-lock.json)"
-if [ -z "$trusted_paths" ]; then
-    echo "pre-push: trusted anchor $trusted does not contain the i18n gate bundle (scripts/i18n, scripts/hooks)." >&2
-    exit 1
-fi
-mkdir -p "$trusted_dir"
-GIT_INDEX_FILE="$tmpdir/trusted-index" git read-tree "$trusted"
-printf '%s\n' "$trusted_paths" | GIT_INDEX_FILE="$tmpdir/trusted-index" \
-    git -c core.autocrlf=false checkout-index --stdin --prefix="$trusted_dir/"
-if [ ! -f "$trusted_dir/scripts/i18n/check.mjs" ]; then
-    echo "pre-push: trusted gate bundle is incomplete (scripts/i18n/check.mjs missing at $trusted); fail closed." >&2
-    exit 1
-fi
-if [ ! -f "$trusted_dir/scripts/hooks/pre-push-guard.sh" ]; then
-    echo "pre-push: trusted gate bundle is incomplete (scripts/hooks/pre-push-guard.sh missing at $trusted); fail closed." >&2
-    exit 1
-fi
-if [ ! -f "$trusted_dir/scripts/i18n/gate-policy.json" ]; then
-    echo "pre-push: trusted gate bundle is incomplete (scripts/i18n/gate-policy.json missing at $trusted); fail closed." >&2
-    echo "pre-push: current anchors always carry the gate policy; obsolete epochs are not migrated." >&2
-    exit 1
-fi
-if [ ! -f "$trusted_dir/scripts/i18n/gate-contract.mjs" ]; then
-    echo "pre-push: trusted gate bundle is incomplete (scripts/i18n/gate-contract.mjs missing at $trusted); fail closed." >&2
-    echo "pre-push: current anchors always carry the gate contract; obsolete epochs are not migrated." >&2
-    exit 1
-fi
-trusted_policy_epoch="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(String(p.gateEpoch||""))' "$trusted_dir/scripts/i18n/gate-policy.json")"
-if [ "$trusted_policy_epoch" != "$epoch" ]; then
-    echo "pre-push: configured epoch $epoch does not match trusted anchor policy epoch $trusted_policy_epoch; fail closed." >&2
-    exit 1
-fi
-start="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(p.i18nEnforcementStartCommit)' "$trusted_dir/scripts/i18n/gate-policy.json")"
-protected_list="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const list=(p.protectedBranches||[]).filter((r)=>typeof r==="string"&&r.startsWith("refs/heads/"));process.stdout.write(list.join("\n"))' "$trusted_dir/scripts/i18n/gate-policy.json")"
-if ! git rev-parse --verify --quiet "$start^{commit}" >/dev/null 2>&1; then
-    echo "pre-push: i18n enforcement start $start (from the trusted policy) does not resolve in this repository; fail closed." >&2
-    exit 1
-fi
-
-# ---- 2.5 trusted verifier 必须满足执行中 policy.minimumTrustedVerifier（能力只增不减） ----
-if ! node -e 'const fs=require("fs"),path=require("path"),source=process.argv[1],base=process.argv[2],sourceFile=path.join(source,"scripts/i18n/gate-policy.json"),b=JSON.parse(fs.readFileSync(path.join(base,"scripts/i18n/gate-policy.json"),"utf8")),p=fs.existsSync(sourceFile)?JSON.parse(fs.readFileSync(sourceFile,"utf8")):{},m=p.minimumTrustedVerifier||b.minimumTrustedVerifier;if(!m||!Number.isInteger(m.contractVersion)||!Number.isInteger(m.schemaVersion)||!Array.isArray(m.requiredFiles)||!m.requiredFiles.length)process.exit(1);if(!Number.isInteger(b.contractVersion)||b.contractVersion<m.contractVersion||!Number.isInteger(b.schemaVersion)||b.schemaVersion<m.schemaVersion)process.exit(1);for(const rel of m.requiredFiles){if(typeof rel!=="string"||!fs.existsSync(path.join(base,...rel.split("/"))))process.exit(1)}' "$root" "$trusted_dir"; then
-    echo "pre-push: trusted gate anchor $trusted does not satisfy the executing policy.minimumTrustedVerifier; OUTDATED GATE VERIFIER; fail closed." >&2
-    echo "pre-push: advance or explicitly adopt a current Gate Epoch verifier." >&2
-    exit 1
-fi
-
-# gate 变更检测使用 trusted 的 gate-surface.json 单一清单（与 pre-commit / contract / parity /
-# CI bootstrap 同一外围 Gate Surface）；baseline 已保证清单存在，不存在回退内置默认列表的路径。
-gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' "$trusted_dir/scripts/ci/gate-surface.json")"
-
-# ---- 3. 真实远端状态：ls-remote + 临时 namespace fetch（refs/remotes 不作数） ----
-remote_refs="$tmpdir/remote-refs"
-remote_ok=0
-if git ls-remote --heads --tags "$remote_url" > "$remote_refs" 2>/dev/null; then
-    if [ -s "$remote_refs" ]; then
-        if git fetch --no-tags "$remote_url" \
-            "+refs/heads/*:$ns/heads/*" "+refs/tags/*:$ns/tags/*" >/dev/null 2>&1; then
-            remote_ok=1
-        else
-            echo "pre-push: warning: cannot fetch real remote refs from $remote_url; conservatively scanning all reachable commits." >&2
-        fi
-    else
-        remote_ok=1
-    fi
-else
-    echo "pre-push: warning: cannot query remote $remote_url (ls-remote failed); conservatively scanning all reachable commits." >&2
-fi
-
-# ---- 4. 逐 ref 计算 commit 范围 + i18n 资格 ----
-pairs="$tmpdir/pairs"
-: > "$pairs"
-
-# stdin 先行落盘：真实 ref 行与"完全空 stdin"需要区分
-ref_lines="$tmpdir/ref-lines"
-cat > "$ref_lines" || true
-
-while read -r local_ref local_sha remote_ref remote_sha; do
+while read -r local_ref local_sha remote_ref remote_sha extra; do
     [ -n "$local_ref" ] || continue
-    if [ -z "$local_sha" ] || [ -z "$remote_ref" ] || [ -z "$remote_sha" ]; then
-        echo "pre-push: malformed ref line (expected 4 fields): $local_ref $local_sha $remote_ref $remote_sha" >&2
+    saw_ref=1
+    if [ -z "$local_sha" ] || [ -z "$remote_ref" ] || [ -z "$remote_sha" ] || [ -n "${extra:-}" ]; then
+        echo "pre-push: malformed ref line (expected 4 fields)." >&2
         exit 1
     fi
     if [ "$local_sha" = "$zero" ]; then
@@ -220,201 +30,44 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
     commit_sha="$(git rev-parse --verify "$local_sha^{commit}" 2>/dev/null || true)"
     if [ -z "$commit_sha" ]; then
-        echo "pre-push: refusing to push $remote_ref: $local_sha is not a commit (or an annotated tag pointing at one)." >&2
-        echo "pre-push: non-commit refs cannot be scanned by the i18n gate; fix or drop the ref." >&2
+        echo "pre-push: $local_ref does not resolve to a commit." >&2
         exit 1
     fi
+    duplicate=0
+    for existing in "${tips[@]}"; do
+        [ "$existing" = "$commit_sha" ] && duplicate=1
+    done
+    [ "$duplicate" = "1" ] || tips+=("$commit_sha")
+done
 
-    # enforcement 边界：branch 必须包含 enforcement root（fail closed）；tag 可豁免 i18n（guard 仍执行）
-    eligible=1
-    if [ "${local_ref#refs/tags/}" != "$local_ref" ]; then
-        if ! git merge-base --is-ancestor "$start" "$commit_sha" >/dev/null 2>&1; then
-            eligible=0
-            echo "pre-push: tag $local_ref points at pre-enforcement history; i18n gate skipped (signature guard still runs)." >&2
-        fi
-    else
-        if ! git merge-base --is-ancestor "$start" "$commit_sha" >/dev/null 2>&1; then
-            echo "pre-push: FAILED — $local_ref: branch history does not include the i18n enforcement root $start." >&2
-            echo "pre-push: old pre-i18n history cannot be pushed through a normal branch; use a tag or rebase onto the enforcement root." >&2
-            exit 1
-        fi
-    fi
-
-    # 保护分支（trusted policy protectedBranches，如 refs/heads/master）：
-    # candidate tip 必须包含当前 trusted anchor 与 enforcement start；
-    # remote 分支已存在时必须 fast-forward；默认拒绝 force push（禁止把 master 回退到旧 gate commit）。
-    is_protected=0
-    if [ -n "$protected_list" ]; then
-        while read -r p; do
-            [ "$p" = "$remote_ref" ] && is_protected=1
-        done <<< "$protected_list"
-    fi
-    if [ "$is_protected" = "1" ]; then
-        if ! git merge-base --is-ancestor "$trusted" "$commit_sha" >/dev/null 2>&1; then
-            echo "pre-push: FAILED — $remote_ref is protected; the candidate tip $commit_sha does not contain the current trusted gate anchor $trusted." >&2
-            echo "pre-push: rewinding a protected branch to an old gate commit is refused." >&2
-            exit 1
-        fi
-        if ! git merge-base --is-ancestor "$start" "$commit_sha" >/dev/null 2>&1; then
-            echo "pre-push: FAILED — $remote_ref is protected; the candidate tip $commit_sha does not contain the i18n enforcement start $start." >&2
-            exit 1
-        fi
-        if [ "$remote_sha" != "$zero" ]; then
-            ff_base="$remote_sha"
-            if ! git cat-file -e "$remote_sha^{commit}" >/dev/null 2>&1; then
-                # server 提供的 remote sha 不在本地：用真实远端状态（临时 namespace）判定
-                ff_base="$(awk -v ref="$remote_ref" '$2==ref {print $1; exit}' "$remote_refs")"
-            fi
-            if [ -z "$ff_base" ] || ! git cat-file -e "$ff_base^{commit}" >/dev/null 2>&1; then
-                echo "pre-push: FAILED — $remote_ref is protected and its current remote tip cannot be resolved locally; refusing a blind push." >&2
-                exit 1
-            fi
-            if ! git merge-base --is-ancestor "$ff_base" "$commit_sha" >/dev/null 2>&1; then
-                echo "pre-push: FAILED — $remote_ref is protected; refusing a non-fast-forward (force) push from $ff_base to $commit_sha." >&2
-                echo "pre-push: rewinding the protected branch to an old gate commit is refused." >&2
-                exit 1
-            fi
-        fi
-    fi
-
-    # baseline：优先 server 提供的 remote sha（对象在本地）；否则用真实远端状态；否则保守全扫
-    baseline=""
-    if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" >/dev/null 2>&1; then
-        baseline="$remote_sha"
-    else
-        if [ "$remote_sha" != "$zero" ]; then
-            echo "pre-push: remote sha $remote_sha for $remote_ref is not present locally; resolving the real remote state." >&2
-        fi
-        real_sha="$(awk -v ref="$remote_ref" '$2==ref {print $1; exit}' "$remote_refs")"
-        if [ -n "$real_sha" ] && git cat-file -e "$real_sha^{commit}" >/dev/null 2>&1; then
-            baseline="$real_sha"
-        fi
-    fi
-
-    if [ -n "$baseline" ]; then
-        range="$(git rev-list --reverse "$baseline..$local_sha" 2>/dev/null)"
-    elif [ "$remote_ok" = "1" ]; then
-        exclusions="$(git for-each-ref --format='%(refname)' "$ns/")"
-        if [ -n "$exclusions" ]; then
-            range="$(git rev-list --reverse "$commit_sha" --not $exclusions 2>/dev/null)"
-        else
-            range="$(git rev-list --reverse "$commit_sha")"
-        fi
-    else
-        range="$(git rev-list --reverse "$commit_sha")"
-    fi
-    # 逐 commit 资格：只有 enforcement start 真正是该 commit 祖先时（merge-base --is-ancestor）
-    # 才运行新 i18n checker；更早历史（含旧 tag 目标）只跑 signature guard。
-    while read -r sha; do
-        [ -n "$sha" ] || continue
-        flag=0
-        if [ "$eligible" = "1" ] && git merge-base --is-ancestor "$start" "$sha" >/dev/null 2>&1; then
-            flag=1
-        fi
-        printf '%s %s\n' "$sha" "$flag" >> "$pairs"
-    done <<< "$range"
-    # 最终 tip 始终检查（13.1）：无论 range 是否为空，local tip 都必须进入待检查集合
-    tip_flag=0
-    if [ "$eligible" = "1" ] && git merge-base --is-ancestor "$start" "$commit_sha" >/dev/null 2>&1; then
-        tip_flag=1
-    fi
-    printf '%s %s\n' "$commit_sha" "$tip_flag" >> "$pairs"
-done < "$ref_lines"
-
-# 完全空 stdin（git 在全部 ref 已 up-to-date 时不给任何 ref 行）≠ 无事可查：
-# 用真实远端状态保守检查 HEAD（可多检查，不能少检查）。删除分支推送仍有 ref 行，不受影响。
-if [ ! -s "$pairs" ] && [ ! -s "$ref_lines" ]; then
-    echo "pre-push: no ref lines from git (refs up-to-date); conservatively checking HEAD against the real remote state..." >&2
+if [ "$saw_ref" = "0" ]; then
     head_sha="$(git rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null || true)"
-    if [ -n "$head_sha" ]; then
-        if [ "$remote_ok" = "1" ]; then
-            exclusions="$(git for-each-ref --format='%(refname)' "$ns/")"
-            if [ -n "$exclusions" ]; then
-                range="$(git rev-list --reverse "$head_sha" --not $exclusions 2>/dev/null)"
-            else
-                range="$(git rev-list --reverse "$head_sha")"
-            fi
-        else
-            range="$(git rev-list --reverse "$head_sha")"
-        fi
-        while read -r sha; do
-            [ -n "$sha" ] || continue
-            flag=0
-            if git merge-base --is-ancestor "$start" "$sha" >/dev/null 2>&1; then
-                flag=1
-            fi
-            printf '%s %s\n' "$sha" "$flag" >> "$pairs"
-        done <<< "$range"
-        tip_flag=0
-        if git merge-base --is-ancestor "$start" "$head_sha" >/dev/null 2>&1; then
-            tip_flag=1
-        fi
-        printf '%s %s\n' "$head_sha" "$tip_flag" >> "$pairs"
-    fi
+    [ -z "$head_sha" ] || tips+=("$head_sha")
 fi
 
-if [ ! -s "$pairs" ]; then
+if [ "${#tips[@]}" = "0" ]; then
     echo "pre-push: no commits to verify"
     exit 0
 fi
 
-# ---- 5. 精确 SHA 去重（同一 commit 多 ref 只检一次；eligible=1 优先） ----
-sort -k1,1 -k2,2nr "$pairs" | awk '!seen[$1]++' > "$pairs.dedup"
-count="$(wc -l < "$pairs.dedup" | tr -d ' ')"
-echo "pre-push: verifying $count pushed commit(s) against the trusted i18n gate (anchor $(git rev-parse --short "$trusted")) and signature guard (remote '$remote_name', $remote_url)..."
+if ! command -v node >/dev/null 2>&1; then
+    echo "pre-push: node is required for repository checks." >&2
+    exit 1
+fi
 
-    index=0
-    while read -r sha eligible; do
-        index=$((index + 1))
-        contract=0
-        if [ "$eligible" = "1" ]; then
-            parents="$(git rev-list --parents -n 1 "$sha" 2>/dev/null || true)"
-            rest="${parents#* }"
-            if [ -z "$rest" ]; then
-                contract=1
-            else
-                for p in $rest; do
-                    if git diff-tree --no-commit-id --name-only -r "$p" "$sha" 2>/dev/null \
-                        | grep -Eq "$gate_re"; then
-                        contract=1
-                        break
-                    fi
-                done
-            fi
-        fi
-        if [ "$contract" = "1" ] && ! git cat-file -e "$sha:scripts/i18n/gate-policy.json" >/dev/null 2>&1; then
-            contract=0
-        fi
+gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' scripts/ci/gate-surface.json)"
 
-        echo "pre-push: [$index/$count] checking commit $sha (trusted gate)..."
-        if [ "$eligible" = "1" ]; then
-            if ! node "$trusted_dir/scripts/i18n/check.mjs" --repo-root "$root" --report-root "$root" \
-                --snapshot ref --ref "$sha" >"$tmpdir/check-$sha.log" 2>&1; then
-                echo "pre-push: FAILED — commit $sha does not pass the i18n gate (trusted checker from anchor $trusted)." >&2
-                echo "pre-push: full diagnostics:" >&2
-                cat "$tmpdir/check-$sha.log" >&2
-                echo "pre-push: report: build/reports/i18n/report.json (snapshotRef=$sha)" >&2
-                echo "pre-push: run locally: node scripts/i18n/check.mjs --snapshot ref --ref $sha" >&2
-                exit 1
-            fi
-        fi
-        if ! bash "$trusted_dir/scripts/hooks/pre-push-guard.sh" --repo-root "$root" --ref "$sha" \
-            >"$tmpdir/guard-$sha.log" 2>&1; then
-            echo "pre-push: FAILED — commit $sha does not pass the signature guard (guard from anchor $trusted)." >&2
-            cat "$tmpdir/guard-$sha.log" >&2
-            exit 1
-        fi
-        if [ "$contract" = "1" ]; then
-            echo "pre-push: commit $sha proposes gate changes; running the trusted gate contract..."
-            if ! run_without_local_git_env node "$trusted_dir/scripts/i18n/gate-contract.mjs" \
-                --repo-root "$root" --report-root "$root" \
-                --candidate-ref "$sha" >"$tmpdir/contract-$sha.log" 2>&1; then
-                echo "pre-push: FAILED — commit $sha does not pass the trusted gate contract (candidate gate cannot self-approve)." >&2
-                cat "$tmpdir/contract-$sha.log" >&2
-                echo "pre-push: report: build/reports/i18n/contract.json (candidateRef=$sha)" >&2
-                exit 1
-            fi
-        fi
-    done < "$pairs.dedup"
+for sha in "${tips[@]}"; do
+    echo "pre-push: checking tip $sha..."
+    node scripts/i18n/check.mjs --repo-root "$root" --report-root "$root" \
+        --snapshot ref --ref "$sha"
+    bash scripts/hooks/pre-push-guard.sh --repo-root "$root" --ref "$sha"
+    if git diff-tree --root --no-commit-id --name-only -r -m "$sha" \
+        | grep -Eq "$gate_re"; then
+        echo "pre-push: protected release surface changed, checking the tip contract..."
+        run_without_local_git_env node scripts/i18n/gate-contract.mjs \
+            --repo-root "$root" --report-root "$root" --candidate-ref "$sha"
+    fi
+done
 
-echo "pre-push: all $count pushed commit(s) pass the i18n gate and the signature guard."
+echo "pre-push: pushed tip checks passed."
