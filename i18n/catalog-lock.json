@@ -3254,54 +3254,6 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "gui",
-      "key": "gui.image-classifier.default-remark.0",
-      "acceptedSourceHash": "96a3399c743037c150dd9e3c30f810feb44b7a032d8869133989bbee9887635b",
-      "acceptedTranslationHash": "949f8c07ee3eb7a70808fec87dd3c2084a436e9966b2996976ab9c21e5c8a083"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-app",
-      "baseName": "gui",
-      "key": "gui.image-classifier.default-remark.1",
-      "acceptedSourceHash": "ef8d57f8f14d6e8b964e7277b60e310be65dab7a5f76216a843748541a2cea59",
-      "acceptedTranslationHash": "5ddf218e5f6455b5c68d1e8724969a160bc205fdaef5548fea31426c30a3d164"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-app",
-      "baseName": "gui",
-      "key": "gui.image-classifier.default-remark.2",
-      "acceptedSourceHash": "d98ed350f7cb6329461396aa7a0b86d8b5711608b41f167a9038a390b2b5a7bb",
-      "acceptedTranslationHash": "4fd7e4fe56e89534a8e560b203241f8728d3ccf420b4f2ea245d8acf3317ce5f"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-app",
-      "baseName": "gui",
-      "key": "gui.image-classifier.default-remark.3",
-      "acceptedSourceHash": "ea2339e9bcaed99a5a7d691eae1ddbe1426bee509af0e6acc780cf875b63295b",
-      "acceptedTranslationHash": "7afb0bb49318e848a1aa718cb2922f6ac9f16ada94c8b4ef4199f3147072a021"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-app",
-      "baseName": "gui",
-      "key": "gui.image-classifier.default-remark.4",
-      "acceptedSourceHash": "66aaf2e1ce1c0f8ee1e3c8c876827e0e8a86e29e8bbdf5aa355bbdd5d14d48f6",
-      "acceptedTranslationHash": "94b9cc64dce01c79efa027f93120faeccf02f52462b191779aef62068696de31"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-app",
-      "baseName": "gui",
-      "key": "gui.image-classifier.default-remark.5",
-      "acceptedSourceHash": "53684f4127f734db06faa4ba8c659ae19b1f2d4ad8e28b1d602933d42c5aea1a",
-      "acceptedTranslationHash": "cad0d3f615ce2004fb2f987a9e44cb388306f715f1e3adf79a8fe18832fd5b0f"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-app",
-      "baseName": "gui",
       "key": "gui.image-classifier.dialog.add-folder.title",
       "acceptedSourceHash": "c5e52b213c9636776f7ecaf850f33cebfaa4dd54e9703b472d430c547a8662e5",
       "acceptedTranslationHash": "e23d8e78e23fd59e114d2e9f600dfbfbc9296d20f2f11d096e5fc7b265feab29"
@@ -3857,6 +3809,14 @@
       "key": "gui.image-classifier.validation.target-folder-number.required",
       "acceptedSourceHash": "ad89195ebd8b49a94082706c978c68b8b77e9074c84ef403f2cf442aaf6acfaf",
       "acceptedTranslationHash": "7b3cd549e3fea8c842e8054896e3626727a4169a1ac4fa1ffb32b8624abd5d5b"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "gui",
+      "key": "gui.image-classifier.validation.target-folders-not-configured",
+      "acceptedSourceHash": "0d21e7740bc99d9dfb09e284a5ade8d13ae3fa50f53112cd49cff1b616ded416",
+      "acceptedTranslationHash": "a38e934113de1ca52397b4b07aeb580a32afff1f2423ddc3c8c538c7ccb8f7cb"
     },
     {
       "locale": "en-US",

@@ -25,6 +25,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @DisplayName("官方插件发布脚本签名协议守卫")
 class PluginReleaseScriptsTest {
 
+    private static final String ACTION_VERSION_COMMENT_PATTERN =
+            "v[1-9][0-9]*(?:\\.[0-9]+\\.[0-9]+)?";
+
     @Test
     @DisplayName("市场清单生成脚本输出结构化包签名，并在写出原始 manifest 后生成 detached 签名")
     void marketManifestScriptWritesStructuredSignaturesAndDetachedManifestSignature() throws Exception {
@@ -652,6 +655,10 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("所有外部 Action 固定完整提交并由 Dependabot 每周检查更新")
     void externalActionsUseReviewedCommitPins() throws Exception {
+        assertThat("v8").matches(ACTION_VERSION_COMMENT_PATTERN);
+        assertThat("v8.0.1").matches(ACTION_VERSION_COMMENT_PATTERN);
+        assertThat("v8.0").doesNotMatch(ACTION_VERSION_COMMENT_PATTERN);
+
         Pattern usesPattern = Pattern.compile(
                 "(?m)^\\s*uses:\\s*([^\\s#]+)(?:\\s+#\\s*(\\S+))?\\s*$");
         for (String name : List.of(
@@ -674,8 +681,8 @@ class PluginReleaseScriptsTest {
                         .as("%s external action %s must use a full commit SHA", name, target)
                         .matches("[0-9a-f]{40}");
                 assertThat(matcher.group(2))
-                        .as("%s external action %s must keep a readable major version comment", name, target)
-                        .matches("v[1-9][0-9]*");
+                        .as("%s external action %s must keep a readable version comment", name, target)
+                        .matches(ACTION_VERSION_COMMENT_PATTERN);
             }
             assertThat(externalActions).as("%s external actions", name).isPositive();
         }
