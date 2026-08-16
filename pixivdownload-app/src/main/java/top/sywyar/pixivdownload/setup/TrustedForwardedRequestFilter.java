@@ -538,8 +538,13 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
 
         @Override
         public Enumeration<String> getHeaders(String name) {
-            String value = getHeader(name);
-            return value == null ? Collections.emptyEnumeration() : Collections.enumeration(List.of(value));
+            if (HttpHeaders.HOST.equalsIgnoreCase(name)) {
+                return Collections.enumeration(List.of(authority(forwarded.origin())));
+            }
+            if (TrustedForwardedRequestFilter.isForwardedHeader(name)) {
+                return Collections.emptyEnumeration();
+            }
+            return super.getHeaders(name);
         }
 
         @Override

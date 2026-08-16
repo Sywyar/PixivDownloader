@@ -7,6 +7,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -36,6 +37,27 @@ class TrustedForwardedRequestFilterTest {
         assertThat(normalized.getHeader("X-Forwarded-For")).isNull();
         assertThat(normalized.getHeader("X-Forwarded-Prefix")).isNull();
         assertThat(NetworkUtils.isTrustedLocalRequest(normalized)).isFalse();
+    }
+
+    @Test
+    @DisplayName("普通多值请求头保持原始顺序且仅代理头被隐藏")
+    void preservesOrdinaryMultiValueHeaders() throws Exception {
+        TrustedForwardedRequestFilter filter = new TrustedForwardedRequestFilter("10.0.0.0/8");
+        MockHttpServletRequest request = proxyRequest("10.0.0.8");
+        request.addHeader("Host", "backend:6999");
+        request.addHeader("X-Trace", "first");
+        request.addHeader("X-Trace", "second");
+        request.addHeader("X-Forwarded-For", "198.51.100.20");
+        request.addHeader("X-Forwarded-Proto", "https");
+        request.addHeader("X-Forwarded-Host", "gallery.example:8443");
+
+        HttpServletRequest normalized = capture(filter, request);
+
+        assertThat(Collections.list(normalized.getHeaders("X-Trace")))
+                .containsExactly("first", "second");
+        assertThat(Collections.list(normalized.getHeaders("Host")))
+                .containsExactly("gallery.example:8443");
+        assertThat(Collections.list(normalized.getHeaders("X-Forwarded-For"))).isEmpty();
     }
 
     @Test
