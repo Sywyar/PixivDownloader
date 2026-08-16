@@ -22,6 +22,8 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.io.IOException;
 import java.io.InputStream;
@@ -96,6 +98,7 @@ public class WelcomePanel extends JPanel {
     private final JTextField usernameField = new JTextField(18);
     private final JPasswordField passwordField = new JPasswordField(18);
     private final JLabel configFeedback = new JLabel();
+    private boolean weakPasswordConfirmationPending;
     private volatile boolean submitting;
 
     // 代理配置表单控件（跨重建复用）
@@ -130,6 +133,29 @@ public class WelcomePanel extends JPanel {
         add(slider, BorderLayout.CENTER);
 
         proxyEnabledCheck.addItemListener(e -> updateProxyEnabledState());
+        passwordField.getDocument().addDocumentListener(new DocumentListener() {
+            private void resetConfirmation() {
+                weakPasswordConfirmationPending = false;
+                if (!submitting) {
+                    configFeedback.setText("");
+                }
+            }
+
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                resetConfirmation();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                resetConfirmation();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                resetConfirmation();
+            }
+        });
 
         BackendLifecycleManager.addListener(backendListener);
         applyBackendState(BackendLifecycleManager.snapshot());
@@ -585,6 +611,13 @@ public class WelcomePanel extends JPanel {
             showConfigError(GuiMessages.get("gui.welcome.config.invalid.password"));
             return;
         }
+        if (password.length() < SetupService.RECOMMENDED_PASSWORD_LENGTH
+                && !weakPasswordConfirmationPending) {
+            weakPasswordConfirmationPending = true;
+            showConfigWarning(GuiMessages.get("gui.welcome.config.password-warning.message"));
+            return;
+        }
+        weakPasswordConfirmationPending = false;
 
         submitting = true;
         configFeedback.setForeground(Color.GRAY);
@@ -635,6 +668,12 @@ public class WelcomePanel extends JPanel {
 
     private void showConfigError(String msg) {
         configFeedback.setForeground(new Color(180, 60, 60));
+        configFeedback.setText(msg);
+        slider.refreshCurrent(buildStep(STEP_CONFIG));
+    }
+
+    private void showConfigWarning(String msg) {
+        configFeedback.setForeground(new Color(180, 115, 20));
         configFeedback.setText(msg);
         slider.refreshCurrent(buildStep(STEP_CONFIG));
     }

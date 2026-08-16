@@ -2,6 +2,10 @@
 
 let pageI18n = null;
 let activeStatus = null;
+let setupSubmitting = false;
+let weakPasswordConfirmationPending = false;
+const MIN_PASSWORD_LENGTH = 8;
+const RECOMMENDED_PASSWORD_LENGTH = 12;
 
 function st(key, fallback, vars) {
   if (pageI18n) return pageI18n.t(key, fallback, vars);
@@ -70,17 +74,16 @@ function syncStatusText() {
 }
 
 async function submitSetup() {
+  if (setupSubmitting) return;
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
-  const confirm  = document.getElementById('confirm-password').value;
   const mode     = 'solo';
   const proxyEnabled = document.getElementById('proxy-enabled').checked;
   const proxyHost = document.getElementById('proxy-host').value.trim();
   const proxyPortText = document.getElementById('proxy-port').value.trim();
 
   if (!username) { setStatusKey('validation.username-required', '请填写用户名', null, 'error'); return; }
-  if (password.length < 12) { setStatusKey('validation.password-short', '密码长度至少 12 位', null, 'error'); return; }
-  if (password !== confirm) { setStatusKey('validation.password-mismatch', '两次密码输入不一致', null, 'error'); return; }
+  if (password.length < MIN_PASSWORD_LENGTH) { setStatusKey('validation.password-short', '密码长度至少 8 位', null, 'error'); return; }
 
   let proxyPort = 7890;
   if (proxyEnabled) {
@@ -94,7 +97,17 @@ async function submitSetup() {
     proxyPort = Number(proxyPortText);
   }
 
+  if (password.length < RECOMMENDED_PASSWORD_LENGTH && !weakPasswordConfirmationPending) {
+    weakPasswordConfirmationPending = true;
+    setStatusKey('password-warning.message',
+        '本软件会保存其他软件的 Cookie 等敏感凭据，建议使用至少 12 位密码。若仍要继续，请再次点击完成配置。',
+        null, 'warning');
+    return;
+  }
+  weakPasswordConfirmationPending = false;
+
   const btn = document.getElementById('submit-btn');
+  setupSubmitting = true;
   btn.disabled = true;
   setStatusKey('status.saving', '正在保存配置...', null, 'info');
 
@@ -114,6 +127,7 @@ async function submitSetup() {
       if (data.error) setStatusText(data.error, 'error');
       else setStatusKey('status.failed', '配置失败', null, 'error');
       btn.disabled = false;
+      setupSubmitting = false;
       return;
     }
 
@@ -128,7 +142,12 @@ async function submitSetup() {
   } catch (e) {
     setStatusKey('status.network-error', 'status.network-error', {message: e.message}, 'error');
     btn.disabled = false;
+    setupSubmitting = false;
   }
+}
+
+function resetWeakPasswordConfirmation() {
+  weakPasswordConfirmationPending = false;
 }
 
 // 回车提交
@@ -147,6 +166,7 @@ async function redirectIfComplete() {
 }
 
 (async function initSetupPage() {
+  document.getElementById('password').addEventListener('input', resetWeakPasswordConfirmation);
   PixivActions.bind(document, {
     click: {submitSetup},
     change: {syncProxyEnabled}

@@ -102,7 +102,7 @@ class SetupControllerTest {
     class SetupInitTests {
 
         @Test
-        @DisplayName("正确参数应初始化成功")
+        @DisplayName("8 位密码应初始化成功")
         void shouldInitSuccessfully() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(false);
 
@@ -110,14 +110,14 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password1234",
+                                    "password", "12345678",
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.ok").value(true))
                     .andExpect(jsonPath("$.mode").value("solo"));
 
-            verify(setupService).init("admin", "password1234", "solo");
+            verify(setupService).init("admin", "12345678", "solo");
         }
 
         @Test
@@ -198,7 +198,7 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("密码长度必须为 12 到 1024 个字符")));
+                    .andExpect(jsonPath("$.error").value(containsString("密码长度必须为 8 到 1024 个字符")));
         }
 
         @Test

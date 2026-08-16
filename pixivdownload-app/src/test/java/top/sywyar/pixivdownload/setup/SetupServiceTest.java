@@ -119,12 +119,21 @@ class SetupServiceTest {
     class InitTests {
 
         @Test
-        @DisplayName("初始化后状态应为已完成")
+        @DisplayName("8 位密码应允许初始化")
         void shouldCompleteSetup() throws IOException {
-            setupService.init("admin", "password1234", "solo");
+            setupService.init("admin", "12345678", "solo");
 
             assertThat(setupService.isSetupComplete()).isTrue();
             assertThat(setupService.getMode()).isEqualTo("solo");
+        }
+
+        @Test
+        @DisplayName("7 位密码应拒绝初始化")
+        void shouldRejectPasswordBelowMinimumLength() {
+            assertThatThrownBy(() -> setupService.init("admin", "1234567", "solo"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("at least 8 characters");
+            assertThat(setupService.isSetupComplete()).isFalse();
         }
 
         @Test
@@ -139,6 +148,19 @@ class SetupServiceTest {
             assertThat(reloaded.isSetupComplete()).isTrue();
             assertThat(reloaded.getMode()).isEqualTo("multi");
         }
+    }
+
+    @Test
+    @DisplayName("修改密码应接受 8 位并拒绝 7 位")
+    void shouldEnforcePasswordMinimumWhenChangingPassword() throws IOException {
+        setupService.init("admin", "password", "solo");
+
+        assertThatThrownBy(() -> setupService.changePassword("password", "1234567"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least 8 characters");
+        setupService.changePassword("password", "12345678");
+
+        assertThat(setupService.checkLogin("admin", "12345678")).isTrue();
     }
 
     // ========== checkLogin ==========

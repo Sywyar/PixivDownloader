@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * 命令行管理工具：在无头服务器/Docker 等无法访问 GUI 与 setup 网页的环境下，
@@ -66,6 +67,7 @@ public final class CliSetupCommand {
     private static final Set<String> COMMANDS = Set.of(CMD_SETUP, CMD_CHANGE_PASSWORD, CMD_RESET_PASSWORD);
     private static final Set<String> VALID_MODES = Set.of("solo", "multi");
     private static final int MIN_PASSWORD_LENGTH = SetupService.MIN_PASSWORD_LENGTH;
+    private static final int RECOMMENDED_PASSWORD_LENGTH = SetupService.RECOMMENDED_PASSWORD_LENGTH;
 
     /**
      * 启动器自己识别的"无 value 标志"白名单。匹配这些字符串的参数会被原样放行。
@@ -104,6 +106,8 @@ public final class CliSetupCommand {
 
     private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final BufferedReader STDIN_READER =
+            new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
 
     private CliSetupCommand() {
     }
@@ -216,8 +220,8 @@ public final class CliSetupCommand {
 
         out.println(message("cli.help.section.examples"));
         out.println("  java -jar app.jar --setup");
-        out.println("  java -jar app.jar --setup --username=admin --password=secret123 --mode=solo");
-        out.println("  java -jar app.jar --setup --username=admin --password=secret123 --mode=multi --proxy-enabled=false");
+        out.println("  java -jar app.jar --setup --username=admin --password=secret123456 --mode=solo");
+        out.println("  java -jar app.jar --setup --username=admin --password=secret123456 --mode=multi --proxy-enabled=false");
         out.println("  java -jar app.jar --change-password");
         out.println("  java -jar app.jar --reset-password");
         out.println("  java -jar app.jar --no-gui");
@@ -371,17 +375,21 @@ public final class CliSetupCommand {
         String password = flags.password;
         if (password == null || password.isEmpty()) {
             password = promptPassword(message("cli.prompt.password"));
-            if (password == null) {
-                err(message("cli.error.password-required"));
-                return 2;
-            }
-            String confirm = promptPassword(message("cli.prompt.password-confirm"));
-            if (!password.equals(confirm)) {
-                err(message("cli.error.password-mismatch"));
-                return 2;
-            }
         }
         String pwdError = validatePassword(password);
+        if (pwdError != null) {
+            err(pwdError);
+            return 2;
+        }
+        password = confirmSetupPassword(password, () -> {
+            out(message("cli.setup.password-warning"));
+            return promptPassword(message("cli.prompt.password-reconsider"));
+        });
+        if (password == null) {
+            err(message("cli.error.password-required"));
+            return 2;
+        }
+        pwdError = validatePassword(password);
         if (pwdError != null) {
             err(pwdError);
             return 2;
@@ -702,6 +710,22 @@ public final class CliSetupCommand {
         return null;
     }
 
+    static String confirmSetupPassword(String password, Supplier<String> replacementPrompt) {
+        while (password != null
+                && password.length() >= MIN_PASSWORD_LENGTH
+                && password.length() < RECOMMENDED_PASSWORD_LENGTH) {
+            String replacement = replacementPrompt.get();
+            if (replacement == null) {
+                return null;
+            }
+            if (replacement.isEmpty()) {
+                return password;
+            }
+            password = replacement;
+        }
+        return password;
+    }
+
     // ── 输入/输出 ────────────────────────────────────────────────────────────────
 
     private static String promptLine(String prompt) {
@@ -713,8 +737,7 @@ public final class CliSetupCommand {
         System.out.print(prompt);
         System.out.flush();
         try {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
-            return reader.readLine();
+            return STDIN_READER.readLine();
         } catch (IOException e) {
             return null;
         }
@@ -733,8 +756,7 @@ public final class CliSetupCommand {
         System.out.print(prompt);
         System.out.flush();
         try {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
-            return reader.readLine();
+            return STDIN_READER.readLine();
         } catch (IOException e) {
             return null;
         }
