@@ -1,142 +1,557 @@
 'use strict';
 
-const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
-const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
-    'pixiv-notifications', 'batch-inbox-slot.js'), 'utf8');
-const PAGE_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
-    'pixiv-notifications', 'pixiv-notifications.js'), 'utf8');
-const PAGE_HTML = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
-    'pixiv-notifications.html'), 'utf8');
-const CSS = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
-    'pixiv-notifications', 'pixiv-notifications.css'), 'utf8');
+const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static');
+const SLOT_SOURCE = fs.readFileSync(path.join(STATIC, 'pixiv-notifications', 'batch-inbox-slot.js'), 'utf8');
+const PAGE_SOURCE = fs.readFileSync(path.join(STATIC, 'pixiv-notifications', 'pixiv-notifications.js'), 'utf8');
+const PAGE_HTML = fs.readFileSync(path.join(STATIC, 'pixiv-notifications.html'), 'utf8');
+const CSS = fs.readFileSync(path.join(STATIC, 'pixiv-notifications', 'pixiv-notifications.css'), 'utf8');
 
-assert.ok(SOURCE.includes('queueTypes.registerUiModule(function (context)'),
-    '站内信顶栏入口应使用受控下载页 uiSlot initializer');
-assert.ok(SOURCE.includes("response.status === 401 || response.status === 403")
-    && SOURCE.includes('removeRendered();'),
-    '非管理员响应必须移除入口');
-assert.ok(SOURCE.includes("context.onCleanup(function ()")
-    && SOURCE.includes("removeEventListener('pixivbatch:slotsrendered'")
-    && SOURCE.includes('removeRendered();'),
-    '插件 publication 清理时必须移除监听器与 DOM');
-assert.ok(SOURCE.includes("popover.setAttribute('popover', 'auto')")
-    && SOURCE.includes("button.setAttribute('aria-label'"),
-    '入口应使用原生 popover 并提供可访问名称');
-assert.ok(CSS.includes('.notification-page {') && !/(^|\n)body\s*\{/.test(CSS),
-    '插件页面样式不得通过裸 body 选择器污染下载工作台');
-assert.ok(CSS.includes('--notification-brand: var(--brand, #0096fa);')
-    && /html\[data-theme="dark"\]\s*\{[^}]*--notification-brand:\s*var\(--brand, #4bb3ff\);/s.test(CSS),
-    '站内信独立页必须使用蓝白配色并保留宿主品牌色覆盖');
-assert.ok(SOURCE.includes("data-i18n-title', 'notification:inbox.open'")
-    && SOURCE.includes("data-i18n', 'notification:inbox.latest'"),
-    '动态顶栏入口与弹窗必须跟随下载页语言切换');
-assert.ok(SOURCE.includes('var snapshot = {messages: [], unreadCount: 0};')
-    && SOURCE.includes('global.PixivVue.prepareSlotHosts(document);')
-    && /createPopover\(\);[\s\S]*prepareSlotHosts\(document\);[\s\S]*render\(\);[\s\S]*refresh\(\);/.test(SOURCE),
-    '入口必须先建立共享槽位并渲染，不能依赖首次消息请求成功');
-assert.strictEqual((CSS.match(/--notification-topbar-icon:\s*var\(--brand-text, var\(--text,/g) || []).length, 2,
-    '顶栏图标必须兼容旧版品牌色与新版明暗主题文本色');
-assert.ok(/\.ab-topbar \.notification-inbox-button\s*\{[^}]*border-radius:\s*var\(--r-sm\);[^}]*background:\s*transparent;/s.test(CSS)
-    && /\.ab-topbar \.notification-inbox-button:hover\s*\{[^}]*background:\s*var\(--hover-bg\);/s.test(CSS),
-    '新版顶栏站内信入口必须使用纯图标区的透明底与悬停样式');
-assert.ok(PAGE_SOURCE.includes('state.selectedMessage && !matchesCategory(state.selectedMessage)')
-    && PAGE_SOURCE.includes('clearSelection(true);'),
-    '切换分类时必须清除不属于新分类的右侧详情');
-assert.ok(/if \(state\.selectedId !== id\) return;[\s\S]*if \(!matchesCategory\(message\)\) \{[\s\S]*clearSelection\(true\);/s.test(PAGE_SOURCE),
-    '异步加载完成时必须拒绝过期或分类不匹配的详情');
-assert.ok(PAGE_SOURCE.includes('function isoTime(epochMillis)')
-    && PAGE_SOURCE.includes("Number.isFinite(date.getTime()) ? date.toISOString() : ''")
-    && (PAGE_SOURCE.match(/time\.dateTime = isoTime\(message\.createdTime\);/g) || []).length === 2,
-    '非法公告时间不得中断列表或详情渲染');
-assert.ok(PAGE_SOURCE.includes('snapshot.categoryUnreadCount')
-    && PAGE_SOURCE.includes("query.set('unreadOnly', 'true')")
-    && PAGE_SOURCE.includes("api('/api/notifications/read-all' + query"),
-    '分类页必须使用当前分类未读数并支持仅看未读与当前分类全部已读');
-assert.ok(PAGE_SOURCE.includes("var autoRead = message.category === 'survey' || message.category === 'announcement'")
-    && PAGE_SOURCE.includes('if (!autoRead) toolbar.appendChild(markRead)')
-    && PAGE_SOURCE.includes('markSelectedRead(null, true, true)')
-    && PAGE_SOURCE.includes('if (!keepSelection)')
-    && !SOURCE.includes("encodeURIComponent(message.id) + '/read'"),
-    '调查与公告详情必须自动标记已读且仅看未读时保留已打开详情，弹窗点击不等待冗余请求');
-assert.ok(PAGE_SOURCE.includes('requestSequence !== loadSequence')
-    && (PAGE_SOURCE.match(/\+\+loadSequence;/g) || []).length >= 4
-    && /response\.status === 401[\s\S]*?\+\+loadSequence;[\s\S]*?location\.href = '\/login\.html/.test(PAGE_SOURCE)
-    && (PAGE_SOURCE.match(/\+\+loadSequence;\s*if \(state\.selectedId !== id\) return;/g) || []).length === 2
-    && PAGE_SOURCE.includes('if (id) selectMessage(id, false); else clearSelection(false);'),
-    '列表、写操作与登录跳转必须拒绝过期响应，历史导航移除 id 时必须清空详情');
-assert.ok(PAGE_SOURCE.includes("window.matchMedia('(max-width: 760px)').matches")
-    && PAGE_SOURCE.includes("document.visibilityState === 'visible'")
-    && SOURCE.includes('global.clearInterval(refreshTimer)'),
-    '移动端打开详情应定位内容，可见页面定时刷新且插件卸载时清理计时器');
-assert.ok(PAGE_SOURCE.includes("severity === 'warning' || severity === 'error'")
-    && CSS.includes('.notification-list-item.severity-warning')
-    && CSS.includes('.notification-detail-panel.severity-error h2'),
-    '警告与错误消息必须有可辨识的严重程度样式');
-assert.ok(PAGE_HTML.includes("frame-src 'self'; child-src 'self'")
-    && PAGE_HTML.includes("default-src 'self'; script-src 'self'; style-src 'self'")
-    && PAGE_HTML.includes("connect-src 'self'")
-    && PAGE_HTML.includes("object-src 'none'; base-uri 'none'; form-action 'none'"),
-    '详细页 CSP 必须限制自身资源、网络连接和 iframe，并禁止对象、表单与 base 改写');
-assert.ok(PAGE_HTML.includes('src="/js/pixiv-navigation.js"')
-    && PAGE_HTML.includes('data-nav-preferred-href-marker="preferred-download-workbench"'),
-    '站内信返回入口必须复用共享导航记录的最近下载工作台地址');
-assert.ok(PAGE_SOURCE.includes('(!message.hasHtmlContent && !message.embeddedContentUrl)')
-    && PAGE_SOURCE.includes("'/api/notifications/' + encodeURIComponent(message.id) + '/content'")
-    && PAGE_SOURCE.includes("return withLanguage('/api/notifications/'")
-    && !PAGE_SOURCE.includes('sywyar.github.io')
-    && !PAGE_SOURCE.includes('PixivDownloader-Remote-Content'),
-    '任意分类的 HTML 正文必须只从本地鉴权端点按当前语言加载');
-assert.ok(PAGE_SOURCE.includes("frame.setAttribute('sandbox', 'allow-scripts')")
-    && PAGE_SOURCE.includes("frame.setAttribute('referrerpolicy', 'no-referrer')")
-    && PAGE_SOURCE.includes("camera 'none'; clipboard-read 'none'; clipboard-write 'none'")
-    && !PAGE_SOURCE.includes("frame.setAttribute('credentialless', '')")
-    && !PAGE_SOURCE.includes('allow-same-origin'),
-    '所有正文 iframe 必须只允许运行脚本、保持不同源隔离和敏感能力禁用');
-assert.ok(PAGE_SOURCE.includes("data.type !== 'pixiv-external-link'")
-    && PAGE_SOURCE.includes("candidate.contentWindow === event.source")
-    && PAGE_SOURCE.includes("event.origin !== 'null'")
-    && PAGE_SOURCE.includes("frame.getAttribute('data-embedded-survey') === 'true'")
-    && PAGE_SOURCE.includes("window.PixivFeedback.followLink(data.href")
-    && PAGE_SOURCE.includes("window.addEventListener('message', handleContentMessage)"),
-    'HTML 正文链接只能由当前 iframe 消息桥接到全站外链确认');
-assert.ok(PAGE_SOURCE.includes("data.type === 'pixiv-content-height'")
-    && PAGE_SOURCE.includes('if (!activeContentFrame(frame)')
-    && PAGE_SOURCE.includes('Math.min(2000, Math.max(160, Math.ceil(height + 2)))')
-    && PAGE_SOURCE.includes('window.setTimeout(applyHeight, 50)')
-    && PAGE_SOURCE.includes('if (frame.style.height !== frameHeight) frame.style.height = frameHeight;')
-    && PAGE_SOURCE.includes("frame.setAttribute('scrolling', 'no')")
-    && /\.notification-detail-content-frame\s*\{[^}]*width:\s*100%;[^}]*height:\s*1px;[^}]*border:\s*0;[^}]*overflow:\s*hidden;/s.test(CSS)
-    && !/\.notification-detail-content-frame\s*\{[^}]*min-height:/s.test(CSS),
-    'HTML 正文必须仅按当前 frame 的限频消息在 160-2000px 内自适应高度且不显示独立滚动框');
-assert.ok(PAGE_SOURCE.includes("frame.setAttribute('data-embedded-survey', 'true')")
-    && PAGE_SOURCE.includes("data.type === 'pixiv-survey-unavailable'")
-    && PAGE_HTML.includes('src="/js/pixiv-survey-frame-bridge.js"')
-    && PAGE_SOURCE.includes('window.PixivSurveyFrameBridge.createHost({')
-    && PAGE_SOURCE.includes('surveyFrameHost.attach(frame, source)')
-    && PAGE_SOURCE.includes('isActive: activeContentFrame')
-    && PAGE_SOURCE.includes("'/survey-unavailable'")
-    && PAGE_SOURCE.includes('message.deletable !== false')
-    && PAGE_SOURCE.includes("query.set('lang', pageI18n.lang)")
-    && SOURCE.includes("query.set('lang', pageI18n.lang)"),
-    '插件调查应在不同源 sandbox 中通过受限通道展示、隐藏删除入口并跟随当前语言');
-assert.ok(PAGE_HTML.includes('id="notificationContentFrames"')
-    && PAGE_SOURCE.includes('var contentFrames = new Map();')
-    && !PAGE_SOURCE.includes("frame.setAttribute('loading', 'eager')")
-    && !PAGE_SOURCE.includes('preloadEmbeddedFrames')
-    && PAGE_SOURCE.includes("frame.setAttribute('loading', 'lazy')")
-    && PAGE_SOURCE.includes("frame.getAttribute('data-content-source') === source")
-    && /if \(state\.selectedMessage\) \{[\s\S]*?return;\s*\}\s*try \{/s.test(PAGE_SOURCE),
-    '调查 iframe 必须仅在打开消息后创建并按消息与语言复用，重复选择不得重新请求详情或重建正文');
-assert.ok(/\.notification-detail-content-frame\[hidden\]\s*\{\s*display:\s*none;\s*\}/s.test(CSS),
-    '缓存多封 HTML 正文时必须显式隐藏非当前 iframe，避免正文拼接显示');
-assert.ok(/\.notification-page\s*\{[^}]*height:\s*100dvh;[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s.test(CSS)
-    && /\.notification-page-grid\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;/s.test(CSS)
-    && /\.notification-list\s*\{[^}]*flex:\s*1;[^}]*overflow-y:\s*auto;/s.test(CSS)
-    && /\.notification-detail-panel\s*\{[^}]*overflow-y:\s*auto;/s.test(CSS)
-    && /@media \(max-width:\s*760px\)[\s\S]*\.notification-page\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s.test(CSS),
-    '桌面端消息列表与详情必须独立滚动，移动端恢复自然页面滚动');
+class El {
+    constructor(tag) {
+        this.tag = String(tag).toLowerCase();
+        this.attributes = {};
+        this.children = [];
+        this.parentNode = null;
+        this.listeners = new Map();
+        this.dataset = {};
+        this.style = {};
+        this.hidden = false;
+        this.disabled = false;
+        this.checked = false;
+        this.className = '';
+        this._text = '';
+        this._html = '';
+        this.contentWindow = this.tag === 'iframe' ? {} : undefined;
+        this.classList = {
+            add: (...names) => this._setClasses([...this._classes(), ...names]),
+            remove: (...names) => this._setClasses(this._classes().filter(name => !names.includes(name))),
+            toggle: (name, force) => {
+                const present = this._classes().includes(name);
+                const enabled = force === undefined ? !present : !!force;
+                this._setClasses(enabled ? [...this._classes(), name] : this._classes().filter(value => value !== name));
+                return enabled;
+            },
+            contains: name => this._classes().includes(name)
+        };
+    }
+    _classes() { return String(this.className || '').split(/\s+/).filter(Boolean); }
+    _setClasses(names) { this.className = [...new Set(names)].join(' '); }
+    set id(value) { this.setAttribute('id', value); }
+    get id() { return this.getAttribute('id') || ''; }
+    set textContent(value) {
+        this._text = String(value == null ? '' : value);
+        this.children.forEach(child => { child.parentNode = null; });
+        this.children = [];
+    }
+    get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
+    set innerHTML(value) {
+        this._html = String(value == null ? '' : value);
+        this.children.forEach(child => { child.parentNode = null; });
+        this.children = [];
+    }
+    get innerHTML() { return this._html; }
+    get firstElementChild() { return this.children[0] || null; }
+    get isConnected() {
+        let current = this;
+        while (current) {
+            if (current._documentRoot) return true;
+            current = current.parentNode;
+        }
+        return false;
+    }
+    setAttribute(name, value) {
+        if (name === 'class') this.className = String(value);
+        else this.attributes[name] = String(value);
+    }
+    getAttribute(name) {
+        if (name === 'class') return this.className || null;
+        return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+    }
+    appendChild(child) {
+        child.parentNode = this;
+        this.children.push(child);
+        return child;
+    }
+    append(...children) { children.forEach(child => this.appendChild(child)); }
+    insertBefore(child, reference) {
+        child.parentNode = this;
+        const index = this.children.indexOf(reference);
+        if (index < 0) this.children.push(child);
+        else this.children.splice(index, 0, child);
+        return child;
+    }
+    remove() {
+        if (!this.parentNode) return;
+        const index = this.parentNode.children.indexOf(this);
+        if (index >= 0) this.parentNode.children.splice(index, 1);
+        this.parentNode = null;
+    }
+    addEventListener(type, listener) {
+        if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+        this.listeners.get(type).add(listener);
+    }
+    removeEventListener(type, listener) {
+        const entries = this.listeners.get(type);
+        if (entries) entries.delete(listener);
+    }
+    async emit(type, event = {}) {
+        event.type = type;
+        event.target = event.target || this;
+        event.currentTarget = this;
+        const results = [...(this.listeners.get(type) || [])].map(listener => listener(event));
+        await Promise.all(results.filter(result => result && typeof result.then === 'function'));
+    }
+    matches(selector) {
+        if (selector === ':popover-open') return !!this._popoverOpen;
+        if (selector.startsWith('.')) return this._classes().includes(selector.slice(1));
+        const attribute = /^\[([^=]+)="([\s\S]*)"\]$/.exec(selector);
+        if (attribute) return this.getAttribute(attribute[1]) === attribute[2];
+        return this.tag === selector.toLowerCase();
+    }
+    querySelectorAll(selector) {
+        const found = [];
+        const visit = node => node.children.forEach(child => {
+            if (child.matches(selector)) found.push(child);
+            visit(child);
+        });
+        visit(this);
+        return found;
+    }
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+    insertAdjacentHTML(position, html) {
+        assert.equal(position, 'beforeend');
+        const fragment = new El('#html');
+        fragment._text = String(html);
+        fragment.html = String(html);
+        this.appendChild(fragment);
+    }
+    replaceChildren() {
+        this.children.forEach(child => { child.parentNode = null; });
+        this.children = [];
+    }
+    showPopover() { this._popoverOpen = true; this.hidden = false; }
+    hidePopover() { this._popoverOpen = false; this.hidden = true; }
+    scrollIntoView() { this.scrollCalls = (this.scrollCalls || 0) + 1; }
+}
 
-console.log('notification-inbox-slot.test.js: 25 assertions passed ✓');
+function createDocument({filters = false, slot = false} = {}) {
+    const head = new El('head');
+    const body = new El('body');
+    head._documentRoot = true;
+    body._documentRoot = true;
+    const listeners = new Map();
+    const filterButtons = [];
+
+    if (slot) {
+        const host = new El('div');
+        host.setAttribute('data-vue-slot', 'topbar-actions');
+        body.appendChild(host);
+    }
+    if (filters) {
+        const filterBar = new El('div');
+        filterBar.className = 'notification-filters';
+        for (const category of ['', 'download', 'announcement', 'survey', 'system']) {
+            const button = new El('button');
+            button.dataset.category = category;
+            filterButtons.push(button);
+            filterBar.appendChild(button);
+        }
+        body.appendChild(filterBar);
+    }
+
+    const elements = {};
+    const add = (id, tag = 'div') => {
+        const element = new El(tag);
+        element.id = id;
+        elements[id] = element;
+        body.appendChild(element);
+        return element;
+    };
+    if (filters) {
+        add('langSwitcherAnchor');
+        add('notificationList');
+        add('notificationStatus');
+        add('notificationUnreadCount', 'span');
+        add('notificationUnreadOnly', 'input');
+        add('notificationMarkCategoryRead', 'button');
+        const detail = add('notificationDetail');
+        detail.appendChild(new El('p'));
+        const frames = new El('div');
+        frames.id = 'notificationContentFrames';
+        elements.notificationContentFrames = frames;
+        detail.appendChild(frames);
+    }
+
+    const document = {
+        head,
+        body,
+        title: '',
+        visibilityState: 'visible',
+        createElement: tag => new El(tag),
+        getElementById: id => elements[id] || null,
+        querySelector(selector) {
+            return body.matches(selector) ? body : body.querySelector(selector);
+        },
+        querySelectorAll(selector) {
+            if (selector === '.notification-filters button') return filterButtons.slice();
+            return body.querySelectorAll(selector);
+        },
+        addEventListener(type, listener) {
+            if (!listeners.has(type)) listeners.set(type, new Set());
+            listeners.get(type).add(listener);
+        },
+        removeEventListener(type, listener) {
+            const entries = listeners.get(type);
+            if (entries) entries.delete(listener);
+        },
+        async emit(type, event = {}) {
+            event.type = type;
+            event.target = event.target || document;
+            const results = [...(listeners.get(type) || [])].map(listener => listener(event));
+            await Promise.all(results.filter(result => result && typeof result.then === 'function'));
+        },
+        listenerCount: type => (listeners.get(type) || new Set()).size,
+        filterButtons
+    };
+    return document;
+}
+
+function createWindow(location) {
+    const listeners = new Map();
+    const timeouts = new Map();
+    const intervals = new Map();
+    let timerId = 0;
+    return {
+        location,
+        addEventListener(type, listener) {
+            if (!listeners.has(type)) listeners.set(type, new Set());
+            listeners.get(type).add(listener);
+        },
+        removeEventListener(type, listener) {
+            const entries = listeners.get(type);
+            if (entries) entries.delete(listener);
+        },
+        async emit(type, event = {}) {
+            event.type = type;
+            const results = [...(listeners.get(type) || [])].map(listener => listener(event));
+            await Promise.all(results.filter(result => result && typeof result.then === 'function'));
+        },
+        dispatchEvent(event) { return this.emit(event.type, event); },
+        listenerCount: type => (listeners.get(type) || new Set()).size,
+        setTimeout(callback) { const id = ++timerId; timeouts.set(id, callback); return id; },
+        clearTimeout(id) { timeouts.delete(id); },
+        setInterval(callback) { const id = ++timerId; intervals.set(id, callback); return id; },
+        clearInterval(id) { intervals.delete(id); },
+        runTimeouts() {
+            const callbacks = [...timeouts.values()];
+            timeouts.clear();
+            callbacks.forEach(callback => callback());
+        },
+        intervalCount: () => intervals.size,
+        matchMedia: () => ({matches: true})
+    };
+}
+
+function createLocation() {
+    let current = new URL('https://local.test/pixiv-notifications.html');
+    return {
+        get origin() { return current.origin; },
+        get pathname() { return current.pathname; },
+        get search() { return current.search; },
+        get href() { return current.href; },
+        set href(value) { current = new URL(value, current); },
+        setSearch(value) { current = new URL(current.pathname + value, current.origin); }
+    };
+}
+
+function response(payload, status = 200) {
+    return {status, ok: status >= 200 && status < 300, json: async () => payload};
+}
+
+function deferred() {
+    let resolve;
+    let reject;
+    const promise = new Promise((ok, fail) => { resolve = ok; reject = fail; });
+    return {promise, resolve, reject};
+}
+
+const flush = () => new Promise(resolve => setImmediate(resolve));
+
+function fetchQueue() {
+    const pending = [];
+    const calls = [];
+    return {
+        calls,
+        enqueue(value) { pending.push(value); },
+        fetch(url, init = {}) {
+            calls.push({url: String(url), init});
+            assert.ok(pending.length, 'unexpected fetch: ' + url);
+            return Promise.resolve(pending.shift());
+        }
+    };
+}
+
+function pageMessage(overrides = {}) {
+    return Object.assign({
+        id: 'message-1', category: 'system', severity: 'info', title: 'Message one', body: 'Body one',
+        createdTime: 1_700_000_000_000, readTime: 1_700_000_000_100, deletable: true,
+        hasHtmlContent: false, embeddedContentUrl: null, actionUrl: null
+    }, overrides);
+}
+
+async function pageHarness(initialSnapshot, {surveyBridge = false} = {}) {
+    const document = createDocument({filters: true});
+    const location = createLocation();
+    const window = createWindow(location);
+    const requests = fetchQueue();
+    requests.enqueue(response(initialSnapshot));
+    const history = {
+        pushState(_state, _title, url) { location.href = url; },
+        replaceState(_state, _title, url) { location.href = url; }
+    };
+    const feedback = {links: [], followLink(href, options) { this.links.push({href, options}); }};
+    const bridge = {attachments: [], detachments: [], config: null};
+    if (surveyBridge) {
+        window.PixivSurveyFrameBridge = {
+            createHost(config) {
+                bridge.config = config;
+                return {
+                    attach(frame, source) { bridge.attachments.push({frame, source}); },
+                    detach(frame) { bridge.detachments.push(frame); },
+                    handleStorageEvent() {},
+                    publishStorage() {}
+                };
+            }
+        };
+    }
+    window.PixivFeedback = feedback;
+    const i18n = {lang: 'en-US', t: (_key, fallback) => fallback, apply() {}};
+    const sandbox = {
+        window, document, location, history,
+        fetch: requests.fetch,
+        URL, URLSearchParams, Intl,
+        PixivI18n: {create: async () => i18n},
+        PixivLangSwitcher: {mount: async () => {}},
+        PixivTheme: {mount() {}},
+        CustomEvent: function CustomEvent(type, init) { return {type, detail: init && init.detail}; },
+        console: {warn() {}, error() {}, log() {}}
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(PAGE_SOURCE, sandbox);
+    await document.emit('DOMContentLoaded');
+    await flush();
+    return {document, window, location, requests, feedback, bridge};
+}
+
+function listTitle(document) {
+    const title = document.getElementById('notificationList').querySelector('.notification-item-title');
+    return title ? title.textContent : '';
+}
+
+test('下载页站内信槽位按真实响应渲染，并在未授权或 publication 清理时撤销', async () => {
+    const document = createDocument({slot: true});
+    const location = createLocation();
+    const window = createWindow(location);
+    const requests = fetchQueue();
+    requests.enqueue(response({messages: [pageMessage()], unreadCount: 3}));
+    let initializer;
+    let cleanup;
+    let prepareCalls = 0;
+    window.PixivBatch = {queueTypes: {registerUiModule(fn) { initializer = fn; }}};
+    window.PixivVue = {prepareSlotHosts() { prepareCalls++; }};
+    const sandbox = {
+        window, document, location, fetch: requests.fetch, URLSearchParams,
+        HTMLElement: function HTMLElement() {},
+        pageI18n: {lang: 'en-US', t: (_key, fallback) => fallback},
+        console: {warn() {}, error() {}, log() {}}
+    };
+    sandbox.HTMLElement.prototype.popover = '';
+    vm.createContext(sandbox);
+    vm.runInContext(SLOT_SOURCE, sandbox);
+    assert.equal(typeof initializer, 'function');
+    initializer({signal: new AbortController().signal, isActive: () => true, onCleanup(fn) { cleanup = fn; }});
+    await flush();
+
+    const host = document.querySelector('[data-vue-slot="topbar-actions"]');
+    const button = host.querySelector('.notification-inbox-button');
+    const popover = document.body.querySelector('.notification-inbox-popover');
+    assert.equal(prepareCalls, 1);
+    assert.equal(button.getAttribute('aria-label'), '打开站内信');
+    assert.equal(popover.getAttribute('popover'), 'auto');
+    assert.equal(button.querySelector('.notification-inbox-badge').textContent, '3');
+    assert.match(requests.calls[0].url, /lang=en-US/);
+    assert.equal(window.intervalCount(), 1);
+
+    cleanup();
+    assert.equal(host.querySelector('.notification-inbox-slot'), null);
+    assert.equal(document.body.querySelector('.notification-inbox-popover'), null);
+    assert.equal(window.intervalCount(), 0);
+    assert.equal(window.listenerCount('pixivbatch:slotsrendered'), 0);
+    assert.equal(document.listenerCount('visibilitychange'), 0);
+
+    const deniedDocument = createDocument({slot: true});
+    const deniedWindow = createWindow(createLocation());
+    const deniedRequests = fetchQueue();
+    deniedRequests.enqueue(response({}, 403));
+    let deniedInitializer;
+    deniedWindow.PixivBatch = {queueTypes: {registerUiModule(fn) { deniedInitializer = fn; }}};
+    const deniedSandbox = {
+        window: deniedWindow, document: deniedDocument, location: deniedWindow.location,
+        fetch: deniedRequests.fetch, URLSearchParams,
+        HTMLElement: sandbox.HTMLElement, console: sandbox.console
+    };
+    vm.createContext(deniedSandbox);
+    vm.runInContext(SLOT_SOURCE, deniedSandbox);
+    deniedInitializer({signal: new AbortController().signal, isActive: () => true, onCleanup() {}});
+    await flush();
+    assert.equal(deniedDocument.querySelector('[data-vue-slot="topbar-actions"]')
+        .querySelector('.notification-inbox-slot'), null);
+});
+
+test('消息列表拒绝乱序响应，分类切换清除不匹配详情，非法时间不抛错', async () => {
+    const invalid = pageMessage({id: 'invalid-time', category: 'download', createdTime: 'not-a-date'});
+    const h = await pageHarness({messages: [invalid], categoryUnreadCount: 0});
+    const time = h.document.getElementById('notificationList').querySelector('time');
+    assert.equal(time.dateTime, '');
+    await h.document.getElementById('notificationList').children[0].emit('click');
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, invalid.title);
+
+    h.requests.enqueue(response({messages: [], categoryUnreadCount: 0}));
+    await h.document.filterButtons.find(button => button.dataset.category === 'survey').emit('click');
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2'), null);
+    await flush();
+
+    const older = deferred();
+    const newer = deferred();
+    h.requests.enqueue(older.promise);
+    h.requests.enqueue(newer.promise);
+    await h.document.emit('visibilitychange');
+    await h.document.emit('visibilitychange');
+    newer.resolve(response({messages: [pageMessage({id: 'new', title: 'Newest'})], categoryUnreadCount: 1}));
+    await flush();
+    assert.equal(listTitle(h.document), 'Newest');
+    older.resolve(response({messages: [pageMessage({id: 'old', title: 'Stale'})], categoryUnreadCount: 1}));
+    await flush();
+    assert.equal(listTitle(h.document), 'Newest');
+});
+
+test('详情请求拒绝过期结果', async () => {
+    const h = await pageHarness({messages: [], categoryUnreadCount: 0});
+    const first = deferred();
+    const second = deferred();
+    h.requests.enqueue(first.promise);
+    h.location.setSearch('?id=first');
+    await h.window.emit('popstate');
+    h.requests.enqueue(second.promise);
+    h.location.setSearch('?id=second');
+    await h.window.emit('popstate');
+
+    second.resolve(response(pageMessage({id: 'second', title: 'Second'})));
+    await flush();
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, 'Second');
+    first.resolve(response(pageMessage({id: 'first', title: 'First'})));
+    await flush();
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, 'Second');
+});
+
+test('HTML 正文 iframe 懒创建复用，并只接受当前不同源 frame 的受限消息', async () => {
+    const htmlMessage = pageMessage({id: 'html', title: 'HTML', hasHtmlContent: true});
+    const plainMessage = pageMessage({id: 'plain', title: 'Plain'});
+    const h = await pageHarness({messages: [htmlMessage, plainMessage], categoryUnreadCount: 0});
+    assert.equal(h.document.querySelectorAll('.notification-detail-content-frame').length, 0);
+
+    const list = h.document.getElementById('notificationList');
+    await list.children[0].emit('click');
+    const frame = h.document.querySelectorAll('.notification-detail-content-frame')[0];
+    assert.equal(frame.src, '/api/notifications/html/content?lang=en-US');
+    assert.equal(frame.getAttribute('sandbox'), 'allow-scripts');
+    assert.equal(frame.getAttribute('referrerpolicy'), 'no-referrer');
+    assert.equal(frame.getAttribute('scrolling'), 'no');
+    assert.match(frame.getAttribute('allow'), /camera 'none'/);
+
+    await h.window.emit('message', {origin: 'https://local.test', source: frame.contentWindow,
+        data: {type: 'pixiv-external-link', href: 'https://example.com', newTab: true}});
+    await h.window.emit('message', {origin: 'null', source: {},
+        data: {type: 'pixiv-external-link', href: 'https://example.com', newTab: true}});
+    assert.equal(h.feedback.links.length, 0);
+    await h.window.emit('message', {origin: 'null', source: frame.contentWindow,
+        data: {type: 'pixiv-external-link', href: 'https://example.com', newTab: true}});
+    assert.equal(h.feedback.links[0].href, 'https://example.com');
+    assert.equal(h.feedback.links[0].options.newTab, true);
+
+    await h.window.emit('message', {origin: 'null', source: frame.contentWindow,
+        data: {type: 'pixiv-content-height', height: -10}});
+    assert.equal(frame.style.height, '160px');
+    await h.window.emit('message', {origin: 'null', source: frame.contentWindow,
+        data: {type: 'pixiv-content-height', height: 5000}});
+    h.window.runTimeouts();
+    assert.equal(frame.style.height, '2000px');
+
+    await list.children[1].emit('click');
+    assert.equal(frame.hidden, true);
+    await h.window.emit('message', {origin: 'null', source: frame.contentWindow,
+        data: {type: 'pixiv-external-link', href: 'https://ignored.example', newTab: false}});
+    assert.equal(h.feedback.links.length, 1);
+    await list.children[0].emit('click');
+    assert.equal(h.document.querySelectorAll('.notification-detail-content-frame').length, 1);
+    assert.equal(h.document.querySelectorAll('.notification-detail-content-frame')[0], frame);
+    assert.ok(h.document.getElementById('notificationDetail').scrollCalls > 0);
+});
+
+test('调查 iframe 通过共享 bridge 延迟挂载并携带当前语言', async () => {
+    const survey = pageMessage({
+        id: 'survey', category: 'survey', title: 'Survey', embeddedContentUrl: '/survey/embed',
+        deletable: false, readTime: 1
+    });
+    const h = await pageHarness({messages: [survey], categoryUnreadCount: 0}, {surveyBridge: true});
+    assert.equal(h.bridge.attachments.length, 0);
+    await h.document.getElementById('notificationList').children[0].emit('click');
+    assert.equal(h.bridge.attachments.length, 1);
+    assert.match(h.bridge.attachments[0].source, /^\/survey\/embed\?notificationId=survey&lang=en-US$/);
+    assert.equal(h.bridge.attachments[0].frame.getAttribute('data-embedded-survey'), 'true');
+});
+
+test('公告自动已读且当前分类全部已读使用对应 API', async () => {
+    const announcement = pageMessage({
+        id: 'announcement', category: 'announcement', title: 'Announcement', readTime: null
+    });
+    const h = await pageHarness({messages: [announcement], categoryUnreadCount: 1});
+    h.requests.enqueue(response(Object.assign({}, announcement, {readTime: 2})));
+    await h.document.getElementById('notificationList').children[0].emit('click');
+    await flush();
+    assert.ok(h.requests.calls.some(call => call.url.includes('/api/notifications/announcement/read')
+        && call.init.method === 'POST'));
+    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '');
+
+    h.requests.enqueue(response({messages: [], categoryUnreadCount: 0}));
+    await h.document.filterButtons.find(button => button.dataset.category === 'announcement').emit('click');
+    await flush();
+    h.requests.enqueue(response({}));
+    h.requests.enqueue(response({messages: [], categoryUnreadCount: 0}));
+    await h.document.getElementById('notificationMarkCategoryRead').emit('click');
+    assert.ok(h.requests.calls.some(call => call.url === '/api/notifications/read-all?category=announcement'
+        && call.init.method === 'POST'));
+});
+
+test('HTML 与 CSS 保留 CSP、主题、可见性和滚动布局边界', () => {
+    assert.match(PAGE_HTML, /frame-src 'self'; child-src 'self'/);
+    assert.match(PAGE_HTML, /default-src 'self'; script-src 'self'; style-src 'self'/);
+    assert.match(PAGE_HTML, /connect-src 'self'/);
+    assert.match(PAGE_HTML, /object-src 'none'; base-uri 'none'; form-action 'none'/);
+    assert.match(PAGE_HTML, /id="notificationContentFrames"/);
+    assert.match(PAGE_HTML, /src="\/js\/pixiv-navigation\.js"/);
+    assert.doesNotMatch(CSS, /(^|\n)body\s*\{/);
+    assert.match(CSS, /--notification-brand:\s*var\(--brand, #0096fa\)/);
+    assert.match(CSS, /html\[data-theme="dark"\]\s*\{[^}]*--notification-brand:\s*var\(--brand, #4bb3ff\)/s);
+    assert.match(CSS, /\.notification-detail-content-frame\[hidden\]\s*\{\s*display:\s*none;/s);
+    assert.match(CSS, /\.notification-detail-content-frame\s*\{[^}]*height:\s*1px;[^}]*overflow:\s*hidden;/s);
+    assert.doesNotMatch(CSS, /\.notification-detail-content-frame\s*\{[^}]*min-height:/s);
+    assert.match(CSS, /\.notification-page\s*\{[^}]*height:\s*100dvh;[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s);
+    assert.match(CSS, /@media \(max-width:\s*760px\)[\s\S]*\.notification-page\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s);
+});

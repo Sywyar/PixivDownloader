@@ -162,9 +162,14 @@ function harness(manifests, moduleScripts, options = {}) {
     let slotMarker = null;
     if (options.slotTarget) {
         slotParent = new El('section');
-        slotMarker = new El('template');
-        slotMarker.setAttribute('data-qt-slot', options.slotTarget);
-        slotParent.appendChild(slotMarker);
+        for (let index = 0; index < (options.slotCount || 1); index++) {
+            const markerParent = options.slotCount > 1 ? new El('div') : slotParent;
+            const marker = new El('template');
+            marker.setAttribute('data-qt-slot', options.slotTarget);
+            markerParent.appendChild(marker);
+            if (markerParent !== slotParent) slotParent.appendChild(markerParent);
+            if (!slotMarker) slotMarker = marker;
+        }
         body.appendChild(slotParent);
     }
     const document = {
@@ -224,6 +229,9 @@ function harness(manifests, moduleScripts, options = {}) {
             prepareSlotHosts() {},
             mountOn(host, component) {
                 vueRecord.mounts++;
+                if (options.mountFail || options.mountFailAt === vueRecord.mounts) {
+                    return Promise.resolve(null);
+                }
                 if (options.deferVueMount) {
                     return new Promise(resolve => {
                         vueRecord.pendingMounts.push({host, component, resolve});
@@ -1278,7 +1286,6 @@ const LATE_UI_INITIALIZER = `(function (context) {
         await waitUntil(() => !!h.sandbox.testState.pendingContext);
         h.advanceTimers(5000);
         await bootstrapping;
-        ok('pending initializer 会在 5000ms 受控超时后释放 bootstrap', true);
         ok('pending initializer 超时会立即 abort 并 cleanup', h.sandbox.testState.pendingContext.signal.aborted
             && h.sandbox.testState.pendingCleanup === 1);
         ok('pending 类型被隔离而健康类型继续发布', !h.qt.has('pending') && h.qt.has('demo'));
@@ -1386,6 +1393,65 @@ const LATE_UI_INITIALIZER = `(function (context) {
     }
 
     {
+        const h = harness([manifest(1, [typeDescriptor()], 'epoch-a', [uiSlotDescriptor({
+            slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
+            owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+        })])], {'/modules/demo.js': {initializer: BASIC_INITIALIZER}}, {
+            slotTarget: 'cookie-tools', slotCount: 2, pixivVue: true, mountFailAt: 2
+        });
+        await h.qt.bootstrap();
+        const hosts = h.slotParent.querySelectorAll('[data-vue-slot]');
+        ok('部分 Vue 挂载失败会先卸载成功 app，再对全部物理锚点使用命令式回退',
+            h.vueRecord.mounts === 2 && h.vueRecord.unmounts === 1 && hosts.length === 2
+            && hosts.every(host => host.children.length === 1
+                && host.children[0].html.includes('data-slot-generation')));
+    }
+
+    {
+        const target = 'cookie-tools\"]:not(*)';
+        const initializer = BASIC_INITIALIZER.replace("'cookie-tools'", JSON.stringify(target));
+        const h = harness([manifest(1, [typeDescriptor()], 'epoch-a', [uiSlotDescriptor({
+            slotId: 'demo.hostile-target', target, moduleUrl: '/modules/demo.js',
+            owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+        })])], {'/modules/demo.js': {initializer}}, {slotTarget: target, pixivVue: true});
+        await h.qt.bootstrap();
+        const host = h.slotParent.children.find(node => node.getAttribute('data-vue-slot') === target);
+        ok('包含 CSS 元字符的 target 仍按属性精确值挂载，不进入选择器解释',
+            !!host && host.children.length === 1 && host.children[0].html.includes('data-slot-generation'));
+    }
+
+    {
+        const imperativeInitializer = `(function () {
+            return {descriptor: {
+                process: function () {},
+                slots: {'cookie-tools': function () {
+                    return {mount: function (host) {
+                        testState.imperativeMounts = (testState.imperativeMounts || 0) + 1;
+                        host.insertAdjacentHTML('beforeend', '<span data-imperative-slot></span>');
+                        return function () {
+                            testState.imperativeCleanups = (testState.imperativeCleanups || 0) + 1;
+                        };
+                    }};
+                }}
+            }};
+        })`;
+        const h = harness([
+            manifest(1, [typeDescriptor()], 'epoch-a', [uiSlotDescriptor({
+                slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
+                owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+            })]),
+            manifest(2, [])
+        ], {'/modules/demo.js': {initializer: imperativeInitializer}}, {slotTarget: 'cookie-tools', pixivVue: true});
+        await h.qt.bootstrap();
+        const host = h.slotParent.children.find(node => node.getAttribute('data-vue-slot') === 'cookie-tools');
+        ok('命令式槽位贡献挂载到稳定宿主', h.sandbox.testState.imperativeMounts === 1
+            && host.children.length === 1 && /data-imperative-slot/.test(host.children[0].html));
+        await h.qt.refresh();
+        ok('publication 失效会执行命令式 cleanup 并清空稳定宿主',
+            h.sandbox.testState.imperativeCleanups === 1 && host.children.length === 0);
+    }
+
+    {
         const h = harness([
             manifest(1, [typeDescriptor({
                 pluginGeneration: 1, publicationId: 11
@@ -1402,8 +1468,14 @@ const LATE_UI_INITIALIZER = `(function (context) {
         ], {'/modules/demo.js': {initializer: BASIC_INITIALIZER}}, {
             slotTarget: 'cookie-tools', pixivVue: true, deferVueMount: true
         });
-        const firstBootstrap = h.qt.bootstrap();
+        let firstBootstrapResolved = false;
+        const firstBootstrap = h.qt.bootstrap().then(value => {
+            firstBootstrapResolved = true;
+            return value;
+        });
         await waitUntil(() => h.vueRecord.pendingMounts.length === 1);
+        await Promise.resolve();
+        ok('bootstrap 会等待槽位 Vue 挂载完成后才发布', firstBootstrapResolved === false);
         const stableHost = h.slotParent.children.find(
             node => node.getAttribute('data-vue-slot') === 'cookie-tools');
         h.qt.dispose();
@@ -1910,12 +1982,6 @@ const LATE_UI_INITIALIZER = `(function (context) {
         /addEventListener\('pixivbatch:queuetypeschanged', reconcileQueueTypeUi\)/.test(INIT_SOURCE)
         && reconcileStart >= 0 && reconcileEnd > reconcileStart
         && !reconcileSource.includes('refreshQueueTypeManifest('));
-    ok('槽位运行时串行 renderSlots 并无条件清理 stale record',
-        SOURCE.includes('let slotRenderTail = Promise.resolve()')
-        && SOURCE.includes('slotRenderTail.catch(() => undefined)')
-        && /snapshot !== current\) \{[\s\S]*?cleanupSlotRecord\(record\);[\s\S]*?slotMounts\.get\(target\)/
-            .test(SOURCE));
-
     {
         // settings-card 槽位：类型 typed settings 声明的 cardId 已被宿主原生渲染时不再注入片段。
         const settingsCardInitializer = `(function () {

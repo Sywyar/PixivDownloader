@@ -340,15 +340,17 @@ async function main() {
 
     /* ===== 6) 组件契约：template 镜像结构、行 / 当前卡共用格式化函数、标签经 bt ===== */
     {
-        const { api, state } = loadVue({});
+        const queue = [{id: 'title-check', title: '共享标题', status: 'pending'}];
+        const { api, state } = loadVue({state: {queue, stats: {}, currentItemId: null}});
         await api.ensure();
         const list = api.__test.listComponent();
         const lv = list.setup();
         const rows = lv.rows.value;
         ok('6: 列表模板含 ab-queue-item + :key + :data-queue-id', /ab-queue-item/.test(list.template) && /:key="r.key"/.test(list.template) && /:data-queue-id="r.queueId"/.test(list.template));
-        ok('6: 行模型经共享 queueItemDisplayTitle 派生标题', rows.length === 0 || true);
-        const rowModel = api.__test.listComponent().setup().rows.value;
-        ok('6: 行模型为空态（无 items）', Array.isArray(rowModel) && rowModel.length === 0);
+        ok('6: 行模型经共享 queueItemDisplayTitle 派生标题', rows.length === 1 && rows[0].title === '共享标题');
+        state.queue.length = 0;
+        api.syncList();
+        api.flush();
         const stats = api.__test.statsComponent();
         ok('6: 统计模板保留 5 计数 id + 速度 id', /id="abStatPending"/.test(stats.template) && /id="abStatSpeed"/.test(stats.template) && /id="abStatSpeedUnit"/.test(stats.template));
         ok('6: 统计标签经 bt（t）派生而非写死 data-i18n', /t\('stats\.queued'/.test(stats.template) && stats.template.indexOf('data-i18n') < 0);

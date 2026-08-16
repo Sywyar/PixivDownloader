@@ -19,6 +19,11 @@ function triggers(doc) {
     return Object.keys(doc.on ?? doc.true ?? {});
 }
 
+function secretNames(job) {
+    return [...new Set([...JSON.stringify(job).matchAll(/secrets\.([A-Z0-9_]+)/g)]
+        .map((match) => match[1]))];
+}
+
 test('Quality Gate：五个 required context 与完整触发面保持稳定', () => {
     const doc = load('.github/workflows/quality-gate.yml');
     assert.equal(doc.name, 'Quality Gate');
@@ -51,6 +56,26 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         [nightly, ['build-jar', 'build-windows-installer', 'release-nightly']]]) {
         for (const id of ids) assert.equal(doc.jobs[id].environment, 'release');
     }
+
+    for (const doc of [publish, release, nightly]) {
+        for (const [id, job] of Object.entries(doc.jobs)) {
+            if (secretNames(job).length || job.permissions?.contents === 'write') {
+                assert.equal(job.environment, 'release', `${id} must isolate credentials and write permission`);
+            }
+        }
+    }
+
+    assert.deepEqual(secretNames(publish.jobs.publish).sort(), [
+        'PLUGINS_REPO_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
+    ]);
+    for (const doc of [release, nightly]) {
+        for (const [id, job] of Object.entries(doc.jobs)) {
+            assert.equal(secretNames(job).includes('PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64'),
+                id === 'build-jar');
+        }
+    }
+    assert.deepEqual(secretNames(release.jobs.release), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
+    assert.deepEqual(secretNames(nightly.jobs['release-nightly']), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
 });
 
 test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
@@ -65,4 +90,13 @@ test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
         assert.match(text, /UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64/);
         assert.match(text, /pixivdownloader-update-root-2026-08/);
     }
+});
+
+test('Nightly：共享变更门禁以语义输出控制全部昂贵任务', () => {
+    const nightly = load('.github/workflows/nightly.yml');
+    for (const id of ['publish-plugins', 'build-jar', 'build-windows-installer', 'release-nightly']) {
+        assert.equal(nightly.jobs[id].if, "needs.resolve-version.outputs.has_changes == 'true'");
+    }
+    const resolveScripts = nightly.jobs['resolve-version'].steps.map((step) => step.run || '').join('\n');
+    assert.match(resolveScripts, /nightly-changelog-gate\.sh\s+CHANGELOG\.md\s+nightly/);
 });

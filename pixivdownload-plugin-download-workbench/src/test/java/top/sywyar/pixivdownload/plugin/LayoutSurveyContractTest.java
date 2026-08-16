@@ -148,40 +148,6 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("CHANGELOG 调查条目与实际身份模型一致")
-    void changelogMatchesIdentityModel() throws IOException {
-        Path repoRoot = repoRoot();
-        String changelog = Files.readString(repoRoot.resolve("CHANGELOG.md"), StandardCharsets.UTF_8);
-        assertThat(changelog).contains("调查专用匿名标识");
-        assertThat(changelog).contains("随机安装身份与当前调查 ID 单向派生");
-        assertThat(changelog).contains("调查作用域安装匿名标识");
-        assertThat(changelog).contains("调查标识");
-        assertThat(changelog).contains("当前布局");
-        assertThat(changelog).contains("调查结构版本");
-        assertThat(changelog).contains("事件时间");
-        assertThat(changelog).contains("用于投递去重的稳定事件标识");
-        assertThat(changelog).contains("稳定事件 UUID");
-        assertThat(changelog).contains("最小传输字段");
-        assertThat(changelog).contains("原始安装身份");
-        assertThat(changelog).doesNotContain("按安装身份去重");
-    }
-
-    @Test
-    @DisplayName("调查脚本把 scoped identity 交给 PostHog 插件并验证实际 SDK identity")
-    void surveyDelegatesAndVerifiesScopedIdentity() throws IOException {
-        String js = read(SURVEY_JS);
-        assertThat(js).contains("createSurveyClient")
-                .contains("ownerKey: POSTHOG_OWNER_KEY")
-                .contains("posthog: POSTHOG")
-                .contains("distinctId: serverIdentityAvailable && serverDistinctId ? serverDistinctId : ''")
-                .contains("get_distinct_id");
-        assertThat(js).doesNotContain("sdkConfig.distinct_id =");
-        assertThat(js).doesNotContain("posthog.identify(");
-        assertThat(js).doesNotContain("posthog.reset(");
-        assertThat(js).doesNotContain("opt_out_capturing(");
-    }
-
-    @Test
     @DisplayName("Java 枚举小写 wire value 与前端视图校验字面量两端一致（无各自硬编码假协议）")
     void javaWireValuesMatchFrontendLiterals() throws IOException {
         String js = read(SURVEY_JS);
@@ -200,15 +166,6 @@ class LayoutSurveyContractTest {
         // 命令字面量同样与小写 wire 对齐：submitted / never / snooze / record_seen。
         assertThat(js).contains("'record_seen'").contains("'snooze'")
                 .contains("command === 'submitted'").contains("command === 'never'");
-    }
-
-    @Test
-    @DisplayName("前端所有状态 GET 的 fetch init 携带 cache: 'no-store'")
-    void frontendStateGetsUseNoStore() throws IOException {
-        String js = read(SURVEY_JS);
-        int noStoreUses = countOccurrences(js, "cache: 'no-store'");
-        assertThat(noStoreUses).as("loadServerContext / refreshServerContext 至少两处 no-store").isGreaterThanOrEqualTo(2);
-        assertThat(js).contains("SERVER_STATE_URL");
     }
 
     @Test

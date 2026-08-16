@@ -205,8 +205,8 @@ async function main() {
         resolve(client.onLanguageChange(function () {}));
     });
     ok('f: onLanguageChange 返回退订函数', typeof unsubscribeF === 'function');
-    sandboxF.PixivI18n.notifyLanguageChange('en-US');
-    ok('f: notifyLanguageChange 在无 BroadcastChannel 时安全调用', true);
+    assert.doesNotThrow(() => sandboxF.PixivI18n.notifyLanguageChange('en-US'));
+    passed++;
     unsubscribeF();
     const { client: clientF } = await createClient(['common'], {});
     ok('f: setLanguage 保留跨标签同步契约（返回新客户端）', typeof clientF.setLanguage('en-US').then === 'function');

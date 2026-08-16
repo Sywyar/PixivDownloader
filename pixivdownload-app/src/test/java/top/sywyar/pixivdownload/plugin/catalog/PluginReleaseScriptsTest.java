@@ -634,79 +634,10 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("GitHub Actions 发布流从 Secrets 注入私钥并提交 manifest detached 签名")
-    void publishWorkflowInjectsSigningSecretAndPublishesManifestSignature() throws Exception {
-        String workflow = workflow("publish-plugins.yml");
-
-        assertThat(workflow).contains(
-                "workflow_call:",
-                "environment: release",
-                "PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07",
-                "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                "FromBase64String",
-                "Release Environment secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64",
-                "Prepared plugin signing private key contains '?' characters",
-                "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile",
-                "$publishArgs = @{",
-                "Repo = $env:PLUGINS_REPO",
-                "OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID",
-                "PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
-                "$publishArgs[\"Force\"] = $true",
-                ".\\scripts\\publish-plugin-releases.ps1 @publishArgs",
-                "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",
-                "-PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
-                "Copy-Item build/manifest.json.sig plugins-repo/manifest.json.sig -Force",
-                "git add manifest.json manifest.json.sig");
-        assertThat(workflow).doesNotContain("tags:");
-        assertThat(workflow).doesNotContain("schedule:");
-        assertThat(workflow).contains("publish_args", "PUBLISH_PLUGIN_ARGS", "[\"Force\"]");
-        assertThat(workflow).doesNotContain("-----BEGIN PRIVATE KEY-----");
-        assertThat(workflow).doesNotContain("PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{");
-        assertThat(workflow).doesNotContain("\"-Repo\", $env:PLUGINS_REPO");
-        assertThat(workflow).doesNotContain("\"-PrivateKeyFile\", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE");
-    }
-
-    @Test
-    @DisplayName("质量门禁以同一提交运行 Java、签名泄露守卫与 JavaScript 测试")
-    void qualityGateRunsJavaSignatureGuardAndJavaScriptTestsForTheSameCommit() throws Exception {
-        String workflow = workflow("quality-gate.yml");
+    @DisplayName("JavaScript 测试脚本覆盖所有模块测试且 YAML 解析器仅为开发依赖")
+    void javascriptTestScriptsCoverAllModules() throws Exception {
         JsonNode packageJson = new ObjectMapper().readTree(repoRoot().resolve("package.json").toFile());
 
-        assertThat(workflow).contains(
-                "push:",
-                // push 触发不再限定 master：任意代码分支 push 都运行完整质量门禁；
-                // gh-pages 纯文档分支历史不含 Epoch 2 root，触发只会确定性失败，故排除
-                "branches-ignore: [gh-pages]",
-                "pull_request:",
-                "merge_group:",
-                "workflow_call:",
-                "trusted_base_sha:",
-                "ref: ${{ github.sha }}",
-                "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
-                "mvn -B -ntp test -Dexec.skip=true",
-                "signature-guard:",
-                "resolve-trusted-base.mjs",
-                "git show \"$BASE_SHA:$rel\"",
-                "--signature",
-                "trusted-gate-contract:",
-                "node-version: '24'",
-                "run: npm run test:js",
-                "run: npm run test:web-standards",
-                // i18n 持续本地化门禁 job
-                "i18n-check:",
-                "run: npm run test:i18n",
-                "run: npm run i18n:check",
-                "npm run i18n:generate-static",
-                "git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static",
-                "$GATE_DIR/scripts/ci/gate-parity.mjs",
-                "GATE_DIR");
-        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(6);
-        assertThat(workflow).doesNotContain("branches: [master]");
-        assertThat(workflow).doesNotContain("-Dmaven.test.skip");
-        assertThat(workflow).doesNotContain("LEGACY_BOOTSTRAP_REF");
-        assertThat(workflow).doesNotContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24");
-        assertThat(workflow.indexOf("run: npm run test:web-standards"))
-                .isGreaterThan(workflow.indexOf("run: npm run test:js"));
         assertThat(packageJson.path("private").asBoolean()).isTrue();
         assertThat(packageJson.path("scripts").path("test:js").asText())
                 .isEqualTo("node --test \"pixivdownload-*/src/test/js/*.test.js\" "
@@ -755,102 +686,6 @@ class PluginReleaseScriptsTest {
                 "package-ecosystem: \"github-actions\"",
                 "directory: \"/\"",
                 "interval: \"weekly\"");
-    }
-
-    @Test
-    @DisplayName("发布与 nightly 在外部写入前依赖同一提交的质量门禁")
-    void releaseWorkflowsRequireQualityGateBeforePublishing() throws Exception {
-        for (String name : List.of("release.yml", "nightly.yml")) {
-            String workflow = workflow(name);
-
-            assertThat(workflow).as(name).contains(
-                    "publish-plugins:",
-                    "uses: ./.github/workflows/publish-plugins.yml",
-                    "needs:",
-                    "publish-plugins",
-                    "ref: ${{ github.sha }}",
-                    "Verify packaged distribution boundaries",
-                    "-Dtest=DistributionPackagingBoundaryTest",
-                    "-Dsurefire.failIfNoSpecifiedTests=false",
-                    "-Ddistribution.packaging.require-artifacts=true",
-                    "*DistributionPackagingBoundaryTest.txt",
-                    "Failures: 0, Errors: 0, Skipped: 0");
-        }
-
-        String release = workflow("release.yml");
-        assertThat(release).contains(
-                "draft-quality-gate:",
-                "uses: ./.github/workflows/quality-gate.yml",
-                "create-draft-release:",
-                "needs: draft-quality-gate",
-                "Verify draft tag targets the tested commit",
-                "test \"$TAG_COMMIT\" = \"$GITHUB_SHA\"",
-                "target_commitish: ${{ github.sha }}");
-        String publish = workflow("publish-plugins.yml");
-        assertThat(publish).contains(
-                "quality-gate:",
-                "uses: ./.github/workflows/quality-gate.yml",
-                "publish:",
-                "needs: quality-gate");
-        assertThat(release).doesNotContain("quality_gate_passed");
-        assertThat(workflow("nightly.yml")).doesNotContain("quality_gate_passed");
-    }
-
-    @Test
-    @DisplayName("release/nightly 仅在 release Environment 的 build-jar 注入生产凭证密钥")
-    void releaseWorkflowsIsolateProductionCredentialKeyToBuildJar() throws Exception {
-        String secretName = "PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64";
-        for (String name : List.of("release.yml", "nightly.yml")) {
-            String workflow = workflow(name);
-            String buildJarJob = workflowJob(workflow, "build-jar");
-            String outsideBuildJarJob = workflow.replace(buildJarJob, "");
-
-            assertThat(buildJarJob).as(name).contains(
-                    "Prepare production plugin credential key filter",
-                    secretName + ": ${{ secrets." + secretName + " }}",
-                    "$env:RUNNER_TEMP",
-                    "./scripts/write-plugin-credential-key-filter.ps1 -OutputPath $filterPath",
-                    "PLUGIN_CREDENTIAL_FILTER=$filterPath",
-                    "\"-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER\"",
-                    "-Ddistribution.packaging.require-production-credential-key=true",
-                    "environment: release");
-            assertThat(buildJarJob).as(name).doesNotContain(
-                    "-Dplugin.credential.key.current-base64",
-                    "-D" + secretName,
-                    "echo ${{ secrets." + secretName);
-            assertThat(outsideBuildJarJob).as(name + " non-build-jar jobs").doesNotContain(secretName);
-            assertThat(workflow).as(name).doesNotContain("secrets: inherit");
-
-            String publishJob = workflowJob(workflow, "publish-plugins");
-            assertThat(publishJob).doesNotContain("secrets.");
-        }
-
-        assertThat(workflow("quality-gate.yml")).doesNotContain(
-                secretName,
-                "plugin.credential.filter",
-                "require-production-credential-key");
-        String publishWorkflow = workflow("publish-plugins.yml");
-        assertThat(publishWorkflow)
-                .doesNotContain(secretName, "plugin.credential.filter")
-                .contains(
-                        "workflow_call:",
-                        "environment: release",
-                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}");
-    }
-
-    @Test
-    @DisplayName("手动插件发布在签名与跨仓库写入前自行运行质量门禁")
-    void manualPluginPublishingRequiresQualityGate() throws Exception {
-        String workflow = workflow("publish-plugins.yml");
-
-        assertThat(workflow).contains(
-                "quality-gate:",
-                "github.ref == 'refs/heads/master'",
-                "uses: ./.github/workflows/quality-gate.yml",
-                "publish:",
-                "needs: quality-gate",
-                "ref: ${{ github.sha }}");
-        assertThat(workflow).doesNotContain("quality_gate_passed", "if: ${{ always()", "!cancelled()");
     }
 
     @Test
@@ -1146,28 +981,6 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Release 与 Nightly 使用说明描述 Java 标准包 / 离线全量包新发行矩阵")
-    void releaseNotesDescribeJavaDistributionMatrix() throws Exception {
-        for (String name : List.of("release.yml", "nightly.yml")) {
-            String workflow = workflow(name);
-            assertThat(workflow).as(name).contains(
-                    "### Java 标准包（跨平台）",
-                    "Java 17",
-                    "完整解压",
-                    "run.bat",
-                    "sh run.sh",
-                    "除 Douyin 外的全部面向用户的签名官方插件",
-                    "包内不包含 JRE，也不包含 FFmpeg",
-                    "### 离线全量包（跨平台）",
-                    "含 Douyin");
-            assertThat(workflow).as(name).doesNotContain(
-                    "仅提供 Windows 安装包和离线全量包",
-                    "不再提供独立 JAR、core-shell-only 包或 default-downloader 包",
-                    "java -Dfile.encoding=UTF-8 -jar PixivDownload-");
-        }
-    }
-
-    @Test
     @DisplayName("update 清单只包含 win-x64-installer 资产，不扩展 Java / 离线资产类型")
     void updateManifestStaysInstallerOnly() throws Exception {
         for (String name : List.of("release.yml", "nightly.yml")) {
@@ -1317,7 +1130,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("调查发布者自持四个 PostHog 参数，官方发布兼容可信门禁命令并启用 profile")
+    @DisplayName("调查发布者自持四个 PostHog 参数且 official-surveys profile 启用发布位")
     void surveyPublisherOwnsPostHogConfigurationAndOfficialProfileActivatesIt() throws Exception {
         String adapter = Files.readString(repoRoot().resolve("pixivdownload-plugin-posthog")
                 .resolve("src/main/resources/static/pixiv-posthog/pixiv-posthog.js"),
@@ -1379,15 +1192,8 @@ class PluginReleaseScriptsTest {
 
         assertThat(workflow("publish-plugins.yml"))
                 .doesNotContain("PIXIV_LAYOUT_SURVEY", "pixiv.layout-survey", "Repository Variables");
-        for (String name : List.of("release.yml", "nightly.yml")) {
-            assertThat(workflow(name)).as(name)
-                    .contains("mvn package -Pofficial-surveys -DskipTests")
-                    .doesNotContain("PIXIV_LAYOUT_SURVEY", "pixiv.layout-survey", "OFFICIAL_SURVEYS_MAVEN_PROFILE");
-        }
         assertThat(workflow("publish-plugins.yml"))
                 .contains("github.repository == 'Sywyar/PixivDownloader'");
-        assertThat(script("publish-plugin-releases.ps1"))
-                .contains("& $mvn \"-Pofficial-surveys\" \"-pl\" $Plugin.Module");
         String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
         assertThat(rootPom)
                 .contains("<layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>")
@@ -1413,47 +1219,6 @@ class PluginReleaseScriptsTest {
         assertThat(repoRoot().resolve("scripts/properties/posthog.properties.example")).doesNotExist();
     }
 
-
-    @Test
-    @DisplayName("Nightly no-diff 门禁保留：has_changes 由真实 Git diff 判定并门控全部昂贵任务")
-    void nightlyNoDiffGateUsesRealGitDiff() throws Exception {
-        String nightly = workflow("nightly.yml");
-        String script = script("nightly-changelog-gate.sh");
-
-        // resolve-version 仍输出 has_changes，四个昂贵 job 仍由同一门控。
-        assertThat(nightly).contains(
-                "has_changes: ${{ steps.changelog.outputs.has_changes }}",
-                "publish-plugins:",
-                "build-jar:",
-                "build-windows-installer:",
-                "release-nightly:");
-        Matcher gated = Pattern.compile("needs\\.resolve-version\\.outputs\\.has_changes == 'true'")
-                .matcher(nightly);
-        int gatedCount = 0;
-        while (gated.find()) {
-            gatedCount++;
-        }
-        assertThat(gatedCount).as("has_changes 门控数量").isEqualTo(4);
-
-        // workflow 调用共享门禁脚本，脚本按 Git 真实 diff 三态判定。
-        assertThat(nightly).contains("./scripts/nightly-changelog-gate.sh CHANGELOG.md nightly");
-        assertThat(script).contains(
-                "git diff --quiet",
-                "case \"$diff_status\" in",
-                "0)",
-                "1)",
-                "*)",
-                "git diff failed with exit code",
-                "set -euo pipefail",
-                "/^## \\[Unreleased\\]/");
-        // 已有标签场景不再用 CHANGELOG_DIFF.md 非空与否决定 has_changes。
-        String checkStep = nightly.substring(nightly.indexOf("Check changelog diff"),
-                nightly.indexOf("Resolve next version"));
-        assertThat(checkStep).doesNotContain("CHANGELOG_DIFF.md", "[ -s CHANGELOG_DIFF.md ]");
-        // 首次无标签仍检查 [Unreleased] 区段。
-        assertThat(script).contains("[Unreleased]");
-        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("nightly-changelog-gate.sh"));
-    }
 
     @Test
     @DisplayName("Nightly 更新清单序号按工作流运行号和重试次数严格递增")
@@ -1525,6 +1290,7 @@ class PluginReleaseScriptsTest {
         Path script = repoRoot().resolve("scripts").resolve("nightly-changelog-gate.sh");
         assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
         assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
+        assertAsciiWithoutBom(script);
 
         Path repo = Files.createTempDirectory("nightly-gate-");
         try {
