@@ -53,12 +53,12 @@ public interface NotificationInboxMapper {
             + " OR deleted_time IS NOT NULL OR active <> 1))")
     boolean blocksRemoteAnnouncementImport(@Param("id") String id);
 
-    @Update("UPDATE notification_messages SET content_url = #{contentUrl}, content_html = #{contentHtml}"
+    @Update("UPDATE notification_messages"
+            + " SET severity = #{severity}, title = #{title}, body = #{body},"
+            + " content_url = #{contentUrl}, content_html = #{contentHtml}"
             + " WHERE id = #{id} AND category = 'announcement'"
-            + " AND deleted_time IS NULL AND content_html IS NULL")
-    int restoreRemoteAnnouncementHtml(@Param("id") String id,
-                                      @Param("contentUrl") String contentUrl,
-                                      @Param("contentHtml") String contentHtml);
+            + " AND deleted_time IS NULL AND active = 1 AND created_time = #{createdTime}")
+    int updateRemoteAnnouncement(NotificationMessage message);
 
     @Select("SELECT t.locale, t.title, t.summary, t.content_url AS contentUrl,"
             + " t.content_sha256 AS contentSha256,"

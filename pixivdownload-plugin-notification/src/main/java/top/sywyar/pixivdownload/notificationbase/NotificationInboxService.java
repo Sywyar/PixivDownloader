@@ -179,8 +179,17 @@ public class NotificationInboxService {
                 publishedAt,
                 null);
         int changed = mapper.insert(message);
-        changed += mapper.restoreRemoteAnnouncementHtml(
-                message.id(), message.contentUrl(), message.contentHtml());
+        if (changed == 0) {
+            NotificationMessage existing = mapper.findById(messageId);
+            if (existing == null) {
+                return false;
+            }
+            requireSamePublishedAt(existing, publishedAt);
+            if (mapper.updateRemoteAnnouncement(message) != 1) {
+                return false;
+            }
+            changed = 1;
+        }
         for (RemoteAnnouncementTranslation translation : validatedTranslations) {
             changed += mapper.upsertRemoteAnnouncementTranslation(messageId, translation);
         }
@@ -190,15 +199,31 @@ public class NotificationInboxService {
     }
 
     boolean needsRemoteAnnouncementImport(String remoteId,
+                                          NotificationSeverity severity,
+                                          long publishedAt,
                                           List<RemoteAnnouncementTranslation> translations) {
         String messageId = REMOTE_ANNOUNCEMENT_ID_PREFIX + remoteAnnouncementId(remoteId);
         if (mapper.blocksRemoteAnnouncementImport(messageId)) {
             return false;
         }
+        if (publishedAt < 0) {
+            throw new IllegalArgumentException("remote announcement published time is invalid");
+        }
+        String severityName = Objects.requireNonNull(severity, "notification severity").name();
         List<RemoteAnnouncementTranslation> expected = validatedRemoteTranslations(translations, false);
+        NotificationMessage existing = mapper.findById(messageId);
+        if (existing == null) {
+            return true;
+        }
+        requireSamePublishedAt(existing, publishedAt);
+        RemoteAnnouncementTranslation primary = expected.get(0);
         List<RemoteAnnouncementTranslation> stored = safeRemoteTranslations(
                 mapper.findRemoteAnnouncementTranslations(messageId));
-        return !sameTranslationMetadata(expected, stored);
+        return !severityName.equals(existing.severity())
+                || !primary.title().equals(existing.title())
+                || !primary.summary().equals(existing.body())
+                || !primary.contentUrl().equals(existing.contentUrl())
+                || !sameTranslationMetadata(expected, stored);
     }
 
     @Transactional
@@ -609,6 +634,12 @@ public class NotificationInboxService {
             }
         }
         return true;
+    }
+
+    private static void requireSamePublishedAt(NotificationMessage existing, long publishedAt) {
+        if (existing.createdTime() != publishedAt) {
+            throw new IllegalArgumentException("remote announcement published time is immutable");
+        }
     }
 
     private static int positiveSetting(IntSupplier supplier, int defaultValue) {

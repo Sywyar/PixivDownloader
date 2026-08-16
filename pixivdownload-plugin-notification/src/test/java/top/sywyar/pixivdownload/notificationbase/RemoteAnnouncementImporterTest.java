@@ -106,6 +106,27 @@ class RemoteAnnouncementImporterTest {
     }
 
     @Test
+    @DisplayName("公告严重程度变更会刷新同一消息并保留已读状态")
+    void refreshesSeverityWithoutResettingReadState() {
+        Harness harness = harness(Locale.US);
+        byte[] initial = bytes(indexWithSequenceAndLocales(
+                1, "[\"en-US\",\"zh-CN\"]", item("stable", PUBLISHED, "info")));
+        byte[] refreshed = bytes(indexWithSequenceAndLocales(
+                2, "[\"en-US\",\"zh-CN\"]", item("stable", PUBLISHED, "critical")));
+
+        assertThat(harness.importIndex(initial)).isEqualTo(1);
+        Long readTime = harness.inbox.markRead("remote-announcement:stable").readTime();
+
+        assertThat(harness.importIndex(refreshed)).isEqualTo(1);
+        assertThat(harness.inbox.find("remote-announcement:stable")).satisfies(message -> {
+            assertThat(message.severity()).isEqualTo("ERROR");
+            assertThat(message.createdTime())
+                    .isEqualTo(Instant.parse(PUBLISHED).toEpochMilli());
+            assertThat(message.readTime()).isEqualTo(readTime);
+        });
+    }
+
+    @Test
     @DisplayName("切换语言复用同一公告并保留已读与删除状态")
     void localeSwitchKeepsLogicalHistoryAndReadState() {
         AtomicReference<Locale> locale = new AtomicReference<>(Locale.SIMPLIFIED_CHINESE);
@@ -901,17 +922,19 @@ class RemoteAnnouncementImporterTest {
         }
 
         @Override
-        public int restoreRemoteAnnouncementHtml(String id, String contentUrl, String contentHtml) {
+        public int updateRemoteAnnouncement(NotificationMessage replacement) {
+            String id = replacement.id();
             synchronized (messages) {
                 NotificationMessage current = findById(id);
-                if (current == null || current.contentHtml() != null
+                if (current == null || current.createdTime() != replacement.createdTime()
                         || !NotificationCategory.ANNOUNCEMENT.token().equals(current.category())) {
                     return 0;
                 }
                 messages.remove(current);
                 messages.add(new NotificationMessage(
-                        current.id(), current.category(), current.severity(), current.scenarioId(),
-                        current.title(), current.body(), contentUrl, contentHtml, current.actionUrl(),
+                        current.id(), current.category(), replacement.severity(), current.scenarioId(),
+                        replacement.title(), replacement.body(), replacement.contentUrl(), replacement.contentHtml(),
+                        current.actionUrl(),
                         current.createdTime(), current.readTime()));
                 return 1;
             }

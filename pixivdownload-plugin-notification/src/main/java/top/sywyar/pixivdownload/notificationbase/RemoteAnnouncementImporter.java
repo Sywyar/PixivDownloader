@@ -228,7 +228,7 @@ public final class RemoteAnnouncementImporter {
                         .map(Translation::metadata)
                         .toList();
                 if (!inbox.needsRemoteAnnouncementImport(
-                        announcement.id(), metadata)) {
+                        announcement.id(), announcement.severity(), announcement.publishedAt(), metadata)) {
                     continue;
                 }
                 List<RemoteAnnouncementTranslation> snapshots = announcement.translations().stream()

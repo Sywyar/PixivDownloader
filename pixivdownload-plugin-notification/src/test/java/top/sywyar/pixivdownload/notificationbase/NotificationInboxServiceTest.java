@@ -128,6 +128,69 @@ class NotificationInboxServiceTest {
     }
 
     @Test
+    @DisplayName("远程公告刷新主元数据和翻译时保留发布时间与已读状态")
+    void refreshesRemoteAnnouncementWithoutResettingLocalState() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper);
+        List<RemoteAnnouncementTranslation> initial = List.of(
+                new RemoteAnnouncementTranslation(
+                        "en-US", "Initial", "Initial body", CONTENT_URL,
+                        "0".repeat(64), "<!doctype html><p>Initial</p>"),
+                new RemoteAnnouncementTranslation(
+                        "zh-CN", "初始", "初始正文", CONTENT_URL,
+                        "1".repeat(64), "<!doctype html><p>初始</p>"));
+        List<RemoteAnnouncementTranslation> refreshed = List.of(new RemoteAnnouncementTranslation(
+                "en-US", "Refreshed", "Refreshed body", CONTENT_URL,
+                "2".repeat(64), "<!doctype html><p>Refreshed</p>"));
+
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.INFO, initial, 100)).isTrue();
+        Long readTime = service.markRead("remote-announcement:stable").readTime();
+        assertThat(service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.ERROR, 100, refreshed)).isTrue();
+
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.ERROR, refreshed, 100)).isTrue();
+
+        assertThat(service.find("remote-announcement:stable", "en-US")).satisfies(message -> {
+            assertThat(message.severity()).isEqualTo("ERROR");
+            assertThat(message.title()).isEqualTo("Refreshed");
+            assertThat(message.body()).isEqualTo("Refreshed body");
+            assertThat(message.createdTime()).isEqualTo(100);
+            assertThat(message.readTime()).isEqualTo(readTime);
+        });
+        assertThat(mapper.findRemoteAnnouncementTranslations("remote-announcement:stable"))
+                .extracting(RemoteAnnouncementTranslation::locale)
+                .containsExactly("en-US");
+        assertThat(service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.ERROR, 100, refreshed)).isFalse();
+    }
+
+    @Test
+    @DisplayName("远程公告稳定编号不允许改变发布时间")
+    void rejectsRemoteAnnouncementPublishedTimeChanges() {
+        MemoryMapper mapper = new MemoryMapper();
+        NotificationInboxService service = new NotificationInboxService(mapper);
+        List<RemoteAnnouncementTranslation> translations = List.of(new RemoteAnnouncementTranslation(
+                "en-US", "Title", "Body", CONTENT_URL,
+                "0".repeat(64), "<!doctype html><p>Body</p>"));
+
+        assertThat(service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.INFO, translations, 100)).isTrue();
+
+        assertThatThrownBy(() -> service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.WARNING, 101, translations))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.storeRemoteAnnouncement(
+                "stable", NotificationSeverity.WARNING, translations, 101))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(service.find("remote-announcement:stable", "en-US")).satisfies(message -> {
+            assertThat(message.severity()).isEqualTo("INFO");
+            assertThat(message.createdTime()).isEqualTo(100);
+        });
+    }
+
+    @Test
     @DisplayName("显式删除远程公告后同一稳定编号不会被重新拉取复活")
     void keepsRemoteAnnouncementDismissedAcrossRefetch() {
         MemoryMapper mapper = new MemoryMapper();
@@ -148,7 +211,8 @@ class NotificationInboxServiceTest {
                         "en-US", "Changed", "Changed", CONTENT_URL,
                         "1".repeat(64), "<!doctype html><p>Changed</p>")),
                 2)).isFalse();
-        assertThat(service.needsRemoteAnnouncementImport("stable", firstTranslations)).isFalse();
+        assertThat(service.needsRemoteAnnouncementImport(
+                "stable", NotificationSeverity.INFO, 1, firstTranslations)).isFalse();
     }
 
     @Test
@@ -396,16 +460,18 @@ class NotificationInboxServiceTest {
         }
 
         @Override
-        public int restoreRemoteAnnouncementHtml(String id, String contentUrl, String contentHtml) {
+        public int updateRemoteAnnouncement(NotificationMessage replacement) {
+            String id = replacement.id();
             NotificationMessage current = findById(id);
-            if (current == null || current.contentHtml() != null
+            if (current == null || current.createdTime() != replacement.createdTime()
                     || !NotificationCategory.ANNOUNCEMENT.token().equals(current.category())) {
                 return 0;
             }
             messages.remove(current);
             messages.add(new NotificationMessage(
-                    current.id(), current.category(), current.severity(), current.scenarioId(),
-                    current.title(), current.body(), contentUrl, contentHtml, current.actionUrl(),
+                    current.id(), current.category(), replacement.severity(), current.scenarioId(),
+                    replacement.title(), replacement.body(), replacement.contentUrl(), replacement.contentHtml(),
+                    current.actionUrl(),
                     current.createdTime(), current.readTime()));
             return 1;
         }

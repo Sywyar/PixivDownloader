@@ -72,9 +72,22 @@ class NotificationInboxMapperTest {
                     null, null, 25, 30L);
             assertThat(mapper.insert(legacy)).isEqualTo(1);
             assertThat(mapper.blocksRemoteAnnouncementImport("legacy")).isFalse();
-            assertThat(mapper.restoreRemoteAnnouncementHtml(
-                    "legacy", legacy.contentUrl(), "<!doctype html><p>legacy</p>"))
-                    .isEqualTo(1);
+            NotificationMessage refreshed = new NotificationMessage(
+                    "legacy", "announcement", "ERROR", null,
+                    "Refreshed", "Refreshed body", legacy.contentUrl(),
+                    "<!doctype html><p>legacy</p>", null, 25, null);
+            assertThat(mapper.updateRemoteAnnouncement(refreshed)).isEqualTo(1);
+            assertThat(mapper.findById("legacy")).satisfies(message -> {
+                assertThat(message.severity()).isEqualTo("ERROR");
+                assertThat(message.title()).isEqualTo("Refreshed");
+                assertThat(message.body()).isEqualTo("Refreshed body");
+                assertThat(message.createdTime()).isEqualTo(25);
+                assertThat(message.readTime()).isEqualTo(30);
+            });
+            assertThat(mapper.updateRemoteAnnouncement(new NotificationMessage(
+                    "legacy", "announcement", "WARNING", null,
+                    "Conflict", "Conflict", legacy.contentUrl(),
+                    "<!doctype html><p>conflict</p>", null, 26, null))).isZero();
             RemoteAnnouncementTranslation translation = new RemoteAnnouncementTranslation(
                     "en-US", "English legacy", "English summary", legacy.contentUrl(),
                     "0".repeat(64),
@@ -147,6 +160,7 @@ class NotificationInboxMapperTest {
             assertThat(mapper.findHtmlContent("announcement")).isNull();
             assertThat(mapper.blocksRemoteAnnouncementImport("announcement")).isTrue();
             assertThat(mapper.insert(message("announcement", "announcement", 120))).isZero();
+            assertThat(mapper.updateRemoteAnnouncement(message("announcement", "announcement", 5))).isZero();
             assertThat(mapper.deleteNonAnnouncement("survey")).isEqualTo(1);
             assertThat(mapper.findById("survey")).isNull();
 
