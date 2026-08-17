@@ -58,9 +58,28 @@ jobs:
   publish-plugins:
     if: github.event_name == 'push'
     uses: ./.github/workflows/publish-plugins.yml
+    with:
+      publish_in_caller: true
+
+  publish-plugin-artifacts:
+    needs: publish-plugins
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    environment: release
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Publish official plugins
+        uses: ./.github/actions/publish-official-plugins
+        with:
+          plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
+          plugins_repo_token: ${{ secrets.PLUGINS_REPO_TOKEN }}
 
   build-jar:
-    needs: publish-plugins
+    needs: publish-plugin-artifacts
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
@@ -288,7 +307,7 @@ jobs:
           path: build/out/*-setup.exe
 
   release:
-    needs: [publish-plugins, build-jar, build-windows-installer]
+    needs: [publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: release

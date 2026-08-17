@@ -11,6 +11,10 @@ on:
         description: 'Protected predecessor approved by the reusable quality gate'
         value: ${{ jobs.trusted-base.outputs.sha }}
     inputs:
+      publish_in_caller:
+        description: '由调用方在自己的 release Environment job 中执行实际发布'
+        required: true
+        type: boolean
       publish_args:
         description: '可选发布参数；填写 -f 时强制重编译并覆盖上传所有插件资产'
         required: false
@@ -27,10 +31,6 @@ on:
 # 本仓库只需读（checkout）；对分发仓库的写全部经 PAT，不靠默认 GITHUB_TOKEN。
 permissions:
   contents: read
-
-env:
-  PLUGINS_REPO: Sywyar/PixivDownloader-plugins
-  PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07
 
 jobs:
   trusted-base:
@@ -84,108 +84,21 @@ jobs:
     environment: release
     steps:
       - name: Checkout main repo
+        if: inputs.publish_in_caller != true
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+      - name: Publish official plugins
+        if: inputs.publish_in_caller != true
+        uses: ./.github/actions/publish-official-plugins
         with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+          plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
+          plugins_repo_token: ${{ secrets.PLUGINS_REPO_TOKEN }}
+          publish_args: ${{ inputs.publish_args || '' }}
 
-      - name: Build plugin signature tool
-        shell: powershell
-        run: .\mvnw.cmd "-pl" "pixivdownload-plugin-signature" "-am" "package" "-DskipTests" "-Dexec.skip=true"
-
-      - name: Prepare plugin signing private key
-        shell: powershell
-        env:
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
+      - name: Complete delegated publication gate
+        if: inputs.publish_in_caller == true
+        shell: bash
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
-            throw "Missing release Environment secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64."
-          }
-          $signingDir = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-signing"
-          New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
-          $privateKeyFile = Join-Path $signingDir "official-ed25519-private-key.pem"
-          $privateKeyPemBase64 = ($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')
-          try {
-            $privateKeyBytes = [System.Convert]::FromBase64String($privateKeyPemBase64)
-          } catch {
-            throw "Release Environment secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64."
-          }
-          [System.IO.File]::WriteAllBytes($privateKeyFile, $privateKeyBytes)
-          $privateKeyText = [System.IO.File]::ReadAllText($privateKeyFile, [System.Text.Encoding]::UTF8)
-          if ($privateKeyText.Contains("?")) {
-            throw "Prepared plugin signing private key contains '?' characters. Re-upload it as PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 from the original PEM bytes."
-          }
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile`n", (New-Object System.Text.UTF8Encoding($false)))
-
-      - name: Build + publish updated plugins (per-plugin, version-gated or forced)
-        # 仅对「plugin.version 尚无对应 Release」的插件单独编译（mvn -pl <module> -am，不全量构建）并发布；
-        # 版本已发布的插件跳过、绝不重编译 / 重上传（不可变）。更新一个插件 = 只编译并发布这一个。
-        # 手动触发时 publish_args 填 -f 会强制每个插件都重编译，并先删除同名 Release 资产后重新上传。
-        # 布局偏好调查的四个公开客户端参数由 download-workbench 源码持有；官方插件发布脚本
-        # 只通过 tracked Maven profile 打开一个发行激活位，不读取 GitHub 变量或临时 properties。
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
-          PUBLISH_PLUGIN_ARGS: ${{ inputs.publish_args || '' }}
-        run: |
-          $publishArgs = @{
-            Repo = $env:PLUGINS_REPO
-            OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID
-            PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
-          }
-          $inputTokens = @()
-          if (-not [string]::IsNullOrWhiteSpace($env:PUBLISH_PLUGIN_ARGS)) {
-            $inputTokens = @($env:PUBLISH_PLUGIN_ARGS -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-          }
-          $unsupportedTokens = @($inputTokens | Where-Object { $_ -notin @("-f", "-Force") })
-          if ($unsupportedTokens.Count -gt 0) {
-            throw "Unsupported publish_args value(s): $($unsupportedTokens -join ', '). Only -f is supported."
-          }
-          if (@($inputTokens | Where-Object { $_ -in @("-f", "-Force") }).Count -gt 0) {
-            $publishArgs["Force"] = $true
-          }
-          .\scripts\publish-plugin-releases.ps1 @publishArgs
-
-      - name: Generate market manifest.json (from published releases)
-        # 始终运行：从已发布的 Release 资产推导 sha256/size/downloadCount（不依赖本次是否构建），刷新清单。
-        # 使用 pwsh 而非 powershell：Windows PowerShell 5.1 的 ConvertTo-Json 会产生楼梯式缩进。
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
-        run: >
-          .\scripts\generate-market-manifest.ps1
-          -Repo $env:PLUGINS_REPO
-          -CurationFile scripts/market-curation.json
-          -OutputFile build/manifest.json
-          -OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID
-          -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
-
-      - name: Checkout plugins repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          repository: Sywyar/PixivDownloader-plugins
-          token: ${{ secrets.PLUGINS_REPO_TOKEN }}
-          path: plugins-repo
-
-      - name: Commit manifest.json to plugins repo
-        shell: powershell
-        run: |
-          Copy-Item build/manifest.json plugins-repo/manifest.json -Force
-          Copy-Item build/manifest.json.sig plugins-repo/manifest.json.sig -Force
-          Set-Location plugins-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add manifest.json manifest.json.sig
-          $changed = git status --porcelain
-          if ($changed) {
-            git commit -m "chore: refresh plugin market manifest"
-            git push
-          } else {
-            Write-Host "manifest.json unchanged; nothing to commit"
-          }
+          echo "Quality Gate passed; the caller will publish from its release Environment job."

@@ -1270,7 +1270,7 @@ class PluginReleaseScriptsTest {
         assertThat(nightly).contains("workflow_dispatch:");
         assertThat(releaseJob)
                 .contains(
-                        "needs: [resolve-version, publish-plugins, build-jar, build-windows-installer]",
+                        "needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer]",
                         "if: needs.resolve-version.outputs.has_changes == 'true'")
                 .doesNotContain("always()");
         assertThat(releaseStep).contains(
