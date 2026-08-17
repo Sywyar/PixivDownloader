@@ -396,7 +396,9 @@ class WebI18nBundleRegistryTest {
         assertThat(bundle).isNotNull();
         assertThat(bundle.load(Locale.US))
                 .containsEntry("fixture.loader", "bridge:i18n/web/ext-i18n_en.properties");
-        assertThat(bundle.messagesByLocale()).containsOnlyKeys("en-US", "zh-CN");
+        assertThat(bundle.messagesByLocale()).containsOnlyKeys(
+                LocaleCatalog.defaultCatalog().visibleLocales().stream()
+                        .map(LocaleDescriptor::tag).toArray(String[]::new));
     }
 
     @Test
