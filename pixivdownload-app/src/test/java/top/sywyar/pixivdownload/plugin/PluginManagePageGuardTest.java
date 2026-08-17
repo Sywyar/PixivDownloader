@@ -127,7 +127,7 @@ class PluginManagePageGuardTest {
         assertThat(core).contains("HOT_RELOAD", "BACKEND_RESTART", "PROCESS_RESTART");
 
         String views = read(VIEWS);
-        assertThat(views).contains("pm-tag--lifecycle-", "vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled");
+        assertThat(views).contains("vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled");
 
         String init = read(INIT);
         assertThat(init).as("需重启策略持久化启停配置").contains("PM.setEnabled");
@@ -150,6 +150,7 @@ class PluginManagePageGuardTest {
                 "toggle.saved.enabled", "toggle.saved.disabled", "toggle.failed",
                 "restart.backend.message", "restart.backend.confirm", "restart.backend.later",
                 "restart.process.message", "restart.process.done",
+                "action.menu", "action.menu.aria",
                 "verification.io-error", "verification.provenance-invalid",
                 "security.notice.title", "security.notice.desc",
                 "install.signature.pick", "install.signature.no-file", "install.signature.help",
@@ -217,5 +218,29 @@ class PluginManagePageGuardTest {
         String css = read(CSS);
         assertThat(css).as("深色模式覆盖").contains("html[data-theme=\"dark\"]");
         assertThat(css).as("复用 CSS 变量主题方案").contains("--surface");
+    }
+
+    @Test
+    @DisplayName("插件卡片为紧凑平铺布局：信息始终可见、无展开控件，操作收进浮层菜单，异常卡片以色条突出")
+    void pluginCardsUseDenseFlatLayout() throws IOException {
+        String core = read(CORE);
+        String views = read(VIEWS);
+        String init = read(INIT);
+        String css = read(CSS);
+
+        assertThat(views).as("卡片首行集中图标贴片、标题块、状态与启停开关")
+                .contains("pm-card-head", "pm-card-icon", "pm-card-side", "pm-card-status", "pm-switch");
+        assertThat(views).as("操作收进浮层菜单，诊断改用备注行，不再渲染标签区")
+                .contains("data-pm-action-menu-toggle", "pm-action-menu", "pm-notes")
+                .doesNotContain("pm-tags", "pm-tag--lifecycle-");
+        assertThat(core).as("不再持有卡片展开状态")
+                .doesNotContain("expandedIds", "isCardExpanded", "setCardExpanded");
+        assertThat(views + init).as("不使用展开控件")
+                .doesNotContain("data-pm-expand", "pm-card-summary", "pm-card-details");
+        assertThat(init).as("浮层菜单交互（开关 / 外点关闭 / 卡片溢出放行）")
+                .contains("data-pm-action-menu-toggle", "data-pm-action", "closeActionMenus", "has-open-menu");
+        assertThat(css).as("异常卡片左侧色条 + 幽灵图标按钮 + 浮层菜单")
+                .contains(".pm-card--warn", ".pm-card--bad", ".pm-icon-btn", ".pm-action-menu.open")
+                .doesNotContain(".pm-card-summary", ".pm-card-details");
     }
 }

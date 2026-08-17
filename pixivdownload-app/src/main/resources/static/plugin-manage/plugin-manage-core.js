@@ -22,6 +22,7 @@
     // 共享视图状态：渲染层只读，init 层写。
     var state = {
         report: null,      // 最近一次 /api/plugins/status 响应
+        pluginOrder: [],   // 当前页面会话的插件顺序；显式刷新时重建
         loading: false,
         error: null,
         activeTab: 'all',  // all | enabled | disabled | external
@@ -213,7 +214,8 @@
         }
         var name = tns(entry.displayNamespace, entry.displayNameKey, entry.id);
         var version = entry.version ? ('v' + entry.version) : null;
-        var sub = [entry.id, version, t('source.' + source, source)].filter(Boolean).join(' · ');
+        // 副标题只保留稳定 id：版本上移到名称行，来源由名称行徽标表达。
+        var sub = String(entry.id);
         var verification = entry.verification || {};
         var verificationStatus = verification.status || null;
         var verificationInfo = verificationMeta(verificationStatus);
@@ -223,7 +225,7 @@
         // 热重载插件的开关反映当前运行态；需重启插件反映已经持久化、将在重启后生效的配置态。
         var enabled = lifecyclePolicy === 'HOT_RELOAD' ? running : configuredEnabled;
 
-        // 标签：类别 / 必须标签与独立的生命周期策略标签均只由后端投影派生。
+        // 标签：类别 / 必须标签只由后端投影派生；卡片不再渲染标签区，这里仅作搜索索引保留。
         var tags = [];
         if (entry.kind) {
             tags.push(t('kind.' + String(entry.kind).toLowerCase(), entry.kind));
@@ -239,6 +241,7 @@
         return {
             id: entry.id,
             name: name,
+            version: version,
             sub: sub,
             source: source,
             status: status,
@@ -280,6 +283,28 @@
             updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED',
             progress: 0
         };
+    }
+
+    function applyReport(report, resetOrder) {
+        var plugins = report && Array.isArray(report.plugins) ? report.plugins : [];
+        if (resetOrder) state.pluginOrder = [];
+
+        var positions = Object.create(null);
+        state.pluginOrder.forEach(function (id, index) { positions[id] = index; });
+        plugins.forEach(function (plugin) {
+            var id = String(plugin.id);
+            if (!Object.prototype.hasOwnProperty.call(positions, id)) {
+                positions[id] = state.pluginOrder.length;
+                state.pluginOrder.push(id);
+            }
+        });
+
+        state.report = Object.assign({}, report, {
+            plugins: plugins.slice().sort(function (left, right) {
+                return positions[String(left.id)] - positions[String(right.id)];
+            })
+        });
+        return state.report;
     }
 
     function allViewModels() {
@@ -446,6 +471,7 @@
         verificationMeta: verificationMeta,
         lifecyclePolicyOf: lifecyclePolicyOf,
         lifecyclePolicyMeta: lifecyclePolicyMeta,
+        applyReport: applyReport,
         allViewModels: allViewModels,
         tabsModel: tabsModel,
         filterModels: filterModels,

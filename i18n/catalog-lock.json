@@ -19022,9 +19022,17 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "web/plugins",
-      "key": "action.none",
-      "acceptedSourceHash": "9f77f8dd76f0c952783e3955a46fffe38295ee2443f3a4f60ec2c18b7c00a263",
-      "acceptedTranslationHash": "565c8a0b760bf519d164e029925d78e1246ad9378b711c5c3003710b0a094d58"
+      "key": "action.menu",
+      "acceptedSourceHash": "ed31fbb483ee1b0a40f8b15471b0b3c38191fda4034d5cfa18126b82da496c66",
+      "acceptedTranslationHash": "ff8059dc6752afdd30d275932b1d5031a2ec854b387a8c57ecc6689915293a43"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/plugins",
+      "key": "action.menu.aria",
+      "acceptedSourceHash": "deca1e03951f633cd1531117b9be32731ad3db750ff0e1b4748c90734ac4eabb",
+      "acceptedTranslationHash": "b354e9c4eeafcd1efda24f57634dec84d2fd6305ed4c46e3081b8fd63c347b0b"
     },
     {
       "locale": "en-US",
