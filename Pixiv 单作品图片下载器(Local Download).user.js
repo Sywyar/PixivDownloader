@@ -502,6 +502,17 @@
             .replace(/'/g, '&apos;');
     }
 
+    function normalizeContentLanguageTag(language) {
+        let tag = String(language || 'ja-JP').trim().replace(/_/g, '-');
+        try {
+            tag = Intl.getCanonicalLocales(tag)[0];
+        } catch (_) {
+            return 'ja-JP';
+        }
+        const defaults = {ja: 'ja-JP', zh: 'zh-CN', en: 'en-US', ko: 'ko-KR'};
+        return defaults[tag] || (tag.includes('-') ? tag : `${tag}-001`);
+    }
+
     // 获取小说数据（Pixiv AJAX）
     function fetchNovelData(novelId) {
         return new Promise((resolve, reject) => {
@@ -789,6 +800,7 @@
             }
 
             const pagesHtml = renderNovelPagesHtml(content, imageNameById);
+            const contentLang = normalizeContentLanguageTag(body.language);
             const enc = (s) => ZipWriter.strBytes(s);
             const entries = [];
             // mimetype 必须是第一项且 store
@@ -800,7 +812,7 @@
 
             const chapterFiles = pagesHtml.map((html, i) => {
                 const name = `chapter${i + 1}.xhtml`;
-                const xhtml = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${escapeXml(title)} - ${i + 1}</title></head><body>${html || '<p/>'}</body></html>`;
+                const xhtml = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXml(contentLang)}"><head><meta charset="utf-8"/><title>${escapeXml(title)} - ${i + 1}</title></head><body>${html || '<p/>'}</body></html>`;
                 entries.push({name: `OEBPS/${name}`, data: enc(xhtml)});
                 return name;
             });
@@ -828,7 +840,7 @@
 <dc:identifier id="bookid">pixiv-novel-${escapeXml(novelId)}</dc:identifier>
 <dc:title>${escapeXml(title)}</dc:title>
 <dc:creator>${escapeXml(author)}</dc:creator>
-<dc:language>${escapeXml(body.language || 'ja')}</dc:language>
+<dc:language>${escapeXml(contentLang)}</dc:language>
 </metadata>
 <manifest>${manifestItems.join('')}</manifest>
 <spine toc="ncx">${spineItems.join('')}</spine>

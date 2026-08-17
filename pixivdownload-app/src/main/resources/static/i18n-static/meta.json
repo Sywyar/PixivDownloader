@@ -9,7 +9,6 @@
     {
       "tag": "zh-CN",
       "aliases": [
-        "zh",
         "zh-Hans",
         "zh-SG"
       ],
@@ -20,9 +19,7 @@
     },
     {
       "tag": "en-US",
-      "aliases": [
-        "en"
-      ],
+      "aliases": [],
       "label": "English",
       "nativeName": "English",
       "direction": "ltr",

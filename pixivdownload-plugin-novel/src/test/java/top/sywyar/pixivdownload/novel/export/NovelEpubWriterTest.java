@@ -58,6 +58,8 @@ class NovelEpubWriterTest {
         String opf = new String(entries.get("OEBPS/content.opf").data, StandardCharsets.UTF_8);
         assertThat(opf).contains("<dc:title>书名 &amp; 测试</dc:title>");
         assertThat(opf).contains("<dc:creator>作者 &lt;名&gt;</dc:creator>");
+        assertThat(opf).contains("xml:lang=\"ja-JP\"");
+        assertThat(opf).contains("<dc:language>ja-JP</dc:language>");
         assertThat(opf).contains("<itemref idref=\"chap1\"/>");
         assertThat(opf).contains("<itemref idref=\"chap2\"/>");
 
@@ -74,7 +76,18 @@ class NovelEpubWriterTest {
         String xhtml = new String(entries.get("OEBPS/chapter-1.xhtml").data, StandardCharsets.UTF_8);
         assertThat(xhtml).contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         assertThat(xhtml).contains("xmlns=\"http://www.w3.org/1999/xhtml\"");
+        assertThat(xhtml).contains("xml:lang=\"ja-JP\"");
         assertThat(xhtml).contains("<h1>第一章</h1>");
+    }
+
+    @Test
+    @DisplayName("序列化前把裸语言代码规范为带地区的 BCP 47 标签")
+    void qualifiesBareLanguageTags() {
+        assertThat(NovelEpubWriter.normalizeLanguageTag("zh")).isEqualTo("zh-CN");
+        assertThat(NovelEpubWriter.normalizeLanguageTag("en")).isEqualTo("en-US");
+        assertThat(NovelEpubWriter.normalizeLanguageTag("fr")).isEqualTo("fr-001");
+        assertThat(NovelEpubWriter.normalizeLanguageTag("ZH_cn")).isEqualTo("zh-CN");
+        assertThat(NovelEpubWriter.normalizeLanguageTag(null)).isEqualTo("ja-JP");
     }
 
     @Test
