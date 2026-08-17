@@ -1,0 +1,28 @@
+{
+  "namespace": "login",
+  "lang": "ko-KR",
+  "defaultLang": "en-US",
+  "messages": {
+    "admin.title": "관리자 로그인",
+    "button.login": "로그인",
+    "error.invite-expired": "초대 코드가 유효하지 않거나 만료되었습니다",
+    "error.invite-invalid": "초대 코드가 유효하지 않습니다",
+    "error.login-failed": "로그인에 실패했습니다",
+    "error.network": "네트워크 오류：{message}",
+    "field.password": "비밀번호",
+    "field.password.placeholder": "비밀번호",
+    "field.username": "사용자 이름",
+    "field.username.placeholder": "사용자 이름",
+    "header.title": "Pixiv 일괄 다운로더",
+    "invite.back": "관리자 로그인으로 돌아가기",
+    "invite.code": "초대 코드",
+    "invite.placeholder": "초대 코드",
+    "invite.submit": "입장",
+    "invite.title": "초대 코드 사용",
+    "invite.use-code": "초대 코드 사용",
+    "page.title": "Pixiv 일괄 다운로더 — 로그인",
+    "remember": "로그인 상태 유지 (30일)",
+    "validation.credentials-required": "사용자 이름과 비밀번호를 입력하세요",
+    "validation.invite-required": "초대 코드를 입력하세요"
+  }
+}

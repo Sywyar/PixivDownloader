@@ -40,6 +40,14 @@
       "nativeName": "日本語",
       "direction": "ltr",
       "status": "supported"
+    },
+    {
+      "tag": "ko-KR",
+      "aliases": [],
+      "label": "한국어",
+      "nativeName": "한국어",
+      "direction": "ltr",
+      "status": "supported"
     }
   ],
   "supportedNamespaces": [

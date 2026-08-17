@@ -220,10 +220,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP', 'ko-KR'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {} };
+        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {}, 'ko-KR': {} };
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -425,6 +425,7 @@
             'switcher.zh-Hant': '繁體中文',
             'switcher.ja-JP': '日本語',
             'switcher.en-US': 'English',
+            'switcher.ko-KR': '한국어',
             'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
             'common.dialog.connect-notice': 'Pixiv download script first-run hint\n\nIf you use an external server instead of localhost, replace this userscript header line:\n  // @connect      YOUR_SERVER_HOST\nwith your real server IP or domain, for example:\n  // @connect      192.168.1.100\n\nPath: Tampermonkey dashboard -> target script -> Edit -> Save\n\nOr use the web UI directly:\n{serverBase}/login.html\n\n(This hint is shown only once)',
             'common.option.verify-history-files.tooltip': 'Checks whether the recorded directory exists, whether it is empty, and whether it contains image files. Invalid records will be downloaded again.',
@@ -670,6 +671,70 @@
             'single.alert.novel-history-skipped': '小説 {novelId} はダウンロード履歴にすでに存在するため、スキップしました。',
             'single.alert.novel-history-skipped-deleted': '小説 {novelId} は以前ダウンロードされましたが、ギャラリーから削除されているためスキップしました。「削除済み作品の再ダウンロードを許可」を有効にすると再度ダウンロードできます。',
             'single.alert.novel-start-download': '小説 {novelId} のダウンロードを開始中…'
+        },
+        'ko-KR': {
+            'switcher.label': '언어',
+            'switcher.zh-CN': '简体中文',
+            'switcher.zh-Hant': '繁體中文',
+            'switcher.ja-JP': '日本語',
+            'switcher.en-US': 'English',
+            'switcher.ko-KR': '한국어',
+            'common.dialog.unauthorized': '백엔드 서비스에 로그인해야 합니다. 로그인 페이지를 엽니다...',
+            'common.dialog.connect-notice': 'Pixiv 다운로드 스크립트 최초 실행 안내\\n\\nlocalhost가 아닌 외부 서버를 사용하는 경우 사용자 스크립트 헤더의 다음 줄을 실제 서버 IP 또는 도메인으로 바꾸세요:\\n  // @connect      YOUR_SERVER_HOST\\n예: \\n  // @connect      192.168.1.100\\n\\n변경 경로: Tampermonkey 대시보드 → 대상 스크립트 → 편집 → 저장\\n\\n또는 웹 UI에서 직접 사용할 수 있습니다(스크립트 불필요):\\n{serverBase}/login.html\\n\\n(이 안내는 한 번만 표시됩니다)',
+            'common.option.verify-history-files.tooltip': '기록된 디렉터리가 존재하는지, 비어 있지 않은지, 이미지 파일이 포함되어 있는지 확인합니다. 유효하지 않은 기록은 다시 다운로드합니다.',
+            'common.option.redownload-deleted.tooltip': '갤러리에서 삭제한 작품은 삭제 표시가 유지됩니다. 선택하지 않으면(기본값) 이미 다운로드된 것으로 처리하여 건너뛰고, 선택하면 다시 다운로드한 후 성공 시 표시를 지웁니다.',
+            'common.archive.download-link': '압축 패키지 다운로드',
+            'common.archive.expired': '다운로드 링크가 만료되었습니다',
+            'common.archive.preparing': '다운로드한 파일을 준비하는 중입니다. 잠시 기다리세요...',
+            'common.archive.ready': '압축 패키지가 준비되었습니다:',
+            'common.archive.empty': '패키징할 파일이 없습니다',
+            'common.archive.validity': '유효 기간: {time}',
+            'common.quota.exceeded': '다운로드 한도에 도달했습니다',
+            'common.quota.summary': '할당량: {used}/{max}',
+            'single.title': 'Pixiv 다운로드 도구(Java 백엔드)',
+            'single.action.collapse': '접기',
+            'single.fab.title': 'Pixiv 다운로드 도구(Java 백엔드)',
+            'single.menu.open': 'Pixiv 단일 작품 다운로드 패널 열기',
+            'single.status.ready': '⬇️ 이 작품을 다운로드할 수 있습니다',
+            'single.button.download': '📥 백엔드를 통해 다운로드',
+            'single.option.bookmark': '다운로드 후 자동으로 즐겨찾기에 추가',
+            'single.option.skip-history': '다운로드 기록 건너뛰기',
+            'single.option.verify-history-files': '저장된 디렉터리 확인',
+            'single.option.redownload-deleted': '삭제된 작품 다시 다운로드 허용',
+            'single.artwork-id': '작품 ID: {id}',
+            'single.backend.checking': '백엔드 상태 확인 중...',
+            'single.backend.available': '✅ 백엔드 사용 가능',
+            'single.backend.unavailable': '❌ 백엔드 사용 불가',
+            'single.info': 'Java 백엔드를 사용하며 전체 폴더 구조를 유지합니다',
+            'single.menu.download': '백엔드를 통해 현재 작품 다운로드',
+            'single.menu.server': '⚙️ 백엔드 서버 URL 설정',
+            'single.prompt.server': '백엔드 서버 URL을 입력하세요(끝의 슬래시 제외):',
+            'single.alert.server-updated': '서버 URL이 업데이트되었습니다: {serverBase}',
+            'single.alert.no-artwork-id': '작품 ID를 감지할 수 없습니다',
+            'single.alert.backend-not-running': '백엔드가 실행 중이 아닙니다.\\nJava Spring 서버를 {serverBase}에서 사용할 수 있는지 확인하세요',
+            'single.alert.history-skipped': '작품 {artworkId}이(가) 이미 다운로드 기록에 있어 건너뛰었습니다.',
+            'single.alert.history-skipped-deleted': '작품 {artworkId}은(는) 이전에 다운로드되었지만 갤러리에서 삭제되어 건너뛰었습니다. 「삭제된 작품 다시 다운로드 허용」을 활성화하면 다시 다운로드할 수 있습니다.',
+            'single.alert.start-download': '작품 {artworkId} 다운로드를 시작합니다...',
+            'single.alert.no-images': '이미지를 찾을 수 없습니다',
+            'single.alert.download-submitted': '다운로드 작업을 백엔드에 제출했습니다.\\n{typeHint}\\n{message}',
+            'single.alert.download-failed': '다운로드 실패: {message}',
+            'single.type.ugoira': '움직이는 이미지(WebP로 변환됨)',
+            'single.type.images': '이미지: {count}개',
+            'single.type.novel': '소설({format})',
+            'single.archive.download-limit': '다운로드 한도에 도달했습니다',
+            'single.novel.title': 'Pixiv 소설 다운로드 도구(Java 백엔드)',
+            'single.novel.status.ready': '⬇️ 이 소설을 다운로드할 수 있습니다',
+            'single.novel.button.download': '📥 백엔드를 통해 소설 다운로드',
+            'single.novel.id': '소설 ID: {id}',
+            'single.novel.format-label': '소설 형식:',
+            'single.novel.format-txt': '일반 텍스트(TXT)',
+            'single.novel.format-html': '웹 페이지(HTML)',
+            'single.novel.format-epub': '전자책(EPUB)',
+            'single.novel.menu.download': '백엔드를 통해 현재 소설 다운로드',
+            'single.alert.no-novel-id': '소설 ID를 감지할 수 없습니다',
+            'single.alert.novel-history-skipped': '소설 {novelId}이(가) 이미 다운로드 기록에 있어 건너뛰었습니다.',
+            'single.alert.novel-history-skipped-deleted': '소설 {novelId}은(는) 이전에 다운로드되었지만 갤러리에서 삭제되어 건너뛰었습니다. 「삭제된 작품 다시 다운로드 허용」을 활성화하면 다시 다운로드할 수 있습니다.',
+            'single.alert.novel-start-download': '소설 {novelId} 다운로드를 시작합니다...'
         }
     });
 

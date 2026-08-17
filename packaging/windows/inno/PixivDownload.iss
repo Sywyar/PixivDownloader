@@ -67,6 +67,7 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "zhcn"; MessagesFile: "compiler:Default.isl,ChineseSimplified.isl"
 Name: "zhhant"; MessagesFile: "compiler:Default.isl,ChineseTraditional.isl"
 Name: "ja"; MessagesFile: "compiler:Default.isl,Japanese.isl"
+Name: "ko"; MessagesFile: "compiler:Default.isl,Korean.isl"
 
 [CustomMessages]
 en.OptionalTasksGroup=Optional setup tasks:
@@ -245,6 +246,50 @@ ja.MaintenanceRemovingLegacyMsi=以前の MSI インストールを削除中...
 ja.MaintenanceLegacyMsiRemoveFailed=以前の MSI インストールを削除できませんでした。
 ja.AppRunningError=PixivDownload は現在実行中です。完全に終了してから「再試行」をクリックして続行してください。
 ja.AppRunningAbort=PixivDownload の実行中はセットアップを続行できません。インストールをキャンセルしました。
+ko.OptionalTasksGroup=선택적 설치 작업:
+ko.TaskDownloadFfmpeg=PixivDownload 설치 후 FFmpeg 다운로드 및 설치
+ko.OptionalFeaturesTitle=선택적 기능
+ko.OptionalFeaturesDescription=설치하고 활성화할 추가 구성 요소를 선택하세요.
+ko.OptionalPluginsTitle=공식 선택적 플러그인
+ko.OptionalPluginsDescription=설치하고 활성화할 공식 플러그인을 선택하세요.
+ko.PluginCatalogLoading=패키지에 포함된 서명된 플러그인 카탈로그를 로드하는 중...
+ko.PluginCatalogPackaged=이 설치 프로그램에 포함된 서명된 플러그인 카탈로그를 사용합니다.
+ko.PluginCatalogUnavailable=사용 가능한 서명된 플러그인 카탈로그가 없습니다.
+ko.PluginListHint=선택적 플러그인은 서명된 공식 카탈로그에서 설치되며 재시작 후 적용됩니다.
+ko.PluginWaiting=선택적 플러그인 설치가 애플리케이션 설치 완료를 기다리는 중입니다.
+ko.PluginInstalling=선택적 플러그인을 설치하는 중...
+ko.PluginCompleted=선택적 플러그인을 설치하고 활성화했습니다.
+ko.PluginFailed=선택적 플러그인 설치에 실패했습니다. PixivDownload는 설치되었으므로 나중에 플러그인 마켓에서 다시 시도하세요.
+ko.PluginFinishedSuccess=선택한 선택적 플러그인을 설치하고 활성화했습니다.
+ko.PluginFinishedFailed=일부 선택적 플러그인을 설치하지 못했습니다. PixivDownload 플러그인 마켓에서 다시 시도할 수 있습니다.
+ko.FfmpegWaiting=FFmpeg 다운로드가 애플리케이션 설치 완료를 기다리는 중입니다.
+ko.FfmpegDownloading=FFmpeg 다운로드 중...
+ko.FfmpegProxyDetected=시스템 프록시 사용
+ko.FfmpegDirectDownload=활성화된 시스템 프록시를 찾지 못해 직접 다운로드합니다.
+ko.FfmpegExtracting=FFmpeg 압축 해제 중...
+ko.FfmpegInstallingFiles=FFmpeg 파일 설치 중...
+ko.FfmpegCompleted=FFmpeg를 설치했습니다.
+ko.FfmpegFailed=FFmpeg 설치에 실패했습니다. PixivDownload는 설치되었으므로 나중에 상태 페이지에서 다시 시도할 수 있습니다.
+ko.FfmpegArchiveInvalid=FFmpeg 압축 패키지에 ffmpeg.exe 또는 ffprobe.exe가 없습니다.
+ko.FfmpegCopyFailed=FFmpeg 파일을 애플리케이션 도구 디렉터리에 복사할 수 없습니다.
+ko.FfmpegLicenseWriteFailed=FFmpeg 라이선스 안내를 기록할 수 없습니다.
+ko.FfmpegFinishedSuccess=설치 중 FFmpeg를 다운로드하고 설치했습니다.
+ko.FfmpegFinishedFailed=설치 중 FFmpeg를 설치하지 못했습니다. PixivDownload의 상태 페이지에서 다시 시도하세요.
+ko.MaintenanceTitle=PixivDownload가 이미 설치되어 있습니다
+ko.MaintenanceDescription=기존 설치에 수행할 작업을 선택하세요.
+ko.MaintenanceRepairButton=복구(&R)
+ko.MaintenanceRepairHint=현재 설치 폴더에 PixivDownload 파일을 다시 설치합니다.
+ko.MaintenanceChangeButton=변경(&C)
+ko.MaintenanceChangeHint=FFmpeg 다운로드와 같은 선택적 설치 작업을 변경합니다.
+ko.MaintenanceUninstallButton=제거(&U)
+ko.MaintenanceUninstallHint=기존 PixivDownload 설치를 제거합니다.
+ko.MaintenanceUninstallConfirm=기존 PixivDownload 제거 프로그램을 시작합니다. 계속하시겠습니까?
+ko.MaintenanceUninstallMissing=기존 제거 프로그램을 찾을 수 없습니다.
+ko.MaintenanceUninstallFailed=기존 제거 프로그램이 실패했습니다.
+ko.MaintenanceRemovingLegacyMsi=이전 MSI 설치를 제거하는 중...
+ko.MaintenanceLegacyMsiRemoveFailed=이전 MSI 설치를 제거할 수 없습니다.
+ko.AppRunningError=PixivDownload가 현재 실행 중입니다. 완전히 닫은 후 「재시도」를 클릭하여 계속하세요.
+ko.AppRunningAbort=PixivDownload가 실행 중이어서 설치를 계속할 수 없습니다. 설치를 취소했습니다.
 
 [InstallDelete]
 ; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时

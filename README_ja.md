@@ -1,6 +1,6 @@
 # PixivDownloader
 
-[简体中文](./README.md) | [繁體中文](./README_zh-Hant.md) | 日本語 | [English](./README_en.md)
+[简体中文](./README.md) | [繁體中文](./README_zh-Hant.md) | 日本語 | [한국어](./README_ko.md) | [English](./README_en.md)
 
 > [!NOTE]
 > この文書でいう「作品」には、イラスト、漫画、うごイラ、小説が含まれます。

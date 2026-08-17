@@ -39,10 +39,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP', 'ko-KR'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = {'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {}};
+        let DICT = {'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {}, 'ko-KR': {}};
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -367,6 +367,7 @@
             'switcher.option.zh-CN': '简体中文',
             'switcher.option.zh-Hant': '繁體中文',
             'switcher.option.ja-JP': '日本語',
+            'switcher.option.ko-KR': '한국어',
             // Panel collapse / FAB
             'local.action.collapse': 'Collapse',
             'local.fab.title': 'Pixiv Local Downloader',
@@ -412,7 +413,8 @@
             'switcher.option.en-US': 'English',
             'switcher.option.zh-CN': '简体中文',
             'switcher.option.zh-Hant': '繁體中文',
-            'switcher.option.ja-JP': '日本語'
+            'switcher.option.ja-JP': '日本語',
+            'switcher.option.ko-KR': '한국어'
         },
         'zh-Hant': {
             'local.menu.download-current': '下載目前作品的所有圖片',
@@ -497,6 +499,52 @@
             'switcher.option.zh-CN': '簡体字中国語',
             'switcher.option.zh-Hant': '繁体字中国語',
             'switcher.option.ja-JP': '日本語'
+        },
+        'ko-KR': {
+            'local.menu.download-current': '현재 작품의 모든 이미지 다운로드',
+            'local.menu.history': '다운로드 기록 보기',
+            'local.menu.clear-history': '다운로드 기록 지우기',
+            'local.menu.reset-folder-index': '폴더 인덱스 초기화',
+            'local.alert.no-artwork-id': '작품 ID를 가져올 수 없습니다',
+            'local.alert.start-download': '작품 {id}의 이미지 다운로드를 시작합니다...',
+            'local.alert.ugoira-unsupported': '작품 {id}은(는) 움직이는 이미지(ugoira)입니다.\\n이 버전은 프레임 합성을 지원하지 않습니다. 「Pixiv 작품 이미지 다운로드 도구(Java 백엔드 버전)」를 사용하세요. 프레임을 자동으로 WebP로 합성합니다.',
+            'local.alert.no-images': '이미지를 찾을 수 없습니다',
+            'local.alert.download-summary': '다운로드 완료!\\n성공: {success}/{total}개 이미지\\n저장 위치: 기본 다운로드 폴더',
+            'local.alert.download-failed': '다운로드 실패: {message}',
+            'local.alert.history-empty': '아직 다운로드 기록이 없습니다',
+            'local.alert.history-cleared': '다운로드 기록을 지웠습니다',
+            'local.alert.folder-index-reset': '폴더 인덱스를 초기화했습니다',
+            'local.confirm.redownload': '작품 {id}은(는) {time}에 이미 다운로드되었습니다\\n저장 위치: 폴더 {folder}\\n이미지 수: {count}개\\n\\n다시 다운로드하시겠습니까?',
+            'local.confirm.clear-history': '모든 다운로드 기록을 지우시겠습니까? 이 작업은 취소할 수 없습니다.',
+            'local.confirm.reset-folder-index': '폴더 인덱스를 초기화하시겠습니까? 다음 다운로드는 폴더 0부터 시작합니다.',
+            'local.history.header': '다운로드한 작품 수: {count}개\\n\\n',
+            'local.history.entry': '작품 ID: {id}\\n다운로드 시간: {time}\\n저장 위치: {folder}\\n이미지 수: {count}개\\n---\\n',
+            'local.history.novel-header': '\\n다운로드한 소설 수: {count}개\\n\\n',
+            'local.history.novel-entry': '소설 ID: {id}\\n제목: {title}\\n다운로드 시간: {time}\\n---\\n',
+            'local.ui.status.downloaded': '✅ 이미 다운로드됨',
+            'local.ui.status.available': '⬇️ 다운로드할 수 있음',
+            'local.ui.button.download': '📥 모든 이미지 다운로드',
+            'local.ui.label.artwork-id': '작품 ID: {id}',
+            'local.ui.folder.default': '기본 다운로드 폴더',
+            'local.menu.download-current-novel': '현재 소설을 EPUB으로 다운로드',
+            'local.alert.no-novel-id': '소설 ID를 가져올 수 없습니다',
+            'local.alert.novel-start-download': '소설 {id}을(를) EPUB으로 다운로드합니다...',
+            'local.alert.novel-summary': '소설 다운로드 완료!\\n파일: {title}.epub\\n포함된 이미지: {images}개\\n저장 위치: 기본 다운로드 폴더',
+            'local.alert.novel-failed': '소설 다운로드 실패: {message}',
+            'local.confirm.novel-redownload': '소설 {id}은(는) {time}에 이미 다운로드되었습니다\\n\\n다시 다운로드하시겠습니까?',
+            'local.ui.status.novel-downloaded': '✅ 소설이 이미 다운로드됨',
+            'local.ui.status.novel-available': '⬇️ 소설을 다운로드할 수 있음(EPUB)',
+            'local.ui.button.download-novel': '📕 소설 다운로드(EPUB)',
+            'local.ui.label.novel-id': '소설 ID: {id}',
+            'local.switcher.label': '언어',
+            'switcher.option.en-US': 'English',
+            'switcher.option.zh-CN': '简体中文',
+            'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語',
+            'switcher.option.ko-KR': '한국어',
+            'local.action.collapse': '접기',
+            'local.fab.title': 'Pixiv 로컬 다운로드 도구',
+            'local.menu.open': 'Pixiv 로컬 다운로드 패널 열기'
         }
     });
 

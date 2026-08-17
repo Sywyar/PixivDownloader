@@ -134,9 +134,10 @@ test('真实仓库 locales.json 可加载', () => {
     const catalog = catalogLib.load(repoRoot);
     assert.equal(catalog.sourceLocale, 'zh-CN');
     assert.equal(catalog.fallbackLocale, 'en-US');
-    assert.equal(catalog.locales.length, 4);
+    assert.equal(catalog.locales.length, 5);
     assert.equal(catalogLib.descriptorByTag(catalog, 'zh-Hant').resourceSuffix, 'zh-Hant');
     assert.equal(catalogLib.descriptorByTag(catalog, 'ja-JP').resourceSuffix, 'ja');
+    assert.equal(catalogLib.descriptorByTag(catalog, 'ko-KR').resourceSuffix, 'ko');
 });
 
 test('共享 fixture：Java 与 Node 必须同时拒绝同一批非法 catalog（15 例）', () => {
