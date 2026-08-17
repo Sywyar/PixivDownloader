@@ -17,10 +17,10 @@ import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkRecord;
 import top.sywyar.pixivdownload.douyin.gallery.DouyinGalleryDataProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /** Source-owned read API for the independent Douyin gallery and work detail pages. */
 @RestController
@@ -51,7 +51,8 @@ public class DouyinGalleryController {
         Category category = Category.parse(kind);
         Integer offset = parseCursor(cursor);
         if (category == null || offset == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "invalid-gallery-query"));
+            return ResponseEntity.badRequest()
+                    .body(ApiErrorResponse.of("douyin.gallery.query-invalid", "invalid-gallery-query"));
         }
         int pageSize = Math.max(1, Math.min(limit <= 0 ? DEFAULT_LIMIT : limit, MAX_LIMIT));
         DouyinHistoryPage page = historyService.search(new DouyinHistoryQuery(

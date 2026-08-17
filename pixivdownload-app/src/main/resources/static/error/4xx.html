@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4xx · 请求错误</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="4xx">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true"><span data-error-status-code>4xx</span><span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:4xx.art-label" aria-label="一封被退回的信">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 信封 -->
+            <rect x="62" y="52" width="96" height="66" rx="8"/>
+            <path d="M66 58 L110 90 L154 58"/>
+            <!-- 退回的回旋箭头 -->
+            <path class="a" d="M172 112 C 186 104, 186 86, 172 80 C 162 76, 152 80, 148 88"/>
+            <path class="a" d="M146 78 L148 89 L158 85"/>
+            <!-- 封口处的疑问点 -->
+            <circle class="af blink" cx="110" cy="106" r="3"/>
+            <!-- 飞行轨迹 -->
+            <path class="soft" d="M40 70 L52 70"/>
+            <path class="soft" d="M34 84 L50 84"/>
+            <path class="soft" d="M42 98 L54 98"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow"><span data-error-status-code>4xx</span> · Client Error</p>
+    <h1 class="err-title" data-i18n-html="status:4xx.title">请求这一侧<em>出了点问题</em></h1>
+    <p class="err-desc" data-error-status-text data-i18n="status:4xx.description">这次请求没能被接受（4xx 客户端错误）。具体原因与请求本身有关——可能是格式、权限、频率，或目标资源的状态问题。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:4xx.hint-1">检查输入的内容和链接是否正确</li>
+            <li data-i18n="status:4xx.hint-2">刷新页面后再操作一遍</li>
+            <li data-i18n="status:4xx.hint-3">回到首页，从正常入口重新开始</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <button class="err-btn err-btn--primary" id="errRetry" type="button" data-i18n="status:action.retry">再试一次</button>
+        <a class="err-btn err-btn--ghost" href="/" data-i18n="status:action.home">回到首页</a>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

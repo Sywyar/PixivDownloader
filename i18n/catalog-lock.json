@@ -11014,6 +11014,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "http.status.405",
+      "acceptedSourceHash": "b97ebeb080229d5e0e7b4b1cd3ea5744fae0bac40f78d25d48930fa3a95f7aa6",
+      "acceptedTranslationHash": "e3933184560739b70b60e2d0e48a6c7d7e18f76d95362e11f4155267700ac3a7"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "https.log.enabled",
       "acceptedSourceHash": "91aeb07a2e077aa6e361d69c9fc4f6effc9dce1621fb86d30b8fd7555ead0a77",
       "acceptedTranslationHash": "6bbabc4fac5ea6e644deab34011414a7d2e6aa243747aef5018d42c2e397566d"
@@ -20393,6 +20401,542 @@
       "key": "welcome.title",
       "acceptedSourceHash": "3013ca0f0a199df2e6d57d47394f9208ea06b1434c264403f9486a2e85eef56d",
       "acceptedTranslationHash": "0e2226b5235f0ff94a276eb4d07a3bfea74b7e3b8b85e9efca6c18430f041bf8"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "400.art-label",
+      "acceptedSourceHash": "442013f722adfcf63027dfbadf1aa09dff52f8435a8525b858f4bc4947a6fafe",
+      "acceptedTranslationHash": "4c2ecfe7de2030932ae3cabc51c13c146b094db6367d57c7fb610c44449d8f6f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "400.description",
+      "acceptedSourceHash": "d77ffb760afb27acead89ef7803882e16317c91d2eb344148e0d755d2e873a20",
+      "acceptedTranslationHash": "39e750747c98540ae361dc3a088df100a0f365846170438432d89e0ad862b283"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "400.doc-title",
+      "acceptedSourceHash": "bdbff55dc55a83dc5224cf0ec34364fa24a140b373828b4edc7b447959768759",
+      "acceptedTranslationHash": "7bc5257733b9adb40688faaedccb3d70f92a042a3703ddff9696b66e915fc873"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "400.hint-1",
+      "acceptedSourceHash": "cb2e5bcf9df788054c729e8c18f5d94087e8041ca2b4700aed1e630afa357311",
+      "acceptedTranslationHash": "35c78f07ca6b819b1772603cfd5795d6db06db6070070ee64333226df0d2bda5"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "400.hint-2",
+      "acceptedSourceHash": "19dbdd231388c8b44de94ac35d8b7e0a39d955739387bcfb9d70445fae91de73",
+      "acceptedTranslationHash": "8d43a9e59e098283867d650e2a7db4ec281ff08c106f548512543f0d6fa32b15"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "400.hint-3",
+      "acceptedSourceHash": "aa7651f3f04fe73913aee95a30e21f34f8e18aad184401e4b7468a9b2791b4da",
+      "acceptedTranslationHash": "e095365e21038f02b4457c9166118772e971566c69134a9024f04b1200354607"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "400.title",
+      "acceptedSourceHash": "836b37ff7abf0624b5fc7cc2c88cc7ea330f0dd8a0ed4c50ef014fd63bafcf26",
+      "acceptedTranslationHash": "1afddcae18d591060ad1773e5cbaa2aed2a1d18b7332bd26b38e48c7556e2627"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "403.art-label",
+      "acceptedSourceHash": "7d885541d83d3c9a478d2096ab60c61b7eeebdfffb48ee7361c3052fb8922ae8",
+      "acceptedTranslationHash": "a6d379fd208924ec9517e9eed8f3531b4a699197339fb54e93345da70a396845"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "403.description",
+      "acceptedSourceHash": "b874151529456143ad401b71595577eec798a59b92326639ce5a7526f5b95d83",
+      "acceptedTranslationHash": "4a704c61b819410e8c53586bb8ce0afb1a3d28b95d056614c2c16a548bd69fa8"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "403.doc-title",
+      "acceptedSourceHash": "abbba56b29d8415a7f376f0998b1a16aa22ce10fa57fd9918641811c17141ec5",
+      "acceptedTranslationHash": "2a57bcfcf0aea385ec3f514474089aa55a2e0fda9dc9fca372b4d880a57998b1"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "403.hint-1",
+      "acceptedSourceHash": "565fd5ee3e888b3c85e1eaa13a7a491578ad2fc52bf3db8e584851d27f97ea27",
+      "acceptedTranslationHash": "deae81885babd120ea7fea98f2966bb88f08b510eb79c72af42593ae3e6c3455"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "403.hint-2",
+      "acceptedSourceHash": "828d77e352902a490e7c08aa3203fd6f79d24d920f2584335323a9f13be322bf",
+      "acceptedTranslationHash": "2f83b0c828a1894f24e1809f37536638fb334e51d655e2dc68731cb9def0116d"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "403.hint-3",
+      "acceptedSourceHash": "e642566ccb78385a242f01271692b9be8316f275683eba27f0a7675128cf7e7e",
+      "acceptedTranslationHash": "1d5c55d4e5bda7c95c56dc2cc2efb7b4c4cbad0222692165e8ef3618a0496af7"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "403.title",
+      "acceptedSourceHash": "be22fab9e9448097bb5608af059b2221c6e3825364d416cd151a5f995e90e9c7",
+      "acceptedTranslationHash": "7b9fa7e38b50df3f5fd1bc87dece9aa339ebc7377ba4bb562415527a2b3b51a0"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "404.art-label",
+      "acceptedSourceHash": "315e4c744fbc950f7532f74df9fe52344f4c5e2a1f766fafad1f748092a30afc",
+      "acceptedTranslationHash": "ff01536afd16bf7691b0623e11ec8469c5004602f68608c7928572332f94a1f4"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "404.description",
+      "acceptedSourceHash": "c750d4ba586c575603de6830ec8a56be5625b7f605eb28c3ebaf599a8cb7dc37",
+      "acceptedTranslationHash": "3d48958f952a8139a99d8a1186d3e26ab4228393331e370766909f1bc671c0a8"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "404.doc-title",
+      "acceptedSourceHash": "c4dfe5769ea58f7a2fea2e7e4c0408e865ed38d7e3c44a668cd5a776d7eda9b5",
+      "acceptedTranslationHash": "7041eb34a6abed194ae26e272ca02bbfc0b9096a47d00ea0669eeb13f6939d3c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "404.hint-1",
+      "acceptedSourceHash": "de7a674b32065b87479e5232feedfbe8e66e236c21fbf34a33f1a75813f94ff9",
+      "acceptedTranslationHash": "94ad1567447b7825e7d551ea74900cc413173d7d8501f19d730fdf5d35383834"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "404.hint-2",
+      "acceptedSourceHash": "063764c0e679525106aecdbe7529741598be33e774d0582dec00ac3158a72341",
+      "acceptedTranslationHash": "0d09678213ba559d81f6ef371e7020a6cfda451c3c66ec6fc988807397fcec37"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "404.hint-3",
+      "acceptedSourceHash": "dda3ee24819fa632c59dc4304b769f313d8203bf8180955b218710de9bb8a905",
+      "acceptedTranslationHash": "6c34beb00dbc8a176ea239275151bf316d972ceeecc4c28864d524382b361e12"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "404.title",
+      "acceptedSourceHash": "a723238c038454037481635e11a970d3e4b05bedaee098c98403a1298f41d8ad",
+      "acceptedTranslationHash": "b6304b4b74d6483ac7809e46a177c59d581a3d4eac1e17e11c679a88fb7197b5"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "429.art-label",
+      "acceptedSourceHash": "70ca5620dcce8d9f2515ac7d1f7a9689f2d2673d399f7b6aa0e4d78cb9122239",
+      "acceptedTranslationHash": "384acd7ebbd204e5d7f05f1602e6e8b5396363eaacdbaed7d1fbc1710d22b679"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "429.description",
+      "acceptedSourceHash": "41c700859d83c9946ad2ab7f8abf59758663720552caef3e796c6a16a41832fb",
+      "acceptedTranslationHash": "6b8f418c0fdda23ce6886f3c61a0f60229fb3ec28b3f235dc33b947e46fdc9ce"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "429.doc-title",
+      "acceptedSourceHash": "8afe7d84f9368e37828dd3f83536db4da90cdc404588cfd4dc239ca20dda173a",
+      "acceptedTranslationHash": "4d5e2477d6dec515ccf7825c211d9b653566c22fa16b483883da9809d5916505"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "429.hint-1",
+      "acceptedSourceHash": "e2755225d7ab2004c7593ceac3b3f6f231c86eabb26913f590201fbeb866698b",
+      "acceptedTranslationHash": "6fd843c8e61db0dba1145a8473d6c05574868df4d981283dbdf3813e5d7aa115"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "429.hint-2",
+      "acceptedSourceHash": "b4a6fd94a35ffbe225293955976e7dd004afc57e2657976d77b83ba0eeb97a2d",
+      "acceptedTranslationHash": "ca9d5a13e4657f6a0e64e461392d86631ff80c357b1435937bf49d740c1dcf09"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "429.title",
+      "acceptedSourceHash": "cbe0d40b5e6cceedc9e04d11cd1915e16903126e4dfc5a88aaf1fae7c728a4ba",
+      "acceptedTranslationHash": "5fd24be5edcde8003e41d2f9193a185ccbaedc4a94ce204a2b3a4ebcf54a7547"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "4xx.art-label",
+      "acceptedSourceHash": "e960fd8bb69784567b8e7a7eb080146c8d64a886c0389692d6610c60fa4cfb43",
+      "acceptedTranslationHash": "ddfea05bfd708901266fba3a58c74a979f2007be9c89d8c99adb7af34d62bab0"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "4xx.description",
+      "acceptedSourceHash": "810463c552269f87efa2e78322bb9d3c396941e91fdf039df4957823531374ce",
+      "acceptedTranslationHash": "bf7c721d3b20291ad7952ca8533d10ab6dc0b8e4dac35a7b96464e23daca6aa6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "4xx.doc-title",
+      "acceptedSourceHash": "8e9db3be01849dd288841125c645e435bb40022cd99b03b293476815da774b6a",
+      "acceptedTranslationHash": "c120d31928c97add5a76135f513dff087fb562c2c20162dd36afbe5eb10df77a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "4xx.hint-1",
+      "acceptedSourceHash": "63adaabca00f4d140a206551ff8740ea3a5346377aeff5485075cd184402266c",
+      "acceptedTranslationHash": "098a881a367917d2d03a9451f835df5a5c9359b7abfdfd3eea57b9459aea3fa3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "4xx.hint-2",
+      "acceptedSourceHash": "cda1b7ed577862447b8dbe9138d35ff05b23db283fd54ac24e4d87a74a069246",
+      "acceptedTranslationHash": "86a476456193bc9acfb84fbfb919a6223c6bd65d6045a399d1189fa27f0e4f23"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "4xx.hint-3",
+      "acceptedSourceHash": "333f3416194f70d9fe43a6420883e85e19b0ea22024f6140cd4923ebd1f6bcd6",
+      "acceptedTranslationHash": "96ae1d043c9405d2e63d7a4da32a46cdfd1ce6a6e0029e09972b4f21130bd6f3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "4xx.title",
+      "acceptedSourceHash": "b22da1723a771ea225cb48a73cfbfb57dcd8758e28c171838dbc18e692e64af0",
+      "acceptedTranslationHash": "01822f34c6fbfb11f7debb073d39fa0f17e019fb92c6d78cefb0abba4fbc780b"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "500.art-label",
+      "acceptedSourceHash": "38ec32f88c3619ca924af24a1d694857bbb4764e1b20104735b7aa1c2fba310f",
+      "acceptedTranslationHash": "b7995822c256a59d48632b142bc0337b2d419d1affe4c72d81ac4e2371c79ce0"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "500.description",
+      "acceptedSourceHash": "f934d87303fcc33b89170871ca8f03f37736ae84b170e0719b8344034702d944",
+      "acceptedTranslationHash": "b00c498507457929f44657922a173733861ec3d0243e940cdc3b2b96f54faf69"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "500.doc-title",
+      "acceptedSourceHash": "9259cd4b15cddc3f66ffdd200492e15421c4be35e3a4bcecdd7be1eef5d81e64",
+      "acceptedTranslationHash": "98337119bb21f103b464485a662097be1a26e1ef77c3dd7c7dd272e1a7bb4339"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "500.hint-1",
+      "acceptedSourceHash": "d5c883212d18db66d51ce7a7c30cbf25ed22030407360a4a97d3c0e44ab64d11",
+      "acceptedTranslationHash": "514d6fa6db8e54962c7174162a033b09a713a7fab4a05daac8363870ce6bf1b3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "500.hint-2",
+      "acceptedSourceHash": "dd7eec0db0afe88b4a6a644ec7953b8b3b9adf30c752be05c6ddefaee5feea34",
+      "acceptedTranslationHash": "533d1e39c7a090bc2b74a7d435c45e9d3965d1e078d4ba8e8935f83ef0748225"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "500.hint-3",
+      "acceptedSourceHash": "6aabbdd3baac3a246350c0f1d3717b2e84f299aec8fe43546279b1ed4e6f495c",
+      "acceptedTranslationHash": "3e14ed71aca6f9c1de722d48a5eab48935310f9c56392ca57f9c67cd80f97462"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "500.title",
+      "acceptedSourceHash": "8a201f7b8b646338bc7c466a3c6958a5f52f59af37c6f25ee58920b847949a09",
+      "acceptedTranslationHash": "4a0ff97f88b93438f0bc0befcf90efc7b1baabf1a6b2f003ac968bf836a3ca05"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "502.art-label",
+      "acceptedSourceHash": "fc234c89c1121b8f16c7987c30fd9e564884e4e75a9cddf69a5ade4447838e20",
+      "acceptedTranslationHash": "b2435d891faae0992051e302fd4c679a0836919b023aa505e2a86da2dfd9e6e5"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "502.description",
+      "acceptedSourceHash": "0794eefd69fcfbc4bb62a1510544975330301f62011f3d30b44005e2fca71d65",
+      "acceptedTranslationHash": "bbef8fa1fc8e3f4af2cd9a1184c8d37b1c9b6242115b06b5af9849ab4ee366e6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "502.doc-title",
+      "acceptedSourceHash": "58089b0df89fb2dc2a20473888c73ce55552dfbe5073f5a4a8afbbc9491b71ed",
+      "acceptedTranslationHash": "900474064d89855c70be8e586770f41fb66adc426ac5c67a899feafb0bddaf17"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "502.hint-1",
+      "acceptedSourceHash": "b3c6b7874c5d82ae5c32548f08c3d73337cc68fbcd2ad46806528b437b8fd6a8",
+      "acceptedTranslationHash": "a3e09efe2875d47d128a6ca5689e5ca6d5cf66a6d6f3dce33c6cf928d17bdd9b"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "502.hint-2",
+      "acceptedSourceHash": "207f9c977c0b83f380e6bf9b9332adf1ecc5c1f6eb1daf7294915134da91ac0c",
+      "acceptedTranslationHash": "5389136e461ebb4d0f98ff94e4271cc1bbe0735e8b2212fcdff2d89d8c4916a8"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "502.hint-3",
+      "acceptedSourceHash": "402fbee78a4eaf0f2b2109d5e8b0945328dba5a43c1d619c89a02808d58b36e5",
+      "acceptedTranslationHash": "7e2050b04a36165f01670faaa92b6f3817392f9b718cf7935f1f4b109b7f0160"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "502.title",
+      "acceptedSourceHash": "934539a25f0cdd333bf23ae38e17a3d325e793ba49f282530d7cb65695b8d651",
+      "acceptedTranslationHash": "0563c587072222da8958be34f33ad45c78be441733855f2a4decad8f4c429d9a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "503.art-label",
+      "acceptedSourceHash": "b28479c89dd04221915abb5a8bda4a1ea288739905e94a167adfe885e92d279f",
+      "acceptedTranslationHash": "738057571a4d04af16a1600837da219b31af7407f2a47b448eb919fae5bbd7e2"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "503.description",
+      "acceptedSourceHash": "6c41922d4a0449ad2c87a143de3a51a0c90a732d3c697f244efe982c47b750e4",
+      "acceptedTranslationHash": "380931406dcbd66a7ff09112a850561c79b705af2228908cb76508ea0b6eede3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "503.doc-title",
+      "acceptedSourceHash": "4ebe6aa8dd30fde6e037e6bc6f8ddf72440d98ed9c641990171453c9d1cd4592",
+      "acceptedTranslationHash": "f04e898caaeb6751efd057e568cf2e32c0215c939d93807cd06ad71b6d89d96a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "503.hint-1",
+      "acceptedSourceHash": "c4b338ae64756b2461ad145810ef33eda053fb2639d0bb50f2b54b00681fd0b5",
+      "acceptedTranslationHash": "ad0fd107d577b1e9d50a543c18da69d2ae41a0aa8adffa3a396d551196d801c8"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "503.hint-2",
+      "acceptedSourceHash": "32b43187a1dca6e2595a599216e0efce5d5634ba70532856dbe2787c620ccecf",
+      "acceptedTranslationHash": "2c594f3a15a5900334cd2d398cf3b81ee183cdb5523a4f4c474e72e97b611e95"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "503.title",
+      "acceptedSourceHash": "b8b5ff951436a2b177634857cff660d624619cd026c0301709987dfa404d7142",
+      "acceptedTranslationHash": "858ad22480295d5380047404eb54822869b5bd89b5c32f60d0ef5012af34903e"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "5xx.art-label",
+      "acceptedSourceHash": "30004f176525c3f2970b3f001324822f3ca659e81770d1df176151f1a7dfed23",
+      "acceptedTranslationHash": "fee788971eaf223241f9b9e51a98ac9dff7b077f49da27a082ca00ce06efe8ea"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "5xx.description",
+      "acceptedSourceHash": "aed9c5354bf52c6cae29cb2decdd6b67dfe210d457e80e3a24a6982144087d3b",
+      "acceptedTranslationHash": "3626f7586ce4f4745145b5a8d59ca57ac6e455e27d0f41bad2e316efbd85bacf"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "5xx.doc-title",
+      "acceptedSourceHash": "1a9dd6405711fc13be6c924c61171f43016595deae0eafc191f7142daca31542",
+      "acceptedTranslationHash": "778b2d6ecbfb79c0a44dc73a6a230639e35ae1bd4cd258222333386e26bdea14"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "5xx.hint-1",
+      "acceptedSourceHash": "d5c883212d18db66d51ce7a7c30cbf25ed22030407360a4a97d3c0e44ab64d11",
+      "acceptedTranslationHash": "514d6fa6db8e54962c7174162a033b09a713a7fab4a05daac8363870ce6bf1b3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "5xx.hint-2",
+      "acceptedSourceHash": "dd7eec0db0afe88b4a6a644ec7953b8b3b9adf30c752be05c6ddefaee5feea34",
+      "acceptedTranslationHash": "533d1e39c7a090bc2b74a7d435c45e9d3965d1e078d4ba8e8935f83ef0748225"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "5xx.hint-3",
+      "acceptedSourceHash": "d6c65fdfc9f618cedca08a7d127c4a9eb6e8aefae9839ad80ba03a30ecd200d5",
+      "acceptedTranslationHash": "af3fde6f9289027efaef6edb8a220a50cebcdce4726e088da09b3637c48e23dc"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "5xx.title",
+      "acceptedSourceHash": "3560fa59d9b20799a8c0d043625c5d985faf514b966f918a62a3a6de60ce0ff6",
+      "acceptedTranslationHash": "39c812efb6f6d2595302065fe520c52b0154e7ddd38d8f2601052f4258ddc063"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "action.home",
+      "acceptedSourceHash": "6774a77de4da950cc149cd575d3c91d1dff1e97849ee673438159110ddb0e97a",
+      "acceptedTranslationHash": "76c5505ff2e27ef40a7fd1df3c1ee5bfbbffb1dc240e00ba1ec64ef9234743f9"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "action.login",
+      "acceptedSourceHash": "dd388142a51c96db87405ed19fa74c6ab460ada5e59d0aae3aff0d601f662e65",
+      "acceptedTranslationHash": "bfd402b2f6f3812529b55596136d3a11c51616317e3b1cd999928e2d4eae7d3f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "action.retry",
+      "acceptedSourceHash": "4cc167a8c40b2f7b0c94c672fd8d642a69e52862e80227b3732b84e04fe20e47",
+      "acceptedTranslationHash": "d8b8392e2c542950ca64867168e4ef87d4ad606882d5898f826b51c6d553988f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "hints.lead",
+      "acceptedSourceHash": "6f2f7e05096a08040a3f14556a15e8ae0095204fe0f9a2fa3d4393488003063e",
+      "acceptedTranslationHash": "2b508fa9e4e85bc45e18b7f7a15e39a19ccdc9934c8479e8c5989ac9f62a0b2c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "theme.to-dark",
+      "acceptedSourceHash": "fba8f91e79af8c1ec60b75831bd2957f9d15ba1f22a335d8e37add8c760528b8",
+      "acceptedTranslationHash": "fc43ea9804c7f5da403a3bb2ebb4c9eddcbde1f7917db9c1fc76e3c074410cc7"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "web/status",
+      "key": "theme.to-light",
+      "acceptedSourceHash": "0f9da3c918f7a22067df066692c3686bea14ee8656c3c4f2e844c57c770428c3",
+      "acceptedTranslationHash": "bfa0cab91d75f7a4861cd6dd19aa4363a6ca8005463857d46362f1fb08b09a31"
     },
     {
       "locale": "en-US",

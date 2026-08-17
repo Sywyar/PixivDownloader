@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.mail.template.RenderedMail;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -52,14 +53,15 @@ public class MailTestController {
     private final UserDisplayNameProvider displayNameProvider;
 
     @PostMapping("/mail-test")
-    public ResponseEntity<MailTestResponse> test(@RequestBody MailTestRequest body,
-                                                 HttpServletRequest request) {
+    public ResponseEntity<?> test(@RequestBody MailTestRequest body,
+                                  HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiErrorResponse.of("auth.local-only", messages.get("auth.local-only")));
         }
         if (body == null) {
-            return ResponseEntity.badRequest().body(MailTestResponse.fail(
-                    messages.get("mail.error.settings-missing")));
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "mail.error.settings-missing", messages.get("mail.error.settings-missing")));
         }
 
         Locale locale = LocaleContextHolder.getLocale();
@@ -77,7 +79,8 @@ public class MailTestController {
         } catch (IOException e) {
             log.warn(logMessage("mail.log.test.template-failed", e.getMessage()));
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(MailTestResponse.fail(messages.get(locale, "mail.error.template-failed")));
+                    .body(ApiErrorResponse.of("mail.error.template-failed",
+                            messages.get(locale, "mail.error.template-failed")));
         }
     }
 
@@ -89,14 +92,15 @@ public class MailTestController {
      * 失败摘要由 {@code MailService.safeMessage} 截断 + 异常链脱敏，绝不含密码。
      */
     @PostMapping("/mail-test-all")
-    public ResponseEntity<MailTestAllResponse> testAll(@RequestBody MailTestRequest body,
-                                                       HttpServletRequest request) {
+    public ResponseEntity<?> testAll(@RequestBody MailTestRequest body,
+                                     HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiErrorResponse.of("auth.local-only", messages.get("auth.local-only")));
         }
         if (body == null) {
-            return ResponseEntity.badRequest().body(MailTestAllResponse.fail(
-                    messages.get("mail.error.settings-missing")));
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "mail.error.settings-missing", messages.get("mail.error.settings-missing")));
         }
 
         Locale locale = LocaleContextHolder.getLocale();

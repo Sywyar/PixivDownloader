@@ -134,7 +134,7 @@ class PluginMarketControllerTest {
         mockMvc.perform(get("/api/plugin-market/catalog").param("repositoryId", "ghost"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("UNKNOWN_REPOSITORY"))
-                .andExpect(jsonPath("$.message").value("localized:plugin.catalog.error.unknown-repository"));
+                .andExpect(jsonPath("$.error").value("localized:plugin.catalog.error.unknown-repository"));
     }
 
     @Test

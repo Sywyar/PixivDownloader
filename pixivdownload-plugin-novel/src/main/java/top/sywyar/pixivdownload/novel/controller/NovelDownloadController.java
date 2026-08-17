@@ -45,6 +45,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
@@ -95,10 +96,9 @@ public class NovelDownloadController {
             @Valid @RequestBody NovelDownloadCommand command,
             HttpServletRequest httpRequest) {
         if (command.getNovelId() == null || command.getNovelId() <= 0) {
-            return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
-                    .success(false)
-                    .message(messages.get("pixiv.proxy.novel.id.invalid", String.valueOf(command.getNovelId())))
-                    .build());
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "pixiv.proxy.novel.id.invalid",
+                    messages.get("pixiv.proxy.novel.id.invalid", String.valueOf(command.getNovelId()))));
         }
         if (command.getOther() == null) {
             command.setOther(new NovelDownloadCommand.Other());
@@ -128,16 +128,15 @@ public class NovelDownloadController {
         try {
             request = resolveDownloadRequest(command, httpRequest, ownerIdentity);
         } catch (IllegalArgumentException invalid) {
-            return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
-                    .success(false)
-                    .message(invalid.getMessage())
-                    .build());
+            String detail = invalid.getMessage();
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "novel.request.invalid",
+                    detail == null || detail.isBlank() ? "Invalid novel request" : detail));
         } catch (IOException invalidUpstream) {
             log.warn("Pixiv novel response could not be parsed: novelId={}", command.getNovelId());
-            return ResponseEntity.status(502).body(NovelDownloadResponse.builder()
-                    .success(false)
-                    .message(messages.get("pixiv.proxy.novel.response.invalid"))
-                    .build());
+            return ResponseEntity.status(502).body(ApiErrorResponse.of(
+                    "pixiv.proxy.novel.response.invalid",
+                    messages.get("pixiv.proxy.novel.response.invalid")));
         }
 
         String userUuid = null;
@@ -383,12 +382,11 @@ public class NovelDownloadController {
     }
 
     @PostMapping("/novel/{novelId}/translate")
-    public ResponseEntity<TranslateResponse> translateNovel(@PathVariable long novelId,
-                                                            @RequestBody TranslateRequest request) {
+    public ResponseEntity<?> translateNovel(@PathVariable long novelId,
+                                             @RequestBody TranslateRequest request) {
         if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
-            return ResponseEntity.badRequest().body(new TranslateResponse(
-                    NovelTranslationService.Status.ERROR.name(), null,
-                    messages.get("novel.translate.missing-language"), false));
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "novel.translate.missing-language", messages.get("novel.translate.missing-language")));
         }
         int segmentSize = request.segmentSize() == null ? 0 : Math.max(0, request.segmentSize());
         boolean overwrite = Boolean.TRUE.equals(request.overwrite());
@@ -396,9 +394,8 @@ public class NovelDownloadController {
         boolean translateTitle = request.translateTitle() == null || request.translateTitle();
         boolean translateDescription = request.translateDescription() == null || request.translateDescription();
         if (!translateBody && !translateTitle && !translateDescription) {
-            return ResponseEntity.badRequest().body(new TranslateResponse(
-                    NovelTranslationService.Status.ERROR.name(), null,
-                    messages.get("novel.translate.no-scope"), false));
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "novel.translate.no-scope", messages.get("novel.translate.no-scope")));
         }
         NovelTranslationService.Result result = novelTranslationService.translateChapter(
                 novelId, request.targetLanguage(), segmentSize, overwrite,
@@ -419,17 +416,17 @@ public class NovelDownloadController {
     }
 
     @PostMapping("/novel/series/{seriesId}/translate-title")
-    public ResponseEntity<TranslateSeriesTitleResponse> translateSeriesTitle(
+    public ResponseEntity<?> translateSeriesTitle(
             @PathVariable long seriesId, @RequestBody TranslateSeriesTitleRequest request) {
         if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
-            return ResponseEntity.badRequest().body(new TranslateSeriesTitleResponse(
-                    null, null, null, messages.get("novel.translate.missing-language")));
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "novel.translate.missing-language", messages.get("novel.translate.missing-language")));
         }
         boolean translateTitle = request.translateTitle() == null || request.translateTitle();
         boolean translateDescription = request.translateDescription() == null || request.translateDescription();
         if (!translateTitle && !translateDescription) {
-            return ResponseEntity.badRequest().body(new TranslateSeriesTitleResponse(
-                    null, null, null, messages.get("novel.translate.no-scope")));
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "novel.translate.no-scope", messages.get("novel.translate.no-scope")));
         }
         String langCode = novelTranslationService.translateSeriesTitle(
                 seriesId, request.targetLanguage(), request.langHint(), request.glossaryId(),

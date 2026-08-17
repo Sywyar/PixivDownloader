@@ -328,8 +328,8 @@
     // 后端 catalog 错误响应（{code, message, ...}）→ 结果区可渲染的本地化提示（按稳定 code 选 i18n 文案，回退后端 message）。
     D.catalogError = function (body, httpStatus) {
         var code = body && body.code ? body.code : null;
-        var message = code ? PMK.t('error.code.' + code, (body && body.message) || code)
-            : ((body && body.message) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
+        var message = code ? PMK.t('error.code.' + code, (body && body.error) || code)
+            : ((body && body.error) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
         return {
             outcome: code, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false,
             activated: false, rolledBack: false, tone: 'bad',

@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.ai.probe.ConnectivityProbeRequest;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 /**
  * GUI 配置页"测试 AI 连接"按钮对应的 REST 端点。
@@ -41,13 +42,15 @@ public class AiTestController {
     private final AiChatClient aiService;
 
     @PostMapping("/ai-test")
-    public ResponseEntity<AiTestResponse> test(@RequestBody AiTestRequest body,
-                                               HttpServletRequest request) {
+    public ResponseEntity<?> test(@RequestBody AiTestRequest body,
+                                  HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiErrorResponse.of("auth.local-only", "Forbidden: local access only"));
         }
         if (body == null) {
-            return ResponseEntity.badRequest().body(AiTestResponse.fail("missing settings"));
+            return ResponseEntity.badRequest()
+                    .body(ApiErrorResponse.of("ai.settings.missing", "missing settings"));
         }
 
         AiClientSettings settings = body.toClientSettings();

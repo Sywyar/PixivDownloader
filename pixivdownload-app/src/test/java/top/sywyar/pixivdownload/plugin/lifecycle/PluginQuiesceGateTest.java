@@ -204,7 +204,9 @@ class PluginQuiesceGateTest {
 
         assertThat(response.getStatus()).isEqualTo(503);
         assertThat(response.getContentType()).contains("application/json");
-        assertThat(response.getContentAsString()).isNotBlank();
+        assertThat(response.getContentAsString())
+                .contains("\"code\":\"plugin.unavailable.quiesced\"")
+                .contains("\"error\":");
         verify(chain, never()).doFilter(any(), any());
     }
 
@@ -243,7 +245,8 @@ class PluginQuiesceGateTest {
         gate.doFilterInternal(request, response, chain);
 
         assertThat(response.getStatus()).isEqualTo(503);
-        assertThat(response.getContentType()).contains("text/html");
+        assertThat(response.isCommitted()).isTrue();
+        assertThat(response.getContentAsString()).isEmpty();
         verify(chain, never()).doFilter(any(), any());
     }
 

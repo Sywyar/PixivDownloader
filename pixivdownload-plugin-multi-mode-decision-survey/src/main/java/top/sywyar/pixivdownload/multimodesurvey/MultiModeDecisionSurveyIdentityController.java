@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -36,10 +37,11 @@ public class MultiModeDecisionSurveyIdentityController {
     }
 
     @GetMapping
-    public ResponseEntity<IdentityResponse> identity(
+    public ResponseEntity<?> identity(
             @RequestParam(value = "surveyId", required = false) String surveyId) {
         if (surveyId == null || !SURVEY_ID_PATTERN.matcher(surveyId).matches()) {
-            return ResponseEntity.badRequest().cacheControl(CacheControl.noStore()).build();
+            return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                    .body(ApiErrorResponse.of("survey.identity.invalid-request", "Invalid survey id"));
         }
         try {
             String scopedIdentity = deriveScopedIdentity(surveyId, installIdentityProvider.get());
@@ -50,7 +52,7 @@ public class MultiModeDecisionSurveyIdentityController {
         } catch (RuntimeException ignored) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .cacheControl(CacheControl.noStore())
-                    .build();
+                    .body(ApiErrorResponse.of("survey.identity.unavailable", "Survey identity is unavailable"));
         }
     }
 

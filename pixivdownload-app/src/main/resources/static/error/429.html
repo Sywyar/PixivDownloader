@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>429 · 请求太频繁</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="429">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true">429<span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:429.art-label" aria-label="一只沙漏，沙粒正在落下">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 沙漏 -->
+            <path d="M84 28 L136 28 C 136 52, 122 62, 110 75 C 122 88, 136 98, 136 122 L84 122 C 84 98, 98 88, 110 75 C 98 62, 84 52, 84 28 Z"/>
+            <!-- 上下底座 -->
+            <path d="M78 28 L142 28"/>
+            <path d="M78 122 L142 122"/>
+            <!-- 上半剩余的沙 -->
+            <path class="a" d="M98 44 L122 44 C 120 52, 115 57, 110 62 C 105 57, 100 52, 98 44 Z"/>
+            <!-- 正在落下的沙粒 -->
+            <circle class="af drift" cx="110" cy="82" r="2"/>
+            <circle class="af drift d2" cx="110" cy="92" r="2"/>
+            <circle class="af drift d3" cx="110" cy="102" r="2"/>
+            <!-- 下半堆起的小沙堆 -->
+            <path class="a" d="M100 122 C 102 112, 118 112, 120 122"/>
+            <!-- 两侧的刻度线：时间在走 -->
+            <path class="soft" d="M62 60 L70 60"/>
+            <path class="soft" d="M150 60 L158 60"/>
+            <path class="soft" d="M62 90 L70 90"/>
+            <path class="soft" d="M150 90 L158 90"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow">429 · Too Many Requests</p>
+    <h1 class="err-title" data-i18n-html="status:429.title">慢一点，<em>喘口气</em></h1>
+    <p class="err-desc" data-i18n="status:429.description">你的请求太频繁，触发了限流保护（429 Too Many Requests）。这不是封禁，只是请你稍等片刻——倒计时结束，一切如常。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:429.hint-1">等半分钟左右，再刷新或重试</li>
+            <li data-i18n="status:429.hint-2">减少同时打开的页面和并发的操作</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <button class="err-btn err-btn--primary" id="errRetry" type="button" data-i18n="status:action.retry">再试一次</button>
+        <a class="err-btn err-btn--ghost" href="/" data-i18n="status:action.home">回到首页</a>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

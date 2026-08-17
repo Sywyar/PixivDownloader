@@ -1,0 +1,643 @@
+/* ==========================================================================
+   PixivDownloader 错误状态页 · 独立视觉体系
+   页面：/error/{400,403,404,429,500,502,503,4xx,5xx}.html
+   主题：跟随 /js/pixiv-theme.js 写入的 html[data-theme]；全部颜色集中在
+   自定义属性定义行，组件只引用变量，明暗主题自动切换。
+   字体：/vendor/fonts/fonts.css（Inter / JetBrains Mono / Instrument Serif）。
+   ========================================================================== */
+
+:root {
+    --err-font-body: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --err-font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Courier New', monospace;
+    --err-font-serif: 'Instrument Serif', Georgia, 'Songti SC', 'SimSun', serif;
+
+    --err-bg: #f6f5f1;
+    --err-surface: #ffffff;
+    --err-text: #1c1e22;
+    --err-muted: #5d646e;
+    --err-faint: #9aa1ab;
+    --err-line: #e4e1d9;
+    --err-line-strong: #cfccc1;
+    --err-code: #1c1e22;
+    --err-btn-text: #ffffff;
+    --err-select-bg: #ffffff;
+    --err-none: rgba(0, 0, 0, 0);
+    --err-dot: rgba(28, 30, 34, 0.05);
+    --err-shadow: rgba(28, 30, 34, 0.12);
+    --err-ghost-hover: rgba(28, 30, 34, 0.05);
+
+    --err-accent: #b8623a;
+    --err-accent-soft: rgba(184, 98, 58, 0.12);
+    --err-accent-line: rgba(184, 98, 58, 0.4);
+    --err-glow: rgba(184, 98, 58, 0.1);
+}
+
+html[data-theme="dark"] {
+    --err-bg: #0f1013;
+    --err-surface: #17181d;
+    --err-text: #e8eaee;
+    --err-muted: #9aa1ad;
+    --err-faint: #6b727e;
+    --err-line: #262830;
+    --err-line-strong: #3c3f4a;
+    --err-code: #e8eaee;
+    --err-btn-text: #101114;
+    --err-select-bg: #1b1c22;
+    --err-dot: rgba(232, 234, 238, 0.045);
+    --err-shadow: rgba(0, 0, 0, 0.5);
+    --err-ghost-hover: rgba(232, 234, 238, 0.07);
+
+    --err-accent: #d99a72;
+    --err-accent-soft: rgba(217, 154, 114, 0.16);
+    --err-accent-line: rgba(217, 154, 114, 0.45);
+    --err-glow: rgba(217, 154, 114, 0.13);
+}
+
+/* ── 每个状态码的专属强调色（亮色 / 暗色成对）────────────────────────── */
+
+body[data-status="400"] {
+    --err-accent: #6c5fc7;
+    --err-accent-soft: rgba(108, 95, 199, 0.12);
+    --err-accent-line: rgba(108, 95, 199, 0.4);
+    --err-glow: rgba(108, 95, 199, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="400"] {
+    --err-accent: #a89dee;
+    --err-accent-soft: rgba(168, 157, 238, 0.16);
+    --err-accent-line: rgba(168, 157, 238, 0.45);
+    --err-glow: rgba(168, 157, 238, 0.13);
+}
+
+body[data-status="403"] {
+    --err-accent: #b07d1c;
+    --err-accent-soft: rgba(176, 125, 28, 0.12);
+    --err-accent-line: rgba(176, 125, 28, 0.4);
+    --err-glow: rgba(176, 125, 28, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="403"] {
+    --err-accent: #d9ad54;
+    --err-accent-soft: rgba(217, 173, 84, 0.16);
+    --err-accent-line: rgba(217, 173, 84, 0.45);
+    --err-glow: rgba(217, 173, 84, 0.13);
+}
+
+body[data-status="404"] {
+    --err-accent: #2f8a72;
+    --err-accent-soft: rgba(47, 138, 114, 0.12);
+    --err-accent-line: rgba(47, 138, 114, 0.4);
+    --err-glow: rgba(47, 138, 114, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="404"] {
+    --err-accent: #67b99b;
+    --err-accent-soft: rgba(103, 185, 155, 0.16);
+    --err-accent-line: rgba(103, 185, 155, 0.45);
+    --err-glow: rgba(103, 185, 155, 0.13);
+}
+
+body[data-status="429"] {
+    --err-accent: #c26a1d;
+    --err-accent-soft: rgba(194, 106, 29, 0.12);
+    --err-accent-line: rgba(194, 106, 29, 0.4);
+    --err-glow: rgba(194, 106, 29, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="429"] {
+    --err-accent: #e29a57;
+    --err-accent-soft: rgba(226, 154, 87, 0.16);
+    --err-accent-line: rgba(226, 154, 87, 0.45);
+    --err-glow: rgba(226, 154, 87, 0.13);
+}
+
+body[data-status="500"] {
+    --err-accent: #b23a5c;
+    --err-accent-soft: rgba(178, 58, 92, 0.12);
+    --err-accent-line: rgba(178, 58, 92, 0.4);
+    --err-glow: rgba(178, 58, 92, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="500"] {
+    --err-accent: #de7f9d;
+    --err-accent-soft: rgba(222, 127, 157, 0.16);
+    --err-accent-line: rgba(222, 127, 157, 0.45);
+    --err-glow: rgba(222, 127, 157, 0.13);
+}
+
+body[data-status="502"] {
+    --err-accent: #3269a8;
+    --err-accent-soft: rgba(50, 105, 168, 0.12);
+    --err-accent-line: rgba(50, 105, 168, 0.4);
+    --err-glow: rgba(50, 105, 168, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="502"] {
+    --err-accent: #7faddd;
+    --err-accent-soft: rgba(127, 173, 221, 0.16);
+    --err-accent-line: rgba(127, 173, 221, 0.45);
+    --err-glow: rgba(127, 173, 221, 0.13);
+}
+
+body[data-status="503"] {
+    --err-accent: #3c8549;
+    --err-accent-soft: rgba(60, 133, 73, 0.12);
+    --err-accent-line: rgba(60, 133, 73, 0.4);
+    --err-glow: rgba(60, 133, 73, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="503"] {
+    --err-accent: #7bb888;
+    --err-accent-soft: rgba(123, 184, 136, 0.16);
+    --err-accent-line: rgba(123, 184, 136, 0.45);
+    --err-glow: rgba(123, 184, 136, 0.13);
+}
+
+body[data-status="5xx"] {
+    --err-accent: #5a5fc4;
+    --err-accent-soft: rgba(90, 95, 196, 0.12);
+    --err-accent-line: rgba(90, 95, 196, 0.4);
+    --err-glow: rgba(90, 95, 196, 0.1);
+}
+
+html[data-theme="dark"] body[data-status="5xx"] {
+    --err-accent: #9a9fe8;
+    --err-accent-soft: rgba(154, 159, 232, 0.16);
+    --err-accent-line: rgba(154, 159, 232, 0.45);
+    --err-glow: rgba(154, 159, 232, 0.13);
+}
+
+/* ── 基础版面 ─────────────────────────────────────────────────────────── */
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 72px 24px 56px;
+    background-color: var(--err-bg);
+    background-image: radial-gradient(circle, var(--err-dot) 1px, var(--err-none) 1.4px);
+    background-size: 26px 26px;
+    color: var(--err-text);
+    font-family: var(--err-font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 状态码专属强调色的柔光，铺在插画背后 */
+body::before {
+    content: '';
+    position: fixed;
+    left: 50%;
+    top: 42%;
+    width: min(560px, 80vw);
+    height: min(560px, 80vw);
+    transform: translate(-50%, -50%);
+    background: radial-gradient(closest-side, var(--err-glow), var(--err-none));
+    pointer-events: none;
+}
+
+.err-stage {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    text-align: center;
+}
+
+/* ── 巨型状态码 ───────────────────────────────────────────────────────── */
+
+.err-code {
+    margin: 0;
+    font-family: var(--err-font-mono);
+    font-weight: 800;
+    font-size: clamp(72px, 17vw, 128px);
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--err-code);
+}
+
+.err-code .err-code-dot {
+    color: var(--err-accent);
+}
+
+/* ── 插画 ─────────────────────────────────────────────────────────────── */
+
+.err-art {
+    margin: 18px auto 6px;
+    width: min(220px, 56vw);
+    color: var(--err-muted);
+}
+
+.err-art svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.err-art .a {
+    stroke: var(--err-accent);
+}
+
+.err-art .af {
+    fill: var(--err-accent);
+    stroke: none;
+}
+
+.err-art .soft {
+    stroke: var(--err-faint);
+}
+
+/* ── 文案层级 ─────────────────────────────────────────────────────────── */
+
+.err-eyebrow {
+    margin: 10px 0 0;
+    font-family: var(--err-font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--err-accent);
+}
+
+.err-title {
+    margin: 10px 0 0;
+    font-size: clamp(24px, 4.5vw, 32px);
+    font-weight: 650;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    color: var(--err-text);
+}
+
+.err-title em {
+    font-family: var(--err-font-serif);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 1.08em;
+    color: var(--err-accent);
+}
+
+.err-desc {
+    margin: 14px auto 0;
+    max-width: 46ch;
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--err-muted);
+}
+
+/* ── 建议操作 ─────────────────────────────────────────────────────────── */
+
+.err-hints {
+    margin: 26px auto 0;
+    display: inline-block;
+    text-align: left;
+}
+
+.err-hints-lead {
+    margin: 0 0 8px;
+    font-family: var(--err-font-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: var(--err-faint);
+}
+
+.err-hints ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.err-hints li {
+    position: relative;
+    margin: 6px 0;
+    padding-left: 20px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--err-muted);
+}
+
+.err-hints li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.72em;
+    width: 8px;
+    height: 2px;
+    background: var(--err-accent);
+}
+
+/* ── 操作按钮 ─────────────────────────────────────────────────────────── */
+
+.err-actions {
+    margin-top: 34px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.err-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: 1px solid var(--err-none);
+    font-family: var(--err-font-body);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease,
+        border-color 0.18s ease, color 0.18s ease;
+}
+
+.err-btn--primary {
+    background: var(--err-accent);
+    color: var(--err-btn-text);
+    box-shadow: 0 8px 22px var(--err-accent-soft);
+}
+
+.err-btn--primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px var(--err-accent-soft);
+}
+
+.err-btn--ghost {
+    background: var(--err-none);
+    color: var(--err-text);
+    border-color: var(--err-line-strong);
+}
+
+.err-btn--ghost:hover {
+    transform: translateY(-2px);
+    background: var(--err-ghost-hover);
+}
+
+/* ── 右上角语言 / 主题控制（bespoke variant：--error）──────────────────── */
+
+.err-controls {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pixiv-lang-switcher--error {
+    display: inline-flex;
+    align-items: center;
+}
+
+.pixiv-lang-switcher--error .pixiv-lang-switcher__select {
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--err-line-strong);
+    border-radius: 9px;
+    background: var(--err-select-bg);
+    color: var(--err-muted);
+    font-family: var(--err-font-body);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.pixiv-lang-switcher--error .pixiv-lang-switcher__select:hover {
+    border-color: var(--err-accent-line);
+    color: var(--err-accent);
+}
+
+.pixiv-lang-switcher--error .pixiv-lang-switcher__select option {
+    background: var(--err-select-bg);
+    color: var(--err-text);
+}
+
+.pixiv-theme-toggle--error {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--err-line-strong);
+    border-radius: 9px;
+    background: var(--err-select-bg);
+    color: var(--err-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.pixiv-theme-toggle--error:hover {
+    border-color: var(--err-accent-line);
+    color: var(--err-accent);
+}
+
+.pixiv-theme-toggle--error svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ── 焦点可见性 ───────────────────────────────────────────────────────── */
+
+.err-btn:focus-visible,
+.pixiv-theme-toggle--error:focus-visible,
+.pixiv-lang-switcher--error .pixiv-lang-switcher__select:focus-visible {
+    outline: 2px solid var(--err-accent);
+    outline-offset: 2px;
+}
+
+/* ── 动效：入场错峰上浮 + 插画漂浮 + 局部细节 ─────────────────────────── */
+
+@keyframes err-rise {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.err-controls,
+.err-code,
+.err-art,
+.err-eyebrow,
+.err-title,
+.err-desc,
+.err-hints,
+.err-actions {
+    animation: err-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.err-code {
+    animation-delay: 0.02s;
+}
+
+.err-art {
+    animation-delay: 0.1s;
+}
+
+.err-eyebrow {
+    animation-delay: 0.2s;
+}
+
+.err-title {
+    animation-delay: 0.28s;
+}
+
+.err-desc {
+    animation-delay: 0.36s;
+}
+
+.err-hints {
+    animation-delay: 0.44s;
+}
+
+.err-actions {
+    animation-delay: 0.52s;
+}
+
+@keyframes err-float {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-7px);
+    }
+}
+
+.err-art svg {
+    animation: err-float 7s ease-in-out 1s infinite;
+}
+
+/* 蒸汽 / Zzz / 下落碎屑：向上漂移并淡出 */
+@keyframes err-drift-up {
+    0% {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    30% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateY(-13px);
+    }
+}
+
+.err-art .drift {
+    animation: err-drift-up 3.2s ease-in-out infinite;
+}
+
+.err-art .drift.d2 {
+    animation-delay: 1.1s;
+}
+
+.err-art .drift.d3 {
+    animation-delay: 2.2s;
+}
+
+/* 404 虚线路径的行进效果 */
+@keyframes err-march {
+    to {
+        stroke-dashoffset: -20;
+    }
+}
+
+.err-art .march {
+    stroke-dasharray: 4 6;
+    animation: err-march 1.6s linear infinite;
+}
+
+/* 指示灯呼吸闪烁 */
+@keyframes err-blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.25;
+    }
+}
+
+.err-art .blink {
+    animation: err-blink 2.2s ease-in-out infinite;
+}
+
+/* 小幅度摆动（限速指针等） */
+@keyframes err-sway {
+    0%,
+    100% {
+        transform: rotate(-7deg);
+    }
+
+    50% {
+        transform: rotate(7deg);
+    }
+}
+
+.err-art .sway {
+    transform-box: fill-box;
+    transform-origin: 50% 90%;
+    animation: err-sway 2.6s ease-in-out infinite;
+}
+
+/* ── 动效降级 ─────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* ── 窄屏适配 ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 560px) {
+    body {
+        padding: 84px 20px 40px;
+    }
+
+    .err-controls {
+        top: 14px;
+        right: 16px;
+    }
+
+    .err-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .err-btn {
+        justify-content: center;
+    }
+
+}

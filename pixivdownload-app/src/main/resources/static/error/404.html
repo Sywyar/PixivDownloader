@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 · 页面不存在</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="404">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true">404<span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:404.art-label" aria-label="一张地图，虚线路径的终点是一个叉">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 折起的地图 -->
+            <path d="M38 44 L88 32 L140 44 L186 32 L186 108 L140 120 L88 108 L38 120 Z"/>
+            <path class="soft" d="M88 32 L88 108"/>
+            <path class="soft" d="M140 44 L140 120"/>
+            <!-- 地图上的山脉与河流 -->
+            <path class="soft" d="M52 96 L62 82 L70 92 L78 78 L86 88"/>
+            <path class="soft" d="M100 52 C 110 60, 118 58, 128 66"/>
+            <!-- 行进的虚线路径 -->
+            <path class="march a" d="M58 104 C 84 78, 104 98, 128 80 S 158 62, 168 58"/>
+            <!-- 起点 -->
+            <circle cx="58" cy="104" r="3.5"/>
+            <!-- 终点：一个叉（它不在任何地方） -->
+            <path class="a" d="M162 48 L178 64"/>
+            <path class="a" d="M178 48 L162 64"/>
+            <!-- 指南针 -->
+            <circle cx="183" cy="118" r="13"/>
+            <path class="a" d="M183 109 L186 118 L183 127 L180 118 Z"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow">404 · Not Found</p>
+    <h1 class="err-title" data-i18n-html="status:404.title">这个地方或许<em>曾经存在</em></h1>
+    <p class="err-desc" data-i18n="status:404.description">你要找的页面不存在（404 Not Found）——它可能被移动、删除，或者从一开始就只是地址里多了一个字母。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:404.hint-1">检查地址栏里的链接有没有拼写错误</li>
+            <li data-i18n="status:404.hint-2">回到首页，从导航重新找到它</li>
+            <li data-i18n="status:404.hint-3">如果它本该存在（比如某个功能页消失了），到 GitHub 告诉我们</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <a class="err-btn err-btn--primary" href="/" data-i18n="status:action.home">回到首页</a>
+        <button class="err-btn err-btn--ghost" id="errRetry" type="button" data-i18n="status:action.retry">再试一次</button>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>400 · 请求格式错误</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="400">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true">400<span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:400.art-label" aria-label="一块拼图悬浮在缺口的斜上方，对不上">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 带缺口的板 -->
+            <path d="M42 118 L42 60 L92 60"/>
+            <path d="M128 60 L178 60 L178 118 L42 118"/>
+            <path d="M92 60 C 92 74, 104 74, 104 66"/>
+            <path d="M128 60 C 128 74, 116 74, 116 66"/>
+            <!-- 缺口虚线轮廓 -->
+            <path class="soft" d="M104 66 C 104 60, 116 60, 116 66" stroke-dasharray="3 4"/>
+            <!-- 对不上的拼图块（斜置、悬空） -->
+            <g transform="rotate(-14 110 34)">
+                <path class="a" d="M92 44 L92 26 C 92 22, 96 22, 96 18 C 96 12, 104 12, 104 18 C 104 22, 108 22, 108 26 L108 44"/>
+                <path class="a" d="M92 34 C 86 34, 86 26, 92 26"/>
+                <path class="a" d="M108 34 C 114 34, 114 26, 108 26"/>
+            </g>
+            <!-- 错位的提示点 -->
+            <circle class="soft" cx="98" cy="100" r="2"/>
+            <circle class="soft" cx="110" cy="100" r="2"/>
+            <circle class="soft" cx="122" cy="100" r="2"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow">400 · Bad Request</p>
+    <h1 class="err-title" data-i18n-html="status:400.title">这个请求<em>拼不上</em></h1>
+    <p class="err-desc" data-i18n="status:400.description">服务器没能理解这次请求（400 Bad Request）——链接可能缺了一截，参数格式不对，或者页面状态已经过期。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:400.hint-1">核对地址栏里的链接是否完整</li>
+            <li data-i18n="status:400.hint-2">刷新页面，让状态重新开始</li>
+            <li data-i18n="status:400.hint-3">从首页重新进入，再操作一遍</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <button class="err-btn err-btn--primary" id="errRetry" type="button" data-i18n="status:action.retry">再试一次</button>
+        <a class="err-btn err-btn--ghost" href="/" data-i18n="status:action.home">回到首页</a>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

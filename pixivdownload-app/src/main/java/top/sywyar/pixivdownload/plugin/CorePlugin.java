@@ -194,6 +194,11 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/js/pixiv-lang-switcher.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-survey-frame-bridge.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-theme.js"),
+                // 品牌化错误状态页（400/403/404/429/500/502/503 与 4xx/5xx 兜底）。错误派发本身
+                // 由容器 sendError → Spring Boot 静态错误视图解析完成（ERROR dispatch 旁路 AuthFilter）；
+                // 这里声明的是页面与其共享 CSS/JS 被浏览器以普通 REQUEST 直接加载时的公开访问——
+                // 刚拿到错误的任何身份（含未登录 / 受邀访客）都必须能渲染这些页面。
+                WebRouteContribution.publicRoute("/error/**"),
                 WebRouteContribution.publicRoute("/maintenance.html"),
                 WebRouteContribution.publicRoute("/index/**"),
                 WebRouteContribution.publicRoute("/intro/**"),
@@ -231,6 +236,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.local("/proxy.pac"),
                 WebRouteContribution.local("/setup.html"),
                 WebRouteContribution.local("/setup/**"),
+                WebRouteContribution.local("/__dev/error/**"),
                 WebRouteContribution.local("/api/downloaded/**"));
     }
 
@@ -266,6 +272,8 @@ public class CorePlugin implements PixivFeaturePlugin {
                 new I18nContribution("invite", "i18n.web.invite", 17),
                 new I18nContribution("tour", "i18n.web.tour", 18),
                 new I18nContribution("maintenance", "i18n.web.maintenance", 19),
+                // 错误状态页（/error/*.html）专属文案。
+                new I18nContribution("status", "i18n.web.status", 22),
                 // 插件管理页（plugin-manage.html）专属文案；同时承载无内容 namespace 的核心 / 计划任务宿主插件名称 / 简介。
                 new I18nContribution("plugins", "i18n.web.plugins", 20));
     }

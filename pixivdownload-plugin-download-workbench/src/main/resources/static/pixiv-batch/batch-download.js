@@ -287,8 +287,8 @@
 
             if (!res.ok) {
                 setStatus(
-                    (data && data.message)
-                        ? data.message
+                    (data && data.error)
+                        ? data.error
                         : bt('status.pack-failed-http', '打包失败：HTTP {code}', {code: res.status}),
                     'error'
                 );
@@ -617,7 +617,7 @@
             err.quotaData = data;
             throw err;
         }
-        if (!res.ok) throw new Error(data.message || bt('status.backend-failure', '后端返回失败'));
+        if (!res.ok) throw new Error(data.error || data.message || bt('status.backend-failure', '后端返回失败'));
         return data;
     }
 

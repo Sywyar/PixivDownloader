@@ -33,6 +33,7 @@ import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderSummar
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import java.util.LinkedHashMap;
@@ -86,12 +87,13 @@ public class DouyinController {
     }
 
     @GetMapping("/status/{id}")
-    public ResponseEntity<DouyinDownloadSnapshot> status(@PathVariable String id,
-                                                         HttpServletRequest request) {
+    public ResponseEntity<?> status(@PathVariable String id,
+                                    HttpServletRequest request) {
         RequestOwnerIdentity identity = ownerIdentityResolver.resolve(request);
         return downloadService.status(id, identity.ownerUuid(), identity.admin())
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).build());
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiErrorResponse.of("douyin.download.not-found", "Douyin download was not found")));
     }
 
     @GetMapping("/download/active")
@@ -598,7 +600,8 @@ public class DouyinController {
                             int limitPage) {
     }
 
-    public record ErrorView(boolean success, String code, String messageKey, String message) {
+    public record ErrorView(boolean success, String code, String messageKey, String error)
+            implements ApiErrorResponse {
     }
 
     public record AccountView(String accountKey, String secUserId, String displayName, String uniqueId) {

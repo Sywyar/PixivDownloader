@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -34,23 +35,26 @@ public class NotificationInboxTestController {
     }
 
     @PostMapping("/notification-inbox-test")
-    public ResponseEntity<InboxTestResponse> test(HttpServletRequest request) {
+    public ResponseEntity<?> test(HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiErrorResponse.of("auth.local-only", "Forbidden: local access only"));
         }
         NotificationScenario scenario = NotificationScenario.RUN_SUMMARY;
         try {
             sink.deliverForTest(scenario, LocaleContextHolder.getLocale(), samplePlaceholders());
             return ResponseEntity.ok(InboxTestResponse.success(1));
         } catch (RuntimeException exception) {
-            return ResponseEntity.internalServerError().body(InboxTestResponse.failed(List.of(scenario.id())));
+            return ResponseEntity.internalServerError()
+                    .body(ApiErrorResponse.of("notification.inbox.test-failed", "Inbox test failed"));
         }
     }
 
     @PostMapping("/notification-inbox-test-all")
-    public ResponseEntity<InboxTestResponse> testAll(HttpServletRequest request) {
+    public ResponseEntity<?> testAll(HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiErrorResponse.of("auth.local-only", "Forbidden: local access only"));
         }
         Locale locale = LocaleContextHolder.getLocale();
         Map<String, String> placeholders = samplePlaceholders();

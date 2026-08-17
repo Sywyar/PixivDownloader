@@ -149,6 +149,9 @@ class RecoveryModeGateTest {
 
         assertThat(response.getStatus()).isEqualTo(503);
         assertThat(response.getContentType()).contains("application/json");
+        assertThat(response.getContentAsString())
+                .contains("\"code\":\"plugin.recovery.missing.download-workbench\"")
+                .contains("\"error\":");
         verify(chain, never()).doFilter(any(), any());
     }
 
@@ -207,6 +210,7 @@ class RecoveryModeGateTest {
             "/api/plugins/status", "/api/gui/plugins", "/api/i18n/web",
             "/plugin-market.html", "/plugin-market/plugin-market.css", "/api/plugin-market/repositories",
             "/api/navigation",
+            "/error/404.html", "/error/error.css", "/error/error.js",
             "/js/pixiv-theme.js", "/css/app.css", "/vendor/fonts/fonts.css",
             "/favicon.ico", "/login.html", "/"})
     @DisplayName("恢复模式下诊断 / 修复 / 健康 / 基础静态入口放行")

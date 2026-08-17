@@ -141,6 +141,114 @@ class AuthFilterTest {
                 true, Set.of(), true, Set.of());
     }
 
+    // ========== 错误响应内容协商 ==========
+
+    @Nested
+    @DisplayName("错误响应内容协商")
+    class ErrorResponseNegotiationTests {
+
+        @Test
+        @DisplayName("浏览器页面导航被拒绝时应交给容器渲染状态页")
+        void shouldDispatchRejectedPageNavigationToErrorPage() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/setup.html");
+            request.setRemoteAddr("192.168.1.100");
+            request.addHeader("Accept", "text/html,application/xhtml+xml");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            assertThat(response.isCommitted()).isTrue();
+            assertThat(response.getContentType()).isNull();
+            assertThat(response.getContentAsString()).isEmpty();
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("浏览器页面导航被限流时应交给容器渲染 429 状态页")
+        void shouldDispatchRateLimitedPageNavigationToErrorPage() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(staticResourceRateLimitService.isAllowed("203.0.113.10")).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/vendor/fonts/fonts.css");
+            request.setRemoteAddr("203.0.113.10");
+            request.addHeader("Accept", "text/html");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(429);
+            assertThat(response.isCommitted()).isTrue();
+            assertThat(response.getHeader("Retry-After")).isEqualTo("60");
+            assertThat(response.getContentAsString()).isEmpty();
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("API 即使接受 HTML 也应保持 JSON 错误契约")
+        void shouldKeepJsonErrorContractForApiRequests() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/app/info");
+            request.setRemoteAddr("192.168.1.100");
+            request.addHeader("Accept", "text/html");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getContentType()).startsWith("application/json");
+            assertThat(response.getContentAsString())
+                    .contains("\"code\":\"auth.unauthorized\"")
+                    .contains("\"error\":\"Unauthorized\"");
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("未声明 API 返回稳定 JSON 404 契约")
+        void undeclaredApiUsesJsonErrorContract() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/not-declared");
+            request.setRemoteAddr("192.168.1.100");
+            request.addHeader("Accept", "text/html");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(404);
+            assertThat(response.getContentType()).startsWith("application/json");
+            assertThat(response.getContentAsString())
+                    .contains("\"code\":\"error.request.not-found\"")
+                    .contains("\"error\":\"Requested resource not found\"");
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("未声明页面导航交给容器渲染 HTML 404")
+        void undeclaredPageUsesContainerErrorDispatch() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+
+            request.setMethod("GET");
+            request.setRequestURI("/not-declared.html");
+            request.setRemoteAddr("192.168.1.100");
+            request.addHeader("Accept", "text/html");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(404);
+            assertThat(response.isCommitted()).isTrue();
+            assertThat(response.getContentType()).isNull();
+            assertThat(response.getContentAsString()).isEmpty();
+            verify(filterChain, never()).doFilter(request, response);
+        }
+    }
+
     // ========== 静态资源 IP 限流 ==========
 
     @Nested
@@ -356,6 +464,7 @@ class AuthFilterTest {
                 "/favicon.ico",
                 "/css/pixiv-feedback.css",
                 "/css/pixiv-scrollbar.css",
+                "/error/404.html",
                 "/js/pixiv-feedback.js",
                 "/js/pixiv-actions.js",
                 "/js/pixiv-i18n.js",

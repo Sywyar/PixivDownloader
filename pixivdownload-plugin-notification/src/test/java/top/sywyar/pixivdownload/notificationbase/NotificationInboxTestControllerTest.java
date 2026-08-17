@@ -42,8 +42,9 @@ class NotificationInboxTestControllerTest {
         var single = controller.test(request("127.0.0.1"));
 
         assertThat(single.getStatusCode().is2xxSuccessful()).isTrue();
-        assertThat(single.getBody()).isNotNull();
-        assertThat(single.getBody().success()).isTrue();
+        assertThat(single.getBody()).isInstanceOfSatisfying(
+                NotificationInboxTestController.InboxTestResponse.class,
+                body -> assertThat(body.success()).isTrue());
         assertThat(mapper.findLatest(null, false, 100)).singleElement()
                 .extracting(NotificationMessage::scenarioId)
                 .isEqualTo(NotificationScenario.RUN_SUMMARY.id());
@@ -51,9 +52,12 @@ class NotificationInboxTestControllerTest {
         var all = controller.testAll(request("127.0.0.1"));
 
         assertThat(all.getStatusCode().is2xxSuccessful()).isTrue();
-        assertThat(all.getBody()).isNotNull();
-        assertThat(all.getBody().success()).isTrue();
-        assertThat(all.getBody().total()).isEqualTo(NotificationScenario.values().length);
+        assertThat(all.getBody()).isInstanceOfSatisfying(
+                NotificationInboxTestController.InboxTestResponse.class,
+                body -> {
+                    assertThat(body.success()).isTrue();
+                    assertThat(body.total()).isEqualTo(NotificationScenario.values().length);
+                });
         assertThat(mapper.findLatest(null, false, 100)).hasSize(NotificationScenario.values().length + 1);
     }
 

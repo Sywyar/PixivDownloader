@@ -154,7 +154,7 @@ class PluginApiOwnershipGuardTest {
                     "GuiThemeApplier", "GuiThemeChangeListener", "GuiThemeContribution",
                     "GuiThemeListenerFactory", "GuiThemeListenerSession")),
             Map.entry("Web 与请求身份协议", types(API_PREFIX + "web",
-                    "AccessPolicy", "Audience", "DrilldownContribution", "DrilldownPlacements",
+                    "AccessPolicy", "ApiErrorResponse", "Audience", "DrilldownContribution", "DrilldownPlacements",
                     "HttpMethod", "I18nContribution",
                     "LandingContribution", "NavigationContribution", "NavigationMarkers", "NavigationPlacements",
                     "PageSectionContribution", "RequestOwnerIdentity",
@@ -236,7 +236,7 @@ class PluginApiOwnershipGuardTest {
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口、版本与生命周期", 5),
             Map.entry("GUI 纯数据 contribution", 30),
-            Map.entry("Web 与请求身份协议", 20),
+            Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
             Map.entry("下载宿主控制协议", 7),
@@ -253,6 +253,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
             API_PREFIX + "download.queue.QueueTaskTracker$Task",
+            API_PREFIX + "web.ApiErrorResponse$Basic",
             API_PREFIX + "schedule.credential.ScheduledCredentialContext$Purpose",
             API_PREFIX + "schedule.credential.ScheduledCredentialProbeResult$Status",
             API_PREFIX + "schedule.execution.ScheduledFailure$Category",

@@ -383,10 +383,19 @@ public class LayoutFeedbackStateController {
         return ResponseEntity.status(status).headers(headers).body(body);
     }
 
-    /** 无 body 的统一响应（400 / 403 / 413 / 503）：一律 no-store。 */
+    /** 统一失败响应：保留稳定 code/error 且一律 no-store。 */
     private static ResponseEntity<LayoutFeedbackStateResponse> statusResponse(HttpStatus status) {
         HttpHeaders headers = new HttpHeaders();
         headers.setCacheControl(CacheControl.noStore().cachePrivate());
-        return ResponseEntity.status(status).headers(headers).build();
+        String code = switch (status) {
+            case BAD_REQUEST -> "layout-feedback.request.invalid";
+            case FORBIDDEN -> "layout-feedback.solo-only";
+            case PAYLOAD_TOO_LARGE -> "layout-feedback.request.too-large";
+            case UNSUPPORTED_MEDIA_TYPE -> "layout-feedback.request.media-type-unsupported";
+            default -> "layout-feedback.unavailable";
+        };
+        return ResponseEntity.status(status).headers(headers).body(new LayoutFeedbackStateResponse(
+                false, false, null, null, 0L, null, false, 0L, List.of(),
+                code, status.getReasonPhrase()));
     }
 }

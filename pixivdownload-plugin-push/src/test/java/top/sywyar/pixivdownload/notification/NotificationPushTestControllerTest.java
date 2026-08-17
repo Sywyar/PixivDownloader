@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.push.TestMessageResolver;
 import top.sywyar.pixivdownload.push.TestNotificationTemplates;
 import top.sywyar.pixivdownload.push.controller.PushTestRequest;
 import top.sywyar.pixivdownload.push.controller.PushTestResponse;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,9 +49,11 @@ class NotificationPushTestControllerTest {
         request.setRemoteAddr("203.0.113.10");
         request.addHeader("Host", "example.com");
 
-        ResponseEntity<PushTestResponse> response = controller.testAll(barkEnabledRequest(), request);
+        ResponseEntity<?> response = controller.testAll(barkEnabledRequest(), request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class, error ->
+                assertThat(error.code()).isEqualTo("auth.local-only"));
     }
 
     @Test
@@ -58,11 +61,11 @@ class NotificationPushTestControllerTest {
     void testAllWithNoEnabledChannelReturnsEmpty() {
         PushTestRequest empty = new PushTestRequest(null, null, null, null, null, null, null, null);
 
-        ResponseEntity<PushTestResponse> response = controller.testAll(empty, localRequest());
+        ResponseEntity<?> response = controller.testAll(empty, localRequest());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().total()).isZero();
+        assertThat(response.getBody()).isInstanceOfSatisfying(PushTestResponse.class,
+                body -> assertThat(body.total()).isZero());
         verify(pushService, times(0)).test(anyList(), any(PushMessage.class));
     }
 
@@ -72,14 +75,14 @@ class NotificationPushTestControllerTest {
         when(pushService.test(anyList(), any(PushMessage.class)))
                 .thenReturn(List.of(PushResult.ok(PushChannelIds.BARK)));
 
-        ResponseEntity<PushTestResponse> response = controller.testAll(barkEnabledRequest(), localRequest());
+        ResponseEntity<?> response = controller.testAll(barkEnabledRequest(), localRequest());
 
         int scenarios = NotificationScenario.values().length;
-        PushTestResponse body = response.getBody();
-        assertThat(body).isNotNull();
-        assertThat(body.success()).isTrue();
-        assertThat(body.total()).isEqualTo(scenarios);
-        assertThat(body.succeeded()).isEqualTo(scenarios);
+        assertThat(response.getBody()).isInstanceOfSatisfying(PushTestResponse.class, body -> {
+            assertThat(body.success()).isTrue();
+            assertThat(body.total()).isEqualTo(scenarios);
+            assertThat(body.succeeded()).isEqualTo(scenarios);
+        });
         verify(pushService, times(scenarios)).test(anyList(), any(PushMessage.class));
     }
 

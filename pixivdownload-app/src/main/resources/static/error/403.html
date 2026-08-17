@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>403 · 没有访问权限</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="403">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true">403<span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:403.art-label" aria-label="一扇关着的门，门上挂着一把锁">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 门框与门 -->
+            <path d="M74 126 L74 30 L146 30 L146 126"/>
+            <path class="soft" d="M82 126 L82 38 L138 38 L138 126"/>
+            <!-- 门下的地面线 -->
+            <path class="soft" d="M56 126 L164 126"/>
+            <!-- 挂在门上的锁 -->
+            <rect x="98" y="76" width="24" height="22" rx="5"/>
+            <path d="M103 76 L103 68 C 103 58, 117 58, 117 68 L117 76"/>
+            <!-- 钥匙孔 -->
+            <circle class="af" cx="110" cy="84" r="3"/>
+            <path class="a" d="M110 87 L110 92"/>
+            <!-- 门把被锁取代后的空位 -->
+            <path class="soft" d="M88 82 L92 82"/>
+            <!-- 门缝里透不出光：几条静止的短线 -->
+            <path class="soft" d="M60 52 L66 52"/>
+            <path class="soft" d="M58 62 L66 62"/>
+            <path class="soft" d="M154 62 L162 62"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow">403 · Forbidden</p>
+    <h1 class="err-title" data-i18n-html="status:403.title">这扇门暂时<em>不对你开放</em></h1>
+    <p class="err-desc" data-i18n="status:403.description">你当前的身份没有访问这个页面的权限（403 Forbidden）。它可能只对管理员开放，或者不在你的邀请链接可见范围内。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:403.hint-1">如果你就是管理员，先登录再继续</li>
+            <li data-i18n="status:403.hint-2">如果你使用邀请链接，请向邀请人确认可见范围</li>
+            <li data-i18n="status:403.hint-3">回到首页，去你有权限的地方</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <a class="err-btn err-btn--primary" href="/login.html" data-i18n="status:action.login">去登录</a>
+        <a class="err-btn err-btn--ghost" href="/" data-i18n="status:action.home">回到首页</a>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -264,8 +265,8 @@ class SSEControllerTest {
 
         var response = controller.closeAggregatedSSEConnection(closeToken, request);
 
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().isSuccess()).isTrue();
+        assertThat(response.getBody()).isInstanceOfSatisfying(DownloadResponse.class,
+                body -> assertThat(body.isSuccess()).isTrue());
         assertThat(aggregatedEmitters()).doesNotContainKey("conn-1");
         assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("conn-1");
         assertThat(emitter.events).hasSize(1);
@@ -290,8 +291,8 @@ class SSEControllerTest {
         var response = controller.closeAggregatedSSEConnection(closeToken, request);
 
         assertThat(response.getStatusCode().value()).isEqualTo(403);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().isSuccess()).isFalse();
+        assertThat(response.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class,
+                body -> assertThat(body.code()).isEqualTo("auth.unauthorized"));
         assertThat(aggregatedEmitters()).containsKey("conn-1");
         assertThat(aggregatedHeartbeatTasks()).containsKey("conn-1");
         assertThat(emitter.events).isEmpty();
@@ -328,8 +329,8 @@ class SSEControllerTest {
 
         var response = controller.closeAggregatedSSEConnection(closeToken, request);
 
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().isSuccess()).isTrue();
+        assertThat(response.getBody()).isInstanceOfSatisfying(DownloadResponse.class,
+                body -> assertThat(body.isSuccess()).isTrue());
         assertThat(aggregatedEmitters()).doesNotContainKey("admin-conn");
         assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("admin-conn");
         assertThat(emitter.completed).isTrue();

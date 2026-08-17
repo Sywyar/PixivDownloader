@@ -593,7 +593,7 @@ async function douyinFetchJson(path, options) {
         douyinAssertActive();
         if (!res.ok) {
             const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
-            const error = new Error(bt(key, data.message || `HTTP ${res.status}`));
+            const error = new Error(bt(key, data.error || `HTTP ${res.status}`));
             error.code = data.code || null;
             error.messageKey = data.messageKey || null;
             error.status = res.status;
@@ -644,7 +644,7 @@ async function processDouyinItem(item, processContext) {
             douyinAssertActive();
             if (!res.ok) {
                 const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
-                throw new Error(bt(key, data.message || `HTTP ${res.status}`));
+                throw new Error(bt(key, data.error || `HTTP ${res.status}`));
             }
             const authoritativeWorkKey = douyinCancelWorkKey(data.workId);
             if (authoritativeWorkKey && processContext

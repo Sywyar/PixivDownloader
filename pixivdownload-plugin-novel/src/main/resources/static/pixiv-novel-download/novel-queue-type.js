@@ -414,7 +414,7 @@ async function getNovelUserMeta(userId, hookContext) {
                 return;
             }
             if (!res.ok || !data || data.success !== true) {
-                const message = data && data.message ? data.message : `HTTP ${res.status}`;
+                const message = data && (data.error || data.message) ? (data.error || data.message) : `HTTP ${res.status}`;
                 throw new Error(message);
             }
             setStatus(bt('status.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: seriesId}), 'success');

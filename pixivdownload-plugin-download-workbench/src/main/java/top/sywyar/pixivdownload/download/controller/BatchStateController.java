@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.download.request.BatchStateRequest;
 import top.sywyar.pixivdownload.download.response.BatchStateResponse;
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -39,17 +40,19 @@ public class BatchStateController {
     }
 
     @GetMapping(value = "/state", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<BatchStateResponse> getState() {
+    public ResponseEntity<?> getState() {
         if (!"solo".equals(applicationModeProvider.getMode())) {
-            return ResponseEntity.status(403).build();
+            return ResponseEntity.status(403)
+                    .body(ApiErrorResponse.of("batch.state.solo-only", "Batch state is available only in solo mode"));
         }
         return ResponseEntity.ok(new BatchStateResponse(cachedState));
     }
 
     @PostMapping(value = "/state", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Void> saveState(@RequestBody BatchStateRequest request) throws IOException {
+    public ResponseEntity<?> saveState(@RequestBody BatchStateRequest request) throws IOException {
         if (!"solo".equals(applicationModeProvider.getMode())) {
-            return ResponseEntity.status(403).build();
+            return ResponseEntity.status(403)
+                    .body(ApiErrorResponse.of("batch.state.solo-only", "Batch state is available only in solo mode"));
         }
         cachedState = request.getState().toString();
         Files.createDirectories(stateFile.getParent());

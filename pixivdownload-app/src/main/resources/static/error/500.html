@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>500 · 服务器内部错误</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="500">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true">500<span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:500.art-label" aria-label="一台趴着打盹的服务器">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 服务器机箱 -->
+            <rect x="52" y="52" width="116" height="66" rx="10"/>
+            <!-- 盘位 -->
+            <path class="soft" d="M66 70 L132 70"/>
+            <path class="soft" d="M66 86 L116 86"/>
+            <!-- 指示灯：一枚正常、一枚在报警 -->
+            <circle class="soft" cx="150" cy="86" r="3"/>
+            <circle class="af blink" cx="150" cy="70" r="3.5"/>
+            <!-- 支脚 -->
+            <path d="M70 118 L70 128"/>
+            <path d="M150 118 L150 128"/>
+            <path d="M62 128 L158 128"/>
+            <!-- 趴着睡着冒出的 Zzz -->
+            <path class="a drift" d="M158 44 L168 44 L158 34 L168 34"/>
+            <path class="a drift d2" d="M176 30 L184 30 L176 22 L184 22"/>
+            <path class="a drift d3" d="M192 18 L198 18 L192 12 L198 12"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow">500 · Internal Server Error</p>
+    <h1 class="err-title" data-i18n-html="status:500.title">这不是你的错，或许是<em>服务器累了</em></h1>
+    <p class="err-desc" data-i18n="status:500.description">服务器在处理请求时发生了未预期的内部错误（500 Internal Server Error）。这次请求没有完成，但你的数据不会因此损坏。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:500.hint-1">稍等片刻，再试一次</li>
+            <li data-i18n="status:500.hint-2">如果反复出现，打开日志文件（log 目录）查看具体异常</li>
+            <li data-i18n="status:500.hint-3">把日志里的错误信息带到 GitHub 提个 issue，我们来修</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <button class="err-btn err-btn--primary" id="errRetry" type="button" data-i18n="status:action.retry">再试一次</button>
+        <a class="err-btn err-btn--ghost" href="/" data-i18n="status:action.home">回到首页</a>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

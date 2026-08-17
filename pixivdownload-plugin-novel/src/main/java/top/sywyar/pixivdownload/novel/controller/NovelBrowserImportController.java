@@ -241,7 +241,7 @@ public class NovelBrowserImportController {
     private ResponseEntity<NovelErrorResponse> error(int status, String key) {
         return ResponseEntity.status(status)
                 .cacheControl(CacheControl.noStore())
-                .body(new NovelErrorResponse(messages.get(key)));
+                .body(new NovelErrorResponse(key, messages.get(key)));
     }
 
     public record ImportTokenResponse(String token, long expiresInSeconds) {

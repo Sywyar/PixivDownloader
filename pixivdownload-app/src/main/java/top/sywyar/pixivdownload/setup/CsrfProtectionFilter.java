@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -14,14 +13,13 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -32,7 +30,6 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class CsrfProtectionFilter extends OncePerRequestFilter {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Pattern COLLECTION_ICON_PATH = Pattern.compile("^/api/collections/\\d+/icon$");
     private static final Pattern PLUGIN_MARKET_INSTALL_PATH =
             Pattern.compile("^/api/plugin-market/[^/]+/[^/]+/[^/]+/install$");
@@ -52,8 +49,15 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         if ("TRACE".equalsIgnoreCase(request.getMethod())) {
-            response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             response.setHeader(HttpHeaders.ALLOW, "GET, HEAD, OPTIONS, POST, PUT, DELETE, PATCH");
+            if (prefersHtmlErrorPage(request)) {
+                response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            } else {
+                String message = messages.getOrDefault(localeResolver.resolveLocale(request),
+                        "http.status.405", "Method Not Allowed");
+                ApiErrorWriter.write(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+                        "http.status.405", message);
+            }
             return;
         }
         if (!requiresSameOriginCheck(request)) {
@@ -222,11 +226,22 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
     }
 
     private void sendJsonError(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (prefersHtmlErrorPage(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+            return;
+        }
         String message = messages.getOrDefault(localeResolver.resolveLocale(request),
                 "auth.csrf.invalid", "Request origin verification failed");
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        response.getWriter().write(MAPPER.writeValueAsString(new ErrorResponse(message)));
+        ApiErrorWriter.write(response, HttpServletResponse.SC_FORBIDDEN, "auth.csrf.invalid", message);
+    }
+
+    /** 非 API 请求明确接受 HTML 时交给容器错误页；来源校验本身不因此放宽。 */
+    private static boolean prefersHtmlErrorPage(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri != null && uri.startsWith("/api/")) {
+            return false;
+        }
+        String accept = request.getHeader(HttpHeaders.ACCEPT);
+        return accept != null && accept.contains(MediaType.TEXT_HTML_VALUE);
     }
 }

@@ -7,6 +7,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.tts.EdgeTtsClient;
 import top.sywyar.pixivdownload.tts.EdgeTtsVoiceService;
 import top.sywyar.pixivdownload.tts.TtsRateLimitService;
@@ -39,7 +40,8 @@ class TtsControllerTest {
                 new MockHttpServletRequest());
 
         assertThat(response.getStatusCode().value()).isEqualTo(429);
-        assertThat(response.getBody()).isEqualTo(java.util.Map.of("error", "请求过于频繁"));
+        assertThat(response.getBody()).isEqualTo(
+                ApiErrorResponse.of("tts.rate-limit.exceeded", "请求过于频繁"));
         verify(limiter).isAllowed("invite:42");
     }
 
@@ -56,6 +58,7 @@ class TtsControllerTest {
                 new MockHttpServletRequest());
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).isEqualTo(ApiErrorResponse.of("tts.text.empty", "文本为空"));
         verify(limiter, never()).isAllowed(org.mockito.ArgumentMatchers.anyString());
     }
 

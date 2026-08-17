@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.controller.PushTestRequest;
 import top.sywyar.pixivdownload.push.controller.PushTestResponse;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -52,10 +53,11 @@ public class NotificationPushTestController {
     private final MessageResolver messages;
 
     @PostMapping("/push-test-all")
-    public ResponseEntity<PushTestResponse> testAll(@RequestBody PushTestRequest body,
-                                                    HttpServletRequest request) {
+    public ResponseEntity<?> testAll(@RequestBody PushTestRequest body,
+                                     HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiErrorResponse.of("auth.local-only", messages.get("auth.local-only")));
         }
         if (body == null) {
             return ResponseEntity.ok(PushTestResponse.from(
