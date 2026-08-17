@@ -44,16 +44,30 @@ test('Quality Gate：五个 required context 与完整触发面保持稳定', ()
 
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {
     const publish = load('.github/workflows/publish-plugins.yml');
+    const publishAction = load('.github/actions/publish-official-plugins/action.yml');
     assert.equal(publish.jobs['quality-gate'].uses, './.github/workflows/quality-gate.yml');
     assert.equal(publish.jobs.publish.environment, 'release');
     assert.deepEqual(publish.jobs.publish.needs, 'quality-gate');
+    assert.equal(publish.on.workflow_call.inputs.publish_in_caller.required, true);
+    assert.equal(publishAction.runs.using, 'composite');
+    assert.equal(publishAction.inputs.plugin_signing_private_key_pem_base64.required, true);
+    assert.equal(publishAction.inputs.plugins_repo_token.required, true);
+    assert.deepEqual(secretNames(publishAction), []);
+    const directPublish = publish.jobs.publish.steps
+        .find((step) => step.uses === './.github/actions/publish-official-plugins');
+    assert.equal(directPublish.if, 'inputs.publish_in_caller != true');
+    assert.equal(publish.jobs.publish.steps.find((step) => step.name === 'Complete delegated publication gate')?.if,
+        'inputs.publish_in_caller == true');
 
     const release = load('.github/workflows/release.yml');
     const nightly = load('.github/workflows/nightly.yml');
     assert.equal(release.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');
     assert.equal(nightly.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');
-    for (const [doc, ids] of [[release, ['build-jar', 'build-windows-installer', 'release', 'create-draft-release']],
-        [nightly, ['build-jar', 'build-windows-installer', 'release-nightly']]]) {
+    assert.equal(release.jobs['publish-plugins'].with.publish_in_caller, true);
+    assert.equal(nightly.jobs['publish-plugins'].with.publish_in_caller, true);
+    for (const [doc, ids] of [[release, ['publish-plugin-artifacts', 'build-jar', 'build-windows-installer',
+        'release', 'create-draft-release']],
+        [nightly, ['publish-plugin-artifacts', 'build-jar', 'build-windows-installer', 'release-nightly']]]) {
         for (const id of ids) assert.equal(doc.jobs[id].environment, 'release');
     }
 
@@ -69,6 +83,19 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         'PLUGINS_REPO_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
     ]);
     for (const doc of [release, nightly]) {
+        const job = doc.jobs['publish-plugin-artifacts'];
+        assert.ok((Array.isArray(job.needs) ? job.needs : [job.needs]).includes('publish-plugins'));
+        assert.deepEqual(secretNames(job).sort(), [
+            'PLUGINS_REPO_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
+        ]);
+        assert.equal(job.steps.find((step) => step.uses === './.github/actions/publish-official-plugins')
+            ?.name, 'Publish official plugins');
+    }
+    assert.equal(release.jobs['build-jar'].needs, 'publish-plugin-artifacts');
+    assert.deepEqual(nightly.jobs['build-jar'].needs, ['resolve-version', 'publish-plugin-artifacts']);
+    assert.ok(release.jobs.release.needs.includes('publish-plugin-artifacts'));
+    assert.ok(nightly.jobs['release-nightly'].needs.includes('publish-plugin-artifacts'));
+    for (const doc of [release, nightly]) {
         for (const [id, job] of Object.entries(doc.jobs)) {
             assert.equal(secretNames(job).includes('PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64'),
                 id === 'build-jar');
@@ -80,7 +107,7 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
 
 test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
     for (const rel of ['.github/workflows/release.yml', '.github/workflows/nightly.yml',
-        '.github/workflows/publish-plugins.yml']) {
+        '.github/workflows/publish-plugins.yml', '.github/actions/publish-official-plugins/action.yml']) {
         const text = fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8');
         assert.doesNotMatch(text, /always\(\)|!cancelled\(\)|continue-on-error/);
         assert.doesNotMatch(text, /PLUGIN_SIGNING_PRIVATE_KEY_PEM(?:\s|:|\})/);
@@ -94,7 +121,8 @@ test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
 
 test('Nightly：共享变更门禁以语义输出控制全部昂贵任务', () => {
     const nightly = load('.github/workflows/nightly.yml');
-    for (const id of ['publish-plugins', 'build-jar', 'build-windows-installer', 'release-nightly']) {
+    for (const id of ['publish-plugins', 'publish-plugin-artifacts', 'build-jar', 'build-windows-installer',
+        'release-nightly']) {
         assert.equal(nightly.jobs[id].if, "needs.resolve-version.outputs.has_changes == 'true'");
     }
     const resolveScripts = nightly.jobs['resolve-version'].steps.map((step) => step.run || '').join('\n');
