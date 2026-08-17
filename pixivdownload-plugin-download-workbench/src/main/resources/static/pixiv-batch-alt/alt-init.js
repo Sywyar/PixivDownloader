@@ -2,6 +2,29 @@
 /* ============================================================
    alt-init — 页面装配（最后加载）
    ============================================================ */
+let pageLangSwitcher = null;
+
+function applyPageLanguageViews(nextClient) {
+    pageI18n = nextClient || pageI18n;
+    if (pageI18n) pageI18n.apply();
+    document.title = bt('page.title', '下载工作台 · Pixiv 下载助手');
+    renderRail();
+    renderStage();
+    renderDock();
+    renderAuthButton();
+    refreshCookieUi();
+    renderBackendBanner();
+    syncFilterButtonBadge();
+    refreshGuideFab();
+    if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.refreshLanguage === 'function') {
+        try {
+            window.PixivLayoutFeedback.refreshLanguage(pageI18n);
+        } catch (e) {
+            console.warn('[batch-alt] 布局偏好调查语言刷新失败：', e);
+        }
+    }
+}
+
 async function initPageI18n() {
     try {
         pageI18n = await PixivI18n.create({namespaces: ['batch-alt', 'batch', 'common', 'tour', 'layout-feedback']});
@@ -15,7 +38,12 @@ async function initPageI18n() {
     const langAnchor = document.getElementById('abLangAnchor');
     if (langAnchor && window.PixivLangSwitcher && pageI18n) {
         try {
-            await PixivLangSwitcher.mount({mountPoint: langAnchor, i18n: pageI18n, variant: 'topbar'});
+            pageLangSwitcher = await PixivLangSwitcher.mount({
+                mountPoint: langAnchor,
+                i18n: pageI18n,
+                variant: 'topbar',
+                onChange: applyPageLanguageViews
+            });
         } catch (e) {
             console.warn('[batch-alt] 语言切换挂载失败：', e);
         }
@@ -136,6 +164,9 @@ async function init() {
     refreshCookieUi();
     await refreshBatchCollections();
     await bootstrapAltExtensions();
+    if (pageLangSwitcher && typeof pageLangSwitcher.refresh === 'function') {
+        pageLangSwitcher.refresh(pageI18n);
+    }
 
     // 队列与坞
     loadQueueForMode();
@@ -160,31 +191,6 @@ async function init() {
         window.dispatchEvent(new CustomEvent('pixivbatchalt:ready'));
     } catch {}
 
-    // 语言切换：重绘所有 bt() 驱动的视图
-    if (window.PixivI18n && typeof PixivI18n.onLanguageChange === 'function') {
-        PixivI18n.onLanguageChange(async () => {
-            try {
-                pageI18n = await PixivI18n.create({namespaces: await altI18nNamespaces()});
-                pageI18n.apply();
-                document.title = bt('page.title', '下载工作台 · Pixiv 下载助手');
-            } catch {}
-            renderRail();
-            renderStage();
-            renderDock();
-            renderAuthButton();
-            refreshCookieUi();
-            syncFilterButtonBadge();
-            refreshGuideFab();
-            // 布局偏好调查：已打开的弹窗用新语言刷新文案（不丢失选择与建议）
-            if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.refreshLanguage === 'function') {
-                try {
-                    window.PixivLayoutFeedback.refreshLanguage(pageI18n);
-                } catch (e) {
-                    console.warn('[batch-alt] 布局偏好调查语言刷新失败：', e);
-                }
-            }
-        });
-    }
     setupOnboardingOrTour();
     // 布局偏好调查（PostHog API Survey）：不阻塞核心初始化；内部自行延迟与门禁
     if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.init === 'function') {

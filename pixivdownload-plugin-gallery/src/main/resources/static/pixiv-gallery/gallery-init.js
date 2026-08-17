@@ -434,8 +434,8 @@
         renderFilterModeButtons('tag');
         renderFilterModeButtons('author');
 
-        // i18n 在后台加载，加载完成后补丁式重渲染已到达的动态内容
-        initPageI18n().then(() => {
+        // i18n 与侧栏并行加载；首屏结果在它完成后渲染，避免把回退文案烘焙进动态内容。
+        const i18nReady = initPageI18n().then(() => {
             if (state.collections.length) renderCollections();
             if (state.tags.length) renderTagChips();
             if (state.seriesOptions.length) renderSeriesFilterChips();
@@ -487,6 +487,7 @@
             }
             return loadGallery();
         };
+        await i18nReady;
         loadPrimary();
     })();
 

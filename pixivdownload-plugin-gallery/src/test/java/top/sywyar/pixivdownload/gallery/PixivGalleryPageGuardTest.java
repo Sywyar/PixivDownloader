@@ -42,6 +42,7 @@ class PixivGalleryPageGuardTest {
     @DisplayName("正式主画廊职责脚本按依赖顺序加载且 init 最后执行")
     void matureGalleryScriptsKeepResponsibilityOrder() throws IOException {
         String html = read("static/pixiv-gallery.html");
+        String init = read("static/pixiv-gallery/gallery-init.js");
         List<String> scripts = List.of(
                 "/pixiv-gallery/gallery-core.js",
                 "/pixiv-gallery/gallery-state.js",
@@ -58,10 +59,13 @@ class PixivGalleryPageGuardTest {
             assertThat(current).as("页面应加载 %s", script).isGreaterThan(previous);
             previous = current;
         }
-        assertThat(read("static/pixiv-gallery/gallery-init.js"))
+        assertThat(init)
                 .contains("(async function init()", "wireBatchManage();", "loadPrimary();")
                 .doesNotContain("PixivGalleryFrontend", "galleryGeneric", "galleryFrontendNav",
                         "navigationHost", "existingHrefs");
+        assertThat(init.indexOf("await i18nReady;"))
+                .isGreaterThan(init.indexOf("const i18nReady = initPageI18n()"))
+                .isLessThan(init.indexOf("loadPrimary();"));
         assertThat(html).doesNotContain(
                 "/pixiv-gallery/gallery-frontend-runtime.js",
                 "/pixiv-gallery/gallery-generic-view.js");
