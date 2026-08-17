@@ -13,10 +13,10 @@ const PixivUserscriptI18n = (() => {
     const LS_KEY = 'pixiv_userscript_lang';
     const GM_KEY = 'pixiv_userscript_lang';
     const BC_NAME = '__pixiv_userscript_lang_v1__';
-    const SUPPORTED = ['en-US', 'zh-CN'];
+    const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant'];
     const DEFAULT_LANG = 'en-US';
 
-    let DICT = { 'en-US': {}, 'zh-CN': {} };
+    let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {} };
     let currentLang = null;
     const listeners = new Set();
     let bc = null;

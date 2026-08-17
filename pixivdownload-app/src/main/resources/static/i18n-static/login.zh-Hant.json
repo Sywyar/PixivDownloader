@@ -1,0 +1,28 @@
+{
+  "namespace": "login",
+  "lang": "zh-Hant",
+  "defaultLang": "en-US",
+  "messages": {
+    "admin.title": "管理員登入",
+    "button.login": "登入",
+    "error.invite-expired": "邀請碼無效或已失效",
+    "error.invite-invalid": "邀請碼無效",
+    "error.login-failed": "登入失敗",
+    "error.network": "網路錯誤：{message}",
+    "field.password": "密碼",
+    "field.password.placeholder": "密碼",
+    "field.username": "使用者名稱",
+    "field.username.placeholder": "使用者名稱",
+    "header.title": "Pixiv 批次下載器",
+    "invite.back": "返回管理員登入",
+    "invite.code": "邀請碼",
+    "invite.placeholder": "邀請碼",
+    "invite.submit": "進入",
+    "invite.title": "使用邀請碼",
+    "invite.use-code": "使用邀請碼",
+    "page.title": "Pixiv 批次下載器 — 登入",
+    "remember": "保持登入狀態（30 天）",
+    "validation.credentials-required": "請輸入使用者名稱和密碼",
+    "validation.invite-required": "請輸入邀請碼"
+  }
+}

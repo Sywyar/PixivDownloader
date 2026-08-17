@@ -155,10 +155,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = { 'en-US': {}, 'zh-CN': {} };
+        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {} };
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -441,6 +441,50 @@
             'cookie-sync.signal.done': 'Cookie 已同步，请关闭本页面并返回 PixivDownloader。',
             'cookie-sync.signal.fail': 'Cookie 同步失败，请确认已登录 Pixiv 后重试，可关闭本页面。',
             'cookie-sync.signal.nophp': '未能读取登录态 Cookie（PHPSESSID），未保存任何内容。本环境的浏览器/脚本管理器未暴露 Pixiv 的 HttpOnly 会话 Cookie，请在下载页 Cookie 区查看《获取 Cookie 指南》手动设置。可关闭本页面。'
+        },
+        'zh-Hant': {
+            'switcher.label': '語言',
+            'common.dialog.unauthorized': '後端服務需要登入驗證，即將為你開啟登入頁面…',
+            'enhance.title': '🧰 Pixiv 體驗增強工具箱',
+            'enhance.fab.title': 'Pixiv 體驗增強工具箱',
+            'enhance.menu.open': '開啟 Pixiv 體驗增強工具箱',
+            'enhance.action.collapse': '收起',
+            'enhance.action.failed': '操作失敗，請重試。',
+            'enhance.section.features': '功能清單',
+            'enhance.setting.server': '伺服器位址：',
+            'enhance.footer.hint': '每個功能彼此獨立，可依需求開關。之後會持續增加更多功能。',
+            'enhance.multi-instance.warn': '偵測到「Pixiv 體驗增強工具箱」在本頁重複執行——很可能同時啟用了獨立腳本與 All-in-One 合併包。兩者的儲存彼此獨立且會互相衝突（雙面板／雙邊框、設定不互通），此重複執行個體已自動停用。請在 Tampermonkey 中只保留其中一個啟用。',
+            'enhance.feature.enable': '啟用',
+            'enhance.gate.checking': '正在檢查伺服器狀態…',
+            'enhance.gate.not-local': '需要伺服器位址指向 localhost／127.0.0.1。',
+            'enhance.gate.not-solo': '需要伺服器以 solo 模式執行。',
+            'enhance.gate.not-login': '需要登入伺服器（solo 模式）。',
+            'enhance.gate.unreachable': '無法連線到伺服器，請檢查伺服器位址及服務是否已啟動。',
+            'enhance.gate.ready': '條件已滿足，可以啟用此功能。',
+            'downloaded-border.name': '為已下載作品加上邊框',
+            'downloaded-border.desc': '掃描頁面上的作品與小說卡片，為伺服器已下載過的作品／小說縮圖加上邊框。',
+            'downloaded-border.setting.width': '邊框寬度（px）：',
+            'downloaded-border.setting.color': '邊框顏色：',
+            'downloaded-border.setting.style': '邊框樣式：',
+            'downloaded-border.setting.show-deleted': '為已刪除作品顯示邊框',
+            'downloaded-border.setting.deleted-width': '已刪除作品邊框寬度（px）：',
+            'downloaded-border.setting.deleted-color': '已刪除作品邊框顏色：',
+            'downloaded-border.setting.deleted-style': '已刪除作品邊框樣式：',
+            'downloaded-border.setting.inherit': '繼承',
+            'downloaded-border.style.solid': '實線',
+            'downloaded-border.style.dashed': '虛線',
+            'downloaded-border.style.double': '雙線',
+            'cookie-sync.name': '一鍵取得 Cookie',
+            'cookie-sync.desc': '讀取目前 pixiv.net 的 Cookie 並儲存到伺服器（與批次下載頁的「Cookie」設定共用同一儲存），需要登入狀態的下載／搜尋即可直接使用。要求 solo 模式且已登入，伺服器位址不限。注意：登入憑證 PHPSESSID 是 HttpOnly Cookie，需要在 Tampermonkey「設定 → 設定模式選『進階』→ 安全性 → 允許腳本存取 Cookie」中設為 All 才能讀取；但不建議長期開啟（開啟後其他油猴腳本也能任意讀取你的登入憑證）。除非你信任所有已安裝的腳本，否則建議僅在取得時暫時設為 All，成功後立即改回『除了 HttpOnly』，或改用《取得 Cookie 指南》中的第一種手動方法。',
+            'cookie-sync.action': '立即取得並儲存 Cookie',
+            'cookie-sync.status.empty': '未讀取到 Cookie，請確認已在此瀏覽器登入 Pixiv。',
+            'cookie-sync.status.sending': '正在傳送到伺服器…',
+            'cookie-sync.status.success': 'Cookie 已儲存到伺服器。',
+            'cookie-sync.status.no-phpsessid': '無法讀取登入狀態 Cookie（PHPSESSID），為避免覆寫現有 Cookie 已取消儲存。此環境的瀏覽器／腳本管理器未公開 Pixiv 的 HttpOnly 會話 Cookie，請在下載頁 Cookie 區查看《取得 Cookie 指南》手動設定。',
+            'cookie-sync.status.failed': '儲存失敗（HTTP {0}）。',
+            'cookie-sync.signal.done': 'Cookie 已同步，可以關閉此頁面並返回 PixivDownloader。',
+            'cookie-sync.signal.fail': 'Cookie 同步失敗，請確認已登入 Pixiv 後重試；你可以關閉此頁面。',
+            'cookie-sync.signal.nophp': '無法讀取登入狀態 Cookie（PHPSESSID），未儲存任何內容。此環境的瀏覽器／腳本管理器未公開 Pixiv 的 HttpOnly 會話 Cookie，請在下載頁 Cookie 區查看《取得 Cookie 指南》手動設定。你可以關閉此頁面。'
         }
     });
 
@@ -1264,7 +1308,7 @@
         PixivUserscriptI18n.listSupported().forEach(lang => {
             const option = document.createElement('option');
             option.value = lang;
-            option.textContent = lang === 'zh-CN' ? '简体中文' : 'English';
+            option.textContent = lang === 'zh-CN' ? '简体中文' : (lang === 'zh-Hant' ? '繁體中文' : 'English');
             option.selected = lang === PixivUserscriptI18n.getLang();
             select.appendChild(option);
         });

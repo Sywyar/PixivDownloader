@@ -220,10 +220,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = { 'en-US': {}, 'zh-CN': {} };
+        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {} };
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -422,6 +422,7 @@
         'en-US': {
             'switcher.label': 'Language',
             'switcher.zh-CN': '简体中文',
+            'switcher.zh-Hant': '繁體中文',
             'switcher.en-US': 'English',
             'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
             'common.dialog.connect-notice': 'Pixiv download script first-run hint\n\nIf you use an external server instead of localhost, replace this userscript header line:\n  // @connect      YOUR_SERVER_HOST\nwith your real server IP or domain, for example:\n  // @connect      192.168.1.100\n\nPath: Tampermonkey dashboard -> target script -> Edit -> Save\n\nOr use the web UI directly:\n{serverBase}/login.html\n\n(This hint is shown only once)',
@@ -483,6 +484,7 @@
         'zh-CN': {
             'switcher.label': '语言',
             'switcher.zh-CN': '简体中文',
+            'switcher.zh-Hant': '繁體中文',
             'switcher.en-US': 'English',
             'common.dialog.unauthorized': '后端服务需要登录验证，即将为您打开登录页面...',
             'common.dialog.connect-notice': 'Pixiv 下载脚本初始化提示\n\n如果您使用外部服务器（非 localhost），需将脚本头部的：\n  // @connect      YOUR_SERVER_HOST\n替换为实际的服务器 IP 或域名，例如：\n  // @connect      192.168.1.100\n\n修改路径：Tampermonkey 管理面板 -> 对应脚本 -> 编辑 -> 保存\n\n或者直接通过网页端下载作品（无需脚本）：\n{serverBase}/login.html\n\n（此提示只显示一次）',
@@ -540,6 +542,68 @@
             'single.alert.novel-history-skipped': '小说 {novelId} 已存在于下载历史中，已跳过本次下载。',
             'single.alert.novel-history-skipped-deleted': '小说 {novelId} 已经下载过，但被画廊删除，已跳过本次下载。勾选「允许已删除的作品被重新下载」可重新下载。',
             'single.alert.novel-start-download': '开始下载小说 {novelId} ...'
+        },
+        'zh-Hant': {
+            'switcher.label': '語言',
+            'switcher.zh-CN': '簡體中文',
+            'switcher.zh-Hant': '繁體中文',
+            'switcher.en-US': 'English',
+            'common.dialog.unauthorized': '後端服務需要登入驗證，即將為你開啟登入頁面…',
+            'common.dialog.connect-notice': 'Pixiv 下載腳本首次執行提示\n\n如果你使用外部伺服器（非 localhost），需要將腳本標頭中的：\n  // @connect      YOUR_SERVER_HOST\n替換為實際的伺服器 IP 或網域，例如：\n  // @connect      192.168.1.100\n\n修改路徑：Tampermonkey 管理面板 → 對應腳本 → 編輯 → 儲存\n\n或直接透過網頁端下載作品（不需腳本）：\n{serverBase}/login.html\n\n（此提示只顯示一次）',
+            'common.option.verify-history-files.tooltip': '透過檢查記錄目錄是否存在、資料夾是否為空、資料夾中的檔案是否包含圖片來判斷是否有效；若無效則重新下載',
+            'common.option.redownload-deleted.tooltip': '透過畫廊刪除的作品會保留刪除標記：未勾選（預設）時視為已下載並略過；勾選後重新下載，成功後自動清除刪除標記',
+            'common.archive.download-link': '下載壓縮檔',
+            'common.archive.expired': '下載連結已過期',
+            'common.archive.preparing': '正在封裝已下載檔案，請稍候…',
+            'common.archive.ready': '壓縮檔已就緒：',
+            'common.archive.empty': '目前沒有可封裝檔案',
+            'common.archive.validity': '有效期限：{time}',
+            'common.quota.exceeded': '已達到下載限額',
+            'common.quota.summary': '配額：{used}/{max}',
+            'single.title': 'Pixiv 下載器（Java 後端）',
+            'single.action.collapse': '收起',
+            'single.fab.title': 'Pixiv 單一作品下載器（Java 後端）',
+            'single.menu.open': '開啟 Pixiv 單一作品下載器面板',
+            'single.status.ready': '⬇️ 可以下載此作品',
+            'single.button.download': '📥 透過後端下載',
+            'single.option.bookmark': '下載後自動收藏',
+            'single.option.skip-history': '略過下載歷史',
+            'single.option.verify-history-files': '檢查實際目錄',
+            'single.option.redownload-deleted': '允許重新下載已刪除的作品',
+            'single.artwork-id': '作品 ID：{id}',
+            'single.backend.checking': '正在檢查後端狀態…',
+            'single.backend.available': '✅ 後端服務可用',
+            'single.backend.unavailable': '❌ 後端服務未啟動',
+            'single.info': '使用 Java 後端服務下載，支援完整資料夾結構',
+            'single.menu.download': '透過後端下載目前作品',
+            'single.menu.server': '⚙️ 設定伺服器位址',
+            'single.prompt.server': '請輸入後端伺服器位址（不含結尾斜線）：',
+            'single.alert.server-updated': '伺服器位址已更新為：{serverBase}',
+            'single.alert.no-artwork-id': '無法取得作品 ID',
+            'single.alert.backend-not-running': '後端下載服務未啟動！\n請確認 Java Spring 程式正在 {serverBase} 執行',
+            'single.alert.history-skipped': '作品 {artworkId} 已存在於下載歷史中，已略過此次下載。',
+            'single.alert.history-skipped-deleted': '作品 {artworkId} 已下載過，但已被畫廊刪除，因此略過此次下載。勾選「允許重新下載已刪除的作品」即可再次下載。',
+            'single.alert.start-download': '正在下載作品 {artworkId} 的圖片…',
+            'single.alert.no-images': '找不到圖片',
+            'single.alert.download-submitted': '下載工作已提交至後端處理！\n{typeHint}\n{message}',
+            'single.alert.download-failed': '下載失敗：{message}',
+            'single.type.ugoira': '動圖（將合成為 WebP）',
+            'single.type.images': '圖片數量：{count} 張',
+            'single.type.novel': '小說（{format}）',
+            'single.archive.download-limit': '已達到下載限額',
+            'single.novel.title': 'Pixiv 小說下載器（Java 後端）',
+            'single.novel.status.ready': '⬇️ 可以下載此小說',
+            'single.novel.button.download': '📥 透過後端下載小說',
+            'single.novel.id': '小說 ID：{id}',
+            'single.novel.format-label': '小說格式：',
+            'single.novel.format-txt': '純文字（TXT）',
+            'single.novel.format-html': '網頁（HTML）',
+            'single.novel.format-epub': '電子書（EPUB）',
+            'single.novel.menu.download': '透過後端下載目前小說',
+            'single.alert.no-novel-id': '無法取得小說 ID',
+            'single.alert.novel-history-skipped': '小說 {novelId} 已存在於下載歷史中，已略過此次下載。',
+            'single.alert.novel-history-skipped-deleted': '小說 {novelId} 已下載過，但已被畫廊刪除，因此略過此次下載。勾選「允許重新下載已刪除的作品」即可再次下載。',
+            'single.alert.novel-start-download': '正在下載小說 {novelId}…'
         }
     });
 

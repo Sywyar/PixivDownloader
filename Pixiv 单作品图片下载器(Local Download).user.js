@@ -39,10 +39,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = {'en-US': {}, 'zh-CN': {}};
+        let DICT = {'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}};
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -365,6 +365,7 @@
             'local.switcher.label': 'Language',
             'switcher.option.en-US': 'English',
             'switcher.option.zh-CN': '简体中文',
+            'switcher.option.zh-Hant': '繁體中文',
             // Panel collapse / FAB
             'local.action.collapse': 'Collapse',
             'local.fab.title': 'Pixiv Local Downloader',
@@ -408,7 +409,49 @@
             'local.ui.label.novel-id': '小说ID: {id}',
             'local.switcher.label': '语言',
             'switcher.option.en-US': 'English',
-            'switcher.option.zh-CN': '简体中文'
+            'switcher.option.zh-CN': '简体中文',
+            'switcher.option.zh-Hant': '繁體中文'
+        },
+        'zh-Hant': {
+            'local.menu.download-current': '下載目前作品的所有圖片',
+            'local.menu.history': '檢視下載歷史',
+            'local.menu.clear-history': '清除下載記錄',
+            'local.menu.reset-folder-index': '重設資料夾索引',
+            'local.alert.no-artwork-id': '無法取得作品 ID',
+            'local.alert.start-download': '正在下載作品 {id} 的圖片…',
+            'local.alert.ugoira-unsupported': '作品 {id} 是動圖（ugoira）。\n此版本不支援動圖合成，請使用「Pixiv 作品圖片下載器（Java 後端版）」下載動圖，後端會自動合成為 WebP 格式。',
+            'local.alert.no-images': '找不到圖片',
+            'local.alert.download-summary': '下載完成！\n成功下載：{success}/{total} 張圖片\n儲存至：預設下載目錄',
+            'local.alert.download-failed': '下載失敗：{message}',
+            'local.alert.history-empty': '目前還沒有下載記錄',
+            'local.alert.history-cleared': '下載記錄已清除',
+            'local.alert.folder-index-reset': '資料夾索引已重設',
+            'local.confirm.redownload': '作品 {id} 已於 {time} 下載過\n儲存位置：資料夾 {folder}\n圖片數量：{count} 張\n\n要重新下載嗎？',
+            'local.confirm.clear-history': '確定要清除所有下載記錄嗎？此操作無法復原。',
+            'local.confirm.reset-folder-index': '確定要重設資料夾索引嗎？下次下載會從資料夾 0 開始。',
+            'local.history.header': '已下載作品數量：{count}\n\n',
+            'local.history.entry': '作品 ID：{id}\n下載時間：{time}\n儲存位置：{folder}\n圖片數量：{count} 張\n---\n',
+            'local.history.novel-header': '\n已下載小說數量：{count}\n\n',
+            'local.history.novel-entry': '小說 ID：{id}\n標題：{title}\n下載時間：{time}\n---\n',
+            'local.ui.status.downloaded': '✅ 此作品已下載',
+            'local.ui.status.available': '⬇️ 可以下載此作品',
+            'local.ui.button.download': '📥 下載所有圖片',
+            'local.ui.label.artwork-id': '作品 ID：{id}',
+            'local.ui.folder.default': '預設下載目錄',
+            'local.menu.download-current-novel': '將目前小說下載為 EPUB',
+            'local.alert.no-novel-id': '無法取得小說 ID',
+            'local.alert.novel-start-download': '正在將小說 {id} 下載為 EPUB…',
+            'local.alert.novel-summary': '小說下載完成！\n檔案：{title}.epub\n內嵌圖片：{images} 張\n儲存至：預設下載目錄',
+            'local.alert.novel-failed': '小說下載失敗：{message}',
+            'local.confirm.novel-redownload': '小說 {id} 已於 {time} 下載過\n\n要再次下載嗎？',
+            'local.ui.status.novel-downloaded': '✅ 此小說已下載',
+            'local.ui.status.novel-available': '⬇️ 可以下載此小說（EPUB）',
+            'local.ui.button.download-novel': '📕 下載小說（EPUB）',
+            'local.ui.label.novel-id': '小說 ID：{id}',
+            'local.switcher.label': '語言',
+            'switcher.option.en-US': 'English',
+            'switcher.option.zh-CN': '簡體中文',
+            'switcher.option.zh-Hant': '繁體中文'
         }
     });
 

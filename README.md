@@ -1,6 +1,6 @@
 # PixivDownloader
 
-中文 | [English](./README_en.md)
+中文 | [繁體中文](./README_zh-Hant.md) | [English](./README_en.md)
 
 > [!NOTE]
 > 此文档中提及的作品范围包括 插画/漫画/动图/小说
@@ -104,7 +104,7 @@ sh run.sh
 
 ## 在线文档
 
-详细的安装步骤、使用指南、配置参考、开发指南等请查阅[在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)，各章节快速跳转：
+详细的安装步骤、使用指南、配置参考、开发指南等请查阅[在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)，也可切换到[繁體中文文檔](https://sywyar.github.io/PixivDownloader/#/zh-hant/)。各章节快速跳转：
 
 **快速上手**
 

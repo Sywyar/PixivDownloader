@@ -65,6 +65,7 @@ VersionInfoVersion={#InstallerVersion}
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "zhcn"; MessagesFile: "compiler:Default.isl,ChineseSimplified.isl"
+Name: "zhhant"; MessagesFile: "compiler:Default.isl,ChineseTraditional.isl"
 
 [CustomMessages]
 en.OptionalTasksGroup=Optional setup tasks:
@@ -155,6 +156,50 @@ en.AppRunningError=PixivDownload is currently running. Please close it completel
 zhcn.AppRunningError=检测到 PixivDownload 正在运行。请完全关闭它后点击“重试”继续安装。
 en.AppRunningAbort=Setup cannot continue while PixivDownload is running. Installation was cancelled.
 zhcn.AppRunningAbort=PixivDownload 正在运行，安装无法继续，已取消安装。
+zhhant.OptionalTasksGroup=可選安裝任務：
+zhhant.TaskDownloadFfmpeg=安裝 PixivDownload 後下載並安裝 FFmpeg
+zhhant.OptionalFeaturesTitle=附加功能
+zhhant.OptionalFeaturesDescription=選擇需要安裝並啟用的附加組件。
+zhhant.OptionalPluginsTitle=官方可選插件
+zhhant.OptionalPluginsDescription=選擇需要安裝並啟用的官方插件。
+zhhant.PluginCatalogLoading=正在讀取安裝包內置的簽名插件清單...
+zhhant.PluginCatalogPackaged=正在使用安裝包內置的簽名插件清單。
+zhhant.PluginCatalogUnavailable=未找到可用的簽名插件清單。
+zhhant.PluginListHint=可選插件會從簽名官方清單安裝，重啟應用後生效。
+zhhant.PluginWaiting=可選插件安裝正在等待應用安裝完成。
+zhhant.PluginInstalling=正在安裝可選插件...
+zhhant.PluginCompleted=可選插件已安裝並啟用。
+zhhant.PluginFailed=可選插件安裝失敗。PixivDownload 已安裝，稍後可在插件市場重試。
+zhhant.PluginFinishedSuccess=已選可選插件已安裝並啟用。
+zhhant.PluginFinishedFailed=部分可選插件未能安裝。可打開 PixivDownload 的插件市場重試。
+zhhant.FfmpegWaiting=FFmpeg 下載正在等待應用安裝完成。
+zhhant.FfmpegDownloading=正在下載 FFmpeg...
+zhhant.FfmpegProxyDetected=使用系統代理
+zhhant.FfmpegDirectDownload=未檢測到已啟用且有效的系統代理，正在直連下載。
+zhhant.FfmpegExtracting=正在解壓 FFmpeg...
+zhhant.FfmpegInstallingFiles=正在安裝 FFmpeg 文件...
+zhhant.FfmpegCompleted=FFmpeg 已安裝完成。
+zhhant.FfmpegFailed=FFmpeg 安裝失敗。PixivDownload 已安裝，稍後可在「狀態」頁重試。
+zhhant.FfmpegArchiveInvalid=FFmpeg 壓縮包中未找到 ffmpeg.exe 或 ffprobe.exe。
+zhhant.FfmpegCopyFailed=無法將 FFmpeg 文件複製到應用工具目錄。
+zhhant.FfmpegLicenseWriteFailed=無法寫入 FFmpeg 許可證說明。
+zhhant.FfmpegFinishedSuccess=FFmpeg 已在安裝過程中下載並安裝。
+zhhant.FfmpegFinishedFailed=FFmpeg 未能在安裝過程中安裝。可打開 PixivDownload 的「狀態」頁重試。
+zhhant.MaintenanceTitle=PixivDownload 已安裝
+zhhant.MaintenanceDescription=請選擇要對現有安裝執行的操作。
+zhhant.MaintenanceRepairButton=修復(&R)
+zhhant.MaintenanceRepairHint=在當前安裝目錄重新安裝 PixivDownload 文件。
+zhhant.MaintenanceChangeButton=更改(&C)
+zhhant.MaintenanceChangeHint=更改可選安裝任務，例如下載 FFmpeg。
+zhhant.MaintenanceUninstallButton=卸載(&U)
+zhhant.MaintenanceUninstallHint=移除現有 PixivDownload 安裝。
+zhhant.MaintenanceUninstallConfirm=即將啟動現有 PixivDownload 卸載程序。是否繼續？
+zhhant.MaintenanceUninstallMissing=未能找到現有卸載程序。
+zhhant.MaintenanceUninstallFailed=現有卸載程序執行失敗。
+zhhant.MaintenanceRemovingLegacyMsi=正在移除舊 MSI 安裝...
+zhhant.MaintenanceLegacyMsiRemoveFailed=未能移除舊 MSI 安裝。
+zhhant.AppRunningError=檢測到 PixivDownload 正在運行。請完全關閉它後點擊「重試」繼續安裝。
+zhhant.AppRunningAbort=PixivDownload 正在運行，安裝無法繼續，已取消安裝。
 
 [InstallDelete]
 ; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时

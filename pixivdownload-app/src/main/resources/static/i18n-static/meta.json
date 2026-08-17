@@ -18,6 +18,14 @@
       "status": "source"
     },
     {
+      "tag": "zh-Hant",
+      "aliases": [],
+      "label": "繁體中文",
+      "nativeName": "繁體中文",
+      "direction": "ltr",
+      "status": "supported"
+    },
+    {
       "tag": "en-US",
       "aliases": [],
       "label": "English",

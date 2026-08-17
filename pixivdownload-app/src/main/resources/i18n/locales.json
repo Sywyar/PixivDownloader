@@ -18,6 +18,14 @@
       ]
     },
     {
+      "tag": "zh-Hant",
+      "nativeName": "繁體中文",
+      "resourceSuffix": "zh-Hant",
+    "status": "supported",
+      "direction": "ltr",
+      "aliases": []
+    },
+    {
       "tag": "en-US",
       "nativeName": "English",
       "resourceSuffix": "en",
