@@ -1,12 +1,10 @@
 package top.sywyar.pixivdownload.plugin.api.web;
 
-/**
- * Startup route selection context for {@code /redirect}.
- */
+/** {@code /redirect} 使用的启动路由选择上下文。 */
 public enum StartupRouteContext {
-    /** Single-user mode default landing context. */
+    /** 单用户模式的默认落点上下文。 */
     SOLO,
 
-    /** Multi-user mode default landing context. */
+    /** 多用户模式的默认落点上下文。 */
     MULTI
 }

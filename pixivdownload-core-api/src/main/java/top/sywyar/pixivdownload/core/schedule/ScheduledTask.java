@@ -48,9 +48,21 @@ public record ScheduledTask(
         String credentialSecretReference,
         long createdTime
 ) {
+    /**
+     * 旧版兼容值。
+     */
     public static final int LEGACY_STORAGE_VERSION = 0;
+    /**
+     * 当前使用的值。
+     */
     public static final int CURRENT_STORAGE_VERSION = 1;
 
+    /**
+     * 间隔触发方式标识。
+     */
     public static final String TRIGGER_INTERVAL = "interval";
+    /**
+     * Cron 表达式触发方式标识。
+     */
     public static final String TRIGGER_CRON = "cron";
 }

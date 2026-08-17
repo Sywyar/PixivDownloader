@@ -11,7 +11,6 @@ import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
@@ -24,14 +23,6 @@ import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
-import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
-import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
-import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
-import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendProvider;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCountResult;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeQuery;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeSnapshot;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkResult;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashEntry;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashFingerprint;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
@@ -122,7 +113,6 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.download..",
                         "top.sywyar.pixivdownload.core.ffmpeg..",
-                        "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
                         "top.sywyar.pixivdownload.core.pixiv..",
                         "top.sywyar.pixivdownload.core.quota..",
@@ -206,19 +196,6 @@ class CoreApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("core-api 模块应包含中性画廊 provider、只读运行时门面与纯值结果")
-    void coreApiContainsGalleryApiTypes() {
-        assertThat(CLASSES.contain(GalleryProjectionProvider.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GalleryWorkProvider.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GalleryFrontendContribution.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GalleryFrontendProvider.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GalleryRuntimeQuery.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GalleryRuntimeSnapshot.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GalleryCountResult.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GalleryWorkResult.class.getName())).isTrue();
-    }
-
-    @Test
     @DisplayName("core-api 模块应包含核心图片哈希索引端口与纯值投影")
     void coreApiContainsArtworkHashIndexContracts() {
         assertThat(CLASSES.contain(ArtworkHashIndexQuery.class.getName())).isTrue();
@@ -287,7 +264,6 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(InteractiveDownloadExecutionLane.class.getName())).isTrue();
         assertThat(CLASSES.contain(MultiModeSettings.class.getName())).isTrue();
         assertThat(CLASSES.contain(DebugSettings.class.getName())).isTrue();
-        assertThat(CLASSES.contain(RuntimePathProvider.class.getName())).isTrue();
         assertThat(CLASSES.contain(StoredPathCodec.class.getName())).isTrue();
         assertThat(CLASSES.contain(OutboundProxySettings.class.getName())).isTrue();
         assertThat(CLASSES.contain(OutboundProxyEndpoint.class.getName())).isTrue();

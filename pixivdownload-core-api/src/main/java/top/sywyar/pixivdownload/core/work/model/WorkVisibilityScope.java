@@ -17,6 +17,13 @@ public record WorkVisibilityScope(
     private static final WorkVisibilityScope UNRESTRICTED =
             new WorkVisibilityScope(false, null, null);
 
+    /**
+     * 创建 {@code WorkVisibilityScope} 实例。
+     *
+     * @param enforceVisibility {@code enforceVisibility} 对应的值
+     * @param artworkRestriction 插画作品访问限制
+     * @param novelRestriction 小说访问限制
+     */
     public WorkVisibilityScope {
         if (enforceVisibility) {
             Objects.requireNonNull(artworkRestriction, "artworkRestriction");
@@ -26,19 +33,34 @@ public record WorkVisibilityScope(
         }
     }
 
-    /** 非受邀访客调用方的共享无限制作用域。 */
+    /**
+     * 非受邀访客调用方的共享无限制作用域。
+     *
+     * @return 方法返回的 {@code WorkVisibilityScope} 实例
+     */
     public static WorkVisibilityScope unrestricted() {
         return UNRESTRICTED;
     }
 
-    /** 创建需要逐作品校验的受邀访客作用域。 */
+    /**
+     * 创建需要逐作品校验的受邀访客作用域。
+     *
+     * @param artworkRestriction 插画作品访问限制
+     * @param novelRestriction 小说访问限制
+     * @return 方法返回的 {@code WorkVisibilityScope} 实例
+     */
     public static WorkVisibilityScope restricted(
             WorkRestriction artworkRestriction,
             WorkRestriction novelRestriction) {
         return new WorkVisibilityScope(true, artworkRestriction, novelRestriction);
     }
 
-    /** 返回指定作品类型的查询限制；无限制作用域返回 {@code null}。 */
+    /**
+     * 返回指定作品类型的查询限制；无限制作用域返回 {@code null}。
+     *
+     * @param workType 工作类型
+     * @return 方法返回的 {@code WorkRestriction} 实例
+     */
     public WorkRestriction restrictionFor(WorkType workType) {
         Objects.requireNonNull(workType, "workType");
         if (!enforceVisibility) {

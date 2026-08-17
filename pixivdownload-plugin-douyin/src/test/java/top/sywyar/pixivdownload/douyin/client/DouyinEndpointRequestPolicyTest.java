@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.douyin.client;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpMethod;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -16,7 +15,7 @@ class DouyinEndpointRequestPolicyTest {
                 "/aweme/v1/web/general/search/single/"))
                 .isEqualTo(DouyinEndpointRequestPolicy.UNSIGNED_GET)
                 .satisfies(policy -> {
-                    assertThat(policy.method()).isEqualTo(HttpMethod.GET);
+                    assertThat(policy.method()).isEqualTo("GET");
                     assertThat(policy.requiresSignature()).isFalse();
                 });
         assertThat(DouyinEndpointRequestPolicy.forPath(
@@ -31,7 +30,7 @@ class DouyinEndpointRequestPolicyTest {
                 "/aweme/v1/web/aweme/listcollection/"))
                 .isEqualTo(DouyinEndpointRequestPolicy.SIGNED_POST)
                 .satisfies(policy -> {
-                    assertThat(policy.method()).isEqualTo(HttpMethod.POST);
+                    assertThat(policy.method()).isEqualTo("POST");
                     assertThat(policy.requiresSignature()).isTrue();
                 });
     }
@@ -46,7 +45,7 @@ class DouyinEndpointRequestPolicyTest {
                 "/aweme/v1/web/aweme/post/"))
                 .isEqualTo(DouyinEndpointRequestPolicy.SIGNED_GET)
                 .satisfies(policy -> {
-                    assertThat(policy.method()).isEqualTo(HttpMethod.GET);
+                    assertThat(policy.method()).isEqualTo("GET");
                     assertThat(policy.requiresSignature()).isTrue();
                 });
         assertThat(DouyinEndpointRequestPolicy.forPath(

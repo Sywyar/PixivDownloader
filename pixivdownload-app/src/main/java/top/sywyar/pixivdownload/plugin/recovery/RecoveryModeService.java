@@ -6,7 +6,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeEvaluator;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 
@@ -60,7 +60,7 @@ public class RecoveryModeService {
         }
         return new RecoveryModeDecision(true, java.util.List.of(new RecoveryModeReason(
                 "plugin-runtime", PluginStatus.FAILED, "plugin.recovery.transaction",
-                PluginApiRequirement.unspecified(), messages)));
+                VersionRequirement.unspecified(), messages)));
     }
 
     /** 核心壳当前是否应进入恢复模式。 */

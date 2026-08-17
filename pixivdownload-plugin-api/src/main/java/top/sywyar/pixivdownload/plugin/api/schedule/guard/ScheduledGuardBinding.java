@@ -9,6 +9,13 @@ public record ScheduledGuardBinding(
         int workBatchSize
 ) {
 
+    /**
+     * 创建 {@code ScheduledGuardBinding} 实例。
+     *
+     * @param guardId 守卫标识
+     * @param points 点位集合
+     * @param workBatchSize 作品批次大小
+     */
     public ScheduledGuardBinding {
         if (guardId == null || guardId.isBlank()) {
             throw new IllegalArgumentException("guard id must not be blank");

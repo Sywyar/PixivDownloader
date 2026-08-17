@@ -30,7 +30,9 @@ class PluginTemplateBoundaryTest {
             "minimal-feature-plugin", "download-type-plugin");
     private static final Map<String, Set<String>> EXPECTED_DEPENDENCIES = Map.of(
             "minimal-feature-plugin", Set.of(
+                    "top.sywyar.lovepopup:pixivdownload-sdk-bom:import",
                     "org.springframework.boot:spring-boot-dependencies:import",
+                    "top.sywyar.lovepopup:pixivdownload-sdk-info:provided",
                     "top.sywyar.lovepopup:pixivdownload-plugin-api:provided",
                     "org.pf4j:pf4j:provided",
                     "org.springframework:spring-context:provided",
@@ -38,7 +40,9 @@ class PluginTemplateBoundaryTest {
                     "org.springframework:spring-webmvc:provided",
                     "org.junit.jupiter:junit-jupiter:test"),
             "download-type-plugin", Set.of(
+                    "top.sywyar.lovepopup:pixivdownload-sdk-bom:import",
                     "org.springframework.boot:spring-boot-dependencies:import",
+                    "top.sywyar.lovepopup:pixivdownload-sdk-info:provided",
                     "top.sywyar.lovepopup:pixivdownload-plugin-api:provided",
                     "org.pf4j:pf4j:provided",
                     "org.springframework:spring-context:provided",
@@ -55,7 +59,7 @@ class PluginTemplateBoundaryTest {
             Pattern.MULTILINE);
 
     @Test
-    @DisplayName("模板只依赖 plugin-api 与宿主提供的规范依赖")
+    @DisplayName("模板只依赖统一 SDK 与宿主提供的规范依赖")
     void templatesUseOnlyStableProvidedDependencies() throws Exception {
         for (String templateName : TEMPLATE_NAMES) {
             Path template = repositoryRoot().resolve("plugin-templates").resolve(templateName);
@@ -154,7 +158,7 @@ class PluginTemplateBoundaryTest {
 
             var runtimeDescriptor = PluginPackageReader.inspectDescriptor(descriptorPath);
             assertThat(runtimeDescriptor.externalValidationErrors()).isEmpty();
-            assertThat(runtimeDescriptor.isApiCompatible()).isTrue();
+            assertThat(runtimeDescriptor.isSdkCompatible()).isTrue();
             assertThat(runtimeDescriptor.id()).isEqualTo(descriptor.getProperty("plugin.id"));
         }
 

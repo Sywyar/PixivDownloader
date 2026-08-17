@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
@@ -188,7 +188,7 @@ class PluginInstallServiceLifecyclePolicyTest {
     }
 
     private static PluginDescriptor descriptor(String pluginId, PluginLifecyclePolicy lifecyclePolicy) {
-        return new PluginDescriptor(pluginId, pluginId, "1.0.0", PluginApiRequirement.unspecified(), List.of(),
+        return new PluginDescriptor(pluginId, pluginId, "1.0.0", VersionRequirement.unspecified(), List.of(),
                 "example.Plugin", null, "plugin.label", null, null, null, PluginKind.FEATURE,
                 List.of(), lifecyclePolicy);
     }

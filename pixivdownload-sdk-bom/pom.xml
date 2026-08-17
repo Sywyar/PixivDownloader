@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>top.sywyar.lovepopup</groupId>
+        <artifactId>pixivdownload-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>pixivdownload-sdk-bom</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>PixivDownloader SDK BOM</name>
+    <description>Version alignment for all public PixivDownloader SDK runtime artifacts.</description>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-sdk-info</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-plugin-api</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-core-api</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

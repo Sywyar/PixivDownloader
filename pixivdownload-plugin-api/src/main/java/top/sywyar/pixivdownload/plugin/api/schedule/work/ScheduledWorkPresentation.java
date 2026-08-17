@@ -16,16 +16,45 @@ public record ScheduledWorkPresentation(
         Map<String, String> attributes
 ) {
 
+    /**
+     * 允许的最大属性。
+     */
     public static final int MAX_ATTRIBUTES = 32;
+    /**
+     * 标题允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_TITLE_BYTES = 4_096;
+    /**
+     * 作者允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_AUTHOR_BYTES = 1_024;
+    /**
+     * {@code THUMBNAIL_REFERENCE} 对应的值允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_THUMBNAIL_REFERENCE_BYTES = 4_096;
+    /**
+     * {@code ATTRIBUTE_KEY} 对应的值允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_ATTRIBUTE_KEY_BYTES = 64;
+    /**
+     * {@code ATTRIBUTE_VALUE} 对应的值允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_ATTRIBUTE_VALUE_BYTES = 4_096;
+    /**
+     * {@code ATTRIBUTE_TOTAL} 对应的值允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_ATTRIBUTE_TOTAL_BYTES = 32_768;
 
     private static final Pattern ATTRIBUTE_KEY = Pattern.compile("[A-Za-z][A-Za-z0-9._-]*");
 
+    /**
+     * 创建 {@code ScheduledWorkPresentation} 实例。
+     *
+     * @param title 标题
+     * @param author 作者
+     * @param thumbnailReference {@code thumbnailReference} 对应的值
+     * @param attributes 属性
+     */
     public ScheduledWorkPresentation {
         title = normalize(title, "presentation title", MAX_TITLE_BYTES);
         author = normalize(author, "presentation author", MAX_AUTHOR_BYTES);
@@ -35,6 +64,11 @@ public record ScheduledWorkPresentation(
         attributes = validateAttributes(attributes);
     }
 
+    /**
+     * 返回空的 {@code ScheduledWorkPresentation} 实例。
+     *
+     * @return 方法返回的 {@code ScheduledWorkPresentation} 实例
+     */
     public static ScheduledWorkPresentation empty() {
         return new ScheduledWorkPresentation(null, null, null, Map.of());
     }

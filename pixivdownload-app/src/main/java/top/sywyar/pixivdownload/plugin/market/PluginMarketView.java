@@ -1,17 +1,17 @@
 package top.sywyar.pixivdownload.plugin.market;
 
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.util.List;
 
 /**
- * {@code GET /api/plugin-market/catalog} 响应：某个仓库的可安装条目摘要 + 派生的分类计数 + 当前核心 API 版本。主开关关闭
+ * {@code GET /api/plugin-market/catalog} 响应：某个仓库的可安装条目摘要 + 派生的分类计数 + 当前SDK 版本。主开关关闭
  * 时返回 {@link #disabled()}（{@code enabled=false} + 空，200 正常「功能未开」而非错误）；启用但仓库未知 / 禁用 / 清单失败由
  * 控制器的稳定错误响应承载。
  *
  * @param repositoryId   该 catalog 所属仓库 id（禁用视图为 {@code null}）
  * @param enabled        受信 catalog / 市场是否启用且该仓库可用
- * @param coreApiVersion 当前核心插件 API 版本（semver；版本包兼容标记参考）
+ * @param sdkVersion 当前 PixivDownloader SDK 版本（semver；版本兼容标记参考）
  * @param installedCount 本仓库 catalog 中当前已安装的插件数（{@link MarketInstallStatus#INSTALLED} 或
  *                       {@link MarketInstallStatus#UPDATE_AVAILABLE}），供标题区「已安装 N」联动管理页入口显示
  * @param categories     分类计数（聚合 {@code all} 在首，其余为存在条目的分类）
@@ -20,7 +20,7 @@ import java.util.List;
 public record PluginMarketView(
         String repositoryId,
         boolean enabled,
-        String coreApiVersion,
+        String sdkVersion,
         int installedCount,
         List<PluginMarketCategoryCount> categories,
         List<PluginMarketEntryView> entries) {
@@ -30,8 +30,8 @@ public record PluginMarketView(
         entries = entries != null ? List.copyOf(entries) : List.of();
     }
 
-    /** 主开关关闭视图：enabled=false + 空分类 / 条目（仍带当前核心 API 版本，供页面渲染兼容提示）。 */
+    /** 主开关关闭视图：enabled=false + 空分类 / 条目（仍带当前SDK 版本，供页面渲染兼容提示）。 */
     public static PluginMarketView disabled() {
-        return new PluginMarketView(null, false, PluginApiVersion.VERSION, 0, List.of(), List.of());
+        return new PluginMarketView(null, false, SdkVersion.VERSION, 0, List.of(), List.of());
     }
 }

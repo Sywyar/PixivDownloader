@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.runtime.status;
 
 /**
  * 插件状态模型：描述一个插件在核心壳眼中的生命周期 / 健康状态。状态由
- * {@link PluginStatusEvaluator} 综合「运行时观测到的生命周期 + 描述符校验 + 核心 API 兼容 + 依赖可达性 +
+ * {@link PluginStatusEvaluator} 综合「运行时观测到的生命周期 + 描述符校验 + SDK 兼容 + 依赖可达性 +
  * 必选插件策略」推导，可由后端服务查询，不依赖任何 UI。
  *
  * <p>前八个是一个具体插件实例的生命周期 / 健康态；后两个描述「被要求但不可用」——其要求来源既可以是某插件声明的
@@ -32,7 +32,7 @@ public enum PluginStatus {
     /** 失败：加载 / 启动出错，或描述符非法（缺字段 / 非法字段）。 */
     FAILED,
 
-    /** 不兼容：插件声明的核心 API 版本要求（{@code requires}）不被当前核心满足。 */
+    /** 不兼容：插件声明的 SDK 版本要求（{@code requires}）不被当前宿主 SDK 满足。 */
     INCOMPATIBLE,
 
     /** 缺少必需项：某非可选依赖或某必选 pluginId 未安装（依赖方因此不可启动）。 */

@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
@@ -58,7 +58,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         String retiredId = "legacy-theme";
         Path retiredArtifact = Path.of("plugins", "legacy-theme-1.0.0.jar");
         PluginDescriptor descriptor = new PluginDescriptor("gui-theme", "gui-theme", "1.1.0",
-                PluginApiRequirement.parse("1.0"), List.of(), "example.ThemePlugin", null,
+                VersionRequirement.parse("1.0"), List.of(), "example.ThemePlugin", null,
                 "theme.label", null, null, null, PluginKind.FEATURE, List.of(retiredId),
                 PluginLifecyclePolicy.PROCESS_RESTART);
         PluginInstallResult result = new PluginInstallResult(PluginInstallOutcome.INSTALLED, descriptor,
@@ -72,7 +72,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
                 .thenReturn(prepared);
         when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(installer.listInstalled()).thenReturn(List.of(new InstalledPlugin(
-                new PluginDescriptor(retiredId, retiredId, "1.0.0", PluginApiRequirement.parse("1.0"),
+                new PluginDescriptor(retiredId, retiredId, "1.0.0", VersionRequirement.parse("1.0"),
                         List.of(), "example.LegacyThemePlugin", null, "legacy.label", null, null, null,
                         PluginKind.FEATURE), retiredArtifact)));
         when(runtimeManager.packagePhases()).thenReturn(Map.of(retiredId, PluginRuntimePackagePhase.STARTED));
@@ -104,7 +104,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         String retiredId = "legacy-runtime";
         Path retiredArtifact = Path.of("plugins", "legacy-runtime-1.0.0.jar");
         PluginDescriptor descriptor = new PluginDescriptor("replacement", "replacement", "2.0.0",
-                PluginApiRequirement.parse("1.0"), List.of(), "example.ReplacementPlugin", null,
+                VersionRequirement.parse("1.0"), List.of(), "example.ReplacementPlugin", null,
                 "replacement.label", null, null, null, PluginKind.FEATURE, List.of(retiredId),
                 PluginLifecyclePolicy.PROCESS_RESTART);
         PluginInstallResult result = new PluginInstallResult(PluginInstallOutcome.INSTALLED, descriptor,
@@ -114,7 +114,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
                 Path.of("plugins", ".staging", "tx-restore-retired", "new.jar"),
                 result.installedPath(), List.of(retiredArtifact));
         InstalledPlugin retired = new InstalledPlugin(
-                new PluginDescriptor(retiredId, retiredId, "1.0.0", PluginApiRequirement.parse("1.0"),
+                new PluginDescriptor(retiredId, retiredId, "1.0.0", VersionRequirement.parse("1.0"),
                         List.of(), "example.LegacyPlugin", null, "legacy.label", null, null, null,
                         PluginKind.FEATURE), retiredArtifact);
         LoadedPluginPackage reloaded = mock(LoadedPluginPackage.class);

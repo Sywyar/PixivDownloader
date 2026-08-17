@@ -18,7 +18,7 @@ import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
@@ -335,7 +335,9 @@ class PluginCredentialMigrationServiceTest {
                     new PluginApplicationContextFactory(
                             propertySources::snapshotFor,
                             new PluginStreamRegistry(),
-                            new PluginRuntimeTaskRegistry());
+                            new PluginRuntimeTaskRegistry(),
+                            this::officialPluginRuntimePaths,
+                            null);
 
             migration.migrateAll();
 
@@ -1207,25 +1209,6 @@ class PluginCredentialMigrationServiceTest {
 
     private AnnotationConfigApplicationContext officialPluginParent(
             StandardEnvironment environment) {
-        RuntimePathProvider runtimePaths =
-                mock(RuntimePathProvider.class);
-        when(runtimePaths.resolvePluginConfigPath(
-                anyString(), anyString())).thenAnswer(invocation ->
-                tempDir.resolve("official-plugin-runtime")
-                        .resolve(invocation.getArgument(0, String.class))
-                        .resolve("config."
-                                + invocation.getArgument(1, String.class)));
-        when(runtimePaths.resolvePluginStateDirectory(
-                anyString())).thenAnswer(invocation ->
-                tempDir.resolve("official-plugin-runtime")
-                        .resolve(invocation.getArgument(0, String.class))
-                        .resolve("state"));
-        when(runtimePaths.resolvePluginDataDirectory(
-                anyString())).thenAnswer(invocation ->
-                tempDir.resolve("official-plugin-runtime")
-                        .resolve(invocation.getArgument(0, String.class))
-                        .resolve("data"));
-
         AnnotationConfigApplicationContext parent =
                 new AnnotationConfigApplicationContext();
         parent.setEnvironment(environment);
@@ -1245,7 +1228,6 @@ class PluginCredentialMigrationServiceTest {
                 OutboundWebSocketClientFactory.class,
                 () -> profile -> mock(OutboundWebSocketClient.class));
         parent.registerBean(ObjectMapper.class, () -> new ObjectMapper());
-        parent.registerBean(RuntimePathProvider.class, () -> runtimePaths);
         parent.registerBean(
                 RequestOwnerIdentityResolver.class,
                 () -> mock(RequestOwnerIdentityResolver.class));
@@ -1257,6 +1239,26 @@ class PluginCredentialMigrationServiceTest {
                 () -> mock(UserDisplayNameProvider.class));
         parent.refresh();
         return parent;
+    }
+
+    private RuntimePathProvider officialPluginRuntimePaths(String owner) {
+        Path root = tempDir.resolve("official-plugin-runtime").resolve(owner);
+        return new RuntimePathProvider() {
+            @Override
+            public Path configFile(String extension) {
+                return root.resolve("config." + extension);
+            }
+
+            @Override
+            public Path stateDirectory() {
+                return root.resolve("state");
+            }
+
+            @Override
+            public Path dataDirectory() {
+                return root.resolve("data");
+            }
+        };
     }
 
     private static void assertRealCredentialBindings(

@@ -16,11 +16,26 @@ public record TableSpec(
         List<IndexSpec> indexes,
         String checkExpression
 ) {
+    /**
+     * 创建 {@code TableSpec} 实例。
+     *
+     * @param name 名称
+     * @param columns 列集合
+     * @param indexes 索引列表
+     * @param checkExpression 检查表达式
+     */
     public TableSpec {
         columns = List.copyOf(columns);
         indexes = List.copyOf(indexes);
     }
 
+    /**
+     * 创建 {@code TableSpec} 实例。
+     *
+     * @param name 名称
+     * @param columns 列集合
+     * @param indexes 索引列表
+     */
     public TableSpec(String name, List<ColumnSpec> columns, List<IndexSpec> indexes) {
         this(name, columns, indexes, null);
     }

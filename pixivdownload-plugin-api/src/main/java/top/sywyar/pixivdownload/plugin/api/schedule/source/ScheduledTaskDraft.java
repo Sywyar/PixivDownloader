@@ -14,6 +14,16 @@ public record ScheduledTaskDraft(
         ScheduledTaskPresentation presentation
 ) {
 
+    /**
+     * 创建 {@code ScheduledTaskDraft} 实例。
+     *
+     * @param taskId 任务标识
+     * @param sourceType 来源类型
+     * @param definitionSchema 定义模式定义
+     * @param definitionVersion 定义版本
+     * @param definitionJson 定义JSON
+     * @param presentation 展示信息
+     */
     public ScheduledTaskDraft {
         if (taskId < 0) {
             throw new IllegalArgumentException("task id must not be negative");
@@ -31,7 +41,11 @@ public record ScheduledTaskDraft(
         presentation = presentation == null ? ScheduledTaskPresentation.empty() : presentation;
     }
 
-    /** 保留宿主盖章字段，把草稿原样提升为可持久化定义。 */
+    /**
+     * 保留宿主盖章字段，把草稿原样提升为可持久化定义。
+     *
+     * @return 方法返回的 {@code ScheduledTaskDefinition} 实例
+     */
     public ScheduledTaskDefinition toDefinition() {
         return new ScheduledTaskDefinition(
                 taskId,

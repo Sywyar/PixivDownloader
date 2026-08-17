@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.tts;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,14 +37,14 @@ class TtsRuntimeFilesTest {
     @DisplayName("Chromium 版本缓存使用 TTS 插件数据路径")
     void resolvesChromiumVersionUnderPluginDataDirectory() {
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
-        when(runtimePathProvider.resolvePluginDataDirectory(TtsPlugin.ID))
+        when(runtimePathProvider.dataDirectory())
                 .thenReturn(tempDir.resolve("data/tts"));
 
         TtsRuntimeFiles runtimeFiles = new TtsRuntimeFiles(runtimePathProvider);
 
         assertThat(runtimeFiles.chromiumVersionFile())
                 .isEqualTo(tempDir.resolve("data/tts/chromium-version.txt"));
-        verify(runtimePathProvider).resolvePluginDataDirectory(TtsPlugin.ID);
+        verify(runtimePathProvider).dataDirectory();
     }
 
     @Test
@@ -88,7 +88,7 @@ class TtsRuntimeFilesTest {
 
     private RuntimePathProvider provider() {
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
-        when(runtimePathProvider.resolvePluginDataDirectory(TtsPlugin.ID))
+        when(runtimePathProvider.dataDirectory())
                 .thenReturn(tempDir.resolve("data/tts"));
         return runtimePathProvider;
     }

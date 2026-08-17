@@ -32,6 +32,9 @@ public final class NarrationSpeechText {
      *       的句末停止线索；右引号 / 右括号收尾先摘出、补句号后再贴回以保持闭合。已带 {@code ！？!?} 等干净终止符、
      *       或本就以普通字符结尾的正常句子<b>原样返回</b>，不打扰。</li>
      * </ul>
+     *
+     * @param raw 原始值
+     * @return 方法返回的字符串
      */
     public static String normalize(String raw) {
         if (raw == null) {
@@ -66,17 +69,32 @@ public final class NarrationSpeechText {
         return core + closerTail;
     }
 
-    /** 是否含至少一个可发音字符（字母 / 数字 / 表意文字 / 假名 / 谚文）。 */
+    /**
+     * 是否含至少一个可发音字符（字母 / 数字 / 表意文字 / 假名 / 谚文）。
+     *
+     * @param s {@code s} 对应的值
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static boolean hasSpeakable(String s) {
         return s != null && s.codePoints().anyMatch(Character::isLetterOrDigit);
     }
 
-    /** 可发音字符数（字母 / 数字 / 表意文字 / 假名 / 谚文）。 */
+    /**
+     * 可发音字符数（字母 / 数字 / 表意文字 / 假名 / 谚文）。
+     *
+     * @param s {@code s} 对应的值
+     * @return 方法返回的数值
+     */
     public static int speakableCount(String s) {
         return s == null ? 0 : (int) s.codePoints().filter(Character::isLetterOrDigit).count();
     }
 
-    /** 空 / 空白 → {@code null}，否则返回 {@code trim()} 后的值。供「空则不下发」的可选文本字段。 */
+    /**
+     * 空 / 空白 → {@code null}，否则返回 {@code trim()} 后的值。供「空则不下发」的可选文本字段。
+     *
+     * @param s {@code s} 对应的值
+     * @return 方法返回的字符串
+     */
     public static String blankToNull(String s) {
         if (s == null) {
             return null;
@@ -85,7 +103,13 @@ public final class NarrationSpeechText {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    /** 是否「超短输入」：可发音字数 {@code <= threshold}（自回归模型在此类输入上易塌缩成长空白）。 */
+    /**
+     * 是否「超短输入」：可发音字数 {@code <= threshold}（自回归模型在此类输入上易塌缩成长空白）。
+     *
+     * @param text 文本
+     * @param threshold 阈值
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static boolean isShortInput(String text, int threshold) {
         return speakableCount(text) <= threshold;
     }

@@ -6,10 +6,21 @@ package top.sywyar.pixivdownload.plugin.api.schedule.source;
  */
 public record ScheduledDiscoveryResult(ScheduledCheckpoint candidateCheckpoint) {
 
+    /**
+     * 返回移除检查点后的副本。
+     *
+     * @return 方法返回的 {@code ScheduledDiscoveryResult} 实例
+     */
     public static ScheduledDiscoveryResult withoutCheckpoint() {
         return new ScheduledDiscoveryResult(null);
     }
 
+    /**
+     * 返回更新检查点后的副本。
+     *
+     * @param checkpoint 检查点
+     * @return 方法返回的 {@code ScheduledDiscoveryResult} 实例
+     */
     public static ScheduledDiscoveryResult withCheckpoint(ScheduledCheckpoint checkpoint) {
         if (checkpoint == null) {
             throw new IllegalArgumentException("checkpoint must not be null");

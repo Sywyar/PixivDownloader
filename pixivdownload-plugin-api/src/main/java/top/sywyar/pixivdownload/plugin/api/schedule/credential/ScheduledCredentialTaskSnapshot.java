@@ -21,13 +21,34 @@ public record ScheduledCredentialTaskSnapshot(
         String policyStateJson
 ) {
 
+    /**
+     * 代码允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_CODE_BYTES = 128;
+    /**
+     * 详情允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_DETAIL_BYTES = 16_384;
+    /**
+     * 策略状态允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_POLICY_STATE_BYTES = 65_536;
 
     private static final Pattern MACHINE_CODE =
             Pattern.compile("[A-Za-z][A-Za-z0-9._:-]{0,127}");
 
+    /**
+     * 创建 {@code ScheduledCredentialTaskSnapshot} 实例。
+     *
+     * @param taskId 任务标识
+     * @param stateVersion 状态版本
+     * @param credentialSuspended {@code credentialSuspended} 对应的值
+     * @param policySuspended {@code policySuspended} 对应的值
+     * @param busy 忙碌状态
+     * @param suspendCode 暂停代码
+     * @param suspendDetailJson 暂停详情JSON
+     * @param policyStateJson 策略状态JSON
+     */
     public ScheduledCredentialTaskSnapshot {
         if (taskId <= 0) {
             throw new IllegalArgumentException("credential task id must be positive");

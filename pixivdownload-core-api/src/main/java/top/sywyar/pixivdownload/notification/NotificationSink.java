@@ -17,7 +17,11 @@ import java.util.Map;
  */
 public interface NotificationSink {
 
-    /** 稳定介质标识，用于日志与诊断关联。 */
+    /**
+     * 稳定介质标识，用于日志与诊断关联。
+     *
+     * @return 方法返回的字符串
+     */
     String medium();
 
     /**
@@ -34,6 +38,7 @@ public interface NotificationSink {
      * 供守护测试遍历「场景 × 介质」逐一调用；<b>不</b>发送网络请求。
      *
      * @throws RuntimeException 渲染资源缺失
+     * @param scenario 场景
      */
     void verifyRenderable(NotificationScenario scenario);
 }

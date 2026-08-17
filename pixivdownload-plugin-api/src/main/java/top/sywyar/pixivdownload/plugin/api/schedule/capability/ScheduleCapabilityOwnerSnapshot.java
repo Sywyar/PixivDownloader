@@ -19,6 +19,19 @@ public record ScheduleCapabilityOwnerSnapshot(
         List<ScheduledSourceDescriptor> sourceDescriptors
 ) {
 
+    /**
+     * 创建 {@code ScheduleCapabilityOwnerSnapshot} 实例。
+     *
+     * @param owner 所有者
+     * @param publicationId 发布项标识
+     * @param activationToken 激活令牌
+     * @param sourceTypes 来源类型集合
+     * @param sourceAliases {@code sourceAliases} 对应的值
+     * @param workTypes 作品类型集合
+     * @param credentialPolicyIds 凭证策略标识集合
+     * @param guardIds 守卫标识集合
+     * @param sourceDescriptors {@code sourceDescriptors} 对应的值
+     */
     public ScheduleCapabilityOwnerSnapshot {
         owner = Objects.requireNonNull(owner, "owner");
         if (publicationId <= 0L) {

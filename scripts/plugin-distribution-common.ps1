@@ -17,6 +17,22 @@
     other scripts/*.ps1).
 #>
 
+function Get-PixivDownloadSdkVersion {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+
+    $metadataPath = Join-Path $ProjectRoot "pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties"
+    if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+        throw "SDK metadata not found: $metadataPath"
+    }
+    $metadata = ConvertFrom-StringData (Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8)
+    $version = [string]$metadata.version
+    if ($version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+        throw "SDK metadata contains an invalid semantic version: $version"
+    }
+    return $version
+}
+
 # Official required external plugins (id / Maven module / artifact format). Required is a runtime/recovery
 # policy: only these plugins may force the core shell into recovery mode when missing.
 function Get-OfficialRequiredPlugins {

@@ -68,23 +68,26 @@ class PluginApiDependencyGuardTest {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api..")
                 .should().onlyDependOnClassesThat()
-                .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..",
+                .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..", "javax.sql..",
                         "jakarta.servlet..")
                 .because("plugin.api 是跨插件边界共享的契约包，不得依赖任何业务包或框架；"
-                        + "jakarta.servlet 是 Servlet 规范 API，仅服务接口签名允许使用（见下一条规则）")
+                        + "javax.sql 是 JDK 标准 API、jakarta.servlet 是 Servlet 规范 API，"
+                        + "两者都仅允许精确服务接口使用（见下一条规则）")
                 .check(CLASSES);
     }
 
     @Test
-    @DisplayName("plugin.api 仅请求 owner 解析接口可依赖 Servlet，其余契约保持纯 JDK")
+    @DisplayName("plugin.api 仅请求 owner 与插件数据源接口可依赖对应规范 API，其余契约保持纯 JDK")
     void pluginApiDataTypesStayPureJdk() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api..")
                 .and().doNotHaveFullyQualifiedName(
                         top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver.class.getName())
+                .and().doNotHaveFullyQualifiedName(
+                        top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource.class.getName())
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
-                .because("jakarta.servlet 的放行仅限请求 owner 身份解析接口 RequestOwnerIdentityResolver，"
+                .because("jakarta.servlet 仅限 RequestOwnerIdentityResolver，javax.sql 仅限 PluginDataSource，"
                         + "纯数据的 contribution / record / 事件类型必须保持零依赖")
                 .check(CLASSES);
     }

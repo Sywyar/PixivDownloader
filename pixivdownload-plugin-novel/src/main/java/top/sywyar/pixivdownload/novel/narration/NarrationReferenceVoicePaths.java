@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.novel.narration;
 
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.novel.NovelPlugin;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -55,7 +54,7 @@ public final class NarrationReferenceVoicePaths {
     }
 
     private Path rootDirectory() {
-        Path pluginDataDirectory = runtimePathProvider.resolvePluginDataDirectory(NovelPlugin.ID).normalize();
+        Path pluginDataDirectory = runtimePathProvider.dataDirectory().normalize();
         Path target = pluginDataDirectory.resolve(DATA_DIRECTORY_NAME).normalize();
         Path dataRoot = pluginDataDirectory.getParent();
         Path legacy = dataRoot == null

@@ -84,8 +84,7 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.invitedGuest("/pixiv-showcase/**"),
                 WebRouteContribution.invitedGuest("/pixiv-series/**"),
                 WebRouteContribution.invitedGuest("/api/gallery/artwork**"),
-                WebRouteContribution.invitedGuest("/api/gallery/tags**"),
-                WebRouteContribution.invitedGuest("/api/gallery/unified/**"));
+                WebRouteContribution.invitedGuest("/api/gallery/tags**"));
     }
 
     @Override

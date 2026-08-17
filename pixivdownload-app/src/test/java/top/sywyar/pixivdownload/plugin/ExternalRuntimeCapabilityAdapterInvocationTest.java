@@ -10,14 +10,6 @@ import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.core.ai.AiChatClientRegistry;
-import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
-import top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetPage;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
-import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.core.notification.NotificationSinkRegistry;
 import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
@@ -27,7 +19,6 @@ import top.sywyar.pixivdownload.notification.NotificationSink;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.AiChatClientCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.ExternalRuntimeCapabilityAdapter;
-import top.sywyar.pixivdownload.plugin.lifecycle.capability.GalleryCapabilityContributionAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.NarrationVoiceEngineCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.NotificationSinkCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PushChannelCapabilityAdapter;
@@ -135,28 +126,6 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
             drainBlocking(registrar, publication, gate,
                     () -> proxy.deliver(NotificationScenario.RUN_FAILED, Locale.ENGLISH, Map.of()));
             assertThat(sinkRegistry.sinks()).isEmpty();
-        }
-    }
-
-    @Test
-    @DisplayName("阻塞 Gallery provider 查询在 publication 撤回后被真实 drain")
-    void blockingGalleryInvocationDrains() throws Exception {
-        ExternalCapabilityInvocationRegistry invocation = new ExternalCapabilityInvocationRegistry();
-        GalleryCapabilityRegistry galleryRegistry = new GalleryCapabilityRegistry(List.of(), List.of());
-        GalleryCapabilityContributionAdapter adapter =
-                new GalleryCapabilityContributionAdapter(galleryRegistry, invocation);
-        BlockingGate gate = new BlockingGate();
-        GalleryProjectionProvider target = new BlockingGalleryProvider(gate);
-        try (AnnotationConfigApplicationContext child = child(GalleryProjectionProvider.class, target)) {
-            PluginCapabilityContributionRegistrar registrar = registrar(invocation, adapter);
-            ExternalCapabilityPublication publication = publish(registrar, child, "gallery", 9L);
-            GalleryProjectionProvider proxy = galleryRegistry
-                    .resolveProjections(GalleryKind.IMAGE, "pixiv").get(0).provider();
-
-            GalleryProjectionQuery query = new GalleryProjectionQuery(
-                    GalleryKind.IMAGE, "pixiv", List.of(), null, null, null, 10);
-            drainBlocking(registrar, publication, gate, () -> proxy.page(query));
-            assertThat(galleryRegistry.resolveProjections(GalleryKind.IMAGE, "pixiv")).isEmpty();
         }
     }
 
@@ -362,36 +331,6 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
 
         @Override
         public void verifyRenderable(NotificationScenario scenario) {
-        }
-    }
-
-    private record BlockingGalleryProvider(BlockingGate gate) implements GalleryProjectionProvider {
-        @Override
-        public String providerId() {
-            return "fixture-gallery";
-        }
-
-        @Override
-        public List<GalleryProjectionDescriptor> projections() {
-            return List.of(new GalleryProjectionDescriptor(
-                    "pixiv", GalleryKind.IMAGE, "gallery", "gallery.image", 1,
-                    GalleryDataAccess.SHARED, Map.of()));
-        }
-
-        @Override
-        public GalleryProjectionPage page(GalleryProjectionQuery query) {
-            gate.block();
-            return GalleryProjectionPage.empty();
-        }
-
-        @Override
-        public long count(GalleryProjectionQuery query) {
-            return 0L;
-        }
-
-        @Override
-        public GalleryFacetPage facets(GalleryProjectionQuery query) {
-            return GalleryFacetPage.empty();
         }
     }
 

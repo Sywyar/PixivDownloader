@@ -23,6 +23,10 @@ public interface WorkAssetService {
     /**
      * 解析单个作品的本地资产概览（目录、声明页数、各页实际存在的文件）。
      * 作品无下载记录时返回 {@link Optional#empty()}。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @return 匹配的可选值
      */
     Optional<LocalWorkAsset> findAsset(WorkType workType, long workId);
 
@@ -31,11 +35,20 @@ public interface WorkAssetService {
      * 作品不存在、页号越界或缩略图源不可得时返回 {@link Optional#empty()}。
      *
      * @throws IOException 缩略图生成 / 缓存写入失败
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @param page 页码
+     * @return 匹配的可选值
      */
     Optional<WorkAssetFile> thumbnail(WorkType workType, long workId, int page) throws IOException;
 
     /**
      * 取指定页的原始文件。作品不存在、页号越界或文件缺失时返回 {@link Optional#empty()}。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @param page 页码
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     Optional<WorkAssetFile> rawFile(WorkType workType, long workId, int page);
 
@@ -45,6 +58,8 @@ public interface WorkAssetService {
      * @return {@code true} 表示所有尝试的删除都成功（含「没有可删的文件 / 无下载记录」），
      *         调用方可以继续数据库侧清理；{@code false} 表示有文件因锁定 / 权限不足等
      *         原因删除失败，调用方必须中止数据库清理以避免与磁盘状态不一致
+     * @param workType 工作类型
+     * @param workId 作品标识
      */
     boolean deleteLocalFiles(WorkType workType, long workId);
 

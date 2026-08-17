@@ -5,8 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryPage;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryQuery;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
@@ -46,11 +44,11 @@ class DouyinGalleryControllerTest {
         var response = controller.projections("ALL", null, 24, null);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isInstanceOfSatisfying(GalleryProjectionPage.class, page ->
+        assertThat(response.getBody()).isInstanceOfSatisfying(DouyinGalleryController.ProjectionPage.class, page ->
                 assertThat(page.projections()).singleElement().satisfies(card -> {
                     assertThat(card.key().workKey().sourceId()).isEqualTo("douyin");
                     assertThat(card.key().workKey().sourceWorkNamespace()).isEqualTo("aweme");
-                    assertThat(card.key().kind()).isEqualTo(GalleryKind.VIDEO);
+                    assertThat(card.key().kind()).isEqualTo(DouyinGalleryDataProvider.Kind.VIDEO);
                     assertThat(card.thumbnailUrl()).isEqualTo("/api/douyin/history/7351/media/0");
                 }));
         ArgumentCaptor<DouyinHistoryQuery> query = ArgumentCaptor.forClass(DouyinHistoryQuery.class);

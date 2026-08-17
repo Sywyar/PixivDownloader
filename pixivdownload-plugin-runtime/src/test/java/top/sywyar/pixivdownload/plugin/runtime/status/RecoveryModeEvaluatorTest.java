@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.runtime.status;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
 import java.util.List;
@@ -17,7 +17,7 @@ class RecoveryModeEvaluatorTest {
 
     private static RequiredPluginPolicy policyRequiring(String id) {
         return RequiredPluginPolicy.of(List.of(new RequiredPlugin(
-                id, PluginApiRequirement.of(1, 0), false, "plugin.recovery.missing." + id)));
+                id, VersionRequirement.of(1, 0), false, "plugin.recovery.missing." + id)));
     }
 
     private static PluginStatusReport reportWith(String id, PluginStatus status, String... messages) {
@@ -119,8 +119,8 @@ class RecoveryModeEvaluatorTest {
     @DisplayName("多个必选插件部分未满足：只为未满足者给出原因")
     void multipleRequiredOnlyUnsatisfiedReported() {
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
-                new RequiredPlugin("download-workbench", PluginApiRequirement.of(1, 0), false, "k1"),
-                new RequiredPlugin("schedule", PluginApiRequirement.of(1, 0), false, "k2")));
+                new RequiredPlugin("download-workbench", VersionRequirement.of(1, 0), false, "k1"),
+                new RequiredPlugin("schedule", VersionRequirement.of(1, 0), false, "k2")));
         PluginStatusReport report = new PluginStatusReport(List.of(
                 new PluginDiagnostic("download-workbench", PluginStatus.STARTED, null, true, List.of()),
                 new PluginDiagnostic("schedule", PluginStatus.DISABLED, null, true, List.of())));

@@ -14,6 +14,9 @@ public final class EpochMillisNormalizer {
 
     /**
      * 归一 primitive 时间戳，保留非正数作为调用方可继续解释的无效值。
+     *
+     * @param timestamp 时间戳
+     * @return 方法返回的数值
      */
     public static long normalize(long timestamp) {
         if (timestamp > 0 && timestamp < EPOCH_MILLIS_THRESHOLD) {
@@ -24,6 +27,9 @@ public final class EpochMillisNormalizer {
 
     /**
      * 归一 boxed 时间戳；{@code null} 按旧契约映射为 {@code 0}。
+     *
+     * @param timestamp 时间戳
+     * @return 方法返回的数值
      */
     public static long normalize(Long timestamp) {
         return timestamp == null ? 0L : normalize(timestamp.longValue());

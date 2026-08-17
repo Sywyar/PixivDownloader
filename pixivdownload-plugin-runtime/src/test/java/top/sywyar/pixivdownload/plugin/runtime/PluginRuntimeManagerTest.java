@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbeFeaturePl
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.DependencyOrderProbeFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.DependencyOrderProbePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
@@ -1641,7 +1641,7 @@ class PluginRuntimeManagerTest {
             String pluginId, List<PluginDependencyRef> dependencies) {
         Path moduleRoot = tempDir.resolve("pixivdownload-plugin-" + pluginId);
         PluginDescriptor descriptor = new PluginDescriptor(pluginId, pluginId, PROBE_VERSION,
-                PluginApiRequirement.of(1, 0), dependencies, "com.example." + pluginId.replace("-", "") + ".Plugin",
+                VersionRequirement.of(1, 0), dependencies, "com.example." + pluginId.replace("-", "") + ".Plugin",
                 null, pluginId, null, null, null, PluginKind.FEATURE);
         return new PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin(
                 moduleRoot, moduleRoot.resolve("target/classes"),

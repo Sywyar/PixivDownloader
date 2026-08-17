@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
@@ -29,10 +31,12 @@ import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * 每外置插件子 {@code ApplicationContext} 工厂测试：用 synthetic 父 context（暴露一个核心服务接口）+ synthetic 插件
- * 配置类（其 Bean 注入该核心服务），验证子 context 能实例化插件 Bean、向父 context 解析核心 API、插件 Bean 不进入
+ * 配置类（其 Bean 注入该核心服务），验证子 context 能实例化插件 Bean、向父 context 解析SDK、插件 Bean 不进入
  * 父 context，且子 context 关闭后不再可用——不依赖 PF4J / Spring Boot。
  */
 @DisplayName("每外置插件子 ApplicationContext 工厂")
@@ -58,7 +62,7 @@ class PluginApplicationContextFactoryTest {
             // 子 context 创建了插件 Bean
             PluginBean pluginBean = child.getBean(PluginBean.class);
             assertThat(pluginBean).isNotNull();
-            // 插件 Bean 注入的核心服务来自父 context（同一实例）——子 context 能拿到父 context 暴露的核心 API 服务
+            // 插件 Bean 注入的核心服务来自父 context（同一实例）——子 context 能拿到父 context 暴露的SDK 服务
             assertThat(pluginBean.coreService()).isSameAs(parent.getBean(CoreApiService.class));
             // 插件 Bean 不出现在父 context（不进入父根扫描 / 父 BeanFactory）
             assertThat(parent.getBeanNamesForType(PluginBean.class)).isEmpty();
@@ -320,7 +324,79 @@ class PluginApplicationContextFactoryTest {
                         List.of(PluginStreamRegistry.class, PluginRuntimeTaskRegistry.class),
                         List.of(PluginContextPropertySourceProvider.class,
                                 PluginStreamRegistry.class,
-                                PluginRuntimeTaskRegistry.class));
+                                PluginRuntimeTaskRegistry.class),
+                        List.of(PluginContextPropertySourceProvider.class,
+                                PluginStreamRegistry.class,
+                                PluginRuntimeTaskRegistry.class,
+                                java.util.function.Function.class,
+                                java.util.function.Function.class));
+    }
+
+    @Test
+    @DisplayName("路径与数据库能力由宿主按 child context owner 固化并在关闭时释放")
+    void injectsOwnerScopedStorageCapabilitiesAndClosesDataSource() {
+        AtomicInteger dataSourceCreations = new AtomicInteger();
+        CloseablePluginDataSource dataSource = mock(CloseablePluginDataSource.class);
+        PluginApplicationContextFactory storageFactory = new PluginApplicationContextFactory(
+                PluginContextPropertySourceProvider.EMPTY,
+                streamRegistry,
+                taskRegistry,
+                TestRuntimePathProvider::new,
+                owner -> {
+                    assertThat(owner).isEqualTo("storage-owner");
+                    dataSourceCreations.incrementAndGet();
+                    return dataSource;
+                });
+
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext child = storageFactory.create(parent, new PluginContextModule(
+                    "storage-owner", getClass().getClassLoader(), List.of(StoragePluginConfig.class)));
+            StoragePluginBean bean = child.getBean(StoragePluginBean.class);
+
+            assertThat(bean.paths().configFile("properties"))
+                    .isEqualTo(java.nio.file.Path.of("config", "storage-owner.properties"));
+            assertThat(bean.paths().stateDirectory())
+                    .isEqualTo(java.nio.file.Path.of("state", "storage-owner"));
+            assertThat(bean.paths().dataDirectory())
+                    .isEqualTo(java.nio.file.Path.of("data", "storage-owner"));
+            assertThat(bean.dataSource()).isSameAs(dataSource);
+            assertThat(dataSourceCreations).hasValue(1);
+            assertThat(parent.getBeanNamesForType(RuntimePathProvider.class)).isEmpty();
+            assertThat(parent.getBeanNamesForType(PluginDataSource.class)).isEmpty();
+
+            child.close();
+            verify(dataSource).close();
+        }
+    }
+
+    @Test
+    @DisplayName("未使用私有数据库的插件不创建数据源")
+    void pluginDataSourceRemainsLazyUntilRequested() {
+        AtomicInteger dataSourceCreations = new AtomicInteger();
+        CloseablePluginDataSource dataSource = mock(CloseablePluginDataSource.class);
+        PluginApplicationContextFactory storageFactory = new PluginApplicationContextFactory(
+                PluginContextPropertySourceProvider.EMPTY,
+                streamRegistry,
+                taskRegistry,
+                TestRuntimePathProvider::new,
+                owner -> {
+                    dataSourceCreations.incrementAndGet();
+                    return dataSource;
+                });
+
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext child = storageFactory.create(parent, new PluginContextModule(
+                    "lazy-owner", getClass().getClassLoader(), List.of()));
+            assertThat(dataSourceCreations).hasValue(0);
+
+            assertThat(child.getBean(PluginDataSource.class)).isSameAs(dataSource);
+            assertThat(dataSourceCreations).hasValue(1);
+
+            child.close();
+            verify(dataSource).close();
+        }
     }
 
     @Test
@@ -428,7 +504,7 @@ class PluginApplicationContextFactoryTest {
 
     // --- 夹具 ---
 
-    /** 父 context 暴露的「核心 API / 服务接口」。 */
+    /** 父 context 暴露的「SDK / 服务接口」。 */
     interface CoreApiService {
         String describe();
     }
@@ -543,6 +619,38 @@ class PluginApplicationContextFactoryTest {
         @Bean
         TaskPluginBean taskPluginBean(PluginRuntimeTaskRegistrar taskRegistrar) {
             return new TaskPluginBean(taskRegistrar);
+        }
+    }
+
+    interface CloseablePluginDataSource extends PluginDataSource {
+        void close();
+    }
+
+    record TestRuntimePathProvider(String owner) implements RuntimePathProvider {
+        @Override
+        public java.nio.file.Path configFile(String extension) {
+            return java.nio.file.Path.of("config", owner + "." + extension);
+        }
+
+        @Override
+        public java.nio.file.Path stateDirectory() {
+            return java.nio.file.Path.of("state", owner);
+        }
+
+        @Override
+        public java.nio.file.Path dataDirectory() {
+            return java.nio.file.Path.of("data", owner);
+        }
+    }
+
+    record StoragePluginBean(RuntimePathProvider paths, PluginDataSource dataSource) {
+    }
+
+    @Configuration
+    static class StoragePluginConfig {
+        @Bean
+        StoragePluginBean storagePluginBean(RuntimePathProvider paths, PluginDataSource dataSource) {
+            return new StoragePluginBean(paths, dataSource);
         }
     }
 

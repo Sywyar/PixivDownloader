@@ -10,16 +10,23 @@ public interface PluginStreamRegistrar {
 
     /**
      * 登记一条当前插件拥有的活动推流。token 必须标识单个物理连接，不能使用会被并发连接复用的逻辑键。
+     *
+     * @param streamToken 流令牌
+     * @param stream 数据流
      */
     void register(String streamToken, PluginStream stream);
 
     /**
      * 摘除当前插件下的指定流；用于客户端正常完成、断开或显式关闭，不触发关闭回调。
+     *
+     * @param streamToken 流令牌
      */
     void unregister(String streamToken);
 
     /**
      * 当前插件是否仍允许登记新推流。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean acceptsNewStreams();
 }

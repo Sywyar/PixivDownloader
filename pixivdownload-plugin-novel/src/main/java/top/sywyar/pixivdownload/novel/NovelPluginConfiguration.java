@@ -15,7 +15,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
@@ -64,9 +64,7 @@ import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.novelgallery.NovelOwnedWorkSearch;
-import top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryCapabilityProvider;
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
-import top.sywyar.pixivdownload.novelgallery.frontend.NovelGalleryFrontendProvider;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
@@ -421,22 +419,6 @@ public class NovelPluginConfiguration {
         return new NovelGalleryService(
                 workQueryService, novelOwnedWorkSearch, workMetadataRepository,
                 novelWorkDetailsRepository, novelSeriesCatalogRepository, workDeletionService);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("novel")
-    public PixivNovelGalleryCapabilityProvider pixivNovelGalleryCapabilityProvider(
-            WorkQueryService workQueryService,
-            WorkMetadataRepository workMetadataRepository,
-            NovelWorkDetailsRepository novelWorkDetailsRepository) {
-        return new PixivNovelGalleryCapabilityProvider(
-                workQueryService, workMetadataRepository, novelWorkDetailsRepository);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("novel")
-    public NovelGalleryFrontendProvider novelGalleryFrontendProvider() {
-        return new NovelGalleryFrontendProvider();
     }
 
     @Bean

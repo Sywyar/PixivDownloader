@@ -7,6 +7,8 @@ public interface ArtworkDownloadStatistics {
 
     /**
      * 累计一个完整下载的插画及其图片数。
+     *
+     * @param imageCount 图片数量
      */
     void recordCompleted(int imageCount);
 }

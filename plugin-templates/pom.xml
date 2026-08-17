@@ -12,7 +12,10 @@
 
     <!-- This reactor validates repository templates only. It is intentionally not a module of the product reactor. -->
     <modules>
+        <module>../pixivdownload-sdk-info</module>
         <module>../pixivdownload-plugin-api</module>
+        <module>../pixivdownload-core-api</module>
+        <module>../pixivdownload-sdk-bom</module>
         <module>minimal-feature-plugin</module>
         <module>download-type-plugin</module>
     </modules>

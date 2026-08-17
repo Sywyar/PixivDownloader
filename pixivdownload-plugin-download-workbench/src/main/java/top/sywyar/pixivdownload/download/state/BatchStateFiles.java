@@ -1,8 +1,7 @@
 package top.sywyar.pixivdownload.download.state;
 
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -26,7 +25,7 @@ public final class BatchStateFiles {
         Objects.requireNonNull(runtimePathProvider, "runtimePathProvider");
         Objects.requireNonNull(downloadSettings, "downloadSettings");
         Path stateDirectory = runtimePathProvider
-                .resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID)
+                .stateDirectory()
                 .normalize();
         this.stateFile = stateDirectory.resolve(STATE_FILE_NAME).normalize();
         migrateLegacyState(stateDirectory, downloadSettings.getRootFolder());

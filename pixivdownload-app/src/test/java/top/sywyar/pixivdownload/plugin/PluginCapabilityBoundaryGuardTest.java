@@ -26,12 +26,7 @@ class PluginCapabilityBoundaryGuardTest {
             "AiChatClient",
             "AiChatClientRegistry",
             "NarrationVoiceEngine",
-            "NarrationEngineRegistry",
-            "GalleryProjectionProvider",
-            "GalleryWorkProvider",
-            "GalleryFrontendProvider",
-            "GalleryFrontendContribution",
-            "GalleryCapabilityRegistry");
+            "NarrationEngineRegistry");
 
     @Test
     @DisplayName("生命周期核心不得硬编码具体能力类型或注册中心")

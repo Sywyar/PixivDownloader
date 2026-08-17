@@ -14,8 +14,18 @@ public record ScheduledCredentialAccountActionPlan(
         List<ScheduledCredentialTaskStateUpdate> stateUpdates
 ) {
 
+    /**
+     * 允许的最大数量。
+     */
     public static final int MAX_STATE_UPDATES = ScheduledCredentialAccountActionRequest.MAX_TASKS;
 
+    /**
+     * 创建 {@code ScheduledCredentialAccountActionPlan} 实例。
+     *
+     * @param expectedSuspendCode 期望值暂停代码
+     * @param nextRunTime 下次值运行时间
+     * @param stateUpdates {@code stateUpdates} 对应的值
+     */
     public ScheduledCredentialAccountActionPlan {
         expectedSuspendCode = ScheduledCredentialAccountActionRequest.validateMachineCode(
                 expectedSuspendCode, "credential account expected suspend code");

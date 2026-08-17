@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
@@ -53,7 +53,7 @@ class PluginRequiredVerificationRecoveryTest {
     private static final String VERSION = "1.0.0";
     private static final String ZIP_COMMENT = "integrity-marker-0";
     private static final RequiredPluginPolicy REQUIRED_POLICY = RequiredPluginPolicy.of(List.of(
-            new RequiredPlugin(PLUGIN_ID, PluginApiRequirement.unspecified(), false, "plugin.recovery.blocked")));
+            new RequiredPlugin(PLUGIN_ID, VersionRequirement.unspecified(), false, "plugin.recovery.blocked")));
 
     @TempDir
     Path tempDir;

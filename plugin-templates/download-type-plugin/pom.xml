@@ -15,7 +15,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
-        <pixivdownload.plugin-api.version>1.0.0</pixivdownload.plugin-api.version>
+        <pixivdownload.sdk.version>1.0.0</pixivdownload.sdk.version>
         <spring-boot.version>3.5.7</spring-boot.version>
         <pf4j.version>3.12.0</pf4j.version>
         <maven.compiler.version>3.13.0</maven.compiler.version>
@@ -27,6 +27,13 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-sdk-bom</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -40,8 +47,12 @@
     <dependencies>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-sdk-info</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
-            <version>${pixivdownload.plugin-api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

@@ -13,13 +13,21 @@ import java.util.Optional;
 @FunctionalInterface
 public interface RequestOwnerIdentityResolver {
 
-    /** 解析当前请求；请求为 {@code null} 时实现应拒绝。 */
+    /**
+     * 解析当前请求；请求为 {@code null} 时实现应拒绝。
+     *
+     * @param request 请求
+     * @return 方法返回的 {@code RequestOwnerIdentity} 实例
+     */
     RequestOwnerIdentity resolve(HttpServletRequest request);
 
     /**
      * 只查询宿主信任的、请求中已经存在的 owner UUID，绝不生成新的身份。
      *
      * <p>默认返回空，使未实现该能力的宿主与测试 lambda 保守拒绝依赖“已有身份”的操作。
+     *
+     * @param request 请求
+     * @return 匹配的可选值
      */
     default Optional<String> resolveExistingOwnerUuid(HttpServletRequest request) {
         Objects.requireNonNull(request, "request");
@@ -31,6 +39,9 @@ public interface RequestOwnerIdentityResolver {
      *
      * <p>subject 是只可用于相等性与计数的不透明字符串，不是授权结论，也不得被解析或展示。
      * 默认返回空，使旧宿主与测试 lambda 保持保守行为。
+     *
+     * @param request 请求
+     * @return 匹配的可选值
      */
     default Optional<String> resolveInvitedGuestRateLimitSubject(HttpServletRequest request) {
         Objects.requireNonNull(request, "request");
@@ -43,6 +54,9 @@ public interface RequestOwnerIdentityResolver {
      * <p>该结果与 {@link RequestOwnerIdentity#admin()} 表达的管理员作用域不同：例如宿主可在
      * solo 模式下赋予请求管理员作用域，但不能据此伪造已经完成的管理员登录认证。
      * 默认返回 {@code false}，使未实现该能力的宿主与测试 lambda 保守拒绝认证豁免。
+     *
+     * @param request 请求
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     default boolean isAdminAuthenticated(HttpServletRequest request) {
         Objects.requireNonNull(request, "request");

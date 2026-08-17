@@ -461,10 +461,19 @@
                     pageSize: 30,
                     requestInit: previewRequestInit,
                     thumbnailEndpoint,
+                    variants: [{
+                        id: 'request',
+                        labelNamespace: 'batch',
+                        labelI18nKey: 'user.kind.request',
+                        label: '约稿'
+                    }],
                     accepts(selection) {
                         return selection === type || selection === 'request';
                     },
                     parseInput: parsePixivUserInput,
+                    profileUrl(userId) {
+                        return `https://www.pixiv.net/users/${encodeURIComponent(userId)}`;
+                    },
                     detectVariant(raw, selected) {
                         return /\/request\b/.test(String(raw || '')) ? 'request' : selected;
                     },

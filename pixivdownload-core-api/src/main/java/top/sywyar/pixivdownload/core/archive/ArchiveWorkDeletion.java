@@ -12,6 +12,12 @@ import java.util.List;
  */
 public record ArchiveWorkDeletion(String workType, List<Long> workIds) {
 
+    /**
+     * 创建 {@code ArchiveWorkDeletion} 实例。
+     *
+     * @param workType 工作类型
+     * @param workIds 作品标识集合
+     */
     public ArchiveWorkDeletion {
         if (workType == null || workType.isBlank()) {
             throw new IllegalArgumentException("workType must not be blank");

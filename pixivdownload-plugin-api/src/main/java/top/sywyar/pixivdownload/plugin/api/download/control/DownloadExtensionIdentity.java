@@ -13,6 +13,14 @@ public record DownloadExtensionIdentity(
         long publicationId
 ) {
 
+    /**
+     * 创建 {@code DownloadExtensionIdentity} 实例。
+     *
+     * @param pluginId 插件标识
+     * @param packageId 包标识
+     * @param generation 代次
+     * @param publicationId 发布项标识
+     */
     public DownloadExtensionIdentity {
         requireText(pluginId, "pluginId");
         requireText(packageId, "packageId");

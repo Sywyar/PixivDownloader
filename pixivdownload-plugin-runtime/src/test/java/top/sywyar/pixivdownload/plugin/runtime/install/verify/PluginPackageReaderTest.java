@@ -46,7 +46,7 @@ class PluginPackageReaderTest {
         assertThat(descriptor.pluginClass()).isEqualTo("com.example.ExtStatsPlugin");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
-        assertThat(descriptor.isApiCompatible()).isTrue();
+        assertThat(descriptor.isSdkCompatible()).isTrue();
     }
 
     @Test

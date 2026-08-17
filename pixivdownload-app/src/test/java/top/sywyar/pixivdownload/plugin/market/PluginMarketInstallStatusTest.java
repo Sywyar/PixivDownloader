@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
@@ -37,7 +37,7 @@ class PluginMarketInstallStatusTest {
     private final PluginStatusService statusService = mock(PluginStatusService.class);
 
     /**
-     * catalog：a 最新 1.0.0（兼容）、b 最新 2.0.0（兼容）、c 最新 1.0.0 但要求核心 API 2.0（不兼容）、
+     * catalog：a 最新 1.0.0（兼容）、b 最新 2.0.0（兼容）、c 最新 1.0.0 但要求SDK 2.0（不兼容）、
      * d 最新 1.2.0（兼容，用于语义等价版本判定）、e 最新 1.0.0（兼容，用于本机版本更高判定）、f 无任何可安装版本制品。
      */
     private static PluginCatalogManifest catalog() {
@@ -54,15 +54,15 @@ class PluginMarketInstallStatusTest {
         return new PluginCatalogEntry(id, id, "plugin.name", null, null, List.of(packages));
     }
 
-    private static PluginCatalogPackage pkg(String version, String requiredCoreApi) {
+    private static PluginCatalogPackage pkg(String version, String requiredSdk) {
         return new PluginCatalogPackage(version, "https://x/" + version + ".jar", 100L, "ab", null, null,
-                requiredCoreApi, List.of(), null, List.of(), "stable", false);
+                requiredSdk, List.of(), null, List.of(), "stable", false);
     }
 
     /** 已安装诊断（有描述符 → 视为已安装），描述符携带已安装版本。 */
     private static PluginDiagnostic installed(String id, String version) {
         PluginDescriptor descriptor = new PluginDescriptor(id, id, version,
-                PluginApiRequirement.unspecified(), List.of(), null, "ns", id + ":name", null, null, null,
+                VersionRequirement.unspecified(), List.of(), null, "ns", id + ":name", null, null, null,
                 PluginKind.FEATURE);
         return new PluginDiagnostic(id, PluginStatus.STARTED, descriptor, false, List.of());
     }
@@ -120,7 +120,7 @@ class PluginMarketInstallStatusTest {
     }
 
     @Test
-    @DisplayName("未安装且最新版本要求更高核心 API → INCOMPATIBLE、compatible=false、compatibilityReason=要求版本")
+    @DisplayName("未安装且最新版本要求更高SDK → INCOMPATIBLE、compatible=false、compatibilityReason=要求版本")
     void incompatible() {
         PluginMarketView view = service().catalog(PluginRepository.OFFICIAL_ID);
 

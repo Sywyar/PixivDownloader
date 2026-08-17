@@ -8,7 +8,12 @@ import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
- * Transport-neutral outbound HTTP response. Non-success statuses remain ordinary responses.
+ * 传输中立的出站 HTTP 响应。非成功状态仍按普通响应表示。
+ *
+ * @param statusCode 三位 HTTP 状态码
+ * @param statusText 不含换行符的状态说明
+ * @param headers 响应头；名称按大小写不敏感语义处理
+ * @param body 响应体字节；构造和读取时均执行防御性复制
  */
 public record OutboundHttpResponse(
         int statusCode,
@@ -20,6 +25,14 @@ public record OutboundHttpResponse(
     private static final Pattern HEADER_NAME_TOKEN =
             Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
 
+    /**
+     * 校验状态与响应头，并对响应体执行防御性复制。
+     *
+     * @param statusCode 状态码
+     * @param statusText 状态文本
+     * @param headers 请求头
+     * @param body 请求体
+     */
     public OutboundHttpResponse {
         if (statusCode < 100 || statusCode > 999) {
             throw new IllegalArgumentException("statusCode must be a three-digit HTTP status");
@@ -29,6 +42,11 @@ public record OutboundHttpResponse(
         body = body == null ? new byte[0] : body.clone();
     }
 
+    /**
+     * 返回响应体的防御性副本。
+     *
+     * @return 响应体副本
+     */
     @Override
     public byte[] body() {
         return body.clone();

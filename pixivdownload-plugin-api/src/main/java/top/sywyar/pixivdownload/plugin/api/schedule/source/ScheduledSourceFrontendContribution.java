@@ -11,8 +11,17 @@ public record ScheduledSourceFrontendContribution(
         String moduleUrl
 ) {
 
+    /**
+     * 当前契约版本。
+     */
     public static final int CURRENT_CONTRACT_VERSION = 1;
 
+    /**
+     * 创建 {@code ScheduledSourceFrontendContribution} 实例。
+     *
+     * @param contractVersion 契约版本
+     * @param moduleUrl 模块地址
+     */
     public ScheduledSourceFrontendContribution {
         if (contractVersion <= 0) {
             throw new IllegalArgumentException("frontend contract version must be positive");

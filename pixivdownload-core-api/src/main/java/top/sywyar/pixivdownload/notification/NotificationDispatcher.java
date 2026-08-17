@@ -11,5 +11,12 @@ import java.util.Map;
 @FunctionalInterface
 public interface NotificationDispatcher {
 
+    /**
+     * 执行对应操作。
+     *
+     * @param scenario 场景
+     * @param locale 语言区域
+     * @param placeholders 占位符
+     */
     void notify(NotificationScenario scenario, Locale locale, Map<String, String> placeholders);
 }

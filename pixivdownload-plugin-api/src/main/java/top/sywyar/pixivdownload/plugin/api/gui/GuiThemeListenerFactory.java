@@ -1,16 +1,14 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-/**
- * Opens a closeable listener session for a GUI theme contribution.
- */
+/** 为 GUI 主题贡献创建可关闭的监听会话。 */
 @FunctionalInterface
 public interface GuiThemeListenerFactory {
 
     /**
-     * Starts listening for changes relevant to this theme.
+     * 开始监听与该主题有关的变化。
      *
-     * @param listener callback receiving appearance changes
-     * @return a closeable session; use {@link GuiThemeListenerSession#none()} when no listener is needed
+     * @param listener 接收外观变化的回调
+     * @return 可关闭会话；不需要监听器时使用 {@link GuiThemeListenerSession#none()}
      */
     GuiThemeListenerSession open(GuiThemeChangeListener listener);
 }

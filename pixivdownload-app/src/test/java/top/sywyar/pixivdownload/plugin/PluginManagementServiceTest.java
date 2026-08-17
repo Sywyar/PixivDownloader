@@ -5,10 +5,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
@@ -73,7 +73,7 @@ class PluginManagementServiceTest {
     private static final String MISSING_ID = "missing-one";
 
     private static PluginDescriptor descriptor(String id, PluginKind kind) {
-        return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.unspecified(),
+        return new PluginDescriptor(id, id, "1.0.0", VersionRequirement.unspecified(),
                 List.of(), id + ".Plugin", id, "nav.label", id + ".summary", "book", "amber", kind);
     }
 
@@ -126,7 +126,7 @@ class PluginManagementServiceTest {
         when(recovery.isActive()).thenReturn(true);
         when(recovery.reasons()).thenReturn(List.of(new RecoveryModeReason(
                 MISSING_ID, PluginStatus.MISSING_REQUIRED, "plugin.recovery.missing",
-                PluginApiRequirement.unspecified(), List.of("required but not installed"))));
+                VersionRequirement.unspecified(), List.of("required but not installed"))));
 
         PluginManagementService.PluginManagementReport report =
                 service(status, lifecycle, RequiredPluginPolicy.empty(), recovery).list();
@@ -155,9 +155,9 @@ class PluginManagementServiceTest {
         assertThat(external.availableActions()).containsExactlyInAnyOrder(
                 "quiesce", "stop", "unload", "remove", "restart", "reload");
         // 未声明 requires 的描述符 → specified=false / satisfied=true / required="(unspecified)"，无依赖 → 空列表。
-        assertThat(external.apiRequirement().specified()).isFalse();
-        assertThat(external.apiRequirement().satisfied()).isTrue();
-        assertThat(external.apiRequirement().required()).isEqualTo("(unspecified)");
+        assertThat(external.sdkRequirement().specified()).isFalse();
+        assertThat(external.sdkRequirement().satisfied()).isTrue();
+        assertThat(external.sdkRequirement().required()).isEqualTo("(unspecified)");
         assertThat(external.dependencies()).isEmpty();
         // 展示元数据投影：descriptionKey 来自描述符 description（纯 key），iconKey/colorToken 为描述符声明的受控 token。
         assertThat(external.descriptionKey()).isEqualTo(EXTERNAL_ID + ".summary");
@@ -169,8 +169,8 @@ class PluginManagementServiceTest {
         assertThat(missing.requiredByPolicy()).isTrue();
         assertThat(missing.displayNameKey()).isNull();
         assertThat(missing.managed()).isFalse();
-        // 未安装的必选项无描述符 → apiRequirement 为 null、dependencies 为空列表（不抛、不臆造）。
-        assertThat(missing.apiRequirement()).isNull();
+        // 未安装的必选项无描述符 → sdkRequirement 为 null、dependencies 为空列表（不抛、不臆造）。
+        assertThat(missing.sdkRequirement()).isNull();
         assertThat(missing.dependencies()).isEmpty();
         // 无描述符 → descriptionKey 为 null（前端优雅回退）；iconKey/colorToken 回退到 plugin-api 默认占位 token。
         assertThat(missing.descriptionKey()).isNull();
@@ -220,32 +220,32 @@ class PluginManagementServiceTest {
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
         RecoveryModeService recovery = mock(RecoveryModeService.class);
 
-        // 满足当前核心 API 的 requires + 两条依赖（一必需、一可选不限版本）。
+        // 满足当前SDK 的 requires + 两条依赖（一必需、一可选不限版本）。
         PluginDescriptor satisfied = new PluginDescriptor(
                 EXTERNAL_ID, EXTERNAL_ID, "1.2.0",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("download-workbench", "1.0", false),
                         new PluginDependencyRef("gallery", "*", true)),
                 EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null, "puzzle", "neutral", PluginKind.FEATURE);
-        // 高于当前核心 API 的 requires：specified=true 但 satisfied=false。
+        // 高于当前SDK 的 requires：specified=true 但 satisfied=false。
         PluginDescriptor unsatisfied = new PluginDescriptor(
                 REQUIRED_EXTERNAL_ID, REQUIRED_EXTERNAL_ID, "2.0.0",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR + 1, 0),
+                VersionRequirement.of(SdkVersion.MAJOR + 1, 0),
                 List.of(), REQUIRED_EXTERNAL_ID + ".Plugin", REQUIRED_EXTERNAL_ID, "nav.label",
                 null, "puzzle", "neutral", PluginKind.FEATURE);
         when(status.report()).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, satisfied, false, List.of()),
                 new PluginDiagnostic(REQUIRED_EXTERNAL_ID, PluginStatus.INCOMPATIBLE, unsatisfied, false,
-                        List.of("requires a newer core API")))));
+                        List.of("requires a newer SDK")))));
         when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
 
         PluginManagementService.PluginManagementReport report =
                 service(status, lifecycle, RequiredPluginPolicy.empty(), recovery).list();
 
         PluginManagementService.PluginManagementEntry sat = entry(report, EXTERNAL_ID);
-        assertThat(sat.apiRequirement().specified()).isTrue();
-        assertThat(sat.apiRequirement().satisfied()).isTrue();
-        assertThat(sat.apiRequirement().required()).isEqualTo(PluginApiVersion.MAJOR + "." + PluginApiVersion.MINOR);
+        assertThat(sat.sdkRequirement().specified()).isTrue();
+        assertThat(sat.sdkRequirement().satisfied()).isTrue();
+        assertThat(sat.sdkRequirement().required()).isEqualTo(SdkVersion.MAJOR + "." + SdkVersion.MINOR);
         assertThat(sat.dependencies()).extracting(
                         PluginManagementService.PluginDependencyView::pluginId,
                         PluginManagementService.PluginDependencyView::versionSupport,
@@ -255,9 +255,9 @@ class PluginManagementServiceTest {
                         tuple("gallery", "*", true));
 
         PluginManagementService.PluginManagementEntry unsat = entry(report, REQUIRED_EXTERNAL_ID);
-        assertThat(unsat.apiRequirement().specified()).isTrue();
-        assertThat(unsat.apiRequirement().satisfied()).isFalse();
-        assertThat(unsat.apiRequirement().required()).isEqualTo((PluginApiVersion.MAJOR + 1) + ".0");
+        assertThat(unsat.sdkRequirement().specified()).isTrue();
+        assertThat(unsat.sdkRequirement().satisfied()).isFalse();
+        assertThat(unsat.sdkRequirement().required()).isEqualTo((SdkVersion.MAJOR + 1) + ".0");
         assertThat(unsat.dependencies()).isEmpty();
     }
 
@@ -819,7 +819,7 @@ class PluginManagementServiceTest {
         PluginToggleProperties toggles = new PluginToggleProperties();
         toggles.setEnabled(EXTERNAL_ID, false);
         PluginDescriptor descriptor = new PluginDescriptor(
-                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", PluginApiRequirement.unspecified(), List.of(),
+                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", VersionRequirement.unspecified(), List.of(),
                 EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null,
                 "puzzle", "neutral", PluginKind.FEATURE, List.of(), PluginLifecyclePolicy.PROCESS_RESTART);
         when(status.report()).thenReturn(new PluginStatusReport(List.of(
@@ -889,7 +889,7 @@ class PluginManagementServiceTest {
         PluginStatusService status = mock(PluginStatusService.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
         PluginDescriptor target = new PluginDescriptor(
-                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", PluginApiRequirement.unspecified(),
+                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", VersionRequirement.unspecified(),
                 List.of(new PluginDependencyRef("dep-ext", "1.0", false)),
                 EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null,
                 "puzzle", "neutral", PluginKind.FEATURE);
@@ -924,7 +924,7 @@ class PluginManagementServiceTest {
         PluginStatusService status = mock(PluginStatusService.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
         PluginDescriptor descriptor = new PluginDescriptor(
-                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", PluginApiRequirement.unspecified(), List.of(),
+                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", VersionRequirement.unspecified(), List.of(),
                 EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null,
                 "puzzle", "neutral", PluginKind.FEATURE, List.of(), PluginLifecyclePolicy.BACKEND_RESTART);
         when(status.report()).thenReturn(new PluginStatusReport(List.of(
@@ -985,7 +985,7 @@ class PluginManagementServiceTest {
 
     private static RequiredPluginPolicy requiredPolicy() {
         return RequiredPluginPolicy.of(List.of(new RequiredPluginPolicy.RequiredPlugin(
-                REQUIRED_EXTERNAL_ID, PluginApiRequirement.unspecified(), false, "plugin.recovery.blocked")));
+                REQUIRED_EXTERNAL_ID, VersionRequirement.unspecified(), false, "plugin.recovery.blocked")));
     }
 
     private static PluginManagementService.PluginManagementEntry entry(
@@ -994,7 +994,7 @@ class PluginManagementServiceTest {
     }
 
     private static PluginDescriptor official(String id, String namespace, String icon, String color) {
-        return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.unspecified(),
+        return new PluginDescriptor(id, id, "1.0.0", VersionRequirement.unspecified(),
                 List.of(), id + ".Plugin", namespace, "plugin.name", "plugin.summary", icon, color,
                 PluginKind.FEATURE);
     }

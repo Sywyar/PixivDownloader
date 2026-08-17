@@ -10,6 +10,12 @@ public record DownloadUiSlotPublication(
         WebUiSlotContribution slot
 ) {
 
+    /**
+     * 创建 {@code DownloadUiSlotPublication} 实例。
+     *
+     * @param owner 所有者
+     * @param slot 界面槽位
+     */
     public DownloadUiSlotPublication {
         Objects.requireNonNull(owner, "download extension owner");
         Objects.requireNonNull(slot, "download UI slot contribution");

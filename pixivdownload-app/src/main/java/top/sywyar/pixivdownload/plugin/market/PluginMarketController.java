@@ -24,7 +24,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
  * 受信仓库清单。
  *
  * <ul>
- *   <li>{@code GET /api/plugin-market/repositories} —— 仓库列表 + 主开关状态 + 核心 API 版本 + 默认仓库 id。</li>
+ *   <li>{@code GET /api/plugin-market/repositories} —— 仓库列表 + 主开关状态 + SDK 版本 + 默认仓库 id。</li>
  *   <li>{@code GET /api/plugin-market/catalog?repositoryId=official} —— 指定仓库（空取默认）的 catalog 摘要 + 分类计数
  *       （主开关关闭 → {@code enabled=false} + 空，200）。</li>
  *   <li>{@code GET /api/plugin-market/plugins/{repositoryId}/{pluginId}} —— 指定仓库 + 插件 id 的详情 + 版本历史。</li>
@@ -56,7 +56,7 @@ public class PluginMarketController {
         this.localeResolver = localeResolver;
     }
 
-    /** 仓库列表 + 主开关状态 + 核心 API 版本 + 默认仓库 id（主开关关闭也返回仓库列表）。 */
+    /** 仓库列表 + 主开关状态 + SDK 版本 + 默认仓库 id（主开关关闭也返回仓库列表）。 */
     @GetMapping("/repositories")
     public PluginMarketRepositoriesView repositories() {
         return marketService.repositories();

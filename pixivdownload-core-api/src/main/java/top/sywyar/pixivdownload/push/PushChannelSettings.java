@@ -6,9 +6,17 @@ package top.sywyar.pixivdownload.push;
  */
 public interface PushChannelSettings {
 
-    /** 这份设置属于哪个通道；派发器据此路由到对应实现。 */
+    /**
+     * 这份设置属于哪个通道；派发器据此路由到对应实现。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     PushChannelId type();
 
-    /** 必填字段是否齐全（可发送）。 */
+    /**
+     * 必填字段是否齐全（可发送）。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean isComplete();
 }

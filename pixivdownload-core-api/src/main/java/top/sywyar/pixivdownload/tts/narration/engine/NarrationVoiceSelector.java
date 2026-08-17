@@ -9,12 +9,24 @@ import java.util.Optional;
  */
 public interface NarrationVoiceSelector {
 
-    /** 当前配置中请求的引擎 id；未配置时返回空字符串。 */
+    /**
+     * 当前配置中请求的引擎 id；未配置时返回空字符串。
+     *
+     * @return 方法返回的字符串
+     */
     String configuredEngineId();
 
-    /** 当前配置实际命中的活动引擎；能力缺失或已撤回时返回空。 */
+    /**
+     * 当前配置实际命中的活动引擎；能力缺失或已撤回时返回空。
+     *
+     * @return 匹配的可选值
+     */
     Optional<NarrationVoiceSelection> selected();
 
-    /** 当前活动引擎数量，仅用于缺能力诊断。 */
+    /**
+     * 当前活动引擎数量，仅用于缺能力诊断。
+     *
+     * @return 方法返回的数值
+     */
     int availableEngineCount();
 }

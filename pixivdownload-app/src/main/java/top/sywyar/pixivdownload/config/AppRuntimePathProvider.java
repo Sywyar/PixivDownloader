@@ -1,24 +1,30 @@
 package top.sywyar.pixivdownload.config;
 
-import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.nio.file.Path;
+import java.util.Objects;
 
-@Component
-public class AppRuntimePathProvider implements RuntimePathProvider {
+public final class AppRuntimePathProvider implements RuntimePathProvider {
 
-    @Override
-    public Path resolvePluginConfigPath(String pluginId, String extension) {
-        return RuntimeFiles.resolvePluginConfigPath(pluginId, extension);
+    private final String ownerPluginId;
+
+    public AppRuntimePathProvider(String ownerPluginId) {
+        this.ownerPluginId = Objects.requireNonNull(ownerPluginId, "ownerPluginId");
     }
 
     @Override
-    public Path resolvePluginStateDirectory(String pluginId) {
-        return RuntimeFiles.resolvePluginStateDirectory(pluginId);
+    public Path configFile(String extension) {
+        return RuntimeFiles.resolvePluginConfigPath(ownerPluginId, extension);
     }
 
     @Override
-    public Path resolvePluginDataDirectory(String pluginId) {
-        return RuntimeFiles.resolvePluginDataDirectory(pluginId);
+    public Path stateDirectory() {
+        return RuntimeFiles.resolvePluginStateDirectory(ownerPluginId);
+    }
+
+    @Override
+    public Path dataDirectory() {
+        return RuntimeFiles.resolvePluginDataDirectory(ownerPluginId);
     }
 }

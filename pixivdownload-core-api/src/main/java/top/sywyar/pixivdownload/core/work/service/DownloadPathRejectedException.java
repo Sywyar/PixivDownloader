@@ -7,6 +7,9 @@ package top.sywyar.pixivdownload.core.work.service;
  */
 public final class DownloadPathRejectedException extends RuntimeException {
 
+    /**
+     * 创建 {@code DownloadPathRejectedException} 实例。
+     */
     public DownloadPathRejectedException() {
         super("download path rejected");
     }

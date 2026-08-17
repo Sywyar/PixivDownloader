@@ -7,7 +7,16 @@ package top.sywyar.pixivdownload.core.schedule.state;
  * 完成取消收尾，避免管理员挂起被旧运行结果覆盖。
  */
 public enum ScheduleRunState {
+    /**
+     * 表示 {@code QUEUED} 状态。
+     */
     QUEUED,
+    /**
+     * 表示 {@code RUNNING} 状态。
+     */
     RUNNING,
+    /**
+     * 表示 {@code CANCEL_REQUESTED}。
+     */
     CANCEL_REQUESTED
 }

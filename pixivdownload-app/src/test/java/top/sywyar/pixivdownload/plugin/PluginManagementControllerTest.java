@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.LifecycleAction;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
@@ -99,12 +99,12 @@ class PluginManagementControllerTest {
                 true,
                 new PluginManagementService.TransactionRecoveryView("SAFE", true, List.of()),
                 List.of(new RecoveryModeReason("demo-ext", PluginStatus.FAILED,
-                        "plugin.recovery.failed", PluginApiRequirement.unspecified(),
+                        "plugin.recovery.failed", VersionRequirement.unspecified(),
                         List.of("startup exploded"))),
                 List.of(
                 new PluginManagementService.PluginManagementEntry(
                         "demo-ext", "demo-ext", "nav.label", "nav.summary", "book", "amber", "1.0.0", PluginKind.FEATURE,
-                        new PluginManagementService.PluginApiRequirementView(true, true, "1.0"),
+                        new PluginManagementService.SdkRequirementView(true, true, "1.0"),
                         List.of(new PluginManagementService.PluginDependencyView("download-workbench", "1.0", false)),
                         "external", PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, true,
                         List.of("stop"), List.of(), PluginLifecyclePolicy.HOT_RELOAD, true, true))));
@@ -127,9 +127,9 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.plugins[0].lifecyclePolicy").value("HOT_RELOAD"))
                 .andExpect(jsonPath("$.plugins[0].configuredEnabled").value(true))
                 .andExpect(jsonPath("$.plugins[0].toggleable").value(true))
-                .andExpect(jsonPath("$.plugins[0].apiRequirement.specified").value(true))
-                .andExpect(jsonPath("$.plugins[0].apiRequirement.satisfied").value(true))
-                .andExpect(jsonPath("$.plugins[0].apiRequirement.required").value("1.0"))
+                .andExpect(jsonPath("$.plugins[0].sdkRequirement.specified").value(true))
+                .andExpect(jsonPath("$.plugins[0].sdkRequirement.satisfied").value(true))
+                .andExpect(jsonPath("$.plugins[0].sdkRequirement.required").value("1.0"))
                 .andExpect(jsonPath("$.plugins[0].dependencies[0].pluginId").value("download-workbench"))
                 .andExpect(jsonPath("$.plugins[0].dependencies[0].versionSupport").value("1.0"))
                 .andExpect(jsonPath("$.plugins[0].dependencies[0].optional").value(false))
@@ -304,7 +304,7 @@ class PluginManagementControllerTest {
     void installIncompatibleReturns409() throws Exception {
         when(installService.install(any(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_INCOMPATIBLE, false, false, "ext-demo", "1.0.0", null,
-                List.of(), List.of(), List.of("requires core API 2.0")));
+                List.of(), List.of(), List.of("requires SDK 2.0")));
 
         mockMvc.perform(multipart("/api/plugins/install")
                         .file(new MockMultipartFile("file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3})))

@@ -2,14 +2,6 @@ package top.sywyar.pixivdownload.douyin.client;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.signature.DouyinSignedUriBuilder;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
@@ -18,7 +10,12 @@ import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
 
+import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -26,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -690,7 +688,7 @@ class DefaultDouyinClientParserTest {
                     "locate_query=false",
                     "a_bogus=");
         });
-        assertThat(rest.methods()).containsExactly(HttpMethod.GET);
+        assertThat(rest.methods()).containsExactly("GET");
     }
 
     @Test
@@ -1103,7 +1101,7 @@ class DefaultDouyinClientParserTest {
             assertThat(uri.getRawQuery())
                     .contains("cursor=favorite-current", "count=12", "a_bogus=");
         });
-        assertThat(rest.methods()).containsExactly(HttpMethod.POST);
+        assertThat(rest.methods()).containsExactly("POST");
         assertThat(rest.cookies()).singleElement().satisfies(cookie ->
                 assertThat(cookie).contains("sessionid=test"));
     }
@@ -1122,7 +1120,7 @@ class DefaultDouyinClientParserTest {
 
             assertThat(listing.items()).isEmpty();
             assertThat(listing.hasMore()).isFalse();
-            assertThat(rest.methods()).containsExactly(HttpMethod.POST);
+            assertThat(rest.methods()).containsExactly("POST");
         }
     }
 
@@ -1218,7 +1216,7 @@ class DefaultDouyinClientParserTest {
             assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/mix/listcollection/");
             assertThat(uri.getRawQuery()).contains("cursor=collection-current", "count=12");
         });
-        assertThat(rest.methods()).containsExactly(HttpMethod.GET);
+        assertThat(rest.methods()).containsExactly("GET");
     }
 
     @Test
@@ -1298,7 +1296,7 @@ class DefaultDouyinClientParserTest {
         assertThat(rest.requests().get(1).getRawQuery())
                 .contains("collects_id=folder-a", "cursor=works-current", "count=10",
                         "version_code=170400", "a_bogus=");
-        assertThat(rest.methods()).containsExactly(HttpMethod.GET, HttpMethod.GET);
+        assertThat(rest.methods()).containsExactly("GET", "GET");
         assertThat(rest.cookies()).allSatisfy(cookie ->
                 assertThat(cookie).contains("sessionid=test"));
     }
@@ -1474,7 +1472,7 @@ class DefaultDouyinClientParserTest {
         assertCodeName(() -> client(rest).listAccountWorksPage(
                 favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null), code);
         assertThat(rest.requests()).hasSize(attempts);
-        assertThat(rest.methods()).containsOnly(HttpMethod.POST).hasSize(attempts);
+        assertThat(rest.methods()).containsOnly("POST").hasSize(attempts);
     }
 
     @FunctionalInterface
@@ -1482,48 +1480,41 @@ class DefaultDouyinClientParserTest {
         void run() throws Exception;
     }
 
-    private static final class FakeRestTemplate extends RestTemplate {
+    private static final class FakeRestTemplate implements OutboundHttpClient {
         private final Queue<Object> responses = new ArrayDeque<>();
         private final List<URI> requests = new ArrayList<>();
         private final List<String> cookies = new ArrayList<>();
-        private final List<HttpMethod> methods = new ArrayList<>();
+        private final List<String> methods = new ArrayList<>();
 
         void enqueue(int status, String body) {
-            responses.add(new ResponseEntity<>(
-                    body.getBytes(StandardCharsets.UTF_8),
-                    new HttpHeaders(),
-                    HttpStatusCode.valueOf(status)));
+            responses.add(new QueuedResponse(status, body.getBytes(StandardCharsets.UTF_8)));
         }
 
         void enqueueNetworkFailure() {
-            responses.add(new ResourceAccessException("synthetic network failure"));
+            responses.add(new OutboundHttpTransportException("synthetic network failure"));
         }
 
         @Override
-        @SuppressWarnings("unchecked")
-        public <T> ResponseEntity<T> exchange(URI url, HttpMethod method, HttpEntity<?> requestEntity,
-                                              Class<T> responseType) {
-            requests.add(url);
-            methods.add(method);
-            cookies.add(requestEntity == null
-                    ? null
-                    : requestEntity.getHeaders().getFirst(HttpHeaders.COOKIE));
+        public OutboundHttpStreamResponse exchangeStream(OutboundHttpRequest request) {
+            requests.add(request.uri());
+            methods.add(request.method());
+            cookies.add(request.headers().entrySet().stream()
+                    .filter(entry -> entry.getKey().equalsIgnoreCase("Cookie"))
+                    .flatMap(entry -> entry.getValue().stream())
+                    .findFirst().orElse(null));
             Object next = responses.isEmpty()
-                    ? new ResponseEntity<>("{}".getBytes(StandardCharsets.UTF_8), HttpStatusCode.valueOf(200))
+                    ? new QueuedResponse(200, "{}".getBytes(StandardCharsets.UTF_8))
                     : responses.remove();
             if (next instanceof RuntimeException failure) {
                 throw failure;
             }
-            ResponseEntity<byte[]> response = (ResponseEntity<byte[]>) next;
-            if (response.getStatusCode().isError()) {
-                throw HttpClientErrorException.create(
-                        response.getStatusCode(),
-                        "mock",
-                        response.getHeaders(),
-                        response.getBody(),
-                        StandardCharsets.UTF_8);
-            }
-            return new ResponseEntity<>((T) response.getBody(), response.getHeaders(), response.getStatusCode());
+            QueuedResponse response = (QueuedResponse) next;
+            return new OutboundHttpStreamResponse(
+                    response.status(), "mock", Map.of(), new ByteArrayInputStream(response.body()));
+        }
+
+        @Override
+        public void close() {
         }
 
         List<URI> requests() {
@@ -1534,9 +1525,11 @@ class DefaultDouyinClientParserTest {
             return cookies;
         }
 
-        List<HttpMethod> methods() {
+        List<String> methods() {
             return methods;
         }
+
+        private record QueuedResponse(int status, byte[] body) { }
     }
 
     private static String queryValue(URI uri, String name) {

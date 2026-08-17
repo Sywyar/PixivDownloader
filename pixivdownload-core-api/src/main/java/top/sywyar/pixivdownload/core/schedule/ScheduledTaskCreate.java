@@ -20,6 +20,22 @@ public record ScheduledTaskCreate(
         Long nextRunTime,
         long createdTime
 ) {
+    /**
+     * 创建 {@code ScheduledTaskCreate} 实例。
+     *
+     * @param name 名称
+     * @param sourceType 来源类型
+     * @param sourceOwnerPluginId 来源所有者插件标识
+     * @param definitionSchema 定义模式定义
+     * @param definitionVersion 定义版本
+     * @param definitionJson 定义JSON
+     * @param presentationJson 展示信息JSON
+     * @param triggerKind 触发方式类别
+     * @param intervalMinutes 间隔分钟数
+     * @param cronExpr {@code cronExpr} 对应的值
+     * @param nextRunTime 下次值运行时间
+     * @param createdTime 创建时间
+     */
     public ScheduledTaskCreate {
         requireText(name, "name");
         requireText(sourceType, "sourceType");

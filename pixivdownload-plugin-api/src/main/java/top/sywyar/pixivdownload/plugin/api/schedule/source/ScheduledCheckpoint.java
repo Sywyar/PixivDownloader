@@ -9,8 +9,18 @@ public record ScheduledCheckpoint(
         String payloadJson
 ) {
 
+    /**
+     * 载荷允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_PAYLOAD_BYTES = 262_144;
 
+    /**
+     * 创建 {@code ScheduledCheckpoint} 实例。
+     *
+     * @param schema 模式定义
+     * @param version 版本
+     * @param payloadJson 载荷JSON
+     */
     public ScheduledCheckpoint {
         if (schema == null || schema.isBlank()) {
             throw new IllegalArgumentException("checkpoint schema must not be blank");

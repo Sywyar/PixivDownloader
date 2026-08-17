@@ -5,9 +5,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeQuery;
-import top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider;
-import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
@@ -40,29 +37,6 @@ public class GalleryPluginConfiguration {
                                          WorkMetadataRepository workMetadataRepository,
                                          WorkDeletionService workDeletionService) {
         return new GalleryService(workQueryService, workMetadataRepository, workDeletionService);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("gallery")
-    public PixivImageGalleryCapabilityProvider pixivImageGalleryCapabilityProvider(
-            WorkQueryService workQueryService,
-            WorkMetadataRepository workMetadataRepository) {
-        return new PixivImageGalleryCapabilityProvider(workQueryService, workMetadataRepository);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("gallery")
-    public PixivGalleryFrontendProvider pixivGalleryFrontendProvider() {
-        return new PixivGalleryFrontendProvider();
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("gallery")
-    @SuppressWarnings("deprecation")
-    public UnifiedGalleryController unifiedGalleryController(
-            GalleryRuntimeQuery galleryRuntimeQuery,
-            RequestOwnerIdentityResolver ownerIdentityResolver) {
-        return new UnifiedGalleryController(galleryRuntimeQuery, ownerIdentityResolver);
     }
 
     @Bean

@@ -20,11 +20,17 @@ public interface WorkDeletionService {
      *
      * @return {@code true} 删除成功（文件已全删 + DB 已软删）；{@code false} 作品不存在或已软删
      * @throws WorkDeletionException 磁盘文件未能全部删除，数据库未触碰
+     * @param workType 工作类型
+     * @param workId 作品标识
      */
     boolean delete(WorkType workType, long workId);
 
     /**
      * 批量删除：对去重后的每个 id 逐个 {@link #delete}，单个失败只记日志不中断，返回实际删除数。
+     *
+     * @param workType 工作类型
+     * @param workIds 作品标识集合
+     * @return 方法返回的数值
      */
     int deleteAll(WorkType workType, Collection<Long> workIds);
 }

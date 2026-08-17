@@ -8,6 +8,14 @@ public record ScheduledCredentialTaskStateUpdate(
         String nextPolicyStateJson
 ) {
 
+    /**
+     * 创建 {@code ScheduledCredentialTaskStateUpdate} 实例。
+     *
+     * @param taskId 任务标识
+     * @param expectedStateVersion 期望值状态版本
+     * @param expectedPolicyStateJson 期望值策略状态JSON
+     * @param nextPolicyStateJson 下次值策略状态JSON
+     */
     public ScheduledCredentialTaskStateUpdate {
         if (taskId <= 0) {
             throw new IllegalArgumentException("credential state update task id must be positive");

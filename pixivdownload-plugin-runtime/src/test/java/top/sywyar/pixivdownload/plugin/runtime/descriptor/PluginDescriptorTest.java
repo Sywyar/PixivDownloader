@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.runtime.descriptor;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
@@ -14,20 +14,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PluginDescriptorTest {
 
     @Test
-    @DisplayName("内置插件描述符：版本=核心契约版本、requires=当前核心（恒兼容）、pluginClass=实现类名、无依赖")
+    @DisplayName("内置插件描述符：版本=SDK 版本、requires=当前 SDK（恒兼容）、pluginClass=实现类名、无依赖")
     void forBuiltInMapsMetadata() {
         PluginDescriptor descriptor = PluginDescriptor.forBuiltIn(new TestFeaturePlugin("stats"));
 
         assertThat(descriptor.id()).isEqualTo("stats");
         assertThat(descriptor.sourcePluginId()).isEqualTo("stats");
-        assertThat(descriptor.version()).isEqualTo(PluginApiVersion.VERSION);
-        assertThat(descriptor.requires().isSatisfiedByCurrentApi()).isTrue();
+        assertThat(descriptor.version()).isEqualTo(SdkVersion.VERSION);
+        assertThat(descriptor.requires().isSatisfiedByCurrentSdk()).isTrue();
         assertThat(descriptor.dependencies()).isEmpty();
         assertThat(descriptor.pluginClass()).isEqualTo(TestFeaturePlugin.class.getName());
         assertThat(descriptor.displayName()).isEqualTo("stats.label");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
         assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
-        assertThat(descriptor.isApiCompatible()).isTrue();
+        assertThat(descriptor.isSdkCompatible()).isTrue();
         assertThat(descriptor.validationErrors()).isEmpty();
         assertThat(descriptor.externalValidationErrors()).isEmpty();
     }
@@ -50,7 +50,7 @@ class PluginDescriptorTest {
 
         assertThat(descriptor.validationErrors()).isEmpty();
         assertThat(descriptor.externalValidationErrors()).isEmpty();
-        assertThat(descriptor.isApiCompatible()).isTrue();
+        assertThat(descriptor.isSdkCompatible()).isTrue();
     }
 
     @Test
@@ -88,18 +88,18 @@ class PluginDescriptorTest {
     @DisplayName("不可解析的 requires：通用校验拒绝、判为不兼容")
     void rejectsUnparseableRequires() {
         PluginDescriptor descriptor = new PluginDescriptor("ext", "ext-pack", "1.0",
-                PluginApiRequirement.parse("latest"), List.of(), "com.example.P", "ns", "x.label", null, null, null, PluginKind.FEATURE);
+                VersionRequirement.parse("latest"), List.of(), "com.example.P", "ns", "x.label", null, null, null, PluginKind.FEATURE);
 
         assertThat(descriptor.validationErrors()).anyMatch(e -> e.contains("unparseable requires"));
-        assertThat(descriptor.isApiCompatible()).isFalse();
+        assertThat(descriptor.isSdkCompatible()).isFalse();
     }
 
     @Test
     @DisplayName("requires 版本过高（MINOR 超核心）：描述符判为 API 不兼容")
     void higherRequiresIsIncompatible() {
-        PluginDescriptor descriptor = external("ext", "1.0", PluginApiVersion.MAJOR + "." + (PluginApiVersion.MINOR + 1),
+        PluginDescriptor descriptor = external("ext", "1.0", SdkVersion.MAJOR + "." + (SdkVersion.MINOR + 1),
                 "com.example.P", "x.label", PluginKind.FEATURE, List.of());
-        assertThat(descriptor.isApiCompatible()).isFalse();
+        assertThat(descriptor.isSdkCompatible()).isFalse();
         // 校验本身不因 API 不兼容失败（不兼容是独立状态，非描述符缺陷）
         assertThat(descriptor.validationErrors()).isEmpty();
     }
@@ -153,7 +153,7 @@ class PluginDescriptorTest {
     @DisplayName("替代声明拒绝非法 id、自替代和重复身份")
     void rejectsInvalidReplacementIds() {
         PluginDescriptor descriptor = new PluginDescriptor("novel", "novel", "1.0.0",
-                PluginApiRequirement.parse("1.0"), List.of(), "com.example.NovelPlugin", null,
+                VersionRequirement.parse("1.0"), List.of(), "com.example.NovelPlugin", null,
                 "novel.label", null, null, null, PluginKind.FEATURE,
                 List.of("Bad_Id", "novel", "novel-gallery", "novel-gallery"));
 
@@ -169,7 +169,7 @@ class PluginDescriptorTest {
         PluginDescriptor runtimeDescriptor = external("gui-theme", "1.0.0", "1.0",
                 "com.example.ThemePlugin", "theme.label", PluginKind.FEATURE, List.of());
         PluginDescriptor packageDescriptor = new PluginDescriptor("gui-theme-pack", "gui-theme-pack", "1.0.0",
-                PluginApiRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
+                VersionRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
                 "package.label", null, null, null, PluginKind.FEATURE, List.of("legacy-theme"),
                 PluginLifecyclePolicy.PROCESS_RESTART);
 
@@ -182,7 +182,7 @@ class PluginDescriptorTest {
 
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,
                                              String displayName, PluginKind kind, List<PluginDependencyRef> deps) {
-        return new PluginDescriptor(id, id + "-pack", version, PluginApiRequirement.parse(requires),
+        return new PluginDescriptor(id, id + "-pack", version, VersionRequirement.parse(requires),
                 deps, pluginClass, null, displayName, null, null, null, kind);
     }
 

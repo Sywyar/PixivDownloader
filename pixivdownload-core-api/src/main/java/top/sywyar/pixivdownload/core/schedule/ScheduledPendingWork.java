@@ -20,6 +20,23 @@ public record ScheduledPendingWork(
         Long firstSeenTime,
         Long lastAttemptTime
 ) {
+    /**
+     * 创建 {@code ScheduledPendingWork} 实例。
+     *
+     * @param taskId 任务标识
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @param payloadSchema 载荷模式定义
+     * @param payloadVersion 载荷版本
+     * @param payloadJson 载荷JSON
+     * @param relationsJson 关系列表JSON
+     * @param presentationJson 展示信息JSON
+     * @param reasonCode 原因代码
+     * @param reasonDetailJson 原因详情JSON
+     * @param attempts 尝试次数
+     * @param firstSeenTime {@code firstSeenTime} 对应的值
+     * @param lastAttemptTime {@code lastAttemptTime} 对应的值
+     */
     public ScheduledPendingWork {
         requireText(workType, "workType");
         requireText(workId, "workId");

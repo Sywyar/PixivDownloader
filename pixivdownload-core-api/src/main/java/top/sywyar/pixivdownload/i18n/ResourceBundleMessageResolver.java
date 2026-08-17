@@ -12,10 +12,9 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Pure JDK message resolver for optional plugins.
+ * 面向可选插件、仅依赖 JDK 的消息解析器。
  * <p>
- * It resolves plugin-owned bundles with the plugin classloader first, then falls
- * back to the host resolver for shared keys.
+ * 解析插件自有资源包时优先使用插件类加载器；共享键再回退到宿主解析器。
  * <p>
  * 资源解析契约：resolver 只按 {@link LocaleBundlePolicy#resourceSuffixChain(Locale)}
  * 返回的 suffix 顺序精确加载文件（suffix 为空 = root 文件），不做 JDK 属性包的隐式
@@ -32,10 +31,25 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
     private final LocaleBundlePolicy policy;
     private final ConcurrentHashMap<String, Map<String, String>> bundleCache = new ConcurrentHashMap<>();
 
+    /**
+     * 创建 {@code ResourceBundleMessageResolver} 实例。
+     *
+     * @param fallback 回退项
+     * @param classLoader 类加载器
+     * @param baseNames 基础名称列表
+     */
     public ResourceBundleMessageResolver(MessageResolver fallback, ClassLoader classLoader, List<String> baseNames) {
         this(fallback, classLoader, baseNames, LegacyLocaleBundlePolicy.INSTANCE);
     }
 
+    /**
+     * 创建 {@code ResourceBundleMessageResolver} 实例。
+     *
+     * @param fallback 回退项
+     * @param classLoader 类加载器
+     * @param baseNames 基础名称列表
+     * @param policy 策略
+     */
     public ResourceBundleMessageResolver(MessageResolver fallback, ClassLoader classLoader, List<String> baseNames,
                                          LocaleBundlePolicy policy) {
         this.fallback = fallback;
@@ -44,12 +58,29 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
         this.policy = policy == null ? LegacyLocaleBundlePolicy.INSTANCE : policy;
     }
 
+    /**
+     * 创建并返回 {@code ResourceBundleMessageResolver} 实例。
+     *
+     * @param fallback 回退项
+     * @param classLoader 类加载器
+     * @param baseNames 基础名称列表
+     * @return 方法返回的 {@code ResourceBundleMessageResolver} 实例
+     */
     public static ResourceBundleMessageResolver of(MessageResolver fallback, ClassLoader classLoader,
                                                    String... baseNames) {
         return new ResourceBundleMessageResolver(fallback, classLoader,
                 baseNames == null ? List.of() : List.of(baseNames), LegacyLocaleBundlePolicy.INSTANCE);
     }
 
+    /**
+     * 创建并返回 {@code ResourceBundleMessageResolver} 实例。
+     *
+     * @param fallback 回退项
+     * @param classLoader 类加载器
+     * @param policy 策略
+     * @param baseNames 基础名称列表
+     * @return 方法返回的 {@code ResourceBundleMessageResolver} 实例
+     */
     public static ResourceBundleMessageResolver of(MessageResolver fallback, ClassLoader classLoader,
                                                    LocaleBundlePolicy policy, String... baseNames) {
         return new ResourceBundleMessageResolver(fallback, classLoader,

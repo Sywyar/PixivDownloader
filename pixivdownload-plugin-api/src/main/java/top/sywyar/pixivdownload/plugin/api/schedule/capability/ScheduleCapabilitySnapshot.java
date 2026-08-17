@@ -9,6 +9,13 @@ public record ScheduleCapabilitySnapshot(
         List<ScheduleCapabilityOwnerSnapshot> owners
 ) {
 
+    /**
+     * 创建 {@code ScheduleCapabilitySnapshot} 实例。
+     *
+     * @param epoch 纪元时间
+     * @param revision 修订版本
+     * @param owners 所有者集合
+     */
     public ScheduleCapabilitySnapshot {
         if (epoch == null || epoch.isBlank()) {
             throw new IllegalArgumentException("schedule capability epoch must not be blank");

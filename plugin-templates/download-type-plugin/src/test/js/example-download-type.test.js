@@ -204,6 +204,7 @@ test('queue module exposes only the declared contract-version-1 behavior', async
 
     const user = descriptor.acquisition.user;
     assert.equal(user.parseInput(' author '), 'author');
+    assert.equal(user.profileUrl('author'), 'https://example.invalid/users/author');
     assert.equal(await user.fetchMeta('author'), 'author');
     const userPage = await user.fetchPage('author', {
         page: 2,
@@ -271,6 +272,8 @@ test('queue module exposes only the declared contract-version-1 behavior', async
     assert.equal(quick.gridCardId('quick', 0), 'quick-example-0');
     assert.equal(document.getElementById('quick-example-0').classList.contains('in-queue'), true);
     assert.equal(quick.buildQueueMeta({id: '301'}, {}).cancelWorkKey, '301');
+    assert.equal(quick.actions['example-featured'].labelNamespace, 'example-download');
+    assert.equal(quick.actions['example-featured'].labelI18nKey, 'quick.featured');
     let quickPayload;
     let assertCurrentCount = 0;
     await quick.actions['example-featured'].load(null, {

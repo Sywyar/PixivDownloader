@@ -21,6 +21,14 @@ public record RenderedMessage(
         PushFormat format,
         NotificationSeverity level) {
 
+    /**
+     * 创建 {@code RenderedMessage} 实例。
+     *
+     * @param title 标题
+     * @param body 请求体
+     * @param format 格式
+     * @param level 级别
+     */
     public RenderedMessage {
         if (title == null) {
             title = "";

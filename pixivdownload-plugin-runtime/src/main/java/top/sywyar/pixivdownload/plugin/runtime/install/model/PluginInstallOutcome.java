@@ -36,7 +36,7 @@ public enum PluginInstallOutcome {
     /** 描述符内容非法（id / 版本 semver / 主类等不合法）。 */
     REJECTED_INVALID(false),
 
-    /** 声明的核心 API 版本要求（requires）不被当前核心满足，拒绝安装为可加载状态。 */
+    /** 声明的 SDK 版本要求（requires）不被当前宿主 SDK 满足，拒绝安装为可加载状态。 */
     REJECTED_INCOMPATIBLE(false),
 
     /** 非可选插件依赖缺失、版本不满足、不可激活或依赖安装编排失败，拒绝安装目标插件。 */

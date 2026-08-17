@@ -11,6 +11,13 @@ public record ScheduleRunToken(
         long stateVersion,
         ScheduleRunState runState
 ) {
+    /**
+     * 创建 {@code ScheduleRunToken} 实例。
+     *
+     * @param claimToken 认领令牌
+     * @param stateVersion 状态版本
+     * @param runState 运行状态
+     */
     public ScheduleRunToken {
         if (claimToken == null || claimToken.isBlank()) {
             throw new IllegalArgumentException("claimToken must not be blank");

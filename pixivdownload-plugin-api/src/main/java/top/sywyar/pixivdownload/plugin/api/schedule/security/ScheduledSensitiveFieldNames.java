@@ -46,6 +46,9 @@ public final class ScheduledSensitiveFieldNames {
      * 判断字段名是否声明 Cookie、会话、token、凭证、口令、secret、签名或临时地址材料。
      * 分隔符与大小写不影响判定，例如 {@code refresh_token}、{@code session_id} 与
      * {@code proxy-authorization} 都会被拒绝。
+     *
+     * @param fieldName 字段名称
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     public static boolean isSensitiveFieldName(String fieldName) {
         if (fieldName == null || fieldName.isBlank()) {
@@ -60,6 +63,9 @@ public final class ScheduledSensitiveFieldNames {
      * 判断字段名是否是允许以严格非敏感值表达的凭证元数据。
      * 这类字段仍带有敏感语义，调用方必须同时用 {@link #isSafeMetadataValue(String, String)}
      * 校验对应值，不能只凭后缀放行。
+     *
+     * @param fieldName 字段名称
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     public static boolean isSensitiveMetadataFieldName(String fieldName) {
         if (fieldName == null || fieldName.isBlank()) {
@@ -72,6 +78,10 @@ public final class ScheduledSensitiveFieldNames {
 
     /**
      * 校验敏感元数据的值：计数只接受有界非负十进制整数，状态只接受布尔字面量。
+     *
+     * @param fieldName 字段名称
+     * @param value 值
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     public static boolean isSafeMetadataValue(String fieldName, String value) {
         if (value == null || fieldName == null || fieldName.isBlank()) {

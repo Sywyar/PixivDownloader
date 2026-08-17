@@ -7,9 +7,21 @@ import java.util.Objects;
  */
 public final class PixivThumbnailFetchException extends RuntimeException {
 
+    /**
+     * 失败信息。
+     */
     private final PixivThumbnailFailure failure;
+    /**
+     * 状态码。
+     */
     private final int statusCode;
 
+    /**
+     * 创建 {@code PixivThumbnailFetchException} 实例。
+     *
+     * @param failure 失败信息
+     * @param statusCode 状态码
+     */
     public PixivThumbnailFetchException(PixivThumbnailFailure failure, int statusCode) {
         super(message(failure, statusCode));
         this.failure = Objects.requireNonNull(failure, "failure");
@@ -26,12 +38,19 @@ public final class PixivThumbnailFetchException extends RuntimeException {
         }
     }
 
+    /**
+     * 返回失败信息。
+     *
+     * @return 方法返回的 {@code PixivThumbnailFailure} 实例
+     */
     public PixivThumbnailFailure failure() {
         return failure;
     }
 
     /**
      * 返回上游 HTTP 状态码；非 HTTP 失败返回 {@code 0}。
+     *
+     * @return 方法返回的数值
      */
     public int statusCode() {
         return statusCode;

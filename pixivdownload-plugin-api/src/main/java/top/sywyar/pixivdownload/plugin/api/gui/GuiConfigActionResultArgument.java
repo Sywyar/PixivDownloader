@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
 /**
- * One argument inserted into a GUI config action result notice.
+ * 插入 GUI 配置动作结果提示的一项参数。
  *
- * @param source where to read the value from
- * @param path optional dot-separated JSON path for {@link GuiConfigActionResultSource#JSON}; credential-like,
- *             raw-error and HTML paths are rejected by the host
- * @param defaultValue value used when the source is blank or missing; the host renders it as bounded plain text
+ * @param source 读取值的数据源
+ * @param path {@link GuiConfigActionResultSource#JSON} 使用的可选点分隔 JSON 路径；宿主拒绝类似凭证、
+ *             原始错误和 HTML 的路径
+ * @param defaultValue 数据源为空白或缺失时使用的值；宿主以有界纯文本渲染
  */
 public record GuiConfigActionResultArgument(
         GuiConfigActionResultSource source,
@@ -14,16 +14,34 @@ public record GuiConfigActionResultArgument(
         String defaultValue
 ) {
 
+    /**
+     * 规范化数据源、路径和默认值。
+     *
+     * @param source 数据来源
+     * @param path 路径
+     * @param defaultValue 默认值
+     */
     public GuiConfigActionResultArgument {
         source = source == null ? GuiConfigActionResultSource.JSON : source;
         path = path == null ? "" : path.trim();
         defaultValue = defaultValue == null ? "" : defaultValue;
     }
 
+    /**
+     * 创建从 JSON 路径读取值的参数。
+     *
+     * @param path 点分隔 JSON 路径
+     * @return JSON 参数
+     */
     public static GuiConfigActionResultArgument json(String path) {
         return new GuiConfigActionResultArgument(GuiConfigActionResultSource.JSON, path, "");
     }
 
+    /**
+     * 创建读取结果摘要的参数。
+     *
+     * @return 摘要参数
+     */
     public static GuiConfigActionResultArgument summary() {
         return new GuiConfigActionResultArgument(GuiConfigActionResultSource.SUMMARY, "", "");
     }

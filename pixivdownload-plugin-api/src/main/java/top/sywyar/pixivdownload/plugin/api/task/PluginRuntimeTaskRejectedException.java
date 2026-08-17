@@ -7,6 +7,9 @@ import java.util.concurrent.RejectedExecutionException;
  */
 public final class PluginRuntimeTaskRejectedException extends RejectedExecutionException {
 
+    /**
+     * 创建 {@code PluginRuntimeTaskRejectedException} 实例。
+     */
     public PluginRuntimeTaskRejectedException() {
         super("plugin runtime task admission is closed");
     }

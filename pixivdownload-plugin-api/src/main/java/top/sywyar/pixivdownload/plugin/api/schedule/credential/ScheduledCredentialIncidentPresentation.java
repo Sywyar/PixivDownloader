@@ -15,8 +15,18 @@ public record ScheduledCredentialIncidentPresentation(
         Map<String, Long> timeAttributes
 ) {
 
+    /**
+     * 允许的最大属性。
+     */
     public static final int MAX_ATTRIBUTES = ScheduledGuardEvidence.MAX_ATTRIBUTES;
 
+    /**
+     * 创建 {@code ScheduledCredentialIncidentPresentation} 实例。
+     *
+     * @param scenarioId 场景标识
+     * @param scalarAttributes 标量属性
+     * @param timeAttributes 时间属性
+     */
     public ScheduledCredentialIncidentPresentation {
         if (scenarioId == null || scenarioId.isBlank()) {
             scenarioId = null;
@@ -43,6 +53,11 @@ public record ScheduledCredentialIncidentPresentation(
         }
     }
 
+    /**
+     * 返回空的 {@code ScheduledCredentialIncidentPresentation} 实例。
+     *
+     * @return 方法返回的 {@code ScheduledCredentialIncidentPresentation} 实例
+     */
     public static ScheduledCredentialIncidentPresentation empty() {
         return new ScheduledCredentialIncidentPresentation(null, Map.of(), Map.of());
     }

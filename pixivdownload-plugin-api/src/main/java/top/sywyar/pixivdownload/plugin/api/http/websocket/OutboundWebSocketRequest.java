@@ -11,7 +11,10 @@ import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
- * Transport-neutral outbound WebSocket handshake request.
+ * 传输中立的出站 WebSocket 握手请求。
+ *
+ * @param uri 不含用户信息和 fragment 的绝对 WS(S) URI
+ * @param headers 握手请求头；名称按大小写不敏感语义处理
  */
 public record OutboundWebSocketRequest(
         URI uri,
@@ -21,6 +24,12 @@ public record OutboundWebSocketRequest(
     private static final Pattern HEADER_NAME_TOKEN =
             Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
 
+    /**
+     * 校验握手目标并复制请求头。
+     *
+     * @param uri URI
+     * @param headers 请求头
+     */
     public OutboundWebSocketRequest {
         uri = validatedUri(uri);
         headers = immutableHeaders(headers);

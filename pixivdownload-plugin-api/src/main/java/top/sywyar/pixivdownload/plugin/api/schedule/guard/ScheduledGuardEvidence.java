@@ -14,13 +14,30 @@ import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveF
  */
 public record ScheduledGuardEvidence(Map<String, String> attributes) {
 
+    /**
+     * 允许的最大属性。
+     */
     public static final int MAX_ATTRIBUTES = 16;
+    /**
+     * 键允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_KEY_BYTES = 64;
+    /**
+     * 值允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_VALUE_BYTES = 4_096;
+    /**
+     * 总数允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_TOTAL_BYTES = 16_384;
 
     private static final Pattern KEY_PATTERN = Pattern.compile("[A-Za-z][A-Za-z0-9._-]*");
 
+    /**
+     * 创建 {@code ScheduledGuardEvidence} 实例。
+     *
+     * @param attributes 属性
+     */
     public ScheduledGuardEvidence {
         if (attributes == null || attributes.isEmpty()) {
             attributes = Map.of();
@@ -47,6 +64,11 @@ public record ScheduledGuardEvidence(Map<String, String> attributes) {
         }
     }
 
+    /**
+     * 返回空的 {@code ScheduledGuardEvidence} 实例。
+     *
+     * @return 方法返回的 {@code ScheduledGuardEvidence} 实例
+     */
     public static ScheduledGuardEvidence empty() {
         return new ScheduledGuardEvidence(Map.of());
     }

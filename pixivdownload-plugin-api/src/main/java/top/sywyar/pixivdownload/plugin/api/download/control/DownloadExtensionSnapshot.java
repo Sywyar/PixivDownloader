@@ -10,6 +10,14 @@ public record DownloadExtensionSnapshot(
         List<DownloadUiSlotPublication> uiSlots
 ) {
 
+    /**
+     * 创建 {@code DownloadExtensionSnapshot} 实例。
+     *
+     * @param epoch 纪元时间
+     * @param revision 修订版本
+     * @param downloadTypes 下载类型集合
+     * @param uiSlots 界面槽位列表
+     */
     public DownloadExtensionSnapshot {
         if (epoch == null || epoch.isBlank()) {
             throw new IllegalArgumentException("download extension epoch must not be blank");

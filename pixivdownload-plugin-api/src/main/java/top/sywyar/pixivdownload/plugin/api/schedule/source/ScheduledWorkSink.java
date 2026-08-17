@@ -10,6 +10,12 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
  */
 public interface ScheduledWorkSink {
 
+    /**
+     * 执行对应操作。
+     *
+     * @param work 工作项
+     * @throws ScheduledExecutionException 执行失败时抛出
+     */
     void submit(ScheduledWork work) throws ScheduledExecutionException;
 
     /**
@@ -17,6 +23,10 @@ public interface ScheduledWorkSink {
      * {@link ScheduledWorkResult.Outcome#ALREADY_COMPLETED} 或
      * {@link ScheduledWorkResult.Outcome#SKIPPED}。宿主把结果投影到运行队列与统计，且不得把它计入
      * 远端 attempt、{@code WORK_BATCH} cadence 或作品礼貌延迟。
+     *
+     * @param work 工作项
+     * @param result 结果
+     * @throws top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException 执行失败时抛出
      */
     void completeLocally(ScheduledWork work, ScheduledWorkResult result)
             throws ScheduledExecutionException;
@@ -24,6 +34,8 @@ public interface ScheduledWorkSink {
     /**
      * 等待此前接受的作品全部到达耐久终态。来源只在不同作品类别必须保持严格先后顺序时调用；宿主仍拥有
      * 实际排空、失败传播、取消与背压。
+     *
+     * @throws top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException 执行失败时抛出
      */
     void drain() throws ScheduledExecutionException;
 }

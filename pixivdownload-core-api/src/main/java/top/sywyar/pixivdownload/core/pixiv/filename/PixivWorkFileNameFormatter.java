@@ -10,8 +10,14 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 模板。
+ */
 public final class PixivWorkFileNameFormatter {
 
+    /**
+     * 默认模板。
+     */
     public static final String DEFAULT_TEMPLATE = "{artwork_id}_p{page}";
 
     private static final int MAX_BASENAME_LENGTH = 180;
@@ -27,10 +33,30 @@ public final class PixivWorkFileNameFormatter {
 
     private PixivWorkFileNameFormatter() {}
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param template 模板
+     * @return 方法返回的字符串
+     */
     public static String normalizeTemplate(String template) {
         return template == null || template.isBlank() ? DEFAULT_TEMPLATE : template;
     }
 
+    /**
+     * 查询并返回格式全部。
+     *
+     * @param template 模板
+     * @param artworkId 插画作品标识
+     * @param artworkTitle 插画作品标题
+     * @param authorId 作者标识
+     * @param authorName 作者名称
+     * @param timestamp 时间戳
+     * @param count 数量
+     * @param isAi {@code isAi} 对应的值
+     * @param xRestrict {@code xRestrict} 对应的值
+     * @return 方法返回的列表
+     */
     public static List<String> formatAll(String template,
                                          long artworkId,
                                          String artworkTitle,
@@ -49,6 +75,14 @@ public final class PixivWorkFileNameFormatter {
         return ensureUnique(names);
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param baseNames 基础名称列表
+     * @param count 数量
+     * @param artworkId 插画作品标识
+     * @return 方法返回的列表
+     */
     public static List<String> normalizeProvidedBaseNames(List<String> baseNames, int count, long artworkId) {
         int safeCount = Math.max(1, count);
         if (baseNames == null || baseNames.size() < safeCount) {
@@ -61,6 +95,13 @@ public final class PixivWorkFileNameFormatter {
         return ensureUnique(names);
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param value 值
+     * @param fallback 回退项
+     * @return 方法返回的字符串
+     */
     public static String normalizeBaseName(String value, String fallback) {
         String cleaned = sanitize(value);
         if (cleaned.isBlank()) {
@@ -80,6 +121,9 @@ public final class PixivWorkFileNameFormatter {
      * 互相覆盖。
      *
      * @param suffix 已 sanitize 的后缀；若为 {@code null} / 空则等价于 {@link #normalizeBaseName}
+     * @param value 值
+     * @param fallback 回退项
+     * @return 方法返回的字符串
      */
     public static String normalizeBaseNameWithSuffix(String value, String suffix, String fallback) {
         if (suffix == null || suffix.isEmpty()) {
@@ -181,6 +225,12 @@ public final class PixivWorkFileNameFormatter {
         return value.toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param value 值
+     * @return 方法返回的字符串
+     */
     public static String sanitize(String value) {
         if (value == null) {
             return "";

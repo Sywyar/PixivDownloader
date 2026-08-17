@@ -2,9 +2,9 @@ package top.sywyar.pixivdownload.plugin.runtime.status;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusEvaluator.ObservedPlugin;
@@ -36,21 +36,21 @@ class PluginStatusEvaluatorTest {
     @DisplayName("requires 版本过高 → INCOMPATIBLE，诊断含所需与核心版本")
     void higherRequiresYieldsIncompatible() {
         PluginDescriptor descriptor = descriptor("ext", "1.0",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR + 1), List.of());
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR + 1), List.of());
 
         PluginStatusReport report = evaluator.evaluate(
                 List.of(new ObservedPlugin(descriptor, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
 
         PluginDiagnostic diagnostic = report.byId("ext").orElseThrow();
         assertThat(diagnostic.status()).isEqualTo(PluginStatus.INCOMPATIBLE);
-        assertThat(diagnostic.messages()).anyMatch(m -> m.contains("requires core API"));
+        assertThat(diagnostic.messages()).anyMatch(m -> m.contains("requires SDK"));
     }
 
     @Test
     @DisplayName("描述符非法（缺字段）→ FAILED，诊断携带校验错误")
     void invalidDescriptorYieldsFailed() {
         PluginDescriptor invalid = new PluginDescriptor("ext", "ext-pack", "1.0",
-                PluginApiRequirement.of(1, 0), List.of(), "com.example.P", "ns", "  ", null, null, null, PluginKind.FEATURE);
+                VersionRequirement.of(1, 0), List.of(), "com.example.P", "ns", "  ", null, null, null, PluginKind.FEATURE);
 
         PluginStatusReport report = evaluator.evaluate(
                 List.of(new ObservedPlugin(invalid, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
@@ -63,7 +63,7 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("非可选依赖缺失 → 依赖方 MISSING_REQUIRED，诊断指明缺失依赖")
     void missingRequiredDependency() {
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(
@@ -77,7 +77,7 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("可选依赖缺失不阻断启动：依赖方保留 STARTED")
     void missingOptionalDependencyDoesNotBlock() {
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "1.0", true)));
 
         PluginStatusReport report = evaluator.evaluate(
@@ -90,8 +90,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖存在但版本不兼容 → 依赖方 INCOMPATIBLE_REQUIRED")
     void incompatibleDependencyVersion() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "2.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -108,8 +108,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖在场且版本兼容、但被禁用（DISABLED）→ 依赖方不再 STARTED（MISSING_REQUIRED），诊断含依赖与其状态")
     void disabledDependencyBlocksDependent() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -126,8 +126,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖运行期失败（FAILED）→ 依赖方降级为 MISSING_REQUIRED（不保持 STARTED）")
     void failedDependencyBlocksDependent() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -139,11 +139,11 @@ class PluginStatusEvaluatorTest {
     }
 
     @Test
-    @DisplayName("依赖自身核心 API 不兼容（INCOMPATIBLE）→ 依赖方降级为 INCOMPATIBLE_REQUIRED")
+    @DisplayName("依赖自身SDK 不兼容（INCOMPATIBLE）→ 依赖方降级为 INCOMPATIBLE_REQUIRED")
     void incompatibleDependencyBlocksDependent() {
         PluginDescriptor dependency = descriptor("novel", "1.0",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR + 1), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR + 1), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -159,10 +159,10 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖不可用沿链传递：A→B→C，C 被禁用则 B、A 都不再 STARTED")
     void unavailabilityPropagatesTransitively() {
-        PluginDescriptor c = descriptor("c", "1.0", PluginApiRequirement.of(1, 0), List.of());
-        PluginDescriptor b = descriptor("b", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor c = descriptor("c", "1.0", VersionRequirement.of(1, 0), List.of());
+        PluginDescriptor b = descriptor("b", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("c", "1.0", false)));
-        PluginDescriptor a = descriptor("a", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor a = descriptor("a", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("b", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -178,8 +178,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("可选依赖即使不可用也不阻断：依赖方保留 STARTED")
     void unavailableOptionalDependencyDoesNotBlock() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "1.0", true)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -192,8 +192,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖健康（STARTED）时依赖方照常 STARTED（不误降级）")
     void healthyDependencyKeepsDependentStarted() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -209,7 +209,7 @@ class PluginStatusEvaluatorTest {
     @DisplayName("必选策略：必选 pluginId 未安装 → 追加 MISSING_REQUIRED（无描述符）")
     void requiredPolicyMissing() {
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
-                new RequiredPlugin("download-workbench", PluginApiRequirement.unspecified(), false,
+                new RequiredPlugin("download-workbench", VersionRequirement.unspecified(), false,
                         "plugin.required.download-workbench")));
 
         PluginStatusReport report = evaluator.evaluate(
@@ -228,9 +228,9 @@ class PluginStatusEvaluatorTest {
     @DisplayName("必选策略：已安装但 API 不兼容的必选插件 → INCOMPATIBLE_REQUIRED（非普通 INCOMPATIBLE）")
     void requiredPolicyIncompatible() {
         PluginDescriptor descriptor = descriptor("download-workbench", "1.0",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR + 1, 0), List.of());
+                VersionRequirement.of(SdkVersion.MAJOR + 1, 0), List.of());
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
-                new RequiredPlugin("download-workbench", PluginApiRequirement.unspecified(), false, null)));
+                new RequiredPlugin("download-workbench", VersionRequirement.unspecified(), false, null)));
 
         PluginStatusReport report = evaluator.evaluate(
                 List.of(new ObservedPlugin(descriptor, PluginStatus.STARTED)), policy);
@@ -243,9 +243,9 @@ class PluginStatusEvaluatorTest {
     @DisplayName("必选策略：已安装、自身兼容但不满足策略版本范围 → INCOMPATIBLE_REQUIRED")
     void requiredPolicyVersionRangeUnsatisfied() {
         PluginDescriptor descriptor = descriptor("download-workbench", "1.0",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR), List.of());
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
-                new RequiredPlugin("download-workbench", PluginApiRequirement.of(2, 0), false, null)));
+                new RequiredPlugin("download-workbench", VersionRequirement.of(2, 0), false, null)));
 
         PluginStatusReport report = evaluator.evaluate(
                 List.of(new ObservedPlugin(descriptor, PluginStatus.STARTED)), policy);
@@ -260,9 +260,9 @@ class PluginStatusEvaluatorTest {
     @DisplayName("必选策略：已安装、兼容、满足版本范围 → 保留生命周期状态但标记 requiredByPolicy")
     void requiredPolicySatisfied() {
         PluginDescriptor descriptor = descriptor("download-workbench", "1.4",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR), List.of());
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
-                new RequiredPlugin("download-workbench", PluginApiRequirement.of(1, 0), false, null)));
+                new RequiredPlugin("download-workbench", VersionRequirement.of(1, 0), false, null)));
 
         PluginStatusReport report = evaluator.evaluate(
                 List.of(new ObservedPlugin(descriptor, PluginStatus.STARTED)), policy);
@@ -279,12 +279,12 @@ class PluginStatusEvaluatorTest {
 
     private static ObservedPlugin observed(String id, String version, PluginStatus baseStatus) {
         return new ObservedPlugin(
-                descriptor(id, version, PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                descriptor(id, version, VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                         List.of()),
                 baseStatus);
     }
 
-    private static PluginDescriptor descriptor(String id, String version, PluginApiRequirement requires,
+    private static PluginDescriptor descriptor(String id, String version, VersionRequirement requires,
                                                List<PluginDependencyRef> deps) {
         // plugin-class 必须是合法 Java FQN（不能含连字符，区别于可含连字符的 plugin id）
         String pluginClass = "com.example." + id.replace("-", "_");

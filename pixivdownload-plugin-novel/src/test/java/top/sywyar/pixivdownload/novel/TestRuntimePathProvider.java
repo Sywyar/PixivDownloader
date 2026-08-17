@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel;
 
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -17,19 +17,19 @@ public final class TestRuntimePathProvider implements RuntimePathProvider {
     }
 
     @Override
-    public Path resolvePluginConfigPath(String pluginId, String extension) {
+    public Path configFile(String extension) {
         return directory(root.resolve("config").resolve("plugins"))
-                .resolve(pluginId + "." + extension);
+                .resolve("novel." + extension);
     }
 
     @Override
-    public Path resolvePluginDataDirectory(String pluginId) {
-        return directory(root.resolve("data").resolve(pluginId));
+    public Path dataDirectory() {
+        return directory(root.resolve("data").resolve("novel"));
     }
 
     @Override
-    public Path resolvePluginStateDirectory(String pluginId) {
-        return directory(root.resolve("state").resolve(pluginId));
+    public Path stateDirectory() {
+        return directory(root.resolve("state").resolve("novel"));
     }
 
     /** 返回花名册参考音目录但不创建，便于断言删除结果。 */

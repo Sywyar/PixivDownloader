@@ -10,6 +10,7 @@ public interface ArtworkDownloadLookup {
      *
      * @param artworkId   插画 id
      * @param verifyFiles 是否校验磁盘文件并修复陈旧历史
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean isDownloaded(long artworkId, boolean verifyFiles);
 }

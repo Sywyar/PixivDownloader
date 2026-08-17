@@ -1,21 +1,20 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
 /**
- * Data source used by declarative GUI config action result rules. Response-derived display values are limited to
- * bounded structured scalars admitted by the host; raw response bodies, credential-like keys, raw errors and HTML
- * are not projection sources.
+ * 声明式 GUI 配置动作结果规则使用的数据源。由响应派生的展示值仅限宿主准入的有界结构化标量；
+ * 原始响应体、类似凭证的 key、原始错误和 HTML 均不能作为投影来源。
  */
 public enum GuiConfigActionResultSource {
-    /** Whether the GUI endpoint was reachable. */
+    /** GUI 端点是否可达。 */
     REACHABLE,
-    /** Whether the HTTP status code is 2xx. */
+    /** HTTP 状态码是否为 2xx。 */
     HTTP_2XX,
-    /** HTTP status code as an integer. */
+    /** 整数形式的 HTTP 状态码。 */
     HTTP_STATUS,
-    /** HTTP status formatted as a short display text, such as HTTP 500. */
+    /** 格式化为简短展示文本的 HTTP 状态，例如 HTTP 500。 */
     HTTP_STATUS_TEXT,
-    /** Bounded scalar read from an admitted non-sensitive JSON response path. */
+    /** 从准入的非敏感 JSON 响应路径读取的有界标量。 */
     JSON,
-    /** Bounded plain-text summary built from admitted scalar fields in an action-declared response array. */
+    /** 从动作声明的响应数组中准入标量字段生成的有界纯文本摘要。 */
     SUMMARY
 }

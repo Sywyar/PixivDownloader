@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
@@ -178,8 +178,8 @@ public final class PluginArtifactLoadPlan {
     }
 
     private static String dependencyVersionProblem(PluginDependencyRef dependency, Entry target) {
-        PluginApiRequirement required = dependency.requirement();
-        PluginApiRequirement actual = PluginApiRequirement.parse(target.descriptor().version());
+        VersionRequirement required = dependency.requirement();
+        VersionRequirement actual = VersionRequirement.parse(target.descriptor().version());
         if (required.isSatisfiedBy(actual.major(), actual.minor())) {
             return null;
         }

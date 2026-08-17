@@ -10,11 +10,15 @@ public interface PixivProxyAccessPolicy {
      *
      * @param existingOwnerUuid 请求已携带的 owner UUID；不存在时为 {@code null}
      * @param adminAuthenticated 当前请求是否已经通过管理员认证
+     * @return 方法返回的 {@code PixivProxyAccessDecision} 实例
      */
     PixivProxyAccessDecision evaluate(String existingOwnerUuid, boolean adminAuthenticated);
 
     /**
      * 返回搜索自动补页上限；{@code 0} 表示不限制。
+     *
+     * @param adminAuthenticated 管理员已认证
+     * @return 方法返回的数值
      */
     int resolveSearchFillLimitPage(boolean adminAuthenticated);
 }

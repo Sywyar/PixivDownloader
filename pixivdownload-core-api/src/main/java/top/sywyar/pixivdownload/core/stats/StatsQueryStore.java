@@ -15,15 +15,33 @@ import java.util.List;
  */
 public interface StatsQueryStore {
 
-    /** 总览卡片所需的作品、图片、已移动及其它聚合计数。 */
+    /**
+     * 总览卡片所需的作品、图片、已移动及其它聚合计数。
+     *
+     * @return 方法返回的 {@code StatsAggregates.Overview} 实例
+     */
     StatsAggregates.Overview overview();
 
-    /** 下载量最高的作者，按作品数降序。{@code name} 可能为空，由上层回退展示。 */
+    /**
+     * 下载量最高的作者，按作品数降序。{@code name} 可能为空，由上层回退展示。
+     *
+     * @param limit 限制值
+     * @return 方法返回的列表
+     */
     List<StatsAggregates.AuthorStat> topAuthors(int limit);
 
-    /** 使用最多的标签，按作品数降序（标签词云 / Top 标签）。 */
+    /**
+     * 使用最多的标签，按作品数降序（标签词云 / Top 标签）。
+     *
+     * @param limit 限制值
+     * @return 方法返回的列表
+     */
     List<StatsAggregates.TagStat> topTags(int limit);
 
-    /** 按月（本地时区）统计下载作品数（插画 + 小说），时间升序。 */
+    /**
+     * 按月（本地时区）统计下载作品数（插画 + 小说），时间升序。
+     *
+     * @return 方法返回的列表
+     */
     List<StatsAggregates.MonthlyStat> monthlyArtworkCounts();
 }

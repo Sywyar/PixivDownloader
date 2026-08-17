@@ -9,9 +9,18 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
  */
 public interface ScheduledSourceExecutor {
 
+    /**
+     * 返回来源类型。
+     *
+     * @return 方法返回的字符串
+     */
     String sourceType();
 
-    /** 本来源的 pending 重放策略；默认每轮重放全部 pending。 */
+    /**
+     * 本来源的 pending 重放策略；默认每轮重放全部 pending。
+     *
+     * @return 方法返回的 {@code ScheduledPendingReplayPolicy} 实例
+     */
     default ScheduledPendingReplayPolicy pendingReplayPolicy() {
         return ScheduledPendingReplayPolicy.ALWAYS;
     }
@@ -19,13 +28,31 @@ public interface ScheduledSourceExecutor {
     /**
      * 在保存前规范化来源定义。实现必须保持纯函数语义，不读取凭证、不访问网络且不产生外部副作用；
      * 宿主会重新校验所有盖章字段与返回内容。默认实现原样提升草稿为正式定义。
+     *
+     * @param draft 草稿
+     * @return 方法返回的 {@code ScheduledTaskDefinition} 实例
+     * @throws top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException 执行失败时抛出
      */
     default ScheduledTaskDefinition prepare(ScheduledTaskDraft draft)
             throws ScheduledExecutionException {
         return draft.toDefinition();
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param task 任务
+     * @return 方法返回的 {@code ScheduledExecutionPlan} 实例
+     * @throws ScheduledExecutionException 执行失败时抛出
+     */
     ScheduledExecutionPlan plan(ScheduledTaskDefinition task) throws ScheduledExecutionException;
 
+    /**
+     * 查询并返回对应结果。
+     *
+     * @param context 上下文
+     * @return 方法返回的 {@code ScheduledDiscoveryResult} 实例
+     * @throws ScheduledExecutionException 执行失败时抛出
+     */
     ScheduledDiscoveryResult discover(ScheduledSourceContext context) throws ScheduledExecutionException;
 }

@@ -12,5 +12,13 @@ import java.util.Optional;
 @FunctionalInterface
 public interface NamespaceMessageResolver {
 
+    /**
+     * 查询并返回对应结果。
+     *
+     * @param namespace 命名空间
+     * @param locale 语言区域
+     * @param key 键
+     * @return 匹配的可选值
+     */
     Optional<String> resolve(String namespace, Locale locale, String key);
 }

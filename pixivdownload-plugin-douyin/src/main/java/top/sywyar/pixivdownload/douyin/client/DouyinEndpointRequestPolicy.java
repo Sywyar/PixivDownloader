@@ -1,20 +1,18 @@
 package top.sywyar.pixivdownload.douyin.client;
 
-import org.springframework.http.HttpMethod;
-
 enum DouyinEndpointRequestPolicy {
 
-    SIGNED_GET(HttpMethod.GET, true),
-    UNSIGNED_GET(HttpMethod.GET, false),
-    SIGNED_POST(HttpMethod.POST, true);
+    SIGNED_GET("GET", true),
+    UNSIGNED_GET("GET", false),
+    SIGNED_POST("POST", true);
 
     private static final String GENERAL_SEARCH_PATH = "/aweme/v1/web/general/search/single/";
     private static final String FAVORITE_WORKS_PATH = "/aweme/v1/web/aweme/listcollection/";
 
-    private final HttpMethod method;
+    private final String method;
     private final boolean requiresSignature;
 
-    DouyinEndpointRequestPolicy(HttpMethod method, boolean requiresSignature) {
+    DouyinEndpointRequestPolicy(String method, boolean requiresSignature) {
         this.method = method;
         this.requiresSignature = requiresSignature;
     }
@@ -33,7 +31,7 @@ enum DouyinEndpointRequestPolicy {
         return SIGNED_GET;
     }
 
-    HttpMethod method() {
+    String method() {
         return method;
     }
 

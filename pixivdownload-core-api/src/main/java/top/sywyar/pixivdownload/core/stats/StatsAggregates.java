@@ -10,6 +10,17 @@ public final class StatsAggregates {
 
     private StatsAggregates() {}
 
+    /**
+     * 创建 {@code StatsAggregates.Overview} 实例。
+     *
+     * @param totalArtworks {@code totalArtworks} 对应的值
+     * @param totalImages {@code totalImages} 对应的值
+     * @param totalMoved 总数移动数量
+     * @param totalNovels {@code totalNovels} 对应的值
+     * @param totalAuthors {@code totalAuthors} 对应的值
+     * @param totalTags 总数标签集合
+     * @param totalSeries 总数系列
+     */
     public record Overview(long totalArtworks,
                            long totalImages,
                            long totalMoved,
@@ -18,8 +29,23 @@ public final class StatsAggregates {
                            long totalTags,
                            long totalSeries) {}
 
+    /**
+     * 创建 {@code StatsAggregates.AuthorStat} 实例。
+     *
+     * @param authorId 作者标识
+     * @param name 名称
+     * @param count 数量
+     */
     public record AuthorStat(long authorId, String name, long count) {}
 
+    /**
+     * 创建 {@code StatsAggregates.TagStat} 实例。
+     *
+     * @param tagId 标签标识
+     * @param name 名称
+     * @param translatedName 翻译后值名称
+     * @param count 数量
+     */
     public record TagStat(long tagId, String name, String translatedName, long count) {}
 
     /** {@code month} 形如 {@code "YYYY-MM"}（本地时区）。 */

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.status;
 
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
@@ -17,7 +17,7 @@ import java.util.Objects;
  * {@link PluginStatusReport}。逐插件「自身」评估优先级（高→低）：
  * <ol>
  *   <li>描述符非法（缺字段 / 非法字段）→ {@link PluginStatus#FAILED}；</li>
- *   <li>核心 API 版本要求不满足（{@code requires}）→ {@link PluginStatus#INCOMPATIBLE}；</li>
+ *   <li>SDK 版本要求不满足（{@code requires}）→ {@link PluginStatus#INCOMPATIBLE}；</li>
  *   <li>非可选依赖缺失 → {@link PluginStatus#MISSING_REQUIRED}；依赖版本不兼容 → {@link PluginStatus#INCOMPATIBLE_REQUIRED}；</li>
  *   <li>否则取观测到的生命周期状态（{@code baseStatus}）。</li>
  * </ol>
@@ -29,7 +29,7 @@ import java.util.Objects;
  * <p>最后叠加必选插件策略：被声明为必选的 pluginId 若未安装 → 追加 {@link PluginStatus#MISSING_REQUIRED} 诊断；
  * 若已安装但本身不兼容或不满足策略版本范围 → 抬升为 {@link PluginStatus#INCOMPATIBLE_REQUIRED}。
  *
- * <p>纯 JDK + {@code plugin.api}（版本兼容委托 {@link PluginApiVersion}）；不读运行时、不触发任何行为变化——
+ * <p>纯 JDK + SDK info（版本兼容委托 {@link SdkVersion}）；不读运行时、不触发任何行为变化——
  * 必选缺失时的恢复 / 补齐能力不在本评估器中触发。
  */
 public final class PluginStatusEvaluator {
@@ -86,9 +86,9 @@ public final class PluginStatusEvaluator {
             return diagnostic(id, PluginStatus.FAILED, descriptor, requiredByPolicy, validationErrors);
         }
 
-        if (!descriptor.isApiCompatible()) {
-            String message = "requires core API " + descriptor.requires().display()
-                    + ", but core provides " + PluginApiVersion.VERSION;
+        if (!descriptor.isSdkCompatible()) {
+            String message = "requires SDK " + descriptor.requires().display()
+                    + ", but core provides " + SdkVersion.VERSION;
             // 必选插件不兼容 → 抬升为 INCOMPATIBLE_REQUIRED（区别于可选插件的 INCOMPATIBLE）
             PluginStatus status = requiredByPolicy ? PluginStatus.INCOMPATIBLE_REQUIRED : PluginStatus.INCOMPATIBLE;
             return diagnostic(id, status, descriptor, requiredByPolicy, List.of(message));
@@ -103,8 +103,8 @@ public final class PluginStatusEvaluator {
         // 必选策略版本范围校验（已安装、自身兼容，但不满足策略要求的版本范围）
         if (requiredByPolicy) {
             RequiredPlugin requiredPlugin = policy.requirement(id).orElseThrow();
-            PluginApiRequirement policyRange = requiredPlugin.compatibleVersion();
-            PluginApiRequirement actual = PluginApiRequirement.parse(descriptor.version());
+            VersionRequirement policyRange = requiredPlugin.compatibleVersion();
+            VersionRequirement actual = VersionRequirement.parse(descriptor.version());
             if (!policyRange.isSatisfiedBy(actual.major(), actual.minor())) {
                 String message = "required plugin version " + policyRange.display()
                         + " not satisfied by installed version " + descriptor.version();
@@ -126,8 +126,8 @@ public final class PluginStatusEvaluator {
                 return new DependencyProblem(PluginStatus.MISSING_REQUIRED,
                         "missing required dependency: " + dependency.pluginId());
             }
-            PluginApiRequirement required = dependency.requirement();
-            PluginApiRequirement actual = PluginApiRequirement.parse(target.descriptor().version());
+            VersionRequirement required = dependency.requirement();
+            VersionRequirement actual = VersionRequirement.parse(target.descriptor().version());
             if (!required.isSatisfiedBy(actual.major(), actual.minor())) {
                 return new DependencyProblem(PluginStatus.INCOMPATIBLE_REQUIRED,
                         "required dependency " + dependency.pluginId() + " needs version " + required.display()

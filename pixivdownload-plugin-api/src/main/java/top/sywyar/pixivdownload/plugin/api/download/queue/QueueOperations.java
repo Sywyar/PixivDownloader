@@ -16,7 +16,11 @@ import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
  */
 public interface QueueOperations {
 
-    /** 本操作承载的稳定队列路由键，在注册中心内全局唯一。 */
+    /**
+     * 本操作承载的稳定队列路由键，在注册中心内全局唯一。
+     *
+     * @return 方法返回的字符串
+     */
     String queueType();
 
     /**
@@ -25,6 +29,9 @@ public interface QueueOperations {
      * <p>{@code registeredQueueType} 是宿主在注册期恰好读取一次 {@link #queueType()} 后捕获的键。实现必须使用或
      * 校验这个参数，不得在 teardown 期间重新读取可能已不可安全调用的 getter。默认实现创建 generation=0 的
      * 已完成哨兵，只适用于严格同步且无后台任务的操作。
+     *
+     * @param registeredQueueType 已注册的队列类型
+     * @return 方法返回的 {@code QueueDrain} 实例
      */
     default QueueDrain prepareQuiesce(String registeredQueueType) {
         return QueueDrain.completed(registeredQueueType);

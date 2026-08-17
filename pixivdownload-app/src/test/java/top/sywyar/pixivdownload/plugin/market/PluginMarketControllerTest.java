@@ -56,7 +56,7 @@ class PluginMarketControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/plugin-market/repositories：主开关状态 + 核心 API 版本 + 默认仓库 + 仓库只读投影")
+    @DisplayName("GET /api/plugin-market/repositories：主开关状态 + SDK 版本 + 默认仓库 + 仓库只读投影")
     void getRepositories() throws Exception {
         when(marketService.repositories()).thenReturn(new PluginMarketRepositoriesView(true, "1.0.0", "official",
                 List.of(new PluginMarketRepositoryView("official", "plugin.market.repository.official.name",
@@ -66,7 +66,7 @@ class PluginMarketControllerTest {
         mockMvc.perform(get("/api/plugin-market/repositories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(true))
-                .andExpect(jsonPath("$.coreApiVersion").value("1.0.0"))
+                .andExpect(jsonPath("$.sdkVersion").value("1.0.0"))
                 .andExpect(jsonPath("$.defaultRepositoryId").value("official"))
                 .andExpect(jsonPath("$.repositories[0].repositoryId").value("official"))
                 .andExpect(jsonPath("$.repositories[0].official").value(true))

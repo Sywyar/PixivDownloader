@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
@@ -45,7 +45,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 class RecoveryModeGateTest {
 
     private static final RequiredPlugin DW_REQUIRED = new RequiredPlugin(
-            "download-workbench", PluginApiRequirement.of(1, 0), false,
+            "download-workbench", VersionRequirement.of(1, 0), false,
             "plugin.recovery.missing.download-workbench");
 
     @Mock
@@ -100,7 +100,7 @@ class RecoveryModeGateTest {
                 "download-workbench",
                 "download-workbench",
                 "1.0.0",
-                PluginApiRequirement.of(1, 0),
+                VersionRequirement.of(1, 0),
                 List.of(),
                 "top.sywyar.pixivdownload.download.DownloadWorkbenchPf4jPlugin",
                 plugin.displayNamespace(),

@@ -18,9 +18,24 @@ public record ScheduledCredentialAccountActionRequest(
         List<ScheduledCredentialTaskSnapshot> tasks
 ) {
 
+    /**
+     * 账号键允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_ACCOUNT_KEY_BYTES = 1_024;
+    /**
+     * 允许的最大任务列表。
+     */
     public static final int MAX_TASKS = 512;
 
+    /**
+     * 创建 {@code ScheduledCredentialAccountActionRequest} 实例。
+     *
+     * @param accountKey 账号键
+     * @param actionId 操作标识
+     * @param parameters 参数列表
+     * @param requestedAt {@code requestedAt} 对应的值
+     * @param tasks 任务列表
+     */
     public ScheduledCredentialAccountActionRequest {
         accountKey = validateAccountKey(accountKey);
         actionId = validateActionId(actionId);

@@ -13,9 +13,9 @@ import java.util.Objects;
  *
  * <p>{@link #status} 是发现阶段已能判定的<b>基线</b>状态：
  * <ul>
- *   <li>{@link PluginStatus#STARTED}：插件包已启动且核心 API 兼容，{@link #plugin} 与 {@link #classLoader} 在场，
+ *   <li>{@link PluginStatus#STARTED}：插件包已启动且SDK 兼容，{@link #plugin} 与 {@link #classLoader} 在场，
  *       可被核心注册中心接入；</li>
- *   <li>{@link PluginStatus#INCOMPATIBLE}：插件包声明的核心 API 版本要求不被当前核心满足——<b>不</b>提取其功能插件
+ *   <li>{@link PluginStatus#INCOMPATIBLE}：插件包声明的 SDK 版本要求不被当前宿主 SDK 满足——<b>不</b>提取其功能插件
  *       （不信任不兼容插件的贡献），{@link #plugin} 为 {@code null}，拒绝接入。</li>
  * </ul>
  * 依赖可达性与必选策略等需要全局视图的判定不在此处，由 {@link top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusEvaluator}
@@ -42,7 +42,7 @@ public record PluginInstallation(
         return descriptor.id();
     }
 
-    /** 是否可接入核心注册中心（已启动、核心 API 兼容、实例在场）。 */
+    /** 是否可接入核心注册中心（已启动、SDK 兼容、实例在场）。 */
     public boolean registrable() {
         return status == PluginStatus.STARTED && plugin != null;
     }

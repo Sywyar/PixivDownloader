@@ -81,7 +81,11 @@ public enum AccessPolicy {
         this.visibleAudiences = Set.copyOf(visibleAudiences);
     }
 
-    /** 本策略是否能仅凭页面身份安全判定 UI contribution 的可见性。 */
+    /**
+     * 本策略是否能仅凭页面身份安全判定 UI contribution 的可见性。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public boolean supportsUiVisibility() {
         return uiVisibility;
     }
@@ -91,6 +95,8 @@ public enum AccessPolicy {
      *
      * @throws IllegalStateException 本策略依赖额外流程上下文，不能投影为 UI 可见性
      * @throws NullPointerException audience 为 {@code null}
+     * @param audience 访问主体
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     public boolean isVisibleTo(Audience audience) {
         if (!uiVisibility) {

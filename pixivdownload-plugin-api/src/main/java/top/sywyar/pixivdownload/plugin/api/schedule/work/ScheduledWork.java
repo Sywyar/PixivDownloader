@@ -16,9 +16,25 @@ public record ScheduledWork(
         List<ScheduledWorkRelation> relations
 ) {
 
+    /**
+     * 载荷允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_PAYLOAD_BYTES = 1_048_576;
+    /**
+     * 允许的最大关系列表。
+     */
     public static final int MAX_RELATIONS = 128;
 
+    /**
+     * 创建 {@code ScheduledWork} 实例。
+     *
+     * @param key 键
+     * @param payloadSchema 载荷模式定义
+     * @param payloadVersion 载荷版本
+     * @param payloadJson 载荷JSON
+     * @param presentation 展示信息
+     * @param relations 关系列表
+     */
     public ScheduledWork {
         if (key == null) {
             throw new IllegalArgumentException("work key must not be null");

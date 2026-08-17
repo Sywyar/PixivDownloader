@@ -16,6 +16,14 @@ public record WebRouteContribution(
         Set<HttpMethod> methods,
         boolean visibleDuringMaintenance
 ) {
+    /**
+     * 创建 {@code WebRouteContribution} 实例。
+     *
+     * @param pathPattern 路径模式
+     * @param accessPolicy 访问策略
+     * @param methods 方法集合
+     * @param visibleDuringMaintenance {@code visibleDuringMaintenance} 对应的值
+     */
     public WebRouteContribution {
         methods = Set.copyOf(methods);
     }
@@ -24,7 +32,12 @@ public record WebRouteContribution(
     //    这一常见档，全插件统一复用。宿主流程专用策略不进入第三方便利工厂；需要限定 HTTP 方法集或
     //    维护期可见的少数特例，继续用标准构造器兜底，宿主仍会按可信 owner 校验策略适用范围。
 
-    /** 公开路由（{@link AccessPolicy#PUBLIC}）：任何人无需鉴权即可访问，solo / multi 一致。 */
+    /**
+     * 公开路由（{@link AccessPolicy#PUBLIC}）：任何人无需鉴权即可访问，solo / multi 一致。
+     *
+     * @param pathPattern 路径模式
+     * @return 方法返回的 {@code WebRouteContribution} 实例
+     */
     public static WebRouteContribution publicRoute(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.PUBLIC, Set.of(), false);
     }
@@ -32,6 +45,9 @@ public record WebRouteContribution(
     /**
      * 「登录用户或 multi 访客」路由（{@link AccessPolicy#VISITOR}）：multi 访客可达、solo 需会话、
      * 受邀访客 403、不入 monitor。
+     *
+     * @param pathPattern 路径模式
+     * @return 方法返回的 {@code WebRouteContribution} 实例
      */
     public static WebRouteContribution visitor(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.VISITOR, Set.of(), false);
@@ -40,6 +56,9 @@ public record WebRouteContribution(
     /**
      * 访客与受邀访客均可只读、不受 monitor 管控（{@link AccessPolicy#VISITOR_AND_INVITED_GUEST}）：
      * 跨页共享只读静态依赖与只读代理 / 状态轮询端点。
+     *
+     * @param pathPattern 路径模式
+     * @return 方法返回的 {@code WebRouteContribution} 实例
      */
     public static WebRouteContribution visitorAndInvitedGuest(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.VISITOR_AND_INVITED_GUEST, Set.of(), false);
@@ -48,22 +67,40 @@ public record WebRouteContribution(
     /**
      * 受邀访客可读 + 登录用户 / 管理员、同时受 monitor 管控（{@link AccessPolicy#INVITED_GUEST}）：
      * 受保护业务页面与其 API。
+     *
+     * @param pathPattern 路径模式
+     * @return 方法返回的 {@code WebRouteContribution} 实例
      */
     public static WebRouteContribution invitedGuest(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.INVITED_GUEST, Set.of(), false);
     }
 
-    /** 管理员专属（{@link AccessPolicy#ADMIN}）：受 monitor 管控、绝不入访客 / 公开清单。 */
+    /**
+     * 管理员专属（{@link AccessPolicy#ADMIN}）：受 monitor 管控、绝不入访客 / 公开清单。
+     *
+     * @param pathPattern 路径模式
+     * @return 方法返回的 {@code WebRouteContribution} 实例
+     */
     public static WebRouteContribution admin(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.ADMIN, Set.of(), false);
     }
 
-    /** 本机放行特例（{@link AccessPolicy#LOCAL}）：本地回环直通、远端回退常规鉴权。 */
+    /**
+     * 本机放行特例（{@link AccessPolicy#LOCAL}）：本地回环直通、远端回退常规鉴权。
+     *
+     * @param pathPattern 路径模式
+     * @return 方法返回的 {@code WebRouteContribution} 实例
+     */
     public static WebRouteContribution local(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.LOCAL, Set.of(), false);
     }
 
-    /** {@code /api/gui/**} 双重校验（{@link AccessPolicy#GUI}）：由宿主同时校验本机可信请求与有效 GUI token。 */
+    /**
+     * {@code /api/gui/**} 双重校验（{@link AccessPolicy#GUI}）：由宿主同时校验本机可信请求与有效 GUI token。
+     *
+     * @param pathPattern 路径模式
+     * @return 方法返回的 {@code WebRouteContribution} 实例
+     */
     public static WebRouteContribution gui(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.GUI, Set.of(), false);
     }
@@ -72,6 +109,9 @@ public record WebRouteContribution(
      * 路径是否命中本路由的模式。以 {@code **} 结尾的模式按去掉末尾 {@code **} 后的前缀做 {@code startsWith}
      * 匹配（含 {@code /api/authors**} 这类无尾斜杠前缀）；其它模式允许整段 {@code *} 通配一个路径段
      * （例如带 user-id 的动态段）；无通配符时按精确相等匹配。
+     *
+     * @param path 路径
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     public boolean matches(String path) {
         if (path == null) {
@@ -96,7 +136,12 @@ public record WebRouteContribution(
         return path.equals(pathPattern);
     }
 
-    /** 本路由是否接受该 HTTP 方法（空方法集表示接受全部方法）。 */
+    /**
+     * 本路由是否接受该 HTTP 方法（空方法集表示接受全部方法）。
+     *
+     * @param method HTTP 方法
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public boolean acceptsMethod(HttpMethod method) {
         return methods.isEmpty() || methods.contains(method);
     }

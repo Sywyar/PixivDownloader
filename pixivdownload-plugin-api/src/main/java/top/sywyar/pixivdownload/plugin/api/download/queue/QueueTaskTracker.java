@@ -22,6 +22,11 @@ public final class QueueTaskTracker {
     private final State state;
     private final QueueGenerationDrain drain;
 
+    /**
+     * 创建 {@code QueueTaskTracker} 实例。
+     *
+     * @param queueType 队列类型
+     */
     public QueueTaskTracker(String queueType) {
         if (queueType == null || queueType.isBlank()) {
             throw new IllegalArgumentException("queueType must not be blank");
@@ -31,17 +36,31 @@ public final class QueueTaskTracker {
         this.drain = new QueueGenerationDrain(queueType, generation, state);
     }
 
-    /** 取得尚未提交执行器的任务包装器。取得动作与 quiesce 的停止接收动作在同一把锁上线性化。 */
+    /**
+     * 取得尚未提交执行器的任务包装器。取得动作与 quiesce 的停止接收动作在同一把锁上线性化。
+     *
+     * @param ownerKey 所有者键
+     * @return 方法返回的 {@code Task} 实例
+     */
     public Task prepareQueued(String ownerKey) {
         return state.acquire(ownerKey, Task.QUEUED);
     }
 
-    /** 取得已经在当前调用线程执行同步准备工作的任务凭据。 */
+    /**
+     * 取得已经在当前调用线程执行同步准备工作的任务凭据。
+     *
+     * @param ownerKey 所有者键
+     * @return 方法返回的 {@code Task} 实例
+     */
     public Task beginRunning(String ownerKey) {
         return state.acquire(ownerKey, Task.RUNNING);
     }
 
-    /** 原子停止接收新任务并先返回唯一 drain；此步不执行任何插件 callback。重复调用幂等。 */
+    /**
+     * 原子停止接收新任务并先返回唯一 drain；此步不执行任何插件 callback。重复调用幂等。
+     *
+     * @return 方法返回的 {@code QueueGenerationDrain} 实例
+     */
     public QueueGenerationDrain prepareQuiesce() {
         state.stopAccepting();
         return drain;
@@ -52,19 +71,32 @@ public final class QueueTaskTracker {
         state.cancelQuiescedTasks();
     }
 
-    /** 非生命周期调用的便利组合；生命周期必须使用 prepare/cancel 两步以免 callback fatal 丢失 drain。 */
+    /**
+     * 非生命周期调用的便利组合；生命周期必须使用 prepare/cancel 两步以免 callback fatal 丢失 drain。
+     *
+     * @return 方法返回的 {@code QueueGenerationDrain} 实例
+     */
     public QueueGenerationDrain quiesce() {
         QueueGenerationDrain prepared = prepareQuiesce();
         cancelQuiescedTasks();
         return prepared;
     }
 
-    /** 普通“清空队列”只取消当前任务，不改变后续接收能力。 */
+    /**
+     * 普通“清空队列”只取消当前任务，不改变后续接收能力。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public int cancelActive() {
         return cancelMatchingOwners(owner -> true);
     }
 
-    /** 普通按 owner 清空只取消当前匹配任务，不改变后续接收能力。 */
+    /**
+     * 普通按 owner 清空只取消当前匹配任务，不改变后续接收能力。
+     *
+     * @param ownerKey 所有者键
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public int cancelForOwner(String ownerKey) {
         return cancelMatchingOwners(owner -> Objects.equals(owner, ownerKey));
     }
@@ -73,15 +105,28 @@ public final class QueueTaskTracker {
      * 普通按 owner 匹配器清空只取消当前匹配任务，不改变后续接收能力。
      * 匹配器只针对调用时的活动任务快照执行，且不会在 tracker 状态锁内回调；整份快照完成匹配后才发送取消，
      * 因此匹配器抛出异常时不会部分取消任务。返回值是该快照的匹配数，不承诺并发终结下实际新发送的取消信号数。
+     *
+     * @param ownerMatcher 所有者匹配器
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     public int cancelMatchingOwners(Predicate<String> ownerMatcher) {
         return state.cancelMatching(Objects.requireNonNull(ownerMatcher, "ownerMatcher"));
     }
 
+    /**
+     * 判断接受状态是否满足条件。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public boolean isAccepting() {
         return state.isAccepting();
     }
 
+    /**
+     * 返回激活状态任务数量。
+     *
+     * @return 方法返回的数值
+     */
     public int activeTaskCount() {
         return state.activeTaskCount();
     }
@@ -110,16 +155,28 @@ public final class QueueTaskTracker {
             this.phase = phase;
         }
 
+        /**
+         * 返回所有者键。
+         *
+         * @return 方法返回的字符串
+         */
         public String ownerKey() {
             return ownerKey;
         }
 
+        /**
+         * 判断取消状态请求值是否满足条件。
+         *
+         * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+         */
         public synchronized boolean isCancellationRequested() {
             return cancellationRequested;
         }
 
         /**
          * 安装协作式取消动作。若取消已经发生，动作在本方法返回前执行；动作不得等待本任务自身退出。
+         *
+         * @param action 操作
          */
         public synchronized void onCancellation(Runnable action) {
             Objects.requireNonNull(action, "action");
@@ -138,6 +195,9 @@ public final class QueueTaskTracker {
 
         /**
          * 在取消信号的同一同步边界内发布状态，封住“任务已登记、状态尚未放入 map”竞态。
+         *
+         * @param publication 发布项
+         * @return 满足条件时返回 {@code true}，否则返回 {@code false}
          */
         public synchronized boolean publishIfActive(Runnable publication) {
             Objects.requireNonNull(publication, "publication");
@@ -148,7 +208,11 @@ public final class QueueTaskTracker {
             return true;
         }
 
-        /** 给 QUEUED 包装器绑定插件任务 delegate；绑定失败表示它已被 quiesce/clear 取消。 */
+        /**
+         * 给 QUEUED 包装器绑定插件任务 delegate；绑定失败表示它已被 quiesce/clear 取消。
+         *
+         * @param taskDelegate 任务委托
+         */
         public synchronized void bind(Runnable taskDelegate) {
             Objects.requireNonNull(taskDelegate, "taskDelegate");
             if (phase != QUEUED || cancellationRequested) {
@@ -162,6 +226,9 @@ public final class QueueTaskTracker {
 
         /**
          * 把当前线程内的 RUNNING 准备工作无缝移交父执行器。失败时本任务已归零，调用方不得再提交。
+         *
+         * @param taskDelegate 任务委托
+         * @return 满足条件时返回 {@code true}，否则返回 {@code false}
          */
         public boolean handoff(Runnable taskDelegate) {
             Objects.requireNonNull(taskDelegate, "taskDelegate");

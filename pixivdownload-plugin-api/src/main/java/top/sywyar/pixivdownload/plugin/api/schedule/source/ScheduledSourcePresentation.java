@@ -21,6 +21,15 @@ public record ScheduledSourcePresentation(
     private static final Pattern PRESENTATION_TOKEN =
             Pattern.compile("[a-z][a-z0-9-]{0,39}");
 
+    /**
+     * 创建 {@code ScheduledSourcePresentation} 实例。
+     *
+     * @param displayNamespace 显示命名空间
+     * @param displayNameKey 显示名称键
+     * @param descriptionKey 描述键
+     * @param iconKey 图标键
+     * @param colorToken 颜色令牌
+     */
     public ScheduledSourcePresentation {
         displayNamespace = requireToken(
                 displayNamespace, NAMESPACE, "display namespace");

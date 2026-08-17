@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.AppRuntimePathProvider;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
@@ -15,7 +16,7 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSessionHandoff;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
@@ -31,6 +32,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeGate;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.storage.AppPluginDataSource;
 
 /**
  * 核心壳侧装配 PF4J 外置插件运行时。本配置不再自行 {@code new PluginRuntimeManager} / 调用
@@ -128,7 +130,7 @@ public class PluginRuntimeConfiguration {
     }
 
     /**
-     * 投影出可接入 {@link PluginRegistry} 的外置功能插件发现结果：仅核心 API 兼容且已启动者进入 {@code discovered}，
+     * 投影出可接入 {@link PluginRegistry} 的外置功能插件发现结果：仅SDK 兼容且已启动者进入 {@code discovered}，
      * 不兼容 / 失败者并入 {@code failures}（拒绝接入）。prototype——从同一 manager 动态汇总当前代快照。
      */
     @Bean
@@ -156,19 +158,19 @@ public class PluginRuntimeConfiguration {
         List<RequiredPluginPolicy.RequiredPlugin> required = new ArrayList<>();
         required.add(new RequiredPluginPolicy.RequiredPlugin(
                 "download-workbench",
-                // 这里约束 download-workbench 自身版本，不是宿主 Plugin API 版本；
-                // 宿主 API 升级不能把仍兼容的既有下载工作台误判为过期。
-                PluginApiRequirement.of(
+                // 这里约束 download-workbench 自身版本，不是宿主 SDK 版本；
+                // SDK 升级不能把仍兼容的既有下载工作台误判为过期。
+                VersionRequirement.of(
                         DOWNLOAD_WORKBENCH_REQUIRED_MAJOR,
                         DOWNLOAD_WORKBENCH_REQUIRED_MINOR),
                 false,
                 "plugin.recovery.missing.download-workbench"));
         if (environment.getProperty("pixivdownload.recovery-sentinel.required", Boolean.class, false)) {
             // 不约束插件自身版本（unspecified）：只要求它在场且启动即可——它是「存在性 / 启用性」探针，
-            // 版本无关。其对核心 API 的 requires 兼容仍由发现桥接的接入兼容门独立校验。
+            // 版本无关。其对SDK 的 requires 兼容仍由发现桥接的接入兼容门独立校验。
             required.add(new RequiredPluginPolicy.RequiredPlugin(
                     "recovery-sentinel",
-                    PluginApiRequirement.unspecified(),
+                    VersionRequirement.unspecified(),
                     false,
                     "plugin.recovery.blocked"));
         }
@@ -177,7 +179,7 @@ public class PluginRuntimeConfiguration {
 
     /**
      * 外置插件安装器（来自会话，与运行时管理器同出一会话、共用同一插件目录）。处理上传 {@code .zip} / {@code .jar} 包的
-     * Zip Slip 防护、布局校验、核心 API 兼容门与重复 / 升级 / 降级；POJO、构造无副作用、不创建目录。
+     * Zip Slip 防护、布局校验、SDK 兼容门与重复 / 升级 / 降级；POJO、构造无副作用、不创建目录。
      * {@code destroyMethod = ""}：会话派生对象，生命周期归会话所有，Spring context 不得单独销毁。
      */
     @Bean(destroyMethod = "")
@@ -216,6 +218,8 @@ public class PluginRuntimeConfiguration {
         return new PluginApplicationContextFactory(
                 propertySourceService::snapshotFor,
                 pluginStreamRegistry,
-                pluginRuntimeTaskRegistry);
+                pluginRuntimeTaskRegistry,
+                AppRuntimePathProvider::new,
+                AppPluginDataSource::new);
     }
 }

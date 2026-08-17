@@ -26,6 +26,11 @@
       dependencyManagement 管理。PF4J 为 compile 作用域：本模块属核心壳、随 boot jar 装入，核心运行期需要它。
     -->
     <dependencies>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-sdk-info</artifactId>
+            <version>${pixivdownload.sdk.version}</version>
+        </dependency>
         <!-- 跨插件契约模块：发现桥接把外置插件的 PixivFeaturePlugin / PixivPluginProvider 跨 classloader 暴露给核心，
              这些是父 loader 共享的契约类型，故本模块编译期依赖之（reactor 中 plugin-api 先于本模块构建，无环） -->
         <dependency>

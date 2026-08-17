@@ -8,12 +8,28 @@ public record ScheduledCredentialProbeResult(
         long retryAfterMillis
 ) {
 
+    /** 凭证探活状态。 */
     public enum Status {
+        /**
+         * 表示 {@code VALID} 状态。
+         */
         VALID,
+        /**
+         * 表示 {@code INVALID} 状态。
+         */
         INVALID,
+        /** 暂时无法完成探活，应在指定延迟后重试。 */
         RETRY_LATER
     }
 
+    /**
+     * 创建并校验凭证探活结果。
+     *
+     * @param status 探活状态
+     * @param accountKey 非敏感账号键
+     * @param code 结果机器码
+     * @param retryAfterMillis 建议重试延迟毫秒数
+     */
     public ScheduledCredentialProbeResult {
         if (status == null) {
             throw new IllegalArgumentException("credential status must not be null");
@@ -34,14 +50,33 @@ public record ScheduledCredentialProbeResult(
         }
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param accountKey 账号键
+     * @return 方法返回的 {@code ScheduledCredentialProbeResult} 实例
+     */
     public static ScheduledCredentialProbeResult valid(String accountKey) {
         return new ScheduledCredentialProbeResult(Status.VALID, accountKey, "credential.valid", 0L);
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param code 代码
+     * @return 方法返回的 {@code ScheduledCredentialProbeResult} 实例
+     */
     public static ScheduledCredentialProbeResult invalid(String code) {
         return new ScheduledCredentialProbeResult(Status.INVALID, null, code, 0L);
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param code 代码
+     * @param retryAfterMillis 重试后毫秒数
+     * @return 方法返回的 {@code ScheduledCredentialProbeResult} 实例
+     */
     public static ScheduledCredentialProbeResult retryLater(String code, long retryAfterMillis) {
         return new ScheduledCredentialProbeResult(Status.RETRY_LATER, null, code, retryAfterMillis);
     }

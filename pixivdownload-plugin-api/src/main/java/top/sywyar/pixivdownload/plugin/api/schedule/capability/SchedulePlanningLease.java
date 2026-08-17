@@ -14,20 +14,60 @@ import java.util.Optional;
  */
 public interface SchedulePlanningLease extends AutoCloseable {
 
+    /**
+     * 返回所有者。
+     *
+     * @return 方法返回的 {@code ScheduleCapabilityOwner} 实例
+     */
     ScheduleCapabilityOwner owner();
 
+    /**
+     * 返回发布项标识。
+     *
+     * @return 方法返回的数值
+     */
     long publicationId();
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的字符串
+     */
     String activationToken();
 
+    /**
+     * 返回来源类型。
+     *
+     * @return 方法返回的字符串
+     */
     String sourceType();
 
+    /**
+     * 返回描述符。
+     *
+     * @return 匹配的可选值
+     */
     Optional<ScheduledSourceDescriptor> descriptor();
 
+    /**
+     * 返回对应值。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     Optional<ScheduledSourceExecutor> sourceExecutor();
 
+    /**
+     * 返回取消状态。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     ScheduledCancellation cancellation();
 
+    /**
+     * 判断激活状态是否满足条件。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean isActive();
 
     @Override

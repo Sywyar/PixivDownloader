@@ -14,8 +14,7 @@ param(
     [string]$ManifestUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
     [string]$OutputDir,
     [Parameter(Mandatory = $true)][string]$SignatureToolJar,
-    [switch]$IncludeOptional,
-    [string]$CoreApiVersion = "1.0.0"
+    [switch]$IncludeOptional
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +22,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot
 if (-not $OutputDir) {
     $OutputDir = Join-Path $ProjectRoot "build/plugin-inputs"
 }
@@ -101,9 +101,17 @@ function Parse-VersionPair([string]$Version) {
 
 function Test-Compatible([string]$Required) {
     if ([string]::IsNullOrWhiteSpace($Required) -or $Required.Trim() -eq "*") { return $true }
-    $core = Parse-VersionPair $CoreApiVersion
+    $core = Parse-VersionPair $SdkVersion
     $requiredPair = Parse-VersionPair $Required
     return ($core[0] -eq $requiredPair[0]) -and ($core[1] -ge $requiredPair[1])
+}
+
+function Get-PackageRequiredSdk($Package) {
+    $required = [string](Get-Prop $Package "requiredSdk")
+    if ([string]::IsNullOrWhiteSpace($required)) {
+        $required = [string](Get-Prop $Package "requiredCoreApi")
+    }
+    return $required
 }
 
 function Find-CatalogEntry($Manifest, [string]$PluginId) {
@@ -123,13 +131,13 @@ function Select-CatalogPackage($Entry) {
     if (-not [string]::IsNullOrWhiteSpace($latest)) {
         foreach ($pkg in $packages) {
             if (((Get-Prop $pkg "version") -eq $latest) -and
-                (Test-Compatible ([string](Get-Prop $pkg "requiredCoreApi")))) {
+                (Test-Compatible (Get-PackageRequiredSdk $pkg))) {
                 return $pkg
             }
         }
     }
     foreach ($pkg in $packages) {
-        if (Test-Compatible ([string](Get-Prop $pkg "requiredCoreApi"))) {
+        if (Test-Compatible (Get-PackageRequiredSdk $pkg)) {
             return $pkg
         }
     }
@@ -205,7 +213,7 @@ try {
         $problems += "missing canonical plugin id(s): $($missingPluginIds -join ', ')"
     }
     if ($incompatiblePluginIds.Count -gt 0) {
-        $problems += "no package compatible with core API $CoreApiVersion for: $($incompatiblePluginIds -join ', ')"
+        $problems += "no package compatible with SDK $SdkVersion for: $($incompatiblePluginIds -join ', ')"
     }
     if ($problems.Count -gt 0) {
         $available = if ($catalogIds.Count -gt 0) { $catalogIds -join ", " } else { "<none>" }

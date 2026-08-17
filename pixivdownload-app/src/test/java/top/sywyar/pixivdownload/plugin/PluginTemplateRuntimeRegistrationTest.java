@@ -49,7 +49,7 @@ class PluginTemplateRuntimeRegistrationTest {
     Path temporaryDirectory;
 
     @Test
-    @DisplayName("模板只靠契约类路径注册下载扩展、运行期队列能力、route/static/i18n/schema 并组建子上下文")
+    @DisplayName("模板只靠契约类路径注册下载扩展、运行期队列能力、route/static/i18n 并组建子上下文")
     void templatesRegisterThroughRealHostContracts() throws Exception {
         long minimalGeneration = 3L;
         long downloadGeneration = 7L;
@@ -103,7 +103,7 @@ class PluginTemplateRuntimeRegistrationTest {
             assertThat(i18n.resolve("example-download").load(Locale.ENGLISH)).containsKey("plugin.name");
 
             DatabaseSchemaRegistry schema = new DatabaseSchemaRegistry(plugins);
-            assertThat(schema.mergedSchema().tables()).containsKey("example_minimal_records");
+            assertThat(schema.mergedSchema().tables()).isEmpty();
 
             QueueOperationRegistry operations = new QueueOperationRegistry(List.of());
             ExternalCapabilityInvocationRegistry invocationRegistry =

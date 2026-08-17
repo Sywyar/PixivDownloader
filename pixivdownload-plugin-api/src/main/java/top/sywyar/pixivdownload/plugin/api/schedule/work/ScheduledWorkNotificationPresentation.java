@@ -22,8 +22,17 @@ public record ScheduledWorkNotificationPresentation(
         String referenceUrl
 ) {
 
+    /**
+     * 显示命名空间允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_DISPLAY_NAMESPACE_BYTES = 64;
+    /**
+     * 显示名称键允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_DISPLAY_NAME_KEY_BYTES = 192;
+    /**
+     * 引用地址允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_REFERENCE_URL_BYTES = 4_096;
 
     private static final int MAX_PERCENT_DECODE_ROUNDS = 16;
@@ -33,6 +42,13 @@ public record ScheduledWorkNotificationPresentation(
     private static final Pattern I18N_KEY =
             Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,191}");
 
+    /**
+     * 创建 {@code ScheduledWorkNotificationPresentation} 实例。
+     *
+     * @param displayNamespace 显示命名空间
+     * @param displayNameKey 显示名称键
+     * @param referenceUrl 引用地址
+     */
     public ScheduledWorkNotificationPresentation {
         displayNamespace = normalizeToken(
                 displayNamespace, NAMESPACE, "display namespace");
@@ -45,6 +61,11 @@ public record ScheduledWorkNotificationPresentation(
         referenceUrl = normalizeReferenceUrl(referenceUrl);
     }
 
+    /**
+     * 返回空的 {@code ScheduledWorkNotificationPresentation} 实例。
+     *
+     * @return 方法返回的 {@code ScheduledWorkNotificationPresentation} 实例
+     */
     public static ScheduledWorkNotificationPresentation empty() {
         return new ScheduledWorkNotificationPresentation(null, null, null);
     }

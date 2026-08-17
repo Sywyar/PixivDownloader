@@ -7,25 +7,46 @@ package top.sywyar.pixivdownload.plugin.api.task;
  */
 public interface PluginRuntimeTaskDrain {
 
-    /** 宿主固化的插件 owner。 */
+    /**
+     * 宿主固化的插件 owner。
+     *
+     * @return 方法返回的字符串
+     */
     String ownerPluginId();
 
-    /** 当前 owner 的任务 admission 代际；每次成功 resume 后递增。 */
+    /**
+     * 当前 owner 的任务 admission 代际；每次成功 resume 后递增。
+     *
+     * @return 方法返回的数值
+     */
     long generation();
 
-    /** 当前仍需清退的包装器数量。 */
+    /**
+     * 当前仍需清退的包装器数量。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     int activeCount();
 
-    /** 当前代际是否已经归零。 */
+    /**
+     * 当前代际是否已经归零。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean isDrained();
 
     /**
      * 等到绝对 {@link System#nanoTime()} 截止值；中断时恢复中断标志并返回 {@code false}。
+     *
+     * @param deadlineNanos 截止时间（纳秒）
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean awaitDrained(long deadlineNanos);
 
     /**
      * 无截止时间等待；中断时恢复中断标志并返回 {@code false}。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean awaitDrained();
 }

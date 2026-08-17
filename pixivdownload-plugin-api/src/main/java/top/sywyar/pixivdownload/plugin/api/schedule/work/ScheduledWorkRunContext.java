@@ -7,9 +7,17 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
  */
 public interface ScheduledWorkRunContext extends ScheduledExecutionContext {
 
-    /** 当前轮末动作对应的 canonical work type。 */
+    /**
+     * 当前轮末动作对应的 canonical work type。
+     *
+     * @return 方法返回的字符串
+     */
     String workType();
 
-    /** 当前 work type 在本轮 drain 完成后的最终记账统计。 */
+    /**
+     * 当前 work type 在本轮 drain 完成后的最终记账统计。
+     *
+     * @return 方法返回的 {@code ScheduledWorkRunStatistics} 实例
+     */
     ScheduledWorkRunStatistics statistics();
 }

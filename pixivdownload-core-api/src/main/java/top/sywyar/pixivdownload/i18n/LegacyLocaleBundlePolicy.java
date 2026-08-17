@@ -23,6 +23,9 @@ public final class LegacyLocaleBundlePolicy implements LocaleBundlePolicy {
     /** root 文件的语言（仓库约定：无后缀文件 = 开发源语言 zh-CN）。 */
     private static final String ROOT_LANGUAGE = "zh";
 
+    /**
+     * 实例。
+     */
     public static final LocaleBundlePolicy INSTANCE = new LegacyLocaleBundlePolicy();
 
     @Override

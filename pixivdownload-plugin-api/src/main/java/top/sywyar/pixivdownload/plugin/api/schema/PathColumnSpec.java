@@ -15,6 +15,13 @@ public record PathColumnSpec(
         String idColumn,
         List<String> pathColumns
 ) {
+    /**
+     * 创建 {@code PathColumnSpec} 实例。
+     *
+     * @param table 表
+     * @param idColumn 标识列
+     * @param pathColumns 路径列集合
+     */
     public PathColumnSpec {
         pathColumns = List.copyOf(pathColumns);
     }

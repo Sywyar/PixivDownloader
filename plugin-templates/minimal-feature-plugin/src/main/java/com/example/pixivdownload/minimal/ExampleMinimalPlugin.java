@@ -2,7 +2,6 @@ package com.example.pixivdownload.minimal;
 
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -65,8 +64,4 @@ public final class ExampleMinimalPlugin implements PixivFeaturePlugin {
         return List.of(new I18nContribution(ID, "i18n.web.example-minimal"));
     }
 
-    @Override
-    public List<SchemaContribution> schema() {
-        return List.of(ExampleMinimalSchema.contribution());
-    }
 }

@@ -8,7 +8,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
@@ -87,7 +87,7 @@ public class PluginDependencyResolver {
     /** 当前安装态中指定依赖是否已满足。 */
     public boolean installedDependencySatisfied(PluginDependencyRef dependency) {
         return problems(new PluginDescriptor("dependency-check", "dependency-check", "0.0.0",
-                PluginApiRequirement.unspecified(), List.of(dependency), null,
+                VersionRequirement.unspecified(), List.of(dependency), null,
                 null, "dependency-check", null, null, null,
                 top.sywyar.pixivdownload.plugin.api.plugin.PluginKind.FEATURE),
                 installedTargets(), false).isEmpty();
@@ -109,8 +109,8 @@ public class PluginDependencyResolver {
                 problems.add(PluginDependencyProblem.missing(dependency));
                 continue;
             }
-            PluginApiRequirement required = dependency.requirement();
-            PluginApiRequirement actual = PluginApiRequirement.parse(target.descriptor().version());
+            VersionRequirement required = dependency.requirement();
+            VersionRequirement actual = VersionRequirement.parse(target.descriptor().version());
             if (!required.isSatisfiedBy(actual.major(), actual.minor())) {
                 problems.add(PluginDependencyProblem.versionUnsatisfied(dependency, target.descriptor().version()));
                 continue;

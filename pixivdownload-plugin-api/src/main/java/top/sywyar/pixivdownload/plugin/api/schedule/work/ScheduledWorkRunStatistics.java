@@ -12,6 +12,15 @@ public record ScheduledWorkRunStatistics(
         long pendingWorkCount
 ) {
 
+    /**
+     * 创建 {@code ScheduledWorkRunStatistics} 实例。
+     *
+     * @param attemptedWorkCount 已尝试作品数量
+     * @param completedWorkCount 已完成作品数量
+     * @param alreadyCompletedWorkCount 已经已完成作品数量
+     * @param skippedWorkCount 已跳过作品数量
+     * @param pendingWorkCount 待处理项作品数量
+     */
     public ScheduledWorkRunStatistics {
         if (attemptedWorkCount < 0
                 || completedWorkCount < 0

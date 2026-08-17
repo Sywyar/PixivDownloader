@@ -35,8 +35,8 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- `*` Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins (Not yet launched)
-- `*` Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI (Not yet launched)
+- `*` Plugin management page: a card list showing every plugin with status, source, version, and dependencies; load, start, quiet, stop, unload, remove, restart, and reload actions for external plugins (Not yet launched)
+- `*` Plugin marketplace page: browse, search, filter, and install plugins from trusted repositories; ordinary external plugins activate immediately after installation, while plugins with a process-restart policy are deferred; repository list configurable in the desktop GUI (Not yet launched)
 - Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
@@ -144,6 +144,7 @@ For detailed installation steps, usage guides, configuration reference, and deve
 
 - [⚙️ Configuration](https://sywyar.github.io/PixivDownloader/#/en/configuration)
 - [🔌 Plugin Management](https://sywyar.github.io/PixivDownloader/#/en/plugin-management)
+- [🧩 Third-party Plugin SDK](https://sywyar.github.io/PixivDownloader/#/en/plugin-development)
 - [💾 Storage Principles](https://sywyar.github.io/PixivDownloader/#/en/storage)
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
 - [🛠️ Development](https://sywyar.github.io/PixivDownloader/#/en/development)

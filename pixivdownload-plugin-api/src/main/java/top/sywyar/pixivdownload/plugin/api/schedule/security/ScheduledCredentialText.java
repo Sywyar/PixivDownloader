@@ -30,7 +30,12 @@ public final class ScheduledCredentialText {
     private ScheduledCredentialText() {
     }
 
-    /** 判断不透明文本是否带有可识别的凭证头、Cookie、token、secret 或签名形态。 */
+    /**
+     * 判断不透明文本是否带有可识别的凭证头、Cookie、token、secret 或签名形态。
+     *
+     * @param text 文本
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static boolean containsCredentialMaterial(String text) {
         if (text == null || text.isEmpty()) {
             return false;

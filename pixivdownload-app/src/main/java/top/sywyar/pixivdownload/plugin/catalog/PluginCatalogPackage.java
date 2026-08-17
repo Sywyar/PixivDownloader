@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.util.List;
@@ -14,7 +15,7 @@ import java.util.List;
  * @param sha256            期望 SHA-256 十六进制（必填；落盘前比对，不符即拒绝）
  * @param signature         结构化签名元数据（可空；官方包缺失时 fail-closed）
  * @param signatureUrl      可选 detached artifact signature URL（展示 / 诊断；安装使用已验证 manifest 中的结构化签名）
- * @param requiredCoreApi   声明的核心 API 版本要求（展示 / 兼容标记用；安装时由<b>下载包描述符</b>权威裁定，不在此另立权威）
+ * @param requiredSdk   声明的SDK 版本要求（展示 / 兼容标记用；安装时由<b>下载包描述符</b>权威裁定，不在此另立权威）
  * @param dependencies      声明的插件间依赖（展示用；安装时由下载包描述符权威解析）
  * @param releasedTime      该版本发布时间（ISO-8601 字符串，可空；仅展示——版本历史 / 更新日志）
  * @param changeNotes       该版本更新说明条目（可空；仅展示——详情弹窗的更新日志）
@@ -28,7 +29,7 @@ public record PluginCatalogPackage(
         String sha256,
         SignatureMetadata signature,
         String signatureUrl,
-        String requiredCoreApi,
+        @JsonAlias("requiredCoreApi") String requiredSdk,
         List<String> dependencies,
         String releasedTime,
         List<String> changeNotes,

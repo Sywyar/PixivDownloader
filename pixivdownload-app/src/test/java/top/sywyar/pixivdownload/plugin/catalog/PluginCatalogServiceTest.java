@@ -88,7 +88,7 @@ class PluginCatalogServiceTest {
                             "value": "c2ln"
                           },
                           "signatureUrl": "https://example.com/stats-1.2.3.jar.sig",
-                          "requiredCoreApi": "1.0",
+                          "requiredSdk": "1.0",
                           "rating": 4.5
                         }
                       ]
@@ -115,7 +115,32 @@ class PluginCatalogServiceTest {
         assertThat(pkg.signature()).isNotNull();
         assertThat(pkg.signature().algorithm()).isEqualTo("Ed25519");
         assertThat(pkg.signatureUrl()).isEqualTo("https://example.com/stats-1.2.3.jar.sig");
-        assertThat(pkg.requiredCoreApi()).isEqualTo("1.0");
+        assertThat(pkg.requiredSdk()).isEqualTo("1.0");
+    }
+
+    @Test
+    @DisplayName("旧 requiredCoreApi wire 字段仍解析为 SDK 要求")
+    void parsesLegacyRequiredCoreApiAlias() {
+        PluginCatalogService service = service(false, "");
+        String json = """
+                {
+                  "entries": [{
+                    "pluginId": "stats",
+                    "packages": [{
+                      "version": "1.2.3",
+                      "packageUrl": "https://example.com/stats-1.2.3.jar",
+                      "expectedSizeBytes": 4096,
+                      "sha256": "abcdef",
+                      "requiredCoreApi": "1.0"
+                    }]
+                  }]
+                }
+                """;
+
+        PluginCatalogPackage pkg = service.parseManifest(json.getBytes(StandardCharsets.UTF_8))
+                .entries().get(0).packages().get(0);
+
+        assertThat(pkg.requiredSdk()).isEqualTo("1.0");
     }
 
     @Test

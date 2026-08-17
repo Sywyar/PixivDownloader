@@ -10,8 +10,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateFiles;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -65,7 +64,7 @@ class LayoutFeedbackStateControllerTest {
     private RuntimePathProvider stateDir() {
         Path stateDir = tempDir.resolve("state/download-workbench");
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
-        when(runtimePathProvider.resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID))
+        when(runtimePathProvider.stateDirectory())
                 .thenReturn(stateDir);
         return runtimePathProvider;
     }
@@ -1259,7 +1258,7 @@ class LayoutFeedbackStateControllerTest {
 
     private RuntimePathProvider mockRuntimePath(Path stateDir) {
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
-        when(runtimePathProvider.resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID))
+        when(runtimePathProvider.stateDirectory())
                 .thenReturn(stateDir);
         return runtimePathProvider;
     }

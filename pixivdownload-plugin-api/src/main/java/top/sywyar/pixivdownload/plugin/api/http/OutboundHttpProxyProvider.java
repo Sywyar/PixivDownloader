@@ -2,14 +2,14 @@ package top.sywyar.pixivdownload.plugin.api.http;
 
 import java.net.URI;
 
-/**
- * Resolves a plugin-owned explicit HTTP proxy endpoint at request time.
- */
+/** 在请求时解析插件自有的显式 HTTP 代理端点。 */
 @FunctionalInterface
 public interface OutboundHttpProxyProvider {
 
     /**
-     * Returns an {@code http://host:port} proxy URI, or {@code null} when no valid endpoint is available.
+     * 返回 {@code http://host:port} 形式的代理 URI；没有有效端点时返回 {@code null}。
+     *
+     * @return 代理 URI，或没有有效端点时返回 {@code null}
      */
     URI resolveProxyUri();
 }

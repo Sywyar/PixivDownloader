@@ -59,6 +59,31 @@ public record WorkMetadata(
         Long uploadTime,
         Boolean isOriginal) {
 
+    /**
+     * 创建 {@code WorkMetadata} 实例。
+     *
+     * @param workId 作品标识
+     * @param title 标题
+     * @param description 描述
+     * @param xRestrict {@code xRestrict} 对应的值
+     * @param isAi {@code isAi} 对应的值
+     * @param authorId 作者标识
+     * @param authorName 作者名称
+     * @param seriesId 系列标识
+     * @param seriesOrder 系列顺序
+     * @param seriesTitle 系列标题
+     * @param tags 标签集合
+     * @param downloadTime 下载时间
+     * @param pageCount 页码数量
+     * @param extensions 扩展列表
+     * @param folder 目录
+     * @param moved 移动数量
+     * @param moveFolder {@code moveFolder} 对应的值
+     * @param moveTime {@code moveTime} 对应的值
+     * @param fileNameTemplateRef {@code fileNameTemplateRef} 对应的值
+     * @param uploadTime 上传时间
+     * @param isOriginal {@code isOriginal} 对应的值
+     */
     public WorkMetadata {
         tags = tags == null ? List.of() : List.copyOf(tags);
     }

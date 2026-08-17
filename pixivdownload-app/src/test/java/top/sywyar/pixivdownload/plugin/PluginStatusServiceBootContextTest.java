@@ -58,8 +58,8 @@ class PluginStatusServiceBootContextTest {
         assertThat(report.withStatus(PluginStatus.INCOMPATIBLE)).isEmpty();
         assertThat(report.withStatus(PluginStatus.FAILED)).isEmpty();
         assertThat(report.hasUnmetRequirement()).isTrue();
-        // 有描述符的内置插件均与当前核心 API 兼容；缺失 required 没有 descriptor。
+        // 有描述符的内置插件均与当前SDK 兼容；缺失 required 没有 descriptor。
         assertThat(report.diagnostics().stream().filter(diagnostic -> diagnostic.descriptor() != null).toList())
-                .allSatisfy(diagnostic -> assertThat(diagnostic.descriptor().isApiCompatible()).isTrue());
+                .allSatisfy(diagnostic -> assertThat(diagnostic.descriptor().isSdkCompatible()).isTrue());
     }
 }

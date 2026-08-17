@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.state;
 
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.nio.file.Path;
 import java.util.Objects;
@@ -21,7 +20,7 @@ public final class LayoutFeedbackStateFiles {
     public LayoutFeedbackStateFiles(RuntimePathProvider runtimePathProvider) {
         Objects.requireNonNull(runtimePathProvider, "runtimePathProvider");
         this.stateFile = runtimePathProvider
-                .resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID)
+                .stateDirectory()
                 .resolve(STATE_FILE_NAME)
                 .normalize();
     }

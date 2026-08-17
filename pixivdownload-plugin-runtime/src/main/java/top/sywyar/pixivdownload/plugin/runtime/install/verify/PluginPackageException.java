@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  * 区别于安装器自身的 IO 失败。
  *
  * <p>本异常只在「连描述符都读不出 / 包结构非法」时抛出；描述符已读出但内容不合法（缺字段、版本非 semver 等）或
- * 核心 API 不兼容由安装器据 {@link top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor} 校验，
+ * SDK 不兼容由安装器据 {@link top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor} 校验，
  * 不走本异常。
  */
 public class PluginPackageException extends RuntimeException {

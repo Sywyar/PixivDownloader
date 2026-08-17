@@ -11,5 +11,12 @@ import java.net.URI;
  */
 public interface PixivAjaxClient {
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param uri URI
+     * @param cookie Cookie
+     * @return 方法返回的字符串
+     */
     String get(URI uri, String cookie);
 }

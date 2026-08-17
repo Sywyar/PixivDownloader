@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 解析 Pixiv 封面地址，并优先返回可用的高分辨率候选地址。
+ */
 public final class PixivCoverUrlResolver {
 
     private static final Pattern CACHED_NOVEL_COVER_PATH =
@@ -13,6 +16,12 @@ public final class PixivCoverUrlResolver {
     private PixivCoverUrlResolver() {
     }
 
+    /**
+     * 将受支持的缓存小说封面地址转换为高分辨率地址。
+     *
+     * @param url 原始封面地址
+     * @return 高分辨率地址；无法转换时返回规范化后的原地址，空输入返回空字符串
+     */
     public static String preferHighResolution(String url) {
         if (url == null || url.isBlank()) {
             return "";
@@ -49,6 +58,12 @@ public final class PixivCoverUrlResolver {
         }
     }
 
+    /**
+     * 返回按优先级排列的封面下载候选地址。
+     *
+     * @param url 原始封面地址
+     * @return 不重复的候选地址列表，高分辨率地址优先
+     */
     public static List<String> downloadCandidates(String url) {
         String highResolution = preferHighResolution(url);
         if (highResolution.isBlank()) {

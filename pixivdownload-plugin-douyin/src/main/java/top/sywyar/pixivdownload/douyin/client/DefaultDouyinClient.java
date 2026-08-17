@@ -5,13 +5,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.HttpStatusCodeException;
-import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpResponse;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
 import top.sywyar.pixivdownload.douyin.client.signature.DouyinSignedUriBuilder;
 import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
 import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
@@ -67,32 +64,32 @@ public class DefaultDouyinClient implements DouyinClient {
     private static final List<String> DETAIL_AID_CANDIDATES = List.of("6383", "1128");
 
     private final DouyinUrlParser parser;
-    private final RestTemplate downloadRestTemplate;
+    private final OutboundHttpClient httpClient;
     private final DouyinShortLinkResolver shortLinkResolver;
     private final DouyinSignedUriBuilder signedUriBuilder;
     private final RetrySleeper retrySleeper;
 
     public DefaultDouyinClient(DouyinUrlParser parser,
-                               RestTemplate downloadRestTemplate,
+                               OutboundHttpClient httpClient,
                                DouyinShortLinkResolver shortLinkResolver) {
-        this(parser, downloadRestTemplate, shortLinkResolver,
+        this(parser, httpClient, shortLinkResolver,
                 new DouyinSignedUriBuilder(), Thread::sleep);
     }
 
     DefaultDouyinClient(DouyinUrlParser parser,
-                        RestTemplate downloadRestTemplate,
+                        OutboundHttpClient httpClient,
                         DouyinShortLinkResolver shortLinkResolver,
                         DouyinSignedUriBuilder signedUriBuilder) {
-        this(parser, downloadRestTemplate, shortLinkResolver, signedUriBuilder, Thread::sleep);
+        this(parser, httpClient, shortLinkResolver, signedUriBuilder, Thread::sleep);
     }
 
     DefaultDouyinClient(DouyinUrlParser parser,
-                        RestTemplate downloadRestTemplate,
+                        OutboundHttpClient httpClient,
                         DouyinShortLinkResolver shortLinkResolver,
                         DouyinSignedUriBuilder signedUriBuilder,
                         RetrySleeper retrySleeper) {
         this.parser = parser;
-        this.downloadRestTemplate = downloadRestTemplate;
+        this.httpClient = httpClient;
         this.shortLinkResolver = shortLinkResolver;
         this.signedUriBuilder = signedUriBuilder;
         this.retrySleeper = retrySleeper;
@@ -902,7 +899,7 @@ public class DefaultDouyinClient implements DouyinClient {
                 : lastFailure;
     }
 
-    private JsonNode fetchJson(URI uri, String cookie, HttpMethod method) throws DouyinClientException {
+    private JsonNode fetchJson(URI uri, String cookie, String method) throws DouyinClientException {
         byte[] bytes = fetchBytes(uri, cookie, method);
         if (bytes.length == 0) {
             throw new RetryableApiRequestException(DouyinClientErrorCode.SIGNATURE_REQUIRED,
@@ -931,29 +928,27 @@ public class DefaultDouyinClient implements DouyinClient {
     }
 
     private byte[] fetchBytes(URI uri, String cookie) throws DouyinClientException {
-        return fetchBytes(uri, cookie, HttpMethod.GET);
+        return fetchBytes(uri, cookie, "GET");
     }
 
-    private byte[] fetchBytes(URI uri, String cookie, HttpMethod method) throws DouyinClientException {
+    private byte[] fetchBytes(URI uri, String cookie, String method) throws DouyinClientException {
         try {
-            HttpHeaders headers = new HttpHeaders();
-            DouyinRequestHeaders.applyCredentials(headers, uri, cookie);
-            ResponseEntity<byte[]> response = downloadRestTemplate.exchange(
-                    uri, method, new HttpEntity<>(headers), byte[].class);
-            byte[] body = response.getBody();
-            return body == null ? new byte[0] : body;
-        } catch (HttpStatusCodeException e) {
-            byte[] body = e.getResponseBodyAsByteArray();
+            OutboundHttpResponse response = httpClient.exchange(new OutboundHttpRequest(
+                    uri, method, DouyinRequestHeaders.credentials(uri, cookie), new byte[0]));
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                return response.body();
+            }
+            byte[] body = response.body();
             DouyinClientErrorCode code = DouyinErrorClassifier.classifyHttpStatus(
-                    e.getStatusCode().value(), body);
+                    response.statusCode(), body);
             DouyinClientErrorCode resolved = code == null ? DouyinClientErrorCode.NETWORK_ERROR : code;
-            if (e.getStatusCode().value() == 429 || e.getStatusCode().value() >= 500) {
+            if (response.statusCode() == 429 || response.statusCode() >= 500) {
                 throw new RetryableApiRequestException(resolved,
-                        "Douyin request returned HTTP " + e.getStatusCode().value(), e);
+                        "Douyin request returned HTTP " + response.statusCode());
             }
             throw new DouyinClientException(resolved,
-                    "Douyin request returned HTTP " + e.getStatusCode().value(), e);
-        } catch (ResourceAccessException e) {
+                    "Douyin request returned HTTP " + response.statusCode());
+        } catch (OutboundHttpTransportException e) {
             if (isTimeout(e)) {
                 throw new RetryableApiRequestException(DouyinClientErrorCode.NETWORK_TIMEOUT,
                         "Douyin request timed out", e);

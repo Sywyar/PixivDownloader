@@ -16,6 +16,16 @@ public record ArchiveExportRequest(
         ArchiveWorkDeletion deleteAfterReady
 ) {
 
+    /**
+     * 创建 {@code ArchiveExportRequest} 实例。
+     *
+     * @param entries 条目列表
+     * @param exportType 导出类型
+     * @param workCount 作品数量
+     * @param fileCount 文件数量
+     * @param format 格式
+     * @param deleteAfterReady {@code deleteAfterReady} 对应的值
+     */
     public ArchiveExportRequest {
         entries = entries == null
                 ? List.of()

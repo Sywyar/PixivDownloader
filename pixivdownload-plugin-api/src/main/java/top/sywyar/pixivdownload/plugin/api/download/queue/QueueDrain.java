@@ -16,22 +16,47 @@ public interface QueueDrain {
     /** 同步、无后台任务队列的已完成哨兵代际。 */
     long COMPLETED_GENERATION = 0L;
 
-    /** 注册中心捕获的稳定队列键。 */
+    /**
+     * 注册中心捕获的稳定队列键。
+     *
+     * @return 方法返回的字符串
+     */
     String queueType();
 
-    /** 本操作实例的代际；0 仅表示 {@link #completed(String)} 的无后台任务哨兵。 */
+    /**
+     * 本操作实例的代际；0 仅表示 {@link #completed(String)} 的无后台任务哨兵。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     long generation();
 
-    /** 等到绝对 {@link System#nanoTime()} 截止值；中断时恢复中断标志并返回 {@code false}。 */
+    /**
+     * 等到绝对 {@link System#nanoTime()} 截止值；中断时恢复中断标志并返回 {@code false}。
+     *
+     * @param deadlineNanos 截止时间（纳秒）
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean awaitDrained(long deadlineNanos);
 
-    /** 无截止时间等待；中断时恢复中断标志并返回 {@code false}。 */
+    /**
+     * 无截止时间等待；中断时恢复中断标志并返回 {@code false}。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean awaitDrained();
 
-    /** 当前代际是否已经没有任何排队或运行任务。 */
+    /**
+     * 当前代际是否已经没有任何排队或运行任务。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean isDrained();
 
-    /** 当前代际仍在排队或运行的任务数。 */
+    /**
+     * 当前代际仍在排队或运行的任务数。
+     *
+     * @return 方法返回的数值
+     */
     int activeCount();
 
     /**
@@ -39,6 +64,9 @@ public interface QueueDrain {
      *
      * <p>该工厂只适用于任务不会越过当前调用栈继续运行的实现。异步实现必须返回能等待真实任务退出的
      * 正代际凭据，不能用本工厂绕过插件清退。
+     *
+     * @param queueType 队列类型
+     * @return 方法返回的 {@code QueueDrain} 实例
      */
     static QueueDrain completed(String queueType) {
         if (queueType == null || queueType.isBlank()) {

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorCode;
@@ -63,12 +63,12 @@ class PluginMarketServiceTest {
     }
 
     @Test
-    @DisplayName("repositories：主开关状态 + 核心 API 版本 + 默认仓库 id + 官方/内嵌/兼容/默认标记")
+    @DisplayName("repositories：主开关状态 + SDK 版本 + 默认仓库 id + 官方/内嵌/兼容/默认标记")
     void repositoriesProjection() {
         PluginMarketRepositoriesView view = service(enabledWithCustom()).repositories();
 
         assertThat(view.enabled()).isTrue();
-        assertThat(view.coreApiVersion()).isEqualTo(PluginApiVersion.VERSION);
+        assertThat(view.sdkVersion()).isEqualTo(SdkVersion.VERSION);
         assertThat(view.defaultRepositoryId()).isEqualTo(PluginRepository.LEGACY_CONFIGURED_ID);
         assertThat(view.repositories()).extracting(PluginMarketRepositoryView::repositoryId)
                 .containsExactly(PluginRepository.OFFICIAL_ID, PluginRepository.LEGACY_CONFIGURED_ID, "community");
@@ -132,7 +132,7 @@ class PluginMarketServiceTest {
 
         assertThat(view.enabled()).isTrue();
         assertThat(view.repositoryId()).isEqualTo(PluginRepository.OFFICIAL_ID);
-        assertThat(view.coreApiVersion()).isEqualTo(PluginApiVersion.VERSION);
+        assertThat(view.sdkVersion()).isEqualTo(SdkVersion.VERSION);
         // 分类计数：all 在首 = 4；download / download-type / dependency / utility（null market 回退）各 1。
         assertThat(view.categories().get(0).category()).isEqualTo(PluginCatalogCategory.AGGREGATE_ID);
         assertThat(view.categories().get(0).count()).isEqualTo(4);

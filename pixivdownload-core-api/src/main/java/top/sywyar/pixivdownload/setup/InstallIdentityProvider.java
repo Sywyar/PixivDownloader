@@ -13,6 +13,7 @@ public interface InstallIdentityProvider {
      * 返回当前安装身份标识（合法 UUID v4 字符串）。
      *
      * @throws IllegalStateException 安装身份文件损坏且无法生成时抛出
+     * @return 方法返回的字符串
      */
     String get();
 }

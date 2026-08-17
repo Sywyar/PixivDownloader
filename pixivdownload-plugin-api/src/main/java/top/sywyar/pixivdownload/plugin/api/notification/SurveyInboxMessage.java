@@ -55,6 +55,17 @@ public record SurveyInboxMessage(
     private static final Pattern MESSAGE_TOKEN = Pattern.compile("[a-z0-9][a-z0-9.-]{0,127}");
     private static final Pattern I18N_TOKEN = Pattern.compile("[a-z0-9][a-z0-9.-]{0,159}");
 
+    /**
+     * 创建 {@code SurveyInboxMessage} 实例。
+     *
+     * @param messageKey 消息键
+     * @param instanceKey 实例键
+     * @param contentUrl 内容地址
+     * @param i18nNamespace 国际化命名空间
+     * @param titleKey 标题键
+     * @param bodyKey 正文键
+     * @param order 排序值
+     */
     public SurveyInboxMessage {
         messageKey = token(messageKey, MESSAGE_TOKEN, "survey inbox message key");
         instanceKey = token(instanceKey, MESSAGE_TOKEN, "survey inbox instance key");
@@ -64,7 +75,11 @@ public record SurveyInboxMessage(
         bodyKey = token(bodyKey, I18N_TOKEN, "survey inbox body key");
     }
 
-    /** 编码为现有 UI 槽位贡献，保留原有 owner 与 publication 生命周期。 */
+    /**
+     * 编码为现有 UI 槽位贡献，保留原有 owner 与 publication 生命周期。
+     *
+     * @return 方法返回的 {@code WebUiSlotContribution} 实例
+     */
     public WebUiSlotContribution toUiSlotContribution() {
         return new WebUiSlotContribution(
                 messageKey,
@@ -82,6 +97,9 @@ public record SurveyInboxMessage(
 
     /**
      * 从活动 UI 槽位解码问卷站内信。非本目标或分类返回空；目标问卷字段缺失或不安全时抛出异常。
+     *
+     * @param slot 界面槽位
+     * @return 匹配的可选值
      */
     public static Optional<SurveyInboxMessage> fromUiSlotContribution(WebUiSlotContribution slot) {
         if (slot == null || !TARGET.equals(slot.target())) {

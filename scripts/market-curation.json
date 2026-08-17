@@ -1,5 +1,5 @@
 {
-  "_comment": "插件市场专属策展源（运营者维护）。插件身份展示字段 displayNamespace/displayNameKey/descriptionKey/iconToken/colorToken/displayName/summary 由 source plugin.properties 的 pixiv.* 和 i18n bundle 派生；安装关键字段（version/packageUrl/sha256/size/requiredCoreApi）由 generate-market-manifest.ps1 从真实产物推导。键为 pluginId。",
+  "_comment": "插件市场专属策展源（运营者维护）。插件身份展示字段 displayNamespace/displayNameKey/descriptionKey/iconToken/colorToken/displayName/summary 由 source plugin.properties 的 pixiv.* 和 i18n bundle 派生；安装关键字段（version/packageUrl/sha256/size/requiredSdk）由 generate-market-manifest.ps1 从真实产物推导，requiredCoreApi 仅作旧客户端 wire alias 同值发布。键为 pluginId。",
   "download-workbench": {
     "description": { "zh": "官方必需插件，提供基础插画下载工作流、下载队列、批量状态、Pixiv 代理入口、下载页静态资源、油猴脚本分发与计划下载宿主。缺失时核心壳进入恢复 / 补齐模式。", "en": "Official required plugin providing the basic illustration download workflow, queue, batch state, Pixiv proxy endpoints, workbench static assets, userscript distribution, and scheduled download host. When missing, the core shell enters recovery/repair mode." },
     "author": "Sywyar",

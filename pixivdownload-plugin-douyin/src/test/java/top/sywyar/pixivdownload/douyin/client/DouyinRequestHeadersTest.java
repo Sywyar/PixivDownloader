@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.douyin.client;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
 
 import java.net.URI;
 
@@ -15,25 +14,22 @@ class DouyinRequestHeadersTest {
     @Test
     @DisplayName("普通请求头不携带 Cookie")
     void standardHeadersNeverContainCookie() {
-        HttpHeaders headers = new HttpHeaders();
+        var headers = DouyinRequestHeaders.standard();
 
-        DouyinRequestHeaders.applyStandard(headers);
-
-        assertThat(headers.containsKey(HttpHeaders.COOKIE)).isFalse();
+        assertThat(headers).doesNotContainKey("Cookie");
     }
 
     @Test
     @DisplayName("完整 Cookie 仅发送到明确的 HTTPS Douyin 凭证 origin")
     void credentialsRequireExplicitHttpsOrigin() throws Exception {
-        HttpHeaders headers = new HttpHeaders();
-        DouyinRequestHeaders.applyCredentials(headers, URI.create("https://www.douyin.com/aweme/v1/web/"),
+        var headers = DouyinRequestHeaders.credentials(URI.create("https://www.douyin.com/aweme/v1/web/"),
                 "sessionid=fixture-credential-7f4c2a91");
-        assertThat(headers.getFirst(HttpHeaders.COOKIE)).isEqualTo("sessionid=fixture-credential-7f4c2a91");
+        assertThat(headers.get("Cookie")).containsExactly("sessionid=fixture-credential-7f4c2a91");
 
-        assertThatThrownBy(() -> DouyinRequestHeaders.applyCredentials(new HttpHeaders(),
+        assertThatThrownBy(() -> DouyinRequestHeaders.credentials(
                 URI.create("https://cdn.douyin.com/media"), "sessionid=fixture-credential-7f4c2a91"))
                 .isInstanceOf(DouyinClientException.class);
-        assertThatThrownBy(() -> DouyinRequestHeaders.applyCredentials(new HttpHeaders(),
+        assertThatThrownBy(() -> DouyinRequestHeaders.credentials(
                 URI.create("http://www.douyin.com/aweme/v1/web/"), "sessionid=fixture-credential-7f4c2a91"))
                 .isInstanceOf(DouyinClientException.class);
     }

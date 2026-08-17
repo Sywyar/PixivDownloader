@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.status;
 
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,19 +25,19 @@ public final class RequiredPluginPolicy {
      * 单条必选插件要求。
      *
      * @param pluginId          必选插件 id
-     * @param compatibleVersion 兼容版本范围（{@link PluginApiRequirement#unspecified()} 表示不限版本）
+     * @param compatibleVersion 兼容版本范围（{@link VersionRequirement#unspecified()} 表示不限版本）
      * @param allowDisable      是否允许被禁用（必选插件通常为 {@code false}）
      * @param missingMessageKey 缺失 / 不兼容时给用户的提示文案 i18n key
      */
     public record RequiredPlugin(
             String pluginId,
-            PluginApiRequirement compatibleVersion,
+            VersionRequirement compatibleVersion,
             boolean allowDisable,
             String missingMessageKey) {
 
         public RequiredPlugin {
             Objects.requireNonNull(pluginId, "pluginId");
-            compatibleVersion = compatibleVersion != null ? compatibleVersion : PluginApiRequirement.unspecified();
+            compatibleVersion = compatibleVersion != null ? compatibleVersion : VersionRequirement.unspecified();
         }
     }
 

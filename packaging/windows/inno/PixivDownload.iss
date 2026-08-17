@@ -2,7 +2,9 @@
 #define AppPublisher "sywyar"
 #define AppExeName "PixivDownload.exe"
 #define FfmpegArchiveUrl "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
-#define PluginApiVersion "1.0.0"
+#ifndef SdkVersion
+#error SdkVersion must be supplied from pixivdownload-sdk-info metadata.
+#endif
 
 #ifndef AppVersion
 #define AppVersion "0.0.1-local"
@@ -1084,7 +1086,7 @@ begin
     ' -SignatureToolJar ' + QuoteArg(SignatureToolTempPath) +
     ' -JavaPath ' + QuoteArg(ExpandConstant('{app}\runtime\bin\java.exe')) +
     ' -ProxyUrl ' + QuoteArg(SystemProxyUrl) +
-    ' -CoreApiVersion ' + QuoteArg('{#PluginApiVersion}');
+    ' -SdkVersion ' + QuoteArg('{#SdkVersion}');
 
   SetPluginInstallProgress(CustomMessage('PluginInstalling'), '', 0);
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),

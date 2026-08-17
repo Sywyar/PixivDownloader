@@ -17,6 +17,15 @@ public record ColumnSpec(
         int primaryKeyPosition,
         boolean autoIncrement
 ) {
+    /**
+     * 创建 {@code ColumnSpec} 实例。
+     *
+     * @param name 名称
+     * @param type 类型
+     * @param notNull 非空状态空值
+     * @param defaultValue 默认值
+     * @param primaryKeyPosition {@code primaryKeyPosition} 对应的值
+     */
     public ColumnSpec(String name,
                       String type,
                       boolean notNull,

@@ -10,6 +10,12 @@ public record DownloadTypePublication(
         DownloadTypeDescriptor descriptor
 ) {
 
+    /**
+     * 创建 {@code DownloadTypePublication} 实例。
+     *
+     * @param owner 所有者
+     * @param descriptor 描述符
+     */
     public DownloadTypePublication {
         Objects.requireNonNull(owner, "download extension owner");
         Objects.requireNonNull(descriptor, "download type descriptor");

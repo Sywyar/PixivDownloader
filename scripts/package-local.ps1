@@ -49,7 +49,7 @@ $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
 $FfmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
 $OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
-$InstallerPluginApiVersion = "1.0.0"
+$InstallerSdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot
 $EnableInstallerPluginSelection = $false
 $InstallerCatalogDirName = "installer-catalog"
 $InstallerCatalogIncludePath = Join-Path $BuildRoot "installer-plugin-catalog-items.iss.inc"
@@ -387,12 +387,21 @@ function Parse-InstallerCatalogVersionPair {
 function Test-InstallerCatalogCompatible {
     param(
         [string]$Required,
-        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+        [Parameter(Mandatory = $true)][string]$SdkVersion
     )
     if ([string]::IsNullOrWhiteSpace($Required)) { return $true }
-    $core = Parse-InstallerCatalogVersionPair $CoreApiVersion
+    $core = Parse-InstallerCatalogVersionPair $SdkVersion
     $requiredPair = Parse-InstallerCatalogVersionPair $Required
     return ($core[0] -eq $requiredPair[0]) -and ($core[1] -ge $requiredPair[1])
+}
+
+function Get-InstallerCatalogRequiredSdk {
+    param($Package)
+    $required = [string](Get-InstallerCatalogProp $Package "requiredSdk")
+    if ([string]::IsNullOrWhiteSpace($required)) {
+        $required = [string](Get-InstallerCatalogProp $Package "requiredCoreApi")
+    }
+    return $required
 }
 
 function Select-InstallerCatalogPackage {
@@ -414,7 +423,7 @@ function Select-InstallerCatalogPackage {
 function Test-InstallerCatalogInstallablePackage {
     param(
         $Package,
-        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+        [Parameter(Mandatory = $true)][string]$SdkVersion
     )
     if ($null -eq $Package) { return $false }
     if ([string]::IsNullOrWhiteSpace([string](Get-InstallerCatalogProp $Package "version"))) { return $false }
@@ -423,14 +432,14 @@ function Test-InstallerCatalogInstallablePackage {
     $size = [int64](Get-InstallerCatalogProp $Package "expectedSizeBytes")
     if ($size -le 0) { return $false }
     if ($null -eq (Get-InstallerCatalogProp $Package "signature")) { return $false }
-    return Test-InstallerCatalogCompatible ([string](Get-InstallerCatalogProp $Package "requiredCoreApi")) $CoreApiVersion
+    return Test-InstallerCatalogCompatible (Get-InstallerCatalogRequiredSdk $Package) $SdkVersion
 }
 
 function New-InstallerCatalogProjectionRows {
     param(
         [Parameter(Mandatory = $true)][string]$ManifestPath,
         [Parameter(Mandatory = $true)][string]$Language,
-        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+        [Parameter(Mandatory = $true)][string]$SdkVersion
     )
     $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $rows = New-Object System.Collections.Generic.List[object]
@@ -441,7 +450,7 @@ function New-InstallerCatalogProjectionRows {
         if ([bool](Get-InstallerCatalogProp $market "officialRequired")) { continue }
         if ([bool](Get-InstallerCatalogProp $market "defaultInstalled")) { continue }
         $pkg = Select-InstallerCatalogPackage $entry
-        if (-not (Test-InstallerCatalogInstallablePackage $pkg $CoreApiVersion)) { continue }
+        if (-not (Test-InstallerCatalogInstallablePackage $pkg $SdkVersion)) { continue }
         $rows.Add([pscustomobject]@{
             PluginId = $pluginId
             Version = [string](Get-InstallerCatalogProp $pkg "version")
@@ -459,13 +468,13 @@ function Write-InstallerPluginCatalogProjection {
         [Parameter(Mandatory = $true)][string]$ManifestPath,
         [Parameter(Mandatory = $true)][string]$OutputPath,
         [Parameter(Mandatory = $true)][string]$Language,
-        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+        [Parameter(Mandatory = $true)][string]$SdkVersion
     )
     $projectionUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("CATALOG|PACKAGED|installer-plugin-catalog.json")
     foreach ($row in @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
-                -Language $Language -CoreApiVersion $CoreApiVersion)) {
+                -Language $Language -SdkVersion $SdkVersion)) {
         $line = "ITEM|{0}|{1}|{2}|{3}|{4}|{5}" -f `
             (Escape-InstallerCatalogField $row.PluginId), (Escape-InstallerCatalogField $row.Version), `
             (Escape-InstallerCatalogField $row.DisplayName), (Escape-InstallerCatalogField $row.Summary), `
@@ -500,13 +509,13 @@ function Write-InstallerPluginCatalogInclude {
     param(
         [Parameter(Mandatory = $true)][string]$ManifestPath,
         [Parameter(Mandatory = $true)][string]$OutputPath,
-        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+        [Parameter(Mandatory = $true)][string]$SdkVersion
     )
     $projectionUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
     $enRows = @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
-            -Language "en" -CoreApiVersion $CoreApiVersion)
+            -Language "en" -SdkVersion $SdkVersion)
     $zhRows = @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
-            -Language "zh-CN" -CoreApiVersion $CoreApiVersion)
+            -Language "zh-CN" -SdkVersion $SdkVersion)
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("// Generated by scripts/package-local.ps1. Do not edit.")
     $lines.Add("procedure LoadCompiledInstallerPluginCatalogItems;")
@@ -557,11 +566,11 @@ function Stage-InstallerPluginCatalogSnapshot {
     Copy-Item $manifestTemp $manifestTarget -Force
     Copy-Item $signatureTemp $signatureTarget -Force
     Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionEnTarget `
-        -Language "en" -CoreApiVersion $InstallerPluginApiVersion
+        -Language "en" -SdkVersion $InstallerSdkVersion
     Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionZhTarget `
-        -Language "zh-CN" -CoreApiVersion $InstallerPluginApiVersion
+        -Language "zh-CN" -SdkVersion $InstallerSdkVersion
     Write-InstallerPluginCatalogInclude -ManifestPath $manifestTemp -OutputPath $InstallerCatalogIncludePath `
-        -CoreApiVersion $InstallerPluginApiVersion
+        -SdkVersion $InstallerSdkVersion
     Write-Host ("    OK: signed installer plugin catalog staged under {0}." -f $InstallerCatalogDirName) -ForegroundColor Green
 }
 
@@ -785,6 +794,7 @@ try {
             "/DInstallerVersion=$InstallerVersion",
             "/DAppImageDir=$OnlineAppDir",
             "/DOutputDir=$OutDir",
+            "/DSdkVersion=$InstallerSdkVersion",
             "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
             "/DSignatureToolJar=$SignatureToolJar",
             $InnoScript

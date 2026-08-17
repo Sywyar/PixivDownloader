@@ -10,7 +10,7 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "Install")][string]$SignatureToolJar,
     [Parameter(Mandatory = $true, ParameterSetName = "Install")][string]$JavaPath,
     [Parameter(ParameterSetName = "Install")][string]$ProxyUrl,
-    [Parameter(ParameterSetName = "Install")][string]$CoreApiVersion = "1.0.0"
+    [Parameter(Mandatory = $true, ParameterSetName = "Install")][string]$SdkVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,9 +78,17 @@ function Parse-VersionPair([string]$Version) {
 
 function Test-Compatible([string]$Required) {
     if ([string]::IsNullOrWhiteSpace($Required) -or $Required.Trim() -eq "*") { return $true }
-    $core = Parse-VersionPair $CoreApiVersion
+    $core = Parse-VersionPair $SdkVersion
     $requiredPair = Parse-VersionPair $Required
     return ($core[0] -eq $requiredPair[0]) -and ($core[1] -ge $requiredPair[1])
+}
+
+function Get-RequiredSdk($Package) {
+    $required = [string](Get-Prop $Package "requiredSdk")
+    if ([string]::IsNullOrWhiteSpace($required)) {
+        $required = [string](Get-Prop $Package "requiredCoreApi")
+    }
+    return $required
 }
 
 function Test-VersionSatisfied([string]$Requirement, [string]$Actual) {
@@ -159,8 +167,9 @@ function Assert-InstallablePackage($Entry, $Package) {
     if ([string]::IsNullOrWhiteSpace([string](Get-Prop $Package "sha256"))) { throw "Missing sha256 for $pluginId." }
     if ([int64](Get-Prop $Package "expectedSizeBytes") -le 0) { throw "Missing expectedSizeBytes for $pluginId." }
     if ($null -eq (Get-Prop $Package "signature")) { throw "Missing signature for $pluginId." }
-    if (-not (Test-Compatible ([string](Get-Prop $Package "requiredCoreApi")))) {
-        throw "$pluginId requires Plugin API " + [string](Get-Prop $Package "requiredCoreApi")
+    $requiredSdk = Get-RequiredSdk $Package
+    if (-not (Test-Compatible $requiredSdk)) {
+        throw "$pluginId requires SDK $requiredSdk"
     }
 }
 

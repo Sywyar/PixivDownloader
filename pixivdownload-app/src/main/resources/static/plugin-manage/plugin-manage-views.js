@@ -182,7 +182,7 @@
             }).join('') + '</div>');
         }
 
-        // 底栏：轻量元信息（生命周期 / 核心 API / 依赖数 / 验签）+ 浮层操作菜单。
+        // 底栏：轻量元信息（生命周期 / SDK / 依赖数 / 验签）+ 浮层操作菜单。
         parts.push('<div class="pm-card-foot">');
         parts.push('<div class="pm-meta">');
         if (vm.showLifecycleTag) {
@@ -190,13 +190,13 @@
             parts.push('<span class="pm-meta-item pm-meta-item--' + lm.tone + '"><i class="fa-solid '
                 + lm.icon + '"></i>' + E(vm.lifecycleLabel) + '</span>');
         }
-        if (vm.api) {
-            var apiCls = vm.api.specified ? (vm.api.satisfied ? 'pm-meta-item--ok' : 'pm-meta-item--bad') : '';
-            var apiText = vm.api.specified
-                ? PM.t('api.requires', '核心 API {version}', { version: vm.api.required })
-                : PM.t('api.any', '不限核心 API 版本');
-            parts.push('<span class="pm-meta-item ' + apiCls + '"><i class="fa-solid fa-code-branch"></i>'
-                + E(apiText) + '</span>');
+        if (vm.sdk) {
+            var sdkCls = vm.sdk.specified ? (vm.sdk.satisfied ? 'pm-meta-item--ok' : 'pm-meta-item--bad') : '';
+            var sdkText = vm.sdk.specified
+                ? PM.t('sdk.requires', 'SDK {version}', { version: vm.sdk.required })
+                : PM.t('sdk.any', '不限 SDK 版本');
+            parts.push('<span class="pm-meta-item ' + sdkCls + '"><i class="fa-solid fa-code-branch"></i>'
+                + E(sdkText) + '</span>');
         }
         if (vm.deps.length) {
             var depTitle = vm.deps.map(function (d) {

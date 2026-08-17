@@ -39,6 +39,10 @@ public class PushFormatConverter {
     /**
      * 按通道<b>优先级顺序</b>选出第一个可从 {@code source} 转换到的目标格式。
      * {@code supported} 为空或都不可达时返回 {@link PushFormat#PLAIN_TEXT}（恒可达的兜底）。
+     *
+     * @param supported 支持状态
+     * @param source 数据来源
+     * @return 方法返回的 {@code PushFormat} 实例
      */
     public PushFormat negotiate(List<PushFormat> supported, PushFormat source) {
         PushFormat src = normalizeSource(source);
@@ -56,6 +60,10 @@ public class PushFormatConverter {
      * 把消息正文由其源格式转换到 {@code target} 并产出 {@link RenderedMessage}。
      * <p>目标不可达时尽力降级为 {@link PushFormat#PLAIN_TEXT}（与 {@link #negotiate} 的兜底一致）；
      * {@link PushFormat#CARD} 目标的正文转为 Markdown 内联文本（不可达 Markdown 时降级为纯文本）。
+     *
+     * @param message 消息
+     * @param target 目标
+     * @return 方法返回的 {@code RenderedMessage} 实例
      */
     public RenderedMessage render(PushMessage message, PushFormat target) {
         PushMessage msg = message == null ? PushMessage.of("", "") : message;

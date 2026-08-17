@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
@@ -574,7 +574,7 @@ class ExternalPluginLifecycleCoordinatorTest {
     void startRestoresStoppedPluginFromActivationDescriptor() {
         String pluginId = "dev-plugin";
         PluginDescriptor descriptor = new PluginDescriptor(pluginId, pluginId, "1.0.0",
-                PluginApiRequirement.unspecified(), List.of(), "example.Plugin", null,
+                VersionRequirement.unspecified(), List.of(), "example.Plugin", null,
                 "plugin.label", null, null, null, PluginKind.FEATURE);
         when(dependencyResolver.activationDescriptor(pluginId)).thenReturn(Optional.of(descriptor));
         when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
@@ -1113,13 +1113,13 @@ class ExternalPluginLifecycleCoordinatorTest {
 
     private static PluginDescriptor descriptor(String pluginId, PluginLifecyclePolicy lifecyclePolicy) {
         return new PluginDescriptor(pluginId, pluginId, "1.0.0",
-                PluginApiRequirement.unspecified(), List.of(), "example.Plugin", null,
+                VersionRequirement.unspecified(), List.of(), "example.Plugin", null,
                 "plugin.label", null, null, null, PluginKind.FEATURE, List.of(), lifecyclePolicy);
     }
 
     private static PluginDescriptor descriptor(String pluginId, List<String> replacements) {
         return new PluginDescriptor(pluginId, pluginId, "1.0.0",
-                PluginApiRequirement.unspecified(), List.of(), "example.Plugin", null,
+                VersionRequirement.unspecified(), List.of(), "example.Plugin", null,
                 "plugin.label", null, null, null, PluginKind.FEATURE, replacements,
                 PluginLifecyclePolicy.HOT_RELOAD);
     }

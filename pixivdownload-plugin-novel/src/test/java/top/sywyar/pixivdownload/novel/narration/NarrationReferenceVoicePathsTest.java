@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.narration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
 
 import java.io.IOException;

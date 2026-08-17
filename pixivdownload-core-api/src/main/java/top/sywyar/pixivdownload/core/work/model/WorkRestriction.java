@@ -20,6 +20,15 @@ public record WorkRestriction(
         boolean authorUnrestricted,
         List<Long> authorIds) {
 
+    /**
+     * 创建 {@code WorkRestriction} 实例。
+     *
+     * @param allowedXRestricts {@code allowedXRestricts} 对应的值
+     * @param tagUnrestricted 标签不受限状态
+     * @param tagIds 标签标识集合
+     * @param authorUnrestricted 作者不受限状态
+     * @param authorIds 作者标识集合
+     */
     public WorkRestriction {
         allowedXRestricts = Set.copyOf(Objects.requireNonNull(
                 allowedXRestricts, "allowedXRestricts"));
@@ -27,7 +36,11 @@ public record WorkRestriction(
         authorIds = List.copyOf(Objects.requireNonNull(authorIds, "authorIds"));
     }
 
-    /** 标签与作者两个维度均无限制。 */
+    /**
+     * 标签与作者两个维度均无限制。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public boolean fullyOpen() {
         return tagUnrestricted && authorUnrestricted;
     }

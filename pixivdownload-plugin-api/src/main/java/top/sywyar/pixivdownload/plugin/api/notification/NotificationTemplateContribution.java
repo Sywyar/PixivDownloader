@@ -22,12 +22,27 @@ public record NotificationTemplateContribution(
         String bodyTemplate
 ) {
 
+    /**
+     * 标题允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_TITLE_BYTES = 16 * 1_024;
+    /**
+     * 正文允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_BODY_BYTES = 1_024 * 1_024;
 
     private static final Pattern SCENARIO_ID = Pattern.compile("[a-z0-9][a-z0-9.-]{0,127}");
     private static final Pattern MEDIUM = Pattern.compile("[a-z][a-z0-9-]{0,63}");
 
+    /**
+     * 创建 {@code NotificationTemplateContribution} 实例。
+     *
+     * @param scenarioId 场景标识
+     * @param medium 介质
+     * @param locale 语言区域
+     * @param titleTemplate 标题模板
+     * @param bodyTemplate 正文模板
+     */
     public NotificationTemplateContribution {
         scenarioId = token(scenarioId, SCENARIO_ID, "notification scenario id");
         medium = token(medium, MEDIUM, "notification medium");

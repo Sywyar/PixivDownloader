@@ -11,6 +11,13 @@ public record ScheduleCapabilityOwner(
 
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
 
+    /**
+     * 创建 {@code ScheduleCapabilityOwner} 实例。
+     *
+     * @param featurePluginId {@code featurePluginId} 对应的值
+     * @param packageId 包标识
+     * @param pluginGeneration 插件代次
+     */
     public ScheduleCapabilityOwner {
         featurePluginId = requireId(featurePluginId, "feature plugin id");
         packageId = requireId(packageId, "package id");

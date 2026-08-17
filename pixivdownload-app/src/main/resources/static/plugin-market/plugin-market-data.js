@@ -177,7 +177,7 @@
         if (opts.hideDefaultInstalled && D.entryDefaultInstalled(entry)) return false;
         if (opts.hideDependencies && D.entryDependency(entry)) return false;
         if (opts.onlyOfficial && !D.entryOfficial(entry)) return false;
-        // 「仅兼容当前版本」按条目自身的兼容标记（= 最新可安装版本是否被当前核心 API 满足）判定，而非派生的
+        // 「仅兼容当前版本」按条目自身的兼容标记（= 最新可安装版本是否被当前SDK 满足）判定，而非派生的
         // installStatus —— 已安装但最新版本不兼容的条目（installStatus=INSTALLED）也应被该筛选排除。
         if (opts.onlyCompatible && entry.compatible === false) return false;
         var q = (opts.search || '').trim().toLowerCase();
