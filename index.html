@@ -64,10 +64,12 @@
         paths: 'auto',
         placeholder: {
           '/zh-cn/': '搜索文档…',
+          '/zh-hant/': '搜尋文件…',
           '/': 'Search docs…',
         },
         noData: {
           '/zh-cn/': '无结果',
+          '/zh-hant/': '沒有結果',
           '/': 'No results',
         },
         depth: 6,
@@ -78,6 +80,11 @@
           lang: 'zh-CN',
           title: 'PixivDownloader 文档',
           description: '本地 Pixiv 作品批量下载工具',
+        },
+        '/zh-hant/': {
+          lang: 'zh-Hant',
+          title: 'PixivDownloader 文件',
+          description: '本地 Pixiv 作品批量下載工具',
         },
         '/en/': {
           lang: 'en-US',
@@ -92,6 +99,7 @@
 
       alias: {
         '/zh-cn/_sidebar.md': '/zh-cn/_sidebar.md',
+        '/zh-hant/_sidebar.md': '/zh-hant/_sidebar.md',
         '/en/_sidebar.md': '/en/_sidebar.md',
         '/_sidebar.md': '/_sidebar.md',
       },

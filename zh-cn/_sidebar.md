@@ -26,6 +26,7 @@
 ---
 
 - [🇺🇸 English](/en/)
+- [繁體中文](/zh-hant/)
 - [GitHub](https://github.com/Sywyar/PixivDownloader)
 - [Releases](https://github.com/Sywyar/PixivDownloader/releases)
 - [Issues](https://github.com/Sywyar/PixivDownloader/issues)
