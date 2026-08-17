@@ -223,6 +223,7 @@ final class InterfacePreferencesPanel extends JPanel {
             SystemLocaleDetector.detectAndApply();
         }
         GuiMessages.clearLocaleOverride();
+        SwingUtilities.invokeLater(() -> GuiThemeManager.applyThemeId(GuiThemeManager.configuredThemeId()));
 
         if (!persisted && configPath != null) {
             log.warn(logMessage("gui.interface.log.language.persist-failed-warn", configPath));
