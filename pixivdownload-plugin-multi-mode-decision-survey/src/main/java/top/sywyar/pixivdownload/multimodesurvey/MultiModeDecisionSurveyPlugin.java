@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.multimodesurvey;
 
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -10,7 +11,6 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 
 /** Inbox-only publisher for the official multi-user-mode decision survey. */
@@ -21,6 +21,7 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
             "static/pixiv-multi-mode-decision-survey/release-publication.properties";
     private static final String SURVEY_EMBED_URL = "/pixiv-multi-mode-decision-survey/embed.html"
             + "?pixivBridgeGet=/api/i18n/meta"
+            + "&pixivBridgeGet=/api/i18n/messages/posthog"
             + "&pixivBridgeGet=/api/i18n/messages/multi-mode-decision-survey"
             + "&pixivBridgeGet=/api/multi-mode-decision-survey/identity"
             + "&pixivBridgeRead=pixiv_theme"
@@ -60,7 +61,11 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         return List.of(
-                WebRouteContribution.admin("/pixiv-multi-mode-decision-survey/**"),
+                WebRouteContribution.admin("/pixiv-multi-mode-decision-survey/embed.html"),
+                WebRouteContribution.publicRoute("/pixiv-multi-mode-decision-survey/survey.css"),
+                WebRouteContribution.publicRoute("/pixiv-multi-mode-decision-survey/release-activation.js"),
+                WebRouteContribution.publicRoute("/pixiv-multi-mode-decision-survey/posthog-config.js"),
+                WebRouteContribution.publicRoute("/pixiv-multi-mode-decision-survey/survey.js"),
                 WebRouteContribution.admin("/api/multi-mode-decision-survey/identity"));
     }
 
@@ -81,18 +86,14 @@ public class MultiModeDecisionSurveyPlugin implements PixivFeaturePlugin {
         if (!officialRelease()) {
             return List.of();
         }
-        return List.of(new WebUiSlotContribution(
+        return List.of(new SurveyInboxMessage(
                 "multi-mode-decision-survey.inbox",
-                "notification.inbox",
-                null,
-                20,
-                Map.of(
-                        "notification.category", "survey",
-                        "notification.instance-key", MultiModeDecisionSurveyIdentityController.CAMPAIGN_VERSION,
-                        "notification.embed-url", SURVEY_EMBED_URL,
-                        "notification.i18n-namespace", ID,
-                        "notification.title-key", "inbox-title",
-                        "notification.body-key", "inbox-body")));
+                MultiModeDecisionSurveyIdentityController.CAMPAIGN_VERSION,
+                SURVEY_EMBED_URL,
+                ID,
+                "inbox-title",
+                "inbox-body",
+                20).toUiSlotContribution());
     }
 
     private static boolean officialRelease() {

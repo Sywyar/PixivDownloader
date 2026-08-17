@@ -90,3 +90,11 @@ test('waits for remote acknowledgement before recording completion', () => {
     assert.match(source, /SUBMISSION_ID\.test\(body\.submissionId\)/);
     assert.doesNotMatch(source, /client\.capture\('survey sent'/);
 });
+
+test('uses the shared PostHog loading state instead of a survey-specific one', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static',
+        'pixiv-multi-mode-decision-survey', 'survey.js'), 'utf8');
+
+    assert.match(source, /PixivPostHog\.showSurveyLoading\(root/);
+    assert.doesNotMatch(source, /status\('loading'/);
+});

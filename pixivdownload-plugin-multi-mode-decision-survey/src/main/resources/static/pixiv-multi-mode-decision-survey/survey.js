@@ -85,6 +85,7 @@
         function status(key, fallback) {
             root.className = 'survey-status';
             root.setAttribute('role', 'status');
+            root.setAttribute('aria-busy', 'false');
             root.textContent = t(key, fallback);
             reportHeight();
         }
@@ -162,6 +163,7 @@
         function renderForm(client, question, identity) {
             root.className = 'survey-card';
             root.removeAttribute('role');
+            root.setAttribute('aria-busy', 'false');
             root.textContent = '';
 
             var title = global.document.createElement('h2');
@@ -269,6 +271,10 @@
         }
 
         try {
+            var loading = global.PixivPostHog
+                    && typeof global.PixivPostHog.showSurveyLoading === 'function'
+                ? global.PixivPostHog.showSurveyLoading(root, {lang: params.get('lang') || undefined})
+                : Promise.resolve();
             var bridge = await global.PixivSurveyFrameBridge.ready();
             storage = bridge.storage;
             if (global.PixivTheme) {
@@ -278,7 +284,7 @@
                 namespaces: ['multi-mode-decision-survey'],
                 lang: params.get('lang') || undefined
             });
-            status('loading', '正在加载调查…');
+            await loading;
             if (global.PixivMultiModeDecisionSurveyOfficialRelease !== true
                     || !global.PixivPostHog || typeof global.PixivPostHog.createSurveyClient !== 'function'
                     || typeof global.PixivPostHog.captureSurveyWithAck !== 'function') {

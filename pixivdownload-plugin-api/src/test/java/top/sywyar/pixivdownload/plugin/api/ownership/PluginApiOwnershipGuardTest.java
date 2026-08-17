@@ -11,6 +11,7 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
+import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
@@ -173,9 +174,10 @@ class PluginApiOwnershipGuardTest {
                     "SchemaContribution", "TableSpec")),
             Map.entry("维护任务协议", types(API_PREFIX + "maintenance",
                     "MaintenanceContext", "MaintenanceProgressReporter", "MaintenanceTask")),
-            Map.entry("通知模板贡献协议", types(API_PREFIX + "notification",
+            Map.entry("通知贡献协议", types(API_PREFIX + "notification",
                     "ImmutableNotificationTemplateCatalog", "NotificationTemplateCatalog",
-                    "NotificationTemplateContribution", "NotificationTemplateContributor")),
+                    "NotificationTemplateContribution", "NotificationTemplateContributor",
+                    "SurveyInboxMessage")),
             Map.entry("插件推流生命周期协议", types(API_PREFIX + "stream",
                     "PluginStream", "PluginStreamRegistrar")),
             Map.entry("插件运行期后台任务协议", types(API_PREFIX + "task",
@@ -240,7 +242,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("下载宿主控制协议", 7),
             Map.entry("插件自有 schema 声明", 7),
             Map.entry("维护任务协议", 3),
-            Map.entry("通知模板贡献协议", 4),
+            Map.entry("通知贡献协议", 5),
             Map.entry("插件推流生命周期协议", 2),
             Map.entry("插件运行期后台任务协议", 4),
             Map.entry("出站 HTTP 传输协议", 12),
@@ -414,6 +416,7 @@ class PluginApiOwnershipGuardTest {
                 PageSectionContribution.class,
                 DrilldownContribution.class,
                 WebUiSlotContribution.class,
+                SurveyInboxMessage.class,
                 GuiOnboardingStepContribution.class);
 
         ownerFreeContributions.forEach(type -> assertThat(Arrays.stream(type.getRecordComponents())

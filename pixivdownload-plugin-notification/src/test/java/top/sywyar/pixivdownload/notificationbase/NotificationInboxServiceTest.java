@@ -1,8 +1,12 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
+import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.ArrayList;
@@ -353,11 +357,25 @@ class NotificationInboxServiceTest {
                         "notification.title-key", "layout-feedback.inbox-title",
                         "notification.body-key", "layout-feedback.inbox-body"));
 
-        new NotificationInboxService(
-                mapper, () -> 500, () -> 90, () -> List.of(unsafe),
-                (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(NotificationInboxService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            new NotificationInboxService(
+                    mapper, () -> 500, () -> 90, () -> List.of(unsafe),
+                    (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
 
-        assertThat(mapper.messages).isEmpty();
+            assertThat(mapper.messages).isEmpty();
+            assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("survey-inbox-contribution-invalid", "unsafe.survey")
+                            .doesNotContain("https://evil.example"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -394,15 +412,14 @@ class NotificationInboxServiceTest {
     }
 
     private static WebUiSlotContribution surveySlot(String instanceKey, String embedUrl) {
-        return new WebUiSlotContribution(
-                "download-workbench.layout-survey", "notification.inbox", null, 10,
-                java.util.Map.of(
-                        "notification.category", "survey",
-                        "notification.instance-key", instanceKey,
-                        "notification.embed-url", embedUrl,
-                        "notification.i18n-namespace", "layout-feedback",
-                        "notification.title-key", "layout-feedback.inbox-title",
-                        "notification.body-key", "layout-feedback.inbox-body"));
+        return new SurveyInboxMessage(
+                "download-workbench.layout-survey",
+                instanceKey,
+                embedUrl,
+                "layout-feedback",
+                "layout-feedback.inbox-title",
+                "layout-feedback.inbox-body",
+                10).toUiSlotContribution();
     }
 
     static final class MemoryMapper implements NotificationInboxMapper {

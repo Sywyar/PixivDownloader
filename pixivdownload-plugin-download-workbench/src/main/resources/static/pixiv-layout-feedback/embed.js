@@ -14,6 +14,8 @@
 
     function showStatus(key, fallback) {
         if (!statusElement) return;
+        statusElement.classList.remove('pixiv-posthog-survey-loading');
+        statusElement.setAttribute('aria-busy', 'false');
         statusElement.hidden = false;
         statusElement.textContent = t(key, fallback);
     }
@@ -51,6 +53,10 @@
         var params = new URLSearchParams(global.location.search);
         notificationId = params.get('notificationId') || '';
         try {
+            var loading = global.PixivPostHog
+                    && typeof global.PixivPostHog.showSurveyLoading === 'function'
+                ? global.PixivPostHog.showSurveyLoading(statusElement, {lang: params.get('lang') || undefined})
+                : Promise.resolve();
             var bridge = await global.PixivSurveyFrameBridge.ready();
             storage = bridge.storage;
             if (global.PixivTheme) {
@@ -60,7 +66,7 @@
                 namespaces: ['layout-feedback'],
                 lang: params.get('lang') || undefined
             });
-            showStatus('embed-loading', '正在加载调查…');
+            await loading;
             watchCompletion();
             global.PixivLayoutFeedback.init({
                 page: 'embedded',
@@ -72,6 +78,8 @@
             var result = await global.PixivLayoutFeedback.openEmbedded();
             if (result && result.status === 'opened') {
                 opened = true;
+                statusElement.classList.remove('pixiv-posthog-survey-loading');
+                statusElement.setAttribute('aria-busy', 'false');
                 statusElement.hidden = true;
             } else if (result && result.status === 'removed') {
                 showStatus('embed-unavailable', '该调查已结束。');

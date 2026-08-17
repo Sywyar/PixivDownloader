@@ -45,16 +45,15 @@ public class PostHogPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
-        return List.of(
-                WebRouteContribution.visitor("/pixiv-posthog/**"),
-                WebRouteContribution.visitor("/vendor/posthog-js/**"));
+        return List.of(WebRouteContribution.publicRoute("/pixiv-posthog/**"));
     }
 
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
                 new StaticResourceContribution("classpath:/static/pixiv-posthog/", "/pixiv-posthog/"),
-                new StaticResourceContribution("classpath:/static/vendor/posthog-js/", "/vendor/posthog-js/"));
+                new StaticResourceContribution(
+                        "classpath:/static/vendor/posthog-js/", "/pixiv-posthog/vendor/posthog-js/"));
     }
 
     @Override

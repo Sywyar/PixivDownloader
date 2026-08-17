@@ -5,7 +5,7 @@
     var CAPTURE_ACK_TIMEOUT_MS = 15000;
     var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     var SDK_VERSION = '1.409.5';
-    var SDK_URL = '/vendor/posthog-js/' + SDK_VERSION + '/array.full.js';
+    var SDK_URL = '/pixiv-posthog/vendor/posthog-js/' + SDK_VERSION + '/array.full.js';
     var clients = Object.create(null);
     var sdkPromise = null;
     var ALLOWED_API_ORIGINS = Object.freeze([
@@ -22,6 +22,56 @@
         if (global.console && typeof global.console.warn === 'function') {
             try { global.console.warn(message); } catch (_) { /* best effort */ }
         }
+    }
+
+    function showSurveyLoading(root, options) {
+        options = options || {};
+        if (!root || !root.classList || !global.document) return Promise.resolve(false);
+        var document = root.ownerDocument || global.document;
+        var spinner = document.createElement('span');
+        spinner.className = 'pixiv-posthog-survey-loading-spinner';
+        spinner.setAttribute('aria-hidden', 'true');
+        var label = document.createElement('span');
+        label.className = 'pixiv-posthog-survey-loading-label';
+        label.textContent = '正在加载调查…';
+        root.textContent = '';
+        root.classList.add('pixiv-posthog-survey-loading');
+        root.setAttribute('role', 'status');
+        root.setAttribute('aria-live', 'polite');
+        root.setAttribute('aria-busy', 'true');
+        root.append(spinner, label);
+
+        function reportHeight() {
+            if (!global.PixivSurveyFrameBridge
+                    || typeof global.PixivSurveyFrameBridge.post !== 'function') return;
+            var bounds = typeof root.getBoundingClientRect === 'function'
+                ? root.getBoundingClientRect() : {height: 0};
+            var height = Math.ceil(Math.max(Number(root.scrollHeight) || 0, Number(bounds.height) || 0));
+            if (height > 0) {
+                global.PixivSurveyFrameBridge.post({type: 'pixiv-content-height', height: height});
+            }
+        }
+
+        if (!global.PixivSurveyFrameBridge
+                || typeof global.PixivSurveyFrameBridge.ready !== 'function') {
+            return Promise.resolve(true);
+        }
+        return global.PixivSurveyFrameBridge.ready().then(function () {
+            reportHeight();
+            if (!global.PixivI18n || typeof global.PixivI18n.create !== 'function') return null;
+            return global.PixivI18n.create({
+                namespaces: ['posthog'],
+                lang: typeof options.lang === 'string' && options.lang ? options.lang : undefined
+            });
+        }).then(function (i18n) {
+            if (i18n && root.classList.contains('pixiv-posthog-survey-loading')) {
+                label.textContent = i18n.t('posthog:survey.loading', '正在加载调查…');
+                reportHeight();
+            }
+            return true;
+        }).catch(function () {
+            return true;
+        });
     }
 
     function loadSdk() {
@@ -285,6 +335,7 @@
     }
 
     global.PixivPostHog = Object.freeze({
+        showSurveyLoading: showSurveyLoading,
         createSurveyClient: createSurveyClient,
         captureSurveyWithAck: captureSurveyWithAck
     });

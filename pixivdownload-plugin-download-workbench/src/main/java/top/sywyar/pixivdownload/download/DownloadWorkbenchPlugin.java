@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.download;
 
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
+import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
@@ -21,7 +22,6 @@ import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivSchedul
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
@@ -45,6 +45,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
             "static/pixiv-layout-feedback/release-publication.properties";
     private static final String SURVEY_EMBED_URL = "/pixiv-layout-feedback/embed.html"
             + "?pixivBridgeGet=/api/i18n/meta"
+            + "&pixivBridgeGet=/api/i18n/messages/posthog"
             + "&pixivBridgeGet=/api/i18n/messages/layout-feedback"
             + "&pixivBridgeGet=/api/app/info"
             + "&pixivBridgeGet=/api/layout-feedback/state"
@@ -108,7 +109,11 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/pixiv-batch-alt.html"),
                 WebRouteContribution.visitor("/pixiv-batch-alt/**"),
                 WebRouteContribution.admin("/pixiv-layout-feedback/embed.html"),
-                WebRouteContribution.visitor("/pixiv-layout-feedback/**"),
+                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.css"),
+                WebRouteContribution.publicRoute("/pixiv-layout-feedback/release-activation.js"),
+                WebRouteContribution.publicRoute("/pixiv-layout-feedback/posthog-config.js"),
+                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.js"),
+                WebRouteContribution.publicRoute("/pixiv-layout-feedback/embed.js"),
                 new WebRouteContribution("/api/layout-feedback/state", AccessPolicy.VISITOR,
                         Set.of(HttpMethod.GET, HttpMethod.POST), false),
                 WebRouteContribution.admin("/api/schedule/**"),
@@ -185,18 +190,14 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         if (!officialSurveyRelease()) {
             return List.of();
         }
-        return List.of(new WebUiSlotContribution(
+        return List.of(new SurveyInboxMessage(
                 "download-workbench.layout-survey",
-                "notification.inbox",
-                null,
-                10,
-                Map.of(
-                        "notification.category", "survey",
-                        "notification.instance-key", LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION,
-                        "notification.embed-url", SURVEY_EMBED_URL,
-                        "notification.i18n-namespace", "layout-feedback",
-                        "notification.title-key", "layout-feedback.inbox-title",
-                        "notification.body-key", "layout-feedback.inbox-body")));
+                LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION,
+                SURVEY_EMBED_URL,
+                "layout-feedback",
+                "layout-feedback.inbox-title",
+                "layout-feedback.inbox-body",
+                10).toUiSlotContribution());
     }
 
     @Override

@@ -1,10 +1,13 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContribution;
+import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
@@ -28,13 +31,11 @@ import java.util.regex.Pattern;
 
 public class NotificationInboxService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(NotificationInboxService.class);
     private static final int MAX_ACTION_URL_BYTES = 8 * 1_024;
     private static final int MAX_CONTENT_URL_BYTES = 2 * 1_024;
     private static final String CONTENT_HOST = "sywyar.github.io";
     private static final String REMOTE_ANNOUNCEMENT_ID_PREFIX = "remote-announcement:";
-    private static final String PERSISTENT_SURVEY_TARGET = "notification.inbox";
-    private static final Pattern SLOT_ID = Pattern.compile("[a-z0-9][a-z0-9.-]{0,127}");
-    private static final Pattern I18N_TOKEN = Pattern.compile("[a-z0-9][a-z0-9.-]{0,159}");
     private static final Pattern REMOTE_ANNOUNCEMENT_ID = Pattern.compile("[a-z0-9][a-z0-9-]{0,79}");
     private static final Pattern REMOTE_LOCALE_TAG = Pattern.compile("[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+");
     private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
@@ -361,9 +362,9 @@ public class NotificationInboxService {
 
     public synchronized void synchronizePersistentSurveys() {
         List<PersistentSurvey> active = uiSlots.uiSlots().stream()
-                .filter(slot -> PERSISTENT_SURVEY_TARGET.equals(slot.target()))
+                .map(NotificationInboxService::surveyInboxMessage)
+                .flatMap(Optional::stream)
                 .map(NotificationInboxService::persistentSurvey)
-                .filter(Objects::nonNull)
                 .sorted(java.util.Comparator.comparing(PersistentSurvey::id))
                 .toList();
         if (active.equals(persistentSurveys)) {
@@ -378,6 +379,17 @@ public class NotificationInboxService {
                     survey.embedUrl(), now, null));
         }
         persistentSurveys = active;
+    }
+
+    private static Optional<SurveyInboxMessage> surveyInboxMessage(WebUiSlotContribution slot) {
+        try {
+            return SurveyInboxMessage.fromUiSlotContribution(slot);
+        } catch (IllegalArgumentException exception) {
+            LOG.warn("[survey-inbox-contribution-invalid] Ignoring invalid survey inbox slot [{}]: {}",
+                    slot == null ? "<null>" : Objects.toString(slot.slotId(), "<null>"),
+                    exception.getMessage());
+            return Optional.empty();
+        }
     }
 
     int pruneRetentionPool() {
@@ -491,38 +503,12 @@ public class NotificationInboxService {
         return List.copyOf(candidates);
     }
 
-    private static PersistentSurvey persistentSurvey(WebUiSlotContribution slot) {
-        if (slot == null || !SLOT_ID.matcher(Objects.toString(slot.slotId(), "")).matches()) {
-            return null;
-        }
-        Map<String, String> metadata = slot.metadata();
-        if (!NotificationCategory.SURVEY.token().equals(metadata.get("notification.category"))) {
-            return null;
-        }
-        String instanceKey = metadata.get("notification.instance-key");
-        if (instanceKey == null || !SLOT_ID.matcher(instanceKey).matches()) {
-            return null;
-        }
-        String namespace = metadata.get("notification.i18n-namespace");
-        String titleKey = metadata.get("notification.title-key");
-        String bodyKey = metadata.get("notification.body-key");
-        if (!i18nToken(namespace) || !i18nToken(titleKey) || !i18nToken(bodyKey)) {
-            return null;
-        }
-        String embedUrl;
-        try {
-            embedUrl = safeEmbeddedContentUrl(metadata.get("notification.embed-url"));
-        } catch (IllegalArgumentException ignored) {
-            return null;
-        }
+    private static PersistentSurvey persistentSurvey(SurveyInboxMessage message) {
         return new PersistentSurvey(
-                NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX + slot.slotId() + ":" + instanceKey,
-                slot.slotId(),
-                embedUrl, namespace, titleKey, bodyKey);
-    }
-
-    private static boolean i18nToken(String value) {
-        return value != null && I18N_TOKEN.matcher(value).matches();
+                NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX
+                        + message.messageKey() + ":" + message.instanceKey(),
+                message.messageKey(),
+                message.contentUrl(), message.i18nNamespace(), message.titleKey(), message.bodyKey());
     }
 
     private static String safeEmbeddedContentUrl(String value) {

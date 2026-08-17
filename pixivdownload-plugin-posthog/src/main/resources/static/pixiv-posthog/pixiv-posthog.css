@@ -1,0 +1,31 @@
+.pixiv-posthog-survey-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 72px;
+    margin: 0;
+    padding: 18px;
+    border: 1px solid var(--survey-line, var(--line, color-mix(in srgb, CanvasText 22%, transparent)));
+    border-radius: 12px;
+    background: var(--survey-panel, var(--surface, var(--card-bg, Canvas)));
+    color: var(--survey-muted, var(--muted, CanvasText));
+    font: 14px/1.6 system-ui, sans-serif;
+}
+
+.pixiv-posthog-survey-loading-spinner {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    border: 2px solid color-mix(in srgb, currentColor 24%, transparent);
+    border-top-color: var(--survey-brand, var(--brand, Highlight));
+    border-radius: 50%;
+    animation: pixiv-posthog-survey-loading-spin .8s linear infinite;
+}
+
+@keyframes pixiv-posthog-survey-loading-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pixiv-posthog-survey-loading-spinner { animation: none; }
+}

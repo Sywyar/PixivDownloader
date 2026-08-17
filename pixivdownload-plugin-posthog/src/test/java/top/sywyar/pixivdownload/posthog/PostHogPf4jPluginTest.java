@@ -28,9 +28,9 @@ class PostHogPf4jPluginTest {
         assertThat(new PostHogPf4jPlugin()).isInstanceOf(PixivPluginProvider.class);
 
         PostHogPlugin plugin = new PostHogPlugin();
-        assertThat(plugin.routes()).allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+        assertThat(plugin.routes()).allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.PUBLIC));
         assertThat(plugin.routes()).extracting(route -> route.pathPattern())
-                .containsExactly("/pixiv-posthog/**", "/vendor/posthog-js/**");
+                .containsExactly("/pixiv-posthog/**");
         assertThat(plugin.staticResources()).hasSize(2);
         assertThat(plugin.i18n()).hasSize(1);
     }
@@ -45,14 +45,15 @@ class PostHogPf4jPluginTest {
         }
         assertThat(adapter)
                 .contains("var SDK_VERSION = '1.409.5'")
-                .contains("var SDK_URL = '/vendor/posthog-js/' + SDK_VERSION + '/array.full.js'")
-                .contains("ownerKey", "options.posthog", "createSurveyClient")
+                .contains("var SDK_URL = '/pixiv-posthog/vendor/posthog-js/' + SDK_VERSION + '/array.full.js'")
+                .contains("ownerKey", "options.posthog", "showSurveyLoading", "createSurveyClient")
                 .doesNotContain("phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k")
                 .doesNotContain("surveyId: '")
                 .doesNotContain("https://layout-survey.sywyar.top")
                 .doesNotContain("download-workbench.layout-feedback")
                 .contains("bootstrap = {distinctID: options.distinctId, isIdentifiedID: false}")
                 .doesNotContain("personalApiKey", "serviceAccountToken");
+        assertThat(getClass().getResource("/static/pixiv-posthog/pixiv-posthog.css")).isNotNull();
         assertThat(getClass().getResource("/static/vendor/posthog-js/1.409.5/array.full.js")).isNotNull();
         assertThat(getClass().getResource("/META-INF/licenses/posthog-js/LICENSE")).isNotNull();
         assertThat(getClass().getResource("/META-INF/licenses/posthog-js/SOURCE.txt")).isNotNull();

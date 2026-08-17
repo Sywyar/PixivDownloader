@@ -355,12 +355,13 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("resolve：内置共享脚本 /js/pixiv-i18n.js 在 PUBLIC + VISITOR_AND_INVITED_GUEST 双声明下解析到 PUBLIC")
+    @DisplayName("resolve：调查 sandbox 所需共享脚本解析为 PUBLIC")
     void resolveBuiltInSharedScriptResolvesToPublic() {
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        assertThat(registry.resolve("/js/pixiv-i18n.js", HttpMethod.GET))
-                .get().extracting(r -> r.route().accessPolicy())
-                .isEqualTo(AccessPolicy.PUBLIC);
+        assertThat(List.of("/js/pixiv-i18n.js", "/js/pixiv-survey-frame-bridge.js"))
+                .allSatisfy(path -> assertThat(registry.resolve(path, HttpMethod.GET))
+                        .get().extracting(r -> r.route().accessPolicy())
+                        .isEqualTo(AccessPolicy.PUBLIC));
     }
 
     @Test
