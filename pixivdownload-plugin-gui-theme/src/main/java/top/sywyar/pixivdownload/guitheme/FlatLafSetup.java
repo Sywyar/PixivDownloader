@@ -16,25 +16,27 @@ import javax.swing.UIManager;
 import java.awt.Font;
 import java.awt.GraphicsEnvironment;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiPredicate;
 
 final class FlatLafSetup {
 
     private static final Logger log = LoggerFactory.getLogger(FlatLafSetup.class);
 
-    private static final String[] FONT_PRIORITY = {
-            "Microsoft YaHei UI",
-            "PingFang SC",
-            "Noto Sans CJK SC",
-            "Source Han Sans SC",
-            "SimSun",
-            "Dialog"
-    };
+    private static final List<String> CJK_FONT_PRIORITY = List.of(
+            "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC",
+            "Source Han Sans SC", "SimSun", "Dialog");
+    private static final List<String> KOREAN_FONT_PRIORITY = List.of(
+            "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR",
+            "Noto Sans KR", "NanumGothic", "Dialog");
+    private static final List<String> JAPANESE_FONT_PRIORITY = List.of(
+            "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo",
+            "Noto Sans CJK JP", "Hiragino Sans", "Dialog");
     private static final int SYSTEM_POLL_INTERVAL_MS = 30_000;
 
     private static volatile ThemePreference currentPreference = ThemePreference.SYSTEM;
@@ -53,7 +55,7 @@ final class FlatLafSetup {
         boolean dark = resolveDarkFor(next);
         installLaf(dark);
         currentDark = dark;
-        applyChineseFont();
+        applyLocaleFont();
         updateSystemWatcher();
         notifyChange(appearanceFor(dark));
     }
@@ -181,7 +183,7 @@ final class FlatLafSetup {
             return;
         }
         installLaf(dark);
-        applyChineseFont();
+        applyLocaleFont();
         currentDark = dark;
         try {
             FlatLaf.updateUI();
@@ -264,20 +266,44 @@ final class FlatLafSetup {
         worker.start();
     }
 
-    private static void applyChineseFont() {
-        String[] available = GraphicsEnvironment
+    private static void applyLocaleFont() {
+        Set<String> available = Set.of(GraphicsEnvironment
                 .getLocalGraphicsEnvironment()
-                .getAvailableFontFamilyNames();
-        var availableSet = new HashSet<>(Arrays.asList(available));
+                .getAvailableFontFamilyNames());
+        Locale locale = Locale.getDefault();
+        String family = selectFontFamily(locale, available,
+                (name, sample) -> new Font(name, Font.PLAIN, 13).canDisplayUpTo(sample) < 0);
 
-        for (String name : FONT_PRIORITY) {
-            if (availableSet.contains(name)) {
-                UIManager.put("defaultFont", new Font(name, Font.PLAIN, 13));
-                log.debug("GUI font set to: {}", name);
-                return;
+        if (family != null) {
+            UIManager.put("defaultFont", new Font(family, Font.PLAIN, 13));
+            log.debug("GUI font set to: {} for locale {}", family, locale.toLanguageTag());
+            return;
+        }
+        log.warn("No preset font can display locale {}; using the system default font",
+                locale.toLanguageTag());
+    }
+
+    static String selectFontFamily(Locale locale, Set<String> available,
+                                   BiPredicate<String, String> canDisplay) {
+        Locale effectiveLocale = locale == null ? Locale.getDefault() : locale;
+        String language = effectiveLocale.getLanguage();
+        List<String> priority = switch (language) {
+            case "ko" -> KOREAN_FONT_PRIORITY;
+            case "ja" -> JAPANESE_FONT_PRIORITY;
+            default -> CJK_FONT_PRIORITY;
+        };
+        String sample = switch (language) {
+            case "ko" -> "한글 한국어";
+            case "ja" -> "日本語 ひらがな カタカナ";
+            case "zh" -> "简体中文 繁體中文";
+            default -> "PixivDownloader";
+        };
+        for (String name : priority) {
+            if (available.contains(name) && canDisplay.test(name, sample)) {
+                return name;
             }
         }
-        log.warn("No preset CJK font was found; using the system default font");
+        return null;
     }
 
     private static GuiThemeAppearance appearanceFor(boolean dark) {
