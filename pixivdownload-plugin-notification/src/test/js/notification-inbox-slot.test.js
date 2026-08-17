@@ -509,12 +509,22 @@ test('调查 iframe 通过共享 bridge 延迟挂载并携带当前语言', asyn
         id: 'survey', category: 'survey', title: 'Survey', embeddedContentUrl: '/survey/embed',
         deletable: false, readTime: 1
     });
-    const h = await pageHarness({messages: [survey], categoryUnreadCount: 0}, {surveyBridge: true});
+    const plain = pageMessage({id: 'plain', title: 'Plain'});
+    const h = await pageHarness({messages: [survey, plain], categoryUnreadCount: 0}, {surveyBridge: true});
     assert.equal(h.bridge.attachments.length, 0);
-    await h.document.getElementById('notificationList').children[0].emit('click');
+    const list = h.document.getElementById('notificationList');
+    await list.children[0].emit('click');
     assert.equal(h.bridge.attachments.length, 1);
     assert.match(h.bridge.attachments[0].source, /^\/survey\/embed\?notificationId=survey&lang=en-US$/);
-    assert.equal(h.bridge.attachments[0].frame.getAttribute('data-embedded-survey'), 'true');
+    const frame = h.bridge.attachments[0].frame;
+    assert.equal(frame.getAttribute('data-embedded-survey'), 'true');
+
+    await list.children[1].emit('click');
+    assert.equal(frame.hidden, true);
+    await list.children[0].emit('click');
+    assert.equal(h.document.querySelectorAll('.notification-detail-content-frame').length, 1);
+    assert.equal(h.document.querySelectorAll('.notification-detail-content-frame')[0], frame);
+    assert.equal(h.bridge.attachments.length, 1);
 });
 
 test('公告自动已读且当前分类全部已读使用对应 API', async () => {

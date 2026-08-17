@@ -95,6 +95,55 @@ async function main() {
     vm.runInContext(source, sandbox, {filename: 'pixiv-posthog.js'});
 
     const api = sandbox.PixivPostHog;
+    const posted = [];
+    const loadingDocument = {
+        createElement(tag) {
+            const classes = new Set();
+            return {
+                tagName: tag.toUpperCase(), attributes: {}, textContent: '', className: '',
+                classList: {
+                    add(value) { classes.add(value); },
+                    contains(value) { return classes.has(value); }
+                },
+                setAttribute(name, value) { this.attributes[name] = String(value); },
+                getAttribute(name) { return this.attributes[name] ?? null; }
+            };
+        }
+    };
+    const rootClasses = new Set();
+    const root = {
+        ownerDocument: loadingDocument, children: [], attributes: {}, textContent: '', scrollHeight: 72,
+        classList: {
+            add(value) { rootClasses.add(value); },
+            contains(value) { return rootClasses.has(value); }
+        },
+        setAttribute(name, value) { this.attributes[name] = String(value); },
+        getAttribute(name) { return this.attributes[name] ?? null; },
+        append(...children) { this.children.push(...children); },
+        getBoundingClientRect() { return {height: 72}; }
+    };
+    let loadingI18nOptions = null;
+    sandbox.document = loadingDocument;
+    sandbox.PixivSurveyFrameBridge = {
+        ready() { return Promise.resolve({}); },
+        post(message) { posted.push(message); return true; }
+    };
+    sandbox.PixivI18n = {
+        create(options) {
+            loadingI18nOptions = options;
+            return Promise.resolve({t() { return 'Loading survey…'; }});
+        }
+    };
+    assert.equal(await api.showSurveyLoading(root, {lang: 'en-US'}), true);
+    assert.equal(rootClasses.has('pixiv-posthog-survey-loading'), true);
+    assert.equal(root.getAttribute('aria-busy'), 'true');
+    assert.equal(root.children[0].className, 'pixiv-posthog-survey-loading-spinner');
+    assert.equal(root.children[1].textContent, 'Loading survey…');
+    assert.equal(loadingI18nOptions.lang, 'en-US');
+    assert.equal(String(loadingI18nOptions.namespaces), 'posthog');
+    assert.deepEqual(posted, [{type: 'pixiv-content-height', height: 72},
+        {type: 'pixiv-content-height', height: 72}]);
+
     const filter = event => event;
     const posthog = {
         projectToken: 'phc_owner_one',
@@ -296,7 +345,9 @@ async function main() {
     timeoutCallback();
     await assert.rejects(timedOut, /request aborted/);
     assert.strictEqual(timeoutCallback, null);
-    assert.deepStrictEqual(Object.keys(api), ['createSurveyClient', 'captureSurveyWithAck']);
+    assert.deepStrictEqual(Object.keys(api), [
+        'showSurveyLoading', 'createSurveyClient', 'captureSurveyWithAck'
+    ]);
     await testSynchronousLoadFailureCanRetry();
     console.log('pixiv-posthog.test.js: passed');
 }

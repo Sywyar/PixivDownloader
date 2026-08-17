@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MultiModeDecisionSurveyPluginTest {
 
     @Test
-    @DisplayName("只贡献管理员站内信资源并按发行激活位发布站内信")
+    @DisplayName("调查页面与身份保持管理员可见且 sandbox 静态资源可加载")
     void contributesOnlyAdminInboxSurveyAndDefaultsOff() throws Exception {
         Properties descriptor = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
@@ -28,11 +28,20 @@ class MultiModeDecisionSurveyPluginTest {
         assertThat(new MultiModeDecisionSurveyPf4jPlugin()).isInstanceOf(PixivPluginProvider.class);
 
         MultiModeDecisionSurveyPlugin plugin = new MultiModeDecisionSurveyPlugin();
-        assertThat(plugin.routes()).allSatisfy(route ->
-                assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
         assertThat(plugin.routes()).extracting(route -> route.pathPattern()).containsExactly(
-                "/pixiv-multi-mode-decision-survey/**",
+                "/pixiv-multi-mode-decision-survey/embed.html",
+                "/pixiv-multi-mode-decision-survey/survey.css",
+                "/pixiv-multi-mode-decision-survey/release-activation.js",
+                "/pixiv-multi-mode-decision-survey/posthog-config.js",
+                "/pixiv-multi-mode-decision-survey/survey.js",
                 "/api/multi-mode-decision-survey/identity");
+        assertThat(plugin.routes()).filteredOn(route -> route.pathPattern().endsWith("embed.html")
+                        || route.pathPattern().startsWith("/api/"))
+                .allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
+        assertThat(plugin.routes()).filteredOn(route -> route.pathPattern().startsWith(
+                        "/pixiv-multi-mode-decision-survey/")
+                        && !route.pathPattern().endsWith("embed.html"))
+                .allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.PUBLIC));
         assertThat(plugin.staticResources()).singleElement().satisfies(resource ->
                 assertThat(resource.publicPathPrefix()).isEqualTo("/pixiv-multi-mode-decision-survey/"));
         assertThat(plugin.i18n()).singleElement().satisfies(bundle ->
@@ -52,6 +61,7 @@ class MultiModeDecisionSurveyPluginTest {
                     .isEqualTo("multi-mode-decision-v1");
             assertThat(slots.get(0).metadata().get("notification.embed-url"))
                     .contains("pixivBridgeGet=/api/multi-mode-decision-survey/identity")
+                    .contains("pixivBridgeGet=/api/i18n/messages/posthog")
                     .contains("pixivBridgeRead=pixiv_theme")
                     .contains("pixivBridgeWrite=pixiv:multi-mode-decision-survey:state:v1");
         }
@@ -95,10 +105,13 @@ class MultiModeDecisionSurveyPluginTest {
         }
         assertThat(embed)
                 .contains("/js/pixiv-survey-frame-bridge.js")
+                .contains("/pixiv-posthog/pixiv-posthog.css")
                 .contains("/pixiv-multi-mode-decision-survey/posthog-config.js");
         assertThat(script)
                 .contains("global.PixivSurveyFrameBridge.ready()")
+                .contains("global.PixivPostHog.showSurveyLoading")
                 .contains("global.PixivSurveyFrameBridge.post({")
+                .doesNotContain("status('loading'")
                 .doesNotContain("parent.postMessage")
                 .doesNotContain("global.localStorage");
     }

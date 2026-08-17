@@ -34894,14 +34894,6 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "web/layout-feedback",
-      "key": "layout-feedback.embed-loading",
-      "acceptedSourceHash": "ddb93702c0f7c496cdd2f9a04349733de55272fdbcc750ee2feb0c187de67427",
-      "acceptedTranslationHash": "348758a3ce0974e2f96b3be35c813e7bdeb357f9c788fb074f2cb6c1596d3ac6"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-plugin-download-workbench",
-      "baseName": "web/layout-feedback",
       "key": "layout-feedback.embed-temporarily-unavailable",
       "acceptedSourceHash": "586e5690d4b61620049f432ba2c716a76c4fc961ddc54ee89d61b0d7bc9ac359",
       "acceptedTranslationHash": "3e5d2ab4f7aafe3a5691106e7bc2f6dec2521c8c16bf36ac15b65d74c5cbae44"
@@ -42518,14 +42510,6 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-multi-mode-decision-survey",
       "baseName": "web/multi-mode-decision-survey",
-      "key": "loading",
-      "acceptedSourceHash": "ddb93702c0f7c496cdd2f9a04349733de55272fdbcc750ee2feb0c187de67427",
-      "acceptedTranslationHash": "348758a3ce0974e2f96b3be35c813e7bdeb357f9c788fb074f2cb6c1596d3ac6"
-    },
-    {
-      "locale": "en-US",
-      "module": "pixivdownload-plugin-multi-mode-decision-survey",
-      "baseName": "web/multi-mode-decision-survey",
       "key": "other-placeholder",
       "acceptedSourceHash": "4f2a135460ace1af1236182d571f733e600626a57efadc3ad3b89d1360014e18",
       "acceptedTranslationHash": "5b29b720f216f08aa8d40d88b60462a36cb44179e586d8ae7a0f35b4bca32afd"
@@ -48097,6 +48081,14 @@
       "key": "plugin.summary",
       "acceptedSourceHash": "3cad64c6d67973098ce7f4e12feabe10e397ad599181b0986ad126c6b6b30b61",
       "acceptedTranslationHash": "0e76f0efbf372f430f3785853168c17ddb5fbc9f11e50ae6cc431e8fc698e3f3"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-posthog",
+      "baseName": "web/posthog",
+      "key": "survey.loading",
+      "acceptedSourceHash": "ddb93702c0f7c496cdd2f9a04349733de55272fdbcc750ee2feb0c187de67427",
+      "acceptedTranslationHash": "2f5897e0e4e5bd0da88d155d5152ded191ea29e7e7eaecf52d552b3f2d8d8d7f"
     },
     {
       "locale": "en-US",

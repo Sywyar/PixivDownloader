@@ -84,14 +84,9 @@
     }
 
     function clearSelection(updateHistory) {
-        var selectedId = state.selectedId;
         state.selectedId = '';
         state.selectedMessage = null;
         var detail = resetDetail();
-        var selectedFrame = contentFrames.get(selectedId);
-        if (selectedFrame && selectedFrame.getAttribute('data-embedded-survey') === 'true') {
-            discardContentFrame(selectedId);
-        }
         if (emptyDetail) {
             detail.insertBefore(emptyDetail, contentFrameHost);
             if (pageI18n) pageI18n.apply(detail);
@@ -412,11 +407,6 @@
     }
 
     async function selectMessage(id, updateHistory) {
-        var previousFrame = contentFrames.get(state.selectedId);
-        if (state.selectedId !== id && previousFrame
-                && previousFrame.getAttribute('data-embedded-survey') === 'true') {
-            discardContentFrame(state.selectedId);
-        }
         state.selectedId = id;
         state.selectedMessage = state.messages.find(function (message) { return message.id === id; }) || null;
         renderList();

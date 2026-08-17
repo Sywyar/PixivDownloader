@@ -259,6 +259,7 @@ class LayoutSurveyContractTest {
                 .contains("frame-ancestors 'self'")
                 .contains("connect-src 'self' https://layout-survey.sywyar.top")
                 .contains("/js/pixiv-survey-frame-bridge.js")
+                .contains("/pixiv-posthog/pixiv-posthog.css")
                 .contains("/pixiv-layout-feedback/release-activation.js")
                 .contains("/pixiv-posthog/pixiv-posthog.js")
                 .contains("/pixiv-layout-feedback/posthog-config.js")
@@ -267,6 +268,7 @@ class LayoutSurveyContractTest {
         assertThat(embedJs)
                 .contains("openEmbedded()")
                 .contains("global.PixivSurveyFrameBridge.ready()")
+                .contains("global.PixivPostHog.showSurveyLoading")
                 .contains("storage: storage")
                 .contains("fetchImpl: global.fetch")
                 .contains("type: 'pixiv-survey-unavailable'")
@@ -275,19 +277,35 @@ class LayoutSurveyContractTest {
                 .doesNotContain("parent.postMessage");
         assertThat(pluginSource)
                 .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
+                .contains("new SurveyInboxMessage(")
                 .contains("LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION")
                 .contains("pixivBridgeGet=/api/layout-feedback/state")
+                .contains("pixivBridgeGet=/api/i18n/messages/posthog")
                 .contains("pixivBridgePost=/api/layout-feedback/state")
                 .contains("pixivBridgeRead=pixiv_theme")
-                .contains("\"notification.inbox\"")
-                .contains("\"notification.instance-key\", LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION")
-                .contains("\"notification.embed-url\", SURVEY_EMBED_URL")
-                .contains("\"notification.i18n-namespace\", \"layout-feedback\"");
+                .contains("SURVEY_EMBED_URL")
+                .contains("\"layout-feedback.inbox-title\"")
+                .contains("\"layout-feedback.inbox-body\"");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
                 .filteredOn(route -> "/pixiv-layout-feedback/embed.html".equals(route.pathPattern()))
                 .singleElement()
                 .extracting(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution::accessPolicy)
                 .isEqualTo(top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.ADMIN);
+        assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
+                .filteredOn(route -> route.pathPattern().startsWith("/pixiv-layout-feedback/")
+                        && !route.pathPattern().endsWith("embed.html"))
+                .extracting(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution::pathPattern)
+                .containsExactlyInAnyOrder(
+                        "/pixiv-layout-feedback/pixiv-layout-feedback.css",
+                        "/pixiv-layout-feedback/release-activation.js",
+                        "/pixiv-layout-feedback/posthog-config.js",
+                        "/pixiv-layout-feedback/pixiv-layout-feedback.js",
+                        "/pixiv-layout-feedback/embed.js");
+        assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
+                .filteredOn(route -> route.pathPattern().startsWith("/pixiv-layout-feedback/")
+                        && !route.pathPattern().endsWith("embed.html"))
+                .allSatisfy(route -> assertThat(route.accessPolicy())
+                        .isEqualTo(top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.PUBLIC));
         var slots = new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().uiSlots();
         if (!slots.isEmpty()) {
             assertThat(slots.get(0).metadata().get("notification.embed-url"))
@@ -349,7 +367,6 @@ class LayoutSurveyContractTest {
                 .contains("layout-feedback.close")
                 .contains("layout-feedback.inbox-title")
                 .contains("layout-feedback.inbox-body")
-                .contains("layout-feedback.embed-loading")
                 .contains("layout-feedback.embed-completed")
                 .contains("layout-feedback.embed-unavailable")
                 .contains("layout-feedback.embed-temporarily-unavailable");
