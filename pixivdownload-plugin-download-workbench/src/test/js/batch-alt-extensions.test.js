@@ -277,6 +277,9 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     });
     assert(queueSource.includes('queueItemCard: queueItemRow'),
         '新版队列命名空间必须导出已定义的队列卡片函数');
+    assert(initSource.includes('onChange: applyPageLanguageViews'));
+    assert(initSource.includes('pageLangSwitcher.refresh(pageI18n);'));
+    assert(!initSource.includes('PixivI18n.onLanguageChange('));
     // —— 下载坞 Vue 岛门面（统计 / 当前卡 / 队列列表 reactive 主渲染，命令式回退）——
     assert(queueSource.includes('altQueueVueActive()'));
     assert(queueSource.includes('ensureDockVue();'));

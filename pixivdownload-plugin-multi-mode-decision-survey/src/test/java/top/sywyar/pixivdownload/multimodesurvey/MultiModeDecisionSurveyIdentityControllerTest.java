@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.multimodesurvey;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,9 +28,11 @@ class MultiModeDecisionSurveyIdentityControllerTest {
         var response = new MultiModeDecisionSurveyIdentityController(() -> INSTALL_ID).identity(SURVEY_ID);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getCacheControl()).contains("no-store");
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().distinctId()).isEqualTo(first);
-        String submissionId = response.getBody().submissionId();
+        assertThat(response.getBody()).isInstanceOf(MultiModeDecisionSurveyIdentityController.IdentityResponse.class);
+        MultiModeDecisionSurveyIdentityController.IdentityResponse body =
+                (MultiModeDecisionSurveyIdentityController.IdentityResponse) response.getBody();
+        assertThat(body.distinctId()).isEqualTo(first);
+        String submissionId = body.submissionId();
         assertThat(submissionId)
                 .isEqualTo(MultiModeDecisionSurveyIdentityController.deriveSubmissionId(
                         SURVEY_ID, MultiModeDecisionSurveyIdentityController.CAMPAIGN_VERSION, first))
@@ -48,7 +51,8 @@ class MultiModeDecisionSurveyIdentityControllerTest {
         var response = new MultiModeDecisionSurveyIdentityController(() -> "bad").identity(SURVEY_ID);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(response.getHeaders().getCacheControl()).contains("no-store");
-        assertThat(response.getBody()).isNull();
+        assertThat(response.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class,
+                error -> assertThat(error.code()).isEqualTo("survey.identity.unavailable"));
     }
 
     @Test
@@ -58,6 +62,7 @@ class MultiModeDecisionSurveyIdentityControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getHeaders().getCacheControl()).contains("no-store");
-        assertThat(response.getBody()).isNull();
+        assertThat(response.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class,
+                error -> assertThat(error.code()).isEqualTo("survey.identity.invalid-request"));
     }
 }

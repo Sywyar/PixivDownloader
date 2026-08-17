@@ -1,16 +1,14 @@
 package top.sywyar.pixivdownload.plugin.recovery;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -33,8 +31,8 @@ import java.util.Optional;
  * 修复 API（{@code /api/plugins/**}）、插件市场页面 / 静态 / API（{@code /plugin-market.html}、{@code /plugin-market/**}、
  * {@code /api/plugin-market/**}）、本机 GUI（{@code /api/gui/**}，仍受 {@code AuthFilter} 的本地 + 令牌校验）、i18n
  * 文案（{@code /api/i18n/**}）、核心认证与 setup 入口（{@code /api/auth/**}、{@code /api/setup/**} 与 {@code /login.html}、
- * {@code /setup.html} 页面外壳及其同名目录静态资源）以及插件市场渲染所需的基础静态资源（{@code /js/}、{@code /css/}、
- * {@code /vendor/}）与导航端点（{@code /api/navigation}）。核心认证 / setup / 市场入口仅放行到后续 {@code AuthFilter} /
+ * {@code /setup.html} 页面外壳及其同名目录静态资源）、状态页（{@code /error/**}）以及插件市场渲染所需的基础静态资源
+ * （{@code /js/}、{@code /css/}、{@code /vendor/}）与导航端点（{@code /api/navigation}）。核心认证 / setup / 市场入口仅放行到后续 {@code AuthFilter} /
  * controller，本过滤器不重复实现鉴权——本机校验、登录限流、session 逻辑与管理员鉴权仍由既有链路负责。其余一律拦截：
  * API 返回 503 JSON，非 API 请求重定向到插件市场，避免在缺少下载插件时误开放下载 / 业务功能或油猴脚本入口。
  */
@@ -47,7 +45,6 @@ public class RecoveryModeGate extends OncePerRequestFilter {
     private final RecoveryModeService recoveryModeService;
     private final AppLocaleResolver localeResolver;
     private final AppMessages messages;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public RecoveryModeGate(RecoveryModeService recoveryModeService,
                             AppLocaleResolver localeResolver, AppMessages messages) {
@@ -112,7 +109,8 @@ public class RecoveryModeGate extends OncePerRequestFilter {
     /**
      * 渲染恢复提示与核心认证 / setup 所需的基础静态资源及页面外壳：登录 / setup 页面外壳与其同名目录静态资源
      * （{@code /login.html}、{@code /login/}、{@code /setup.html}、{@code /setup/}）、首页外壳、站点图标与共享
-     * {@code /js/}、{@code /css/}、{@code /vendor/}；不含业务页面 / 油猴脚本 / {@code /userscripts/} 静态。
+     * 状态页 {@code /error/}、{@code /js/}、{@code /css/}、{@code /vendor/}；不含业务页面 / 油猴脚本 /
+     * {@code /userscripts/} 静态。
      */
     private static boolean isRecoveryStaticResource(String path) {
         return path.equals("/")
@@ -122,6 +120,7 @@ public class RecoveryModeGate extends OncePerRequestFilter {
                 || path.startsWith("/login/")
                 || path.equals("/setup.html")
                 || path.startsWith("/setup/")
+                || path.startsWith("/error/")
                 || path.startsWith("/js/")
                 || path.startsWith("/css/")
                 || path.startsWith("/vendor/");
@@ -130,22 +129,21 @@ public class RecoveryModeGate extends OncePerRequestFilter {
     private void block(HttpServletRequest req, HttpServletResponse res, String path) throws IOException {
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
         if (path.startsWith("/api/")) {
-            String message = resolveMessage(localeResolver.resolveLocale(req));
-            res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            String code = resolveMessageCode();
+            String message = messages.getOrDefault(localeResolver.resolveLocale(req), code,
+                    "缺少必须的下载插件，请先安装或修复后重试");
             res.setHeader(HttpHeaders.RETRY_AFTER, "120");
-            res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            res.getWriter().write(objectMapper.writeValueAsString(new ErrorResponse(message)));
+            ApiErrorWriter.write(res, HttpServletResponse.SC_SERVICE_UNAVAILABLE, code, message);
         } else {
             res.sendRedirect(PLUGIN_MARKET_PATH);
         }
     }
 
-    /** 取首个未满足必选插件的提示文案 key；缺省回落到通用提示 key。 */
-    private String resolveMessage(Locale locale) {
-        String key = recoveryModeService.decision().firstReason()
+    /** 取首个未满足必选插件的稳定错误码；该码同时定位对应的本地化文案。 */
+    private String resolveMessageCode() {
+        return recoveryModeService.decision().firstReason()
                 .map(RecoveryModeReason::messageKey)
                 .filter(k -> k != null && !k.isBlank())
                 .orElse("plugin.recovery.blocked");
-        return messages.getOrDefault(locale, key, "缺少必须的下载插件，请先安装或修复后重试");
     }
 }

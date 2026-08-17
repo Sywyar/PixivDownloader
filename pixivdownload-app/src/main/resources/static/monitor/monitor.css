@@ -109,10 +109,6 @@
             max-width: 100%;
         }
 
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: var(--surface); }
-        ::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 2px; }
-
         /* ── Typography ────────────────────────────────────────── */
         a { color: var(--cyan); text-decoration: none; }
         code {

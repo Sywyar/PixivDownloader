@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.AsyncContext;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
@@ -14,7 +13,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -60,7 +59,6 @@ public class PluginQuiesceGate extends OncePerRequestFilter {
     private final Runnable afterLeaseActivationProbe;
     private final Runnable beforeDownstreamProbe;
     private final Runnable afterAsyncListenerAttachProbe;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
     public PluginQuiesceGate(RouteAccessRegistry routeAccessRegistry,
@@ -298,28 +296,16 @@ public class PluginQuiesceGate extends OncePerRequestFilter {
     }
 
     private void block(HttpServletRequest req, HttpServletResponse res) throws IOException {
-        String message = messages.getOrDefault(localeResolver.resolveLocale(req),
-                "plugin.unavailable.quiesced", "插件正在停用中，暂时不可用，请稍后重试");
-        res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
         res.setHeader(HttpHeaders.RETRY_AFTER, "30");
-        res.setCharacterEncoding(StandardCharsets.UTF_8.name());
         String path = SafeRequestPath.resolve(req).orElse(req.getRequestURI());
         if (path != null && path.startsWith("/api/")) {
-            res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            res.getWriter().write(objectMapper.writeValueAsString(new ErrorResponse(message)));
+            String message = messages.getOrDefault(localeResolver.resolveLocale(req),
+                    "plugin.unavailable.quiesced", "插件正在停用中，暂时不可用，请稍后重试");
+            ApiErrorWriter.write(res, HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+                    "plugin.unavailable.quiesced", message);
         } else {
-            res.setContentType(MediaType.TEXT_HTML_VALUE);
-            res.getWriter().write(unavailableHtml(message));
+            res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
         }
-    }
-
-    private static String unavailableHtml(String message) {
-        String safe = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        return "<!DOCTYPE html><html lang=\"zh\"><head><meta charset=\"UTF-8\">"
-                + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-                + "<title>Plugin unavailable</title></head><body>"
-                + "<main style=\"max-width:32rem;margin:4rem auto;font-family:sans-serif;line-height:1.6\">"
-                + "<p>" + safe + "</p></main></body></html>";
     }
 
     private record RouteResolution(Optional<RouteAccessRegistry.RegisteredRoute> route, boolean failed) {

@@ -15,7 +15,6 @@
     --control-muted-bg: #fafafa;
     --hover-bg: #f5f5f5;
     --soft-bg: #f7fbff;
-    --scrollbar-thumb: #dddddd;
     --on-brand: #ffffff;
     --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.08);
     --overlay-bg: rgba(0, 0, 0, 0.3);
@@ -38,7 +37,6 @@ html[data-theme="dark"] {
     --control-muted-bg: #151922;
     --hover-bg: #222838;
     --soft-bg: rgba(75, 179, 255, 0.1);
-    --scrollbar-thumb: #3b4352;
     --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.38);
     --active-bg: rgba(75, 179, 255, 0.12);
     --collection-icon-bg: rgba(232, 67, 147, 0.14);

@@ -79,7 +79,9 @@ class CsrfProtectionFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         assertThat(response.getStatus()).isEqualTo(403);
-        assertThat(response.getContentAsString()).contains("Request origin verification failed");
+        assertThat(response.getContentAsString())
+                .contains("\"code\":\"auth.csrf.invalid\"")
+                .contains("\"error\":\"Request origin verification failed\"");
         verify(filterChain, never()).doFilter(request, response);
     }
 
@@ -105,7 +107,57 @@ class CsrfProtectionFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         assertThat(response.getStatus()).isEqualTo(405);
+        assertThat(response.getContentType()).startsWith("application/json");
+        assertThat(response.getContentAsString())
+                .contains("\"code\":\"http.status.405\"")
+                .contains("\"error\":\"Method Not Allowed\"");
         assertThat(response.getHeader(HttpHeaders.ALLOW)).doesNotContain("TRACE");
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("页面 TRACE 请求交给容器渲染 4xx 错误页")
+    void htmlTraceUsesContainerErrorPage() throws Exception {
+        MockHttpServletRequest request = request("TRACE", "/index.html");
+        request.addHeader(HttpHeaders.ACCEPT, "text/html");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(405);
+        assertThat(response.isCommitted()).isTrue();
+        assertThat(response.getHeader(HttpHeaders.ALLOW)).doesNotContain("TRACE");
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("浏览器页面写请求来源校验失败时交给容器渲染 403 错误页")
+    void htmlPageWriteRejectionUsesContainerErrorPage() throws Exception {
+        MockHttpServletRequest request = request("POST", "/index.html");
+        request.addHeader(HttpHeaders.ACCEPT, "text/html");
+        request.addHeader(HttpHeaders.ORIGIN, "https://evil.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.isCommitted()).isTrue();
+        assertThat(response.getContentAsString()).isEmpty();
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("API 写请求即使接受 HTML 仍保留 JSON 错误契约")
+    void apiWriteWithHtmlAcceptKeepsJsonError() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/plugins/install");
+        request.addHeader(HttpHeaders.ACCEPT, "text/html");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentType()).startsWith("application/json");
+        assertThat(response.getContentAsString()).contains("Request origin verification failed");
         verify(filterChain, never()).doFilter(request, response);
     }
 

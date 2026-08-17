@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -192,7 +193,8 @@ public final class ExampleDownloadController {
     }
 
     private static ResponseEntity<ApiError> error(HttpStatus status, String code, String messageKey) {
-        return ResponseEntity.status(status).body(new ApiError(code, "example-download:" + messageKey));
+        String qualifiedMessageKey = "example-download:" + messageKey;
+        return ResponseEntity.status(status).body(new ApiError(code, qualifiedMessageKey, qualifiedMessageKey));
     }
 
     public record ResolveRequest(String input) {
@@ -204,7 +206,7 @@ public final class ExampleDownloadController {
     public record QueueResponse(String code, String messageKey, QueueItem item) {
     }
 
-    public record ApiError(String code, String messageKey) {
+    public record ApiError(String code, String messageKey, String error) implements ApiErrorResponse {
     }
 
     public record WorkView(String id, String title, String url, String source, String status) {

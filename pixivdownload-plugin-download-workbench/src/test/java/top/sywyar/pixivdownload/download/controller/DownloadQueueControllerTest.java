@@ -75,7 +75,7 @@ class DownloadQueueControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("QUEUE_CANCEL_DESCRIPTOR_STALE"))
-                .andExpect(jsonPath("$.message").value(
+                .andExpect(jsonPath("$.error").value(
                         "This cancel request is outdated. Refresh the download page and try again"));
 
         verifyNoInteractions(downloadControlPlane, requestOwnerIdentityResolver);
@@ -131,7 +131,7 @@ class DownloadQueueControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("QUEUE_CANCEL_REQUEST_INVALID"))
-                .andExpect(jsonPath("$.message").value("Invalid request parameters"));
+                .andExpect(jsonPath("$.error").value("Invalid request parameters"));
 
         verifyNoInteractions(downloadControlPlane, requestOwnerIdentityResolver);
     }

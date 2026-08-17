@@ -67,14 +67,33 @@ vm.runInContext(VIEWS_SRC, sandbox);
 const PM = sandbox.window.PixivPluginManage;
 ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.allViewModels === 'function'
+    && typeof PM.applyReport === 'function'
     && typeof PM.lifecyclePolicyMeta === 'function'
     && typeof PM.setEnabled === 'function'
     && typeof PM.restartBackend === 'function'
     && typeof PM.installPackage === 'function'
     && typeof PM.buildInstallResult === 'function'
     && typeof PM.installFeedback === 'function'
+    && typeof PM.renderCardHtml === 'function'
     && typeof PM.renderInstallResultHtml === 'function'
     && typeof PM.hasNavigationForPlacement === 'function');
+
+// 页面会话内固定首次加载顺序；仅显式刷新接受后端新顺序。
+(function () {
+    PM.state.pluginOrder = [];
+    PM.applyReport({ plugins: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] });
+    eq('首次加载保留后端顺序', PM.state.report.plugins.map(p => p.id).join(','), 'a,b,c');
+
+    PM.applyReport({ plugins: [{ id: 'c' }, { id: 'a' }, { id: 'b' }] });
+    eq('状态回载不改变当前页面顺序', PM.state.report.plugins.map(p => p.id).join(','), 'a,b,c');
+
+    PM.applyReport({ plugins: [{ id: 'c' }, { id: 'a' }] });
+    PM.applyReport({ plugins: [{ id: 'c' }, { id: 'd' }, { id: 'b' }, { id: 'a' }] });
+    eq('暂时缺席的插件恢复原位且新插件追加', PM.state.report.plugins.map(p => p.id).join(','), 'a,b,c,d');
+
+    PM.applyReport({ plugins: [{ id: 'd' }, { id: 'c' }, { id: 'b' }, { id: 'a' }] }, true);
+    eq('显式刷新重建顺序', PM.state.report.plugins.map(p => p.id).join(','), 'd,c,b,a');
+})();
 
 (function () {
     const invalid = PM.verificationMeta('PROVENANCE_INVALID');
@@ -215,6 +234,33 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     const vmm = vmOf({ id: 'ext2', source: 'external', status: 'STARTED',
         displayNamespace: '   ', descriptionKey: 'plugin.summary' });
     eq('descriptionKey 存在但 namespace 空白 → 回退通用简介', vmm.desc, DESC_EXTERNAL);
+})();
+
+// —— 紧凑平铺卡片：无展开态，完整信息始终可见，运行期操作收进图标浮层菜单 ——
+(function () {
+    const vmm = vmOf({
+        id: 'compact-demo', source: 'external', status: 'STARTED', managed: true, runtimePhase: 'STARTED',
+        version: '1.2.3', lifecyclePolicy: 'HOT_RELOAD', configuredEnabled: true, toggleable: true,
+        availableActions: ['restart', 'remove'], descriptionKey: null, tags: ['demo']
+    });
+    const html = PM.renderCardHtml(vmm);
+    ok('卡片显示图标贴片', html.indexOf('pm-card-icon') !== -1);
+    ok('卡片名称行显示名称与版本', html.indexOf('compact-demo') !== -1 && html.indexOf('v1.2.3') !== -1);
+    ok('卡片首行显示状态与开关',
+        html.indexOf('pm-card-status') !== -1 && html.indexOf('data-pm-toggle="compact-demo"') !== -1);
+    ok('完整描述始终可见', html.indexOf(DESC_EXTERNAL) !== -1);
+    ok('不使用展开控件', html.indexOf('data-pm-expand') === -1 && html.indexOf('is-expanded') === -1);
+    ok('浮层菜单只渲染后端可用动词',
+        html.indexOf('data-pm-action-menu-toggle') !== -1
+        && html.indexOf('data-pm-action="restart"') !== -1
+        && html.indexOf('data-pm-action="remove"') !== -1);
+    ok('浮层菜单项带动词图标', html.indexOf('fa-arrows-rotate') !== -1);
+
+    const plain = PM.renderCardHtml(vmOf({ id: 'plain', source: 'built-in', status: 'STARTED', toggleable: false }));
+    ok('无可用动作时不渲染操作菜单', plain.indexOf('data-pm-action-menu-toggle') === -1);
+
+    const failed = PM.renderCardHtml(vmOf({ id: 'bad-one', source: 'external', status: 'FAILED', managed: false }));
+    ok('失败状态卡片抬升左侧色条', failed.indexOf('pm-card--bad') !== -1);
 })();
 
 // —— 4) iconKey 受控白名单：已知 / 未知 / 缺失 ——

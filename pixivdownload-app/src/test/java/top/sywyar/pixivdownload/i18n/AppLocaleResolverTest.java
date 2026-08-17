@@ -44,14 +44,14 @@ class AppLocaleResolverTest {
     }
 
     @Test
-    @DisplayName("Accept-Language 基于 catalog：候选语言不参与、无匹配落到默认 en-US")
+    @DisplayName("Accept-Language 基于 catalog：受支持语言可匹配、无匹配落到默认 en-US")
     void acceptLanguageIsCatalogDriven() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("Accept-Language", "ja-JP,ja;q=0.9,en;q=0.8");
-        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.US);
+        assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.JAPAN);
 
         request = new MockHttpServletRequest();
-        request.addHeader("Accept-Language", "en-US;q=1.0,zh-CN;q=0.5");
+        request.addHeader("Accept-Language", "fr-FR,fr;q=0.9");
         assertThat(resolver.resolveLocale(request)).isEqualTo(Locale.US);
     }
 

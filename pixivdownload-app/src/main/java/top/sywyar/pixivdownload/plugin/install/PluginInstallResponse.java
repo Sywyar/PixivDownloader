@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.plugin.install;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 
 import java.util.List;
@@ -55,5 +57,19 @@ public record PluginInstallResponse(
         boolean activated,
         boolean rolledBack,
         String rollbackVersion,
-        List<PluginDependencyInstallResult> dependencyInstallResults) {
+        List<PluginDependencyInstallResult> dependencyInstallResults) implements ApiErrorResponse {
+
+    /** 非 2xx 安装结局统一暴露的稳定 API 错误码；成功结局同时保留该别名，便于客户端统一读取。 */
+    @Override
+    @JsonProperty("code")
+    public String code() {
+        return outcome;
+    }
+
+    /** 非 2xx 安装结局统一暴露的本地化错误；成功结局同时保留该别名，兼容统一结果解析。 */
+    @Override
+    @JsonProperty("error")
+    public String error() {
+        return message;
+    }
 }

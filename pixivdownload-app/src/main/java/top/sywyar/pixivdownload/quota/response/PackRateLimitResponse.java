@@ -1,12 +1,11 @@
 package top.sywyar.pixivdownload.quota.response;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
-@Getter
-@AllArgsConstructor
-public class PackRateLimitResponse {
-    private final String error;
-    private final int maxPacks;
-    private final int windowMinutes;
+public record PackRateLimitResponse(String code, String error, int maxPacks, int windowMinutes)
+        implements ApiErrorResponse {
+
+    public PackRateLimitResponse(String error, int maxPacks, int windowMinutes) {
+        this("archive.pack.rate-limited", error, maxPacks, windowMinutes);
+    }
 }

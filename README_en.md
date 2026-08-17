@@ -1,6 +1,6 @@
 # PixivDownloader
 
-[中文](./README.md) | English
+[中文](./README.md) | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | English
 
 > [!NOTE]
 > In this document, "works" includes illustrations, manga, ugoira, and novels.
@@ -120,7 +120,8 @@ proxy](https://sywyar.github.io/PixivDownloader/#/en/configuration).
 ## Online Documentation
 
 For detailed installation steps, usage guides, configuration reference, and development guides, see the
-[online documentation](https://sywyar.github.io/PixivDownloader/#/en/). Quick jump to each section:
+[online documentation](https://sywyar.github.io/PixivDownloader/#/en/). Traditional Chinese readers can switch to the
+[繁體中文 documentation](https://sywyar.github.io/PixivDownloader/#/zh-hant/). Quick jump to each section:
 
 **Quick Start**
 

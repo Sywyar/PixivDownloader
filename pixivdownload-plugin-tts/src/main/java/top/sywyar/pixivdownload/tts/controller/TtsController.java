@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.tts.EdgeTtsClient;
 import top.sywyar.pixivdownload.tts.EdgeTtsException;
 import top.sywyar.pixivdownload.tts.EdgeTtsVoiceService;
@@ -22,7 +23,6 @@ import top.sywyar.pixivdownload.tts.dto.EdgeTtsSynthesizeRequest;
 import top.sywyar.pixivdownload.tts.dto.EdgeTtsVoice;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -65,15 +65,15 @@ public class TtsController {
         }
         String text = request.text() == null ? "" : request.text().trim();
         if (text.isEmpty()) {
-            return ResponseEntity.badRequest().body(error(messages.get("tts.text.empty")));
+            return ResponseEntity.badRequest().body(error("tts.text.empty"));
         }
         if (text.length() > MAX_TEXT_LENGTH) {
             return ResponseEntity.badRequest()
-                    .body(error(messages.get("tts.text.too-long", MAX_TEXT_LENGTH)));
+                    .body(error("tts.text.too-long", MAX_TEXT_LENGTH));
         }
         String voice = request.voice();
         if (voice == null || !allowedVoiceNames().contains(voice)) {
-            return ResponseEntity.badRequest().body(error(messages.get("tts.voice.invalid", voice)));
+            return ResponseEntity.badRequest().body(error("tts.voice.invalid", voice));
         }
         String rate = formatRate(request.rate());
         String pitch = formatPitch(request.pitch());
@@ -85,7 +85,7 @@ public class TtsController {
             return ResponseEntity.ok().headers(headers).body(mp3);
         } catch (EdgeTtsException e) {
             log.warn(logMessage("tts.log.synthesize-failed", e.getMessage()));
-            return ResponseEntity.status(502).body(error(messages.get("tts.synthesize.failed", e.getMessage())));
+            return ResponseEntity.status(502).body(error("tts.synthesize.failed", e.getMessage()));
         }
     }
 
@@ -100,7 +100,7 @@ public class TtsController {
         }
         if (!ttsRateLimitService.isAllowed(subject.orElseThrow())) {
             return ResponseEntity.status(429).body(error(
-                    messages.get("tts.rate-limit.exceeded", ttsRateLimitService.getLimitPerMinute())));
+                    "tts.rate-limit.exceeded", ttsRateLimitService.getLimitPerMinute()));
         }
         return null;
     }
@@ -127,7 +127,7 @@ public class TtsController {
         return messages.getForLog(code, args);
     }
 
-    private static Map<String, String> error(String message) {
-        return Map.of("error", message == null ? "" : message);
+    private ApiErrorResponse error(String code, Object... args) {
+        return ApiErrorResponse.of(code, messages.get(code, args));
     }
 }

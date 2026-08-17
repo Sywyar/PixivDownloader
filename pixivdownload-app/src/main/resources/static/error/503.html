@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>503 · 服务暂时不可用</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="503">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true">503<span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:503.art-label" aria-label="一杯冒着热气的咖啡">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 咖啡杯 -->
+            <path d="M76 62 L144 62 L140 112 C 139 120, 133 124, 125 124 L95 124 C 87 124, 81 120, 80 112 Z"/>
+            <!-- 杯柄 -->
+            <path d="M144 70 C 158 70, 162 80, 158 90 C 155 97, 148 99, 141 97"/>
+            <!-- 液面 -->
+            <path class="soft" d="M82 76 L138 76"/>
+            <!-- 碟子 -->
+            <path d="M68 134 L152 134"/>
+            <path class="soft" d="M84 128 C 90 132, 130 132, 136 128"/>
+            <!-- 热气 -->
+            <path class="a drift" d="M96 52 C 93 46, 99 42, 96 36 C 93 30, 99 26, 96 20"/>
+            <path class="a drift d2" d="M112 52 C 109 46, 115 42, 112 36 C 109 30, 115 26, 112 20"/>
+            <path class="a drift d3" d="M128 52 C 125 46, 131 42, 128 36 C 125 30, 131 26, 128 20"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow">503 · Service Unavailable</p>
+    <h1 class="err-title" data-i18n-html="status:503.title">稍作休整，<em>马上回来</em></h1>
+    <p class="err-desc" data-i18n="status:503.description">服务暂时不可用（503 Service Unavailable）——可能正在维护、重启，或只是短暂过载。通常几十秒内就会恢复。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:503.hint-1">稍等片刻，再刷新一次</li>
+            <li data-i18n="status:503.hint-2">如果长时间未恢复，查看日志或到 GitHub 反馈</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <button class="err-btn err-btn--primary" id="errRetry" type="button" data-i18n="status:action.retry">再试一次</button>
+        <a class="err-btn err-btn--ghost" href="/" data-i18n="status:action.home">回到首页</a>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

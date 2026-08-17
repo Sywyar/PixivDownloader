@@ -21,7 +21,7 @@
     }
 
     // POST /api/plugins/{id}/{verb}（verb ∈ load/start/quiesce/stop/unload/restart/reload）。
-    // 成功 → { id, action, phase }；失败 → 抛出携 { code, message, httpStatus, pluginId, action } 的错误。
+    // 成功 → { id, action, phase }；失败 → 抛出携 { code, error, httpStatus, pluginId, action } 的错误。
     async function performAction(id, verb) {
         var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/' + encodeURIComponent(verb);
         var res = await fetch(url, {
@@ -36,7 +36,7 @@
             body = null;
         }
         if (!res.ok) {
-            var err = new Error((body && body.message) || ('HTTP ' + res.status));
+            var err = new Error((body && body.error) || ('HTTP ' + res.status));
             err.code = body && body.code;          // 稳定机器码：UNKNOWN_PLUGIN / BUILT_IN_PLUGIN / ...
             err.httpStatus = res.status;
             err.pluginId = body && body.pluginId;
@@ -65,7 +65,7 @@
             body = null;
         }
         if (!res.ok) {
-            var err = new Error((body && body.message) || ('HTTP ' + res.status));
+            var err = new Error((body && body.error) || ('HTTP ' + res.status));
             err.code = body && body.code;
             err.httpStatus = res.status;
             err.pluginId = body && body.pluginId;
@@ -88,7 +88,7 @@
             body = null;
         }
         if (!res.ok) {
-            var err = new Error((body && body.message) || ('HTTP ' + res.status));
+            var err = new Error((body && body.error) || ('HTTP ' + res.status));
             err.code = body && body.code;
             err.httpStatus = res.status;
             throw err;
@@ -139,7 +139,7 @@
         if (body && typeof body.outcome === 'string') {
             return body;
         }
-        var err = new Error((body && body.message) || ('HTTP ' + res.status));
+        var err = new Error((body && body.error) || ('HTTP ' + res.status));
         err.httpStatus = res.status;
         throw err;
     }

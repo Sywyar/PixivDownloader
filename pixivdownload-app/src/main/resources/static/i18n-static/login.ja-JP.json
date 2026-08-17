@@ -1,0 +1,28 @@
+{
+  "namespace": "login",
+  "lang": "ja-JP",
+  "defaultLang": "en-US",
+  "messages": {
+    "admin.title": "管理者ログイン",
+    "button.login": "ログイン",
+    "error.invite-expired": "招待コードが無効または期限切れです",
+    "error.invite-invalid": "招待コードが無効です",
+    "error.login-failed": "ログインに失敗しました",
+    "error.network": "ネットワークエラー：{message}",
+    "field.password": "パスワード",
+    "field.password.placeholder": "パスワード",
+    "field.username": "ユーザー名",
+    "field.username.placeholder": "ユーザー名",
+    "header.title": "Pixiv 一括ダウンローダー",
+    "invite.back": "管理者ログインに戻る",
+    "invite.code": "招待コード",
+    "invite.placeholder": "招待コード",
+    "invite.submit": "入室",
+    "invite.title": "招待コードを使用",
+    "invite.use-code": "招待コードを使用",
+    "page.title": "Pixiv 一括ダウンローダー — ログイン",
+    "remember": "ログイン状態を保持（30日間）",
+    "validation.credentials-required": "ユーザー名とパスワードを入力してください",
+    "validation.invite-required": "招待コードを入力してください"
+  }
+}

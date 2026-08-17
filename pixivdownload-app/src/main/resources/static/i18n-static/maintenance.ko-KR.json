@@ -1,0 +1,12 @@
+{
+  "namespace": "maintenance",
+  "lang": "ko-KR",
+  "defaultLang": "en-US",
+  "messages": {
+    "page.auto-retry": "{0}초 후 자동으로 다시 시도합니다",
+    "page.description": "서버에서 정기 점검을 진행 중입니다. 잠시 후 다시 시도하세요.",
+    "page.heading": "서비스 점검 중",
+    "page.retry": "다시 시도",
+    "page.title": "점검 중"
+  }
+}

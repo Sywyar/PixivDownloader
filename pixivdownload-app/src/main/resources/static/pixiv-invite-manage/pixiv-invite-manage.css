@@ -11,7 +11,6 @@
     --control-bg: #ffffff;
     --control-muted-bg: #fafafa;
     --hover-bg: #f5f5f5;
-    --scrollbar-thumb: #dddddd;
 }
 html[data-theme="dark"] {
     --bg: #101216;
@@ -26,7 +25,6 @@ html[data-theme="dark"] {
     --control-bg: #1e2330;
     --control-muted-bg: #151922;
     --hover-bg: #222838;
-    --scrollbar-thumb: #3b4352;
 }
 /* alias 给 invite-modals.js 用 */
 html, html[data-theme="dark"] {
@@ -46,9 +44,6 @@ body {
 }
 button, input, select, textarea { max-width: 100%; }
 a { color: inherit; text-decoration: none; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 6px; }
-
 .topbar {
     display: flex; align-items: center; gap: 16px;
     padding: 14px 24px;

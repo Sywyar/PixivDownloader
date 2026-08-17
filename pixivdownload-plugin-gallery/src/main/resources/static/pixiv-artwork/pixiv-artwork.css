@@ -12,7 +12,6 @@
             --control-muted-bg: #f5f5f5;
             --hover-bg: #f5f5f5;
             --pink-soft-bg: #fff0f6;
-            --scrollbar-thumb: #dddddd;
         }
 
         html[data-theme="dark"] {
@@ -28,7 +27,6 @@
             --control-muted-bg: #151922;
             --hover-bg: #222838;
             --pink-soft-bg: #3a2035;
-            --scrollbar-thumb: #3b4352;
         }
 
         * {
@@ -527,7 +525,7 @@
         }
 
         .thumb-strip::-webkit-scrollbar-thumb {
-            background: #ddd;
+            background: var(--scrollbar-thumb);
             border-radius: 3px;
         }
 
@@ -1021,10 +1019,6 @@
 
         html[data-theme="dark"] .collection-row-icon {
             background: var(--pink-soft-bg);
-        }
-
-        html[data-theme="dark"] .thumb-strip::-webkit-scrollbar-thumb {
-            background: var(--scrollbar-thumb);
         }
 
         html[data-theme="dark"] .form-input {

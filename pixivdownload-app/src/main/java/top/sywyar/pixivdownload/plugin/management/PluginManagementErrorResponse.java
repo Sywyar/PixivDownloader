@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.management;
 
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 /**
  * 插件管理 API 失败响应体：在本地化 {@code message} 之外额外携带稳定机器码 {@code code}，使管理入口（Web / GUI）
@@ -8,7 +9,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
  * {@code pluginId} / {@code action} / {@code runtimePhase} 为可空诊断上下文。
  *
  * @param code         稳定机器码（{@link PluginManagementErrorCode#name()}，与界面语言无关）
- * @param message      本地化的人类可读说明（按请求语言解析）
+ * @param error        本地化的人类可读说明（按请求语言解析）
  * @param status       HTTP 状态码
  * @param pluginId     目标插件 id（可空）
  * @param action       尝试执行的运行期动词 token（状态查询 / 无动词时为空）
@@ -16,9 +17,9 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
  */
 public record PluginManagementErrorResponse(
         String code,
-        String message,
+        String error,
         int status,
         String pluginId,
         String action,
-        PluginRuntimePhase runtimePhase) {
+        PluginRuntimePhase runtimePhase) implements ApiErrorResponse {
 }

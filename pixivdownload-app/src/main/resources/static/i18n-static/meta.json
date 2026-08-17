@@ -9,7 +9,6 @@
     {
       "tag": "zh-CN",
       "aliases": [
-        "zh",
         "zh-Hans",
         "zh-SG"
       ],
@@ -19,12 +18,34 @@
       "status": "source"
     },
     {
+      "tag": "zh-Hant",
+      "aliases": [],
+      "label": "繁體中文",
+      "nativeName": "繁體中文",
+      "direction": "ltr",
+      "status": "supported"
+    },
+    {
       "tag": "en-US",
-      "aliases": [
-        "en"
-      ],
+      "aliases": [],
       "label": "English",
       "nativeName": "English",
+      "direction": "ltr",
+      "status": "supported"
+    },
+    {
+      "tag": "ja-JP",
+      "aliases": [],
+      "label": "日本語",
+      "nativeName": "日本語",
+      "direction": "ltr",
+      "status": "supported"
+    },
+    {
+      "tag": "ko-KR",
+      "aliases": [],
+      "label": "한국어",
+      "nativeName": "한국어",
       "direction": "ltr",
       "status": "supported"
     }
@@ -39,6 +60,7 @@
     "plugin-market",
     "plugins",
     "setup",
+    "status",
     "tour"
   ]
 }

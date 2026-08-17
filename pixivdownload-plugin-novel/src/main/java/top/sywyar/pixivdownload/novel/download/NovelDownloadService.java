@@ -642,7 +642,7 @@ public class NovelDownloadService implements NovelDownloader {
         StringBuilder html = new StringBuilder()
                 .append("<!DOCTYPE html>\n")
                 .append("<html lang=\"")
-                .append(escapeHtml(other.getLanguage() == null ? "ja" : other.getLanguage()))
+                .append(escapeHtml(NovelEpubWriter.normalizeLanguageTag(other.getLanguage())))
                 .append("\">\n<head>\n<meta charset=\"UTF-8\">\n<title>")
                 .append(escapeHtml(title))
                 .append("</title>\n<style>\n")

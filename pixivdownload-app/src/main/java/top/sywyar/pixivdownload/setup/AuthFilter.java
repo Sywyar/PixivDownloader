@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -20,7 +19,7 @@ import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.common.UuidUtils;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.common.web.GuiActionInvocationHeaders;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
@@ -286,7 +285,8 @@ public class AuthFilter extends OncePerRequestFilter {
 
         Optional<String> safePath = SafeRequestPath.resolve(req);
         if (safePath.isEmpty()) {
-            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            sendJsonError(req, res, HttpServletResponse.SC_NOT_FOUND,
+                    "error.request.not-found", "Requested resource not found");
             return;
         }
         String path = safePath.get();
@@ -299,7 +299,8 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
         if (isActuatorEndpoint(path)) {
-            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            sendJsonError(req, res, HttpServletResponse.SC_NOT_FOUND,
+                    "error.request.not-found", "Requested resource not found");
             return;
         }
 
@@ -311,14 +312,10 @@ public class AuthFilter extends OncePerRequestFilter {
                 return;
             }
             if (isApi(path)) {
-                res.setStatus(503);
                 res.setHeader(HttpHeaders.RETRY_AFTER, "60");
-                res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                res.setCharacterEncoding(StandardCharsets.UTF_8.name());
                 String message = messages.getOrDefault(localeResolver.resolveLocale(req),
                         "auth.maintenance", "服务正在维护，请稍后再试");
-                res.getWriter().write(new ObjectMapper()
-                        .writeValueAsString(new ErrorResponse(message)));
+                ApiErrorWriter.write(res, 503, "auth.maintenance", message);
             } else {
                 res.sendRedirect("/maintenance.html");
             }
@@ -480,7 +477,8 @@ public class AuthFilter extends OncePerRequestFilter {
         // 要么是未声明伪路径（404）。method-aware：仅声明某方法的 URL 用别的方法访问视为未声明（除非另有更宽的
         // 全方法声明覆盖）。真实 controller 方法 / 静态资源由 RouteDeclarationCoverageTest 守卫均已声明、不会误伤。
         if (!routeAccessRegistry.isDeclared(path, toHttpMethod(method))) {
-            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            sendJsonError(req, res, HttpServletResponse.SC_NOT_FOUND,
+                    "error.request.not-found", "Requested resource not found");
             return;
         }
 
@@ -724,22 +722,44 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private void sendJsonError(HttpServletRequest req, HttpServletResponse res,
                                int status, String messageCode, String defaultMessage) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
+        if (prefersHtmlErrorPage(req)) {
+            res.sendError(status);
+            return;
+        }
         String message = messages.getOrDefault(localeResolver.resolveLocale(req), messageCode, defaultMessage);
-        res.setStatus(status);
-        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        res.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        res.getWriter().write(mapper.writeValueAsString(new ErrorResponse(message)));
+        ApiErrorWriter.write(res, status, messageCode, message);
     }
 
     private void sendTextError(HttpServletRequest req, HttpServletResponse res,
                                int status, String messageCode, String defaultMessage) throws IOException {
+        if (prefersHtmlErrorPage(req)) {
+            res.setHeader(HttpHeaders.RETRY_AFTER, "60");
+            res.sendError(status);
+            return;
+        }
         String message = messages.getOrDefault(localeResolver.resolveLocale(req), messageCode, defaultMessage);
         res.setStatus(status);
         res.setContentType(MediaType.TEXT_PLAIN_VALUE);
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
         res.setHeader(HttpHeaders.RETRY_AFTER, "60");
         res.getWriter().write(message);
+    }
+
+    /**
+     * 浏览器页面导航（GET、非 API、Accept 含 text/html）的拒绝响应交给容器错误派发，
+     * 由 Spring Boot 静态错误视图渲染 {@code /error/<status>.html} 品牌化错误页；
+     * API、fetch 与 CSS/JS 等资源加载仍保持原有 JSON / 文本响应契约不变。
+     */
+    private static boolean prefersHtmlErrorPage(HttpServletRequest req) {
+        if (!"GET".equalsIgnoreCase(req.getMethod())) {
+            return false;
+        }
+        String uri = req.getRequestURI();
+        if (uri != null && uri.startsWith("/api/")) {
+            return false;
+        }
+        String accept = req.getHeader(HttpHeaders.ACCEPT);
+        return accept != null && accept.contains(MediaType.TEXT_HTML_VALUE);
     }
 
     /**

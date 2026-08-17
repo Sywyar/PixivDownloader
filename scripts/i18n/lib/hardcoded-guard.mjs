@@ -39,6 +39,8 @@ const EXPLICIT_ALLOWED_FILES = {
         '向 Pixiv 外部 API 传递 lang=zh 查询参数，属于外部协议，不是应用语言配置。',
     'pixivdownload-plugin-novel/src/main/java/top/sywyar/pixivdownload/novel/schedule/PixivScheduledNovelMetadata.java':
         '读取外部作品元数据 JSON 的 translations 映射（"en" 为数据字段），不是应用语言配置。',
+    'pixivdownload-plugin-novel/src/main/java/top/sywyar/pixivdownload/novel/export/NovelEpubWriter.java':
+        'EPUB 的 xml:lang / dc:language 描述小说内容语言，按 BCP 47 规范化后写出，不是应用语言清单。',
     'pixivdownload-plugin-mail/src/main/java/top/sywyar/pixivdownload/notification/MailNotificationSink.java':
         '外置插件无法依赖 app catalog：VERIFY_LOCALES 是发送前校验插件自有通知文案两种语言均存在的运行时检查，语言集与插件自有 bundle 一致。',
     'pixivdownload-plugin-push/src/main/java/top/sywyar/pixivdownload/notification/PushNotificationSink.java':

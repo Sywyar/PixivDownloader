@@ -14,8 +14,8 @@ import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.quota.request.AdminPackRequest;
 import top.sywyar.pixivdownload.quota.response.AdminArchiveTasksResponse;
 import top.sywyar.pixivdownload.quota.response.ArchiveStatusResponse;
@@ -90,14 +90,14 @@ public class ArchiveController {
         if (!"multi".equals(setupService.getMode())
                 || !multiModeConfig.getQuota().isEnabled()) {
             return ResponseEntity.status(403)
-                    .body(new ErrorResponse(messages.get("quota.multi-mode.not-enabled")));
+                    .body(error("quota.multi-mode.not-enabled"));
         }
 
         // UUID 必须已存在，不自动生成
         String uuid = UuidUtils.extractExistingUuid(request);
         if (uuid == null) {
             return ResponseEntity.status(401)
-                    .body(new ErrorResponse(messages.get("pixiv.proxy.user-uuid.missing")));
+                    .body(error("pixiv.proxy.user-uuid.missing"));
         }
 
         // 频率限制：archiveExpireMinutes 窗口内最多 maxArtworks 次
@@ -123,12 +123,12 @@ public class ArchiveController {
     public ResponseEntity<?> triggerAdminPack(@Valid @RequestBody AdminPackRequest request,
                                               HttpServletRequest httpRequest) {
         if (!setupService.isAdminLoggedIn(httpRequest)) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("auth.unauthorized")));
+            return ResponseEntity.status(401).body(error("auth.unauthorized"));
         }
 
         if (request == null || request.getArtworkIds() == null || request.getArtworkIds().isEmpty()) {
             return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(messages.get("validation.archive.pack.artwork-ids.required")));
+                    .body(error("validation.archive.pack.artwork-ids.required"));
         }
 
         Set<Path> uniqueFolders = new LinkedHashSet<>();
@@ -173,7 +173,7 @@ public class ArchiveController {
     @GetMapping("/api/archive/list")
     public ResponseEntity<?> listAdminArchives(HttpServletRequest request) {
         if (!setupService.isAdminLoggedIn(request)) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("auth.unauthorized")));
+            return ResponseEntity.status(401).body(error("auth.unauthorized"));
         }
         long now = System.currentTimeMillis();
         List<AdminArchiveTasksResponse.Task> tasks = userQuotaService.listAdminArchives().stream()
@@ -219,18 +219,18 @@ public class ArchiveController {
         UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
         if (entry == null || System.currentTimeMillis() > entry.getExpireTime()) {
             return ResponseEntity.status(410)
-                    .body(new ErrorResponse(messages.get("archive.download.expired-or-missing")));
+                    .body(error("archive.download.expired-or-missing"));
         }
         if (!"ready".equals(entry.getStatus())) {
             return ResponseEntity.status(202)
-                    .body(new ErrorResponse(messages.get("archive.download.preparing")));
+                    .body(error("archive.download.preparing"));
         }
         if (entry.getArchivePath() == null || !entry.getArchivePath().toFile().exists()) {
             if ("empty".equals(entry.getStatus())) {
                 return ResponseEntity.status(204).build();
             }
             return ResponseEntity.status(404)
-                    .body(new ErrorResponse(messages.get("archive.download.file.missing")));
+                    .body(error("archive.download.file.missing"));
         }
 
         String filename = "pixiv_download_" + token.substring(0, 8) + ".zip";
@@ -260,5 +260,9 @@ public class ArchiveController {
 
     private String message(String code, Object... args) {
         return messages.getForLog(code, args);
+    }
+
+    private ApiErrorResponse error(String code) {
+        return ApiErrorResponse.of(code, messages.get(code));
     }
 }

@@ -29,6 +29,6 @@ public final class WorkbenchErrorResponses {
                 failure.defaultMessage(),
                 failure.messageArgs());
         log.warn(messages.getForLog("workbench.log.request.failed", logDetail));
-        return ResponseEntity.status(failure.status()).body(new ErrorResponse(message));
+        return ResponseEntity.status(failure.status()).body(new ErrorResponse(failure.messageCode(), message));
     }
 }

@@ -53,14 +53,14 @@
     }
 
     // 拉取插件状态：先确定需要的展示 namespace，再据此（重）建 i18n，最后整体渲染。
-    async function load() {
+    async function load(resetOrder) {
         PM.state.loading = true;
         PM.state.error = null;
         PM.renderAll();
         var report = null;
         try {
             report = await PM.fetchStatus();
-            PM.state.report = report;
+            PM.applyReport(report, !!resetOrder);
         } catch (e) {
             PM.state.error = PM.t('status.error', '加载插件状态失败，请重试。');
         } finally {
@@ -255,7 +255,7 @@
         window.addEventListener('pixivnav:rendered', function (e) {
             syncPluginSegment(e.detail && e.detail.items);
         });
-        document.getElementById('refreshBtn').addEventListener('click', function () { load(); });
+        document.getElementById('refreshBtn').addEventListener('click', function () { load(true); });
         wireInstall();
 
         var search = document.getElementById('pm-search-input');
@@ -271,7 +271,19 @@
             PM.renderAll();
         });
 
-        document.getElementById('pm-grid').addEventListener('click', function (e) {
+        var grid = document.getElementById('pm-grid');
+
+        function closeActionMenus() {
+            grid.querySelectorAll('.pm-action-menu.open').forEach(function (menu) {
+                menu.classList.remove('open');
+                var card = menu.closest('.pm-card');
+                if (card) card.classList.remove('has-open-menu');
+                var toggle = menu.closest('.pm-action-menu-wrap').querySelector('[data-pm-action-menu-toggle]');
+                if (toggle) toggle.setAttribute('aria-expanded', 'false');
+            });
+        }
+
+        grid.addEventListener('click', function (e) {
             var toggle = e.target.closest('[data-pm-toggle]');
             if (toggle && !toggle.disabled) {
                 onToggle(toggle.getAttribute('data-pm-toggle'));
@@ -279,8 +291,25 @@
             }
             var action = e.target.closest('[data-pm-action]');
             if (action && !action.disabled) {
+                closeActionMenus();
                 onAction(action.getAttribute('data-pm-id'), action.getAttribute('data-pm-action'));
+                return;
             }
+            var menuToggle = e.target.closest('[data-pm-action-menu-toggle]');
+            if (menuToggle && !menuToggle.disabled) {
+                var menu = menuToggle.closest('.pm-action-menu-wrap').querySelector('.pm-action-menu');
+                var opening = !menu.classList.contains('open');
+                closeActionMenus();
+                menu.classList.toggle('open', opening);
+                var card = menuToggle.closest('.pm-card');
+                if (card) card.classList.toggle('has-open-menu', opening);
+                menuToggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+                return;
+            }
+        });
+
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('.pm-action-menu-wrap')) closeActionMenus();
         });
     }
 

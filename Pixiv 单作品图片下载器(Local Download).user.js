@@ -39,10 +39,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP', 'ko-KR'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = {'en-US': {}, 'zh-CN': {}};
+        let DICT = {'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {}, 'ko-KR': {}};
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -365,6 +365,9 @@
             'local.switcher.label': 'Language',
             'switcher.option.en-US': 'English',
             'switcher.option.zh-CN': '简体中文',
+            'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語',
+            'switcher.option.ko-KR': '한국어',
             // Panel collapse / FAB
             'local.action.collapse': 'Collapse',
             'local.fab.title': 'Pixiv Local Downloader',
@@ -408,7 +411,140 @@
             'local.ui.label.novel-id': '小说ID: {id}',
             'local.switcher.label': '语言',
             'switcher.option.en-US': 'English',
-            'switcher.option.zh-CN': '简体中文'
+            'switcher.option.zh-CN': '简体中文',
+            'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語',
+            'switcher.option.ko-KR': '한국어'
+        },
+        'zh-Hant': {
+            'local.menu.download-current': '下載目前作品的所有圖片',
+            'local.menu.history': '檢視下載歷史',
+            'local.menu.clear-history': '清除下載記錄',
+            'local.menu.reset-folder-index': '重設資料夾索引',
+            'local.alert.no-artwork-id': '無法取得作品 ID',
+            'local.alert.start-download': '正在下載作品 {id} 的圖片…',
+            'local.alert.ugoira-unsupported': '作品 {id} 是動圖（ugoira）。\n此版本不支援動圖合成，請使用「Pixiv 作品圖片下載器（Java 後端版）」下載動圖，後端會自動合成為 WebP 格式。',
+            'local.alert.no-images': '找不到圖片',
+            'local.alert.download-summary': '下載完成！\n成功下載：{success}/{total} 張圖片\n儲存至：預設下載目錄',
+            'local.alert.download-failed': '下載失敗：{message}',
+            'local.alert.history-empty': '目前還沒有下載記錄',
+            'local.alert.history-cleared': '下載記錄已清除',
+            'local.alert.folder-index-reset': '資料夾索引已重設',
+            'local.confirm.redownload': '作品 {id} 已於 {time} 下載過\n儲存位置：資料夾 {folder}\n圖片數量：{count} 張\n\n要重新下載嗎？',
+            'local.confirm.clear-history': '確定要清除所有下載記錄嗎？此操作無法復原。',
+            'local.confirm.reset-folder-index': '確定要重設資料夾索引嗎？下次下載會從資料夾 0 開始。',
+            'local.history.header': '已下載作品數量：{count}\n\n',
+            'local.history.entry': '作品 ID：{id}\n下載時間：{time}\n儲存位置：{folder}\n圖片數量：{count} 張\n---\n',
+            'local.history.novel-header': '\n已下載小說數量：{count}\n\n',
+            'local.history.novel-entry': '小說 ID：{id}\n標題：{title}\n下載時間：{time}\n---\n',
+            'local.ui.status.downloaded': '✅ 此作品已下載',
+            'local.ui.status.available': '⬇️ 可以下載此作品',
+            'local.ui.button.download': '📥 下載所有圖片',
+            'local.ui.label.artwork-id': '作品 ID：{id}',
+            'local.ui.folder.default': '預設下載目錄',
+            'local.menu.download-current-novel': '將目前小說下載為 EPUB',
+            'local.alert.no-novel-id': '無法取得小說 ID',
+            'local.alert.novel-start-download': '正在將小說 {id} 下載為 EPUB…',
+            'local.alert.novel-summary': '小說下載完成！\n檔案：{title}.epub\n內嵌圖片：{images} 張\n儲存至：預設下載目錄',
+            'local.alert.novel-failed': '小說下載失敗：{message}',
+            'local.confirm.novel-redownload': '小說 {id} 已於 {time} 下載過\n\n要再次下載嗎？',
+            'local.ui.status.novel-downloaded': '✅ 此小說已下載',
+            'local.ui.status.novel-available': '⬇️ 可以下載此小說（EPUB）',
+            'local.ui.button.download-novel': '📕 下載小說（EPUB）',
+            'local.ui.label.novel-id': '小說 ID：{id}',
+            'local.switcher.label': '語言',
+            'switcher.option.en-US': 'English',
+            'switcher.option.zh-CN': '簡體中文',
+            'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語'
+        },
+        'ja-JP': {
+            'local.menu.download-current': '現在の作品の画像をすべてダウンロード',
+            'local.menu.history': 'ダウンロード履歴を表示',
+            'local.menu.clear-history': 'ダウンロード履歴を消去',
+            'local.menu.reset-folder-index': 'フォルダー番号をリセット',
+            'local.alert.no-artwork-id': '作品 ID を取得できません',
+            'local.alert.start-download': '作品 {id} のダウンロードを開始中…',
+            'local.alert.ugoira-unsupported': '作品 {id} はアニメーション（うごイラ）です。\nこの版はフレーム合成に対応していません。「Pixiv 作品ダウンローダー（Java バックエンド）」を使ってください。フレームを自動的に WebP へ合成します。',
+            'local.alert.no-images': '画像が見つかりません',
+            'local.alert.download-summary': 'ダウンロード完了！\n成功：{success}/{total} 枚\n保存先：デフォルトダウンロードフォルダー',
+            'local.alert.download-failed': 'ダウンロードに失敗しました：{message}',
+            'local.alert.history-empty': 'ダウンロード履歴はまだありません',
+            'local.alert.history-cleared': 'ダウンロード履歴を消去しました',
+            'local.alert.folder-index-reset': 'フォルダー番号をリセットしました',
+            'local.confirm.redownload': '作品 {id} は {time} にダウンロード済みです\n保存先：フォルダー {folder}\n画像：{count} 枚\n\n再ダウンロードしますか？',
+            'local.confirm.clear-history': 'すべてのダウンロード履歴を消去しますか？この操作は元に戻せません。',
+            'local.confirm.reset-folder-index': 'フォルダー番号をリセットしますか？次のダウンロードはフォルダー 0 から始まります。',
+            'local.history.header': 'ダウンロード済み作品：{count} 件\n\n',
+            'local.history.entry': '作品 ID：{id}\nダウンロード日時：{time}\n保存先：{folder}\n画像：{count} 枚\n---\n',
+            'local.history.novel-header': '\nダウンロード済み小説：{count} 件\n\n',
+            'local.history.novel-entry': '小説 ID：{id}\nタイトル：{title}\nダウンロード日時：{time}\n---\n',
+            'local.ui.status.downloaded': '✅ ダウンロード済み',
+            'local.ui.status.available': '⬇️ ダウンロードできます',
+            'local.ui.button.download': '📥 画像をすべてダウンロード',
+            'local.ui.label.artwork-id': '作品 ID：{id}',
+            'local.ui.folder.default': 'デフォルトダウンロードフォルダー',
+            'local.menu.download-current-novel': '現在の小説を EPUB としてダウンロード',
+            'local.alert.no-novel-id': '小説 ID を取得できません',
+            'local.alert.novel-start-download': '小説 {id} を EPUB としてダウンロード中…',
+            'local.alert.novel-summary': '小説のダウンロード完了！\nファイル：{title}.epub\n本文内画像：{images} 枚\n保存先：デフォルトダウンロードフォルダー',
+            'local.alert.novel-failed': '小説のダウンロードに失敗しました：{message}',
+            'local.confirm.novel-redownload': '小説 {id} は {time} にダウンロード済みです\n\nもう一度ダウンロードしますか？',
+            'local.ui.status.novel-downloaded': '✅ 小説はダウンロード済みです',
+            'local.ui.status.novel-available': '⬇️ 小説をダウンロードできます（EPUB）',
+            'local.ui.button.download-novel': '📕 小説をダウンロード（EPUB）',
+            'local.ui.label.novel-id': '小説 ID：{id}',
+            'local.switcher.label': '言語',
+            'switcher.option.en-US': 'English',
+            'switcher.option.zh-CN': '簡体字中国語',
+            'switcher.option.zh-Hant': '繁体字中国語',
+            'switcher.option.ja-JP': '日本語'
+        },
+        'ko-KR': {
+            'local.menu.download-current': '현재 작품의 모든 이미지 다운로드',
+            'local.menu.history': '다운로드 기록 보기',
+            'local.menu.clear-history': '다운로드 기록 지우기',
+            'local.menu.reset-folder-index': '폴더 인덱스 초기화',
+            'local.alert.no-artwork-id': '작품 ID를 가져올 수 없습니다',
+            'local.alert.start-download': '작품 {id}의 이미지 다운로드를 시작합니다...',
+            'local.alert.ugoira-unsupported': '작품 {id}은(는) 움직이는 이미지(ugoira)입니다.\\n이 버전은 프레임 합성을 지원하지 않습니다. 「Pixiv 작품 이미지 다운로드 도구(Java 백엔드 버전)」를 사용하세요. 프레임을 자동으로 WebP로 합성합니다.',
+            'local.alert.no-images': '이미지를 찾을 수 없습니다',
+            'local.alert.download-summary': '다운로드 완료!\\n성공: {success}/{total}개 이미지\\n저장 위치: 기본 다운로드 폴더',
+            'local.alert.download-failed': '다운로드 실패: {message}',
+            'local.alert.history-empty': '아직 다운로드 기록이 없습니다',
+            'local.alert.history-cleared': '다운로드 기록을 지웠습니다',
+            'local.alert.folder-index-reset': '폴더 인덱스를 초기화했습니다',
+            'local.confirm.redownload': '작품 {id}은(는) {time}에 이미 다운로드되었습니다\\n저장 위치: 폴더 {folder}\\n이미지 수: {count}개\\n\\n다시 다운로드하시겠습니까?',
+            'local.confirm.clear-history': '모든 다운로드 기록을 지우시겠습니까? 이 작업은 취소할 수 없습니다.',
+            'local.confirm.reset-folder-index': '폴더 인덱스를 초기화하시겠습니까? 다음 다운로드는 폴더 0부터 시작합니다.',
+            'local.history.header': '다운로드한 작품 수: {count}개\\n\\n',
+            'local.history.entry': '작품 ID: {id}\\n다운로드 시간: {time}\\n저장 위치: {folder}\\n이미지 수: {count}개\\n---\\n',
+            'local.history.novel-header': '\\n다운로드한 소설 수: {count}개\\n\\n',
+            'local.history.novel-entry': '소설 ID: {id}\\n제목: {title}\\n다운로드 시간: {time}\\n---\\n',
+            'local.ui.status.downloaded': '✅ 이미 다운로드됨',
+            'local.ui.status.available': '⬇️ 다운로드할 수 있음',
+            'local.ui.button.download': '📥 모든 이미지 다운로드',
+            'local.ui.label.artwork-id': '작품 ID: {id}',
+            'local.ui.folder.default': '기본 다운로드 폴더',
+            'local.menu.download-current-novel': '현재 소설을 EPUB으로 다운로드',
+            'local.alert.no-novel-id': '소설 ID를 가져올 수 없습니다',
+            'local.alert.novel-start-download': '소설 {id}을(를) EPUB으로 다운로드합니다...',
+            'local.alert.novel-summary': '소설 다운로드 완료!\\n파일: {title}.epub\\n포함된 이미지: {images}개\\n저장 위치: 기본 다운로드 폴더',
+            'local.alert.novel-failed': '소설 다운로드 실패: {message}',
+            'local.confirm.novel-redownload': '소설 {id}은(는) {time}에 이미 다운로드되었습니다\\n\\n다시 다운로드하시겠습니까?',
+            'local.ui.status.novel-downloaded': '✅ 소설이 이미 다운로드됨',
+            'local.ui.status.novel-available': '⬇️ 소설을 다운로드할 수 있음(EPUB)',
+            'local.ui.button.download-novel': '📕 소설 다운로드(EPUB)',
+            'local.ui.label.novel-id': '소설 ID: {id}',
+            'local.switcher.label': '언어',
+            'switcher.option.en-US': 'English',
+            'switcher.option.zh-CN': '简体中文',
+            'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語',
+            'switcher.option.ko-KR': '한국어',
+            'local.action.collapse': '접기',
+            'local.fab.title': 'Pixiv 로컬 다운로드 도구',
+            'local.menu.open': 'Pixiv 로컬 다운로드 패널 열기'
         }
     });
 
@@ -500,6 +636,17 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&apos;');
+    }
+
+    function normalizeContentLanguageTag(language) {
+        let tag = String(language || 'ja-JP').trim().replace(/_/g, '-');
+        try {
+            tag = Intl.getCanonicalLocales(tag)[0];
+        } catch (_) {
+            return 'ja-JP';
+        }
+        const defaults = {ja: 'ja-JP', zh: 'zh-CN', en: 'en-US', ko: 'ko-KR'};
+        return defaults[tag] || (tag.includes('-') ? tag : `${tag}-001`);
     }
 
     // 获取小说数据（Pixiv AJAX）
@@ -789,6 +936,7 @@
             }
 
             const pagesHtml = renderNovelPagesHtml(content, imageNameById);
+            const contentLang = normalizeContentLanguageTag(body.language);
             const enc = (s) => ZipWriter.strBytes(s);
             const entries = [];
             // mimetype 必须是第一项且 store
@@ -800,7 +948,7 @@
 
             const chapterFiles = pagesHtml.map((html, i) => {
                 const name = `chapter${i + 1}.xhtml`;
-                const xhtml = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${escapeXml(title)} - ${i + 1}</title></head><body>${html || '<p/>'}</body></html>`;
+                const xhtml = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXml(contentLang)}"><head><meta charset="utf-8"/><title>${escapeXml(title)} - ${i + 1}</title></head><body>${html || '<p/>'}</body></html>`;
                 entries.push({name: `OEBPS/${name}`, data: enc(xhtml)});
                 return name;
             });
@@ -828,7 +976,7 @@
 <dc:identifier id="bookid">pixiv-novel-${escapeXml(novelId)}</dc:identifier>
 <dc:title>${escapeXml(title)}</dc:title>
 <dc:creator>${escapeXml(author)}</dc:creator>
-<dc:language>${escapeXml(body.language || 'ja')}</dc:language>
+<dc:language>${escapeXml(contentLang)}</dc:language>
 </metadata>
 <manifest>${manifestItems.join('')}</manifest>
 <spine toc="ncx">${spineItems.join('')}</spine>

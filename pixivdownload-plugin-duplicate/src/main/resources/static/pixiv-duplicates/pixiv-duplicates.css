@@ -14,7 +14,6 @@
     --control-bg: #ffffff;
     --control-muted-bg: #eef3f7;
     --hover-bg: #e8f2fa;
-    --scrollbar-thumb: #b8c5d3;
     --shadow: 0 20px 50px color-mix(in srgb, var(--text) 12%, transparent);
 }
 
@@ -34,7 +33,6 @@ html[data-theme="dark"] {
     --control-bg: #151a23;
     --control-muted-bg: #202838;
     --hover-bg: #243246;
-    --scrollbar-thumb: #465366;
     --shadow: 0 20px 50px color-mix(in srgb, var(--text) 8%, transparent);
 }
 

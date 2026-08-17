@@ -9,7 +9,6 @@
     --control-bg: #ffffff;
     --control-muted-bg: #fafafa;
     --hover-bg: #f5f5f5;
-    --scrollbar-thumb: #dddddd;
 }
 
 html[data-theme="dark"] {
@@ -23,7 +22,6 @@ html[data-theme="dark"] {
     --control-bg: #1e2330;
     --control-muted-bg: #151922;
     --hover-bg: #222838;
-    --scrollbar-thumb: #3b4352;
 }
 
 * {

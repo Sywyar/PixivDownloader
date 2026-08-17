@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.download.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.util.List;
 
@@ -24,6 +26,7 @@ import java.util.List;
  * 原始 install UUID / 状态文件内部 states map：服务端绝对时间点一律不进入浏览器，
  * 浏览器只把 retryAfterMs 转换为自己的本地临时截止时间。
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record LayoutFeedbackStateResponse(
         boolean available,
         boolean stateAvailable,
@@ -33,6 +36,22 @@ public record LayoutFeedbackStateResponse(
         LayoutFeedbackDecision status,
         boolean canShow,
         long retryAfterMs,
-        List<String> seenLayouts
-) {
+        List<String> seenLayouts,
+        String code,
+        String error
+) implements ApiErrorResponse {
+
+    public LayoutFeedbackStateResponse(
+            boolean available,
+            boolean stateAvailable,
+            String distinctId,
+            String submissionId,
+            long revision,
+            LayoutFeedbackDecision status,
+            boolean canShow,
+            long retryAfterMs,
+            List<String> seenLayouts) {
+        this(available, stateAvailable, distinctId, submissionId, revision, status,
+                canShow, retryAfterMs, seenLayouts, null, null);
+    }
 }

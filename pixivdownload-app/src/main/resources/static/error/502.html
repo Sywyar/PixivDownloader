@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>502 · 外部服务错误</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/error/error.css">
+</head>
+<body data-status="502">
+
+<div class="err-controls" id="errControls"></div>
+
+<main class="err-stage">
+    <p class="err-code" aria-hidden="true">502<span class="err-code-dot">.</span></p>
+
+    <div class="err-art" role="img" data-i18n-aria-label="status:502.art-label" aria-label="一座断开的桥，桥的另一头是一朵云">
+        <svg viewBox="0 0 220 150" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- 两岸 -->
+            <path d="M34 118 L78 118"/>
+            <path d="M142 118 L186 118"/>
+            <!-- 断开的桥面 -->
+            <path d="M40 96 L88 96"/>
+            <path d="M132 96 L180 96"/>
+            <!-- 桥拱 -->
+            <path class="soft" d="M46 118 C 52 102, 66 96, 88 96"/>
+            <path class="soft" d="M174 118 C 168 102, 154 96, 132 96"/>
+            <!-- 断口处的碎屑 -->
+            <circle class="soft drift" cx="104" cy="102" r="2"/>
+            <circle class="soft drift d2" cx="112" cy="108" r="2"/>
+            <circle class="soft drift d3" cx="118" cy="100" r="2"/>
+            <!-- 断口两端的绳索 -->
+            <path class="a" d="M88 96 C 92 104, 94 108, 92 114"/>
+            <path class="a" d="M132 96 C 128 104, 126 108, 128 114"/>
+            <!-- 对岸的云（上游服务） -->
+            <path class="a" d="M96 44 C 96 36, 104 32, 110 36 C 114 28, 126 28, 129 36 C 136 34, 142 39, 141 45 C 148 46, 150 54, 144 57 L100 57 C 93 55, 91 47, 96 44 Z"/>
+            <!-- 云下的雨脚：上游状态不好 -->
+            <path class="soft" d="M106 66 L103 72"/>
+            <path class="soft" d="M118 66 L115 72"/>
+            <path class="soft" d="M130 66 L127 72"/>
+        </svg>
+    </div>
+
+    <p class="err-eyebrow">502 · Bad Gateway</p>
+    <h1 class="err-title" data-i18n-html="status:502.title">桥的<em>另一头</em>没有回应</h1>
+    <p class="err-desc" data-i18n="status:502.description">服务器向上游服务（例如 Pixiv）转发请求时收到了错误的响应（502 Bad Gateway）。问题多半出在上游或网络链路，而不是你的设备。</p>
+
+    <div class="err-hints">
+        <p class="err-hints-lead" data-i18n="status:hints.lead">你可以试试</p>
+        <ul>
+            <li data-i18n="status:502.hint-1">稍等片刻再试，上游可能只是暂时抖动</li>
+            <li data-i18n="status:502.hint-2">检查代理与网络连接是否正常</li>
+            <li data-i18n="status:502.hint-3">确认 Pixiv Cookie 仍然有效，失效就重新保存一份</li>
+        </ul>
+    </div>
+
+    <div class="err-actions">
+        <button class="err-btn err-btn--primary" id="errRetry" type="button" data-i18n="status:action.retry">再试一次</button>
+        <a class="err-btn err-btn--ghost" href="/" data-i18n="status:action.home">回到首页</a>
+    </div>
+</main>
+
+<script src="/error/error.js"></script>
+</body>
+</html>

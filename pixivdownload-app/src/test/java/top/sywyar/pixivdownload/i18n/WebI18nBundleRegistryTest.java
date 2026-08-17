@@ -34,7 +34,7 @@ class WebI18nBundleRegistryTest {
     private static final ClassLoader LOADER = syntheticBundleClassLoader("fixture");
 
     /**
-     * namespace → baseName 基线：内置共 10 条（download-workbench/gallery/novel/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
+     * namespace → baseName 基线：内置共 11 条（download-workbench/gallery/novel/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
      * 保证「所有页面 i18n 行为不变」。新增 namespace 时同步本基线。
      */
     private static final Map<String, String> LEGACY_NAMESPACE_BASENAMES = legacyBaseNames();
@@ -51,6 +51,7 @@ class WebI18nBundleRegistryTest {
         map.put("maintenance", "i18n.web.maintenance");
         map.put("plugins", "i18n.web.plugins");
         map.put("plugin-market", "i18n.web.plugin-market");
+        map.put("status", "i18n.web.status");
         return map;
     }
 
@@ -67,7 +68,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（10 条；download-workbench/gallery/novel/stats/duplicate/translate 已外置）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（11 条；download-workbench/gallery/novel/stats/duplicate/translate 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 
@@ -395,7 +396,9 @@ class WebI18nBundleRegistryTest {
         assertThat(bundle).isNotNull();
         assertThat(bundle.load(Locale.US))
                 .containsEntry("fixture.loader", "bridge:i18n/web/ext-i18n_en.properties");
-        assertThat(bundle.messagesByLocale()).containsOnlyKeys("en-US", "zh-CN");
+        assertThat(bundle.messagesByLocale()).containsOnlyKeys(
+                LocaleCatalog.defaultCatalog().visibleLocales().stream()
+                        .map(LocaleDescriptor::tag).toArray(String[]::new));
     }
 
     @Test

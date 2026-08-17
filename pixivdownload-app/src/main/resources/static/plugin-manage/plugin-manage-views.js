@@ -80,11 +80,55 @@
         }
     }
 
-    // —— 单张插件卡片 ——
+    // 生命周期策略 → 底栏元信息图标与色调类（替代原标签区：同类信息以更轻的图标项表达）。
+    var LIFECYCLE_ITEM_META = {
+        HOT_RELOAD:      { icon: 'fa-bolt',         tone: 'ok' },
+        BACKEND_RESTART: { icon: 'fa-rotate-right', tone: 'info' },
+        PROCESS_RESTART: { icon: 'fa-power-off',    tone: 'warn' }
+    };
+
+    function lifecycleItemMeta(policy) {
+        return LIFECYCLE_ITEM_META[policy] || LIFECYCLE_ITEM_META.PROCESS_RESTART;
+    }
+
+    // 运行期操作收进卡片右下角的浮层菜单：入口是幽灵图标按钮，菜单项带动词图标；无可用动作时整体不渲染。
+    function actionMenuHtml(vm, busy) {
+        if (!vm.availableActions.length) return '';
+        var aria = PM.t('action.menu.aria', '{plugin} 的可用操作', { plugin: vm.name });
+        var title = PM.t('action.menu', '操作');
+        var menuId = 'pm-action-menu-' + vm.id;
+        var parts = ['<div class="pm-action-menu-wrap">',
+            '<button type="button" class="pm-icon-btn pm-action-menu-toggle"'
+                + ' data-pm-action-menu-toggle data-pm-id="' + E(vm.id) + '" aria-haspopup="menu"'
+                + ' aria-expanded="false" aria-controls="' + E(menuId) + '"'
+                + ' aria-label="' + E(aria) + '" title="' + E(title) + '"' + (busy ? ' disabled' : '') + '>',
+            '<i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>',
+            '<div class="pm-action-menu" id="' + E(menuId) + '" role="menu" aria-label="' + E(aria) + '">'];
+        parts.push(vm.availableActions.map(function (verb) {
+            var meta = PM.verbMeta(verb);
+            return '<button type="button" role="menuitem"' + (meta.variant === 'danger' ? ' class="danger"' : '')
+                + ' data-pm-action="' + E(verb) + '" data-pm-id="' + E(vm.id) + '"'
+                + (busy ? ' disabled' : '') + '><i class="fa-solid ' + E(meta.icon) + '" aria-hidden="true"></i>'
+                + E(PM.t('action.' + verb, verb)) + '</button>';
+        }).join(''));
+        parts.push('</div></div>');
+        return parts.join('');
+    }
+
+    // —— 单张插件卡片：始终完整展示的紧凑平铺卡片 ——
+    // 首行集中 图标 / 名称 / 版本 / 徽标 / 状态 / 开关（扫读与启停动线都在一行内）；描述限两行；
+    // 底栏放轻量元信息与浮层操作菜单。异常（warn / bad）状态经卡片左侧色条抬升视觉优先级，
+    // 多插件网格中需要处理的卡片自动跳出。
     function cardHtml(vm) {
         var busy = PM.state.busyId === vm.id;
+        // 受管外置插件以 runtimePhase 为权威运行态；其余条目展示 status。
+        var stTone = (vm.managed && vm.phaseLabel) ? vm.phaseTone : vm.statusTone;
+        var stLabel = (vm.managed && vm.phaseLabel) ? vm.phaseLabel : vm.statusLabel;
+        var attention = (stTone === 'warn' || stTone === 'bad') ? stTone : null;
+
         var parts = [];
-        parts.push('<div class="pm-card" data-pm-card="' + E(vm.id) + '">');
+        parts.push('<article class="pm-card' + (attention ? ' pm-card--' + attention : '')
+            + '" data-pm-card="' + E(vm.id) + '">');
 
         // 更新横幅（占位：后端暂无更新机制，vm.hasUpdate 恒为 false）。
         if (vm.hasUpdate) {
@@ -92,36 +136,36 @@
                 + E(PM.t('update.available', '有新版本可更新到 v{latest}', { latest: vm.latest })) + '</div>');
         }
 
-        // 头部：图标贴片 + 标题块 + 开关。图标 class 与强调色 class 均来自 core 的本地白名单（受控 token），
+        // 首行：图标贴片 + 标题块 + 右侧状态与开关。图标 class 与强调色 class 均来自 core 的本地白名单（受控 token），
         // 不把后端原始 token 当颜色 / 类名直接注入（颜色由 .pm-card-icon--<token> CSS 规则决定）。
         parts.push('<div class="pm-card-head">');
         parts.push('<div class="pm-card-icon pm-card-icon--' + E(vm.colorToken) + '"><i class="' + E(vm.icon) + '"></i></div>');
         parts.push('<div class="pm-card-titleblock">');
         parts.push('<div class="pm-card-name-row"><span class="pm-card-name">' + E(vm.name) + '</span>'
+            + (vm.version ? '<span class="pm-card-version">' + E(vm.version) + '</span>' : '')
             + '<span class="pm-badge pm-badge--' + vm.badgeTone + '">' + E(PM.t(vm.badgeKey, vm.source)) + '</span>'
             + (vm.requiredByPolicy
                 ? '<span class="pm-badge pm-badge--warn">' + E(PM.t('badge.required', '必须')) + '</span>'
                 : '')
             + '</div>');
         parts.push('<div class="pm-card-sub" title="' + E(vm.sub) + '">' + E(vm.sub) + '</div>');
-        parts.push('</div>');
+        parts.push('</div>'); // titleblock
 
+        parts.push('<div class="pm-card-side">');
+        parts.push('<span class="pm-card-status pm-card-status--' + stTone + '">'
+            + '<span class="pm-status-dot"></span>' + E(stLabel) + '</span>');
         var switchCls = 'pm-switch' + (vm.enabled ? ' on' : '') + (vm.toggleable ? '' : ' pm-switch--locked');
+        var switchLabel = switchTitle(vm);
         var switchAttrs = 'type="button" role="switch" aria-checked="' + (vm.enabled ? 'true' : 'false') + '"'
-            + ' data-pm-toggle="' + E(vm.id) + '" title="' + E(switchTitle(vm)) + '"'
+            + ' data-pm-toggle="' + E(vm.id) + '" aria-label="' + E(switchLabel) + '" title="' + E(switchLabel) + '"'
             + ((!vm.toggleable || busy) ? ' disabled' : '');
         parts.push('<button class="' + switchCls + '" ' + switchAttrs + '></button>');
+        parts.push('</div>'); // side
         parts.push('</div>'); // head
 
         if (vm.desc) {
-            parts.push('<p class="pm-card-desc">' + E(vm.desc) + '</p>');
+            parts.push('<p class="pm-card-desc" title="' + E(vm.desc) + '">' + E(vm.desc) + '</p>');
         }
-
-        parts.push('<div class="pm-tags">' + (vm.showLifecycleTag
-            ? '<span class="pm-tag pm-tag--lifecycle-' + E(vm.lifecycleTone) + '">#' + E(vm.lifecycleLabel) + '</span>'
-            : '') + vm.tags.map(function (tag) {
-                return '<span class="pm-tag">#' + E(tag) + '</span>';
-            }).join('') + '</div>');
 
         // 包级写操作状态。
         if (vm.updating) {
@@ -130,23 +174,21 @@
                 + '</span></div><div class="pm-progressbar"><span style="width:100%;"></span></div></div>');
         }
 
-        // 诊断信息（后端 messages）。
+        // 诊断信息（后端 messages）：轻量备注行，不再使用标签片。
         if (vm.messages.length) {
-            parts.push('<div class="pm-tags">' + vm.messages.map(function (msg) {
-                return '<span class="pm-tag"><i class="fa-solid fa-circle-info"></i> ' + E(msg) + '</span>';
+            parts.push('<div class="pm-notes">' + vm.messages.map(function (msg) {
+                return '<div class="pm-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>'
+                    + E(msg) + '</span></div>';
             }).join('') + '</div>');
         }
 
-        // 底栏：左侧真实元信息（状态 / 核心 API / 依赖数）+ 右侧后端可用动词按钮。
+        // 底栏：轻量元信息（生命周期 / 核心 API / 依赖数 / 验签）+ 浮层操作菜单。
         parts.push('<div class="pm-card-foot">');
         parts.push('<div class="pm-meta">');
-        // 受管外置插件只展示 runtimePhase（准确反映当前服务侧状态），内置 / 未安装条目展示 status。
-        if (vm.managed && vm.phaseLabel) {
-            parts.push('<span class="pm-meta-item"><i class="fa-solid fa-circle-half-stroke" style="color:'
-                + toneColor(vm.phaseTone) + ';"></i>' + E(vm.phaseLabel) + '</span>');
-        } else {
-            parts.push('<span class="pm-meta-item"><span class="pm-status-dot" style="background:'
-                + toneColor(vm.statusTone) + ';"></span>' + E(vm.statusLabel) + '</span>');
+        if (vm.showLifecycleTag) {
+            var lm = lifecycleItemMeta(vm.lifecyclePolicy);
+            parts.push('<span class="pm-meta-item pm-meta-item--' + lm.tone + '"><i class="fa-solid '
+                + lm.icon + '"></i>' + E(vm.lifecycleLabel) + '</span>');
         }
         if (vm.api) {
             var apiCls = vm.api.specified ? (vm.api.satisfied ? 'pm-meta-item--ok' : 'pm-meta-item--bad') : '';
@@ -169,24 +211,10 @@
                 + toneColor(vm.verificationTone) + ';"></i>' + E(vm.verificationLabel) + '</span>');
         }
         parts.push('</div>'); // meta
-
-        parts.push('<div class="pm-card-actions">');
-        if (vm.availableActions.length) {
-            parts.push(vm.availableActions.map(function (verb) {
-                var meta = PM.verbMeta(verb);
-                return '<button type="button" class="pm-btn pm-btn--sm pm-btn--' + meta.variant + '"'
-                    + ' data-pm-action="' + E(verb) + '" data-pm-id="' + E(vm.id) + '"'
-                    + (busy ? ' disabled' : '') + '>'
-                    + '<i class="fa-solid ' + meta.icon + '"></i>' + E(PM.t('action.' + verb, verb))
-                    + '</button>';
-            }).join(''));
-        } else {
-            parts.push('<span class="pm-actions-empty">' + E(PM.t('action.none', '暂无可执行的操作')) + '</span>');
-        }
-        parts.push('</div>'); // actions
+        parts.push(actionMenuHtml(vm, busy));
         parts.push('</div>'); // foot
 
-        parts.push('</div>'); // card
+        parts.push('</article>'); // card
         return parts.join('');
     }
 
@@ -408,6 +436,7 @@
     }
 
     PM.renderAll = renderAll;
+    PM.renderCardHtml = cardHtml;
     PM.toast = toast;
     PM.renderInstallResultHtml = renderInstallResultHtml;
     PM.showInstallResult = showInstallResult;

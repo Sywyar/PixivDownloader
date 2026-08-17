@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import javax.crypto.Cipher;
@@ -278,21 +279,17 @@ public class SSEController {
     }
 
     @PostMapping("/close/aggregated/{token}")
-    public ResponseEntity<DownloadResponse> closeAggregatedSSEConnection(@PathVariable String token,
-                                                                         HttpServletRequest request) {
+    public ResponseEntity<?> closeAggregatedSSEConnection(@PathVariable String token,
+                                                           HttpServletRequest request) {
         CloseTokenPayload payload = parseAggregatedCloseToken(token);
         if (payload == null) {
-            return ResponseEntity.status(403).body(DownloadResponse.builder()
-                    .success(false)
-                    .message(messages.get("auth.unauthorized"))
-                    .build());
+            return ResponseEntity.status(403)
+                    .body(ApiErrorResponse.of("auth.unauthorized", messages.get("auth.unauthorized")));
         }
         AggregatedSubscription sub = aggregatedEmitters.get(payload.connectionId());
         if (sub != null && !canCloseAggregatedSubscription(sub, payload, request)) {
-            return ResponseEntity.status(403).body(DownloadResponse.builder()
-                    .success(false)
-                    .message(messages.get("auth.unauthorized"))
-                    .build());
+            return ResponseEntity.status(403)
+                    .body(ApiErrorResponse.of("auth.unauthorized", messages.get("auth.unauthorized")));
         }
         completeAggregatedEmitter(payload.connectionId());
         log.debug(logMessage("sse.log.aggregated.closed", payload.connectionId()));

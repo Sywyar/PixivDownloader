@@ -1,0 +1,12 @@
+{
+  "namespace": "maintenance",
+  "lang": "zh-Hant",
+  "defaultLang": "en-US",
+  "messages": {
+    "page.auto-retry": "{0} 秒後自動重試",
+    "page.description": "伺服器正在進行例行維護，請稍後再試。",
+    "page.heading": "服務維護中",
+    "page.retry": "重試",
+    "page.title": "維護中"
+  }
+}

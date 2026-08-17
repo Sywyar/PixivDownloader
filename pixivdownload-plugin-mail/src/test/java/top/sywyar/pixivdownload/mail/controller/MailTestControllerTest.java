@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.mail.MailService;
 import top.sywyar.pixivdownload.mail.TestMessageResolver;
 import top.sywyar.pixivdownload.mail.TestNotificationTemplates;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 import top.sywyar.pixivdownload.mail.template.RenderedMail;
 
@@ -51,9 +52,11 @@ class MailTestControllerTest {
         request.setRemoteAddr("203.0.113.10");
         request.addHeader("Host", "example.com");
 
-        ResponseEntity<MailTestAllResponse> response = controller.testAll(validRequestBody(), request);
+        ResponseEntity<?> response = controller.testAll(validRequestBody(), request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class, error ->
+                assertThat(error.code()).isEqualTo("auth.local-only"));
     }
 
     @Test
@@ -61,11 +64,11 @@ class MailTestControllerTest {
     void testAllRejectsNullBody() {
         MockHttpServletRequest request = localRequest();
 
-        ResponseEntity<MailTestAllResponse> response = controller.testAll(null, request);
+        ResponseEntity<?> response = controller.testAll(null, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().success()).isFalse();
+        assertThat(response.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class, error ->
+                assertThat(error.code()).isEqualTo("mail.error.settings-missing"));
     }
 
     @Test
@@ -73,16 +76,16 @@ class MailTestControllerTest {
     void testAllSendsEveryTemplateOnSuccess() throws Exception {
         doNothing().when(mailService).sendTest(any(MailSenderSettings.class), anyString(), anyString());
 
-        ResponseEntity<MailTestAllResponse> response = controller.testAll(validRequestBody(), localRequest());
+        ResponseEntity<?> response = controller.testAll(validRequestBody(), localRequest());
 
         int total = templateRegistry.templates().size();
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        MailTestAllResponse body = response.getBody();
-        assertThat(body).isNotNull();
-        assertThat(body.success()).isTrue();
-        assertThat(body.total()).isEqualTo(total);
-        assertThat(body.succeeded()).isEqualTo(total);
-        assertThat(body.failures()).isEmpty();
+        assertThat(response.getBody()).isInstanceOfSatisfying(MailTestAllResponse.class, body -> {
+            assertThat(body.success()).isTrue();
+            assertThat(body.total()).isEqualTo(total);
+            assertThat(body.succeeded()).isEqualTo(total);
+            assertThat(body.failures()).isEmpty();
+        });
         verify(mailService, times(total)).sendTest(any(MailSenderSettings.class), anyString(), anyString());
     }
 
@@ -97,18 +100,18 @@ class MailTestControllerTest {
             return null;
         }).when(mailService).sendTest(any(MailSenderSettings.class), anyString(), anyString());
 
-        ResponseEntity<MailTestAllResponse> response = controller.testAll(validRequestBody(), localRequest());
+        ResponseEntity<?> response = controller.testAll(validRequestBody(), localRequest());
 
         int total = templateRegistry.templates().size();
-        MailTestAllResponse body = response.getBody();
-        assertThat(body).isNotNull();
-        assertThat(body.success()).isFalse();
-        assertThat(body.total()).isEqualTo(total);
-        assertThat(body.succeeded()).isEqualTo(total - 1);
-        assertThat(body.failures()).hasSize(1);
-        MailTestAllResponse.Failure failure = body.failures().get(0);
-        assertThat(failure.templateId()).isEqualTo("overuse-paused");
-        assertThat(failure.error()).contains("smtp denied");
+        assertThat(response.getBody()).isInstanceOfSatisfying(MailTestAllResponse.class, body -> {
+            assertThat(body.success()).isFalse();
+            assertThat(body.total()).isEqualTo(total);
+            assertThat(body.succeeded()).isEqualTo(total - 1);
+            assertThat(body.failures()).hasSize(1);
+            MailTestAllResponse.Failure failure = body.failures().get(0);
+            assertThat(failure.templateId()).isEqualTo("overuse-paused");
+            assertThat(failure.error()).contains("smtp denied");
+        });
         verify(mailService, times(total)).sendTest(any(MailSenderSettings.class), anyString(), anyString());
     }
 

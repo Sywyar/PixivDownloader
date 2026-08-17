@@ -95,7 +95,8 @@ class NovelDownloadHttpProjectionContractTest {
                 true, "quota", "token", 60L, 3, 10, 120L));
 
         assertThat(json.path("quotaExceeded").asBoolean()).isTrue();
-        assertThat(json.path("message").asText()).isEqualTo("quota");
+        assertThat(json.path("code").asText()).isEqualTo("download.quota.exceeded");
+        assertThat(json.path("error").asText()).isEqualTo("quota");
         assertThat(json.path("archiveToken").asText()).isEqualTo("token");
         assertThat(json.path("archiveExpireSeconds").asLong()).isEqualTo(60L);
         assertThat(json.path("artworksUsed").asInt()).isEqualTo(3);

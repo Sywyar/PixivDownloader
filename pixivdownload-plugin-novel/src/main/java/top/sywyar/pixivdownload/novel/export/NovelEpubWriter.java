@@ -8,6 +8,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.zip.CRC32;
@@ -166,7 +167,7 @@ public final class NovelEpubWriter {
         if (metadata == null) metadata = Metadata.EMPTY;
         String safeTitle = (bookTitle == null || bookTitle.isBlank()) ? labels.untitled() : bookTitle.trim();
         String safeAuthor = (author == null || author.isBlank()) ? labels.unknownAuthor() : author.trim();
-        String safeLang = (language == null || language.isBlank()) ? "ja" : language.trim();
+        String safeLang = normalizeLanguageTag(language);
         String bookId = (identifier == null || identifier.isBlank())
                 ? "urn:uuid:" + UUID.randomUUID() : identifier.trim();
         List<NavEntry> navTree = (nav == null || nav.isEmpty()) ? flatNav(chapters, labels) : nav;
@@ -215,6 +216,20 @@ public final class NovelEpubWriter {
                     tocNcx(safeTitle, bookId, navTree, chapterFiles, labels));
         }
         return raw.toByteArray();
+    }
+
+    /** Canonicalizes serialized document language metadata and qualifies bare language codes. */
+    public static String normalizeLanguageTag(String language) {
+        String candidate = (language == null || language.isBlank()) ? "ja-JP" : language.trim().replace('_', '-');
+        String canonical = Locale.forLanguageTag(candidate).toLanguageTag();
+        if (canonical.equals("und")) return "ja-JP";
+        return switch (canonical) {
+            case "ja" -> "ja-JP";
+            case "zh" -> "zh-CN";
+            case "en" -> "en-US";
+            case "ko" -> "ko-KR";
+            default -> canonical.contains("-") ? canonical : canonical + "-001";
+        };
     }
 
     private static void putDeflated(ZipOutputStream zip, String path, String content) throws IOException {

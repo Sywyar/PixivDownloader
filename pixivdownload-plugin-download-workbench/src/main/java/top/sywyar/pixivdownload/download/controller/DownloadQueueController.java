@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.download.control.DownloadQueueCancelC
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadQueueCancelResult;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 /**
  * 下载队列宿主操作（取消单项 / 清空队列）。跨作品类型经稳定 {@link DownloadControlPlane} 多态派发，
@@ -145,7 +146,7 @@ public class DownloadQueueController {
             long publicationId) {
     }
 
-    public record QueueCancelFailure(boolean success, String code, String message) {
+    public record QueueCancelFailure(boolean success, String code, String error) implements ApiErrorResponse {
     }
 
 }

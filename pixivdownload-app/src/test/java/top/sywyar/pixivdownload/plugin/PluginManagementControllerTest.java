@@ -56,11 +56,11 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 /**
  * {@link PluginManagementController} 单测（MockMvc standalone）：路由 / 路径变量绑定 / JSON 投影、六个运行期动词逐个
  * 委托 {@link PluginManagementService}、以及 {@link PluginManagementException} 经 {@code @ExceptionHandler} 映射为
- * 「稳定机器码 {@code code} + 本地化 {@code message} + 诊断上下文」的错误响应。
+ * 「稳定机器码 {@code code} + 本地化 {@code error} + 诊断上下文」的错误响应。
  *
- * <p>AppMessages 桩刻意把 message 解析成与 i18n key、与稳定 code 都<b>不同</b>的合成串（{@code "localized:" + key}），
+ * <p>AppMessages 桩刻意把 error 解析成与 i18n key、与稳定 code 都<b>不同</b>的合成串（{@code "localized:" + key}），
  * 这样断言 {@code $.code} 取到稳定枚举名（如 {@code UNKNOWN_PLUGIN}）就只能来自专门的稳定码字段、不会被「message 恰好
- * 等于 key」掩盖——即避免桩把「code 缺失 / 退化成本地化文案」蒙混过关。
+     * 等于 key」掩盖——即避免桩把「code 缺失 / 退化成本地化文案」蒙混过关。
  */
 @DisplayName("PluginManagementController 插件管理后端 API")
 class PluginManagementControllerTest {
@@ -192,7 +192,7 @@ class PluginManagementControllerTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_TOGGLE_REQUEST"))
-                .andExpect(jsonPath("$.message")
+                .andExpect(jsonPath("$.error")
                         .value("localized:plugin.manage.error.invalid-toggle-request"))
                 .andExpect(jsonPath("$.pluginId").value("demo-ext"))
                 .andExpect(jsonPath("$.action").value("update-enabled"));
@@ -222,7 +222,7 @@ class PluginManagementControllerTest {
         mockMvc.perform(post("/api/plugins/x/start"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("UNKNOWN_PLUGIN"))
-                .andExpect(jsonPath("$.message").value("localized:plugin.manage.error.unknown"))
+                .andExpect(jsonPath("$.error").value("localized:plugin.manage.error.unknown"))
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.pluginId").value("x"))
                 .andExpect(jsonPath("$.action").value("start"));
@@ -238,7 +238,7 @@ class PluginManagementControllerTest {
         mockMvc.perform(post("/api/plugins/download-workbench/stop"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("REQUIRED_PLUGIN"))
-                .andExpect(jsonPath("$.message").value("localized:plugin.manage.error.required"))
+                .andExpect(jsonPath("$.error").value("localized:plugin.manage.error.required"))
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.pluginId").value("download-workbench"))
                 .andExpect(jsonPath("$.action").value("stop"))
