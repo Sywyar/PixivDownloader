@@ -39,10 +39,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = {'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}};
+        let DICT = {'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {}};
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -366,6 +366,7 @@
             'switcher.option.en-US': 'English',
             'switcher.option.zh-CN': '简体中文',
             'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語',
             // Panel collapse / FAB
             'local.action.collapse': 'Collapse',
             'local.fab.title': 'Pixiv Local Downloader',
@@ -410,7 +411,8 @@
             'local.switcher.label': '语言',
             'switcher.option.en-US': 'English',
             'switcher.option.zh-CN': '简体中文',
-            'switcher.option.zh-Hant': '繁體中文'
+            'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語'
         },
         'zh-Hant': {
             'local.menu.download-current': '下載目前作品的所有圖片',
@@ -451,7 +453,50 @@
             'local.switcher.label': '語言',
             'switcher.option.en-US': 'English',
             'switcher.option.zh-CN': '簡體中文',
-            'switcher.option.zh-Hant': '繁體中文'
+            'switcher.option.zh-Hant': '繁體中文',
+            'switcher.option.ja-JP': '日本語'
+        },
+        'ja-JP': {
+            'local.menu.download-current': '現在の作品の画像をすべてダウンロード',
+            'local.menu.history': 'ダウンロード履歴を表示',
+            'local.menu.clear-history': 'ダウンロード履歴を消去',
+            'local.menu.reset-folder-index': 'フォルダー番号をリセット',
+            'local.alert.no-artwork-id': '作品 ID を取得できません',
+            'local.alert.start-download': '作品 {id} のダウンロードを開始中…',
+            'local.alert.ugoira-unsupported': '作品 {id} はアニメーション（うごイラ）です。\nこの版はフレーム合成に対応していません。「Pixiv 作品ダウンローダー（Java バックエンド）」を使ってください。フレームを自動的に WebP へ合成します。',
+            'local.alert.no-images': '画像が見つかりません',
+            'local.alert.download-summary': 'ダウンロード完了！\n成功：{success}/{total} 枚\n保存先：デフォルトダウンロードフォルダー',
+            'local.alert.download-failed': 'ダウンロードに失敗しました：{message}',
+            'local.alert.history-empty': 'ダウンロード履歴はまだありません',
+            'local.alert.history-cleared': 'ダウンロード履歴を消去しました',
+            'local.alert.folder-index-reset': 'フォルダー番号をリセットしました',
+            'local.confirm.redownload': '作品 {id} は {time} にダウンロード済みです\n保存先：フォルダー {folder}\n画像：{count} 枚\n\n再ダウンロードしますか？',
+            'local.confirm.clear-history': 'すべてのダウンロード履歴を消去しますか？この操作は元に戻せません。',
+            'local.confirm.reset-folder-index': 'フォルダー番号をリセットしますか？次のダウンロードはフォルダー 0 から始まります。',
+            'local.history.header': 'ダウンロード済み作品：{count} 件\n\n',
+            'local.history.entry': '作品 ID：{id}\nダウンロード日時：{time}\n保存先：{folder}\n画像：{count} 枚\n---\n',
+            'local.history.novel-header': '\nダウンロード済み小説：{count} 件\n\n',
+            'local.history.novel-entry': '小説 ID：{id}\nタイトル：{title}\nダウンロード日時：{time}\n---\n',
+            'local.ui.status.downloaded': '✅ ダウンロード済み',
+            'local.ui.status.available': '⬇️ ダウンロードできます',
+            'local.ui.button.download': '📥 画像をすべてダウンロード',
+            'local.ui.label.artwork-id': '作品 ID：{id}',
+            'local.ui.folder.default': 'デフォルトダウンロードフォルダー',
+            'local.menu.download-current-novel': '現在の小説を EPUB としてダウンロード',
+            'local.alert.no-novel-id': '小説 ID を取得できません',
+            'local.alert.novel-start-download': '小説 {id} を EPUB としてダウンロード中…',
+            'local.alert.novel-summary': '小説のダウンロード完了！\nファイル：{title}.epub\n本文内画像：{images} 枚\n保存先：デフォルトダウンロードフォルダー',
+            'local.alert.novel-failed': '小説のダウンロードに失敗しました：{message}',
+            'local.confirm.novel-redownload': '小説 {id} は {time} にダウンロード済みです\n\nもう一度ダウンロードしますか？',
+            'local.ui.status.novel-downloaded': '✅ 小説はダウンロード済みです',
+            'local.ui.status.novel-available': '⬇️ 小説をダウンロードできます（EPUB）',
+            'local.ui.button.download-novel': '📕 小説をダウンロード（EPUB）',
+            'local.ui.label.novel-id': '小説 ID：{id}',
+            'local.switcher.label': '言語',
+            'switcher.option.en-US': 'English',
+            'switcher.option.zh-CN': '簡体字中国語',
+            'switcher.option.zh-Hant': '繁体字中国語',
+            'switcher.option.ja-JP': '日本語'
         }
     });
 

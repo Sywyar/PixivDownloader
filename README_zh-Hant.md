@@ -1,6 +1,6 @@
 # PixivDownloader
 
-[简体中文](./README.md) | 繁體中文 | [English](./README_en.md)
+[简体中文](./README.md) | 繁體中文 | [日本語](./README_ja.md) | [English](./README_en.md)
 
 > [!NOTE]
 > 此文檔中提及的作品範圍包括 插畫/漫畫/動圖/小說

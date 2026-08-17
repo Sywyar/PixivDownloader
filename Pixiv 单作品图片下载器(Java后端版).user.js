@@ -220,10 +220,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {} };
+        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {} };
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -423,6 +423,7 @@
             'switcher.label': 'Language',
             'switcher.zh-CN': '简体中文',
             'switcher.zh-Hant': '繁體中文',
+            'switcher.ja-JP': '日本語',
             'switcher.en-US': 'English',
             'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
             'common.dialog.connect-notice': 'Pixiv download script first-run hint\n\nIf you use an external server instead of localhost, replace this userscript header line:\n  // @connect      YOUR_SERVER_HOST\nwith your real server IP or domain, for example:\n  // @connect      192.168.1.100\n\nPath: Tampermonkey dashboard -> target script -> Edit -> Save\n\nOr use the web UI directly:\n{serverBase}/login.html\n\n(This hint is shown only once)',
@@ -485,6 +486,7 @@
             'switcher.label': '语言',
             'switcher.zh-CN': '简体中文',
             'switcher.zh-Hant': '繁體中文',
+            'switcher.ja-JP': '日本語',
             'switcher.en-US': 'English',
             'common.dialog.unauthorized': '后端服务需要登录验证，即将为您打开登录页面...',
             'common.dialog.connect-notice': 'Pixiv 下载脚本初始化提示\n\n如果您使用外部服务器（非 localhost），需将脚本头部的：\n  // @connect      YOUR_SERVER_HOST\n替换为实际的服务器 IP 或域名，例如：\n  // @connect      192.168.1.100\n\n修改路径：Tampermonkey 管理面板 -> 对应脚本 -> 编辑 -> 保存\n\n或者直接通过网页端下载作品（无需脚本）：\n{serverBase}/login.html\n\n（此提示只显示一次）',
@@ -547,6 +549,7 @@
             'switcher.label': '語言',
             'switcher.zh-CN': '簡體中文',
             'switcher.zh-Hant': '繁體中文',
+            'switcher.ja-JP': '日本語',
             'switcher.en-US': 'English',
             'common.dialog.unauthorized': '後端服務需要登入驗證，即將為你開啟登入頁面…',
             'common.dialog.connect-notice': 'Pixiv 下載腳本首次執行提示\n\n如果你使用外部伺服器（非 localhost），需要將腳本標頭中的：\n  // @connect      YOUR_SERVER_HOST\n替換為實際的伺服器 IP 或網域，例如：\n  // @connect      192.168.1.100\n\n修改路徑：Tampermonkey 管理面板 → 對應腳本 → 編輯 → 儲存\n\n或直接透過網頁端下載作品（不需腳本）：\n{serverBase}/login.html\n\n（此提示只顯示一次）',
@@ -604,6 +607,69 @@
             'single.alert.novel-history-skipped': '小說 {novelId} 已存在於下載歷史中，已略過此次下載。',
             'single.alert.novel-history-skipped-deleted': '小說 {novelId} 已下載過，但已被畫廊刪除，因此略過此次下載。勾選「允許重新下載已刪除的作品」即可再次下載。',
             'single.alert.novel-start-download': '正在下載小說 {novelId}…'
+        },
+        'ja-JP': {
+            'switcher.label': '言語',
+            'switcher.zh-CN': '簡体字中国語',
+            'switcher.zh-Hant': '繁体字中国語',
+            'switcher.en-US': 'English',
+            'switcher.ja-JP': '日本語',
+            'common.dialog.unauthorized': 'バックエンドサービスへのログインが必要です。ログインページを開きます…',
+            'common.dialog.connect-notice': 'Pixiv ダウンロードスクリプトの初回実行案内\n\nlocalhost 以外の外部サーバーを使う場合は、Userscript ヘッダーの次の行を：\n  // @connect      YOUR_SERVER_HOST\n実際のサーバー IP またはドメインに置き換えてください。例：\n  // @connect      192.168.1.100\n\n変更場所：Tampermonkey 管理画面 → 対象スクリプト → 編集 → 保存\n\nまたは Web 版から直接ダウンロードできます（スクリプト不要）：\n{serverBase}/login.html\n\n（この案内は 1 回だけ表示されます）',
+            'common.option.verify-history-files.tooltip': '記録されたディレクトリの存在、フォルダーが空でないこと、画像ファイルを含むことを確認します。無効なレコードは再ダウンロードされます。',
+            'common.option.redownload-deleted.tooltip': 'ギャラリーから削除した作品には削除マークが残ります。オフ（デフォルト）ではダウンロード済みとして扱いスキップし、オンにすると再ダウンロードして成功時にマークを消去します。',
+            'common.archive.download-link': 'アーカイブをダウンロード',
+            'common.archive.expired': 'ダウンロードリンクの有効期限が切れています',
+            'common.archive.preparing': 'ダウンロード済みファイルを準備中です。しばらくお待ちください…',
+            'common.archive.ready': 'アーカイブの準備ができました：',
+            'common.archive.empty': 'パッケージ化できるファイルがありません',
+            'common.archive.validity': '有効期限：{time}',
+            'common.quota.exceeded': 'ダウンロード上限に達しました',
+            'common.quota.summary': 'クォータ：{used}/{max}',
+            'single.title': 'Pixiv ダウンローダー（Java バックエンド）',
+            'single.action.collapse': '折りたたむ',
+            'single.fab.title': 'Pixiv 単一作品ダウンローダー（Java バックエンド）',
+            'single.menu.open': 'Pixiv 単一作品ダウンローダーパネルを開く',
+            'single.status.ready': '⬇️ この作品をダウンロードできます',
+            'single.button.download': '📥 バックエンド経由でダウンロード',
+            'single.option.bookmark': 'ダウンロード後に自動でブックマーク',
+            'single.option.skip-history': 'ダウンロード履歴をスキップ',
+            'single.option.verify-history-files': '保存先ディレクトリを確認',
+            'single.option.redownload-deleted': '削除済み作品の再ダウンロードを許可',
+            'single.artwork-id': '作品 ID：{id}',
+            'single.backend.checking': 'バックエンドの状態を確認中…',
+            'single.backend.available': '✅ バックエンドを利用できます',
+            'single.backend.unavailable': '❌ バックエンドを利用できません',
+            'single.info': 'Java バックエンドを使い、完全なフォルダー構成を維持します',
+            'single.menu.download': 'バックエンド経由で現在の作品をダウンロード',
+            'single.menu.server': '⚙️ バックエンドサーバー URL を設定',
+            'single.prompt.server': 'バックエンドサーバー URL を入力してください（末尾のスラッシュは不要）：',
+            'single.alert.server-updated': 'サーバー URL を更新しました：{serverBase}',
+            'single.alert.no-artwork-id': '作品 ID を検出できません',
+            'single.alert.backend-not-running': 'バックエンドが実行されていません。\nJava Spring サーバーが {serverBase} で利用可能か確認してください',
+            'single.alert.history-skipped': '作品 {artworkId} はダウンロード履歴にすでに存在するため、スキップしました。',
+            'single.alert.history-skipped-deleted': '作品 {artworkId} は以前ダウンロードされましたが、ギャラリーから削除されているためスキップしました。「削除済み作品の再ダウンロードを許可」を有効にすると再度ダウンロードできます。',
+            'single.alert.start-download': '作品 {artworkId} のダウンロードを開始中…',
+            'single.alert.no-images': '画像が見つかりません',
+            'single.alert.download-submitted': 'ダウンロードタスクをバックエンドに送信しました。\n{typeHint}\n{message}',
+            'single.alert.download-failed': 'ダウンロードに失敗しました：{message}',
+            'single.type.ugoira': 'アニメーション（WebP に変換されます）',
+            'single.type.images': '画像：{count} 枚',
+            'single.type.novel': '小説（{format}）',
+            'single.archive.download-limit': 'ダウンロード上限に達しました',
+            'single.novel.title': 'Pixiv 小説ダウンローダー（Java バックエンド）',
+            'single.novel.status.ready': '⬇️ この小説をダウンロードできます',
+            'single.novel.button.download': '📥 バックエンド経由で小説をダウンロード',
+            'single.novel.id': '小説 ID：{id}',
+            'single.novel.format-label': '小説形式：',
+            'single.novel.format-txt': 'プレーンテキスト（TXT）',
+            'single.novel.format-html': 'Web ページ（HTML）',
+            'single.novel.format-epub': '電子書籍（EPUB）',
+            'single.novel.menu.download': 'バックエンド経由で現在の小説をダウンロード',
+            'single.alert.no-novel-id': '小説 ID を検出できません',
+            'single.alert.novel-history-skipped': '小説 {novelId} はダウンロード履歴にすでに存在するため、スキップしました。',
+            'single.alert.novel-history-skipped-deleted': '小説 {novelId} は以前ダウンロードされましたが、ギャラリーから削除されているためスキップしました。「削除済み作品の再ダウンロードを許可」を有効にすると再度ダウンロードできます。',
+            'single.alert.novel-start-download': '小説 {novelId} のダウンロードを開始中…'
         }
     });
 

@@ -155,10 +155,10 @@
         const LS_KEY = 'pixiv_userscript_lang';
         const GM_KEY = 'pixiv_userscript_lang';
         const BC_NAME = '__pixiv_userscript_lang_v1__';
-        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant'];
+        const SUPPORTED = ['en-US', 'zh-CN', 'zh-Hant', 'ja-JP'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {} };
+        let DICT = { 'en-US': {}, 'zh-CN': {}, 'zh-Hant': {}, 'ja-JP': {} };
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -485,6 +485,54 @@
             'cookie-sync.signal.done': 'Cookie 已同步，可以關閉此頁面並返回 PixivDownloader。',
             'cookie-sync.signal.fail': 'Cookie 同步失敗，請確認已登入 Pixiv 後重試；你可以關閉此頁面。',
             'cookie-sync.signal.nophp': '無法讀取登入狀態 Cookie（PHPSESSID），未儲存任何內容。此環境的瀏覽器／腳本管理器未公開 Pixiv 的 HttpOnly 會話 Cookie，請在下載頁 Cookie 區查看《取得 Cookie 指南》手動設定。你可以關閉此頁面。'
+        },
+        'ja-JP': {
+            'switcher.label': '言語',
+            'switcher.en-US': 'English',
+            'switcher.zh-CN': '簡体字中国語',
+            'switcher.zh-Hant': '繁体字中国語',
+            'switcher.ja-JP': '日本語',
+            'common.dialog.unauthorized': 'バックエンドサービスへのログインが必要です。ログインページを開きます…',
+            'enhance.title': '🧰 Pixiv 閲覧体験向上ツールボックス',
+            'enhance.fab.title': 'Pixiv 閲覧体験向上ツールボックス',
+            'enhance.menu.open': 'Pixiv 閲覧体験向上ツールボックスを開く',
+            'enhance.action.collapse': '折りたたむ',
+            'enhance.action.failed': '操作に失敗しました。もう一度お試しください。',
+            'enhance.section.features': '機能',
+            'enhance.setting.server': 'サーバー URL：',
+            'enhance.footer.hint': '各機能は独立しているため、必要に応じて切り替えられます。今後も機能を追加していきます。',
+            'enhance.multi-instance.warn': 'このページで「Pixiv 閲覧体験向上ツールボックス」が複数回実行されています。独立版 Userscript と All-in-One バンドルの両方が有効になっている可能性があります。保存領域が分かれて競合するため（パネル・枠の重複、設定の非共有）、この追加インスタンスを無効にしました。Tampermonkey ではどちらか一方だけを有効にしてください。',
+            'enhance.feature.enable': '有効化',
+            'enhance.gate.checking': 'サーバーの状態を確認中…',
+            'enhance.gate.not-local': 'サーバー URL が localhost / 127.0.0.1 を指している必要があります。',
+            'enhance.gate.not-solo': 'サーバーが solo モードで実行されている必要があります。',
+            'enhance.gate.not-login': 'サーバーにログインしている必要があります（solo モード）。',
+            'enhance.gate.unreachable': 'サーバーに接続できません。サーバー URL と実行状態を確認してください。',
+            'enhance.gate.ready': '条件を満たしています。この機能を有効にできます。',
+            'downloaded-border.name': 'ダウンロード済み作品に枠を表示',
+            'downloaded-border.desc': 'ページ上の作品・小説カードを調べ、サーバーでダウンロード済みの作品のサムネイルに枠を表示します。',
+            'downloaded-border.setting.width': '枠の幅（px）：',
+            'downloaded-border.setting.color': '枠の色：',
+            'downloaded-border.setting.style': '枠のスタイル：',
+            'downloaded-border.setting.show-deleted': '削除済み作品にも枠を表示',
+            'downloaded-border.setting.deleted-width': '削除済み作品の枠の幅（px）：',
+            'downloaded-border.setting.deleted-color': '削除済み作品の枠の色：',
+            'downloaded-border.setting.deleted-style': '削除済み作品の枠のスタイル：',
+            'downloaded-border.setting.inherit': '継承',
+            'downloaded-border.style.solid': '実線',
+            'downloaded-border.style.dashed': '破線',
+            'downloaded-border.style.double': '二重線',
+            'cookie-sync.name': 'Cookie をワンクリックで保存',
+            'cookie-sync.desc': '現在の pixiv.net の Cookie を読み取り、サーバーに保存します（ダウンロードページの「Cookie」設定と共有）。ログインが必要なダウンロードや検索で使えます。solo モードでログイン済みである必要がありますが、サーバー URL は問いません。注意：ログイン用の PHPSESSID は HttpOnly Cookie です。読み取るには Tampermonkey の「設定 → 設定モード：詳細 → セキュリティ → スクリプトによる Cookie へのアクセスを許可」を All にする必要があります。ただし、常時有効にすることはおすすめしません（他の Userscript からログイン情報を読めるようになります）。インストール済みのすべての Userscript を信頼できる場合を除き、取得時だけ一時的に All にして、取得後すぐ「HttpOnly 以外」に戻してください。代わりにダウンロードページの Cookie ガイドにある手動方法を使うこともできます。',
+            'cookie-sync.action': 'Cookie を取得して保存',
+            'cookie-sync.status.empty': 'Cookie が見つかりません。ブラウザーで Pixiv にログインしていることを確認してください。',
+            'cookie-sync.status.sending': 'サーバーに送信中…',
+            'cookie-sync.status.success': 'Cookie をサーバーに保存しました。',
+            'cookie-sync.status.no-phpsessid': 'ログイン用 Cookie（PHPSESSID）を読み取れなかったため、既存の Cookie を上書きしないよう保存をキャンセルしました。ブラウザーまたは Userscript 管理ツールから Pixiv の HttpOnly セッション Cookie が公開されていません。ダウンロードページの Cookie ガイドを参照して手動で設定してください。',
+            'cookie-sync.status.failed': '保存に失敗しました（HTTP {0}）。',
+            'cookie-sync.signal.done': 'Cookie を同期しました。このページを閉じて PixivDownloader に戻れます。',
+            'cookie-sync.signal.fail': 'Cookie の同期に失敗しました。Pixiv にログインしていることを確認して再試行してください。このページは閉じても構いません。',
+            'cookie-sync.signal.nophp': 'ログイン用 Cookie（PHPSESSID）を読み取れなかったため、何も保存しませんでした。ブラウザーまたは Userscript 管理ツールから Pixiv の HttpOnly セッション Cookie が公開されていません。ダウンロードページの Cookie ガイドを参照して手動で設定してください。このページは閉じても構いません。'
         }
     });
 
@@ -1308,7 +1356,7 @@
         PixivUserscriptI18n.listSupported().forEach(lang => {
             const option = document.createElement('option');
             option.value = lang;
-            option.textContent = lang === 'zh-CN' ? '简体中文' : (lang === 'zh-Hant' ? '繁體中文' : 'English');
+            option.textContent = t('switcher.' + lang, lang);
             option.selected = lang === PixivUserscriptI18n.getLang();
             select.appendChild(option);
         });

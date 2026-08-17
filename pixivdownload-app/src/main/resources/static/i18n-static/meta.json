@@ -32,6 +32,14 @@
       "nativeName": "English",
       "direction": "ltr",
       "status": "supported"
+    },
+    {
+      "tag": "ja-JP",
+      "aliases": [],
+      "label": "日本語",
+      "nativeName": "日本語",
+      "direction": "ltr",
+      "status": "supported"
     }
   ],
   "supportedNamespaces": [

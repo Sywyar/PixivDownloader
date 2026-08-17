@@ -1,6 +1,6 @@
 # PixivDownloader
 
-[中文](./README.md) | [繁體中文](./README_zh-Hant.md) | English
+[中文](./README.md) | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | English
 
 > [!NOTE]
 > In this document, "works" includes illustrations, manga, ugoira, and novels.

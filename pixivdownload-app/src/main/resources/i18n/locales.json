@@ -32,6 +32,14 @@
       "status": "supported",
       "direction": "ltr",
       "aliases": []
+    },
+    {
+      "tag": "ja-JP",
+      "nativeName": "日本語",
+      "resourceSuffix": "ja",
+    "status": "supported",
+      "direction": "ltr",
+      "aliases": []
     }
   ]
 }

@@ -66,6 +66,7 @@ VersionInfoVersion={#InstallerVersion}
 Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "zhcn"; MessagesFile: "compiler:Default.isl,ChineseSimplified.isl"
 Name: "zhhant"; MessagesFile: "compiler:Default.isl,ChineseTraditional.isl"
+Name: "ja"; MessagesFile: "compiler:Default.isl,Japanese.isl"
 
 [CustomMessages]
 en.OptionalTasksGroup=Optional setup tasks:
@@ -200,6 +201,50 @@ zhhant.MaintenanceRemovingLegacyMsi=正在移除舊 MSI 安裝...
 zhhant.MaintenanceLegacyMsiRemoveFailed=未能移除舊 MSI 安裝。
 zhhant.AppRunningError=檢測到 PixivDownload 正在運行。請完全關閉它後點擊「重試」繼續安裝。
 zhhant.AppRunningAbort=PixivDownload 正在運行，安裝無法繼續，已取消安裝。
+ja.OptionalTasksGroup=追加セットアップタスク：
+ja.TaskDownloadFfmpeg=PixivDownload のインストール後に FFmpeg をダウンロードしてインストール
+ja.OptionalFeaturesTitle=追加機能
+ja.OptionalFeaturesDescription=インストールして有効にする追加コンポーネントを選択してください。
+ja.OptionalPluginsTitle=公式オプションプラグイン
+ja.OptionalPluginsDescription=インストールして有効にする公式プラグインを選択してください。
+ja.PluginCatalogLoading=パッケージ化された署名済みプラグインカタログを読み込み中...
+ja.PluginCatalogPackaged=このセットアップに同梱された署名済みプラグインカタログを使用しています。
+ja.PluginCatalogUnavailable=利用可能な署名済みプラグインカタログがありません。
+ja.PluginListHint=オプションプラグインは署名済みの公式カタログからインストールされ、再起動後に有効になります。
+ja.PluginWaiting=オプションプラグインのインストールは、アプリケーションのインストール完了を待っています。
+ja.PluginInstalling=オプションプラグインをインストール中...
+ja.PluginCompleted=オプションプラグインをインストールして有効にしました。
+ja.PluginFailed=オプションプラグインのインストールに失敗しました。PixivDownload はインストール済みです。後でプラグインマーケットから再試行してください。
+ja.PluginFinishedSuccess=選択したオプションプラグインをインストールして有効にしました。
+ja.PluginFinishedFailed=一部のオプションプラグインをインストールできませんでした。PixivDownload のプラグインマーケットから再試行できます。
+ja.FfmpegWaiting=FFmpeg のダウンロードは、アプリケーションのインストール完了を待っています。
+ja.FfmpegDownloading=FFmpeg をダウンロード中...
+ja.FfmpegProxyDetected=システムプロキシを使用
+ja.FfmpegDirectDownload=有効なシステムプロキシが見つからないため、直接ダウンロードします。
+ja.FfmpegExtracting=FFmpeg を展開中...
+ja.FfmpegInstallingFiles=FFmpeg ファイルをインストール中...
+ja.FfmpegCompleted=FFmpeg のインストールが完了しました。
+ja.FfmpegFailed=FFmpeg のインストールに失敗しました。PixivDownload はインストール済みです。後でステータスページから再試行できます。
+ja.FfmpegArchiveInvalid=FFmpeg アーカイブに ffmpeg.exe または ffprobe.exe が含まれていません。
+ja.FfmpegCopyFailed=FFmpeg ファイルをアプリケーションの tools ディレクトリにコピーできませんでした。
+ja.FfmpegLicenseWriteFailed=FFmpeg のライセンス通知を書き込めませんでした。
+ja.FfmpegFinishedSuccess=セットアップ中に FFmpeg をダウンロードしてインストールしました。
+ja.FfmpegFinishedFailed=セットアップ中に FFmpeg をインストールできませんでした。PixivDownload のステータスページから再試行してください。
+ja.MaintenanceTitle=PixivDownload はすでにインストールされています
+ja.MaintenanceDescription=既存のインストールに対する操作を選択してください。
+ja.MaintenanceRepairButton=修復(&R)
+ja.MaintenanceRepairHint=現在のインストールフォルダーに PixivDownload のファイルを再インストールします。
+ja.MaintenanceChangeButton=変更(&C)
+ja.MaintenanceChangeHint=FFmpeg のダウンロードなど、追加セットアップタスクを変更します。
+ja.MaintenanceUninstallButton=アンインストール(&U)
+ja.MaintenanceUninstallHint=既存の PixivDownload を削除します。
+ja.MaintenanceUninstallConfirm=既存の PixivDownload アンインストーラーを起動します。続行しますか？
+ja.MaintenanceUninstallMissing=既存のアンインストーラーが見つかりません。
+ja.MaintenanceUninstallFailed=既存のアンインストーラーが失敗しました。
+ja.MaintenanceRemovingLegacyMsi=以前の MSI インストールを削除中...
+ja.MaintenanceLegacyMsiRemoveFailed=以前の MSI インストールを削除できませんでした。
+ja.AppRunningError=PixivDownload は現在実行中です。完全に終了してから「再試行」をクリックして続行してください。
+ja.AppRunningAbort=PixivDownload の実行中はセットアップを続行できません。インストールをキャンセルしました。
 
 [InstallDelete]
 ; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时
