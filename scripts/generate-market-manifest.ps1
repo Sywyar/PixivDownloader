@@ -68,7 +68,7 @@ function Has-Property($obj, [string]$name) {
 }
 
 # major.minor from a plugin.requires string (e.g. "1.0" / "1.0.0" -> "1.0").
-function Get-RequiredCoreApi([string]$requires) {
+function Get-RequiredSdk([string]$requires) {
     if ($requires -and ($requires -match '(\d+)\.(\d+)')) {
         return "$($Matches[1]).$($Matches[2])"
     }
@@ -282,7 +282,9 @@ try {
             sha256            = $sha256
             signature         = $signature
             signatureUrl      = "$packageUrl.sig"
-            requiredCoreApi   = (Get-RequiredCoreApi $requires)
+            requiredSdk       = (Get-RequiredSdk $requires)
+            # Legacy wire alias retained so existing released clients can still read new manifests.
+            requiredCoreApi   = (Get-RequiredSdk $requires)
             dependencies      = @($dependencies)
             releasedTime      = $releasedTime
             changeNotes       = $changeNotes

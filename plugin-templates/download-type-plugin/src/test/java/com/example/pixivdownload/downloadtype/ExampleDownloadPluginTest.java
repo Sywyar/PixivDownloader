@@ -8,6 +8,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
@@ -111,6 +112,9 @@ class ExampleDownloadPluginTest {
                 route.pathPattern().equals("/example-download-gallery.html")));
         assertEquals(3, plugin.staticResources().size());
         assertEquals("example-download", plugin.i18n().get(0).namespace());
+        assertEquals(java.util.Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
+                plugin.navigation().get(0).placements());
+        assertEquals("/example-download-gallery.html", plugin.navigation().get(0).href());
         assertEquals(java.util.List.of("settings-card", "quick-actions-mine"),
                 plugin.uiSlots().stream().map(slot -> slot.target()).toList());
         assertEquals("example-download.ids",

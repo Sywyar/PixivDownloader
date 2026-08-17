@@ -24,7 +24,12 @@ public record StaticResourceContribution(
         String publicPathPrefix,
         boolean exactFile
 ) {
-    /** 目录贡献的便捷构造（{@code exactFile=false}）。 */
+    /**
+     * 目录贡献的便捷构造（{@code exactFile=false}）。
+     *
+     * @param classpathLocation 类路径位置
+     * @param publicPathPrefix 公开路径前缀
+     */
     public StaticResourceContribution(String classpathLocation, String publicPathPrefix) {
         this(classpathLocation, publicPathPrefix, false);
     }

@@ -27,6 +27,11 @@ public final class ImmutableNotificationTemplateCatalog implements NotificationT
     private final List<NotificationTemplateContribution> ordered;
     private final Map<String, Set<String>> scenarioIdsByMedium;
 
+    /**
+     * 从通知模板集合创建不可变目录。
+     *
+     * @param contributions 通知模板集合
+     */
     public ImmutableNotificationTemplateCatalog(
             Collection<NotificationTemplateContribution> contributions) {
         if (contributions == null) {
@@ -48,6 +53,11 @@ public final class ImmutableNotificationTemplateCatalog implements NotificationT
         scenarioIdsByMedium = indexScenarioIds(ordered);
     }
 
+    /**
+     * 返回空的 {@code ImmutableNotificationTemplateCatalog} 实例。
+     *
+     * @return 方法返回的 {@code ImmutableNotificationTemplateCatalog} 实例
+     */
     public static ImmutableNotificationTemplateCatalog empty() {
         return new ImmutableNotificationTemplateCatalog(List.of());
     }

@@ -18,6 +18,9 @@ public record I18nContribution(
     /**
      * 不声明展示顺序：order 取 {@link Integer#MAX_VALUE}，
      * 在 {@code /api/i18n/meta} 中追加到所有声明了顺序的 namespace 之后。
+     *
+     * @param namespace 命名空间
+     * @param baseName 基础名称
      */
     public I18nContribution(String namespace, String baseName) {
         this(namespace, baseName, Integer.MAX_VALUE);

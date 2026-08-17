@@ -6,7 +6,7 @@ import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
@@ -208,7 +208,7 @@ public class PluginManagementService {
                 colorTokenOf(descriptor),
                 descriptor != null ? descriptor.version() : null,
                 descriptor != null ? descriptor.kind() : null,
-                descriptor != null ? PluginApiRequirementView.from(descriptor.requires()) : null,
+                descriptor != null ? SdkRequirementView.from(descriptor.requires()) : null,
                 dependencyViews(descriptor),
                 sourceOf(id, descriptor),
                 diagnostic.status(),
@@ -506,8 +506,8 @@ public class PluginManagementService {
             if (depended == null || depended.descriptor() == null) {
                 throw dependencyUnsatisfied(id, action, "missing required dependency: " + dependency.pluginId());
             }
-            PluginApiRequirement required = dependency.requirement();
-            PluginApiRequirement actual = PluginApiRequirement.parse(depended.descriptor().version());
+            VersionRequirement required = dependency.requirement();
+            VersionRequirement actual = VersionRequirement.parse(depended.descriptor().version());
             if (!required.isSatisfiedBy(actual.major(), actual.minor())) {
                 throw dependencyUnsatisfied(id, action,
                         "required dependency " + dependency.pluginId() + " needs version "
@@ -651,7 +651,7 @@ public class PluginManagementService {
      * @param colorToken       卡片强调色受控 token（恒非空：缺省回退到 plugin-api 默认 token，前端映射到固定 CSS class）
      * @param version          插件版本（未安装的必选项为 {@code null}）
      * @param kind             插件类别（未安装的必选项为 {@code null}）
-     * @param apiRequirement   对核心 API 的版本要求投影（未安装的必选项无描述符时为 {@code null}）
+     * @param sdkRequirement   对SDK 的版本要求投影（未安装的必选项无描述符时为 {@code null}）
      * @param dependencies     对其它插件的依赖声明投影（无描述符 / 无依赖时为空列表）
      * @param source           来源：{@code built-in} / {@code external} / {@code not-installed}
      * @param status           评估状态
@@ -675,7 +675,7 @@ public class PluginManagementService {
             String colorToken,
             String version,
             PluginKind kind,
-            PluginApiRequirementView apiRequirement,
+            SdkRequirementView sdkRequirement,
             List<PluginDependencyView> dependencies,
             String source,
             PluginStatus status,
@@ -704,7 +704,7 @@ public class PluginManagementService {
                 String colorToken,
                 String version,
                 PluginKind kind,
-                PluginApiRequirementView apiRequirement,
+                SdkRequirementView sdkRequirement,
                 List<PluginDependencyView> dependencies,
                 String source,
                 PluginStatus status,
@@ -715,7 +715,7 @@ public class PluginManagementService {
                 List<String> availableActions,
                 List<String> messages) {
             this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
-                    apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
+                    sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
                     null, ExternalPluginOperation.IDLE, null, null,
                     PluginLifecyclePolicy.HOT_RELOAD, true, false);
@@ -731,7 +731,7 @@ public class PluginManagementService {
                 String colorToken,
                 String version,
                 PluginKind kind,
-                PluginApiRequirementView apiRequirement,
+                SdkRequirementView sdkRequirement,
                 List<PluginDependencyView> dependencies,
                 String source,
                 PluginStatus status,
@@ -745,7 +745,7 @@ public class PluginManagementService {
                 boolean configuredEnabled,
                 boolean toggleable) {
             this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
-                    apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
+                    sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
                     null, ExternalPluginOperation.IDLE, null, null,
                     lifecyclePolicy, configuredEnabled, toggleable);
@@ -753,17 +753,17 @@ public class PluginManagementService {
     }
 
     /**
-     * 插件对核心 API 的版本要求投影（对外）：从 {@link PluginDescriptor#requires()} 映射，不泄露内部描述符模型。
+     * 插件对SDK 的版本要求投影（对外）：从 {@link PluginDescriptor#requires()} 映射，不泄露内部描述符模型。
      *
      * @param specified 是否声明了 {@code requires}（未声明视为兼容任何版本）
-     * @param satisfied 当前核心 API 是否满足该要求（未声明恒为 {@code true}，无法解析恒为 {@code false}）
+     * @param satisfied 当前SDK 是否满足该要求（未声明恒为 {@code true}，无法解析恒为 {@code false}）
      * @param required  人类可读的版本要求（未声明为 {@code "(unspecified)"}，无法解析时回显原始串）
      */
-    public record PluginApiRequirementView(boolean specified, boolean satisfied, String required) {
+    public record SdkRequirementView(boolean specified, boolean satisfied, String required) {
 
-        static PluginApiRequirementView from(PluginApiRequirement requirement) {
-            return new PluginApiRequirementView(
-                    requirement.present(), requirement.isSatisfiedByCurrentApi(), requirement.display());
+        static SdkRequirementView from(VersionRequirement requirement) {
+            return new SdkRequirementView(
+                    requirement.present(), requirement.isSatisfiedByCurrentSdk(), requirement.display());
         }
     }
 

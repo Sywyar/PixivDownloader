@@ -7,9 +7,21 @@ import java.util.Objects;
  */
 public final class PixivAjaxException extends RuntimeException {
 
+    /**
+     * 失败信息。
+     */
     private final PixivAjaxFailure failure;
+    /**
+     * 状态码。
+     */
     private final int statusCode;
 
+    /**
+     * 创建 {@code PixivAjaxException} 实例。
+     *
+     * @param failure 失败信息
+     * @param statusCode 状态码
+     */
     public PixivAjaxException(PixivAjaxFailure failure, int statusCode) {
         super(message(failure, statusCode));
         this.failure = Objects.requireNonNull(failure, "failure");
@@ -26,12 +38,19 @@ public final class PixivAjaxException extends RuntimeException {
         }
     }
 
+    /**
+     * 返回失败信息。
+     *
+     * @return 方法返回的 {@code PixivAjaxFailure} 实例
+     */
     public PixivAjaxFailure failure() {
         return failure;
     }
 
     /**
      * 返回上游 HTTP 状态码；非 HTTP 失败返回 {@code 0}。
+     *
+     * @return 方法返回的数值
      */
     public int statusCode() {
         return statusCode;

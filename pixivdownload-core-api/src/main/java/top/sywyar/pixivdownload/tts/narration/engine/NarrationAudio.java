@@ -11,10 +11,21 @@ import java.util.Objects;
  */
 public record NarrationAudio(byte[] data, String contentType) {
 
+    /**
+     * 创建 {@code NarrationAudio} 实例。
+     *
+     * @param data 数据
+     * @param contentType 内容类型
+     */
     public NarrationAudio {
         data = data == null ? null : data.clone();
     }
 
+    /**
+     * 返回数据。
+     *
+     * @return 返回的字节数据
+     */
     @Override
     public byte[] data() {
         return data == null ? null : data.clone();

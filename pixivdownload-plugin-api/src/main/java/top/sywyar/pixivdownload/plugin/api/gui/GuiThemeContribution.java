@@ -6,13 +6,13 @@ import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * Pure JDK GUI theme contribution contract.
+ * 纯 JDK GUI 主题贡献契约。
  *
- * @param themeId             globally stable theme id
- * @param displayNameProvider locale-aware display name provider
- * @param appearance          reported brightness classification
- * @param applier             theme applier, invoked only through {@link #applyOnEventDispatchThread()}
- * @param listenerFactory     factory opening a closeable listener session
+ * @param themeId 全局稳定的主题 ID
+ * @param displayNameProvider 感知 locale 的展示名称提供者
+ * @param appearance 报告的明暗分类
+ * @param applier 仅通过 {@link #applyOnEventDispatchThread()} 调用的主题应用器
+ * @param listenerFactory 创建可关闭监听会话的工厂
  */
 public record GuiThemeContribution(
         String themeId,
@@ -22,6 +22,15 @@ public record GuiThemeContribution(
         GuiThemeListenerFactory listenerFactory
 ) {
 
+    /**
+     * 校验主题 ID 和全部行为入口。
+     *
+     * @param themeId 主题标识
+     * @param displayNameProvider 显示名称提供器
+     * @param appearance 外观
+     * @param applier 应用器
+     * @param listenerFactory 监听器工厂
+     */
     public GuiThemeContribution {
         if (themeId == null || themeId.isBlank()) {
             throw new IllegalArgumentException("GUI theme contribution requires a non-blank theme id");
@@ -34,7 +43,12 @@ public record GuiThemeContribution(
     }
 
     /**
-     * Creates a contribution without a listener.
+     * 创建不带监听器的主题贡献。
+     *
+     * @param themeId 全局稳定的主题 ID
+     * @param displayNameProvider 感知 locale 的展示名称提供者
+     * @param appearance 报告的明暗分类
+     * @param applier 主题应用器
      */
     public GuiThemeContribution(String themeId, Function<Locale, String> displayNameProvider,
                                 GuiThemeAppearance appearance, GuiThemeApplier applier) {
@@ -42,7 +56,10 @@ public record GuiThemeContribution(
     }
 
     /**
-     * Resolves the display name for a locale. A {@code null} locale uses {@link Locale#getDefault()}.
+     * 解析指定 locale 下的展示名称。locale 为 {@code null} 时使用 {@link Locale#getDefault()}。
+     *
+     * @param locale 目标 locale，或 {@code null}
+     * @return 非空白展示名称
      */
     public String displayName(Locale locale) {
         Locale effectiveLocale = locale == null ? Locale.getDefault() : locale;
@@ -55,8 +72,9 @@ public record GuiThemeContribution(
     }
 
     /**
-     * Applies the theme. The caller must reach the AWT event dispatch thread before invoking this method; calling it
-     * from another thread is rejected before the contribution code runs.
+     * 应用主题。调用方必须先到达 AWT 事件分派线程；从其它线程调用会在执行贡献代码前被拒绝。
+     *
+     * @throws Exception 主题应用器无法应用主题时抛出
      */
     public void applyOnEventDispatchThread() throws Exception {
         if (!EventQueue.isDispatchThread()) {
@@ -66,7 +84,10 @@ public record GuiThemeContribution(
     }
 
     /**
-     * Opens a listener session for this theme.
+     * 为该主题创建监听会话。
+     *
+     * @param listener 接收外观变化的回调
+     * @return 非空的可关闭监听会话
      */
     public GuiThemeListenerSession openListener(GuiThemeChangeListener listener) {
         Objects.requireNonNull(listener, "GUI theme change listener must not be null");

@@ -26,10 +26,25 @@ public interface WorkMetadataCapture {
             String source
     );
 
+    /**
+     * 执行对应操作。
+     *
+     * @param type 类型
+     * @param workId 作品标识
+     * @param workJson 作品JSON
+     * @param source 数据来源
+     */
     default void capture(WorkType type, long workId, String workJson, String source) {
         capture(type, workId, workJson, null, source);
     }
 
+    /**
+     * 执行对应操作。
+     *
+     * @param type 类型
+     * @param workId 作品标识
+     * @param workJson 作品JSON
+     */
     default void captureForwarded(WorkType type, long workId, String workJson) {
         capture(type, workId, workJson, null, "forward");
     }

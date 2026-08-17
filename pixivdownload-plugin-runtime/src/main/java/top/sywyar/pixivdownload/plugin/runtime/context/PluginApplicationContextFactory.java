@@ -9,24 +9,27 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.util.Objects;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * 每外置插件子 {@code ApplicationContext} 工厂：为一个外置插件包（{@link PluginContextModule}）建立一个子
  * {@link AnnotationConfigApplicationContext}，父 context 为核心应用 context。插件的 {@code @Configuration}
- * 配置类在子 context 中实例化（其 {@code @Bean} 装配插件自有 Bean），并能向父 context 解析核心 API / 服务接口。
+ * 配置类在子 context 中实例化（其 {@code @Bean} 装配插件自有 Bean），并能向父 context 解析SDK / 服务接口。
  *
  * <h2>装配取舍</h2>
  * <ul>
  *   <li><b>子 context 的 classloader 用插件 classloader。</b>插件的配置类 / Bean 类与其类路径资源都经插件 loader
  *       解析，绝不回退核心壳应用 classloader。</li>
- *   <li><b>父 context 提供核心 API / 服务 Bean。</b>{@code setParent} 后子 context 找不到的依赖向父 BeanFactory
- *       解析，因此插件 Bean 可注入父 context 暴露的核心 API / 服务接口（但不应直接依赖核心实现类）。</li>
+ *   <li><b>父 context 提供SDK / 服务 Bean。</b>{@code setParent} 后子 context 找不到的依赖向父 BeanFactory
+ *       解析，因此插件 Bean 可注入父 context 暴露的SDK / 服务接口（但不应直接依赖核心实现类）。</li>
  *   <li><b>继承父 context 的环境属性。</b>{@code setParent} 会把父环境的属性源合并进子环境，使
  *       {@code @ConditionalOnPluginEnabled} 等条件、属性解析与父一致（须早于注册配置类，故先 {@code setParent}
  *       再 {@code register}）；据此被禁用插件的条件托管 Bean 在子 context 中同样缺席。</li>
@@ -44,6 +47,8 @@ public final class PluginApplicationContextFactory {
     private static final Logger log = LoggerFactory.getLogger(PluginApplicationContextFactory.class);
     private static final String PLUGIN_STREAM_REGISTRAR_BEAN_NAME = "pluginStreamRegistrar";
     private static final String PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME = "pluginRuntimeTaskRegistrar";
+    private static final String RUNTIME_PATH_PROVIDER_BEAN_NAME = "pluginRuntimePathProvider";
+    private static final String PLUGIN_DATA_SOURCE_BEAN_NAME = "pluginDataSource";
     public static final String SCOPED_PROPERTY_SOURCE_PREFIX = "pixivdownloadPluginScoped:";
     public static final String SENSITIVE_PROPERTY_MASK_SOURCE_PREFIX = "pixivdownloadPluginSensitiveMask:";
     private static final String SENSITIVE_PROPERTY_UPDATE_MASK_SUFFIX = ":updating";
@@ -51,26 +56,40 @@ public final class PluginApplicationContextFactory {
     private final PluginContextPropertySourceProvider propertySourceProvider;
     private final PluginStreamRegistry pluginStreamRegistry;
     private final PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry;
+    private final Function<String, RuntimePathProvider> runtimePathProviderFactory;
+    private final Function<String, PluginDataSource> pluginDataSourceFactory;
 
     public PluginApplicationContextFactory(PluginStreamRegistry pluginStreamRegistry,
                                            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
-        this(PluginContextPropertySourceProvider.EMPTY, pluginStreamRegistry, pluginRuntimeTaskRegistry);
+        this(PluginContextPropertySourceProvider.EMPTY, pluginStreamRegistry, pluginRuntimeTaskRegistry,
+                null, null);
     }
 
     public PluginApplicationContextFactory(PluginContextPropertySourceProvider propertySourceProvider,
                                            PluginStreamRegistry pluginStreamRegistry,
                                            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
+        this(propertySourceProvider, pluginStreamRegistry, pluginRuntimeTaskRegistry, null, null);
+    }
+
+    public PluginApplicationContextFactory(
+            PluginContextPropertySourceProvider propertySourceProvider,
+            PluginStreamRegistry pluginStreamRegistry,
+            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
+            Function<String, RuntimePathProvider> runtimePathProviderFactory,
+            Function<String, PluginDataSource> pluginDataSourceFactory) {
         this.propertySourceProvider = Objects.requireNonNull(propertySourceProvider, "propertySourceProvider");
         this.pluginStreamRegistry = Objects.requireNonNull(pluginStreamRegistry, "pluginStreamRegistry");
         this.pluginRuntimeTaskRegistry =
                 Objects.requireNonNull(pluginRuntimeTaskRegistry, "pluginRuntimeTaskRegistry");
+        this.runtimePathProviderFactory = runtimePathProviderFactory;
+        this.pluginDataSourceFactory = pluginDataSourceFactory;
     }
 
     /**
      * 为一个外置插件包建立并刷新子 {@code ApplicationContext}。返回的 context 已 {@code refresh()}、可用；
      * 调用方负责在插件停止 / 卸载时 {@code close()} 它。
      *
-     * @param parent 父 context（核心应用 context），子 context 据此解析核心 API / 服务 Bean 并继承环境属性
+     * @param parent 父 context（核心应用 context），子 context 据此解析SDK / 服务 Bean 并继承环境属性
      * @param module 外置插件包的子 context 装配定义（插件 classloader + 配置类 + 来源 id）
      * @return 已刷新的子 context（{@link ConfigurableApplicationContext}）
      */
@@ -84,7 +103,7 @@ public final class PluginApplicationContextFactory {
         // 子 context 的类加载用插件 classloader：插件配置类 / Bean 类与其类路径资源都经插件 loader 解析。
         child.setClassLoader(module.classLoader());
         child.getBeanFactory().setBeanClassLoader(module.classLoader());
-        // 先挂父 context：合并父环境属性源（供条件 / 属性解析）+ 让子 context 找不到的依赖向父解析核心 API/服务 Bean。
+        // 先挂父 context：合并父环境属性源（供条件 / 属性解析）+ 让子 context 找不到的依赖向父解析SDK/服务 Bean。
         // 须早于 register（@Configuration 条件评估在注册与刷新期进行）。
         child.setParent(parent);
         replaceScopedPropertySources(child.getEnvironment(), module.sourcePluginId(),
@@ -96,6 +115,22 @@ public final class PluginApplicationContextFactory {
         child.getBeanFactory().registerSingleton(
                 PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME,
                 pluginRuntimeTaskRegistry.registrarForPlugin(module.sourcePluginId()));
+        if (runtimePathProviderFactory != null) {
+            child.registerBean(
+                    RUNTIME_PATH_PROVIDER_BEAN_NAME,
+                    RuntimePathProvider.class,
+                    () -> runtimePathProviderFactory.apply(module.sourcePluginId()));
+        }
+        if (pluginDataSourceFactory != null) {
+            child.registerBean(
+                    PLUGIN_DATA_SOURCE_BEAN_NAME,
+                    PluginDataSource.class,
+                    () -> pluginDataSourceFactory.apply(module.sourcePluginId()),
+                    definition -> {
+                        definition.setLazyInit(true);
+                        definition.setDestroyMethodName("close");
+                    });
+        }
         child.register(PluginContextInfrastructureConfiguration.class);
         for (Class<?> configurationClass : module.configurationClasses()) {
             child.register(configurationClass);

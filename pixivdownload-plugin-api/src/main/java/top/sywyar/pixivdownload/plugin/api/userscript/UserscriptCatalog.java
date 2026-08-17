@@ -10,5 +10,10 @@ import java.util.List;
  */
 public interface UserscriptCatalog {
 
+    /**
+     * 返回脚本列表。
+     *
+     * @return 方法返回的列表
+     */
     List<UserscriptArtifact> scripts();
 }

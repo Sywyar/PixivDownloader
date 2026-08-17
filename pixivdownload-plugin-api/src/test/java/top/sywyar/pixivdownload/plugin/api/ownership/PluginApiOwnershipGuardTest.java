@@ -16,6 +16,8 @@ import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
@@ -137,10 +139,8 @@ class PluginApiOwnershipGuardTest {
             .importPackages("top.sywyar.pixivdownload.plugin.api");
 
     private static final Map<String, Set<String>> APPROVED_TYPES_BY_OWNER = Map.ofEntries(
-            Map.entry("插件入口、版本与生命周期", union(
-                    types("top.sywyar.pixivdownload.plugin.api", "PluginApiVersion"),
-                    types(API_PREFIX + "plugin",
-                            "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean"))),
+            Map.entry("插件入口与生命周期", types(API_PREFIX + "plugin",
+                    "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
             Map.entry("GUI 纯数据 contribution", types(API_PREFIX + "gui",
                     "GuiConfigActionContribution", "GuiConfigActionPayloadField", "GuiConfigActionPayloadType",
                     "GuiConfigActionResultArgument", "GuiConfigActionResultCondition",
@@ -183,6 +183,8 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件运行期后台任务协议", types(API_PREFIX + "task",
                     "PluginRuntimeTask", "PluginRuntimeTaskDrain", "PluginRuntimeTaskRegistrar",
                     "PluginRuntimeTaskRejectedException")),
+            Map.entry("插件 owner-scoped 存储协议", types(API_PREFIX + "storage",
+                    "PluginDataSource", "RuntimePathProvider")),
             Map.entry("出站 HTTP 传输协议", types(API_PREFIX + "http",
                     "OutboundHttpClient", "OutboundHttpClientFactory", "OutboundHttpClientProfile",
                     "OutboundHttpCookiePolicy", "OutboundHttpProxyProvider", "OutboundHttpRedirectPolicy",
@@ -234,7 +236,7 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
-            Map.entry("插件入口、版本与生命周期", 5),
+            Map.entry("插件入口与生命周期", 4),
             Map.entry("GUI 纯数据 contribution", 30),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
@@ -245,6 +247,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("通知贡献协议", 5),
             Map.entry("插件推流生命周期协议", 2),
             Map.entry("插件运行期后台任务协议", 4),
+            Map.entry("插件 owner-scoped 存储协议", 2),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
             Map.entry("计划任务协议", 57),
@@ -325,6 +328,10 @@ class PluginApiOwnershipGuardTest {
                 }
                 return;
             }
+            if (origin.equals(PluginDataSource.class.getName())
+                    && target.equals(javax.sql.DataSource.class.getName())) {
+                return;
+            }
             if (!isJdkOrPluginApi(target)) {
                 violations.add(origin + " -> " + target);
             }
@@ -359,6 +366,26 @@ class PluginApiOwnershipGuardTest {
                 .toList())
                 .as("Servlet 请求不得成为身份解析接口的字段状态")
                 .noneMatch(type -> type.contains("jakarta.servlet."));
+    }
+
+    @Test
+    @DisplayName("运行路径与私有数据库能力由宿主固定 owner")
+    void storageCapabilitiesHaveExactOwnerScopedShape() {
+        assertThat(Arrays.stream(RuntimePathProvider.class.getDeclaredMethods())
+                .map(method -> method.getName()).toList())
+                .containsExactlyInAnyOrder("configFile", "stateDirectory", "dataDirectory");
+        assertThat(Arrays.stream(RuntimePathProvider.class.getDeclaredMethods()))
+                .allSatisfy(method -> {
+                    assertThat(method.getReturnType()).isEqualTo(Path.class);
+                    if (method.getName().equals("configFile")) {
+                        assertThat(method.getParameterTypes()).containsExactly(String.class);
+                    } else {
+                        assertThat(method.getParameterCount()).isZero();
+                    }
+                });
+        assertThat(PluginDataSource.class.getInterfaces())
+                .containsExactly(javax.sql.DataSource.class);
+        assertThat(PluginDataSource.class.getDeclaredMethods()).isEmpty();
     }
 
     @Test

@@ -40,10 +40,27 @@ public record WebUiSlotContribution(
         Map<String, String> metadata
 ) {
 
+    /**
+     * 创建 {@code WebUiSlotContribution} 实例。
+     *
+     * @param slotId 槽位标识
+     * @param target 目标
+     * @param moduleUrl 模块地址
+     * @param order 排序值
+     * @param metadata 元数据
+     */
     public WebUiSlotContribution {
         metadata = Map.copyOf(metadata == null ? Map.of() : metadata);
     }
 
+    /**
+     * 创建 {@code WebUiSlotContribution} 实例。
+     *
+     * @param slotId 槽位标识
+     * @param target 目标
+     * @param moduleUrl 模块地址
+     * @param order 排序值
+     */
     public WebUiSlotContribution(String slotId, String target, String moduleUrl, int order) {
         this(slotId, target, moduleUrl, order, Map.of());
     }

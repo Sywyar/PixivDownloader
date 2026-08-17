@@ -4,7 +4,7 @@
 
 目录包含两个独立子项目：
 
-- <a href="minimal-feature-plugin/README.md"><code>minimal-feature-plugin</code></a>：不含站点业务逻辑的基础 route/static/i18n/schema/controller 插件；
+- <a href="minimal-feature-plugin/README.md"><code>minimal-feature-plugin</code></a>：不含站点业务逻辑的基础 route/static/i18n/controller 插件；
 - <code>download-type-plugin</code>：下载工作台 contract version 1、队列操作、计划来源、Vue 槽位与独立画廊示例。
 
 模板目标是提供一套稳定、高可用、易上手的 SDK 起点：稳定来自版本化公共契约和 owner/publication 边界，高可用来自失败隔离、fail-closed 与真实生命周期清退，易上手来自可复制工程、命名工厂和确定性守卫。目录名中的 `minimal` 只表示示例不携带站点业务逻辑，不表示删减安全、生命周期或降级路径来追求文件更少。
@@ -14,7 +14,7 @@
 <code>minimal-feature-plugin</code> 演示一个没有站点业务逻辑的 thin PF4J 插件，包含：
 
 - 根部 <code>plugin.properties</code>、PF4J 主类与 <code>PixivPluginProvider</code>；
-- <code>PixivFeaturePlugin</code> 的管理员路由、静态资源、i18n 与插件自有 schema 声明；
+- <code>PixivFeaturePlugin</code> 的管理员路由、静态资源与 i18n 声明；
 - 由插件子 <code>ApplicationContext</code> 显式装配的基础 <code>@RestController</code>；
 - 独立 HTML/CSS/JS 页面、明暗主题变量和中英文资源；
 - descriptor、贡献对象、Spring 配置、JavaScript 语法和 thin JAR 守卫。
@@ -23,7 +23,7 @@
 
     mvn -f plugin-templates/pom.xml verify
 
-这个小 reactor 仅把同仓的 <code>../pixivdownload-plugin-api</code> 作为待构建契约模块加入验证。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从本地或团队 Maven 仓库解析 <code>top.sywyar.lovepopup:pixivdownload-plugin-api:1.0.0</code>；不要改成引用宿主源码目录或应用模块。
+这个验证 reactor 会先构建同仓的 SDK Info、Plugin API、Core API 与 SDK BOM。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从 SDK 仓库解析 <code>top.sywyar.lovepopup:pixivdownload-sdk-bom:1.0.0</code> 及 BOM 管理的公共构件；不要改成引用宿主源码目录或应用模块。
 
 产物位于 <code>plugin-templates/minimal-feature-plugin/target/example-minimal-plugin-0.1.0.jar</code>。将复制并改名后的插件 JAR 通过插件管理页安装，或放入宿主的运行期 <code>plugins/</code> 目录；两种方式都受宿主的包验证与本地未签名策略约束，模板不包含签名、信任根或 installer 内部实现。插件启用后可由管理员直接访问 <code>/example-minimal.html</code>。
 
@@ -43,17 +43,17 @@
 | <code>ExampleMinimal</code> | 你的 Java 类型名前缀 |
 | <code>0.1.0</code> | 插件项目版本与 <code>plugin.version</code> |
 | <code>plugin.requires=1.0</code> | 目标宿主的 major.minor 契约版本；只替换这一整行，不要误改 <code>1.0.0</code> |
-| <code>&lt;pixivdownload-plugin-api.version&gt;1.0.0&lt;/pixivdownload-plugin-api.version&gt;</code> | 构建环境提供的兼容 plugin-api 工件版本 |
+| <code>&lt;pixivdownload.sdk.version&gt;1.0.0&lt;/pixivdownload.sdk.version&gt;</code> | 构建环境提供的统一 SDK/BOM 版本 |
 | <code>plugin.provider=Example Developer</code> | 你的 provider 名称 |
 
 最后修改两份 i18n 文件中的展示文案，并再次运行 <code>mvn verify</code>。不要只改 <code>plugin.properties</code>：feature id、route、static、namespace、插件自有表名前缀和测试中的对应值必须同步替换。
 
 ## 运行时边界
 
-模板 POM 不继承本仓库根 parent，也不依赖 <code>pixivdownload-app</code>、<code>pixivdownload-core-api</code> 或 <code>pixivdownload-plugin-runtime</code>。<code>pixivdownload-plugin-api</code>、PF4J 与 Spring 均为 <code>provided</code>：它们由宿主父 classloader 提供，不能复制进插件 JAR，否则跨 classloader 的契约类型将不再相同。
+模板 POM 不继承本仓库根 parent，也不依赖 <code>pixivdownload-app</code> 或 <code>pixivdownload-plugin-runtime</code>。SDK BOM 统一管理 SDK Info、Plugin API 与 Core API 版本；模板实际使用的 SDK JAR、PF4J 与 Spring 均为 <code>provided</code>，由宿主父 classloader 提供，不能复制进插件 JAR，否则跨 classloader 的契约类型将不再相同。
 
 <code>configurationClasses()</code> 返回的配置类由宿主放入该插件专属的子 <code>ApplicationContext</code>。插件 Bean 必须在配置类中用 <code>@Bean</code> 显式创建；不要依赖宿主根包扫描。模板没有使用运行时内部的 <code>@ConditionalOnPluginEnabled</code>：外置插件只有在启用并建立子上下文后，这些 Bean 才会存在。
 
-可用的稳定接缝限于 <code>pixivdownload-plugin-api</code> 暴露的契约、宿主提供的受控前端 context，以及宿主明确提供的规范依赖。以下内容不是本模板可用的第三方接缝：宿主 app/core 实现类、plugin-runtime/installer/signature 内部类、宿主 mapper 或数据源、官方插件私有 service，以及依赖根上下文组件扫描的 Bean。示例 schema 只声明插件自有表；不要给核心表加列，也不要直接执行建表 DDL。
+可用的稳定接缝限于 SDK Info、Plugin API、Core API 的公开契约、宿主提供的受控前端 context，以及宿主明确提供的规范依赖。以下内容不是本模板可用的第三方接缝：宿主 app/core 实现类、plugin-runtime/installer/signature 内部类、宿主 mapper、官方插件私有 service，以及依赖根上下文组件扫描的 Bean。插件私有持久化使用 owner-scoped <code>PluginDataSource</code>；不要连接宿主主库、给核心表加列或自行执行宿主 schema DDL。
 
 默认产物是无 <code>BOOT-INF/</code>、无内嵌 <code>lib/*.jar</code> 的 thin JAR。若插件以后需要第三方私有库，应先采用宿主明确支持的 PF4J 私有依赖打包方式并增加包边界测试；不要 shade 或打入 plugin-api、PF4J、Spring 或任何宿主类。

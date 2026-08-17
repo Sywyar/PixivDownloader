@@ -113,31 +113,25 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
-    @DisplayName("类型化前端运行时资源保持中性且不再由正式主画廊启动")
-    void typedFrontendRuntimeRemainsNeutralButIsNotBootstrappedByMainGallery() throws IOException {
-        String runtime = read("static/pixiv-gallery/gallery-frontend-runtime.js");
+    @DisplayName("正式主画廊不依赖已移除的通用画廊运行时")
+    void mainGalleryDoesNotDependOnRemovedGenericRuntime() throws IOException {
         String html = read("static/pixiv-gallery.html");
 
-        assertThat(runtime)
-                .contains("registerFilterExtension(definition)",
-                        "registerCardExtension(definition)",
-                        "registerMediaRenderer(definition)",
-                        "registerDetailAction(definition)",
-                        "renderStandardMedia: galleryFrontendRenderStandardMedia",
-                        "'/api/gallery/unified/descriptors'",
-                        "'LIVE_PHOTO_VIDEO'", "'UNKNOWN'")
-                .doesNotContain("failure.message", "String(failure)",
-                        "renderViewEntries", "viewEntries:", "VIEW_ENTRY");
-        assertThat(html).doesNotContain("gallery-frontend-runtime.js", "gallery-generic-view.js");
+        assertThat(html).doesNotContain(
+                "gallery-frontend-runtime.js",
+                "gallery-generic-view.js",
+                "/api/gallery/unified/");
     }
 
     @Test
-    @DisplayName("简化 unified 页面及其专属资源不再存在")
-    void simplifiedUnifiedPageResourcesAreRemoved() {
+    @DisplayName("通用画廊页面、运行时和来源适配资源不再存在")
+    void genericGalleryResourcesAreRemoved() {
         Path staticRoot = sourceStaticRoot();
         assertThat(staticRoot.resolve("unified-gallery.html")).doesNotExist();
         assertThat(staticRoot.resolve("unified-gallery")).doesNotExist();
+        assertThat(staticRoot.resolve("pixiv-gallery/gallery-frontend-runtime.js")).doesNotExist();
         assertThat(staticRoot.resolve("pixiv-gallery/gallery-generic-view.js")).doesNotExist();
+        assertThat(staticRoot.resolve("pixiv-gallery/pixiv-gallery-frontend.js")).doesNotExist();
     }
 
     private String read(String path) throws IOException {

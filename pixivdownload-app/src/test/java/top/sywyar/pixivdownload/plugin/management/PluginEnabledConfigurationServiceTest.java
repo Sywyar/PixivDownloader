@@ -7,7 +7,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
@@ -77,7 +77,7 @@ class PluginEnabledConfigurationServiceTest {
     void refusesRequiredPlugin() {
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
                 new RequiredPluginPolicy.RequiredPlugin(
-                        PLUGIN_ID, PluginApiRequirement.unspecified(), false, "plugin.recovery.blocked")));
+                        PLUGIN_ID, VersionRequirement.unspecified(), false, "plugin.recovery.blocked")));
         PluginEnabledConfigurationService service = new PluginEnabledConfigurationService(
                 statusWith(descriptor(PluginLifecyclePolicy.HOT_RELOAD)), policy,
                 new PluginToggleProperties(), tempDir.resolve("config.yaml"));
@@ -144,7 +144,7 @@ class PluginEnabledConfigurationServiceTest {
 
     private static PluginDescriptor descriptor(PluginLifecyclePolicy policy) {
         return new PluginDescriptor(
-                PLUGIN_ID, PLUGIN_ID, "1.0.0", PluginApiRequirement.unspecified(), List.of(),
+                PLUGIN_ID, PLUGIN_ID, "1.0.0", VersionRequirement.unspecified(), List.of(),
                 PLUGIN_ID + ".Plugin", PLUGIN_ID, "plugin.name", "plugin.summary",
                 "puzzle", "neutral", PluginKind.FEATURE, List.of(), policy);
     }

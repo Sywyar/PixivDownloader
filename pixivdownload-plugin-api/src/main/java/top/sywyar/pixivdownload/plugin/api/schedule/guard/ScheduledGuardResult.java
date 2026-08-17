@@ -6,6 +6,12 @@ public record ScheduledGuardResult(
         ScheduledGuardEvidence evidence
 ) {
 
+    /**
+     * 创建 {@code ScheduledGuardResult} 实例。
+     *
+     * @param decision 决策
+     * @param evidence 证据
+     */
     public ScheduledGuardResult {
         if (decision == null) {
             throw new IllegalArgumentException("guard result decision must not be null");
@@ -13,6 +19,12 @@ public record ScheduledGuardResult(
         evidence = evidence == null ? ScheduledGuardEvidence.empty() : evidence;
     }
 
+    /**
+     * 执行决策并返回结果。
+     *
+     * @param decision 决策
+     * @return 方法返回的 {@code ScheduledGuardResult} 实例
+     */
     public static ScheduledGuardResult decision(ScheduledGuardDecision decision) {
         return new ScheduledGuardResult(decision, ScheduledGuardEvidence.empty());
     }

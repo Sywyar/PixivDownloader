@@ -6,11 +6,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjection;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
-import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWork;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryPage;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryQuery;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
@@ -57,22 +52,18 @@ public class DouyinGalleryController {
         int pageSize = Math.max(1, Math.min(limit <= 0 ? DEFAULT_LIMIT : limit, MAX_LIMIT));
         DouyinHistoryPage page = historyService.search(new DouyinHistoryQuery(
                 offset, pageSize, "time", "desc", search, List.of(), category.mediaTypes()));
-        List<GalleryProjection> cards = page.works().stream()
+        List<DouyinGalleryDataProvider.Projection> cards = page.works().stream()
                 .map(work -> dataProvider.projection(work, category.kind(dataProvider, work)))
                 .toList();
         int nextOffset = offset + cards.size();
         boolean hasMore = nextOffset < page.total();
-        return ResponseEntity.ok(new GalleryProjectionPage(
-                cards, hasMore ? String.valueOf(nextOffset) : null, hasMore, List.of()));
+        return ResponseEntity.ok(new ProjectionPage(
+                cards, hasMore ? String.valueOf(nextOffset) : null, hasMore));
     }
 
     @GetMapping("/works/{workId}")
     public ResponseEntity<WorkResponse> work(@PathVariable String workId) {
-        GalleryWorkKey key = new GalleryWorkKey(
-                DouyinGalleryDataProvider.SOURCE_ID,
-                DouyinGalleryDataProvider.WORK_NAMESPACE,
-                workId);
-        return dataProvider.find(key)
+        return dataProvider.find(workId)
                 .map(work -> ResponseEntity.ok(new WorkResponse(work)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -111,14 +102,20 @@ public class DouyinGalleryController {
             return mediaTypes;
         }
 
-        GalleryKind kind(DouyinGalleryDataProvider provider, DouyinWorkRecord work) {
+        DouyinGalleryDataProvider.Kind kind(DouyinGalleryDataProvider provider, DouyinWorkRecord work) {
             return switch (this) {
-                case IMAGE -> GalleryKind.IMAGE;
-                case VIDEO -> GalleryKind.VIDEO;
+                case IMAGE -> DouyinGalleryDataProvider.Kind.IMAGE;
+                case VIDEO -> DouyinGalleryDataProvider.Kind.VIDEO;
                 case ALL -> provider.primaryKind(work);
             };
         }
     }
 
-    public record WorkResponse(GalleryWork work) { }
+    public record ProjectionPage(
+            List<DouyinGalleryDataProvider.Projection> projections,
+            String nextCursor,
+            boolean hasMore
+    ) { }
+
+    public record WorkResponse(DouyinGalleryDataProvider.Work work) { }
 }

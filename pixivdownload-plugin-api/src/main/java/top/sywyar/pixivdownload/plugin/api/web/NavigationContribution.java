@@ -39,18 +39,53 @@ public record NavigationContribution(
         int priority,
         Set<String> markers
 ) {
+    /**
+     * 创建 {@code NavigationContribution} 实例。
+     *
+     * @param id 标识
+     * @param placements 挂载位置集合
+     * @param labelNamespace 标签命名空间
+     * @param labelI18nKey 标签国际化键
+     * @param href 链接
+     * @param icon 图标
+     * @param visibleTo 可见主体集合
+     * @param priority 优先级
+     * @param markers {@code markers} 对应的值
+     */
     public NavigationContribution {
         placements = placements == null ? Set.of() : Set.copyOf(placements);
         markers = markers == null ? Set.of() : Set.copyOf(markers);
     }
 
-    /** 便利构造：声明多个 placement，并使用空语义标记集合。 */
+    /**
+     * 便利构造：声明多个 placement，并使用空语义标记集合。
+     *
+     * @param id 标识
+     * @param placements 挂载位置集合
+     * @param labelNamespace 标签命名空间
+     * @param labelI18nKey 标签国际化键
+     * @param href 链接
+     * @param icon 图标
+     * @param visibleTo 可见主体集合
+     * @param priority 优先级
+     */
     public NavigationContribution(String id, Set<String> placements, String labelNamespace, String labelI18nKey,
                                   String href, String icon, AccessPolicy visibleTo, int priority) {
         this(id, placements, labelNamespace, labelI18nKey, href, icon, visibleTo, priority, Set.of());
     }
 
-    /** 便利构造：声明单一 placement，并使用空语义标记集合。 */
+    /**
+     * 便利构造：声明单一 placement，并使用空语义标记集合。
+     *
+     * @param id 标识
+     * @param placement 挂载位置
+     * @param labelNamespace 标签命名空间
+     * @param labelI18nKey 标签国际化键
+     * @param href 链接
+     * @param icon 图标
+     * @param visibleTo 可见主体集合
+     * @param priority 优先级
+     */
     public NavigationContribution(String id, String placement, String labelNamespace, String labelI18nKey,
                                   String href, String icon, AccessPolicy visibleTo, int priority) {
         this(id, placement == null ? Set.of() : Set.of(placement), labelNamespace, labelI18nKey,

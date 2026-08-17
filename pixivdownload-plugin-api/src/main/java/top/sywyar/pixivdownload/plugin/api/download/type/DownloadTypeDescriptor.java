@@ -36,8 +36,28 @@ public record DownloadTypeDescriptor(
         String i18nNamespace
 ) {
 
+    /**
+     * 当前契约版本。
+     */
     public static final int CURRENT_CONTRACT_VERSION = 1;
 
+    /**
+     * 创建 {@code DownloadTypeDescriptor} 实例。
+     *
+     * @param contractVersion 契约版本
+     * @param type 类型
+     * @param displayNamespace 显示命名空间
+     * @param displayI18nKey {@code displayI18nKey} 对应的值
+     * @param order 排序值
+     * @param iconKey 图标键
+     * @param colorToken 颜色令牌
+     * @param moduleUrl 模块地址
+     * @param acquisitionModes {@code acquisitionModes} 对应的值
+     * @param cancelSupported 取消支持状态
+     * @param filters 过滤条件
+     * @param settings 设置
+     * @param i18nNamespace 国际化命名空间
+     */
     public DownloadTypeDescriptor {
         if (contractVersion <= 0) {
             throw new IllegalArgumentException("contractVersion must be positive");

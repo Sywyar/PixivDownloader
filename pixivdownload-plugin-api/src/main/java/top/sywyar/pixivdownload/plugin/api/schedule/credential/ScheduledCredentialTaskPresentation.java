@@ -6,6 +6,12 @@ public record ScheduledCredentialTaskPresentation(
         Long acknowledgedEventTime
 ) {
 
+    /**
+     * 创建 {@code ScheduledCredentialTaskPresentation} 实例。
+     *
+     * @param statusCode 状态码
+     * @param acknowledgedEventTime 已确认事件时间
+     */
     public ScheduledCredentialTaskPresentation {
         if (statusCode != null && !statusCode.isBlank()) {
             statusCode = ScheduledCredentialAccountActionRequest.validateMachineCode(
@@ -19,6 +25,11 @@ public record ScheduledCredentialTaskPresentation(
         }
     }
 
+    /**
+     * 返回空的 {@code ScheduledCredentialTaskPresentation} 实例。
+     *
+     * @return 方法返回的 {@code ScheduledCredentialTaskPresentation} 实例
+     */
     public static ScheduledCredentialTaskPresentation empty() {
         return new ScheduledCredentialTaskPresentation(null, null);
     }

@@ -15,12 +15,20 @@ public interface WorkVisibilityService {
      * 校验单个作品是否在作用域内；无限制作用域直接放行。
      *
      * @throws WorkVisibilityDeniedException 受限作用域内作品不存在或不可见
+     * @param scope {@code scope} 对应的值
+     * @param workType 工作类型
+     * @param workId 作品标识
      */
     void requireVisible(WorkVisibilityScope scope, WorkType workType, long workId);
 
     /**
      * 单作品可见性判定（列表逐项过滤用）。无限制作用域恒为 {@code true}；
      * 受限作用域内作品不存在或越界返回 {@code false}。
+     *
+     * @param scope {@code scope} 对应的值
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean isVisible(WorkVisibilityScope scope, WorkType workType, long workId);
 }

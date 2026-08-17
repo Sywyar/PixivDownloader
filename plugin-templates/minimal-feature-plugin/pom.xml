@@ -16,12 +16,19 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <spring-boot.version>3.5.7</spring-boot.version>
-        <pixivdownload-plugin-api.version>1.0.0</pixivdownload-plugin-api.version>
+        <pixivdownload.sdk.version>1.0.0</pixivdownload.sdk.version>
         <pf4j.version>3.12.0</pf4j.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-sdk-bom</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -36,8 +43,12 @@
         <!-- Shared contracts: the host parent classloader must provide the only copy. -->
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-sdk-info</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
-            <version>${pixivdownload-plugin-api.version}</version>
             <scope>provided</scope>
         </dependency>
         <!-- PF4J owns loading; the host supplies the framework classes. -->

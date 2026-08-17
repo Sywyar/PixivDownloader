@@ -11,8 +11,21 @@ import java.util.Map;
  */
 public interface ScheduledWorkExecutor {
 
+    /**
+     * 返回作品类型。
+     *
+     * @return 方法返回的字符串
+     */
     String workType();
 
+    /**
+     * 执行对应操作。
+     *
+     * @param work 工作项
+     * @param context 上下文
+     * @return 方法返回的 {@code ScheduledWorkResult} 实例
+     * @throws ScheduledExecutionException 执行失败时抛出
+     */
     ScheduledWorkResult execute(ScheduledWork work, ScheduledWorkContext context)
             throws ScheduledExecutionException;
 
@@ -20,6 +33,8 @@ public interface ScheduledWorkExecutor {
      * 本执行器允许宿主同时调用 {@link #execute(ScheduledWork, ScheduledWorkContext)} 的容量上限。
      * 宿主仍拥有线程池、任务级 {@code maxInFlight} 与背压，并取二者较小值；执行器只声明自身下游资源的硬上限。
      * 默认不额外收紧。
+     *
+     * @return 方法返回的数值
      */
     default int maxConcurrency() {
         return Integer.MAX_VALUE;
@@ -43,6 +58,9 @@ public interface ScheduledWorkExecutor {
      *
      * <p>若轮末动作属于 best-effort，实现应在边界内自行收敛失败；未收敛的
      * {@link ScheduledExecutionException} 会使本轮失败且不得提交 checkpoint。
+     *
+     * @param context 上下文
+     * @throws top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException 执行失败时抛出
      */
     default void finishRun(ScheduledWorkRunContext context)
             throws ScheduledExecutionException {
@@ -53,6 +71,8 @@ public interface ScheduledWorkExecutor {
      * 排空后、仍持有相关 owner 执行租约时调用；每个所需 work type 至多一次。实现不得在这里执行网络
      * 请求或业务后处理，且必须允许部分初始化。异常只按 best-effort 收敛，不会覆盖本轮原始失败。
      * 默认无动作。
+     *
+     * @param task 任务
      */
     default void abortRun(ScheduledTaskDefinition task) {
     }
@@ -66,6 +86,9 @@ public interface ScheduledWorkExecutor {
      * 按作品类型或结果属性猜测是否需要状态叠加。
      *
      * 默认返回空的不可变 Map，表示不提供实时状态。
+     *
+     * @param key 键
+     * @return 方法返回的映射
      */
     default Map<String, String> status(ScheduledWorkKey key) {
         return Map.of();

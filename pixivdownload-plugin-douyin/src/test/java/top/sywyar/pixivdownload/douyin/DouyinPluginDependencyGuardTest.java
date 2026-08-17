@@ -79,7 +79,9 @@ class DouyinPluginDependencyGuardTest {
         String pom = Files.readString(moduleRoot.resolve("pom.xml"));
         assertThat(pom).doesNotContain(
                 "<artifactId>PixivDownload</artifactId>",
-                "<artifactId>httpclient5</artifactId>");
+                "<artifactId>httpclient5</artifactId>",
+                "<artifactId>pixivdownload-plugin-runtime</artifactId>",
+                "<artifactId>mybatis-spring-boot-starter</artifactId>");
 
         String productionSource;
         try (Stream<Path> files = Files.walk(moduleRoot.resolve("src/main/java"))) {
@@ -94,6 +96,8 @@ class DouyinPluginDependencyGuardTest {
                 "org.apache.http.",
                 "HttpComponentsClientHttpRequestFactory",
                 "DouyinRestTemplateFactory",
+                "ManagedPluginRestTemplate",
+                "PluginRestTemplateAdapter",
                 appType("config.ProxyConfig"),
                 appType("config.RuntimeFiles"),
                 appType("core.appconfig.DownloadConfig"),
@@ -103,10 +107,7 @@ class DouyinPluginDependencyGuardTest {
                 appType("common.NetworkUtils"),
                 appType("common.UuidUtils"),
                 appType("setup.SetupService"));
-        assertThat(productionSource).contains(
-                "OutboundHttpClientFactory",
-                "ManagedPluginRestTemplate",
-                "PluginRestTemplateAdapter");
+        assertThat(productionSource).contains("OutboundHttpClientFactory");
     }
 
     @Test

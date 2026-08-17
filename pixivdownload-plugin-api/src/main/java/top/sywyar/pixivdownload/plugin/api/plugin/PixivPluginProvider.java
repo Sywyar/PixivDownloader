@@ -23,6 +23,8 @@ public interface PixivPluginProvider {
      * 本外置插件包贡献的唯一 {@link PixivFeaturePlugin}。返回实例由插件自身 classloader 创建，
      * 其声明的静态资源 / i18n bundle 等也经该 classloader 解析。不得返回 {@code null}，且
      * {@link PixivFeaturePlugin#id()} 必须与包描述符的 plugin id 相同。
+     *
+     * @return 方法返回的 {@code PixivFeaturePlugin} 实例
      */
     PixivFeaturePlugin featurePlugin();
 
@@ -38,6 +40,8 @@ public interface PixivPluginProvider {
      *
      * <p>返回类型只用 JDK {@link Class}，本契约不引用 Spring 类型，保持 {@code plugin.api} 的零框架依赖。
      * 默认返回空列表：不声明任何 Spring Bean 的插件无需覆写，宿主不为其建立子 context。不得返回 {@code null}。
+     *
+     * @return 方法返回的列表
      */
     default List<Class<?>> configurationClasses() {
         return List.of();

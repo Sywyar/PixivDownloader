@@ -6,12 +6,16 @@ import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.List;
+import java.util.Set;
 
 /** Stable contribution declarations for the example download type. */
 public final class ExampleDownloadPlugin implements PixivFeaturePlugin {
@@ -78,6 +82,19 @@ public final class ExampleDownloadPlugin implements PixivFeaturePlugin {
     @Override
     public List<I18nContribution> i18n() {
         return List.of(new I18nContribution(NAMESPACE, "i18n.web.example-download"));
+    }
+
+    @Override
+    public List<NavigationContribution> navigation() {
+        return List.of(new NavigationContribution(
+                ID + "-gallery-type-switch",
+                Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
+                NAMESPACE,
+                "gallery.type",
+                "/example-download-gallery.html",
+                "download",
+                AccessPolicy.ADMIN,
+                900));
     }
 
     @Override

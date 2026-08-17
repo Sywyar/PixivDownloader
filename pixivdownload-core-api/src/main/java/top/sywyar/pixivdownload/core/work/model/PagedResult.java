@@ -19,6 +19,15 @@ public record PagedResult<T>(
         int size,
         int totalPages) {
 
+    /**
+     * 创建分页查询结果并对当前页内容执行防御性拷贝。
+     *
+     * @param content 当前页内容
+     * @param totalElements 过滤条件命中的总行数
+     * @param page 当前页号
+     * @param size 页大小
+     * @param totalPages 总页数
+     */
     public PagedResult {
         content = content == null ? List.of() : List.copyOf(content);
     }

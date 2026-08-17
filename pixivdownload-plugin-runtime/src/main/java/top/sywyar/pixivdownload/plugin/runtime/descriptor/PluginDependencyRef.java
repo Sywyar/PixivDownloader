@@ -54,10 +54,10 @@ public record PluginDependencyRef(String pluginId, String versionSupport, boolea
     }
 
     /** 解析 {@link #versionSupport} 为版本要求（{@code *} / 空白 → 不限版本）。 */
-    public PluginApiRequirement requirement() {
+    public VersionRequirement requirement() {
         if (versionSupport == null || versionSupport.isBlank() || "*".equals(versionSupport.trim())) {
-            return PluginApiRequirement.unspecified();
+            return VersionRequirement.unspecified();
         }
-        return PluginApiRequirement.parse(versionSupport);
+        return VersionRequirement.parse(versionSupport);
     }
 }

@@ -11,20 +11,47 @@ import java.util.Objects;
  */
 public interface ApiErrorResponse {
 
-    /** 与界面语言无关的稳定机器码。 */
+    /**
+     * 返回与界面语言无关的稳定机器码。
+     *
+     * @return 稳定机器码
+     */
     String code();
 
-    /** 按请求语言解析的人类可读说明。 */
+    /**
+     * 返回按请求语言解析的人类可读说明。
+     *
+     * @return 本地化错误说明
+     */
     String error();
 
-    /** 构造不带端点专属诊断字段的标准失败响应。 */
+    /**
+     * 构造不带端点专属诊断字段的标准失败响应。
+     *
+     * @param code 与界面语言无关的稳定机器码
+     * @param error 按请求语言解析的人类可读说明
+     * @return 仅含稳定必填字段的失败响应
+     */
     static ApiErrorResponse of(String code, String error) {
         return new Basic(code, error);
     }
 
-    /** 仅含稳定必填字段的标准投影。 */
+    /**
+     * 仅含稳定必填字段的标准投影。
+     *
+     * @param code 与界面语言无关的稳定机器码
+     * @param error 按请求语言解析的人类可读说明
+     */
     record Basic(String code, String error) implements ApiErrorResponse {
 
+        /**
+         * 校验并规范化标准失败响应字段。
+         *
+         * @param code 与界面语言无关的稳定机器码
+         * @param error 按请求语言解析的人类可读说明
+         * @throws IllegalArgumentException 当机器码为空时抛出
+         * @throws NullPointerException 当错误说明为 {@code null} 时抛出
+         */
         public Basic {
             if (code == null || code.isBlank()) {
                 throw new IllegalArgumentException("API error code must not be blank");

@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.douyin.client;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.client.ResourceAccessException;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 
@@ -87,7 +87,7 @@ public class DefaultDouyinShortLinkResolver implements DouyinShortLinkResolver {
     private DouyinRedirectResponse get(URI uri, String cookie) throws DouyinClientException {
         try {
             return redirectClient.get(uri, cookie);
-        } catch (ResourceAccessException e) {
+        } catch (OutboundHttpTransportException e) {
             if (isTimeout(e)) {
                 throw new DouyinClientException(DouyinClientErrorCode.NETWORK_TIMEOUT,
                         "Douyin short URL request timed out", e);

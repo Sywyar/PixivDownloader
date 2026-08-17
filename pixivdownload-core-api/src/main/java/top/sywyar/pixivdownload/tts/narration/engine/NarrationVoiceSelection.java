@@ -9,6 +9,12 @@ import java.util.Objects;
  */
 public record NarrationVoiceSelection(String id, NarrationVoiceEngine engine) {
 
+    /**
+     * 创建 {@code NarrationVoiceSelection} 实例。
+     *
+     * @param id 标识
+     * @param engine 引擎
+     */
     public NarrationVoiceSelection {
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException("narration voice selection id must not be blank");

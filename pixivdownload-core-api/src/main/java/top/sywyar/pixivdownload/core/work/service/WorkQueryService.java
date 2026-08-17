@@ -34,53 +34,122 @@ public interface WorkQueryService {
     /**
      * 按查询条件取一页作品 id（默认过滤软删除），顺序即排序结果；
      * 内容经 {@link WorkMetadataRepository#findAll} 批量补全。
+     *
+     * @param query 查询条件
+     * @return 方法返回的 {@code PagedResult} 实例
      */
     PagedResult<WorkSummary> search(WorkQuery query);
 
-    /** 同 {@link #search} 的全量版本：返回命中条件的全部作品 id，不分页。 */
+    /**
+     * 同 {@link #search} 的全量版本：返回命中条件的全部作品 id，不分页。
+     *
+     * @param query 查询条件
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     List<WorkSummary> searchAll(WorkQuery query);
 
-    /** 是否存在下载记录（<b>含软删除行</b>）：「曾经下载过」与重新下载判定用。 */
+    /**
+     * 是否存在下载记录（<b>含软删除行</b>）：「曾经下载过」与重新下载判定用。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean hasWork(WorkType workType, long workId);
 
-    /** 是否存在未被软删除的记录：软删行视为不存在（画廊可见性判定用）。 */
+    /**
+     * 是否存在未被软删除的记录：软删行视为不存在（画廊可见性判定用）。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean hasActiveWork(WorkType workType, long workId);
 
-    /** 相关作品：与给定作品共享至少一个标签，按共享标签数降序、时间倒序。 */
+    /**
+     * 相关作品：与给定作品共享至少一个标签，按共享标签数降序、时间倒序。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @param limit 限制值
+     * @return 方法返回的列表
+     */
     List<WorkSummary> relatedByTags(WorkType workType, long workId, int limit);
 
-    /** 同作者的其他作品，按时间倒序，排除 {@code excludeWorkId} 自身。 */
+    /**
+     * 同作者的其他作品，按时间倒序，排除 {@code excludeWorkId} 自身。
+     *
+     * @param workType 工作类型
+     * @param authorId 作者标识
+     * @param excludeWorkId 排除项作品标识
+     * @param limit 限制值
+     * @return 方法返回的列表
+     */
     List<WorkSummary> byAuthor(WorkType workType, long authorId, long excludeWorkId, int limit);
 
-    /** 同系列的其他作品，按系列内序号升序，排除 {@code excludeWorkId} 自身。 */
+    /**
+     * 同系列的其他作品，按系列内序号升序，排除 {@code excludeWorkId} 自身。
+     *
+     * @param workType 工作类型
+     * @param seriesId 系列标识
+     * @param excludeWorkId 排除项作品标识
+     * @param limit 限制值
+     * @return 方法返回的列表
+     */
     List<WorkSummary> bySeries(WorkType workType, long seriesId, long excludeWorkId, int limit);
 
-    /** 系列内相邻作品导航；作品不存在、无系列或无序号时返回 {@link Optional#empty()}。 */
+    /**
+     * 系列内相邻作品导航；作品不存在、无系列或无序号时返回 {@link Optional#empty()}。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @return 匹配的可选值
+     */
     Optional<SeriesNeighbors> seriesNeighbors(WorkType workType, long workId);
 
     /**
      * 标签目录（带使用计数）。{@code restriction} 非空时只返回对该访客可见的标签；
      * 计数语义沿用既有查询（插画侧为全量使用数 + 可见性过滤，小说侧为可见作品计数）。
+     *
+     * @param query 查询条件
+     * @return 方法返回的列表
      */
     List<TagOption> tags(TagQuery query);
 
     /**
      * 按名称 / 翻译名精确查找全局标签（大小写不敏感，原名命中优先）。本方法不携带访问作用域；
      * 受限访客必须从带 {@link TagQuery#restriction()} 的 {@link #tags} 结果中精确匹配。
+     *
+     * @param workType 工作类型
+     * @param name 名称
+     * @param translatedName 翻译后值名称
+     * @return 匹配的可选值
      */
     Optional<TagOption> tagByName(WorkType workType, String name, String translatedName);
 
-    /** 作者目录（带可见作品计数），作者名按作者池补全、缺名以 id 字符串兜底。 */
+    /**
+     * 作者目录（带可见作品计数），作者名按作者池补全、缺名以 id 字符串兜底。
+     *
+     * @param query 查询条件
+     * @return 方法返回的列表
+     */
     List<AuthorSummary> authors(AuthorQuery query);
 
     /**
      * 精确读取作者池中已有的作者名；缺失 id 不出现在结果中，不做数字 id 兜底。
+     *
+     * @param authorIds 作者标识集合
+     * @return 方法返回的映射
      */
     Map<Long, String> authorNames(Collection<Long> authorIds);
 
     /**
      * 按正数系列 id 聚合未删除作品数；{@code restriction == null} 表示不做访客裁剪。
      * 返回值只表达中性作品关系计数，不包含来源拥有的系列标题、作者或展示装饰字段。
+     *
+     * @param workType 工作类型
+     * @param restriction 访问限制
+     * @return 方法返回的映射
      */
     Map<Long, Long> countBySeries(WorkType workType, WorkRestriction restriction);
 

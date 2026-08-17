@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 
@@ -55,7 +55,7 @@ class PluginArtifactLoadPlanTest {
     }
 
     private static PluginDescriptor descriptor(String id, List<PluginDependencyRef> dependencies) {
-        return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.of(1, 0), dependencies,
+        return new PluginDescriptor(id, id, "1.0.0", VersionRequirement.of(1, 0), dependencies,
                 "com.example." + id + ".Plugin", null, id, null, null, null, PluginKind.FEATURE);
     }
 }

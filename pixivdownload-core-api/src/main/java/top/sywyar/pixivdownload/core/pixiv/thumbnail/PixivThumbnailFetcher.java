@@ -10,5 +10,11 @@ import java.net.URI;
  */
 public interface PixivThumbnailFetcher {
 
+    /**
+     * 查询并返回对应结果。
+     *
+     * @param source 数据来源
+     * @return 返回的字节数据
+     */
     byte[] fetch(URI source);
 }

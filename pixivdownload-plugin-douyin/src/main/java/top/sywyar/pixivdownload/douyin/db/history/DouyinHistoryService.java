@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.douyin.db.history;
 
-import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadedFile;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
@@ -30,12 +29,10 @@ public class DouyinHistoryService {
         this.lastIssuedTime = new AtomicLong(maxTime == null ? 0L : maxTime);
     }
 
-    @Transactional
     public int backfillRelations() {
         return repository.backfillRelations();
     }
 
-    @Transactional
     public boolean recordCompleted(DouyinWork work,
                                    Path folder,
                                    List<DouyinDownloadedFile> files) {
@@ -43,7 +40,6 @@ public class DouyinHistoryService {
                 (DouyinSourceRelation) null);
     }
 
-    @Transactional
     public boolean recordCompleted(DouyinWork work,
                                    Path folder,
                                    List<DouyinDownloadedFile> files,
@@ -55,7 +51,6 @@ public class DouyinHistoryService {
                 collectionOrder, (DouyinSourceRelation) null);
     }
 
-    @Transactional
     public boolean recordCompleted(DouyinWork work,
                                    Path folder,
                                    List<DouyinDownloadedFile> files,
@@ -98,7 +93,6 @@ public class DouyinHistoryService {
         return recordCompleted(record, fileRecords, relation);
     }
 
-    @Transactional
     public boolean recordCompleted(DouyinWork work,
                                    Path folder,
                                    List<DouyinDownloadedFile> files,
@@ -137,21 +131,18 @@ public class DouyinHistoryService {
         return recordCompleted(record, fileRecords(workId, work.media(), files, time), sourceRelations);
     }
 
-    @Transactional
     public boolean recordCompleted(DouyinWorkRecord work, List<DouyinWorkFileRecord> files) {
         DouyinSourceRelation relation = inferredRelation(work.workId(), work.sourceUrl(),
                 work.collectionId(), work.collectionTitle(), work.collectionOrder(), work.time());
         return recordCompleted(work, files, relation);
     }
 
-    @Transactional
     public boolean recordCompleted(DouyinWorkRecord work,
                                    List<DouyinWorkFileRecord> files,
                                    DouyinSourceRelation relation) {
         return recordCompleted(work, files, relation == null ? List.of() : List.of(relation));
     }
 
-    @Transactional
     public boolean recordCompleted(DouyinWorkRecord work,
                                    List<DouyinWorkFileRecord> files,
                                    List<DouyinSourceRelation> relations) {
@@ -162,15 +153,17 @@ public class DouyinHistoryService {
         if (files.stream().anyMatch(file -> file == null || !workId.equals(file.workId()))) {
             throw new IllegalArgumentException("Douyin history files must belong to the completed work");
         }
-        repository.deleteIfMarkedDeleted(work.workId());
-        int inserted = repository.insertWork(work);
-        if (inserted > 0) {
-            repository.insertFiles(files);
-        } else if (!repository.replaceActiveWork(work, files)) {
-            throw new IllegalStateException("Douyin active history could not be refreshed: " + workId);
-        }
-        persistRelations(workId, relations);
-        return true;
+        return repository.inTransaction(() -> {
+            repository.deleteIfMarkedDeleted(work.workId());
+            int inserted = repository.insertWork(work);
+            if (inserted > 0) {
+                repository.insertFiles(files);
+            } else if (!repository.replaceActiveWork(work, files)) {
+                throw new IllegalStateException("Douyin active history could not be refreshed: " + workId);
+            }
+            persistRelations(workId, relations);
+            return true;
+        });
     }
 
     public Optional<DouyinWorkRecord> findById(String workId) {
@@ -194,7 +187,6 @@ public class DouyinHistoryService {
         return repository.findRelationsByWorkId(workId.trim());
     }
 
-    @Transactional
     public boolean recordRelation(DouyinSourceRelation relation) {
         if (relation == null) {
             return false;
@@ -202,21 +194,24 @@ public class DouyinHistoryService {
         return recordRelations(relation.workId(), List.of(relation));
     }
 
-    @Transactional
     public boolean recordRelations(String workId, List<DouyinSourceRelation> relations) {
-        if (isBlank(workId) || !repository.hasActiveWork(workId.trim())) {
+        if (isBlank(workId)) {
             return false;
         }
-        persistRelations(workId.trim(), relations);
-        return true;
+        String stableWorkId = workId.trim();
+        return repository.inTransaction(() -> {
+            if (!repository.hasActiveWork(stableWorkId)) {
+                return false;
+            }
+            persistRelations(stableWorkId, relations);
+            return true;
+        });
     }
 
-    @Transactional(readOnly = true)
     public DouyinHistoryPage search(DouyinHistoryQuery query) {
         return repository.search(query);
     }
 
-    @Transactional(readOnly = true)
     public List<DouyinAuthorSummary> authorFacets(DouyinHistoryQuery query) {
         return repository.authorFacets(query);
     }
@@ -237,12 +232,10 @@ public class DouyinHistoryService {
         return !isBlank(workId) && repository.isDeleted(workId.trim());
     }
 
-    @Transactional
     public boolean markDeleted(String workId) {
         return !isBlank(workId) && repository.markDeleted(workId.trim()) > 0;
     }
 
-    @Transactional
     public boolean deleteIfMarkedDeleted(String workId) {
         return !isBlank(workId) && repository.deleteIfMarkedDeleted(workId.trim());
     }

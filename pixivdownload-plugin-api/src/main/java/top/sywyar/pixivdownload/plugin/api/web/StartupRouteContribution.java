@@ -15,11 +15,23 @@ public record StartupRouteContribution(
         int order,
         Set<StartupRouteContext> preferredContexts
 ) {
+    /**
+     * 创建 {@code StartupRouteContribution} 实例。
+     *
+     * @param path 路径
+     * @param order 排序值
+     * @param preferredContexts {@code preferredContexts} 对应的值
+     */
     public StartupRouteContribution {
         preferredContexts = preferredContexts == null ? Set.of() : Set.copyOf(preferredContexts);
     }
 
-    /** 便利构造：只参与全局回退，不绑定首选启动上下文。 */
+    /**
+     * 便利构造：只参与全局回退，不绑定首选启动上下文。
+     *
+     * @param path 路径
+     * @param order 排序值
+     */
     public StartupRouteContribution(String path, int order) {
         this(path, order, Set.of());
     }

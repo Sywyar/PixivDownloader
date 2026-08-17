@@ -1256,6 +1256,7 @@ const NOVEL_DESCRIPTOR = {
             requestInit: novelPreviewRequestInit,
             accepts(selection) { return selection === 'novel'; },
             parseInput: parseNovelUserInput,
+            profileUrl(userId) { return `https://www.pixiv.net/users/${encodeURIComponent(userId)}`; },
             fetchMeta: getNovelUserMeta,
             fetchIds: getUserNovels,
             cardsEndpoint(userId) { return `/api/pixiv/user/${encodeURIComponent(userId)}/novel-cards`; },
@@ -1406,6 +1407,8 @@ const NOVEL_DESCRIPTOR = {
             // 快捷获取入口动作（我的小说收藏 / 我的小说）：宿主 quickLoad / quickScheduleSource 据此派发。
             actions: {
                 'my-novel-bookmarks-show': {
+                    labelNamespace: 'batch', labelI18nKey: 'quick.action.novel-bookmarks-show',
+                    label: '我的收藏（小说，公开）', iconKey: 'bookmark',
                     viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
                     sourceType: 'my-bookmarks', scheduleRest: 'show', bookmarkEndpoint: 'novel-bookmarks',
                     buildPageRequest: novelBookmarkPageRequest,
@@ -1421,6 +1424,8 @@ const NOVEL_DESCRIPTOR = {
                     }
                 },
                 'my-novel-bookmarks-hide': {
+                    labelNamespace: 'batch', labelI18nKey: 'quick.action.novel-bookmarks-hide',
+                    label: '我的收藏（小说，不公开）', iconKey: 'bookmark',
                     viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
                     sourceType: 'my-bookmarks', scheduleRest: 'hide', bookmarkEndpoint: 'novel-bookmarks',
                     buildPageRequest: novelBookmarkPageRequest,
@@ -1436,6 +1441,8 @@ const NOVEL_DESCRIPTOR = {
                     }
                 },
                 'my-novels': {
+                    labelNamespace: 'batch', labelI18nKey: 'quick.action.my-novels',
+                    label: '我自己的作品（小说）', iconKey: 'image',
                     viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
                     sourceType: 'user-new', allIdsFastPath: true,
                     load: requireNovelQuickSession(() => loadQuickMyWorks(_activationContext.type, 1)),

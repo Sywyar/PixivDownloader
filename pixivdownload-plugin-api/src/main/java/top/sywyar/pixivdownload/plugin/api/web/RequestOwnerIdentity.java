@@ -9,6 +9,12 @@ package top.sywyar.pixivdownload.plugin.api.web;
  */
 public record RequestOwnerIdentity(String ownerUuid, boolean admin) {
 
+    /**
+     * 创建 {@code RequestOwnerIdentity} 实例。
+     *
+     * @param ownerUuid 所有者 UUID
+     * @param admin 管理员
+     */
     public RequestOwnerIdentity {
         if (admin) {
             ownerUuid = null;
@@ -19,12 +25,21 @@ public record RequestOwnerIdentity(String ownerUuid, boolean admin) {
         }
     }
 
-    /** 构造全 owner 的管理员作用域。 */
+    /**
+     * 构造全 owner 的管理员作用域。
+     *
+     * @return 方法返回的 {@code RequestOwnerIdentity} 实例
+     */
     public static RequestOwnerIdentity adminScope() {
         return new RequestOwnerIdentity(null, true);
     }
 
-    /** 构造仅归属某 owner 的访客作用域。 */
+    /**
+     * 构造仅归属某 owner 的访客作用域。
+     *
+     * @param ownerUuid 所有者 UUID
+     * @return 方法返回的 {@code RequestOwnerIdentity} 实例
+     */
     public static RequestOwnerIdentity owner(String ownerUuid) {
         return new RequestOwnerIdentity(ownerUuid, false);
     }

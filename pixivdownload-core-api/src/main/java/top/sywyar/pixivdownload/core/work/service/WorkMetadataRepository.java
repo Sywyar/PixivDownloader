@@ -21,12 +21,22 @@ import java.util.Optional;
  */
 public interface WorkMetadataRepository {
 
-    /** 取单个作品的元数据；无记录或已软删除时返回 {@link Optional#empty()}。 */
+    /**
+     * 取单个作品的元数据；无记录或已软删除时返回 {@link Optional#empty()}。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @return 匹配的可选值
+     */
     Optional<WorkMetadata> find(WorkType workType, long workId);
 
     /**
      * 批量取作品元数据。<b>返回顺序与传入 id 顺序一致</b>（排序是查询侧的职责，
      * 本方法不得打乱）；无记录或已软删除的 id 直接跳过，不占位。
+     *
+     * @param workType 工作类型
+     * @param workIds 作品标识集合
+     * @return 方法返回的列表
      */
     List<WorkMetadata> findAll(WorkType workType, List<Long> workIds);
 }

@@ -10,7 +10,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -120,8 +119,6 @@ class NovelPluginDisabledContextTest {
     private DatabaseSchemaRegistry databaseSchemaRegistry;
     @Autowired
     private ArtworkHashService artworkHashService;
-    @Autowired
-    private GalleryCapabilityRegistry galleryCapabilityRegistry;
 
     @Test
     @DisplayName("novel artifact 已加载且来源为 EXTERNAL，但只进入安装 / 禁用快照")
@@ -175,15 +172,6 @@ class NovelPluginDisabledContextTest {
                 .contains("core", "plugin-market")
                 .doesNotContain("novel");
         assertThat(artworkHashService).isNotNull();
-    }
-
-    @Test
-    @DisplayName("禁用 novel 时主画廊内部不注册小说投影与详情能力")
-    void galleryCapabilitiesExcludeNovelWhenDisabled() {
-        assertThat(galleryCapabilityRegistry.snapshot().projectionProviders())
-                .noneSatisfy(provider -> assertThat(provider.providerId()).contains("novel"));
-        assertThat(galleryCapabilityRegistry.snapshot().workProviders())
-                .noneSatisfy(provider -> assertThat(provider.providerId()).contains("novel"));
     }
 
     private static boolean stageExternalNovelJar() {

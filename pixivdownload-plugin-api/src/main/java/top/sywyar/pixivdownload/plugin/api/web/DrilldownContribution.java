@@ -36,11 +36,28 @@ public record DrilldownContribution(
         AccessPolicy visibleTo,
         int priority
 ) {
+    /**
+     * 创建 {@code DrilldownContribution} 实例。
+     *
+     * @param id 标识
+     * @param placements 挂载位置集合
+     * @param hrefTemplate 链接模板
+     * @param visibleTo 可见主体集合
+     * @param priority 优先级
+     */
     public DrilldownContribution {
         placements = placements == null ? Set.of() : Set.copyOf(placements);
     }
 
-    /** 便捷构造：单一 placement 的下钻贡献。 */
+    /**
+     * 便捷构造：单一 placement 的下钻贡献。
+     *
+     * @param id 标识
+     * @param placement 挂载位置
+     * @param hrefTemplate 链接模板
+     * @param visibleTo 可见主体集合
+     * @param priority 优先级
+     */
     public DrilldownContribution(String id, String placement, String hrefTemplate,
                                  AccessPolicy visibleTo, int priority) {
         this(id, placement == null ? Set.of() : Set.of(placement), hrefTemplate, visibleTo, priority);

@@ -12,7 +12,11 @@ import java.util.function.Supplier;
  */
 public interface DownloadControlPlane {
 
-    /** 返回当前下载类型与下载页 UI 槽位的单一不可变快照。 */
+    /**
+     * 返回当前下载类型与下载页 UI 槽位的单一不可变快照。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     DownloadExtensionSnapshot extensions();
 
     /**
@@ -21,11 +25,20 @@ public interface DownloadControlPlane {
      * <p>宿主在捕获命令后、调用命令前再次复核精确 publication，并按捕获的命令对象身份拒绝把旧请求改投
      * replacement。请求 owner supplier 只在 descriptor、operation 与 publication 预检全部通过后调用一次；
      * 调用方必须从宿主的请求身份解析器取得该值。
+     *
+     * @param command 命令
+     * @param requestOwner 请求所有者
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     DownloadQueueCancelResult cancelExact(
             DownloadQueueCancelCommand command,
             Supplier<RequestOwnerIdentity> requestOwner);
 
-    /** 按宿主解析出的请求 owner 作用域清空当前在场的全部队列，返回清除项数。 */
+    /**
+     * 按宿主解析出的请求 owner 作用域清空当前在场的全部队列，返回清除项数。
+     *
+     * @param requestOwner 请求所有者
+     * @return 方法返回的数值
+     */
     int clearQueues(RequestOwnerIdentity requestOwner);
 }

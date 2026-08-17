@@ -9,6 +9,13 @@ public record DownloadQueueCancelCommand(
         DownloadExtensionIdentity expectedPublication
 ) {
 
+    /**
+     * 创建 {@code DownloadQueueCancelCommand} 实例。
+     *
+     * @param queueType 队列类型
+     * @param workKey 作品键
+     * @param expectedPublication 期望值发布项
+     */
     public DownloadQueueCancelCommand {
         if (queueType == null || queueType.isBlank()) {
             throw new IllegalArgumentException("queueType must not be blank");

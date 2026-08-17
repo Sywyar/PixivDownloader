@@ -8,5 +8,10 @@ package top.sywyar.pixivdownload.core.download;
 @FunctionalInterface
 public interface InteractiveDownloadExecutionLane {
 
+    /**
+     * 执行对应操作。
+     *
+     * @param task 任务
+     */
     void execute(Runnable task);
 }

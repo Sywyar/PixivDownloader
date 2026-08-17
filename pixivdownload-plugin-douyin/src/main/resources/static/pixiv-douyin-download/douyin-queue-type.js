@@ -1228,8 +1228,15 @@ const DOUYIN_DESCRIPTOR = {
             requestInit() {
                 return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
             },
+            variants: [{
+                id: 'douyin-user-liked',
+                labelNamespace: 'douyin',
+                labelI18nKey: 'user.kind.liked',
+                label: '喜欢的作品'
+            }],
             accepts(selection) { return DOUYIN_USER_KINDS.has(String(selection)); },
             parseInput: douyinParseUserInput,
+            profileUrl: douyinUserProfileUrl,
             fetchMeta() { return Promise.resolve(null); },
             fetchPage: douyinFetchUserPage,
             emptyMessage: douyinUserEmptyMessage,
@@ -1496,6 +1503,8 @@ const DOUYIN_DESCRIPTOR = {
             },
             actions: {
                 'douyin-own-works': {
+                    labelNamespace: 'douyin', labelI18nKey: 'quick.own-works',
+                    label: '我的抖音作品', iconKey: 'image',
                     viewType: 'works-list', kind: 'douyin', sourceType: 'douyin.account.own-works',
                     allIdsFastPath: true,
                     load(_action, context) {
@@ -1508,6 +1517,8 @@ const DOUYIN_DESCRIPTOR = {
                     }
                 },
                 'douyin-liked': {
+                    labelNamespace: 'douyin', labelI18nKey: 'quick.liked',
+                    label: '喜欢的作品', iconKey: 'bookmark',
                     viewType: 'works-list', kind: 'douyin', sourceType: 'douyin.account.liked-works',
                     cursorPaging: true, initialCursor: '0',
                     buildPageRequest(context = {}) {
@@ -1525,6 +1536,8 @@ const DOUYIN_DESCRIPTOR = {
                     }
                 },
                 'douyin-favorites': {
+                    labelNamespace: 'douyin', labelI18nKey: 'quick.favorites',
+                    label: '收藏的作品', iconKey: 'bookmark',
                     viewType: 'works-list', kind: 'douyin', sourceType: 'douyin.account.favorite-works',
                     cursorPaging: true, initialCursor: '0',
                     buildPageRequest(context = {}) {
@@ -1542,6 +1555,8 @@ const DOUYIN_DESCRIPTOR = {
                     }
                 },
                 'douyin-favorite-collections': {
+                    labelNamespace: 'douyin', labelI18nKey: 'quick.favorite-collections',
+                    label: '收藏夹', iconKey: 'folder',
                     viewType: 'collection-list', kind: 'douyin', sourceType: 'douyin.account.favorite-collection',
                     initialCursor: '0',
                     buildPageRequest(context = {}) {

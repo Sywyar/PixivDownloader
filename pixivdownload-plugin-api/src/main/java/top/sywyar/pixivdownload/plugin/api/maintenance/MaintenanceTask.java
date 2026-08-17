@@ -18,7 +18,18 @@ package top.sywyar.pixivdownload.plugin.api.maintenance;
  */
 public interface MaintenanceTask {
 
+    /**
+     * 返回名称。
+     *
+     * @return 方法返回的字符串
+     */
     String name();
 
+    /**
+     * 执行对应操作。
+     *
+     * @param context 上下文
+     * @throws Exception 执行失败时抛出
+     */
     void execute(MaintenanceContext context) throws Exception;
 }

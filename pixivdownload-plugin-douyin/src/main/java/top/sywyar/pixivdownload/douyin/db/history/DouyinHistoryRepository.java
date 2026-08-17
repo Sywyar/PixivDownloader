@@ -1,19 +1,22 @@
 package top.sywyar.pixivdownload.douyin.db.history;
 
-import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
-
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 public class DouyinHistoryRepository {
 
     private final DouyinHistoryMapper mapper;
-    private final StoredPathCodec storedPathCodec;
+    private final DouyinStoredPathCodec storedPathCodec;
 
-    public DouyinHistoryRepository(DouyinHistoryMapper mapper, StoredPathCodec storedPathCodec) {
+    public DouyinHistoryRepository(DouyinHistoryMapper mapper, DouyinStoredPathCodec storedPathCodec) {
         this.mapper = mapper;
         this.storedPathCodec = storedPathCodec;
+    }
+
+    public <T> T inTransaction(Supplier<T> action) {
+        return mapper.inTransaction(action);
     }
 
     public Optional<DouyinWorkRecord> findById(String workId) {
@@ -60,13 +63,15 @@ public class DouyinHistoryRepository {
     }
 
     public boolean replaceActiveWork(DouyinWorkRecord record, List<DouyinWorkFileRecord> files) {
-        DouyinWorkRecord encoded = record.withFolder(encodeFolder(record.folder())).withDeleted(false);
-        if (mapper.updateActiveWork(encoded) <= 0) {
-            return false;
-        }
-        mapper.deleteFilesByWorkId(record.workId());
-        insertFiles(files);
-        return true;
+        return inTransaction(() -> {
+            DouyinWorkRecord encoded = record.withFolder(encodeFolder(record.folder())).withDeleted(false);
+            if (mapper.updateActiveWork(encoded) <= 0) {
+                return false;
+            }
+            mapper.deleteFilesByWorkId(record.workId());
+            insertFiles(files);
+            return true;
+        });
     }
 
     public int upsertRelation(DouyinSourceRelation relation) {
@@ -107,10 +112,12 @@ public class DouyinHistoryRepository {
     }
 
     public boolean deleteIfMarkedDeleted(String workId) {
-        int relations = mapper.deleteRelationsIfWorkMarkedDeleted(workId);
-        int files = mapper.deleteFilesIfWorkMarkedDeleted(workId);
-        int works = mapper.deleteWorkIfMarkedDeleted(workId);
-        return relations > 0 || files > 0 || works > 0;
+        return inTransaction(() -> {
+            int relations = mapper.deleteRelationsIfWorkMarkedDeleted(workId);
+            int files = mapper.deleteFilesIfWorkMarkedDeleted(workId);
+            int works = mapper.deleteWorkIfMarkedDeleted(workId);
+            return relations > 0 || files > 0 || works > 0;
+        });
     }
 
     private DouyinWorkRecord resolve(DouyinWorkRecord record) {

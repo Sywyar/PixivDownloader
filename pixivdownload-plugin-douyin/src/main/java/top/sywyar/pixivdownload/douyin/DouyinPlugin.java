@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.douyin;
 
-import top.sywyar.pixivdownload.douyin.db.history.DouyinSchemaContribution;
 import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
@@ -12,7 +11,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -67,11 +65,6 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     @Override
     public PluginKind kind() {
         return PluginKind.FEATURE;
-    }
-
-    @Override
-    public List<SchemaContribution> schema() {
-        return List.of(DouyinSchemaContribution.CONTRIBUTION);
     }
 
     @Override

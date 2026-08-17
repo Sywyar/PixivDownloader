@@ -28,10 +28,14 @@
         <developer/>
     </developers>
     <modules>
+        <!-- SDK 版本与兼容规则的唯一事实源；纯 JDK，独立于应用发行版本。 -->
+        <module>pixivdownload-sdk-info</module>
         <!-- 跨插件契约模块先构建（主程序依赖之），零业务依赖由编译期强制；产物仍打进主程序的单一 boot jar -->
         <module>pixivdownload-plugin-api</module>
         <!-- 核心 owned 语义端口 + 结果 DTO（core.stats.*），Spring-free 纯 JDK；主程序依赖之，产物打进 boot jar -->
         <module>pixivdownload-core-api</module>
+        <!-- 第三方插件统一导入的 SDK 依赖版本清单；不进入运行时。 -->
+        <module>pixivdownload-sdk-bom</module>
         <!-- 宿主 owned 插件供应链验签模块，Spring-free / PF4J-free / app-free / plugin-runtime-free，纯 JDK 17 -->
         <module>pixivdownload-plugin-signature</module>
         <!-- 插件框架的 Spring 耦合启用运行时（三件套），各功能插件模块编译期依赖之；产物打进 boot jar -->
@@ -79,6 +83,7 @@
     <properties>
         <java.version>17</java.version>
         <app.release.version>${project.version}</app.release.version>
+        <pixivdownload.sdk.version>1.0.0</pixivdownload.sdk.version>
         <!-- 源码与 fork 构建默认不启用官方调查；官方发布 profile 只翻转这些激活位。 -->
         <layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>
         <multi-mode-decision-survey.official-release-enabled>false</multi-mode-decision-survey.official-release-enabled>
@@ -97,6 +102,21 @@
     -->
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-sdk-info</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-plugin-api</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>top.sywyar.lovepopup</groupId>
+                <artifactId>pixivdownload-core-api</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.pf4j</groupId>
                 <artifactId>pf4j</artifactId>

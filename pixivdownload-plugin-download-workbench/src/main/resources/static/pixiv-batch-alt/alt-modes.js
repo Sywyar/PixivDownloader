@@ -489,16 +489,6 @@ const QUICK_ACTIONS = [
     {id: 'my-collections', icon: 'folder', labelKey: 'quick.action.collections', label: '我的珍藏集', view: 'collections'}
 ];
 
-const QUICK_ACTION_LABELS = {
-    'my-novel-bookmarks-show': ['quick.action.novel-bookmarks-show', '我的收藏（小说，公开）'],
-    'my-novel-bookmarks-hide': ['quick.action.novel-bookmarks-hide', '我的收藏（小说，不公开）'],
-    'my-novels': ['quick.action.my-novels', '我自己的作品（小说）'],
-    'douyin-own-works': ['douyin:quick.own-works', '我的抖音作品'],
-    'douyin-liked': ['douyin:quick.liked', '喜欢的作品'],
-    'douyin-favorites': ['douyin:quick.favorites', '收藏的作品'],
-    'douyin-favorite-collections': ['douyin:quick.favorite-collections', '收藏夹']
-};
-
 function quickAcquisition() {
     return altAcquisition('quick', quickState.source, quickState.kind);
 }
@@ -508,12 +498,15 @@ function quickActionDefs() {
     const acquisition = quickAcquisition();
     if (!acquisition) return [];
     return Object.entries(acquisition.actions || {}).map(([id, descriptor]) => {
-        const label = QUICK_ACTION_LABELS[id] || [id.includes(':') ? id : 'quick.action.' + id, id];
+        const labelNamespace = descriptor.labelNamespace
+            || (acquisition.dataSource && acquisition.dataSource.displayNamespace) || '';
+        const labelKey = descriptor.labelI18nKey || ('quick.action.' + id);
         return {
             id,
-            icon: descriptor.viewType === 'collection-list' ? 'folder' : 'bookmark',
-            labelKey: label[0],
-            label: label[1],
+            icon: descriptor.iconKey
+                || (descriptor.viewType === 'collection-list' ? 'folder' : 'bookmark'),
+            labelKey: (labelNamespace ? labelNamespace + ':' : '') + labelKey,
+            label: descriptor.label || id,
             view: descriptor.viewType === 'following-list' ? 'following'
                 : descriptor.viewType === 'collection-list' ? 'collections' : 'works',
             descriptor
@@ -1228,7 +1221,7 @@ function renderImportMode(panel) {
     });
     help.appendChild(list);
     // 取得侧导入示例槽位：作品类型插件经 queueTypes 贡献各自来源的链接示例
-    //（如小说 / Douyin 的 URL 示例），与旧布局 import-hint 槽位同契约；插件禁用时缺席。
+    //（如来源插件自己的 URL 示例），与旧布局 import-hint 槽位同契约；插件禁用时缺席。
     const importHintSlot = document.createElement('template');
     importHintSlot.setAttribute('data-qt-slot', 'import-hint');
     help.appendChild(importHintSlot);
@@ -1422,11 +1415,16 @@ function renderUserMode(panel) {
         .map(item => [item.type, altTypeLabel(item.type)]);
     const userAcquisitions = altQueueTypes().acquisitionList('user')
         .filter(item => altTypesForSource('user', userState.source).some(type => type.type === item.type));
-    [['request', bt('user.kind.request', '约稿')],
-        ['douyin-user-liked', bt('douyin:user.kind.liked', '喜欢的作品')]].forEach(option => {
-        if (userAcquisitions.some(item => typeof item.accepts === 'function' && item.accepts(option[0]))) {
-            selections.push(option);
-        }
+    userAcquisitions.forEach(acquisition => {
+        (Array.isArray(acquisition.variants) ? acquisition.variants : []).forEach(variant => {
+            const id = String(variant.id || '');
+            if (!id || selections.some(option => option[0] === id)) return;
+            if (typeof acquisition.accepts === 'function' && !acquisition.accepts(id)) return;
+            const namespace = variant.labelNamespace
+                || (acquisition.dataSource && acquisition.dataSource.displayNamespace) || '';
+            const key = variant.labelI18nKey || ('user.kind.' + id);
+            selections.push([id, bt((namespace ? namespace + ':' : '') + key, variant.label || id)]);
+        });
     });
     if (!selections.some(option => option[0] === userState.kind)) {
         userState.kind = selections[0] ? selections[0][0] : 'illust';
@@ -1590,14 +1588,17 @@ function renderUserStage() {
     artistMeta.appendChild(el('span', 'ab-muted',
         bt('user.summary.total', '共 {count} 个作品', {count: userState.total})));
     artistCard.appendChild(artistMeta);
-    const profile = el('a', 'ab-btn ab-btn--ghost ab-btn--sm');
-    profile.href = userState.source === 'douyin'
-        ? 'https://www.douyin.com/user/' + encodeURIComponent(userState.userId)
-        : 'https://www.pixiv.net/users/' + encodeURIComponent(userState.userId);
-    profile.target = '_blank';
-    profile.rel = 'noopener';
-    profile.appendChild(abIconEl('external'));
-    artistCard.appendChild(profile);
+    const acquisition = altAcquisition('user', userState.source, userState.kind);
+    const profileHref = acquisition && typeof acquisition.profileUrl === 'function'
+        ? acquisition.profileUrl(userState.userId) : null;
+    if (profileHref) {
+        const profile = el('a', 'ab-btn ab-btn--ghost ab-btn--sm');
+        profile.href = profileHref;
+        profile.target = '_blank';
+        profile.rel = 'noopener';
+        profile.appendChild(abIconEl('external'));
+        artistCard.appendChild(profile);
+    }
     stage.appendChild(artistCard);
 
     const totalPages = Math.max(1, Math.ceil(userState.total / userState.pageSize));

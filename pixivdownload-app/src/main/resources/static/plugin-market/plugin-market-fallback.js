@@ -11,7 +11,7 @@
     var rootEl = null;
     var state = {
         loading: true, error: null, masterEnabled: false, recoveryMode: false, recoveryReasons: [],
-        filtersInitialized: false, coreApiVersion: '',
+        filtersInitialized: false, sdkVersion: '',
         repositories: [], activeRepositoryId: null, defaultRepositoryId: null,
         catalog: null, catalogError: null, category: 'all', search: '',
         hideDefaultInstalled: true, hideDependencies: true,
@@ -79,7 +79,7 @@
         var meta = [card.versionLabel, card.sizeLabel, card.dateLabel].filter(Boolean).join(' · ');
         var compat = (!card.compatible && card.compatibilityReason)
             ? '<div class="pmk-card-compat"><i class="fa-solid fa-triangle-exclamation"></i>' +
-              esc(t('compat.needs', '需要核心 API v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: state.coreApiVersion })) + '</div>'
+              esc(t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: state.sdkVersion })) + '</div>'
             : '';
         return '<article class="pmk-card ' + esc(card.colorClass) + '"><div class="pmk-card-body">' +
             '<div class="pmk-card-head"><span class="pmk-card-icon"><i class="' + esc(card.iconClass) + '"></i></span>' +
@@ -253,7 +253,7 @@
                 state.hideDefaultInstalled = !state.recoveryMode;
                 state.filtersInitialized = true;
             }
-            state.coreApiVersion = repos.coreApiVersion || '';
+            state.sdkVersion = repos.sdkVersion || '';
             state.repositories = repos.repositories || [];
             state.defaultRepositoryId = repos.defaultRepositoryId || null;
             var valid = state.repositories.some(function (r) { return r.repositoryId === state.activeRepositoryId && r.enabled; });

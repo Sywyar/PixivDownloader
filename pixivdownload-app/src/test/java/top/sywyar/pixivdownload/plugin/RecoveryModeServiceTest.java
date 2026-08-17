@@ -2,12 +2,12 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeDecision;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
@@ -26,7 +26,7 @@ class RecoveryModeServiceTest {
 
     private static final RequiredPluginPolicy POLICY = RequiredPluginPolicy.of(List.of(
             new RequiredPlugin("download-workbench",
-                    PluginApiRequirement.of(1, 0),
+                    VersionRequirement.of(1, 0),
                     false, "plugin.recovery.missing.download-workbench")));
 
     private static RecoveryModeService service(RequiredPluginPolicy policy, PixivFeaturePlugin... plugins) {
@@ -100,7 +100,7 @@ class RecoveryModeServiceTest {
                 "download-workbench",
                 "download-workbench",
                 "1.0.0",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(),
                 "top.sywyar.pixivdownload.download.DownloadWorkbenchPf4jPlugin",
                 plugin.displayNamespace(),

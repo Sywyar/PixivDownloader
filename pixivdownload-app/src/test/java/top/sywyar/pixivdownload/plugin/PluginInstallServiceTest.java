@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
@@ -144,9 +144,9 @@ class PluginInstallServiceTest {
     }
 
     @Test
-    @DisplayName("requires 高于核心 API：REJECTED_INCOMPATIBLE，零落盘")
+    @DisplayName("requires 高于SDK：REJECTED_INCOMPATIBLE，零落盘")
     void rejectsIncompatible() {
-        String requires = (PluginApiVersion.MAJOR + 1) + ".0";
+        String requires = (SdkVersion.MAJOR + 1) + ".0";
         PluginInstallReport report = service.install(
                 explodedUpload("a.zip", "ext", "1.0.0", requires, null), false);
 

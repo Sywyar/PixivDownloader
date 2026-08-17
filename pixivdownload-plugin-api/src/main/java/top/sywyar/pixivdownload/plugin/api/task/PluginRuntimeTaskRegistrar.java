@@ -31,6 +31,8 @@ public interface PluginRuntimeTaskRegistrar {
 
     /**
      * 当前插件是否仍允许登记新后台任务。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean acceptsNewTasks();
 }

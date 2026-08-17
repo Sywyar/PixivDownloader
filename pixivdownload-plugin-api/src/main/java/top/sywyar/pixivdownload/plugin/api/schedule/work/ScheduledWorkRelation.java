@@ -14,11 +14,32 @@ public record ScheduledWorkRelation(
         String payloadJson
 ) {
 
+    /**
+     * 载荷允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_PAYLOAD_BYTES = 65_536;
+    /**
+     * 关系类型允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_RELATION_TYPE_BYTES = 128;
+    /**
+     * 关系标识允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_RELATION_ID_BYTES = 512;
+    /**
+     * 载荷模式定义允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_PAYLOAD_SCHEMA_BYTES = 128;
 
+    /**
+     * 创建 {@code ScheduledWorkRelation} 实例。
+     *
+     * @param relationType 关系类型
+     * @param relationId 关系标识
+     * @param payloadSchema 载荷模式定义
+     * @param payloadVersion 载荷版本
+     * @param payloadJson 载荷JSON
+     */
     public ScheduledWorkRelation {
         relationType = requireText(
                 relationType, "relation type", MAX_RELATION_TYPE_BYTES);

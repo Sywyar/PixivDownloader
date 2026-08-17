@@ -16,6 +16,18 @@ public record ScheduleRunCompletion(
         Integer checkpointVersion,
         String checkpointJson
 ) {
+    /**
+     * 创建 {@code ScheduleRunCompletion} 实例。
+     *
+     * @param finishedTime 完成时间
+     * @param outcome 执行结果
+     * @param outcomeCode 结果代码
+     * @param outcomeMessage 结果消息
+     * @param nextRunTime 下次值运行时间
+     * @param checkpointSchema 检查点模式定义
+     * @param checkpointVersion 检查点版本
+     * @param checkpointJson 检查点JSON
+     */
     public ScheduleRunCompletion {
         if (outcome != ScheduleLastOutcome.OK && outcome != ScheduleLastOutcome.ERROR) {
             throw new IllegalArgumentException("normal completion outcome must be OK or ERROR");

@@ -5,5 +5,10 @@ package top.sywyar.pixivdownload.core.ffmpeg;
  */
 public interface FfmpegCommandResolver {
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的 {@code ResolvedFfmpegCommand} 实例
+     */
     ResolvedFfmpegCommand resolve();
 }

@@ -19,6 +19,20 @@ public record ScheduledSourceDescriptor(
         ScheduledSourceFrontendContribution frontend
 ) {
 
+    /**
+     * 创建 {@code ScheduledSourceDescriptor} 实例。
+     *
+     * @param sourceType 来源类型
+     * @param legacyAliases {@code legacyAliases} 对应的值
+     * @param definitionSchema 定义模式定义
+     * @param definitionVersion 定义版本
+     * @param presentation 展示信息
+     * @param acquisitionModes {@code acquisitionModes} 对应的值
+     * @param possibleWorkTypes 可能项作品类型集合
+     * @param credentialPolicyIds 凭证策略标识集合
+     * @param guardIds 守卫标识集合
+     * @param frontend 前端
+     */
     public ScheduledSourceDescriptor {
         sourceType = requireText(sourceType, "source type");
         definitionSchema = requireText(definitionSchema, "definition schema");

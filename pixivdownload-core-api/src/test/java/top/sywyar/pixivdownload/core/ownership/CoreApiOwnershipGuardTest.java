@@ -21,7 +21,6 @@ import com.sun.source.util.Trees;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.ai.AiClientSettings;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
@@ -34,9 +33,6 @@ import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
-import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryMediaKey;
-import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaAsset;
-import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
@@ -126,8 +122,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("宿主运行时窄端口", union(
                     types("top.sywyar.pixivdownload.config",
                             "DebugSettings", "DownloadSettings", "MultiModeSettings",
-                            "OutboundProxyEndpoint", "OutboundProxyOverride", "OutboundProxySettings",
-                            "RuntimePathProvider"),
+                            "OutboundProxyEndpoint", "OutboundProxyOverride", "OutboundProxySettings"),
                     types("top.sywyar.pixivdownload.core.db.pathprefix", "StoredPathCodec"),
                     types("top.sywyar.pixivdownload.core.download", "InteractiveDownloadExecutionLane"),
                     types("top.sywyar.pixivdownload.core.ffmpeg",
@@ -158,33 +153,6 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.schedule.state",
                             "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
-            Map.entry("主画廊长期中性协议", union(
-                    types("top.sywyar.pixivdownload.core.gallery",
-                            "GalleryProjectionProvider", "GalleryWorkProvider"),
-                    types("top.sywyar.pixivdownload.core.gallery.facet",
-                            "GalleryAuthorFacet", "GalleryFacet", "GalleryFacetPage",
-                            "GalleryFacetType", "GalleryTagFacet"),
-                    types("top.sywyar.pixivdownload.core.gallery.frontend",
-                            "GalleryFrontendContribution", "GalleryFrontendHook", "GalleryFrontendProvider",
-                            "GalleryFrontendScope"),
-                    types("top.sywyar.pixivdownload.core.gallery.model",
-                            "GalleryDiagnostic", "GalleryFieldCapability", "GalleryKind"),
-                    types("top.sywyar.pixivdownload.core.gallery.model.identity",
-                            "GalleryMediaKey", "GalleryProjectionKey", "GalleryWorkKey"),
-                    types("top.sywyar.pixivdownload.core.gallery.model.media",
-                            "GalleryMediaAsset", "GalleryMediaKind"),
-                    types("top.sywyar.pixivdownload.core.gallery.model.projection",
-                            "GalleryDataAccess", "GalleryProjection", "GalleryProjectionDescriptor",
-                            "GalleryProjectionPage"),
-                    types("top.sywyar.pixivdownload.core.gallery.model.work",
-                            "GalleryActor", "GalleryAiStatus", "GalleryContentRating", "GalleryTag",
-                            "GalleryWork", "GalleryWorkDescriptor"),
-                    types("top.sywyar.pixivdownload.core.gallery.query",
-                            "GalleryFilter", "GalleryFilterCapability", "GalleryFilterField", "GalleryFilterMode",
-                            "GalleryProjectionQuery", "GallerySortDirection", "GallerySortField"),
-                    types("top.sywyar.pixivdownload.core.gallery.runtime",
-                            "GalleryCountResult", "GalleryRuntimeQuery", "GalleryRuntimeSnapshot",
-                            "GalleryWorkResult"))),
             Map.entry("核心作品事实与共享纯语义", union(
                     types("top.sywyar.pixivdownload.core.artwork.download",
                             "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",
@@ -301,30 +269,6 @@ class CoreApiOwnershipGuardTest {
                     List.of("MANAGED", "BUNDLED", "SYSTEM", "FALLBACK")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",
                     List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetType",
-                    List.of("AUTHOR", "TAG")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendHook",
-                    List.of("VIEW_ENTRY", "FILTER_EXTENSION", "CARD_EXTENSION", "MEDIA_RENDERER", "DETAIL_ACTION")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.model.GalleryFieldCapability",
-                    List.of("SUPPORTED", "CONSTANT", "UNKNOWN", "UNSUPPORTED")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.model.GalleryKind",
-                    List.of("IMAGE", "NOVEL", "VIDEO")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind",
-                    List.of("IMAGE", "VIDEO", "LIVE_PHOTO_VIDEO", "UGOIRA", "COVER", "TEXT", "UNKNOWN")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess",
-                    List.of("SHARED", "ADMIN_ONLY")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.model.work.GalleryAiStatus",
-                    List.of("AI", "NON_AI", "UNKNOWN")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.model.work.GalleryContentRating",
-                    List.of("SFW", "R18", "R18G", "UNKNOWN")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.query.GalleryFilterField",
-                    List.of("AUTHOR", "TAG", "AI_STATUS", "CONTENT_RATING", "SOURCE", "CONTAINED_MEDIA_KIND")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.query.GalleryFilterMode",
-                    List.of("ANY_OF", "ALL_OF", "NONE_OF")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection",
-                    List.of("ASC", "DESC")),
-            Map.entry("top.sywyar.pixivdownload.core.gallery.query.GallerySortField",
-                    List.of("CREATED_AT", "DOWNLOADED_AT", "UPDATED_AT", "TITLE")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome",
                     List.of("ALLOWED", "OWNER_REQUIRED", "RATE_LIMITED")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure",
@@ -393,8 +337,6 @@ class CoreApiOwnershipGuardTest {
     private static final Set<String> CONCRETE_ENGINE_IDS = Set.of(
             "voxcpm", "mimo", "cosyvoice", "fish", "minimax", "elevenlabs", "qwen", "doubao");
     private static final Map<String, Set<String>> APPROVED_OWNER_LITERALS_BY_TYPE = Map.ofEntries(
-            Map.entry("top.sywyar.pixivdownload.core.gallery.model.work.GalleryWork",
-                    Set.of("media work key must match gallery work key")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver",
                     Set.of("^/c/[^/]+/(novel-cover-(?:master|original)/.+)$")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter",
@@ -518,10 +460,6 @@ class CoreApiOwnershipGuardTest {
     @Test
     @DisplayName("敏感 record 与工厂方法必须保持精确契约面")
     void sensitiveContractsHaveExactShapes() {
-        assertRecordShape(GalleryMediaAsset.class,
-                List.of("key", "kind", "url", "thumbnailUrl", "mimeType", "attributes"),
-                List.of(GalleryMediaKey.class, GalleryMediaKind.class, String.class,
-                        String.class, String.class, Map.class));
         assertRecordShape(PushChannelId.class,
                 List.of("id"),
                 List.of(String.class));
@@ -778,35 +716,6 @@ class CoreApiOwnershipGuardTest {
                         "deleteAllPendingWork",
                         "suspendByCredentialAccount",
                         "resumeByCredentialAccount");
-    }
-
-    @Test
-    @DisplayName("运行期路径端口只暴露 owner-scoped 根路径语义")
-    void runtimePathProviderHasExactOwnerScopedSurface() throws NoSuchMethodException {
-        assertThat(RuntimePathProvider.class.getDeclaredMethods())
-                .hasSize(3)
-                .allSatisfy(method -> assertThat(method.getReturnType()).isEqualTo(Path.class))
-                .extracting(method -> method.getName())
-                .containsExactlyInAnyOrder(
-                        "resolvePluginConfigPath",
-                        "resolvePluginStateDirectory",
-                        "resolvePluginDataDirectory");
-
-        assertThat(RuntimePathProvider.class
-                .getDeclaredMethod("resolvePluginConfigPath", String.class, String.class)
-                .getParameterTypes()).containsExactly(String.class, String.class);
-        assertThat(RuntimePathProvider.class
-                .getDeclaredMethod("resolvePluginStateDirectory", String.class)
-                .getParameterTypes()).containsExactly(String.class);
-        assertThat(RuntimePathProvider.class
-                .getDeclaredMethod("resolvePluginDataDirectory", String.class)
-                .getParameterTypes()).containsExactly(String.class);
-
-        assertThat(publicDeclaredMethodSignatures(RuntimePathProvider.class))
-                .containsExactlyInAnyOrder(
-                        "public abstract resolvePluginConfigPath(java.lang.String,java.lang.String):java.nio.file.Path",
-                        "public abstract resolvePluginDataDirectory(java.lang.String):java.nio.file.Path",
-                        "public abstract resolvePluginStateDirectory(java.lang.String):java.nio.file.Path");
     }
 
     @Test

@@ -5,7 +5,19 @@ package top.sywyar.pixivdownload.core.work.service;
  */
 public interface WorkFileNameCatalog {
 
+    /**
+     * 返回对应值。
+     *
+     * @param template 模板
+     * @return 方法返回的数值
+     */
     long getOrCreateTemplateId(String template);
 
+    /**
+     * 返回对应值。
+     *
+     * @param normalizedAuthorName 规范化值作者名称
+     * @return 方法返回的数值
+     */
     long getOrCreateAuthorNameId(String normalizedAuthorName);
 }

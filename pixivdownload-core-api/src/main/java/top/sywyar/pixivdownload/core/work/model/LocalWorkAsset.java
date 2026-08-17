@@ -23,6 +23,15 @@ public record LocalWorkAsset(
         int pageCount,
         List<WorkAssetFile> files) {
 
+    /**
+     * 创建 {@code LocalWorkAsset} 实例。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @param directory 目录
+     * @param pageCount 页码数量
+     * @param files 文件列表
+     */
     public LocalWorkAsset {
         files = List.copyOf(files);
     }

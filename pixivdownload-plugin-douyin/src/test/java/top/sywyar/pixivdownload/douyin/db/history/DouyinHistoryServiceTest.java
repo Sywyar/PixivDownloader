@@ -1,23 +1,9 @@
 package top.sywyar.pixivdownload.douyin.db.history;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import org.sqlite.SQLiteDataSource;
 import top.sywyar.pixivdownload.douyin.client.DefaultDouyinClient;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadedFile;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
@@ -25,12 +11,24 @@ import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
+import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
+import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
 
+import java.io.ByteArrayInputStream;
+import java.io.PrintWriter;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -371,153 +369,69 @@ class DouyinHistoryServiceTest {
 
     private static DefaultDouyinClient client(String body) {
         DouyinUrlParser parser = new DouyinUrlParser();
-        return new DefaultDouyinClient(parser, new FakeRestTemplate(body),
+        return new DefaultDouyinClient(parser, new FakeHttpClient(body),
                 (input, cookie) -> parser.parse(input).orElseThrow());
     }
 
-    private static final class FakeRestTemplate extends RestTemplate {
+    private static final class FakeHttpClient implements OutboundHttpClient {
         private final byte[] body;
 
-        private FakeRestTemplate(String body) {
+        private FakeHttpClient(String body) {
             this.body = body.getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
-        @SuppressWarnings("unchecked")
-        public <T> ResponseEntity<T> exchange(URI url, HttpMethod method, HttpEntity<?> requestEntity,
-                                              Class<T> responseType) {
-            return new ResponseEntity<>((T) body, new HttpHeaders(), HttpStatusCode.valueOf(200));
+        public OutboundHttpStreamResponse exchangeStream(OutboundHttpRequest request) {
+            return new OutboundHttpStreamResponse(
+                    200, "OK", Map.of(), new ByteArrayInputStream(body));
+        }
+
+        @Override
+        public void close() {
         }
     }
 
     private static final class TestDb implements AutoCloseable {
-        private final SingleConnectionDataSource dataSource;
-        private final SqlSession session;
         private final DouyinHistoryMapper mapper;
         private final DouyinHistoryService service;
 
         private TestDb(Path root) {
-            dataSource = newDataSource();
-            createSchema(new JdbcTemplate(dataSource));
-
-            Configuration config = new Configuration();
-            config.setEnvironment(new Environment("test", new JdbcTransactionFactory(), dataSource));
-            config.addMapper(DouyinHistoryMapper.class);
-            SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-            session = factory.openSession(true);
-            mapper = session.getMapper(DouyinHistoryMapper.class);
-
+            mapper = new DouyinHistoryMapper(new TestPluginDataSource(root.resolve("history.db")));
             DouyinHistoryRepository repository = new DouyinHistoryRepository(
-                    mapper, new RootStoredPathCodec(root));
+                    mapper, new DouyinStoredPathCodec(
+                            DouyinPluginSettingsService.fixed(root, DouyinProxyMode.INHERIT)));
             service = new DouyinHistoryService(repository);
         }
 
         @Override
         public void close() {
-            session.close();
-            dataSource.destroy();
-        }
-
-        private static SingleConnectionDataSource newDataSource() {
-            SingleConnectionDataSource ds = new SingleConnectionDataSource();
-            ds.setDriverClassName("org.sqlite.JDBC");
-            ds.setUrl("jdbc:sqlite::memory:");
-            ds.setSuppressClose(true);
-            return ds;
-        }
-
-        private static void createSchema(JdbcTemplate jdbc) {
-            jdbc.execute("""
-                    CREATE TABLE douyin_works (
-                        work_id TEXT PRIMARY KEY,
-                        title TEXT NOT NULL,
-                        folder TEXT NOT NULL,
-                        count INTEGER NOT NULL,
-                        extensions TEXT NOT NULL,
-                        time INTEGER NOT NULL UNIQUE,
-                        deleted INTEGER NOT NULL DEFAULT 0,
-                        kind TEXT NOT NULL,
-                        source_url TEXT,
-                        canonical_url TEXT,
-                        thumbnail_url TEXT,
-                        author_id TEXT,
-                        author_name TEXT,
-                        description TEXT,
-                        item_title TEXT,
-                        caption TEXT,
-                        publish_time INTEGER,
-                        collection_id TEXT,
-                        collection_title TEXT,
-                        collection_order INTEGER
-                    )
-                    """);
-            jdbc.execute("""
-                    CREATE TABLE douyin_work_files (
-                        work_id TEXT NOT NULL,
-                        file_index INTEGER NOT NULL,
-                        media_id TEXT,
-                        media_type TEXT NOT NULL,
-                        file_name TEXT NOT NULL,
-                        extension TEXT NOT NULL,
-                        bytes INTEGER,
-                        content_type TEXT,
-                        created_time INTEGER NOT NULL,
-                        PRIMARY KEY (work_id, file_index)
-                    )
-                    """);
-            jdbc.execute("""
-                    CREATE TABLE douyin_work_relations (
-                        work_id TEXT NOT NULL,
-                        source_type TEXT NOT NULL,
-                        source_id TEXT NOT NULL,
-                        source_title TEXT,
-                        source_url TEXT,
-                        source_order INTEGER,
-                        discovered_time INTEGER NOT NULL,
-                        PRIMARY KEY (work_id, source_type, source_id)
-                    )
-                    """);
         }
     }
 
-    private static final class RootStoredPathCodec implements StoredPathCodec {
+    private static final class TestPluginDataSource implements PluginDataSource {
+        private final SQLiteDataSource delegate = new SQLiteDataSource();
 
-        private static final String ROOT_TOKEN = "{0}";
-        private final Path root;
-
-        private RootStoredPathCodec(Path root) {
-            this.root = root.toAbsolutePath().normalize();
+        private TestPluginDataSource(Path file) {
+            delegate.setUrl("jdbc:sqlite:" + file.toAbsolutePath().normalize());
         }
 
-        @Override
-        public String encode(String absolutePath) {
-            if (absolutePath == null) {
-                return null;
-            }
-            Path path = Path.of(absolutePath).toAbsolutePath().normalize();
-            if (!path.startsWith(root)) {
-                return absolutePath;
-            }
-            Path relative = root.relativize(path);
-            return relative.toString().isEmpty()
-                    ? ROOT_TOKEN
-                    : ROOT_TOKEN + "/" + relative.toString().replace('\\', '/');
+        @Override public Connection getConnection() throws SQLException { return delegate.getConnection(); }
+        @Override public Connection getConnection(String user, String password) throws SQLException {
+            return delegate.getConnection(user, password);
         }
-
-        @Override
-        public String resolve(String storedValue) {
-            if (storedValue == null || !storedValue.startsWith(ROOT_TOKEN)) {
-                return storedValue;
+        @Override public PrintWriter getLogWriter() throws SQLException { return delegate.getLogWriter(); }
+        @Override public void setLogWriter(PrintWriter writer) throws SQLException { delegate.setLogWriter(writer); }
+        @Override public void setLoginTimeout(int seconds) throws SQLException { delegate.setLoginTimeout(seconds); }
+        @Override public int getLoginTimeout() throws SQLException { return delegate.getLoginTimeout(); }
+        @Override public Logger getParentLogger() { return Logger.getLogger("douyin-test"); }
+        @Override public <T> T unwrap(Class<T> type) throws SQLException {
+            if (type.isInstance(this)) {
+                return type.cast(this);
             }
-            if (storedValue.equals(ROOT_TOKEN)) {
-                return root.toString();
-            }
-            if (storedValue.startsWith(ROOT_TOKEN + "/")) {
-                return root.resolve(storedValue.substring((ROOT_TOKEN + "/").length()))
-                        .normalize()
-                        .toString();
-            }
-            return storedValue;
+            return delegate.unwrap(type);
+        }
+        @Override public boolean isWrapperFor(Class<?> type) throws SQLException {
+            return type.isInstance(this) || delegate.isWrapperFor(type);
         }
     }
 }

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.tts;
 
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -28,7 +28,7 @@ public final class TtsRuntimeFiles {
     }
 
     public Path chromiumVersionFile() {
-        Path dataDirectory = runtimePathProvider.resolvePluginDataDirectory(TtsPlugin.ID).normalize();
+        Path dataDirectory = runtimePathProvider.dataDirectory().normalize();
         Path target = dataDirectory.resolve(CHROMIUM_VERSION_FILE_NAME).normalize();
         Path dataRoot = dataDirectory.getParent();
         Path legacyDirectory = dataRoot == null

@@ -5,7 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -220,9 +220,9 @@ class ExternalPluginInstallerTest {
     }
 
     @Test
-    @DisplayName("requires 高于核心 API：REJECTED_INCOMPATIBLE，不装为可加载状态")
+    @DisplayName("requires 高于SDK：REJECTED_INCOMPATIBLE，不装为可加载状态")
     void rejectsIncompatible() {
-        String requires = (PluginApiVersion.MAJOR + 1) + ".0";
+        String requires = (SdkVersion.MAJOR + 1) + ".0";
         Path pkg = PluginPackageFixtures.explodedZip(home.resolve("future.zip"),
                 "ext", "1.0.0", requires, "com.example.P");
 

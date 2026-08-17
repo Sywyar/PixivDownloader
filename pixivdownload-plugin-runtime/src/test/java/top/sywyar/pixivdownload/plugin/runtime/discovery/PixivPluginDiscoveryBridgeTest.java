@@ -10,7 +10,7 @@ import org.pf4j.PluginDescriptor;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -252,7 +252,7 @@ class PixivPluginDiscoveryBridgeTest {
     void inspectMapsPf4jDescriptorToUnifiedDescriptor() {
         DefaultPluginDescriptor pf4jDescriptor = new DefaultPluginDescriptor(
                 "ext-stats", "Stats Pack", "com.example.ExtStatsPlugin", "2.1.0",
-                PluginApiVersion.MAJOR + "." + PluginApiVersion.MINOR, "Acme", "MIT");
+                SdkVersion.MAJOR + "." + SdkVersion.MINOR, "Acme", "MIT");
         pf4jDescriptor.addDependency(new PluginDependency("novel@1.0"));
         PixivFeaturePlugin contributed = new TestFeaturePlugin("ext-stats");
         PluginManager manager = managerWith(startedWrapperWith(
@@ -280,7 +280,7 @@ class PixivPluginDiscoveryBridgeTest {
         assertThat(descriptor.iconKey()).isEqualTo("puzzle");
         assertThat(descriptor.colorToken()).isEqualTo("neutral");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
-        assertThat(descriptor.isApiCompatible()).isTrue();
+        assertThat(descriptor.isSdkCompatible()).isTrue();
         assertThat(descriptor.dependencies()).singleElement()
                 .satisfies(dependency -> {
                     assertThat(dependency.pluginId()).isEqualTo("novel");
@@ -289,11 +289,11 @@ class PixivPluginDiscoveryBridgeTest {
     }
 
     @Test
-    @DisplayName("核心 API 不兼容的插件包：标记 INCOMPATIBLE、不提取功能插件（拒绝接入），discover 并入失败")
+    @DisplayName("SDK 不兼容的插件包：标记 INCOMPATIBLE、不提取功能插件（拒绝接入），discover 并入失败")
     void inspectRejectsApiIncompatiblePackage() {
         DefaultPluginDescriptor pf4jDescriptor = new DefaultPluginDescriptor(
                 "ext-future", "Future", "com.example.FuturePlugin",
-                "1.0.0", (PluginApiVersion.MAJOR + 1) + ".0", "Acme", "MIT");
+                "1.0.0", (SdkVersion.MAJOR + 1) + ".0", "Acme", "MIT");
         PluginManager manager = managerWith(startedWrapperWith(
                 "ext-future", pf4jDescriptor,
                 new GoodProviderPlugin(new TestFeaturePlugin("ext-future")), getClass().getClassLoader()));
@@ -320,10 +320,10 @@ class PixivPluginDiscoveryBridgeTest {
     void discoverRejectsIncompatibleKeepsCompatible() {
         DefaultPluginDescriptor incompatible = new DefaultPluginDescriptor(
                 "ext-future", "Future", "com.example.FuturePlugin",
-                "1.0.0", (PluginApiVersion.MAJOR + 1) + ".0", "Acme", "MIT");
+                "1.0.0", (SdkVersion.MAJOR + 1) + ".0", "Acme", "MIT");
         DefaultPluginDescriptor compatible = new DefaultPluginDescriptor(
                 "ext-ok", "Ok", "com.example.OkPlugin", "1.0.0",
-                PluginApiVersion.MAJOR + "." + PluginApiVersion.MINOR, "Acme", "MIT");
+                SdkVersion.MAJOR + "." + SdkVersion.MINOR, "Acme", "MIT");
         PluginManager manager = managerWith(
                 startedWrapperWith("ext-future", incompatible,
                         new GoodProviderPlugin(new TestFeaturePlugin("ext-future")),
@@ -376,11 +376,11 @@ class PixivPluginDiscoveryBridgeTest {
     }
 
     @Test
-    @DisplayName("inspect：核心 API 不兼容的插件包不参与子 context 装配")
+    @DisplayName("inspect：SDK 不兼容的插件包不参与子 context 装配")
     void inspectContextModulesRejectsIncompatiblePackage() {
         DefaultPluginDescriptor incompatible = new DefaultPluginDescriptor(
                 "ext-future-pack", "Future", "com.example.FuturePlugin",
-                "1.0.0", (PluginApiVersion.MAJOR + 1) + ".0", "Acme", "MIT");
+                "1.0.0", (SdkVersion.MAJOR + 1) + ".0", "Acme", "MIT");
         PluginManager manager = managerWith(startedWrapperWith("ext-future-pack", incompatible,
                 new ConfigProviderPlugin("ext-future-pack", List.of(SamplePluginConfig.class)),
                 getClass().getClassLoader()));

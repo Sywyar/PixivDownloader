@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.discovery;
 
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 
@@ -54,8 +54,8 @@ public record PluginInventory(List<PluginInstallation> installations,
                         installation.classLoader()));
             } else if (installation.status() == PluginStatus.INCOMPATIBLE) {
                 allFailures.add(new PluginLoadFailure(installation.id(),
-                        "incompatible: requires core API " + installation.descriptor().requires().display()
-                                + ", but core provides " + PluginApiVersion.VERSION));
+                        "incompatible: requires SDK " + installation.descriptor().requires().display()
+                                + ", but core provides " + SdkVersion.VERSION));
             }
         }
         return new PluginDiscoveryResult(discovered, allFailures);

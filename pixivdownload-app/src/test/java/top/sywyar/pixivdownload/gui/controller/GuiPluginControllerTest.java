@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.i18n.I18nBundleResponse;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
-import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginApiRequirementView;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService.SdkRequirementView;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementReport;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.TransactionRecoveryView;
@@ -73,7 +73,7 @@ class GuiPluginControllerTest {
                                                boolean required, String version) {
         return new PluginManagementEntry(
                 id, namespace, nameKey, nameKey, "puzzle", "neutral", version, PluginKind.FEATURE,
-                new PluginApiRequirementView(false, true, "(unspecified)"), List.of(),
+                new SdkRequirementView(false, true, "(unspecified)"), List.of(),
                 source, status, phase, managed, required, !required, List.of(), List.of());
     }
 

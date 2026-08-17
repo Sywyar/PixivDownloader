@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.descriptor;
 
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
@@ -25,8 +25,8 @@ import java.util.regex.Pattern;
  *
  * @param id             插件 id（功能插件 id；小写短横线风格）
  * @param sourcePluginId 承载该功能插件的插件包 id（外置=PF4J pluginId；内置=同 {@link #id}）
- * @param version        插件版本（外置=plugin.properties 版本；内置=核心 API 契约版本）
- * @param requires       所需核心 API 版本要求（解析自 {@code requires}，未声明则 {@link PluginApiRequirement#unspecified()}）
+ * @param version        插件版本（外置=plugin.properties 版本；内置=SDK 契约版本）
+ * @param requires       所需SDK 版本要求（解析自 {@code requires}，未声明则 {@link VersionRequirement#unspecified()}）
  * @param dependencies   对其它插件的依赖声明（中性载体）
  * @param pluginClass      插件主类全限定名（外置=PF4J {@code Plugin-Class}；内置=插件实现类名；可空）
  * @param displayNamespace 展示名称 / 简介所在的 i18n namespace（来自 {@link PixivFeaturePlugin#displayNamespace()} 或包描述符 {@code pixiv.display-namespace}；可空）
@@ -42,7 +42,7 @@ public record PluginDescriptor(
         String id,
         String sourcePluginId,
         String version,
-        PluginApiRequirement requires,
+        VersionRequirement requires,
         List<PluginDependencyRef> dependencies,
         String pluginClass,
         String displayNamespace,
@@ -73,13 +73,13 @@ public record PluginDescriptor(
                     + "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
 
     public PluginDescriptor {
-        requires = requires != null ? requires : PluginApiRequirement.unspecified();
+        requires = requires != null ? requires : VersionRequirement.unspecified();
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         replaces = replaces != null ? List.copyOf(replaces) : List.of();
         lifecyclePolicy = lifecyclePolicy != null ? lifecyclePolicy : PluginLifecyclePolicy.HOT_RELOAD;
     }
 
-    public PluginDescriptor(String id, String sourcePluginId, String version, PluginApiRequirement requires,
+    public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
                             List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
                             String displayName, String description, String iconKey, String colorToken,
                             PluginKind kind, List<String> replaces) {
@@ -87,7 +87,7 @@ public record PluginDescriptor(
                 description, iconKey, colorToken, kind, replaces, PluginLifecyclePolicy.HOT_RELOAD);
     }
 
-    public PluginDescriptor(String id, String sourcePluginId, String version, PluginApiRequirement requires,
+    public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
                             List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
                             String displayName, String description, String iconKey, String colorToken,
                             PluginKind kind) {
@@ -96,7 +96,7 @@ public record PluginDescriptor(
     }
 
     /**
-     * 从内置功能插件构造描述符：版本取当前核心 API 契约版本、{@code requires} 取当前核心 API（恒兼容）、无插件依赖、
+     * 从内置功能插件构造描述符：版本取当前SDK 契约版本、{@code requires} 取当前SDK（恒兼容）、无插件依赖、
      * {@code pluginClass} 取插件实现类名、{@code displayName} / {@code description} / {@code iconKey} / {@code colorToken} /
      * {@code kind} 取插件自身元数据。内置插件随主程序编译、与核心同契约版本，故恒兼容。
      */
@@ -113,8 +113,8 @@ public record PluginDescriptor(
         return new PluginDescriptor(
                 pluginId,
                 pluginId,
-                PluginApiVersion.VERSION,
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                SdkVersion.VERSION,
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(),
                 plugin.getClass().getName(),
                 plugin.displayNamespace(),
@@ -142,9 +142,9 @@ public record PluginDescriptor(
                 packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy());
     }
 
-    /** 该描述符声明的核心 API 版本要求是否被当前核心满足（{@code requires} 兼容性）。 */
-    public boolean isApiCompatible() {
-        return requires.isSatisfiedByCurrentApi();
+    /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */
+    public boolean isSdkCompatible() {
+        return requires.isSatisfiedByCurrentSdk();
     }
 
     /**
@@ -172,7 +172,7 @@ public record PluginDescriptor(
             if (dependency.pluginId() == null || !ID_PATTERN.matcher(dependency.pluginId()).matches()) {
                 errors.add("invalid dependency plugin id: " + dependency.pluginId());
             }
-            PluginApiRequirement dependencyRequirement = dependency.requirement();
+            VersionRequirement dependencyRequirement = dependency.requirement();
             if (dependencyRequirement.present() && !dependencyRequirement.valid()) {
                 errors.add("unparseable dependency version support for " + dependency.pluginId()
                         + ": " + dependencyRequirement.raw());

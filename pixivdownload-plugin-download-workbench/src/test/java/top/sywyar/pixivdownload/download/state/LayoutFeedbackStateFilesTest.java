@@ -3,8 +3,7 @@ package top.sywyar.pixivdownload.download.state;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.nio.file.Path;
 
@@ -24,12 +23,12 @@ class LayoutFeedbackStateFilesTest {
     void resolvesStateFileUnderOwnerDirectory() {
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
         Path ownerDirectory = tempDir.resolve("state/download-workbench");
-        when(runtimePathProvider.resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID))
+        when(runtimePathProvider.stateDirectory())
                 .thenReturn(ownerDirectory);
 
         LayoutFeedbackStateFiles files = new LayoutFeedbackStateFiles(runtimePathProvider);
 
         assertThat(files.stateFile()).isEqualTo(ownerDirectory.resolve("layout-feedback-state.json"));
-        verify(runtimePathProvider).resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID);
+        verify(runtimePathProvider).stateDirectory();
     }
 }

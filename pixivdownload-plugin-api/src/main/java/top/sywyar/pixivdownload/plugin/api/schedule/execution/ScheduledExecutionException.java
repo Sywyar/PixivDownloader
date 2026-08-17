@@ -7,14 +7,36 @@ package top.sywyar.pixivdownload.plugin.api.schedule.execution;
  */
 public class ScheduledExecutionException extends Exception {
 
+    /**
+     * 失败类别。
+     */
     private final ScheduledFailure.Category category;
+    /**
+     * 代码。
+     */
     private final String code;
+    /**
+     * 重试后毫秒数。
+     */
     private final long retryAfterMillis;
 
+    /**
+     * 创建 {@code ScheduledExecutionException} 实例。
+     *
+     * @param category 失败类别
+     * @param code 代码
+     */
     public ScheduledExecutionException(ScheduledFailure.Category category, String code) {
         this(category, code, 0L);
     }
 
+    /**
+     * 创建 {@code ScheduledExecutionException} 实例。
+     *
+     * @param category 失败类别
+     * @param code 代码
+     * @param retryAfterMillis 重试后毫秒数
+     */
     public ScheduledExecutionException(ScheduledFailure.Category category,
                                        String code,
                                        long retryAfterMillis) {
@@ -30,22 +52,47 @@ public class ScheduledExecutionException extends Exception {
         this.retryAfterMillis = retryAfterMillis;
     }
 
+    /**
+     * 返回类别。
+     *
+     * @return 方法返回的 {@code ScheduledFailure.Category} 实例
+     */
     public ScheduledFailure.Category category() {
         return category;
     }
 
+    /**
+     * 返回代码。
+     *
+     * @return 方法返回的字符串
+     */
     public String code() {
         return code;
     }
 
+    /**
+     * 返回重试后毫秒数。
+     *
+     * @return 方法返回的数值
+     */
     public long retryAfterMillis() {
         return retryAfterMillis;
     }
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的 {@code ScheduledFailure} 实例
+     */
     public ScheduledFailure toFailure() {
         return new ScheduledFailure(category, code, retryAfterMillis);
     }
 
+    /**
+     * 返回对应值。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static ScheduledExecutionException cancelled() {
         return new ScheduledExecutionException(
                 ScheduledFailure.Category.CANCELLED,

@@ -14,7 +14,6 @@ import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpCookiePolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRedirectPolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoutePolicy;
-import top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -34,15 +33,15 @@ import static org.mockito.Mockito.when;
 @DisplayName("Douyin HTTP 客户端所有权")
 class DouyinHttpClientOwnershipTest {
 
-    private static final Set<String> MANAGED_TEMPLATE_BEANS = Set.of(
-            "douyinRestTemplate",
-            "douyinDirectRestTemplate",
-            "douyinProxyRestTemplate",
-            "douyinCustomProxyRestTemplate",
-            "douyinRedirectRestTemplate",
-            "douyinDirectRedirectRestTemplate",
-            "douyinProxyRedirectRestTemplate",
-            "douyinCustomProxyRedirectRestTemplate");
+    private static final Set<String> MANAGED_CLIENT_BEANS = Set.of(
+            "douyinHttpClient",
+            "douyinDirectHttpClient",
+            "douyinProxyHttpClient",
+            "douyinCustomProxyHttpClient",
+            "douyinRedirectHttpClient",
+            "douyinDirectRedirectHttpClient",
+            "douyinProxyRedirectHttpClient",
+            "douyinCustomProxyRedirectHttpClient");
 
     @Test
     @DisplayName("主插件配置显式导入 HTTP 子配置")
@@ -71,15 +70,15 @@ class DouyinHttpClientOwnershipTest {
                 1080);
         DouyinHttpClientConfiguration configuration = new DouyinHttpClientConfiguration();
 
-        List<ManagedPluginRestTemplate> templates = List.of(
-                configuration.douyinRestTemplate(factory),
-                configuration.douyinDirectRestTemplate(factory),
-                configuration.douyinProxyRestTemplate(factory),
-                configuration.douyinCustomProxyRestTemplate(factory, settingsService),
-                configuration.douyinRedirectRestTemplate(factory),
-                configuration.douyinDirectRedirectRestTemplate(factory),
-                configuration.douyinProxyRedirectRestTemplate(factory),
-                configuration.douyinCustomProxyRedirectRestTemplate(factory, settingsService));
+        List<OutboundHttpClient> clients = List.of(
+                configuration.douyinHttpClient(factory),
+                configuration.douyinDirectHttpClient(factory),
+                configuration.douyinProxyHttpClient(factory),
+                configuration.douyinCustomProxyHttpClient(factory, settingsService),
+                configuration.douyinRedirectHttpClient(factory),
+                configuration.douyinDirectRedirectHttpClient(factory),
+                configuration.douyinProxyRedirectHttpClient(factory),
+                configuration.douyinCustomProxyRedirectHttpClient(factory, settingsService));
 
         assertThat(profiles).hasSize(8);
         assertThat(profiles)
@@ -120,8 +119,7 @@ class DouyinHttpClientOwnershipTest {
                 .allSatisfy(profile ->
                         assertThat(profile.route().explicitProxyProvider()).isNull());
 
-        templates.forEach(ManagedPluginRestTemplate::close);
-        templates.forEach(ManagedPluginRestTemplate::close);
+        clients.forEach(OutboundHttpClient::close);
         transports.forEach(transport -> verify(transport).close());
     }
 
@@ -140,8 +138,8 @@ class DouyinHttpClientOwnershipTest {
             captured.set(profile);
             return transport;
         };
-        ManagedPluginRestTemplate template = new DouyinHttpClientConfiguration()
-                .douyinCustomProxyRestTemplate(factory, settingsService);
+        OutboundHttpClient client = new DouyinHttpClientConfiguration()
+                .douyinCustomProxyHttpClient(factory, settingsService);
 
         var provider = captured.get().route().explicitProxyProvider();
 
@@ -151,7 +149,7 @@ class DouyinHttpClientOwnershipTest {
         assertThat(provider.resolveProxyUri()).isNull();
         verify(settingsService, times(4)).runtimeSettings();
 
-        template.close();
+        client.close();
         verify(transport).close();
     }
 
@@ -166,31 +164,31 @@ class DouyinHttpClientOwnershipTest {
                 () -> factory);
         parent.refresh();
 
-        assertThat(parent.getBeanFactory().getBeansOfType(ManagedPluginRestTemplate.class)).isEmpty();
+        assertThat(parent.getBeanFactory().getBeansOfType(OutboundHttpClient.class)).isEmpty();
         assertThat(parent.getBeanFactory().getBeansOfType(DouyinPluginSettingsService.class)).isEmpty();
         assertThat(parent.getBean(OutboundHttpClientFactory.class)).isSameAs(factory);
 
         ChildGeneration first = openChild(parent, "first");
         List<OutboundHttpClient> firstTransports = factory.openedTransports();
-        assertThat(firstTransports).hasSize(MANAGED_TEMPLATE_BEANS.size());
+        assertThat(firstTransports).hasSize(MANAGED_CLIENT_BEANS.size());
 
         closeRepeatedly(first);
         assertClosedExactlyOnce(firstTransports);
 
         ChildGeneration second = openChild(parent, "second");
         List<OutboundHttpClient> allTransports = factory.openedTransports();
-        assertThat(allTransports).hasSize(MANAGED_TEMPLATE_BEANS.size() * 2);
+        assertThat(allTransports).hasSize(MANAGED_CLIENT_BEANS.size() * 2);
         List<OutboundHttpClient> secondTransports =
-                List.copyOf(allTransports.subList(MANAGED_TEMPLATE_BEANS.size(), allTransports.size()));
+                List.copyOf(allTransports.subList(MANAGED_CLIENT_BEANS.size(), allTransports.size()));
         assertThat(secondTransports)
-                .hasSize(MANAGED_TEMPLATE_BEANS.size())
+                .hasSize(MANAGED_CLIENT_BEANS.size())
                 .doesNotContainAnyElementsOf(firstTransports);
 
         closeRepeatedly(second);
         assertClosedExactlyOnce(firstTransports);
         assertClosedExactlyOnce(secondTransports);
 
-        assertThat(parent.getBeanFactory().getBeansOfType(ManagedPluginRestTemplate.class)).isEmpty();
+        assertThat(parent.getBeanFactory().getBeansOfType(OutboundHttpClient.class)).isEmpty();
         parent.close();
         parent.close();
         assertClosedExactlyOnce(factory.openedTransports());
@@ -222,38 +220,33 @@ class DouyinHttpClientOwnershipTest {
         child.register(DouyinHttpClientConfiguration.class);
         child.refresh();
 
-        Map<String, ManagedPluginRestTemplate> templates =
-                child.getBeanFactory().getBeansOfType(ManagedPluginRestTemplate.class);
-        assertThat(templates)
-                .hasSize(MANAGED_TEMPLATE_BEANS.size())
-                .containsOnlyKeys(MANAGED_TEMPLATE_BEANS);
+        Map<String, OutboundHttpClient> clients =
+                child.getBeanFactory().getBeansOfType(OutboundHttpClient.class);
+        assertThat(clients)
+                .hasSize(MANAGED_CLIENT_BEANS.size())
+                .containsOnlyKeys(MANAGED_CLIENT_BEANS);
         assertThat(child.getBeanFactory().containsLocalBean("douyinPluginSettingsService")).isTrue();
         assertThat(child.getBean(DouyinPluginSettingsService.class)).isSameAs(settingsService);
         assertThat(child.getBeanFactory().containsLocalBean("outboundHttpClientFactory")).isFalse();
         assertThat(child.getBean(OutboundHttpClientFactory.class))
                 .isSameAs(parent.getBean(OutboundHttpClientFactory.class));
-        MANAGED_TEMPLATE_BEANS.forEach(beanName -> {
+        MANAGED_CLIENT_BEANS.forEach(beanName -> {
             assertThat(child.getBeanFactory().containsLocalBean(beanName)).as(beanName).isTrue();
             assertThat(parent.containsBean(beanName)).as(beanName).isFalse();
         });
-        return new ChildGeneration(child, Map.copyOf(templates));
+        return new ChildGeneration(child);
     }
 
     private static void closeRepeatedly(ChildGeneration generation) {
         generation.context().close();
         generation.context().close();
-        generation.templates().values().forEach(ManagedPluginRestTemplate::close);
-        generation.templates().values().forEach(ManagedPluginRestTemplate::close);
     }
 
     private static void assertClosedExactlyOnce(List<OutboundHttpClient> transports) {
         transports.forEach(transport -> verify(transport).close());
     }
 
-    private record ChildGeneration(
-            AnnotationConfigApplicationContext context,
-            Map<String, ManagedPluginRestTemplate> templates
-    ) {
+    private record ChildGeneration(AnnotationConfigApplicationContext context) {
     }
 
     private static final class CountingOutboundHttpClientFactory implements OutboundHttpClientFactory {

@@ -15,7 +15,7 @@ import java.util.List;
  * <p><b>安装状态投影</b>（{@code installStatus} / {@code installedVersion} / {@code updateAvailable} / {@code compatible}
  * / {@code compatibilityReason}）由后端把本条目与<b>真实运行时安装状态</b>交叉引用推导，供市场页直接渲染未安装 / 已安装 /
  * 有更新 / 不兼容控件、而<b>不</b>由前端臆测：{@code installStatus} 见 {@link MarketInstallStatus}；{@code compatible} =
- * 最新可安装版本是否被当前核心 API 满足，不兼容时 {@code compatibilityReason} 给出其声明的核心 API 要求（可诊断）；安装只
+ * 最新可安装版本是否被当前SDK 满足，不兼容时 {@code compatibilityReason} 给出其声明的SDK 要求（可诊断）；安装只
  * 通过统一事务编排器落盘并即时激活。
  *
  * @param pluginId             插件 id
@@ -28,8 +28,8 @@ import java.util.List;
  * @param installStatus        安装状态机机器码（未安装 / 已安装 / 有更新 / 不兼容）
  * @param installedVersion     本机已安装版本（未安装为 {@code null}）
  * @param updateAvailable      是否存在更高且兼容的可安装版本（仅已安装时可能为真）
- * @param compatible           最新可安装版本是否兼容当前核心 API（无可安装版本时视为兼容）
- * @param compatibilityReason  不兼容时声明的核心 API 版本要求（兼容时为 {@code null}；可诊断）
+ * @param compatible           最新可安装版本是否兼容当前SDK（无可安装版本时视为兼容）
+ * @param compatibilityReason  不兼容时声明的SDK 版本要求（兼容时为 {@code null}；可诊断）
  */
 public record PluginMarketEntryView(
         String pluginId,
@@ -66,7 +66,7 @@ public record PluginMarketEntryView(
         PluginMarketPackageView target = installTarget(packages, latestVersion);
         boolean installable = target != null;
         boolean compatible = target == null || target.compatible();
-        String compatibilityReason = (target != null && !target.compatible()) ? target.requiredCoreApi() : null;
+        String compatibilityReason = (target != null && !target.compatible()) ? target.requiredSdk() : null;
         // 仅当市场最新版本「严格高于」已安装版本（按 SemanticVersion 语义比较）才算有更新：语义等价版本
         // （如 1.2 与 1.2.0）不提示更新，本机版本更高时也不提示（保持已安装）。
         boolean updateAvailable = installed && compatible && installedVersion != null

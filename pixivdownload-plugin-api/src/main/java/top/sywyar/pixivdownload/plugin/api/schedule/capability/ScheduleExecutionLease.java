@@ -20,40 +20,135 @@ import java.util.Set;
  */
 public interface ScheduleExecutionLease extends AutoCloseable {
 
+    /**
+     * 返回来源类型。
+     *
+     * @return 方法返回的字符串
+     */
     String sourceType();
 
+    /**
+     * 返回所有者集合。
+     *
+     * @return 方法返回的集合
+     */
     Set<ScheduleCapabilityOwner> owners();
 
+    /**
+     * 返回描述符。
+     *
+     * @return 匹配的可选值
+     */
     Optional<ScheduledSourceDescriptor> descriptor();
 
+    /**
+     * 返回对应值。
+     *
+     * @return 匹配的可选值
+     */
     Optional<ScheduledSourceExecutor> sourceExecutor();
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param workType 工作类型
+     * @return 匹配的可选值
+     */
     Optional<ScheduledWorkExecutor> workExecutor(String workType);
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的映射
+     */
     Map<String, ScheduledWorkExecutor> workExecutors();
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param workType 工作类型
+     * @return 匹配的可选值
+     */
     Optional<ScheduleCapabilityOwner> workExecutorOwner(String workType);
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的映射
+     */
     Map<String, ScheduleCapabilityOwner> workExecutorOwners();
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param workType 工作类型
+     * @return 匹配的可选值
+     */
     OptionalLong workExecutorPublicationId(String workType);
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的映射
+     */
     Map<String, Long> workExecutorPublicationIds();
 
+    /**
+     * 返回凭证策略。
+     *
+     * @return 匹配的可选值
+     */
     Optional<ScheduledCredentialPolicy> credentialPolicy();
 
+    /**
+     * 返回凭证策略所有者。
+     *
+     * @return 匹配的可选值
+     */
     Optional<ScheduleCapabilityOwner> credentialPolicyOwner();
 
+    /**
+     * 执行守卫并返回结果。
+     *
+     * @param guardId 守卫标识
+     * @return 匹配的可选值
+     */
     Optional<ScheduledExecutionGuard> guard(String guardId);
 
+    /**
+     * 返回守卫列表。
+     *
+     * @return 方法返回的映射
+     */
     Map<String, ScheduledExecutionGuard> guards();
 
+    /**
+     * 执行守卫所有者并返回结果。
+     *
+     * @param guardId 守卫标识
+     * @return 匹配的可选值
+     */
     Optional<ScheduleCapabilityOwner> guardOwner(String guardId);
 
+    /**
+     * 返回守卫所有者集合。
+     *
+     * @return 方法返回的映射
+     */
     Map<String, ScheduleCapabilityOwner> guardOwners();
 
+    /**
+     * 返回取消状态。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     ScheduledCancellation cancellation();
 
+    /**
+     * 判断激活状态是否满足条件。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean isActive();
 
     @Override

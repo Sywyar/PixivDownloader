@@ -12,6 +12,11 @@ public record PushChannelId(String id) {
 
     private static final Pattern VALID_ID = Pattern.compile("[a-z][a-z0-9-]{0,63}");
 
+    /**
+     * 创建 {@code PushChannelId} 实例。
+     *
+     * @param id 标识
+     */
     public PushChannelId {
         if (id == null || !VALID_ID.matcher(id).matches()) {
             throw new IllegalArgumentException(

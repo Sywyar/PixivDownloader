@@ -18,20 +18,40 @@ public record AiChatOptions(
 
     private static final AiChatOptions DEFAULTS = new AiChatOptions(null, null, false);
 
-    /** 无额外调参：温度 / 最大 token 跟随服务端默认，纯文本输出。 */
+    /**
+     * 无额外调参：温度 / 最大 token 跟随服务端默认，纯文本输出。
+     *
+     * @return 方法返回的 {@code AiChatOptions} 实例
+     */
     public static AiChatOptions defaults() {
         return DEFAULTS;
     }
 
-    /** 要求 JSON 对象输出（其余参数跟随服务端默认）。 */
+    /**
+     * 要求 JSON 对象输出（其余参数跟随服务端默认）。
+     *
+     * @return 方法返回的 {@code AiChatOptions} 实例
+     */
     public static AiChatOptions json() {
         return new AiChatOptions(null, null, true);
     }
 
+    /**
+     * 返回更新{@code temperature} 对应的值后的副本。
+     *
+     * @param value 值
+     * @return 方法返回的 {@code AiChatOptions} 实例
+     */
     public AiChatOptions withTemperature(Double value) {
         return new AiChatOptions(value, maxTokens, jsonObject);
     }
 
+    /**
+     * 返回更新{@code maxTokens} 对应的值后的副本。
+     *
+     * @param value 值
+     * @return 方法返回的 {@code AiChatOptions} 实例
+     */
     public AiChatOptions withMaxTokens(Integer value) {
         return new AiChatOptions(temperature, value, jsonObject);
     }

@@ -19,7 +19,7 @@
         return res.json();
     }
 
-    // GET /api/plugin-market/repositories → 主开关 + 核心 API 版本 + 默认仓库 + 仓库只读投影。
+    // GET /api/plugin-market/repositories → 主开关 + SDK 版本 + 默认仓库 + 仓库只读投影。
     API.fetchRepositories = function () {
         return getJson('/api/plugin-market/repositories');
     };

@@ -14,8 +14,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -105,8 +103,6 @@ class GalleryExternalPluginBootContextTest {
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
     private WebApplicationContext applicationContext;
-    @Autowired
-    private GalleryCapabilityRegistry galleryCapabilityRegistry;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -169,8 +165,7 @@ class GalleryExternalPluginBootContextTest {
                         "/pixiv-showcase/**",
                         "/pixiv-series/**",
                         "/api/gallery/artwork**",
-                        "/api/gallery/tags**",
-                        "/api/gallery/unified/**");
+                        "/api/gallery/tags**");
         assertThat(staticResourceRegistry.resources())
                 .filteredOn(s -> s.pluginId().equals("gallery"))
                 .allSatisfy(s -> assertThat(s.classLoader()).isSameAs(externalCl))
@@ -197,9 +192,9 @@ class GalleryExternalPluginBootContextTest {
         assertThat(externalCl.getResource("static/unified-gallery.html")).isNull();
         assertThat(externalCl.getResource("static/unified-gallery/unified-gallery.css")).isNull();
         assertThat(externalCl.getResource("static/pixiv-gallery/pixiv-gallery.css")).isNotNull();
-        assertThat(externalCl.getResource("static/pixiv-gallery/gallery-frontend-runtime.js")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-gallery/gallery-frontend-runtime.js")).isNull();
         assertThat(externalCl.getResource("static/pixiv-gallery/gallery-generic-view.js")).isNull();
-        assertThat(externalCl.getResource("static/pixiv-gallery/pixiv-gallery-frontend.js")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-gallery/pixiv-gallery-frontend.js")).isNull();
         assertThat(externalCl.getResource("i18n/web/gallery.properties")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-gallery.html")).isNull();
     }
@@ -238,33 +233,6 @@ class GalleryExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("gallery 子上下文原子贡献 pixiv IMAGE 投影、详情与前端能力")
-    void galleryCapabilityProviderIsRegisteredFromExternalChildContext() {
-        assertThat(galleryCapabilityRegistry.snapshot().projections())
-                .filteredOn(projection -> projection.sourceId().equals("pixiv"))
-                .singleElement()
-                .satisfies(projection -> {
-                    assertThat(projection.kind()).isEqualTo(GalleryKind.IMAGE);
-                    assertThat(projection.displayNamespace()).isEqualTo("gallery");
-                    assertThat(projection.displayI18nKey()).isEqualTo("source.pixiv");
-                });
-        assertThat(galleryCapabilityRegistry.snapshot().projectionProviders())
-                .extracting(GalleryCapabilityRegistry.RegisteredProjectionProvider::providerId)
-                .contains("pixiv-image-capability");
-        assertThat(galleryCapabilityRegistry.snapshot().works())
-                .anySatisfy(work -> {
-                    assertThat(work.sourceId()).isEqualTo("pixiv");
-                    assertThat(work.sourceWorkNamespace()).isEqualTo("artwork");
-                });
-        assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
-                .extracting(frontend -> frontend.contribution().contributionId())
-                .containsExactlyInAnyOrder("pixiv.card", "pixiv.media", "pixiv.detail-actions");
-        assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
-                .allSatisfy(frontend -> assertThat(frontend.ownerPluginId()).isEqualTo("gallery"));
-        assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
-    }
-
-    @Test
     @DisplayName("gallery 子 ApplicationContext 托管 service/controller，controller 动态注册进父分发表")
     void externalGalleryChildContextHostsBeansAndControllerMapping() throws Exception {
         ConfigurableApplicationContext child = externalPluginContextManager.contextFor("gallery").orElseThrow();
@@ -275,19 +243,10 @@ class GalleryExternalPluginBootContextTest {
         Class<?> serviceClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryService");
         Class<?> batchServiceClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryBatchService");
         Class<?> controllerClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryController");
-        Class<?> providerClass = externalCl.loadClass(
-                "top.sywyar.pixivdownload.gallery.PixivImageGalleryCapabilityProvider");
-        Class<?> frontendProviderClass = externalCl.loadClass(
-                "top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider");
-
         assertThat(child.getBeanNamesForType(serviceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(batchServiceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(controllerClass)).isNotEmpty();
-        assertThat(child.getBeanNamesForType(providerClass)).isNotEmpty();
-        assertThat(child.getBeanNamesForType(frontendProviderClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
-        assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
-        assertThat(applicationContext.getBeanNamesForType(frontendProviderClass)).isEmpty();
         assertThat(galleryArtworksHandlerBean()).isSameAs(child.getBean(controllerClass));
     }
 

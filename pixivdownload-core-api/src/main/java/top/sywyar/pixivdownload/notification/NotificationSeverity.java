@@ -5,7 +5,16 @@ package top.sywyar.pixivdownload.notification;
  * 邮件、推送等介质可在自身边界内映射到颜色、优先级或其它展示形式。
  */
 public enum NotificationSeverity {
+    /**
+     * 表示 {@code INFO} 状态。
+     */
     INFO,
+    /**
+     * 表示 {@code WARNING} 状态。
+     */
     WARNING,
+    /**
+     * 表示 {@code ERROR}。
+     */
     ERROR
 }

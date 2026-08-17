@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.douyin.settings;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,7 +46,7 @@ class DouyinPluginSettingsServiceTest {
         Files.createDirectories(configFile.getParent());
         Files.writeString(configFile, "douyin.proxy.mode=direct\n");
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
-        when(runtimePathProvider.resolvePluginConfigPath("douyin", "properties"))
+        when(runtimePathProvider.configFile("properties"))
                 .thenReturn(configFile);
 
         DouyinPluginSettingsService service = new DouyinPluginSettingsService(
@@ -54,7 +54,7 @@ class DouyinPluginSettingsServiceTest {
                 tempDir.resolve("downloads").resolve("douyin"));
 
         assertThat(service.load().proxyMode()).isEqualTo(DouyinProxyMode.DIRECT);
-        verify(runtimePathProvider).resolvePluginConfigPath("douyin", "properties");
+        verify(runtimePathProvider).configFile("properties");
     }
 
     @Test

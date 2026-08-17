@@ -6,5 +6,10 @@ import java.util.List;
 @FunctionalInterface
 public interface WebUiSlotCatalog {
 
+    /**
+     * 返回界面槽位列表。
+     *
+     * @return 方法返回的列表
+     */
     List<WebUiSlotContribution> uiSlots();
 }

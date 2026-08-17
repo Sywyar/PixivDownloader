@@ -3,13 +3,24 @@ package top.sywyar.pixivdownload.web;
 import java.net.URI;
 
 /**
- * Local request trust checks without tying shared contracts to servlet APIs.
+ * 不将共享契约绑定到 Servlet API 的本地请求信任检查。
  */
 public final class LocalRequestTrust {
 
     private LocalRequestTrust() {
     }
 
+    /**
+     * 判断可信状态本地值请求是否满足条件。
+     *
+     * @param remoteAddr {@code remoteAddr} 对应的值
+     * @param host 主机
+     * @param forwardedFor {@code forwardedFor} 对应的值
+     * @param realIp 真实值IP
+     * @param forwarded 转发信息
+     * @param origin 来源
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static boolean isTrustedLocalRequest(String remoteAddr,
                                                 String host,
                                                 String forwardedFor,
@@ -20,6 +31,16 @@ public final class LocalRequestTrust {
                 && originIsLocalOrAbsent(origin);
     }
 
+    /**
+     * 判断本地值请求是否满足条件。
+     *
+     * @param remoteAddr {@code remoteAddr} 对应的值
+     * @param host 主机
+     * @param forwardedFor {@code forwardedFor} 对应的值
+     * @param realIp 真实值IP
+     * @param forwarded 转发信息
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static boolean isLocalRequest(String remoteAddr,
                                          String host,
                                          String forwardedFor,
@@ -32,6 +53,12 @@ public final class LocalRequestTrust {
                 && standardForwardedHeaderIsLocal(forwarded);
     }
 
+    /**
+     * 判断{@code localAddress} 对应的值是否满足条件。
+     *
+     * @param remoteAddr {@code remoteAddr} 对应的值
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static boolean isLocalAddress(String remoteAddr) {
         return "127.0.0.1".equals(remoteAddr)
                 || "localhost".equalsIgnoreCase(remoteAddr)
@@ -40,6 +67,12 @@ public final class LocalRequestTrust {
                 || "::ffff:127.0.0.1".equals(remoteAddr);
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param origin 来源
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public static boolean originIsLocalOrAbsent(String origin) {
         if (origin == null || origin.isBlank()) {
             return true;

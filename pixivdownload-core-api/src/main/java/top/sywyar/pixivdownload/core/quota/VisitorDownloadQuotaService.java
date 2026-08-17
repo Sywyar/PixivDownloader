@@ -10,16 +10,26 @@ public interface VisitorDownloadQuotaService {
     /**
      * 按单件作品包含的媒体数量检查并预留配额；具体配额权重由宿主策略计算。
      * 文本作品传 {@code 1}。
+     *
+     * @param ownerUuid 所有者 UUID
+     * @param mediaCount 媒体数量
+     * @return 方法返回的 {@code VisitorDownloadQuotaReservation} 实例
      */
     VisitorDownloadQuotaReservation checkAndReserve(String ownerUuid, int mediaCount);
 
     /**
      * 为此前登记的成功下载目录创建异步归档，并返回归档任务 token。
+     *
+     * @param ownerUuid 所有者 UUID
+     * @return 方法返回的字符串
      */
     String createArchive(String ownerUuid);
 
     /**
      * 仅在下载成功后登记产物目录，供后续配额归档使用。
+     *
+     * @param ownerUuid 所有者 UUID
+     * @param folder 目录
      */
     void recordFolder(String ownerUuid, Path folder);
 }

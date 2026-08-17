@@ -13,6 +13,15 @@ public record ScheduledCredentialAccountIncident(
         List<ScheduledCredentialTaskSnapshot> tasks
 ) {
 
+    /**
+     * 创建 {@code ScheduledCredentialAccountIncident} 实例。
+     *
+     * @param accountKey 账号键
+     * @param reasonCode 原因代码
+     * @param evidence 证据
+     * @param occurredAt {@code occurredAt} 对应的值
+     * @param tasks 任务列表
+     */
     public ScheduledCredentialAccountIncident {
         accountKey = ScheduledCredentialAccountActionRequest.validateAccountKey(accountKey);
         reasonCode = ScheduledCredentialAccountActionRequest.validateMachineCode(

@@ -5,9 +5,21 @@ import java.nio.charset.StandardCharsets;
 /** 计划作品身份。只有 {@code workType + id} 共同构成全局去重键，id 始终按不透明 UTF-8 字符串处理。 */
 public record ScheduledWorkKey(String workType, String id) {
 
+    /**
+     * 作品类型允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_WORK_TYPE_BYTES = 128;
+    /**
+     * 标识允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_ID_BYTES = 512;
 
+    /**
+     * 创建 {@code ScheduledWorkKey} 实例。
+     *
+     * @param workType 工作类型
+     * @param id 标识
+     */
     public ScheduledWorkKey {
         workType = validateCanonical(workType, "work type", MAX_WORK_TYPE_BYTES);
         id = validateOpaque(id, "work id", MAX_ID_BYTES);

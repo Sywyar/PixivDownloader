@@ -1,15 +1,13 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-/**
- * GUI theme brightness classification reported by a theme contribution.
- */
+/** 主题贡献报告的 GUI 主题明暗分类。 */
 public enum GuiThemeAppearance {
-    /** Light appearance. */
+    /** 亮色外观。 */
     LIGHT,
-    /** Dark appearance. */
+    /** 暗色外观。 */
     DARK,
-    /** The theme follows the operating system appearance. */
+    /** 主题跟随操作系统外观。 */
     SYSTEM,
-    /** The contribution cannot report a stable brightness classification. */
+    /** 贡献无法报告稳定的明暗分类。 */
     UNKNOWN
 }

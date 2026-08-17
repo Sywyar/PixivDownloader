@@ -303,6 +303,8 @@ class PluginReleaseScriptsTest {
         String installerInstall = innoSupportScript("installer-plugin-install.ps1");
 
         assertThat(common).contains(
+                "function Get-PixivDownloadSdkVersion",
+                "pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties",
                 "function New-PluginArtifactSignature",
                 "function Find-PluginArtifactSignatureSidecar",
                 "function Assert-PluginArtifactSignature",
@@ -351,7 +353,7 @@ class PluginReleaseScriptsTest {
                 "CoreShellOnly and DefaultDownloader cannot be combined.");
         assertThat(windows).contains(
                 "$OfficialPluginCatalogUrl = \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
-                "$InstallerPluginApiVersion = \"1.0.0\"",
+                "$InstallerSdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
                 "$EnableInstallerPluginSelection = $false",
                 "Get-OfficialDefaultInstalledPlugins",
                 "Stage-InstallerPluginCatalogSnapshot",
@@ -377,10 +379,11 @@ class PluginReleaseScriptsTest {
                 "$AppName-$Version-LOCAL-UNSIGNED-win-x64-setup.exe",
                 "Move-Item -LiteralPath $SetupPath -Destination $LocalUnsignedSetupPath -Force",
                 "$installerPluginCatalogEnabled = if ((-not $SkipPlugins) -and $EnableInstallerPluginSelection) { \"1\" } else { \"0\" }",
+                "/DSdkVersion=$InstallerSdkVersion",
                 "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
                 "/DSignatureToolJar=$SignatureToolJar");
         assertThat(catalogStage).contains(
-                "[string]$CoreApiVersion = \"1.0.0\"",
+                "$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
                 "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
                 "\"verify-manifest\"",
                 "Assert-PluginArtifactSignature",
@@ -397,7 +400,8 @@ class PluginReleaseScriptsTest {
                 .as("catalog 完整性预检失败时不得删除既有 plugin inputs")
                 .isGreaterThan(catalogStage.indexOf("if ($problems.Count -gt 0)"));
         assertThat(inno).contains(
-                "#define PluginApiVersion \"1.0.0\"",
+                "#ifndef SdkVersion",
+                "#error SdkVersion must be supplied from pixivdownload-sdk-info metadata.",
                 "#define InstallerPluginCatalogEnabled \"0\"",
                 "#error SignatureToolJar must be defined when InstallerPluginCatalogEnabled is 1.",
                 "#if InstallerPluginCatalogEnabled == \"1\"",
@@ -462,7 +466,7 @@ class PluginReleaseScriptsTest {
                 "FinishInstallerPluginCatalogLoad",
                 "ExtractPluginInstallerSupportFiles");
         assertThat(installerInstall).contains(
-                "[string]$CoreApiVersion = \"1.0.0\"",
+                "[Parameter(Mandatory = $true, ParameterSetName = \"Install\")][string]$SdkVersion",
                 "$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)",
                 "$Utf8NoBom.GetBytes($Value + \"`n\")",
                 "function Escape-StateField",
@@ -567,7 +571,7 @@ class PluginReleaseScriptsTest {
         String script = script("package-installer-with-plugins.ps1");
 
         assertThat(script).contains(
-                "[string]$CoreApiVersion = \"1.0.0\"",
+                "$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
                 "[ValidateSet(\"Catalog\", \"Local\")]",
                 "[string]$PluginSource = \"Catalog\"",
                 "[string]$OfficialKeyId",
@@ -644,7 +648,8 @@ class PluginReleaseScriptsTest {
         assertThat(packageJson.path("private").asBoolean()).isTrue();
         assertThat(packageJson.path("scripts").path("test:js").asText())
                 .isEqualTo("node --test \"pixivdownload-*/src/test/js/*.test.js\" "
-                        + "\"plugin-templates/*/src/test/js/*.test.js\"");
+                        + "\"plugin-templates/*/src/test/js/*.test.js\" "
+                        + "\"scripts/ci/test/*.test.mjs\"");
         assertThat(packageJson.path("scripts").path("test:web-standards").asText())
                 .isEqualTo("node scripts/check-web-standards.mjs");
         assertThat(packageJson.has("dependencies")).isFalse();
@@ -696,7 +701,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个核心 API 1.0")
+    @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个SDK 1.0")
     void officialPluginVersionsStartAtInitialVersion() throws Exception {
         String common = script("plugin-distribution-common.ps1");
         for (OfficialPlugin plugin : officialDistributionPlugins(common)) {
@@ -710,8 +715,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场清单从 descriptor 投影初始核心 API 要求")
-    void marketManifestProjectsInitialCoreApi() throws Exception {
+    @DisplayName("市场清单从 descriptor 投影 SDK 要求并保留旧 wire alias")
+    void marketManifestProjectsInitialSdkAndLegacyAlias() throws Exception {
         String descriptor = pluginDescriptor("pixivdownload-plugin-douyin");
 
         assertThat(descriptor)
@@ -722,7 +727,17 @@ class PluginReleaseScriptsTest {
                         "plugin.requires=1.3");
         assertThat(script("generate-market-manifest.ps1")).contains(
                 "$requires = $d[\"plugin.requires\"]",
-                "requiredCoreApi   = (Get-RequiredCoreApi $requires)");
+                "requiredSdk       = (Get-RequiredSdk $requires)",
+                "requiredCoreApi   = (Get-RequiredSdk $requires)");
+        assertThat(script("stage-official-plugin-inputs-from-catalog.ps1")).contains(
+                "Get-Prop $Package \"requiredSdk\"",
+                "Get-Prop $Package \"requiredCoreApi\"");
+        assertThat(script("package-local.ps1")).contains(
+                "Get-InstallerCatalogProp $Package \"requiredSdk\"",
+                "Get-InstallerCatalogProp $Package \"requiredCoreApi\"");
+        assertThat(innoSupportScript("installer-plugin-install.ps1")).contains(
+                "Get-Prop $Package \"requiredSdk\"",
+                "Get-Prop $Package \"requiredCoreApi\"");
     }
 
     @Test

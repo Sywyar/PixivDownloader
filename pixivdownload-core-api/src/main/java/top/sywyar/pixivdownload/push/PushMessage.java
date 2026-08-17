@@ -23,6 +23,14 @@ public record PushMessage(
         PushFormat sourceFormat,
         NotificationSeverity level) {
 
+    /**
+     * 创建 {@code PushMessage} 实例。
+     *
+     * @param title 标题
+     * @param content 内容
+     * @param sourceFormat 来源格式
+     * @param level 级别
+     */
     public PushMessage {
         if (title == null) {
             title = "";
@@ -39,27 +47,61 @@ public record PushMessage(
         }
     }
 
-    /** 以 Markdown 源格式、{@link NotificationSeverity#INFO} 级别构造（默认撰写格式）。 */
+    /**
+     * 以 Markdown 源格式、{@link NotificationSeverity#INFO} 级别构造（默认撰写格式）。
+     *
+     * @param title 标题
+     * @param content 内容
+     * @return 方法返回的 {@code PushMessage} 实例
+     */
     public static PushMessage of(String title, String content) {
         return new PushMessage(title, content, PushFormat.MARKDOWN, NotificationSeverity.INFO);
     }
 
-    /** 以 Markdown 源格式、指定级别构造。 */
+    /**
+     * 以 Markdown 源格式、指定级别构造。
+     *
+     * @param title 标题
+     * @param content 内容
+     * @param level 级别
+     * @return 方法返回的 {@code PushMessage} 实例
+     */
     public static PushMessage of(String title, String content, NotificationSeverity level) {
         return new PushMessage(title, content, PushFormat.MARKDOWN, level);
     }
 
-    /** 纯文本源格式。 */
+    /**
+     * 纯文本源格式。
+     *
+     * @param title 标题
+     * @param content 内容
+     * @param level 级别
+     * @return 方法返回的 {@code PushMessage} 实例
+     */
     public static PushMessage text(String title, String content, NotificationSeverity level) {
         return new PushMessage(title, content, PushFormat.PLAIN_TEXT, level);
     }
 
-    /** Markdown 源格式。 */
+    /**
+     * Markdown 源格式。
+     *
+     * @param title 标题
+     * @param content 内容
+     * @param level 级别
+     * @return 方法返回的 {@code PushMessage} 实例
+     */
     public static PushMessage markdown(String title, String content, NotificationSeverity level) {
         return new PushMessage(title, content, PushFormat.MARKDOWN, level);
     }
 
-    /** HTML 源格式。 */
+    /**
+     * HTML 源格式。
+     *
+     * @param title 标题
+     * @param content 内容
+     * @param level 级别
+     * @return 方法返回的 {@code PushMessage} 实例
+     */
     public static PushMessage html(String title, String content, NotificationSeverity level) {
         return new PushMessage(title, content, PushFormat.HTML, level);
     }

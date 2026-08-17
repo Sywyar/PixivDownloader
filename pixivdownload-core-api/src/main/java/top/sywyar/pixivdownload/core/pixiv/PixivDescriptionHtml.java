@@ -7,6 +7,9 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 规范化并清理 Pixiv 作品描述 HTML，仅保留安全的链接和换行标签。
+ */
 public final class PixivDescriptionHtml {
 
     private static final URI PIXIV_BASE_URI = URI.create("https://www.pixiv.net/");
@@ -20,6 +23,12 @@ public final class PixivDescriptionHtml {
     private PixivDescriptionHtml() {
     }
 
+    /**
+     * 规范化链接并清理不受支持的 HTML。
+     *
+     * @param html 原始作品描述 HTML
+     * @return 清理后的 HTML；输入为 {@code null} 或空字符串时原样返回
+     */
     public static String normalizeLinks(String html) {
         if (html == null || html.isEmpty()) {
             return html;
@@ -71,6 +80,12 @@ public final class PixivDescriptionHtml {
                 + "\" target=\"_blank\" rel=\"noopener noreferrer\">";
     }
 
+    /**
+     * 将 Pixiv 相对链接和跳转链接解析为可安全展示的目标地址。
+     *
+     * @param href 原始链接
+     * @return 解析后的链接；危险协议返回 {@code #}
+     */
     public static String resolvePixivHref(String href) {
         if (href == null) {
             return "";

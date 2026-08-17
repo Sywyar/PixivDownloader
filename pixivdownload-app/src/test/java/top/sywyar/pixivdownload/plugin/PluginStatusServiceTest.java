@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
@@ -44,13 +44,13 @@ class PluginStatusServiceTest {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {
         };
         PluginInstallation gallery = new PluginInstallation(
-                external("gallery", "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR)),
+                external("gallery", "1.0.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR)),
                 PluginStatus.STARTED, extCl, new TestPlugin("gallery"));
         PluginInstallation compatible = new PluginInstallation(
-                external("ext-foo", "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR)),
+                external("ext-foo", "1.0.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR)),
                 PluginStatus.STARTED, extCl, new TestPlugin("ext-foo"));
         PluginInstallation incompatible = new PluginInstallation(
-                external("ext-bad", "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR + 1, 0)),
+                external("ext-bad", "1.0.0", VersionRequirement.of(SdkVersion.MAJOR + 1, 0)),
                 PluginStatus.INCOMPATIBLE, extCl, null);
         PluginInventory inventory = new PluginInventory(
                 List.of(gallery, compatible, incompatible),
@@ -77,7 +77,7 @@ class PluginStatusServiceTest {
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties());
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
-                new RequiredPlugin("download-workbench", PluginApiRequirement.unspecified(), false,
+                new RequiredPlugin("download-workbench", VersionRequirement.unspecified(), false,
                         "plugin.required.download-workbench")));
 
         PluginStatusReport report =
@@ -126,7 +126,7 @@ class PluginStatusServiceTest {
     @DisplayName("PF4J 插件包启动失败：状态为 FAILED，并与普通坏包诊断分开标识")
     void runtimePackageStartFailureIsReported() {
         PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties());
-        PluginDescriptor descriptor = external("crashy", "1.0.0", PluginApiRequirement.unspecified());
+        PluginDescriptor descriptor = external("crashy", "1.0.0", VersionRequirement.unspecified());
         PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(runtime.status()).thenReturn(Optional.of(new PluginRuntimeStatus(
@@ -178,7 +178,7 @@ class PluginStatusServiceTest {
     @DisplayName("停止的开发插件仍通过已加载描述符出现在状态报告")
     void stoppedDevelopmentPluginRemainsVisibleFromLoadedDescriptor() {
         PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties());
-        PluginDescriptor descriptor = external("dev-ext", "1.0.0", PluginApiRequirement.unspecified());
+        PluginDescriptor descriptor = external("dev-ext", "1.0.0", VersionRequirement.unspecified());
 
         PluginStatusReport report = new PluginStatusService(
                 registry, PluginInventory::empty, List::of,
@@ -205,13 +205,13 @@ class PluginStatusServiceTest {
         assertThat(descriptor.colorToken()).isEqualTo(color);
     }
 
-    private static PluginDescriptor external(String id, String version, PluginApiRequirement requires) {
+    private static PluginDescriptor external(String id, String version, VersionRequirement requires) {
         return new PluginDescriptor(id, id, version, requires, List.of(),
                 "com.example." + id.replace("-", "_"), null, id + ".label", null, null, null, PluginKind.FEATURE);
     }
 
     private static PluginDescriptor installedOfficial(String id, String namespace, String icon, String color) {
-        return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+        return new PluginDescriptor(id, id, "1.0.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(), "com.example." + id.replace("-", "_"), namespace, "plugin.name",
                 "plugin.summary", icon, color, PluginKind.FEATURE);
     }

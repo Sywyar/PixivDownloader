@@ -13,6 +13,14 @@ public record IndexSpec(
         boolean unique,
         List<String> columns
 ) {
+    /**
+     * 创建 {@code IndexSpec} 实例。
+     *
+     * @param name 名称
+     * @param origin 来源
+     * @param unique 唯一性
+     * @param columns 列集合
+     */
     public IndexSpec {
         columns = List.copyOf(columns);
     }

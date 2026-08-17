@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
+/**
+ * 从 Pixiv Cookie 中解析登录用户标识。
+ */
 public final class PixivCookieUserResolver {
 
     private PixivCookieUserResolver() {
@@ -9,6 +12,9 @@ public final class PixivCookieUserResolver {
      * 从 Pixiv cookie 串里抽出登录用户的 userId。
      * <p>PHPSESSID 格式为 {@code {userId}_{随机后缀}}，下划线前缀即 userId。返回 null 表示
      * cookie 缺失或不含合法 PHPSESSID（未登录 / 已过期 / 拼装错误）。
+     *
+     * @param cookie Cookie
+     * @return 方法返回的字符串
      */
     public static String extractUidFromCookie(String cookie) {
         if (cookie == null) return null;

@@ -3,28 +3,18 @@ package top.sywyar.pixivdownload.douyin.gallery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
-import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
-import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
-import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
-import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
-import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryPage;
-import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryQuery;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkFileRecord;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkRecord;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@DisplayName("Douyin 中性画廊数据提供方")
+@DisplayName("Douyin 插件自有画廊响应装配")
 class DouyinGalleryDataProviderTest {
 
     private DouyinHistoryService historyService;
@@ -37,104 +27,47 @@ class DouyinGalleryDataProviderTest {
     }
 
     @Test
-    @DisplayName("同时声明图片和视频投影并共享 aweme 作品身份")
-    void declaresImageVideoAndSharedWorkIdentity() {
-        assertThat(provider.projections()).extracting(descriptor -> descriptor.kind())
-                .containsExactly(GalleryKind.IMAGE, GalleryKind.VIDEO);
-        assertThat(provider.works()).singleElement().satisfies(descriptor -> {
-            assertThat(descriptor.sourceId()).isEqualTo("douyin");
-            assertThat(descriptor.sourceWorkNamespace()).isEqualTo("aweme");
-        });
-    }
-
-    @Test
-    @DisplayName("图片投影的查询谓词仅接受 IMAGE 媒体")
-    void imageProjectionUsesImageExistsPredicate() {
-        when(historyService.search(any())).thenReturn(new DouyinHistoryPage(List.of(work("7351")), 1));
-        when(historyService.findFilesByWorkId("7351")).thenReturn(List.of(file("7351", 0, null, "IMAGE")));
-
-        var page = provider.page(query(GalleryKind.IMAGE));
-
-        assertThat(page.projections()).singleElement().satisfies(projection -> {
-            assertThat(projection.key().workKey())
-                    .isEqualTo(new GalleryWorkKey("douyin", "aweme", "7351"));
-            assertThat(projection.key().kind()).isEqualTo(GalleryKind.IMAGE);
-            assertThat(projection.preferredMediaId()).isEqualTo("index-0");
-        });
-        ArgumentCaptor<DouyinHistoryQuery> captor = ArgumentCaptor.forClass(DouyinHistoryQuery.class);
-        verify(historyService).search(captor.capture());
-        assertThat(captor.getValue().requiredMediaTypes()).containsExactly("IMAGE");
-    }
-
-    @Test
-    @DisplayName("视频投影同时接受普通视频和实况视频且封面不参与分流")
-    void videoProjectionUsesVideoAndLivePhotoPredicate() {
-        when(historyService.search(any())).thenReturn(new DouyinHistoryPage(List.of(work("7351")), 1));
+    @DisplayName("卡片与详情保留插件自有作品身份和媒体类型")
+    void assemblesSourceOwnedProjectionAndWork() {
+        when(historyService.findById("7351")).thenReturn(Optional.of(work()));
         when(historyService.findFilesByWorkId("7351")).thenReturn(List.of(
-                file("7351", 0, "cover", "COVER"),
-                file("7351", 1, "live", "LIVE_PHOTO_VIDEO")));
+                file(0, null, "COVER"), file(1, "live", "LIVE_PHOTO_VIDEO")));
 
-        var page = provider.page(query(GalleryKind.VIDEO));
+        var card = provider.projection(work(), DouyinGalleryDataProvider.Kind.VIDEO);
+        var detail = provider.find("7351").orElseThrow();
 
-        assertThat(page.projections()).singleElement().satisfies(projection -> {
-            assertThat(projection.preferredMediaId()).isEqualTo("live");
-            assertThat(projection.containedMediaKinds())
-                    .containsExactlyInAnyOrder(GalleryMediaKind.COVER, GalleryMediaKind.LIVE_PHOTO_VIDEO);
-        });
-        ArgumentCaptor<DouyinHistoryQuery> captor = ArgumentCaptor.forClass(DouyinHistoryQuery.class);
-        verify(historyService).search(captor.capture());
-        assertThat(captor.getValue().requiredMediaTypes())
-                .containsExactly("VIDEO", "LIVE_PHOTO_VIDEO");
+        assertThat(card.key().workKey())
+                .isEqualTo(new DouyinGalleryDataProvider.WorkKey("douyin", "aweme", "7351"));
+        assertThat(card.preferredMediaId()).isEqualTo("live");
+        assertThat(card.thumbnailUrl()).isEqualTo("/api/douyin/history/7351/media/0");
+        assertThat(detail.media()).extracting(DouyinGalleryDataProvider.MediaAsset::kind)
+                .containsExactly(DouyinGalleryDataProvider.MediaKind.COVER,
+                        DouyinGalleryDataProvider.MediaKind.LIVE_PHOTO_VIDEO);
+        assertThat(detail.media().get(0).key().mediaId()).isEqualTo("index-0");
     }
 
     @Test
-    @DisplayName("作品详情返回图片视频实况视频和封面的完整媒体集合")
-    void workDetailReturnsCompleteMediaSet() {
-        when(historyService.findById("7351")).thenReturn(java.util.Optional.of(work("7351")));
-        when(historyService.findFilesByWorkId("7351")).thenReturn(List.of(
-                file("7351", 0, "image", "IMAGE"),
-                file("7351", 1, "video", "VIDEO"),
-                file("7351", 2, "live", "LIVE_PHOTO_VIDEO"),
-                file("7351", 3, null, "COVER")));
+    @DisplayName("未知媒体类型保持 UNKNOWN")
+    void unknownMediaTypeStaysUnknown() {
+        when(historyService.findById("7351")).thenReturn(Optional.of(work()));
+        when(historyService.findFilesByWorkId("7351"))
+                .thenReturn(List.of(file(0, "future", "FUTURE_MEDIA")));
 
-        var detail = provider.find(new GalleryWorkKey("douyin", "aweme", "7351"));
-
-        assertThat(detail).isPresent();
-        assertThat(detail.orElseThrow().media()).extracting(asset -> asset.kind())
-                .containsExactly(GalleryMediaKind.IMAGE, GalleryMediaKind.VIDEO,
-                        GalleryMediaKind.LIVE_PHOTO_VIDEO, GalleryMediaKind.COVER);
-        assertThat(detail.orElseThrow().media().get(3).key().mediaId()).isEqualTo("index-3");
+        assertThat(provider.find("7351").orElseThrow().media()).singleElement()
+                .extracting(DouyinGalleryDataProvider.MediaAsset::kind)
+                .isEqualTo(DouyinGalleryDataProvider.MediaKind.UNKNOWN);
     }
 
-    @Test
-    @DisplayName("未识别媒体类型显式映射为 UNKNOWN 而不冒充视频")
-    void unknownMediaTypeMapsToUnknown() {
-        when(historyService.findById("7351")).thenReturn(java.util.Optional.of(work("7351")));
-        when(historyService.findFilesByWorkId("7351")).thenReturn(List.of(
-                file("7351", 0, "future", "FUTURE_MEDIA")));
-
-        var detail = provider.find(new GalleryWorkKey("douyin", "aweme", "7351"));
-
-        assertThat(detail).isPresent();
-        assertThat(detail.orElseThrow().media()).singleElement()
-                .satisfies(asset -> assertThat(asset.kind()).isEqualTo(GalleryMediaKind.UNKNOWN));
-    }
-
-    private static GalleryProjectionQuery query(GalleryKind kind) {
-        return new GalleryProjectionQuery(kind, "douyin", List.of(), GallerySortField.DOWNLOADED_AT,
-                GallerySortDirection.DESC, null, 20);
-    }
-
-    private static DouyinWorkFileRecord file(String workId, int index, String mediaId, String mediaType) {
-        return new DouyinWorkFileRecord(workId, index, mediaId, mediaType,
+    private static DouyinWorkFileRecord file(int index, String mediaId, String mediaType) {
+        return new DouyinWorkFileRecord("7351", index, mediaId, mediaType,
                 "file-" + index + ".bin", "bin", 12L, "application/octet-stream", 1000L);
     }
 
-    private static DouyinWorkRecord work(String id) {
-        return new DouyinWorkRecord(id, "标题" + id, "/tmp/douyin/" + id, 4, "jpg,mp4", 1000L,
-                false, "MIXED", "https://v.douyin.com/" + id + "/",
-                "https://www.douyin.com/video/" + id, "https://p3.douyinpic.com/" + id + ".jpg",
-                "author-1", "作者1", "简介" + id, "条目" + id, "说明" + id, 2000L,
-                "collection-1", "合集1", 3);
+    private static DouyinWorkRecord work() {
+        return new DouyinWorkRecord("7351", "标题", "/tmp/douyin/7351", 2, "jpg,mp4", 1000L,
+                false, "MIXED", "https://v.douyin.com/7351/",
+                "https://www.douyin.com/video/7351", null,
+                "author-1", "作者", "简介", "条目", "说明", 2000L,
+                "collection-1", "合集", 3);
     }
 }

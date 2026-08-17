@@ -4,8 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -29,14 +28,14 @@ class BatchStateFilesTest {
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
         DownloadSettings downloadSettings = mock(DownloadSettings.class);
         Path ownerDirectory = tempDir.resolve("state/download-workbench");
-        when(runtimePathProvider.resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID))
+        when(runtimePathProvider.stateDirectory())
                 .thenReturn(ownerDirectory);
         when(downloadSettings.getRootFolder()).thenReturn(tempDir.resolve("downloads").toString());
 
         BatchStateFiles files = new BatchStateFiles(runtimePathProvider, downloadSettings);
 
         assertThat(files.stateFile()).isEqualTo(ownerDirectory.resolve("batch_state.json"));
-        verify(runtimePathProvider).resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID);
+        verify(runtimePathProvider).stateDirectory();
     }
 
     @Test
@@ -111,7 +110,7 @@ class BatchStateFilesTest {
     private BatchStateFiles createFiles(Path ownerDirectory, Path downloadRoot) {
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
         DownloadSettings downloadSettings = mock(DownloadSettings.class);
-        when(runtimePathProvider.resolvePluginStateDirectory(DownloadWorkbenchPlugin.ID))
+        when(runtimePathProvider.stateDirectory())
                 .thenReturn(ownerDirectory);
         when(downloadSettings.getRootFolder()).thenReturn(downloadRoot.toString());
         return new BatchStateFiles(runtimePathProvider, downloadSettings);

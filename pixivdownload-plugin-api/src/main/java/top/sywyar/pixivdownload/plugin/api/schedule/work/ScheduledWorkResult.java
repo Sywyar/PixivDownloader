@@ -19,8 +19,11 @@ public record ScheduledWorkResult(
         boolean liveStatusAvailable
 ) {
 
+    /** 允许携带的最大属性数量。 */
     public static final int MAX_ATTRIBUTES = 16;
+    /** 单个属性值允许占用的最大 UTF-8 字节数。 */
     public static final int MAX_ATTRIBUTE_VALUE_BYTES = 4_096;
+    /** 全部属性允许占用的最大 UTF-8 字节数。 */
     public static final int MAX_ATTRIBUTE_TOTAL_BYTES = 16_384;
 
     private static final Pattern MACHINE_CODE =
@@ -28,14 +31,26 @@ public record ScheduledWorkResult(
     private static final Pattern ATTRIBUTE_KEY =
             Pattern.compile("[A-Za-z][A-Za-z0-9._-]{0,63}");
 
+    /** 单作品同步执行结果的类别。 */
     public enum Outcome {
+        /**
+         * 表示 {@code COMPLETED} 状态。
+         */
         COMPLETED,
+        /**
+         * 表示 {@code ALREADY_COMPLETED} 状态。
+         */
         ALREADY_COMPLETED,
+        /** 已跳过当前作品。 */
         SKIPPED
     }
 
     /**
      * 构造不需要实时状态叠加的结果。
+     *
+     * @param outcome 执行结果
+     * @param resultCode 结果代码
+     * @param attributes 属性
      */
     public ScheduledWorkResult(
             Outcome outcome,
@@ -44,6 +59,14 @@ public record ScheduledWorkResult(
         this(outcome, resultCode, attributes, false);
     }
 
+    /**
+     * 创建并校验单作品同步执行结果。
+     *
+     * @param outcome 执行结果类别
+     * @param resultCode 结果机器码
+     * @param attributes 安全属性
+     * @param liveStatusAvailable 是否允许查询实时状态
+     */
     public ScheduledWorkResult {
         if (outcome == null) {
             throw new IllegalArgumentException("work outcome must not be null");
@@ -55,11 +78,21 @@ public record ScheduledWorkResult(
         attributes = validateAttributes(attributes);
     }
 
+    /**
+     * 返回已完成。
+     *
+     * @return 方法返回的 {@code ScheduledWorkResult} 实例
+     */
     public static ScheduledWorkResult completed() {
         return new ScheduledWorkResult(
                 Outcome.COMPLETED, "work.completed", Map.of(), false);
     }
 
+    /**
+     * 返回已经已完成。
+     *
+     * @return 方法返回的 {@code ScheduledWorkResult} 实例
+     */
     public static ScheduledWorkResult alreadyCompleted() {
         return new ScheduledWorkResult(
                 Outcome.ALREADY_COMPLETED, "work.already-completed", Map.of(), false);

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.douyin.settings;
 
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -12,8 +12,6 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 public class DouyinPluginSettingsService {
-
-    private static final String PLUGIN_ID = "douyin";
 
     public static final String KEY_DOWNLOAD_DIRECTORY = "douyin.download.directory";
     public static final String KEY_PROXY_MODE = "douyin.proxy.mode";
@@ -28,7 +26,7 @@ public class DouyinPluginSettingsService {
     public DouyinPluginSettingsService(RuntimePathProvider runtimePathProvider,
                                        Path inheritedDownloadDirectory) {
         this(requireRuntimePathProvider(runtimePathProvider)
-                        .resolvePluginConfigPath(PLUGIN_ID, "properties"),
+                        .configFile("properties"),
                 inheritedDownloadDirectory,
                 null);
     }

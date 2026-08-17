@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
@@ -60,7 +60,7 @@ class RecoverySentinelExternalPluginIntegrationTest {
 
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
     private static final RequiredPluginPolicy POLICY = RequiredPluginPolicy.of(List.of(
-            new RequiredPlugin("recovery-sentinel", PluginApiRequirement.unspecified(), false, "plugin.recovery.blocked")));
+            new RequiredPlugin("recovery-sentinel", VersionRequirement.unspecified(), false, "plugin.recovery.blocked")));
 
     private Path tempPluginsDir;
     private PluginRuntimeManager manager;

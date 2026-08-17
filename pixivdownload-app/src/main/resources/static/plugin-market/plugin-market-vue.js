@@ -107,9 +107,9 @@
 '          </div>',
 '        </div>',
 '        <div class="pmk-version-card">',
-'          <div class="pmk-version-label">{{ t(\'sidebar.core-api\', \'核心 API 版本\') }}</div>',
-'          <div class="pmk-version-num">v{{ coreApiVersion }}</div>',
-'          <div class="pmk-version-hint">{{ t(\'sidebar.core-api.hint\', \'标记为「不兼容」的插件需要更新应用后才能安装。\') }}</div>',
+'          <div class="pmk-version-label">{{ t(\'sidebar.sdk\', \'SDK 版本\') }}</div>',
+'          <div class="pmk-version-num">v{{ sdkVersion }}</div>',
+'          <div class="pmk-version-hint">{{ t(\'sidebar.sdk.hint\', \'标记为「不兼容」的插件需要更新应用后才能安装。\') }}</div>',
 '        </div>',
 '      </aside>',
 '',
@@ -168,7 +168,7 @@
 '                {{ [card.versionLabel, card.sizeLabel, card.dateLabel].filter(Boolean).join(\' · \') }}',
 '              </div>',
 '              <div v-if="showCardCompat(card)" class="pmk-card-compat">',
-'                <i class="fa-solid fa-triangle-exclamation"></i>{{ t(\'compat.needs\', \'需要核心 API v{v}+（当前 v{cur}）\', {v: card.compatibilityReason, cur: coreApiVersion}) }}',
+'                <i class="fa-solid fa-triangle-exclamation"></i>{{ t(\'compat.needs\', \'需要SDK v{v}+（当前 v{cur}）\', {v: card.compatibilityReason, cur: sdkVersion}) }}',
 '              </div>',
 '              <div class="pmk-card-actions">',
 '                <div v-if="cardStatus(card) === \'INSTALLING\'" class="pmk-install-progress">',
@@ -314,7 +314,7 @@
                     recoveryMode: false,
                     recoveryReasons: [],
                     filtersInitialized: false,
-                    coreApiVersion: '',
+                    sdkVersion: '',
                     repositories: [],
                     defaultRepositoryId: null,
                     activeRepositoryId: null,
@@ -434,7 +434,7 @@
                             self.hideDefaultInstalled = !self.recoveryMode;
                             self.filtersInitialized = true;
                         }
-                        self.coreApiVersion = repos.coreApiVersion || '';
+                        self.sdkVersion = repos.sdkVersion || '';
                         self.repositories = repos.repositories || [];
                         self.defaultRepositoryId = repos.defaultRepositoryId || null;
                         var stillValid = self.repositories.some(function (r) {
@@ -600,8 +600,8 @@
                     if (m.updatedTime) rows.push({ key: 'detail.updated', val: PMK.formatDate(m.updatedTime) });
                     var size = pkg ? PMK.formatSize(pkg.expectedSizeBytes) : null;
                     if (size) rows.push({ key: 'detail.size', val: size, mono: true });
-                    if (pkg && pkg.requiredCoreApi) {
-                        rows.push({ key: 'detail.requires', val: pkg.requiredCoreApi, mono: true, danger: !pkg.compatible });
+                    if (pkg && pkg.requiredSdk) {
+                        rows.push({ key: 'detail.requires', val: pkg.requiredSdk, mono: true, danger: !pkg.compatible });
                     }
                     rows.push({
                         key: 'detail.compatible',

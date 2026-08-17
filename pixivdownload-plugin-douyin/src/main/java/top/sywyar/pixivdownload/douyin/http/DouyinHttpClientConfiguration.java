@@ -6,14 +6,12 @@ import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinRuntimeSettings;
-import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpCookiePolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRedirectPolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
-import top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate;
-import top.sywyar.pixivdownload.plugin.runtime.http.PluginRestTemplateAdapter;
 
 import java.net.URI;
 import java.time.Duration;
@@ -27,65 +25,57 @@ public class DouyinHttpClientConfiguration {
     private static final Duration REDIRECT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration REDIRECT_READ_TIMEOUT = Duration.ofSeconds(10);
 
-    @Bean(name = "douyinRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinRestTemplate(OutboundHttpClientFactory factory) {
+    @Bean(name = "douyinHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinHttpClient(OutboundHttpClientFactory factory) {
         return openMain(factory, OutboundHttpRoute.inherit());
     }
 
-    @Bean(name = "douyinDirectRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinDirectRestTemplate(OutboundHttpClientFactory factory) {
+    @Bean(name = "douyinDirectHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinDirectHttpClient(OutboundHttpClientFactory factory) {
         return openMain(factory, OutboundHttpRoute.scopedOrDirect());
     }
 
-    @Bean(name = "douyinProxyRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinProxyRestTemplate(OutboundHttpClientFactory factory) {
+    @Bean(name = "douyinProxyHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinProxyHttpClient(OutboundHttpClientFactory factory) {
         return openMain(factory, OutboundHttpRoute.requiredGlobalProxy());
     }
 
-    @Bean(name = "douyinCustomProxyRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinCustomProxyRestTemplate(
+    @Bean(name = "douyinCustomProxyHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinCustomProxyHttpClient(
             OutboundHttpClientFactory factory,
             DouyinPluginSettingsService settingsService
     ) {
         return openMain(factory, customRoute(settingsService));
     }
 
-    @Bean(name = "douyinRedirectRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinRedirectRestTemplate(OutboundHttpClientFactory factory) {
+    @Bean(name = "douyinRedirectHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinRedirectHttpClient(OutboundHttpClientFactory factory) {
         return openRedirect(factory, OutboundHttpRoute.inherit());
     }
 
-    @Bean(name = "douyinDirectRedirectRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinDirectRedirectRestTemplate(OutboundHttpClientFactory factory) {
+    @Bean(name = "douyinDirectRedirectHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinDirectRedirectHttpClient(OutboundHttpClientFactory factory) {
         return openRedirect(factory, OutboundHttpRoute.scopedOrDirect());
     }
 
-    @Bean(name = "douyinProxyRedirectRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinProxyRedirectRestTemplate(OutboundHttpClientFactory factory) {
+    @Bean(name = "douyinProxyRedirectHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinProxyRedirectHttpClient(OutboundHttpClientFactory factory) {
         return openRedirect(factory, OutboundHttpRoute.requiredGlobalProxy());
     }
 
-    @Bean(name = "douyinCustomProxyRedirectRestTemplate", destroyMethod = "close")
-    @ConditionalOnPluginEnabled("douyin")
-    public ManagedPluginRestTemplate douyinCustomProxyRedirectRestTemplate(
+    @Bean(name = "douyinCustomProxyRedirectHttpClient", destroyMethod = "close")
+    public OutboundHttpClient douyinCustomProxyRedirectHttpClient(
             OutboundHttpClientFactory factory,
             DouyinPluginSettingsService settingsService
     ) {
         return openRedirect(factory, customRoute(settingsService));
     }
 
-    private static ManagedPluginRestTemplate openMain(
+    private static OutboundHttpClient openMain(
             OutboundHttpClientFactory factory,
             OutboundHttpRoute route
     ) {
-        return PluginRestTemplateAdapter.open(factory, new OutboundHttpClientProfile(
+        return factory.open(new OutboundHttpClientProfile(
                 MAIN_CONNECT_TIMEOUT,
                 MAIN_READ_TIMEOUT,
                 route,
@@ -95,11 +85,11 @@ public class DouyinHttpClientConfiguration {
                 10));
     }
 
-    private static ManagedPluginRestTemplate openRedirect(
+    private static OutboundHttpClient openRedirect(
             OutboundHttpClientFactory factory,
             OutboundHttpRoute route
     ) {
-        return PluginRestTemplateAdapter.open(factory, new OutboundHttpClientProfile(
+        return factory.open(new OutboundHttpClientProfile(
                 REDIRECT_CONNECT_TIMEOUT,
                 REDIRECT_READ_TIMEOUT,
                 route,

@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gallery;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
@@ -27,16 +26,12 @@ class GalleryPluginContributionTest {
     }
 
     @Test
-    @DisplayName("gallery 以成熟页面为主入口并保留已过时的只读兼容 API")
+    @DisplayName("gallery 只声明自有成熟页面与 API")
     void pageRoutesAndStaticResourcesUseMatureGalleryOnly() {
         assertThat(plugin.routes())
                 .extracting(route -> route.pathPattern())
-                .contains("/pixiv-gallery.html", "/pixiv-gallery/**", "/api/gallery/unified/**")
-                .doesNotContain("/unified-gallery.html", "/unified-gallery/**");
-        assertThat(plugin.routes())
-                .filteredOn(route -> route.pathPattern().equals("/api/gallery/unified/**"))
-                .singleElement()
-                .satisfies(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.INVITED_GUEST));
+                .contains("/pixiv-gallery.html", "/pixiv-gallery/**")
+                .doesNotContain("/unified-gallery.html", "/unified-gallery/**", "/api/gallery/unified/**");
         assertThat(plugin.staticResources())
                 .extracting(resource -> resource.publicPathPrefix())
                 .contains("/pixiv-gallery.html", "/pixiv-gallery/")

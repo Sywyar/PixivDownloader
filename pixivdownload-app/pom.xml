@@ -17,6 +17,11 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-sdk-info</artifactId>
+            <version>${pixivdownload.sdk.version}</version>
+        </dependency>
         <!-- 跨插件契约模块：主程序与各功能插件共享的稳定契约（零业务依赖，编译期强制） -->
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>

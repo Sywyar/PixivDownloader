@@ -5,7 +5,7 @@
  *
  * 数据来源：后端管理 API（admin-only，已接线）。后端响应见 PluginManagementService.PluginManagementReport：
  *   { recoveryMode, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
- *     version, kind, apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
+ *     version, kind, sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
  *     allowDisable, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
  * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
@@ -267,7 +267,7 @@
             badgeTone: source === 'built-in' ? 'success' : (source === 'external' ? 'idle' : 'warn'),
             desc: describe(entry),
             tags: tags,
-            api: entry.apiRequirement || null,
+            sdk: entry.sdkRequirement || null,
             deps: entry.dependencies || [],
             messages: (entry.messages || []).concat(entry.operationDiagnostic ? [entry.operationDiagnostic] : []),
             // 只有热重载策略继续暴露既有运行期动词；其余策略统一走持久化启停开关。

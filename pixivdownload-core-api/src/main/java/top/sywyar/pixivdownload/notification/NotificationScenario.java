@@ -46,22 +46,39 @@ public enum NotificationScenario {
         this.level = level;
     }
 
-    /** 各通知介质共享的 canonical id。 */
+    /**
+     * 各通知介质共享的 canonical id。
+     *
+     * @return 方法返回的字符串
+     */
     public String id() {
         return id;
     }
 
-    /** 默认通知严重程度；具体发送介质自行映射。 */
+    /**
+     * 默认通知严重程度；具体发送介质自行映射。
+     *
+     * @return 方法返回的 {@code NotificationSeverity} 实例
+     */
     public NotificationSeverity level() {
         return level;
     }
 
-    /** 展示介质使用的稳定分类 id。 */
+    /**
+     * 展示介质使用的稳定分类 id。
+     *
+     * @return 方法返回的字符串
+     */
     public String categoryId() {
         return categoryId;
     }
 
-    /** 按已发布 canonical id 解析场景；未知或空 id 不回退到其它场景。 */
+    /**
+     * 按已发布 canonical id 解析场景；未知或空 id 不回退到其它场景。
+     *
+     * @param id 标识
+     * @return 匹配的可选值
+     */
     public static Optional<NotificationScenario> findById(String id) {
         if (id == null || id.isBlank()) {
             return Optional.empty();

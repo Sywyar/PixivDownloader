@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.market;
 
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorCode;
@@ -58,7 +58,7 @@ public class PluginMarketService {
     }
 
     /**
-     * 仓库列表 + 主开关状态 + 当前核心 API 版本 + 默认仓库 id。主开关关闭时 {@code enabled=false} 但仍列出仓库
+     * 仓库列表 + 主开关状态 + 当前SDK 版本 + 默认仓库 id。主开关关闭时 {@code enabled=false} 但仍列出仓库
      * （供管理员查看 / 决定开启）。
      */
     public PluginMarketRepositoriesView repositories() {
@@ -69,7 +69,7 @@ public class PluginMarketService {
                         repository, repository.repositoryId().equals(defaultId)))
                 .toList();
         return new PluginMarketRepositoriesView(
-                repositoryRegistry.featureEnabled(), PluginApiVersion.VERSION, defaultId, views);
+                repositoryRegistry.featureEnabled(), SdkVersion.VERSION, defaultId, views);
     }
 
     /**
@@ -90,7 +90,7 @@ public class PluginMarketService {
                 .filter(entry -> entry.installStatus() == MarketInstallStatus.INSTALLED
                         || entry.installStatus() == MarketInstallStatus.UPDATE_AVAILABLE)
                 .count();
-        return new PluginMarketView(repository.repositoryId(), true, PluginApiVersion.VERSION,
+        return new PluginMarketView(repository.repositoryId(), true, SdkVersion.VERSION,
                 installedCount, categoryCounts(manifest), entries);
     }
 

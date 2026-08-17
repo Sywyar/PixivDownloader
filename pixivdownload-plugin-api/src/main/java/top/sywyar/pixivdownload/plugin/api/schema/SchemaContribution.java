@@ -15,6 +15,13 @@ public record SchemaContribution(
         List<ColumnMigrationSpec> columnMigrations,
         List<PathColumnSpec> pathColumns
 ) {
+    /**
+     * 创建 {@code SchemaContribution} 实例。
+     *
+     * @param tables 表集合
+     * @param columnMigrations {@code columnMigrations} 对应的值
+     * @param pathColumns 路径列集合
+     */
     public SchemaContribution {
         tables = List.copyOf(tables);
         columnMigrations = List.copyOf(columnMigrations);

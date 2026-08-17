@@ -6,6 +6,7 @@
     <title data-i18n="example-download:gallery.title">Example download independent gallery</title>
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/example-download-gallery/example-download-gallery.css">
+    <script src="/js/pixiv-navigation.js"></script>
 </head>
 <body>
 <header class="gallery-header">
@@ -13,7 +14,14 @@
         <h1 data-i18n="example-download:gallery.title">Example download independent gallery</h1>
         <p data-i18n="example-download:gallery.summary">This page reads only plugin-owned data.</p>
     </div>
-    <div id="exampleDownloadGallerySwitchers" class="gallery-switchers"></div>
+    <div class="gallery-header-actions">
+        <div class="gallery-type-switch" role="tablist"
+             data-i18n-aria-label="example-download:gallery.type-switch">
+            <span data-nav-slot="gallery.type-switch" data-nav-link-class="gallery-type-option"
+                  data-nav-no-icon data-nav-item-role="tab"></span>
+        </div>
+        <div id="exampleDownloadGallerySwitchers" class="gallery-switchers"></div>
+    </div>
 </header>
 <main>
     <div class="gallery-toolbar">

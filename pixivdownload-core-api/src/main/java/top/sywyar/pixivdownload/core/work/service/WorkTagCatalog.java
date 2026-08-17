@@ -7,5 +7,12 @@ package top.sywyar.pixivdownload.core.work.service;
  */
 public interface WorkTagCatalog {
 
+    /**
+     * 返回对应值。
+     *
+     * @param name 名称
+     * @param translatedName 翻译后值名称
+     * @return 方法返回的 {@code Long} 实例
+     */
     Long getOrCreateTagId(String name, String translatedName);
 }

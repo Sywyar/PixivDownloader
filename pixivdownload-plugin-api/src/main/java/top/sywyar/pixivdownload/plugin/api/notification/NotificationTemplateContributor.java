@@ -6,5 +6,10 @@ import java.util.List;
 @FunctionalInterface
 public interface NotificationTemplateContributor {
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的列表
+     */
     List<NotificationTemplateContribution> notificationTemplates();
 }

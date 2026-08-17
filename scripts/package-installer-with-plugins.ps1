@@ -22,7 +22,6 @@ param(
     [string]$ManifestUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
     [string]$PluginInputsDir,
     [string]$SignatureToolJar,
-    [string]$CoreApiVersion = "1.0.0",
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
     [switch]$AllowUnsignedLocalPlugins,
@@ -34,6 +33,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot
 if (-not $PluginInputsDir) {
     $PluginInputsDir = Join-Path $ProjectRoot "build/plugin-inputs"
 }
@@ -170,8 +170,7 @@ try {
         & $StagePluginsScript `
             -ManifestUrl $ManifestUrl `
             -OutputDir $PluginInputsDir `
-            -SignatureToolJar $resolvedSignatureToolJar `
-            -CoreApiVersion $CoreApiVersion
+            -SignatureToolJar $resolvedSignatureToolJar
         $packageArgs.PrebuiltPluginsDir = $PluginInputsDir
     } elseif ($AllowUnsignedLocalPlugins) {
         Write-Step "Using current-source default-installed plugins without signatures (LOCAL TEST ONLY)"

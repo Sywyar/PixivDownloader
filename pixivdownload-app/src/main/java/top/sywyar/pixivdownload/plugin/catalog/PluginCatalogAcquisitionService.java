@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -244,7 +244,7 @@ public class PluginCatalogAcquisitionService {
     }
 
     private static boolean dependencyVersionSatisfied(PluginDependencyRef dependency, String version) {
-        PluginApiRequirement actual = PluginApiRequirement.parse(version);
+        VersionRequirement actual = VersionRequirement.parse(version);
         return dependency.requirement().isSatisfiedBy(actual.major(), actual.minor());
     }
 

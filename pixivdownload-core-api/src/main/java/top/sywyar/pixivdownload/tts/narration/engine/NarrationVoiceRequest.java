@@ -16,17 +16,32 @@ public record NarrationVoiceRequest(
         NarrationReferenceVoice referenceVoice
 ) {
 
-    /** 创建不带参考音和语气微调的请求。 */
+    /**
+     * 创建不带参考音和语气微调的请求。
+     *
+     * @param text 文本
+     * @param controlInstruction 控制指令
+     * @return 方法返回的 {@code NarrationVoiceRequest} 实例
+     */
     public static NarrationVoiceRequest of(String text, String controlInstruction) {
         return new NarrationVoiceRequest(text, controlInstruction, "", null);
     }
 
-    /** 返回仅替换 {@link #text} 的副本。 */
+    /**
+     * 返回仅替换 {@link #text} 的副本。
+     *
+     * @param newText 新值文本
+     * @return 方法返回的 {@code NarrationVoiceRequest} 实例
+     */
     public NarrationVoiceRequest withText(String newText) {
         return new NarrationVoiceRequest(newText, controlInstruction, delivery, referenceVoice);
     }
 
-    /** 是否携带可用的参考音（用于克隆）。 */
+    /**
+     * 是否携带可用的参考音（用于克隆）。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public boolean hasReferenceVoice() {
         return referenceVoice != null && referenceVoice.hasAudio();
     }

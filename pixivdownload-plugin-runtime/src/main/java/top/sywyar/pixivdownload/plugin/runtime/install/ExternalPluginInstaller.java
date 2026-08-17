@@ -89,7 +89,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.ZipSafety;
  *       （大小 / SHA-256 / 结构化签名）。本地上传按显式 unsigned 策略处理；受信目录来源不符 →
  *       {@code REJECTED_INTEGRITY}。</li>
  *   <li><b>校验描述符</b>：{@link PluginDescriptor#externalValidationErrors()} 不通过 → {@code REJECTED_INVALID}。</li>
- *   <li><b>核心 API 兼容门</b>：{@code requires} 不被当前核心满足 → {@code REJECTED_INCOMPATIBLE}（不装为可加载状态）。</li>
+ *   <li><b>SDK 兼容门</b>：{@code requires} 不被当前宿主 SDK 满足 → {@code REJECTED_INCOMPATIBLE}（不装为可加载状态）。</li>
  *   <li><b>ZIP entry 校验</b>：对 {@code .zip} 包做 {@link ZipSafety#assertSafeArchiveEntries}，含越界、不可移植或规范化重名 entry → {@code REJECTED_UNSAFE}。</li>
  *   <li><b>重复 / 升级 / 降级</b>：按 pluginId 找安装目录内现存同 id 包并比 semver——无→{@code INSTALLED}；
  *       高→{@code UPGRADED}；同→{@code DUPLICATE}（幂等）；低→默认 {@code DOWNGRADE_REJECTED}，
@@ -1667,11 +1667,11 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     validationErrors);
         }
 
-        // 3. 核心 API 兼容门：不兼容不装为可加载状态
-        if (!descriptor.isApiCompatible()) {
+        // 3. SDK 兼容门：不兼容不装为可加载状态
+        if (!descriptor.isSdkCompatible()) {
             return new PluginInstallResult(PluginInstallOutcome.REJECTED_INCOMPATIBLE, descriptor, null, null,
-                    List.of("requires core API " + descriptor.requires().display()
-                            + ", but core provides " + PluginPackageReader.coreApiVersion()));
+                    List.of("requires SDK " + descriptor.requires().display()
+                            + ", but core provides " + PluginPackageReader.sdkVersion()));
         }
 
         // 4. 对会整体物化的 .zip 再按中央目录视图校验全部 entry。

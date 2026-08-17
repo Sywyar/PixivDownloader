@@ -11,7 +11,7 @@ Before publishing a real plugin, replace these identities consistently:
 | `com.example.pixivdownload.downloadtype` | Your Java package |
 | `ExampleDownload*` | Your Java class prefix |
 | `0.1.0` | Your plugin artifact version |
-| `plugin.requires=1.0` | The compatible Plugin API major/minor requirement |
+| `plugin.requires=1.0` | The compatible PixivDownloader SDK major/minor requirement |
 | `plugin.provider=Example Developer` | Your provider name |
 | `example-download` i18n namespace | Your unique web i18n namespace |
 | `/api/example-download/**` and `/example-download/**` | Plugin-owned API and static paths |
@@ -34,7 +34,7 @@ Build from this directory with `mvn clean verify`, or build both repository temp
 
 This template is not a network downloader and does not demonstrate authentication, anti-bot workarounds, DRM access, private content, host database access, or a host download-root service. Replace the in-memory domain action with your own lawful blocking download implementation before reporting `ScheduledWorkResult.completed()`.
 
-This template exposes an independent page by contributing its own routes, static resources, controller, and i18n bundle. `/api/gallery/unified/**` is a deprecated host-internal compatibility API, not a third-party SDK capability, and must not receive new consumers. The maintained `/pixiv-gallery.html` family and its source-owned APIs are not deprecated. Deep asset serving, deletion, visibility, search/filter projection, collections, and statistics remain host-owned. Do not import gallery, app, core implementation, runtime-internal, installer, or signature-internal classes to bypass that boundary.
+This template exposes a plugin-owned gallery page by contributing its own routes, static resources, controller, i18n bundle, and `gallery.type-switch` navigation entry. PixivDownloader has no generic gallery API or shared gallery runtime: every download-type plugin owns its gallery data, rendering, media serving, filters, and actions. Do not mount third-party code into `/pixiv-gallery.html`, call another plugin's gallery API, or import gallery, app, runtime-internal, installer, or signature-internal classes to bypass that boundary.
 
 The schedule contracts are stable, but the host remains responsible for claims, leases, credentials, cancellation, pending work, and checkpoints. A plugin owns only its descriptor, opaque definition/payload schemas, source discovery, and synchronous work execution. The current neutral browser input adapter exposed to third-party source modules covers `single-import`; do not reach into host DOM or private mode functions to emulate other editor modes. This example is credential-free and has no checkpoint.
 

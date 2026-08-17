@@ -18,28 +18,69 @@ import java.util.function.Supplier;
  */
 public interface ScheduleCapabilityAccess {
 
+    /**
+     * 返回快照。
+     *
+     * @return 方法返回的 {@code ScheduleCapabilitySnapshot} 实例
+     */
     ScheduleCapabilitySnapshot snapshot();
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param featurePluginId {@code featurePluginId} 对应的值
+     * @return 匹配的可选值
+     */
     Optional<? extends ScheduleCapabilityLease<ScheduleCapabilityOwner>> prepareOwner(
             String featurePluginId);
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param workType 工作类型
+     * @return 匹配的可选值
+     */
     Optional<? extends ScheduleCapabilityLease<ScheduledWorkExecutor>> prepareWorkExecutor(
             String workType);
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param policyId 策略标识
+     * @return 匹配的可选值
+     */
     Optional<? extends ScheduleCapabilityLease<ScheduledCredentialPolicy>> prepareCredentialPolicy(
             String policyId);
 
+    /**
+     * 执行凭证策略所有者并返回结果。
+     *
+     * @param policyId 策略标识
+     * @return 匹配的可选值
+     */
     Optional<ScheduleCapabilityOwner> credentialPolicyOwner(String policyId);
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param sourceTypeOrAlias {@code sourceTypeOrAlias} 对应的值
+     * @return 匹配的可选值
+     */
     Optional<? extends SchedulePlanningLease> prepareSource(String sourceTypeOrAlias);
 
     /**
      * 激活单项租约。只有本端口准备且仍属于当前 publication 的开放租约才返回 {@code true}。
+     *
+     * @param lease 租约
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean activate(ScheduleCapabilityLease<?> lease);
 
     /**
      * 激活来源 planning 租约。只有本端口准备且仍属于当前 publication 的开放租约才返回 {@code true}。
+     *
+     * @param lease 租约
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean activate(SchedulePlanningLease lease);
 
@@ -47,6 +88,11 @@ public interface ScheduleCapabilityAccess {
      * 仅在 planning 租约仍活动且 publication 仍当前时执行宿主操作。
      *
      * <p>操作不得回调插件行为；宿主会把 currentness 复核、操作执行与 publication 撤回串行化。
+     *
+     * @param <T> 类型参数
+     * @param planning 规划租约
+     * @param operation 操作
+     * @return 匹配的可选值
      */
     <T> Optional<T> whileCurrentPublication(
             SchedulePlanningLease planning,
@@ -57,6 +103,11 @@ public interface ScheduleCapabilityAccess {
      *
      * <p>插件行为回调必须在进入本方法前完成；操作不得调用租约能力。宿主会把 currentness 复核、
      * 操作执行与 publication 撤回串行化。
+     *
+     * @param <T> 类型参数
+     * @param lease 租约
+     * @param operation 操作
+     * @return 匹配的可选值
      */
     <T> Optional<T> whileCurrentPublication(
             ScheduleCapabilityLease<?> lease,
@@ -68,6 +119,11 @@ public interface ScheduleCapabilityAccess {
      * <p>全部插件行为回调必须在进入本方法前完成；操作不得调用租约能力。宿主会把所有 owner 的
      * currentness 复核、操作执行与 publication 撤回串行化。旧宿主实现默认 fail-closed，避免把
      * 未受保护的写入误当成成功。
+     *
+     * @param <T> 类型参数
+     * @param execution 执行租约
+     * @param operation 操作
+     * @return 匹配的可选值
      */
     default <T> Optional<T> whileCurrentPublication(
             ScheduleExecutionLease execution,
@@ -78,6 +134,10 @@ public interface ScheduleCapabilityAccess {
 
     /**
      * 准备一轮执行所需的原子复合租约。准备本身不转移 planning 租约的所有权。
+     *
+     * @param planning 规划租约
+     * @param plan 执行计划
+     * @return 匹配的可选值
      */
     Optional<? extends ScheduleExecutionLease> prepareExpansion(
             SchedulePlanningLease planning,
@@ -87,6 +147,9 @@ public interface ScheduleCapabilityAccess {
      * 原子激活复合租约并把来源租约从 planning 转移到 execution。
      *
      * <p>成功后 planning 租约不再活动；失败时不得留下部分激活的附加 owner。
+     *
+     * @param execution 执行租约
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     boolean activate(ScheduleExecutionLease execution);
 }

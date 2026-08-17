@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
@@ -31,8 +31,8 @@ import java.util.List;
  * <ul>
  *   <li><b>只看已启动插件。</b>仅 {@link PluginState#STARTED} 的插件参与；未启动 / 失败的包由
  *       {@link PluginRuntimeManager} 在加载 / 启动阶段已捕获为失败诊断。</li>
- *   <li><b>先校核心 API 兼容、再提取贡献。</b>读插件包描述符的 {@code requires} 并据
- *       {@link PluginApiRequirement#isSatisfiedByCurrentApi()} 判定：不兼容的包标记
+ *   <li><b>先校SDK 兼容、再提取贡献。</b>读插件包描述符的 {@code requires} 并据
+ *       {@link VersionRequirement#isSatisfiedByCurrentSdk()} 判定：不兼容的包标记
  *       {@link PluginStatus#INCOMPATIBLE} 并<b>拒绝提取</b>其功能插件（不信任不兼容插件的贡献），从而拒绝接入；
  *       兼容的包才经入口契约 {@link PixivPluginProvider} 提取 {@link PixivFeaturePlugin}。</li>
  *   <li><b>统一映射描述符。</b>每个功能插件映射出统一 {@link PluginDescriptor}：id / displayName / kind 取功能插件，
@@ -119,13 +119,13 @@ public final class PixivPluginDiscoveryBridge {
         String sourcePluginId = wrapper.getPluginId();
         ClassLoader classLoader = wrapper.getPluginClassLoader();
         org.pf4j.PluginDescriptor pf4jDescriptor = wrapper.getDescriptor();
-        PluginApiRequirement requires = PluginApiRequirement.parse(
+        VersionRequirement requires = VersionRequirement.parse(
                 pf4jDescriptor != null ? pf4jDescriptor.getRequires() : null);
 
-        // 先校核心 API 兼容：不兼容的插件包不提取贡献，仅记一条 INCOMPATIBLE 安装条目（拒绝接入）。
-        if (!requires.isSatisfiedByCurrentApi()) {
-            log.warn("External plugin {} is incompatible with core API {}: requires {}",
-                    sourcePluginId, top.sywyar.pixivdownload.plugin.api.PluginApiVersion.VERSION, requires.display());
+        // 先校SDK 兼容：不兼容的插件包不提取贡献，仅记一条 INCOMPATIBLE 安装条目（拒绝接入）。
+        if (!requires.isSatisfiedByCurrentSdk()) {
+            log.warn("External plugin {} is incompatible with SDK {}: requires {}",
+                    sourcePluginId, top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, requires.display());
             installations.add(new PluginInstallation(
                     packageDescriptor(sourcePluginId, pf4jDescriptor, requires),
                     PluginStatus.INCOMPATIBLE, classLoader, null));
@@ -219,7 +219,7 @@ public final class PixivPluginDiscoveryBridge {
     private static PluginDescriptor featureDescriptor(String featurePluginId, PixivFeaturePlugin featurePlugin,
                                                       String sourcePluginId,
                                                       org.pf4j.PluginDescriptor pf4jDescriptor,
-                                                      PluginApiRequirement requires) {
+                                                      VersionRequirement requires) {
         return new PluginDescriptor(
                 featurePluginId,
                 sourcePluginId,
@@ -242,7 +242,7 @@ public final class PixivPluginDiscoveryBridge {
      */
     private static PluginDescriptor packageDescriptor(String sourcePluginId,
                                                       org.pf4j.PluginDescriptor pf4jDescriptor,
-                                                      PluginApiRequirement requires) {
+                                                      VersionRequirement requires) {
         String displayName = sourcePluginId;
         if (pf4jDescriptor != null && pf4jDescriptor.getPluginDescription() != null
                 && !pf4jDescriptor.getPluginDescription().isBlank()) {

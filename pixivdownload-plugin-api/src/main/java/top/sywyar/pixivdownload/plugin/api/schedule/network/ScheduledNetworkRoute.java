@@ -15,12 +15,28 @@ public record ScheduledNetworkRoute(
         String proxyCredentialReference
 ) {
 
+    /** 网络路由模式。 */
     public enum Mode {
+        /**
+         * 表示 {@code INHERIT} 状态。
+         */
         INHERIT,
+        /**
+         * 表示 {@code DIRECT} 状态。
+         */
         DIRECT,
+        /** 使用指定代理。 */
         PROXY
     }
 
+    /**
+     * 创建并校验计划任务网络路由。
+     *
+     * @param mode 路由模式
+     * @param proxyHost 代理主机
+     * @param proxyPort 代理端口
+     * @param proxyCredentialReference 代理凭证的不透明引用
+     */
     public ScheduledNetworkRoute {
         if (mode == null) {
             throw new IllegalArgumentException("network route mode must not be null");
@@ -39,25 +55,50 @@ public record ScheduledNetworkRoute(
         }
     }
 
+    /**
+     * 返回对应值。
+     *
+     * @return 方法返回的 {@code ScheduledNetworkRoute} 实例
+     */
     public static ScheduledNetworkRoute inherit() {
         return new ScheduledNetworkRoute(Mode.INHERIT, null, 0, null);
     }
 
+    /**
+     * 返回直连。
+     *
+     * @return 方法返回的 {@code ScheduledNetworkRoute} 实例
+     */
     public static ScheduledNetworkRoute direct() {
         return new ScheduledNetworkRoute(Mode.DIRECT, null, 0, null);
     }
 
+    /**
+     * 执行代理并返回结果。
+     *
+     * @param host 主机
+     * @param port 端口
+     * @param credentialReference 凭证引用
+     * @return 方法返回的 {@code ScheduledNetworkRoute} 实例
+     */
     public static ScheduledNetworkRoute proxy(String host, int port, String credentialReference) {
         return new ScheduledNetworkRoute(Mode.PROXY, host, port, credentialReference);
     }
 
-    /** 执行上下文可直接应用的路由不再包含 {@link Mode#INHERIT}。 */
+    /**
+     * 执行上下文可直接应用的路由不再包含 {@link Mode#INHERIT}。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public boolean isResolved() {
         return mode != Mode.INHERIT;
     }
 
     /**
      * 用宿主已解析的全局默认路由消解 {@link Mode#INHERIT}。显式 DIRECT/PROXY 保持原对象，便于所有调用点共享身份。
+     *
+     * @param inheritedRoute 继承的路由
+     * @return 方法返回的 {@code ScheduledNetworkRoute} 实例
      */
     public ScheduledNetworkRoute resolveAgainst(ScheduledNetworkRoute inheritedRoute) {
         if (mode != Mode.INHERIT) {

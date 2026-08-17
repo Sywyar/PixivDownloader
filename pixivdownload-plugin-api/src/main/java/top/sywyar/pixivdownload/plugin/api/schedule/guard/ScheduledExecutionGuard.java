@@ -8,10 +8,20 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
  */
 public interface ScheduledExecutionGuard {
 
-    /** 全局唯一、建议带插件命名空间的 Guard id。 */
+    /**
+     * 全局唯一、建议带插件命名空间的 Guard id。
+     *
+     * @return 方法返回的字符串
+     */
     String guardId();
 
-    /** 返回稳定决定及可选的受控证据。 */
+    /**
+     * 返回稳定决定及可选的受控证据。
+     *
+     * @param context 上下文
+     * @return 方法返回的 {@code ScheduledGuardResult} 实例
+     * @throws top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException 执行失败时抛出
+     */
     ScheduledGuardResult evaluate(ScheduledGuardContext context)
             throws ScheduledExecutionException;
 }

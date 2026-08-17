@@ -7,7 +7,7 @@ import java.util.Objects;
  * 一个外置插件包的「Spring 子 context 装配定义」：要在子 {@code ApplicationContext} 中实例化的配置类、
  * 解析这些类与其类路径资源所用的插件 classloader，以及来源插件包 id。这是发现桥接
  * （{@code PixivPluginDiscoveryBridge.inspect(...)}）与功能插件身份在同一次准入读取中为
- * <b>已加载且核心 API 兼容</b>的外置插件包在准入时产出的
+ * <b>已加载且SDK 兼容</b>的外置插件包在准入时产出的
  * 中性载体——只承载 {@code plugin.api} 入口契约暴露的 {@link Class} 配置类令牌与 JDK 类型，<b>不</b>泄露任何
  * 插件加载框架（PF4J）类型。
  *

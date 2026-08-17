@@ -15,6 +15,15 @@ public record UserscriptArtifact(
         String content
 ) {
 
+    /**
+     * 创建 {@code UserscriptArtifact} 实例。
+     *
+     * @param id 标识
+     * @param displayName 显示名称
+     * @param description 描述
+     * @param version 版本
+     * @param content 内容
+     */
     public UserscriptArtifact {
         requireText(id, "id");
         requireText(displayName, "displayName");

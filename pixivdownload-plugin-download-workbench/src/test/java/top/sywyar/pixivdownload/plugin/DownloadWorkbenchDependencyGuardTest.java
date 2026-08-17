@@ -160,6 +160,20 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("下载工作台生产代码不得硬编码可选下载类型")
+    void workbenchProductionSourcesDoNotHardcodeOptionalDownloadTypes() throws IOException {
+        Path root = repositoryRoot().resolve("pixivdownload-plugin-download-workbench/src/main");
+        try (Stream<Path> sources = Files.walk(root)) {
+            for (Path source : sources.filter(Files::isRegularFile).sorted().toList()) {
+                assertThat(read(source))
+                        .as(root.relativize(source).toString())
+                        .doesNotContainIgnoringCase("douyin")
+                        .doesNotContain("抖音");
+            }
+        }
+    }
+
+    @Test
     @DisplayName("下载工作台不得依赖宿主私有 HTTP 类型")
     void workbenchDoesNotDependOnPrivateHttpTypes() {
         noClasses()

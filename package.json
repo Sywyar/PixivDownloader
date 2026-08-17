@@ -2,7 +2,7 @@
   "name": "pixivdownloader-web-tests",
   "private": true,
   "scripts": {
-    "test:js": "node --test \"pixivdownload-*/src/test/js/*.test.js\" \"plugin-templates/*/src/test/js/*.test.js\"",
+    "test:js": "node --test \"pixivdownload-*/src/test/js/*.test.js\" \"plugin-templates/*/src/test/js/*.test.js\" \"scripts/ci/test/*.test.mjs\"",
     "test:web-standards": "node scripts/check-web-standards.mjs",
     "test:i18n": "node --test \"scripts/i18n/test/*.test.mjs\"",
     "i18n:check": "node scripts/i18n/check.mjs --strict",

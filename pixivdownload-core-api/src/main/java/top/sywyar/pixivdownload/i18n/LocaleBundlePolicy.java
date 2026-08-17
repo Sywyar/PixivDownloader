@@ -24,18 +24,28 @@ public interface LocaleBundlePolicy {
 
     /**
      * 本策略正式支持的语言。旧实现默认只声明当前归一化语言；host catalog 实现返回全部可见语言。
+     *
+     * @return 方法返回的列表
      */
     default List<Locale> supportedLocales() {
         return List.of(normalize(Locale.getDefault()));
     }
 
-    /** 把请求的 locale 归一化为策略支持的正式 locale。 */
+    /**
+     * 把请求的 locale 归一化为策略支持的正式 locale。
+     *
+     * @param requested 请求值
+     * @return 方法返回的 {@code Locale} 实例
+     */
     Locale normalize(Locale requested);
 
     /**
      * 资源文件后缀查找链：目标 → fallback → source（去重）。
      * 空字符串 = root 文件；例如 host 目录为 target=ja-JP（suffix ja）、
      * fallback=en-US（suffix en）、source=zh-CN（suffix 空）时返回列表 ja → en → 空串。
+     *
+     * @param requested 请求值
+     * @return 方法返回的列表
      */
     List<String> resourceSuffixChain(Locale requested);
 }

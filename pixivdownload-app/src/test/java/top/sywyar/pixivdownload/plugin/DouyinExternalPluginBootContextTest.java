@@ -11,10 +11,6 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
-import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterField;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
@@ -106,8 +102,6 @@ class DouyinExternalPluginBootContextTest {
     private ExternalPluginContextManager externalPluginContextManager;
     @Autowired
     private WebApplicationContext applicationContext;
-    @Autowired
-    private GalleryCapabilityRegistry galleryCapabilityRegistry;
     @Autowired
     private WebI18nBundleRegistry webI18nBundleRegistry;
     @Autowired
@@ -207,46 +201,6 @@ class DouyinExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("douyin 子上下文原子贡献图片视频投影与 aweme 作品能力")
-    void douyinDataProviderIsRegisteredFromExternalChildContext() {
-        assertThat(galleryCapabilityRegistry.snapshot().projections())
-                .filteredOn(source -> source.sourceId().equals("douyin"))
-                .hasSize(2)
-                .allSatisfy(source -> {
-                    assertThat(source.dataAccess()).isEqualTo(GalleryDataAccess.ADMIN_ONLY);
-                    assertThat(source.displayNamespace()).isEqualTo("douyin");
-                    assertThat(source.displayI18nKey()).isEqualTo("source.douyin");
-                    assertThat(source.filterCapabilities()).containsKeys(
-                            GalleryFilterField.AUTHOR,
-                            GalleryFilterField.TAG,
-                            GalleryFilterField.AI_STATUS,
-                            GalleryFilterField.CONTENT_RATING,
-                            GalleryFilterField.CONTAINED_MEDIA_KIND);
-                });
-        assertThat(galleryCapabilityRegistry.snapshot().projections())
-                .filteredOn(source -> source.sourceId().equals("douyin"))
-                .extracting(source -> source.kind())
-                .containsExactlyInAnyOrder(GalleryKind.IMAGE, GalleryKind.VIDEO);
-        assertThat(galleryCapabilityRegistry.snapshot().works())
-                .filteredOn(work -> work.sourceId().equals("douyin"))
-                .singleElement()
-                .satisfies(source -> {
-                    assertThat(source.sourceWorkNamespace()).isEqualTo("aweme");
-                });
-        assertThat(galleryCapabilityRegistry.snapshot().projectionProviders())
-                .extracting(GalleryCapabilityRegistry.RegisteredProjectionProvider::providerId)
-                .contains("douyin-gallery");
-        assertThat(galleryCapabilityRegistry.snapshot().workProviders())
-                .extracting(GalleryCapabilityRegistry.RegisteredWorkProvider::providerId)
-                .contains("douyin-gallery");
-        assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
-                .filteredOn(frontend -> frontend.ownerPluginId().equals("douyin"))
-                .extracting(frontend -> frontend.contribution().contributionId())
-                .containsExactlyInAnyOrder("douyin.card", "douyin.media");
-        assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
-    }
-
-    @Test
     @DisplayName("douyin provider 由外置子 ApplicationContext 托管")
     void externalDouyinChildContextHostsProviderBean() throws Exception {
         ConfigurableApplicationContext child = externalPluginContextManager.contextFor("douyin").orElseThrow();
@@ -256,13 +210,8 @@ class DouyinExternalPluginBootContextTest {
 
         Class<?> providerClass =
                 externalCl.loadClass("top.sywyar.pixivdownload.douyin.gallery.DouyinGalleryDataProvider");
-        Class<?> frontendProviderClass = externalCl.loadClass(
-                "top.sywyar.pixivdownload.douyin.gallery.frontend.DouyinGalleryFrontendProvider");
-
         assertThat(child.getBeanNamesForType(providerClass)).isNotEmpty();
-        assertThat(child.getBeanNamesForType(frontendProviderClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
-        assertThat(applicationContext.getBeanNamesForType(frontendProviderClass)).isEmpty();
     }
 
     @Test
@@ -278,7 +227,7 @@ class DouyinExternalPluginBootContextTest {
                 .containsEntry("gallery.page.title", "抖音画廊")
                 .containsEntry("detail.page-title", "抖音作品详情");
         assertThat(externalDouyinClassLoader()
-                .getResource("static/pixiv-douyin-download/douyin-gallery-frontend.js")).isNotNull();
+                .getResource("static/pixiv-douyin-download/douyin-gallery-frontend.js")).isNull();
         assertThat(getClass().getClassLoader()
                 .getResource("static/pixiv-douyin-download/douyin-gallery-frontend.js")).isNull();
     }

@@ -23,6 +23,20 @@ public record ScheduledExecutionPlan(
         ScheduledNetworkRoute sourceDefaultRoute
 ) {
 
+    /**
+     * 创建 {@code ScheduledExecutionPlan} 实例。
+     *
+     * @param requiredWorkTypes 必需项作品类型集合
+     * @param credentialPolicyId 凭证策略标识
+     * @param credentialRequirement {@code credentialRequirement} 对应的值
+     * @param anonymousFallbackAllowed 匿名回退项允许项
+     * @param guards 守卫列表
+     * @param checkpointSchema 检查点模式定义
+     * @param checkpointVersion 检查点版本
+     * @param maxInFlight {@code maxInFlight} 对应的值
+     * @param politeDelayMillis {@code politeDelayMillis} 对应的值
+     * @param sourceDefaultRoute 来源默认值路由
+     */
     public ScheduledExecutionPlan {
         if (requiredWorkTypes == null || requiredWorkTypes.isEmpty()) {
             throw new IllegalArgumentException("execution plan must require at least one work type");
@@ -65,6 +79,12 @@ public record ScheduledExecutionPlan(
                 : sourceDefaultRoute;
     }
 
+    /**
+     * 执行对应操作并返回结果。
+     *
+     * @param workTypes 作品类型集合
+     * @return 方法返回的 {@code ScheduledExecutionPlan} 实例
+     */
     public static ScheduledExecutionPlan credentialFree(Set<String> workTypes) {
         return new ScheduledExecutionPlan(
                 workTypes,

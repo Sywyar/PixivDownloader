@@ -7,5 +7,11 @@ package top.sywyar.pixivdownload.core.work.service;
  */
 public interface AuthorObservationService {
 
+    /**
+     * 执行对应操作。
+     *
+     * @param authorId 作者标识
+     * @param hintName 提示名称
+     */
     void observe(long authorId, String hintName);
 }

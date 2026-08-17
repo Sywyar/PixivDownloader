@@ -6,18 +6,22 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -269,7 +273,7 @@ class DouyinMediaDownloaderTest {
         DouyinMedia media = new DouyinMedia("m", DouyinMediaType.VIDEO,
                 URI.create("http://www.douyin.com/video.mp4"), "video", "mp4", null, null);
 
-        assertThatThrownBy(() -> new DouyinMediaDownloader(new RestTemplate())
+        assertThatThrownBy(() -> new DouyinMediaDownloader(new JdkTestHttpClient())
                 .download(List.of(media), tempDir, () -> false))
                 .isInstanceOf(DouyinClientException.class)
                 .extracting(error -> ((DouyinClientException) error).code())
@@ -334,11 +338,7 @@ class DouyinMediaDownloaderTest {
     }
 
     private DouyinMediaDownloader downloader(java.util.function.Predicate<URI> credentialOriginAllowed) {
-        HttpClient httpClient = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-        RestTemplate restTemplate = new RestTemplate(new JdkClientHttpRequestFactory(httpClient));
-        return new DouyinMediaDownloader(restTemplate,
+        return new DouyinMediaDownloader(new JdkTestHttpClient(),
                 host -> "127.0.0.1".equals(host), credentialOriginAllowed);
     }
 
@@ -357,6 +357,34 @@ class DouyinMediaDownloaderTest {
 
     private static String baseUrl(HttpServer target) {
         return "http://127.0.0.1:" + target.getAddress().getPort();
+    }
+
+    private static final class JdkTestHttpClient implements OutboundHttpClient {
+        private final HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+
+        @Override
+        public OutboundHttpStreamResponse exchangeStream(OutboundHttpRequest request) {
+            HttpRequest.Builder builder = HttpRequest.newBuilder(request.uri());
+            request.headers().forEach((name, values) -> values.forEach(value -> builder.header(name, value)));
+            builder.method(request.method(), request.body().length == 0
+                    ? HttpRequest.BodyPublishers.noBody()
+                    : HttpRequest.BodyPublishers.ofByteArray(request.body()));
+            try {
+                HttpResponse<java.io.InputStream> response = client.send(
+                        builder.build(), HttpResponse.BodyHandlers.ofInputStream());
+                return new OutboundHttpStreamResponse(
+                        response.statusCode(), "", response.headers().map(), response.body());
+            } catch (IOException e) {
+                throw new OutboundHttpTransportException("test transport failed", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new OutboundHttpTransportException("test transport interrupted", e);
+            }
+        }
+
+        @Override public void close() { }
     }
 
     private void serve(String path, int status, byte[] body, long declaredLength) {

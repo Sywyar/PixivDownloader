@@ -8,9 +8,6 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
-import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
-import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
@@ -128,29 +125,6 @@ class ExampleMinimalPluginTest {
             assertFalse(zh.getProperty(key, "").isBlank());
             assertFalse(en.getProperty(key, "").isBlank());
         }
-    }
-
-    @Test
-    @DisplayName("schema 只声明插件自有的最小主键表并由宿主签发所有权")
-    void schemaContributionIsPluginOwnedAndMinimal() {
-        List<SchemaContribution> schema = new ExampleMinimalPlugin().schema();
-        assertEquals(1, schema.size());
-
-        SchemaContribution contribution = schema.get(0);
-        assertTrue(contribution.columnMigrations().isEmpty());
-        assertTrue(contribution.pathColumns().isEmpty());
-        assertEquals(1, contribution.tables().size());
-
-        TableSpec table = contribution.tables().get(0);
-        assertEquals("example_minimal_records", table.name());
-        assertTrue(table.indexes().isEmpty());
-        assertEquals(1, table.columns().size());
-        ColumnSpec id = table.columns().get(0);
-        assertEquals("id", id.name());
-        assertEquals("TEXT", id.type());
-        assertTrue(id.notNull());
-        assertEquals(1, id.primaryKeyPosition());
-        assertFalse(id.autoIncrement());
     }
 
     private static Properties loadProperties(String resourceName) throws IOException {

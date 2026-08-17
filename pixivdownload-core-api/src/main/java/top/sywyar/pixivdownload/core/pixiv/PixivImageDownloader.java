@@ -18,6 +18,17 @@ import java.util.Objects;
  */
 public interface PixivImageDownloader {
 
+    /**
+     * 执行下载。
+     *
+     * @param source 数据来源
+     * @param referer 来源页
+     * @param target 目标
+     * @param cookie Cookie
+     * @param observer 观察器
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     * @throws IOException 执行失败时抛出
+     */
     boolean download(
             URI source,
             URI referer,
@@ -31,6 +42,12 @@ public interface PixivImageDownloader {
      * 扩展名只可能来自受支持的图片格式；响应类型与文件头不一致时拒绝落盘。
      *
      * @return 成功时返回最终扩展名，非 2xx 或非法来源返回 {@code null}
+     * @param source 数据来源
+     * @param referer 来源页
+     * @param targetStem {@code targetStem} 对应的值
+     * @param cookie Cookie
+     * @param observer 观察器
+     * @throws java.io.IOException 执行失败时抛出
      */
     default String downloadImage(
             URI source,

@@ -18,7 +18,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
@@ -52,7 +52,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 class RecoverySentinelRecoveryGateTest {
 
     private static final RequiredPlugin SENTINEL_REQUIRED = new RequiredPlugin(
-            "recovery-sentinel", PluginApiRequirement.unspecified(), false, "plugin.recovery.blocked");
+            "recovery-sentinel", VersionRequirement.unspecified(), false, "plugin.recovery.blocked");
 
     @Mock
     private AppLocaleResolver localeResolver;

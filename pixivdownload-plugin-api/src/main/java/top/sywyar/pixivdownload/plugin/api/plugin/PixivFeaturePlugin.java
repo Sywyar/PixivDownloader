@@ -30,7 +30,11 @@ import java.util.List;
  */
 public interface PixivFeaturePlugin {
 
-    /** 插件唯一 id，小写短横线风格，例如 {@code example-feature}。 */
+    /**
+     * 插件唯一 id，小写短横线风格，例如 {@code example-feature}。
+     *
+     * @return 方法返回的字符串
+     */
     String id();
 
     /**
@@ -40,12 +44,16 @@ public interface PixivFeaturePlugin {
      * （{@link #i18n()} 贡献的 bundle，如 {@code i18n/web/<namespace>.properties}）中解析为本地化文案——文案归插件
      * 所有、不落在核心 GUI bundle 里。推荐使用专用身份 key（官方插件统一为 {@code plugin.name}）；导航标签
      * {@code nav.label}、页面标题和表单字段标签属于各自上下文文案，不应作为插件身份的 canonical source。
+     *
+     * @return 方法返回的字符串
      */
     String displayName();
 
     /**
      * 一句话简介的 i18n key（<b>纯 key</b>，语义同 {@link #displayName()}：在 {@link #displayNamespace()} 指定的
      * namespace 中解析；<b>必须由插件显式声明</b>）。
+     *
+     * @return 方法返回的字符串
      */
     String description();
 
@@ -54,6 +62,8 @@ public interface PixivFeaturePlugin {
      * <b>第一个</b> namespace——插件展示文案通常就放在自有首个 namespace；无 i18n 贡献时返回 {@code null}（消费端
      * 无从解析、回退到插件 id）。无单一自有内容 namespace 的插件（如核心壳、计划任务宿主，其展示文案借用插件管理页
      * 的 {@code plugins} namespace）覆写本方法显式返回承载其展示文案的 namespace。
+     *
+     * @return 方法返回的字符串
      */
     default String displayNamespace() {
         List<I18nContribution> contributions = i18n();
@@ -71,6 +81,8 @@ public interface PixivFeaturePlugin {
      * 远程资源，由消费端（Web 插件管理页 / 插件市场）在共享白名单内映射为图标。白名单外的未知 token 一律回退到
      * {@value #DEFAULT_ICON_KEY}，原始 token 绝不被当作图标类名 / 标记直接渲染。默认 {@value #DEFAULT_ICON_KEY}；
      * 插件可覆写为白名单内的其它 token。
+     *
+     * @return 方法返回的字符串
      */
     default String iconKey() {
         return DEFAULT_ICON_KEY;
@@ -80,12 +92,18 @@ public interface PixivFeaturePlugin {
      * 卡片强调色的<b>受控 token</b>（如 {@code blue} / {@code green}）：仅一个稳定标识符，<b>不是</b>任意 CSS 颜色，
      * 由消费端映射为固定的 CSS class / data 属性。白名单外的未知 token 一律回退到 {@value #DEFAULT_COLOR_TOKEN}。
      * 默认 {@value #DEFAULT_COLOR_TOKEN}。颜色仅用于卡片的可扫描性，<b>不</b>构成主题系统。
+     *
+     * @return 方法返回的字符串
      */
     default String colorToken() {
         return DEFAULT_COLOR_TOKEN;
     }
 
-    /** 插件类别。 */
+    /**
+     * 插件类别。
+     *
+     * @return 方法返回的 {@code PluginKind} 实例
+     */
     PluginKind kind();
 
     /**
@@ -103,32 +121,58 @@ public interface PixivFeaturePlugin {
     default void stop() {
     }
 
-    /** 插件声明的自有表、补列与路径列规则；所有权由宿主按已注册插件身份盖章。 */
+    /**
+     * 插件参与稳定宿主协作契约时声明的宿主管理表、补列与路径列规则；所有权由宿主按已注册插件身份盖章。
+     * 普通插件私有持久化不使用本入口，应注入
+     * {@link top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource} 并在 owner 私有库内管理 schema。
+     *
+     * @return 方法返回的列表
+     */
     default List<SchemaContribution> schema() {
         return List.of();
     }
 
-    /** 插件声明的路由与访问级别。 */
+    /**
+     * 插件声明的路由与访问级别。
+     *
+     * @return 方法返回的列表
+     */
     default List<WebRouteContribution> routes() {
         return List.of();
     }
 
-    /** 插件声明的静态资源目录。 */
+    /**
+     * 插件声明的静态资源目录。
+     *
+     * @return 方法返回的列表
+     */
     default List<StaticResourceContribution> staticResources() {
         return List.of();
     }
 
-    /** 插件声明的 i18n namespace。 */
+    /**
+     * 插件声明的 i18n namespace。
+     *
+     * @return 方法返回的列表
+     */
     default List<I18nContribution> i18n() {
         return List.of();
     }
 
-    /** 插件声明的导航项。 */
+    /**
+     * 插件声明的导航项。
+     *
+     * @return 方法返回的列表
+     */
     default List<NavigationContribution> navigation() {
         return List.of();
     }
 
-    /** 插件声明的默认启动落点（{@code /redirect} 据此选定落点页）。 */
+    /**
+     * 插件声明的默认启动落点（{@code /redirect} 据此选定落点页）。
+     *
+     * @return 方法返回的列表
+     */
     default List<StartupRouteContribution> startupRoutes() {
         return List.of();
     }
@@ -139,6 +183,8 @@ public interface PixivFeaturePlugin {
      * {@link LandingContribution#priority()}（landing/entrypoint 优先级），<b>不</b>复用
      * {@link NavigationContribution#priority()}（导航展示顺序）——两者是各自独立的契约，外置插件即便注册一个
      * 导航 priority 极小的项也无法间接改变业务落点，必须显式声明 {@link LandingContribution} 才参与落点竞争。
+     *
+     * @return 方法返回的列表
      */
     default List<LandingContribution> landings() {
         return List.of();
@@ -148,6 +194,8 @@ public interface PixivFeaturePlugin {
      * 插件声明的页面区块 / slot 贡献（{@code /api/page-sections} 按当前身份过滤后返回）：让宿主页面只声明稳定的
      * section slot，复杂区块（标题 / 操作入口 / 内嵌导航 slot / 由贡献方自有 JS 渲染的列表）的内容完全由活动插件
      * 注册——宿主不需要知道是哪个插件、是否启用。禁用插件后其 section 自然消失。
+     *
+     * @return 方法返回的列表
      */
     default List<PageSectionContribution> pageSections() {
         return List.of();
@@ -158,22 +206,36 @@ public interface PixivFeaturePlugin {
      * 渲染、是否渲染，全部由活动插件声明——宿主不需要知道是哪个插件、是否启用。经宿主聚合流程
      * 合并并随插件生命周期动态注册 / 注销；禁用 / 停用插件后其槽位自然从快照消失、宿主入口缺席。复杂内容仍由
      * {@link WebUiSlotContribution#moduleUrl()} 指向的前端模块渲染。
+     *
+     * @return 方法返回的列表
      */
     default List<WebUiSlotContribution> uiSlots() {
         return List.of();
     }
 
-    /** 插件声明的 GUI 主题贡献。主题应用由宿主在 AWT 事件分发线程上调度。 */
+    /**
+     * 插件声明的 GUI 主题贡献。主题应用由宿主在 AWT 事件分发线程上调度。
+     *
+     * @return 方法返回的列表
+     */
     default List<GuiThemeContribution> guiThemes() {
         return List.of();
     }
 
-    /** 插件声明的宿主 GUI 配置字段贡献。贡献只包含纯数据，由宿主聚合后渲染。 */
+    /**
+     * 插件声明的宿主 GUI 配置字段贡献。贡献只包含纯数据，由宿主聚合后渲染。
+     *
+     * @return 方法返回的列表
+     */
     default List<GuiConfigContribution> guiConfigContributions() {
         return List.of();
     }
 
-    /** 插件声明的宿主 GUI 引导步骤。贡献只包含纯数据，由宿主聚合后渲染。 */
+    /**
+     * 插件声明的宿主 GUI 引导步骤。贡献只包含纯数据，由宿主聚合后渲染。
+     *
+     * @return 方法返回的列表
+     */
     default List<GuiOnboardingStepContribution> guiOnboardingSteps() {
         return List.of();
     }
@@ -182,12 +244,18 @@ public interface PixivFeaturePlugin {
      * 插件声明的语义下钻贡献（{@code /api/drilldowns} 按当前身份过滤后返回）：让宿主页面只在语义 placement 上以运行期
      * 变量请求一个 href，跨插件下钻链接的目标页面路径 / 查询参数名完全由活动插件以 {@link DrilldownContribution#hrefTemplate()}
      * 决定——宿主不需要知道是哪个插件。禁用插件后其下钻贡献自然消失，宿主回到纯展示。
+     *
+     * @return 方法返回的列表
      */
     default List<DrilldownContribution> drilldowns() {
         return List.of();
     }
 
-    /** 插件声明的稳定油猴脚本 id 与精确 classpath 资源（由分发该脚本的插件声明）。 */
+    /**
+     * 插件声明的稳定油猴脚本 id 与精确 classpath 资源（由分发该脚本的插件声明）。
+     *
+     * @return 方法返回的列表
+     */
     default List<UserscriptContribution> userscripts() {
         return List.of();
     }
@@ -195,12 +263,18 @@ public interface PixivFeaturePlugin {
     /**
      * 插件声明的完整计划来源描述符。来源、作品、凭证与 Guard 的行为实现由插件 child context 中对应的
      * schedule executor Bean 提供，不允许把运行 Bean、context 或插件私有对象捕获进 descriptor。
+     *
+     * @return 方法返回的列表
      */
     default List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
         return List.of();
     }
 
-    /** 插件贡献的下载作品类型；可信 owner 与 publication 身份由宿主注册时盖章。 */
+    /**
+     * 插件贡献的下载作品类型；可信 owner 与 publication 身份由宿主注册时盖章。
+     *
+     * @return 方法返回的列表
+     */
     default List<DownloadTypeDescriptor> downloadTypes() {
         return List.of();
     }

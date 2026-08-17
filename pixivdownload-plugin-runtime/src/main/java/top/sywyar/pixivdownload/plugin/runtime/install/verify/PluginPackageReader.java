@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.verify;
 
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
@@ -59,8 +59,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  * </ul>
  *
  * <p>本读取器只统一了「描述符的位置 / 形态」。描述符<b>内容</b>是否合法（id / 版本 semver / 主类等）由
- * {@link PluginDescriptor#externalValidationErrors()} 校验、核心 API 兼容由
- * {@link PluginDescriptor#isApiCompatible()} 判定，均在安装器里做；而「插件主类是否实现入口契约」需加载类、属运行期
+ * {@link PluginDescriptor#externalValidationErrors()} 校验、SDK 兼容由
+ * {@link PluginDescriptor#isSdkCompatible()} 判定，均在安装器里做；而「插件主类是否实现入口契约」需加载类、属运行期
  * 发现桥接职责，安装阶段不校验。描述符 key 与 PF4J {@code PropertiesPluginDescriptorFinder} 完全一致。
  */
 public final class PluginPackageReader {
@@ -335,7 +335,7 @@ public final class PluginPackageReader {
         String version = trimToNull(properties.getProperty(KEY_VERSION));
         String pluginClass = trimToNull(properties.getProperty(KEY_CLASS));
         String pf4jDescription = trimToNull(properties.getProperty(KEY_DESCRIPTION));
-        PluginApiRequirement requires = PluginApiRequirement.parse(properties.getProperty(KEY_REQUIRES));
+        VersionRequirement requires = VersionRequirement.parse(properties.getProperty(KEY_REQUIRES));
         List<PluginDependencyRef> dependencies = parseDependencies(properties.getProperty(KEY_DEPENDENCIES));
         String displayNamespace = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAMESPACE));
         String displayName = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAME_KEY));
@@ -375,9 +375,9 @@ public final class PluginPackageReader {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    /** 当前核心 API 契约版本（供安装器在拒绝不兼容包时拼装诊断信息复用）。 */
-    public static String coreApiVersion() {
-        return PluginApiVersion.VERSION;
+    /** 当前SDK 契约版本（供安装器在拒绝不兼容包时拼装诊断信息复用）。 */
+    public static String sdkVersion() {
+        return SdkVersion.VERSION;
     }
 
     private record ArchiveInspection(Properties properties, boolean containsPrivateLibraries) {

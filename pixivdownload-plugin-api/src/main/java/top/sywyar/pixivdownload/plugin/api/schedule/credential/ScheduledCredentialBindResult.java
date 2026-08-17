@@ -15,8 +15,18 @@ public record ScheduledCredentialBindResult(
         ScheduledGuardResult postBindResult
 ) {
 
+    /**
+     * 策略状态允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_POLICY_STATE_BYTES = 65_536;
 
+    /**
+     * 创建 {@code ScheduledCredentialBindResult} 实例。
+     *
+     * @param probeResult 探测结果
+     * @param initialPolicyStateJson {@code initialPolicyStateJson} 对应的值
+     * @param postBindResult {@code postBindResult} 对应的值
+     */
     public ScheduledCredentialBindResult {
         if (probeResult == null) {
             throw new IllegalArgumentException("credential bind probe result must not be null");
@@ -42,6 +52,12 @@ public record ScheduledCredentialBindResult(
         }
     }
 
+    /**
+     * 创建并返回 {@code ScheduledCredentialBindResult} 实例。
+     *
+     * @param probeResult 探测结果
+     * @return 方法返回的 {@code ScheduledCredentialBindResult} 实例
+     */
     public static ScheduledCredentialBindResult fromProbe(
             ScheduledCredentialProbeResult probeResult) {
         return new ScheduledCredentialBindResult(probeResult, "{}", null);

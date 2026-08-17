@@ -48,6 +48,25 @@ public record ArtworkDownloadCompletion(
         Long seriesOrder,
         List<WorkTag> tags) {
 
+    /**
+     * 创建 {@code ArtworkDownloadCompletion} 实例。
+     *
+     * @param artworkId 插画作品标识
+     * @param title 标题
+     * @param folder 目录
+     * @param imageCount 图片数量
+     * @param extensions 扩展列表
+     * @param recordTime 记录时间
+     * @param restriction 访问限制
+     * @param aiGenerated AI生成状态
+     * @param authorId 作者标识
+     * @param description 描述
+     * @param fileNameTemplate 文件名称模板
+     * @param normalizedAuthorName 规范化值作者名称
+     * @param seriesId 系列标识
+     * @param seriesOrder 系列顺序
+     * @param tags 标签集合
+     */
     public ArtworkDownloadCompletion {
         folder = Objects.requireNonNull(folder, "folder");
         fileNameTemplate = Objects.requireNonNull(fileNameTemplate, "fileNameTemplate");

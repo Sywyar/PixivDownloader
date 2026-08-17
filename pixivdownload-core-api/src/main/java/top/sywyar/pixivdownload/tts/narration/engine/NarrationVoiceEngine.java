@@ -14,10 +14,18 @@ import java.util.Set;
  */
 public interface NarrationVoiceEngine {
 
-    /** 引擎稳定标识；配置存储与选择机制由消费者拥有。 */
+    /**
+     * 引擎稳定标识；配置存储与选择机制由消费者拥有。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     String id();
 
-    /** 引擎当前是否可用（必要配置是否就绪，如已配置服务地址）。<b>纯配置检查、不触网</b>，用作合成前的快速门禁。 */
+    /**
+     * 引擎当前是否可用（必要配置是否就绪，如已配置服务地址）。<b>纯配置检查、不触网</b>，用作合成前的快速门禁。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean isAvailable();
 
     /**
@@ -25,6 +33,8 @@ public interface NarrationVoiceEngine {
      * 的存活探测。区别于 {@link #isAvailable()} 的纯配置检查，本方法可能产生网络请求。
      *
      * <p>默认实现回退到 {@link #isAvailable()}（不触网），未实现探测的引擎据此降级为「仅看配置」。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
      */
     default boolean isReachable() {
         return isAvailable();
@@ -34,6 +44,8 @@ public interface NarrationVoiceEngine {
      * 本引擎支持的合成模式集合。派发器据此把不支持的
      * 请求模式降级为 {@link NarrationVoiceMode#VOICE_DESIGN}。默认仅支持 {@link NarrationVoiceMode#VOICE_DESIGN}——
      * 最小引擎只需实现内联 voice-design；支持参考音克隆的引擎覆写本方法补上 {@link NarrationVoiceMode#CLONE} 等。
+     *
+     * @return 方法返回的集合
      */
     default Set<NarrationVoiceMode> supportedModes() {
         return EnumSet.of(NarrationVoiceMode.VOICE_DESIGN);
@@ -44,6 +56,9 @@ public interface NarrationVoiceEngine {
      * 已在 {@link #supportedModes()} 内（不支持者已被降级）。
      *
      * @throws NarrationVoiceException 引擎不可用 / 连接失败 / 非 2xx / 空响应等（消息已脱敏）
+     * @param mode 模式
+     * @param req {@code req} 对应的值
+     * @return 方法返回的 {@code NarrationAudio} 实例
      */
     NarrationAudio synthesize(NarrationVoiceMode mode, NarrationVoiceRequest req);
 }

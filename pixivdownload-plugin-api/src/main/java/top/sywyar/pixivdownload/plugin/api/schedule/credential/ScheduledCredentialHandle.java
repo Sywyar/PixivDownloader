@@ -9,16 +9,31 @@ package top.sywyar.pixivdownload.plugin.api.schedule.credential;
  */
 public interface ScheduledCredentialHandle extends AutoCloseable {
 
+    /**
+     * 判断存在状态是否满足条件。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     boolean isPresent();
 
-    /** 宿主凭证存储中的不透明引用；不是密钥内容。 */
+    /**
+     * 宿主凭证存储中的不透明引用；不是密钥内容。
+     *
+     * @return 方法返回的字符串
+     */
     String reference();
 
-    /** 已验证的非敏感账号键；凭证尚未探活时可为 {@code null}。 */
+    /**
+     * 已验证的非敏感账号键；凭证尚未探活时可为 {@code null}。
+     *
+     * @return 方法返回的字符串
+     */
     String accountKey();
 
     /**
      * 返回由调用方负责尽快清零的临时字符副本。凭证不存在时返回空数组。
+     *
+     * @return 方法返回值
      */
     char[] copySecret();
 

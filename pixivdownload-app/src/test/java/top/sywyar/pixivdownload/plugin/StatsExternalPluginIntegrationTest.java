@@ -141,7 +141,7 @@ class StatsExternalPluginIntegrationTest {
         assertThat(descriptor.version()).isEqualTo("1.0.0");
         assertThat(descriptor.pluginClass()).isEqualTo("top.sywyar.pixivdownload.stats.StatsPf4jPlugin");
         assertThat(descriptor.requires().present()).isTrue();
-        assertThat(descriptor.isApiCompatible()).isTrue();
+        assertThat(descriptor.isSdkCompatible()).isTrue();
         assertThat(descriptor.externalValidationErrors()).isEmpty();
 
         // classloader 边界：解析用的是外置插件自己的 classloader，绝不是核心壳应用 classloader。

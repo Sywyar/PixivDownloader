@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.status;
 
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 
 import java.util.List;
 import java.util.Objects;
@@ -19,13 +19,13 @@ public record RecoveryModeReason(
         String pluginId,
         PluginStatus status,
         String messageKey,
-        PluginApiRequirement requiredVersion,
+        VersionRequirement requiredVersion,
         List<String> messages) {
 
     public RecoveryModeReason {
         Objects.requireNonNull(pluginId, "pluginId");
         Objects.requireNonNull(status, "status");
-        requiredVersion = requiredVersion != null ? requiredVersion : PluginApiRequirement.unspecified();
+        requiredVersion = requiredVersion != null ? requiredVersion : VersionRequirement.unspecified();
         messages = messages != null ? List.copyOf(messages) : List.of();
     }
 }

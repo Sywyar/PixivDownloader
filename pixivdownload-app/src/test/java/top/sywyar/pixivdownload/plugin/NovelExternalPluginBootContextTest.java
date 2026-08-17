@@ -16,8 +16,6 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
@@ -106,8 +104,6 @@ class NovelExternalPluginBootContextTest {
     @Autowired
     private WebApplicationContext applicationContext;
     @Autowired
-    private GalleryCapabilityRegistry galleryCapabilityRegistry;
-    @Autowired
     private ScheduleCapabilityRegistry scheduleCapabilityRegistry;
 
     @AfterAll
@@ -195,7 +191,7 @@ class NovelExternalPluginBootContextTest {
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "小说");
 
         assertThat(externalCl.getResource("static/pixiv-novel-download/novel-queue-type.js")).isNotNull();
-        assertThat(externalCl.getResource("static/pixiv-novel-gallery/novel-gallery-frontend.js")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-novel-gallery/novel-gallery-frontend.js")).isNull();
         assertThat(externalCl.getResource("static/pixiv-novel-gallery.html")).isNotNull();
         assertThat(externalCl.getResource("static/pixiv-novel/pixiv-novel-render.js")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/novel.properties")).isNotNull();
@@ -259,32 +255,6 @@ class NovelExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("novel 子上下文原子贡献 pixiv NOVEL 投影与 novel 详情能力")
-    void novelCapabilityProviderIsRegisteredFromExternalChildContext() {
-        assertThat(galleryCapabilityRegistry.snapshot().projections())
-                .filteredOn(projection -> projection.sourceId().equals("pixiv"))
-                .singleElement()
-                .satisfies(projection -> {
-                    assertThat(projection.kind()).isEqualTo(GalleryKind.NOVEL);
-                    assertThat(projection.displayNamespace()).isEqualTo("novel-gallery");
-                    assertThat(projection.displayI18nKey()).isEqualTo("source.pixiv");
-                });
-        assertThat(galleryCapabilityRegistry.snapshot().projectionProviders())
-                .extracting(GalleryCapabilityRegistry.RegisteredProjectionProvider::providerId)
-                .contains("pixiv-novel-capability");
-        assertThat(galleryCapabilityRegistry.snapshot().works())
-                .anySatisfy(work -> {
-                    assertThat(work.sourceId()).isEqualTo("pixiv");
-                    assertThat(work.sourceWorkNamespace()).isEqualTo("novel");
-                });
-        assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
-                .filteredOn(frontend -> frontend.ownerPluginId().equals("novel"))
-                .extracting(frontend -> frontend.contribution().contributionId())
-                .containsExactlyInAnyOrder("novel.text-renderer", "novel.detail-actions");
-        assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
-    }
-
-    @Test
     @DisplayName("novel 只发布 plugin-api 当前计划作品执行器")
     void novelPublishesOnlyCurrentScheduledWorkExecutor() {
         assertThat(scheduleCapabilityRegistry.resolveWorkExecutor("novel"))
@@ -310,10 +280,6 @@ class NovelExternalPluginBootContextTest {
         Class<?> batchServiceClass = externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.NovelBatchService");
         Class<?> controllerClass =
                 externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController");
-        Class<?> providerClass =
-                externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryCapabilityProvider");
-        Class<?> frontendProviderClass = externalCl.loadClass(
-                "top.sywyar.pixivdownload.novelgallery.frontend.NovelGalleryFrontendProvider");
         Class<?> executionSettingsClass = externalCl.loadClass(
                 "top.sywyar.pixivdownload.novel.config.NovelExecutionSettings");
 
@@ -322,8 +288,6 @@ class NovelExternalPluginBootContextTest {
         assertThat(child.getBeanNamesForType(serviceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(batchServiceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(controllerClass)).isNotEmpty();
-        assertThat(child.getBeanNamesForType(providerClass)).isNotEmpty();
-        assertThat(child.getBeanNamesForType(frontendProviderClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(executionSettingsClass)).isNotEmpty();
         assertThat(child.getBean("novelDownloadTaskExecutor"))
                 .isInstanceOfSatisfying(ThreadPoolTaskExecutor.class,
@@ -341,8 +305,6 @@ class NovelExternalPluginBootContextTest {
                             .isEqualTo("novel-status-scheduler-");
                 });
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
-        assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
-        assertThat(applicationContext.getBeanNamesForType(frontendProviderClass)).isEmpty();
         assertThat(applicationContext.containsBean("novelDownloadTaskExecutor")).isFalse();
         assertThat(applicationContext.containsBean("novelTranslateTaskExecutor")).isFalse();
         assertThat(applicationContext.containsBean("novelStatusTaskScheduler")).isFalse();

@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -452,7 +452,7 @@ class PluginRegistryTest {
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
                 List.of(external("download-workbench", new TestPlugin("download-workbench"), extCl)), List.of());
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(new RequiredPluginPolicy.RequiredPlugin(
-                "download-workbench", PluginApiRequirement.unspecified(), false, "plugin.required.missing")));
+                "download-workbench", VersionRequirement.unspecified(), false, "plugin.required.missing")));
 
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), toggles, discovery, policy);

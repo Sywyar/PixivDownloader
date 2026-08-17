@@ -12,8 +12,21 @@ public record ScheduledTaskDefinition(
         ScheduledTaskPresentation presentation
 ) {
 
+    /**
+     * 定义允许占用的最大 UTF-8 字节数。
+     */
     public static final int MAX_DEFINITION_BYTES = 1_048_576;
 
+    /**
+     * 创建 {@code ScheduledTaskDefinition} 实例。
+     *
+     * @param taskId 任务标识
+     * @param sourceType 来源类型
+     * @param definitionSchema 定义模式定义
+     * @param definitionVersion 定义版本
+     * @param definitionJson 定义JSON
+     * @param presentation 展示信息
+     */
     public ScheduledTaskDefinition {
         if (taskId < 0) {
             throw new IllegalArgumentException("task id must not be negative");

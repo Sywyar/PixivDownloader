@@ -19,7 +19,6 @@ import top.sywyar.pixivdownload.douyin.schedule.work.DouyinScheduledWorkExecutor
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
-import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
@@ -112,10 +111,6 @@ class DouyinScheduleBeanAssemblyTest {
             }
             actualFactoryNames.add(method.getName());
             assertThat(method.getAnnotation(Bean.class)).as(method.getName()).isNotNull();
-            ConditionalOnPluginEnabled conditional =
-                    method.getAnnotation(ConditionalOnPluginEnabled.class);
-            assertThat(conditional).as(method.getName()).isNotNull();
-            assertThat(conditional.value()).as(method.getName()).isEqualTo("douyin");
         }
         assertThat(actualFactoryNames).isEqualTo(expectedFactoryNames);
 

@@ -4,14 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
-import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryProjectionKey;
-import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
-import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjection;
-import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
-import top.sywyar.pixivdownload.core.gallery.model.work.GalleryActor;
-import top.sywyar.pixivdownload.core.gallery.model.work.GalleryTag;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.ExternalRuntimeCapabilityAdapter;
 
@@ -480,50 +472,6 @@ class ExternalCapabilityInvocationRegistryTest {
     }
 
     @Test
-    @DisplayName("真实 Gallery DTO 嵌套 record 与集合图不会把 child 返回对象直接交给宿主")
-    void galleryDtoGraphIsDeepCopied() {
-        ExternalCapabilityInvocationRegistry registry = new ExternalCapabilityInvocationRegistry();
-        ExternalCapabilityPreparation preparation = prepareOwner(registry, "gallery", "gallery", 1L);
-        GalleryWorkKey workKey = new GalleryWorkKey("pixiv", "illust", "1");
-        GalleryProjection projection = new GalleryProjection(
-                new GalleryProjectionKey(workKey, GalleryKind.IMAGE),
-                "title",
-                "summary",
-                "/thumb/1",
-                new GalleryActor("pixiv", "10", "author", "/avatar/10"),
-                List.of(new GalleryTag("pixiv", "tag", "Tag")),
-                null,
-                null,
-                null,
-                Set.of(GalleryMediaKind.IMAGE),
-                null,
-                null,
-                "original",
-                Map.of("width", "100"));
-        GalleryProjectionPage page = new GalleryProjectionPage(
-                List.of(projection), null, false, List.of());
-        GalleryPageCapability proxy = registry.prepareProxy(
-                preparation, GalleryPageCapability.class, () -> page);
-        ExternalCapabilityPublication publication = registry.publish(preparation);
-
-        GalleryProjectionPage copiedPage = proxy.page();
-        GalleryProjection copiedProjection = copiedPage.projections().get(0);
-        assertThat(copiedPage).isNotSameAs(page);
-        assertThat(copiedPage.projections()).isNotSameAs(page.projections());
-        assertThat(copiedProjection).isNotSameAs(projection);
-        assertThat(copiedProjection.key()).isNotSameAs(projection.key());
-        assertThat(copiedProjection.key().workKey()).isNotSameAs(projection.key().workKey());
-        assertThat(copiedProjection.author()).isNotSameAs(projection.author());
-        assertThat(copiedProjection.tags()).isNotSameAs(projection.tags());
-        assertThat(copiedProjection.tags().get(0)).isNotSameAs(projection.tags().get(0));
-        assertThat(copiedProjection.attributes()).isNotSameAs(projection.attributes());
-        assertThat(copiedPage).isEqualTo(page);
-
-        ExternalCapabilityDrain drain = registry.withdraw(publication).orElseThrow();
-        registry.retireDrained(drain);
-    }
-
-    @Test
     @DisplayName("child-loader 返回对象图无法复制时失败关闭且不返回对象")
     void unsupportedChildObjectGraphFailsClosed() throws Exception {
         ExternalCapabilityInvocationRegistry registry = new ExternalCapabilityInvocationRegistry();
@@ -634,10 +582,6 @@ class ExternalCapabilityInvocationRegistryTest {
 
     public interface ObjectCapability {
         Object value();
-    }
-
-    public interface GalleryPageCapability {
-        GalleryProjectionPage page();
     }
 
     public interface Marker {

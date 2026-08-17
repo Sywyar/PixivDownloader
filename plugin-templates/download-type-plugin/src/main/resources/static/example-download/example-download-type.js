@@ -233,6 +233,9 @@
                 dataSource: DATA_SOURCE,
                 pageSize: 12,
                 initialCursor: '1',
+                profileUrl: function (userId) {
+                    return 'https://example.invalid/users/' + encodeURIComponent(userId);
+                },
                 parseInput: function (value) {
                     var normalized = String(value == null ? '' : value).trim();
                     return normalized || null;
@@ -330,6 +333,10 @@
                 },
                 actions: {
                     'example-featured': {
+                        labelNamespace: DATA_SOURCE.displayNamespace,
+                        labelI18nKey: 'quick.featured',
+                        label: 'Featured examples',
+                        iconKey: 'bookmark',
                         viewType: 'works-list',
                         kind: TYPE,
                         sourceType: 'example.quick',

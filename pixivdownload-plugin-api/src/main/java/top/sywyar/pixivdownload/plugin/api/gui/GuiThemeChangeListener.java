@@ -1,15 +1,13 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-/**
- * Callback used by a theme contribution to report an appearance change observed by its own listener.
- */
+/** 主题贡献用于报告其自有监听器所观察到外观变化的回调。 */
 @FunctionalInterface
 public interface GuiThemeChangeListener {
 
     /**
-     * Called when the theme contribution observes a new appearance.
+     * 主题贡献观察到新外观时调用。
      *
-     * @param appearance the current appearance, never {@code null}
+     * @param appearance 当前外观，永不为 {@code null}
      */
     void appearanceChanged(GuiThemeAppearance appearance);
 }

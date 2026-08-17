@@ -12,16 +12,32 @@ import java.util.Objects;
  */
 public record NarrationReferenceVoice(byte[] audio, String mime, String text) {
 
+    /**
+     * 创建 {@code NarrationReferenceVoice} 实例。
+     *
+     * @param audio 音频
+     * @param mime MIME 类型
+     * @param text 文本
+     */
     public NarrationReferenceVoice {
         audio = audio == null ? null : audio.clone();
     }
 
+    /**
+     * 返回音频。
+     *
+     * @return 返回的字节数据
+     */
     @Override
     public byte[] audio() {
         return audio == null ? null : audio.clone();
     }
 
-    /** 是否携带有效音频字节。 */
+    /**
+     * 是否携带有效音频字节。
+     *
+     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     */
     public boolean hasAudio() {
         return audio != null && audio.length > 0;
     }
