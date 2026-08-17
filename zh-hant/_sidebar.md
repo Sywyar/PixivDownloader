@@ -27,6 +27,7 @@
 
 - [簡體中文](/zh-cn/)
 - [🇺🇸 English](/en/)
+- [한국어](/ko/)
 - [GitHub](https://github.com/Sywyar/PixivDownloader)
 - [Releases](https://github.com/Sywyar/PixivDownloader/releases)
 - [Issues](https://github.com/Sywyar/PixivDownloader/issues)
