@@ -147,11 +147,6 @@ class NovelPluginModuleDependencyGuardTest {
 
         assertThat(appTypes).as("app owned production FQN set must be non-vacuous")
                 .hasSizeGreaterThan(400);
-        String packagePrivateFixture = "top.sywyar.pixivdownload.gui.panel."
-                + "StatusPanelThemeOption";
-        assertThat(appTypes)
-                .as("package-private top-level app types must be owned too")
-                .contains(packagePrivateFixture);
         collectAppTypeReferences(root, "src/main/java", appTypes, violations);
         collectAppTypeReferences(root, "src/test/java", appTypes, violations);
         collectForbiddenResourceReferences(root, "src/main/java", violations);

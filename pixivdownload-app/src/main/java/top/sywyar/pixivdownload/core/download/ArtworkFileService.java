@@ -6,7 +6,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
+import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -68,7 +68,7 @@ public class ArtworkFileService {
                     return new ThumbnailFile(cachePath, writeFormat);
                 }
                 Files.createDirectories(cachePath.getParent());
-                BufferedImage thumbnailImage = ThumbnailManager.getThumbnail(imageFile, -1, -1);
+                BufferedImage thumbnailImage = ImageThumbnailScaler.scale(imageFile.toPath(), -1, -1);
                 Path tempPath = Files.createTempFile(cachePath.getParent(), "thumb-", "." + writeFormat);
                 try {
                     try (OutputStream out = Files.newOutputStream(tempPath)) {

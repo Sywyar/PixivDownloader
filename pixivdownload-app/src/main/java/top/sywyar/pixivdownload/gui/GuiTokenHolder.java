@@ -21,4 +21,8 @@ public final class GuiTokenHolder {
     public static String get() {
         return token;
     }
+
+    public static String headerName() {
+        return HEADER_NAME;
+    }
 }

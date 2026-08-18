@@ -141,7 +141,8 @@ class PluginApiOwnershipGuardTest {
     private static final Map<String, Set<String>> APPROVED_TYPES_BY_OWNER = Map.ofEntries(
             Map.entry("插件入口与生命周期", types(API_PREFIX + "plugin",
                     "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
-            Map.entry("GUI 纯数据 contribution", types(API_PREFIX + "gui",
+            Map.entry("GUI contribution 与桌面宿主契约", types(API_PREFIX + "gui",
+                    "DesktopUiContext", "DesktopUiHost", "DesktopUiProvider", "DesktopUiSession",
                     "GuiConfigActionContribution", "GuiConfigActionPayloadField", "GuiConfigActionPayloadType",
                     "GuiConfigActionResultArgument", "GuiConfigActionResultCondition",
                     "GuiConfigActionResultOperator", "GuiConfigActionResultRule", "GuiConfigActionResultSource",
@@ -237,7 +238,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI 纯数据 contribution", 30),
+            Map.entry("GUI contribution 与桌面宿主契约", 34),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -255,6 +256,22 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            API_PREFIX + "gui.DesktopUiContext$PluginSource",
+            API_PREFIX + "gui.DesktopUiHost$BackendSnapshot",
+            API_PREFIX + "gui.DesktopUiHost$BackendState",
+            API_PREFIX + "gui.DesktopUiHost$BackfillOptions",
+            API_PREFIX + "gui.DesktopUiHost$BackfillSummary",
+            API_PREFIX + "gui.DesktopUiHost$CredentialSnapshot",
+            API_PREFIX + "gui.DesktopUiHost$DatabaseColumn",
+            API_PREFIX + "gui.DesktopUiHost$FfmpegInstallation",
+            API_PREFIX + "gui.DesktopUiHost$FfmpegProgressListener",
+            API_PREFIX + "gui.DesktopUiHost$FfmpegProxy",
+            API_PREFIX + "gui.DesktopUiHost$IoOperation",
+            API_PREFIX + "gui.DesktopUiHost$MaintenanceSnapshot",
+            API_PREFIX + "gui.DesktopUiHost$MigrationOptions",
+            API_PREFIX + "gui.DesktopUiHost$MigrationSummary",
+            API_PREFIX + "gui.DesktopUiHost$ToolLogSession",
+            API_PREFIX + "gui.DesktopUiSession$MessageLevel",
             API_PREFIX + "download.queue.QueueTaskTracker$Task",
             API_PREFIX + "web.ApiErrorResponse$Basic",
             API_PREFIX + "schedule.credential.ScheduledCredentialContext$Purpose",

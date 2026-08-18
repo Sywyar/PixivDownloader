@@ -250,7 +250,7 @@ class PluginReleaseScriptsTest {
         assertThat(defaultInstalled.find()).isTrue();
         assertThat(defaultInstalled.group("body")).contains(
                 "Get-OfficialRequiredPlugins",
-                "Id = \"gui-theme\"", "Id = \"stats\"", "Id = \"posthog\"", "Id = \"duplicate\"",
+                "Id = \"gui-swing\"", "Id = \"stats\"", "Id = \"posthog\"", "Id = \"duplicate\"",
                 "Id = \"gallery\"", "Id = \"novel\"", "Id = \"notification\"",
                 "Id = \"multi-mode-decision-survey\"",
                 "Id = \"push\"", "Id = \"mail\"", "Id = \"tts\"", "Id = \"ai\"")
@@ -971,7 +971,7 @@ class PluginReleaseScriptsTest {
                 "package-local.ps1")) {
             assertThat(script(name)).as(name).doesNotContain(
                     "Id = \"download-workbench\"",
-                    "Id = \"gui-theme\"",
+                    "Id = \"gui-swing\"",
                     "Id = \"douyin\"",
                     "Id = \"stats\"");
         }

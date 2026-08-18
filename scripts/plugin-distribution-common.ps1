@@ -52,7 +52,7 @@ function Get-OfficialDefaultInstalledPlugins {
     $plugins = @(Get-OfficialRequiredPlugins)
     $plugins += @(
         [pscustomobject]@{
-            Id = "gui-theme"; Module = "pixivdownload-plugin-gui-theme"; Format = "jar"; PrivateLibs = $true;
+            Id = "gui-swing"; Module = "pixivdownload-plugin-gui-swing"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/guitheme/";
             RequiredLibPatterns = @(
                 "^flatlaf-[0-9].*\.jar$",

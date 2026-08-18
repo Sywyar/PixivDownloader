@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -29,7 +30,7 @@ class GuiOnboardingContributionAggregatorTest {
     void galleryStepAppearsWhenGalleryEnabled() {
         GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
 
-        GuiOnboardingSnapshot snapshot = GuiOnboardingContributionAggregator.from(registryWithGallery());
+        GuiOnboardingSnapshot snapshot = aggregate(registryWithGallery());
 
         assertThat(snapshot.steps())
                 .filteredOn(step -> step.stepId().equals("local-gallery-guide"))
@@ -50,7 +51,7 @@ class GuiOnboardingContributionAggregatorTest {
     @Test
     @DisplayName("禁用 gallery 时欢迎页步骤自然缺席")
     void galleryStepDisappearsWhenGalleryDisabled() {
-        GuiOnboardingSnapshot snapshot = GuiOnboardingContributionAggregator.from(registryDisablingGallery());
+        GuiOnboardingSnapshot snapshot = aggregate(registryDisablingGallery());
 
         assertThat(snapshot.steps()).extracting(GuiOnboardingStepSpec::stepId)
                 .doesNotContain("local-gallery-guide");
@@ -111,5 +112,8 @@ class GuiOnboardingContributionAggregatorTest {
                     "local-gallery-guide",
                     50));
         }
+    }
+    private static GuiOnboardingSnapshot aggregate(PluginRegistry registry) {
+        return GuiOnboardingContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registry));
     }
 }

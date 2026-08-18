@@ -154,6 +154,7 @@ class CoreApiOwnershipGuardTest {
                             "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
             Map.entry("核心作品事实与共享纯语义", union(
+                    types("top.sywyar.pixivdownload.core.asset", "BoundedImageDecoder", "ImageThumbnailScaler"),
                     types("top.sywyar.pixivdownload.core.artwork.download",
                             "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",
                             "ArtworkDownloadLookup", "ArtworkDownloadStatistics",
@@ -169,6 +170,7 @@ class CoreApiOwnershipGuardTest {
                             "PixivProxyAccessOutcome", "PixivProxyAccessPolicy"),
                     types("top.sywyar.pixivdownload.core.pixiv.filename",
                             "PixivWorkFileNameFormatter"),
+                    types("top.sywyar.pixivdownload.core.metadata.sidecar", "WorkSidecarFiles"),
                     types("top.sywyar.pixivdownload.core.pixiv.thumbnail",
                             "PixivThumbnailFetcher", "PixivThumbnailFetchException",
                             "PixivThumbnailFailure"),
@@ -233,6 +235,8 @@ class CoreApiOwnershipGuardTest {
                     1024L * 1024L * 1024L),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE:java.lang.String",
                     "{artwork_id}_p{page}"),
+            Map.entry("top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles#SIDECAR_SUFFIX:java.lang.String",
+                    ".meta.json"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SUCCESS:java.lang.String", "success"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#FAILED:java.lang.String", "failed"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SKIPPED:java.lang.String", "skipped"),
@@ -333,7 +337,7 @@ class CoreApiOwnershipGuardTest {
             Pattern.compile("小说独占目录(?:守卫)?|独占目录守卫"));
     private static final Set<String> CONCRETE_PLUGIN_IDS = Set.of(
             "download-workbench", "plugin-market", "recovery-sentinel", "novel", "notification", "tts", "ai",
-            "push", "mail", "gallery", "duplicate", "stats", "douyin", "gui-theme");
+            "push", "mail", "gallery", "duplicate", "stats", "douyin", "gui-swing");
     private static final Set<String> CONCRETE_ENGINE_IDS = Set.of(
             "voxcpm", "mimo", "cosyvoice", "fish", "minimax", "elevenlabs", "qwen", "doubao");
     private static final Map<String, Set<String>> APPROVED_OWNER_LITERALS_BY_TYPE = Map.ofEntries(

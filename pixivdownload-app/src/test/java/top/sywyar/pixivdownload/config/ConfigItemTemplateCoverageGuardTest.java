@@ -46,6 +46,7 @@ class ConfigItemTemplateCoverageGuardTest {
      * <ul>
      *   <li>{@code app.language} / {@code app.theme} / {@code app.config-menu-expand-all} ——
      *       由 GUI「界面」页的即时偏好控件管理，不进配置字段网格；</li>
+     *   <li>{@code app.gui-provider} —— 桌面 UI 启动前完成提供者选择，只能通过配置文件修改并重启进程；</li>
      *   <li>{@code plugin-catalog.repositories} —— 自定义仓库<b>列表</b>型配置，由「插件」分组的仓库列表编辑器
      *       （{@code PluginMarketConfigSection}，经 {@code PluginRepositoryConfigEditor} 结构化读写）管理，不入字段网格；</li>
      *   <li>{@code multi-mode.*} —— 配置支持保留、但 GUI 不再提供设置页（配置页已移除该分组），
@@ -54,7 +55,8 @@ class ConfigItemTemplateCoverageGuardTest {
      * </ul>
      */
     private static final Set<String> TEMPLATE_KEYS_WITHOUT_GUI_FIELD = Set.of(
-            "app.language", "app.theme", "app.config-menu-expand-all", "plugin-catalog.repositories",
+            "app.language", "app.theme", "app.config-menu-expand-all", "app.gui-provider",
+            "plugin-catalog.repositories",
             "multi-mode.quota.enabled", "multi-mode.quota.max-artworks", "multi-mode.quota.reset-period-hours",
             "multi-mode.quota.archive-expire-minutes", "multi-mode.quota.limit-image",
             "multi-mode.quota.max-proxy-requests", "multi-mode.quota.archive-max-concurrent",

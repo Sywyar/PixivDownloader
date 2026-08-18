@@ -64,7 +64,7 @@ class GuiThemeManagerTest {
                     pluginListener.set(listener);
                     return listenerClosed::incrementAndGet;
                 });
-        TestPlugin plugin = new TestPlugin("gui-theme", List.of(contribution));
+        TestPlugin plugin = new TestPlugin("gui-swing", List.of(contribution));
         GuiThemeListenerSession session = GuiThemeManager.addChangeListener(managerNotifications::incrementAndGet);
 
         SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
@@ -136,7 +136,7 @@ class GuiThemeManagerTest {
                 });
 
         assertThatCode(() -> SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                null, "dark", List.of(source(new TestPlugin("gui-theme", List.of(failing)))))))
+                null, "dark", List.of(source(new TestPlugin("gui-swing", List.of(failing)))))))
                 .doesNotThrowAnyException();
         assertThat(GuiThemeManager.activeThemeId()).isEqualTo("system");
         assertThat(GuiThemeManager.configuredThemeId()).isEqualTo("dark");

@@ -142,7 +142,6 @@ class OfficialPluginHostBoundaryGuardTest {
             "top.sywyar.pixivdownload.config.RuntimeFiles",
             "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
             "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
-            "top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec",
             "top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain",
             "top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException",
             "top.sywyar.pixivdownload.core.download.queue.QueueStatusRetention",
@@ -182,11 +181,12 @@ class OfficialPluginHostBoundaryGuardTest {
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
+            Set<String> localTypes = ownedTypes(repositoryRoot, sourceRoot, module);
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
                 sources.filter(path -> path.toString().endsWith(".java"))
                         .sorted()
                         .forEach(path -> collectConcreteRuntimeViolations(
-                                repositoryRoot, module, path, violations));
+                                repositoryRoot, module, path, localTypes, violations));
             }
         }
 
@@ -204,9 +204,6 @@ class OfficialPluginHostBoundaryGuardTest {
 
         assertThat(appTypes).as("app owned production FQN set must be non-vacuous")
                 .hasSizeGreaterThan(400);
-        assertThat(appTypes)
-                .as("同一源码文件中的 package-private 顶层类型也必须纳入 app owned 集合")
-                .contains("top.sywyar.pixivdownload.gui.panel.StatusPanelThemeOption");
         for (String module : officialPluginModules(repositoryRoot)) {
             collectAppTypeReferences(repositoryRoot, module, appTypes, violations);
         }
@@ -253,6 +250,10 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
+            if ("pixivdownload-plugin-gui-swing".equals(module)) {
+                // 桌面 UI 提供者负责呈现并编辑宿主 config.yaml，不拥有其中的业务配置。
+                continue;
+            }
             Path mainRoot = repositoryRoot.resolve(module).resolve("src/main");
             if (!Files.isDirectory(mainRoot)) {
                 continue;
@@ -828,6 +829,7 @@ class OfficialPluginHostBoundaryGuardTest {
         if (!Files.isDirectory(sourceRoot)) {
             return;
         }
+        Set<String> localTypes = ownedTypes(repositoryRoot, sourceRoot, module);
         try (Stream<Path> sources = Files.walk(sourceRoot)) {
             for (Path source : sources.filter(path -> path.toString().endsWith(".java")).sorted().toList()) {
                 String sourceCode = read(source);
@@ -836,6 +838,9 @@ class OfficialPluginHostBoundaryGuardTest {
                 String packageName = packageName(declarations);
                 Set<String> imports = importedNames(declarations);
                 for (String appType : appTypes) {
+                    if (localTypes.contains(appType)) {
+                        continue;
+                    }
                     if (referencesFullyQualifiedType(references, appType)
                             || importsType(imports, appType)
                             || samePackageSimpleReference(
@@ -1149,10 +1154,13 @@ class OfficialPluginHostBoundaryGuardTest {
     private static void collectConcreteRuntimeViolations(Path repositoryRoot,
                                                          String module,
                                                          Path source,
+                                                         Set<String> localTypes,
                                                          List<String> violations) {
         String content = read(source);
         for (String forbiddenType : concreteRuntimeReferences(content)) {
-            violations.add(module + ":" + repositoryRoot.relativize(source) + " -> " + forbiddenType);
+            if (!localTypes.contains(forbiddenType)) {
+                violations.add(module + ":" + repositoryRoot.relativize(source) + " -> " + forbiddenType);
+            }
         }
     }
 

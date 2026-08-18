@@ -211,9 +211,6 @@ class DownloadWorkbenchDependencyGuardTest {
         assertThat(appTypes)
                 .as("app owned production FQN set must be non-vacuous")
                 .hasSizeGreaterThan(400);
-        assertThat(appTypes)
-                .as("同一源码文件中的 package-private 顶层类型也必须纳入 app owned 集合")
-                .contains(appType("gui.panel.StatusPanelThemeOption"));
         collectAppTypeReferences(root, "src/main/java", appTypes, violations);
         collectAppTypeReferences(root, "src/test/java", appTypes, violations);
 

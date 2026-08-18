@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -33,7 +34,7 @@ class GuiWebEntryContributionAggregatorTest {
     void galleryEntriesAppearWhenGalleryEnabled() {
         GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
 
-        GuiWebEntrySnapshot snapshot = GuiWebEntryContributionAggregator.from(registryWithGallery());
+        GuiWebEntrySnapshot snapshot = aggregate(registryWithGallery());
 
         assertThat(snapshot.statusActions())
                 .filteredOn(action -> action.id().equals("gallery-gui-open"))
@@ -52,10 +53,10 @@ class GuiWebEntryContributionAggregatorTest {
     @DisplayName("重新聚合 Web 入口时状态页与托盘动作按当前 GUI 语言解析")
     void rebuiltWebEntriesUseCurrentGuiLocale() {
         GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
-        GuiWebEntrySnapshot zhSnapshot = GuiWebEntryContributionAggregator.fromRegisteredPlugins(externalGallery());
+        GuiWebEntrySnapshot zhSnapshot = aggregate(externalGallery());
 
         GuiMessages.setLocale(Locale.US);
-        GuiWebEntrySnapshot enSnapshot = GuiWebEntryContributionAggregator.fromRegisteredPlugins(externalGallery());
+        GuiWebEntrySnapshot enSnapshot = aggregate(externalGallery());
 
         assertThat(action(zhSnapshot.statusActions()).label()).isEqualTo("本地画廊");
         assertThat(action(zhSnapshot.trayActions()).label()).isEqualTo("本地画廊");
@@ -78,7 +79,7 @@ class GuiWebEntryContributionAggregatorTest {
             }
         };
 
-        GuiWebEntrySnapshot snapshot = GuiWebEntryContributionAggregator.from(
+        GuiWebEntrySnapshot snapshot = aggregate(
                 new PluginRegistry(List.of(mixed)));
 
         assertThat(snapshot.statusActions())
@@ -94,7 +95,7 @@ class GuiWebEntryContributionAggregatorTest {
     @Test
     @DisplayName("禁用 gallery 时状态页与托盘入口自然缺席")
     void galleryEntriesDisappearWhenGalleryDisabled() {
-        GuiWebEntrySnapshot snapshot = GuiWebEntryContributionAggregator.from(registryDisablingGallery());
+        GuiWebEntrySnapshot snapshot = aggregate(registryDisablingGallery());
 
         assertThat(snapshot.statusActions()).extracting(GuiWebEntrySpec::id)
                 .doesNotContain("gallery-gui-open");
@@ -168,5 +169,13 @@ class GuiWebEntryContributionAggregatorTest {
                     "gallery", "gui.action.open", "/pixiv-gallery.html", "images",
                     AccessPolicy.INVITED_GUEST, 33));
         }
+    }
+    private static GuiWebEntrySnapshot aggregate(PluginRegistry registry) {
+        return GuiWebEntryContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registry));
+    }
+
+    private static GuiWebEntrySnapshot aggregate(
+            List<PluginRegistry.RegisteredPlugin> registeredPlugins) {
+        return GuiWebEntryContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registeredPlugins));
     }
 }

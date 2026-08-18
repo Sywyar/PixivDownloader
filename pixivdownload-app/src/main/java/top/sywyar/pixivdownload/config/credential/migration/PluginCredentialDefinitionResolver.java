@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.config.credential.migration;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
+import top.sywyar.pixivdownload.config.DefaultConfigTemplate;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -161,7 +161,12 @@ public class PluginCredentialDefinitionResolver {
 
     private static Set<String> currentCoreConfigKeys() {
         LinkedHashSet<String> keys = new LinkedHashSet<>();
-        ConfigFieldRegistry.allFields().forEach(field -> keys.add(field.key()));
+        DefaultConfigTemplate.build(code -> code).lines()
+                .map(String::trim)
+                .filter(line -> !line.isEmpty() && !line.startsWith("#") && line.contains(":"))
+                .map(line -> line.substring(0, line.indexOf(':')).trim())
+                .filter(key -> !key.isEmpty())
+                .forEach(keys::add);
         return Set.copyOf(keys);
     }
 

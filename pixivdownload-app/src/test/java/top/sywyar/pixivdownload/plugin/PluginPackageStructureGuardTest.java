@@ -86,7 +86,7 @@ class PluginPackageStructureGuardTest {
             offenders.add(pom);
         }
         assertThat(offenders)
-                .as("FlatLaf / JNA 只能在 pixivdownload-plugin-gui-theme 内，app boot jar 不得重新引入")
+                .as("FlatLaf / JNA 只能在 pixivdownload-plugin-gui-swing 内，app boot jar 不得重新引入")
                 .isEmpty();
     }
 

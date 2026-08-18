@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -81,7 +82,7 @@ class GuiConfigContributionAggregatorTest {
     @DisplayName("默认无插件贡献时字段与分组保持核心清单")
     void noPluginContributionsKeepCoreFieldsUnchanged() {
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of())));
+                aggregate(new PluginRegistry(List.of())));
 
         assertThat(snapshot.groups()).containsExactlyElementsOf(ConfigFieldRegistry.groups());
         assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key)
@@ -119,7 +120,7 @@ class GuiConfigContributionAggregatorTest {
                                 null)))));
 
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
         ConfigFieldSpec mode = field(snapshot, "fixture.mode");
         ConfigFieldSpec secret = field(snapshot, "fixture.secret");
 
@@ -159,7 +160,7 @@ class GuiConfigContributionAggregatorTest {
                         Map.of("auto", "fixture.mode.auto"))))));
 
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         assertThat(field(snapshot, "fixture.mode").enumValueLabels())
                 .containsEntry("auto", "fixture.mode.auto");
@@ -213,7 +214,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(earlySection))));
 
         GuiConfigContributionSnapshot contributions =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(lateGroup, earlyGroup)));
+                aggregate(new PluginRegistry(List.of(lateGroup, earlyGroup)));
 
         assertThat(contributions.sections()).extracting(GuiConfigSectionSpec::sectionId)
                 .containsExactly("early.section", "late.section");
@@ -271,7 +272,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(section))));
 
         GuiConfigContributionSnapshot contributions =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+                aggregate(new PluginRegistry(List.of(plugin)));
 
         assertThat(contributions.sections()).singleElement().satisfies(resolved -> {
             GuiConfigPresetSpec preset = ((GuiConfigSectionSpec) resolved).presets().get(0);
@@ -315,7 +316,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(section))));
 
         GuiConfigContributionSnapshot contributions =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+                aggregate(new PluginRegistry(List.of(plugin)));
 
         assertThat(contributions.sections()).singleElement().satisfies(spec -> {
             GuiConfigSectionSpec resolved = (GuiConfigSectionSpec) spec;
@@ -353,7 +354,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(secondSection))));
 
         GuiConfigContributionSnapshot contributions =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(first, second)));
+                aggregate(new PluginRegistry(List.of(first, second)));
 
         assertThat(contributions.sections()).singleElement().satisfies(section -> {
             assertThat(section.sectionId()).isEqualTo("fixture.shared");
@@ -387,7 +388,7 @@ class GuiConfigContributionAggregatorTest {
                         "fixture.section", "missing-group", GuiConfigSectionLayout.FIELD_LIST, 10)))));
 
         GuiConfigContributionSnapshot contributions =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+                aggregate(new PluginRegistry(List.of(plugin)));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(contributions);
 
         assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key).contains("fixture.visible");
@@ -423,7 +424,7 @@ class GuiConfigContributionAggregatorTest {
                         List.of())))));
 
         GuiConfigContributionSnapshot contributions =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+                aggregate(new PluginRegistry(List.of(plugin)));
         GuiConfigSectionSpec section = contributions.sections().stream()
                 .filter(spec -> "fixture.section".equals(spec.sectionId()))
                 .findFirst()
@@ -480,7 +481,7 @@ class GuiConfigContributionAggregatorTest {
                                 null)))));
 
         GuiConfigContributionSnapshot snapshot =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(first, second)));
+                aggregate(new PluginRegistry(List.of(first, second)));
 
         assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key)
                 .contains("first.enabled")
@@ -529,7 +530,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(foreignReferences))));
 
         GuiConfigContributionSnapshot snapshot =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(first, second)));
+                aggregate(new PluginRegistry(List.of(first, second)));
         GuiConfigSectionSpec section = snapshot.sections().stream()
                 .filter(candidate -> "second.section".equals(candidate.sectionId()))
                 .findFirst()
@@ -569,7 +570,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(section))));
 
         GuiConfigContributionSnapshot snapshot =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+                aggregate(new PluginRegistry(List.of(plugin)));
 
         assertThat(snapshot.sections()).singleElement()
                 .satisfies(resolved -> assertThat(((GuiConfigSectionSpec) resolved).presets()).isEmpty());
@@ -612,7 +613,7 @@ class GuiConfigContributionAggregatorTest {
                 List::of);
 
         GuiConfigContributionSnapshot snapshot =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(wrongRoutes, otherOwner)));
+                aggregate(new PluginRegistry(List.of(wrongRoutes, otherOwner)));
 
         assertThat(snapshot.sections()).singleElement()
                 .satisfies(resolved -> assertThat(((GuiConfigSectionSpec) resolved).actions()).isEmpty());
@@ -656,7 +657,7 @@ class GuiConfigContributionAggregatorTest {
                                 false)));
 
         GuiConfigContributionSnapshot snapshot =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(stateful)));
+                aggregate(new PluginRegistry(List.of(stateful)));
 
         assertThat(routeReads).hasValue(1);
         assertThat(snapshot.sections()).singleElement().satisfies(resolved -> {
@@ -734,7 +735,7 @@ class GuiConfigContributionAggregatorTest {
                 new GuiConfigContribution(List.of(), List.of(), List.of(section))));
 
         GuiConfigContributionSnapshot snapshot =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+                aggregate(new PluginRegistry(List.of(plugin)));
 
         assertThat(snapshot.sections()).singleElement()
                 .satisfies(resolved -> assertThat(((GuiConfigSectionSpec) resolved).actions())
@@ -778,7 +779,7 @@ class GuiConfigContributionAggregatorTest {
                         List.of())))));
 
         GuiConfigContributionSnapshot contributions =
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+                aggregate(new PluginRegistry(List.of(plugin)));
 
         assertThat(contributions.sections()).singleElement()
                 .satisfies(section -> assertThat(((GuiConfigSectionSpec) section).actions()).singleElement()
@@ -798,15 +799,15 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.visible", GuiConfigGroups.PLUGINS,
                         "fixture.visible.label", GuiConfigFieldType.BOOL)))));
 
-        ConfigFieldSnapshot disabled = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot disabled = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(plugin), toggles("fixture", false))));
-        ConfigFieldSnapshot uninstalled = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot uninstalled = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of())));
-        ConfigFieldSnapshot damaged = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot damaged = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(), new PluginToggleProperties(),
                         new PluginDiscoveryResult(List.of(),
                                 List.of(new PluginLoadFailure("broken.jar", "load failed"))))));
-        ConfigFieldSnapshot throwing = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot throwing = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(plugin("throwing", () -> {
                     throw new IllegalStateException("boom");
                 })))));
@@ -834,7 +835,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("healthy.display", GuiConfigGroups.PLUGINS,
                         "healthy.display.label", GuiConfigFieldType.STRING)))));
 
-        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(broken, healthy))));
 
         assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key)
@@ -861,7 +862,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("healthy.i18n", GuiConfigGroups.PLUGINS,
                         "healthy.i18n.label", GuiConfigFieldType.STRING)))));
 
-        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(broken, healthy))));
 
         assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key)
@@ -894,7 +895,7 @@ class GuiConfigContributionAggregatorTest {
                         null,
                         null)))));
 
-        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(plugin))));
         ConfigFieldSpec field = field(snapshot, "null.i18n");
 
@@ -924,7 +925,7 @@ class GuiConfigContributionAggregatorTest {
                         "healthy.text.label", GuiConfigFieldType.STRING)))));
 
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(
+                aggregate(List.of(
                         new PluginRegistry.RegisteredPlugin(broken, PluginSource.EXTERNAL,
                                 broken.getClass().getClassLoader()),
                         new PluginRegistry.RegisteredPlugin(healthy, PluginSource.EXTERNAL,
@@ -959,9 +960,9 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.duplicate", GuiConfigGroups.PLUGINS,
                         "second.label", GuiConfigFieldType.STRING)))));
 
-        ConfigFieldSnapshot coreSnapshot = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot coreSnapshot = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(coreConflict))));
-        ConfigFieldSnapshot pluginSnapshot = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot pluginSnapshot = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(first, second))));
 
         assertThat(coreSnapshot.fields()).filteredOn(spec -> spec.key().equals("server.port")).hasSize(1);
@@ -989,7 +990,7 @@ class GuiConfigContributionAggregatorTest {
         PixivFeaturePlugin emptyContribution = plugin("empty-contribution", () -> List.of(
                 new GuiConfigContribution(null, null)));
 
-        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(GuiConfigContributionAggregator.from(
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(aggregate(
                 new PluginRegistry(List.of(nullList, nullContribution, emptyContribution))));
 
         assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key)
@@ -1034,7 +1035,7 @@ class GuiConfigContributionAggregatorTest {
 
         try (URLClassLoader loader = new URLClassLoader(urls, null)) {
             ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                    GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(
+                    aggregate(List.of(
                             new PluginRegistry.RegisteredPlugin(plugin, PluginSource.EXTERNAL, loader))));
 
             ConfigFieldSpec spec = field(snapshot, "fixture.i18n");
@@ -1072,7 +1073,7 @@ class GuiConfigContributionAggregatorTest {
         try (URLClassLoader loader = new URLClassLoader(urls, null)) {
             GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
             ConfigFieldSnapshot zhSnapshot = ConfigFieldRegistry.snapshot(
-                    GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(
+                    aggregate(List.of(
                             new PluginRegistry.RegisteredPlugin(plugin, PluginSource.EXTERNAL, loader))));
             ConfigFieldSpec zhSpec = field(zhSnapshot, "fixture.i18n");
             assertThat(zhSnapshot.groups()).contains("中文分组");
@@ -1081,7 +1082,7 @@ class GuiConfigContributionAggregatorTest {
 
             GuiMessages.setLocale(Locale.US);
             ConfigFieldSnapshot enSnapshot = ConfigFieldRegistry.snapshot(
-                    GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(
+                    aggregate(List.of(
                             new PluginRegistry.RegisteredPlugin(plugin, PluginSource.EXTERNAL, loader))));
             ConfigFieldSpec enSpec = field(enSnapshot, "fixture.i18n");
             assertThat(enSnapshot.groups()).contains("English Group");
@@ -1097,7 +1098,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
                         "fixture.panel.label", GuiConfigFieldType.BOOL)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
                 path -> "http://localhost:6999" + path, snapshot);
@@ -1116,7 +1117,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
                         "fixture.panel.label", GuiConfigFieldType.STRING)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
 
@@ -1153,7 +1154,7 @@ class GuiConfigContributionAggregatorTest {
                         false, false, List.of(), List.of(hidden), List.of(hidden), null, null)
         ))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
 
@@ -1178,7 +1179,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
                         "fixture.panel.label", GuiConfigFieldType.STRING)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
@@ -1204,7 +1205,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
                         "fixture.panel.label", GuiConfigFieldType.STRING)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
@@ -1232,7 +1233,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
                         "fixture.panel.label", GuiConfigFieldType.STRING)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
@@ -1259,7 +1260,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.api-key", GuiConfigGroups.PLUGINS,
                         "fixture.api-key.label", GuiConfigFieldType.PASSWORD)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
@@ -1320,7 +1321,7 @@ class GuiConfigContributionAggregatorTest {
                                 "fixture.api-key", GuiConfigGroups.PLUGINS, "fixture.api-key.label",
                                 GuiConfigFieldType.PASSWORD, "must-not-persist", 20)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         Logger logger = (Logger) LoggerFactory.getLogger(ConfigPanel.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -1366,7 +1367,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
                         "fixture.panel.label", GuiConfigFieldType.STRING)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
 
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
@@ -1386,7 +1387,7 @@ class GuiConfigContributionAggregatorTest {
                 List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
                         "fixture.panel.label", GuiConfigFieldType.STRING)))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+                aggregate(new PluginRegistry(List.of(plugin))));
         ConfigPanel panel = new ConfigPanel(configYaml, 6999,
                 path -> "http://localhost:6999" + path, snapshot);
 
@@ -1571,5 +1572,13 @@ class GuiConfigContributionAggregatorTest {
             }
             return List.copyOf(inferred);
         }
+    }
+    private static GuiConfigContributionSnapshot aggregate(PluginRegistry registry) {
+        return GuiConfigContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registry));
+    }
+
+    private static GuiConfigContributionSnapshot aggregate(
+            List<PluginRegistry.RegisteredPlugin> registeredPlugins) {
+        return GuiConfigContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registeredPlugins));
     }
 }

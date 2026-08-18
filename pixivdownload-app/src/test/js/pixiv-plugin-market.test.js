@@ -86,7 +86,7 @@ function entry(id, name, summary, iconToken, colorToken, category) {
 
 [
     ['download-workbench', '下载工作台', 'download', 'pixiv', 'download', 'fa-solid fa-download'],
-    ['gui-theme', 'GUI 主题', 'palette', 'blue', 'ui', 'fa-solid fa-palette'],
+    ['gui-swing', 'Swing GUI', 'palette', 'blue', 'ui', 'fa-solid fa-palette'],
     ['stats', '统计', 'chart-line', 'green', 'utility', 'fa-solid fa-chart-line'],
     ['notification', '通知', 'bell', 'teal', 'dependency', 'fa-solid fa-bell'],
     ['push', '推送通知', 'bell', 'blue', 'notify', 'fa-solid fa-bell'],

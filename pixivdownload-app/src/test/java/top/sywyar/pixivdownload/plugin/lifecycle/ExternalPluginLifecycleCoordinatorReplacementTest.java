@@ -57,12 +57,12 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
     void unloadsReplacedRuntimeBeforeCommittingArtifactTransaction() {
         String retiredId = "legacy-theme";
         Path retiredArtifact = Path.of("plugins", "legacy-theme-1.0.0.jar");
-        PluginDescriptor descriptor = new PluginDescriptor("gui-theme", "gui-theme", "1.1.0",
+        PluginDescriptor descriptor = new PluginDescriptor("gui-swing", "gui-swing", "1.1.0",
                 VersionRequirement.parse("1.0"), List.of(), "example.ThemePlugin", null,
                 "theme.label", null, null, null, PluginKind.FEATURE, List.of(retiredId),
                 PluginLifecyclePolicy.PROCESS_RESTART);
         PluginInstallResult result = new PluginInstallResult(PluginInstallOutcome.INSTALLED, descriptor,
-                Path.of("plugins", "gui-theme-1.1.0.jar"), null, List.of());
+                Path.of("plugins", "gui-swing-1.1.0.jar"), null, List.of());
         PreparedPluginTransaction prepared = new PreparedPluginTransaction("tx", result,
                 Path.of("plugins", ".staging", "tx"), Path.of("plugins", ".staging", "tx", "new.jar"),
                 result.installedPath(), List.of(retiredArtifact));
@@ -77,7 +77,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
                         PluginKind.FEATURE), retiredArtifact)));
         when(runtimeManager.packagePhases()).thenReturn(Map.of(retiredId, PluginRuntimePackagePhase.STARTED));
         when(runtimeManager.activeDependents(retiredId)).thenReturn(List.of());
-        when(lifecycleService.phase("gui-theme")).thenReturn(Optional.empty());
+        when(lifecycleService.phase("gui-swing")).thenReturn(Optional.empty());
         when(lifecycleService.phase(retiredId)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
         when(lifecycleService.generation(retiredId)).thenReturn(Optional.of(7L));
         when(runtimeManager.unloadPlugin(retiredId)).thenReturn(
