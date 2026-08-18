@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -16,11 +17,13 @@ import java.util.function.Supplier;
  * @param startupLaunch whether the process was started by an operating-system startup entry
  * @param startupPluginSources verified plugin snapshot used before the backend starts
  * @param currentPluginSourcesSupplier supplier for the current verified plugin snapshot
+ * @param currentDocumentSupplier supplier for the current toolkit-neutral desktop UI document
  * @param host toolkit-neutral host operations
  */
 public record DesktopUiContext(int serverPort, String rootFolder, Path configPath, boolean startupLaunch,
                                List<PluginSource> startupPluginSources,
                                Supplier<List<PluginSource>> currentPluginSourcesSupplier,
+                               Supplier<DesktopUiDocument> currentDocumentSupplier,
                                DesktopUiHost host) {
     /**
      * Validates and defensively copies the startup context.
@@ -31,6 +34,7 @@ public record DesktopUiContext(int serverPort, String rootFolder, Path configPat
      * @param startupLaunch whether the process was started by an operating-system startup entry
      * @param startupPluginSources verified startup plugin snapshot
      * @param currentPluginSourcesSupplier supplier for the current plugin snapshot
+     * @param currentDocumentSupplier supplier for the current desktop UI document
      * @param host toolkit-neutral host operations
      */
     public DesktopUiContext {
@@ -39,6 +43,7 @@ public record DesktopUiContext(int serverPort, String rootFolder, Path configPat
         configPath = Objects.requireNonNull(configPath, "configPath");
         startupPluginSources = List.copyOf(Objects.requireNonNull(startupPluginSources, "startupPluginSources"));
         currentPluginSourcesSupplier = Objects.requireNonNull(currentPluginSourcesSupplier, "currentPluginSourcesSupplier");
+        currentDocumentSupplier = Objects.requireNonNull(currentDocumentSupplier, "currentDocumentSupplier");
         host = Objects.requireNonNull(host, "host");
     }
 
@@ -50,6 +55,15 @@ public record DesktopUiContext(int serverPort, String rootFolder, Path configPat
     public List<PluginSource> currentPluginSources() {
         List<PluginSource> sources = currentPluginSourcesSupplier.get();
         return sources == null ? List.of() : List.copyOf(sources);
+    }
+
+    /**
+     * Returns the current toolkit-neutral desktop UI document.
+     *
+     * @return current desktop UI document
+     */
+    public DesktopUiDocument currentDocument() {
+        return Objects.requireNonNull(currentDocumentSupplier.get(), "currentDocumentSupplier returned null");
     }
 
     /**

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSnapshot;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldType;
@@ -130,6 +131,7 @@ class ConfigPanelRestartTest {
                     .defaultValue("")
                     .visibleWhen(snapshot -> snapshot.equals("fixture.proxy.mode", "custom"))
                     .build();
+            DesktopUiTestHost.install(configPath);
             ConfigPanel panel = new ConfigPanel(configPath, 6999, path -> path,
                     new ConfigFieldSnapshot(List.of(group), List.of(changed, corePort, mode, port), List.of()),
                     null, null, () -> false, () -> false);
@@ -187,6 +189,7 @@ class ConfigPanelRestartTest {
                 .build();
         ConfigFieldSnapshot snapshot = new ConfigFieldSnapshot(
                 List.of(group), List.of(field), List.of());
+        DesktopUiTestHost.install(configPath);
         return new ConfigPanel(configPath, 6999, path -> path, snapshot,
                 null, null, confirmation, restarter);
     }

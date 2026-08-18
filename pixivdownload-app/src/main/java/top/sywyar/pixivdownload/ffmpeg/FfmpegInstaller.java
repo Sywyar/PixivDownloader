@@ -62,10 +62,10 @@ public final class FfmpegInstaller {
         Path archive = tempDir.resolve("ffmpeg.zip");
         Path extracted = tempDir.resolve("extract");
         try {
-            progress.onProgress(message("gui.ffmpeg.install.stage.connecting"), 0L, -1L);
+            progress.onProgress(ProgressStage.CONNECTING, 0L, -1L);
             downloadArchive(settings, archive, progress);
 
-            progress.onProgress(message("gui.ffmpeg.install.stage.extracting"), -1L, -1L);
+            progress.onProgress(ProgressStage.EXTRACTING, -1L, -1L);
             ExtractedFiles extractedFiles = extractRequiredFiles(archive, extracted);
 
             Path toolsDir = FfmpegLocator.managedToolsDir();
@@ -79,7 +79,7 @@ public final class FfmpegInstaller {
             Files.createDirectories(licenseDir);
             Files.writeString(licenseDir.resolve("ffmpeg-LGPL.txt"), LGPL_NOTICE);
 
-            progress.onProgress(message("gui.ffmpeg.install.completed"), 1L, 1L);
+            progress.onProgress(ProgressStage.COMPLETED, 1L, 1L);
             return FfmpegLocator.managedInstallation()
                     .orElseThrow(() -> new IOException(message("gui.ffmpeg.install.result-missing")));
         } finally {
@@ -116,7 +116,7 @@ public final class FfmpegInstaller {
             while ((read = inputStream.read(buffer)) != -1) {
                 outputStream.write(buffer, 0, read);
                 downloaded += read;
-                listener.onProgress(message("gui.ffmpeg.install.stage.downloading"), downloaded, total);
+                listener.onProgress(ProgressStage.DOWNLOADING, downloaded, total);
             }
         }
     }
@@ -195,8 +195,10 @@ public final class FfmpegInstaller {
     public interface ProgressListener {
         ProgressListener NO_OP = (stage, current, total) -> {};
 
-        void onProgress(String stage, long current, long total);
+        void onProgress(ProgressStage stage, long current, long total);
     }
+
+    public enum ProgressStage { CONNECTING, DOWNLOADING, EXTRACTING, COMPLETED }
 
     public record ProxySettings(boolean enabled, String host, int port) {
 

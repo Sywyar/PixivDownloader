@@ -278,11 +278,14 @@ public class GuiLauncher {
                             .filter(DesktopUiProvider.class::isInstance)
                             .map(DesktopUiProvider.class::cast)
                             .toList());
+            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
+            desktopUiHost.resetIncompleteOnboardingState(root);
             DesktopUiContext context = new DesktopUiContext(port, root, configPath, startupLaunch,
                     startupPluginSources,
                     () -> buildDesktopUiPluginSources(pluginRegistry(
                             pluginSession, pluginSession.manager().discoverFeaturePlugins())),
-                    new AppDesktopUiHost(port));
+                    () -> desktopUiHost.desktopUiDocument(root),
+                    desktopUiHost);
             DesktopUiSession ui = selection.provider().launch(context);
             ACTIVE_UI.set(ui);
             singleInstanceManager.setActivationHandler(ui::activate);

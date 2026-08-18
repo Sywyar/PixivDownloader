@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
@@ -17,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DisplayName("配置面板字段注册：插件分组")
 class ConfigFieldRegistryTest {
+
+    static { DesktopUiTestHost.ensureInstalled(); }
 
     @Test
     @DisplayName("插件分组出现在配置分组列表（下载之后、代理之前），i18n 已解析")

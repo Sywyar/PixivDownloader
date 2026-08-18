@@ -22,6 +22,7 @@ public final class DesktopUiTestHost {
     public static synchronized void install(Path configPath) {
         SwingHost.install(new DesktopUiContext(
                 1, ".", configPath, false, List.of(), List::of,
+                () -> AppDesktopUiHost.desktopUiDocument(false),
                 new AppDesktopUiHost(1, new TestDesktopConfigFile(configPath))));
     }
 }

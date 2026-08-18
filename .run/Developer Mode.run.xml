@@ -5,8 +5,8 @@
     <option name="VM_PARAMETERS" value="-Dpixivdownload.plugin-dev.enabled=true -Dpixivdownload.plugin-dev.root=&quot;$PROJECT_DIR$&quot;" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <method v="2">
-      <option name="Maven.BeforeRunTask" enabled="true" file="$PROJECT_DIR$/pom.xml" goal="-pl pixivdownload-official-plugins -am compile -Dexec.skip=true" />
       <option name="Make" enabled="true" />
+      <option name="Maven.BeforeRunTask" enabled="true" file="$PROJECT_DIR$/pom.xml" goal="-pl pixivdownload-official-plugins -am compile -Dexec.skip=true" />
     </method>
   </configuration>
 </component>

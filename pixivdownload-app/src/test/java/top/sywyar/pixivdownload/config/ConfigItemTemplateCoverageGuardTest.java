@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
@@ -38,6 +39,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DisplayName("配置项覆盖守卫：模板 / GUI / @ConfigurationProperties 三方一致")
 class ConfigItemTemplateCoverageGuardTest {
+
+    static { DesktopUiTestHost.ensureInstalled(); }
 
     private static final String BASE_PACKAGE = "top.sywyar.pixivdownload";
 
