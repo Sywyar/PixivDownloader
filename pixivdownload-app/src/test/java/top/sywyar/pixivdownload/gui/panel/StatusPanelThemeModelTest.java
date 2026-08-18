@@ -38,7 +38,7 @@ class StatusPanelThemeModelTest {
         GuiThemeContribution system = theme("system", GuiThemeAppearance.SYSTEM, "System");
         GuiThemeContribution moonlight = theme("moonlight", GuiThemeAppearance.DARK, "Moonlight");
         GuiThemeManager.applyBeforeFirstWindow(null, "moonlight",
-                List.of(themeSource(new TestPlugin("gui-theme", List.of(system, moonlight)))));
+                List.of(themeSource(new TestPlugin("gui-swing", List.of(system, moonlight)))));
 
         JComboBox<StatusPanelThemeOption> combo = new JComboBox<>();
         StatusPanelThemeModel.refreshOptions(combo, Locale.US, "Unavailable", "System fallback",
@@ -89,7 +89,7 @@ class StatusPanelThemeModelTest {
                     return closed::incrementAndGet;
                 });
         GuiThemeManager.applyBeforeFirstWindow(null, "dark",
-                List.of(themeSource(new TestPlugin("gui-theme", List.of(dark)))));
+                List.of(themeSource(new TestPlugin("gui-swing", List.of(dark)))));
 
         assertThat(GuiThemeManager.isCurrentDark()).isTrue();
         listenerRef.get().appearanceChanged(GuiThemeAppearance.LIGHT);

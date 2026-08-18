@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntryContributionAggregator;
+import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
 import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingContributionAggregator;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
@@ -57,10 +58,10 @@ class PluginDisableSemanticsTest {
         assertThat(new NavigationRegistry(disabled).navigation())
                 .extracting(NavigationRegistry.RegisteredNavigation::pluginId)
                 .doesNotContain("gallery");
-        assertThat(GuiWebEntryContributionAggregator.from(disabled).statusActions())
+        assertThat(aggregateWebEntries(disabled).statusActions())
                 .extracting(action -> action.pluginId())
                 .doesNotContain("gallery");
-        assertThat(GuiOnboardingContributionAggregator.from(disabled).steps())
+        assertThat(aggregateOnboarding(disabled).steps())
                 .extracting(step -> step.pluginId())
                 .doesNotContain("gallery");
         assertThat(routeOwners(disabled)).doesNotContain("gallery");
@@ -116,17 +117,17 @@ class PluginDisableSemanticsTest {
     @Test
     @DisplayName("禁用 gallery：其 GUI Web 入口与欢迎页步骤从聚合快照消失")
     void disablingGalleryDropsGuiEntriesAndOnboardingSteps() {
-        assertThat(GuiWebEntryContributionAggregator.from(allEnabled()).statusActions())
+        assertThat(aggregateWebEntries(allEnabled()).statusActions())
                 .extracting(action -> action.id())
                 .contains("gallery-gui-open");
-        assertThat(GuiWebEntryContributionAggregator.from(registryDisabling("gallery")).statusActions())
+        assertThat(aggregateWebEntries(registryDisabling("gallery")).statusActions())
                 .extracting(action -> action.id())
                 .doesNotContain("gallery-gui-open");
 
-        assertThat(GuiOnboardingContributionAggregator.from(allEnabled()).steps())
+        assertThat(aggregateOnboarding(allEnabled()).steps())
                 .extracting(step -> step.stepId())
                 .contains("local-gallery-guide");
-        assertThat(GuiOnboardingContributionAggregator.from(registryDisabling("gallery")).steps())
+        assertThat(aggregateOnboarding(registryDisabling("gallery")).steps())
                 .extracting(step -> step.stepId())
                 .doesNotContain("local-gallery-guide");
     }
@@ -226,5 +227,14 @@ class PluginDisableSemanticsTest {
         out.add(new TestGalleryPlugin());
         out.add(new TestNovelGalleryPlugin());
         return out;
+    }
+    private static top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot aggregateWebEntries(
+            PluginRegistry registry) {
+        return GuiWebEntryContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registry));
+    }
+
+    private static top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot aggregateOnboarding(
+            PluginRegistry registry) {
+        return GuiOnboardingContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registry));
     }
 }

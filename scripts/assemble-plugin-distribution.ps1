@@ -204,7 +204,7 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/i18n/web/series",
         "BOOT-INF/classes/i18n/web/batch",
         "BOOT-INF/classes/i18n/web/userscript",
-        "BOOT-INF/classes/i18n/web/gui-theme",
+        "BOOT-INF/classes/i18n/web/gui-swing",
         "BOOT-INF/classes/i18n/web/notification",
         "BOOT-INF/classes/i18n/web/tts",
         "BOOT-INF/classes/i18n/web/ai",

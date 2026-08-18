@@ -42,6 +42,12 @@
             <artifactId>pixivdownload-plugin-signature</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-gui-swing</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
 
         <!-- 插件框架启用运行时：ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties
              （Spring 耦合，零 plugin-api、零 app/插件反向依赖） -->
@@ -206,8 +212,8 @@
                         <duplicate.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-duplicate/target/classes</duplicate.plugin.classes>
                         <gallery.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gallery/target/classes</gallery.plugin.classes>
                         <novel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel/target/classes</novel.plugin.classes>
-                        <gui-theme.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/classes</gui-theme.plugin.classes>
-                        <gui-theme.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-${project.version}.jar</gui-theme.plugin.jar>
+                        <gui-swing.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/classes</gui-swing.plugin.classes>
+                        <gui-swing.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/pixivdownload-plugin-gui-swing-${project.version}.jar</gui-swing.plugin.jar>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
 import top.sywyar.pixivdownload.common.AppInfo;
-import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -38,7 +38,7 @@ public final class FfmpegInstaller {
     private FfmpegInstaller() {}
 
     private static String message(String code, Object... args) {
-        return GuiMessages.get(code, args);
+        return MessageBundles.get(code, args);
     }
 
     public static boolean supportsManagedDownload() {

@@ -48,7 +48,7 @@
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
   },
-  "gui-theme": {
+  "gui-swing": {
     "description": { "zh": "为桌面 GUI 提供跟随系统、浅色、深色与 Moonlight 主题，并在完整重启后应用启动期主题。", "en": "Adds system, light, dark, and Moonlight themes to the desktop GUI, applied during startup after a full restart." },
     "author": "Sywyar",
     "sourceType": "official",

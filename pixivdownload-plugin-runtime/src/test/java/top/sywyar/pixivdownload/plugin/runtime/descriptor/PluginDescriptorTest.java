@@ -166,9 +166,9 @@ class PluginDescriptorTest {
     @Test
     @DisplayName("运行期功能描述符合并清单专属替代关系和生命周期策略")
     void attachesPackageOnlyMetadata() {
-        PluginDescriptor runtimeDescriptor = external("gui-theme", "1.0.0", "1.0",
+        PluginDescriptor runtimeDescriptor = external("gui-swing", "1.0.0", "1.0",
                 "com.example.ThemePlugin", "theme.label", PluginKind.FEATURE, List.of());
-        PluginDescriptor packageDescriptor = new PluginDescriptor("gui-theme-pack", "gui-theme-pack", "1.0.0",
+        PluginDescriptor packageDescriptor = new PluginDescriptor("gui-swing-pack", "gui-swing-pack", "1.0.0",
                 VersionRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
                 "package.label", null, null, null, PluginKind.FEATURE, List.of("legacy-theme"),
                 PluginLifecyclePolicy.PROCESS_RESTART);

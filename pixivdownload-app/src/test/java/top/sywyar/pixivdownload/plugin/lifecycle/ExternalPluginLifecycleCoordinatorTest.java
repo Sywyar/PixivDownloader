@@ -123,9 +123,9 @@ class ExternalPluginLifecycleCoordinatorTest {
     @Test
     @DisplayName("进程重启策略安装只提交文件并延迟运行期激活")
     void processRestartInstallCommitsWithoutRuntimeActivation() {
-        String pluginId = "gui-theme";
+        String pluginId = "gui-swing";
         Path staged = Path.of("plugins", ".staging", "tx-process", "new.jar");
-        Path target = Path.of("plugins", "gui-theme.jar");
+        Path target = Path.of("plugins", "gui-swing.jar");
         PluginDescriptor descriptor = descriptor(pluginId, PluginLifecyclePolicy.PROCESS_RESTART);
         PluginInstallResult result = new PluginInstallResult(
                 PluginInstallOutcome.INSTALLED, descriptor, target, null, List.of());

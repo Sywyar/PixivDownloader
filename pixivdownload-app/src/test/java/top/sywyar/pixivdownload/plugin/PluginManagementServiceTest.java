@@ -188,7 +188,7 @@ class PluginManagementServiceTest {
                 official("download-workbench", "batch", "download", "pixiv"),
                 official("gallery", "gallery", "gallery", "green"),
                 official("novel", "novel", "book", "amber"),
-                official("gui-theme", "gui-theme", "palette", "blue"),
+                official("gui-swing", "gui-swing", "palette", "blue"),
                 official("stats", "stats", "chart-line", "green"),
                 official("notification", "notification", "bell", "teal"),
                 official("push", "push", "bell", "blue"),

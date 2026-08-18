@@ -50,16 +50,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       且不泄漏共享契约 / 宿主类；若 Maven 已产出真实插件 jar，再断言 jar 内无 {@code BOOT-INF/}、无打入的
  *       {@code org/pf4j/}、{@code org/springframework/} 框架类（依赖均 provided）。</li>
  *   <li><b>{@code recovery-sentinel} 同样以 thin 外置插件形态打包</b>。</li>
- *   <li><b>{@code gui-theme} 以 PF4J JAR-with-lib 打包</b>——根 {@code plugin.properties}、
+ *   <li><b>{@code gui-swing} 以 PF4J JAR-with-lib 打包</b>——根 {@code plugin.properties}、
  *       标准 JAR 类路径与 {@code lib/*.jar} 在位，FlatLaf / IntelliJ Themes / JNA 仅在 JAR 的 {@code lib/} 中，
  *       并通过模拟 runtime materialization 后的独立 classloader 真实加载。</li>
  * </ol>
  *
  * <p>插件构建产物目录经 surefire 系统属性 {@code gallery.plugin.classes} / {@code novel.plugin.classes} / {@code stats.plugin.classes} /
- * {@code duplicate.plugin.classes} / {@code recovery-sentinel.plugin.classes} / {@code gui-theme.plugin.classes} 传入（指向各插件模块
+ * {@code duplicate.plugin.classes} / {@code recovery-sentinel.plugin.classes} / {@code gui-swing.plugin.classes} 传入（指向各插件模块
  * {@code target/classes}，reactor 中先于 app 构建）；未就绪时（如 IDE 未触发 reactor 构建）对应用例
- * {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}，gui-theme 可由
- * {@code gui-theme.plugin.jar} 指定）仅在 {@code package} 阶段后存在——存在即追加更强的 artifact 不变量断言，
+ * {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}，gui-swing 可由
+ * {@code gui-swing.plugin.jar} 指定）仅在 {@code package} 阶段后存在——存在即追加更强的 artifact 不变量断言，
  * 缺失时不跳过、仅不追加，故 {@code test} 阶段照常运行。
  */
 @DisplayName("插件分发打包边界：boot jar 不含外置插件类、外置插件独立产物形态")
@@ -87,8 +87,8 @@ class DistributionPackagingBoundaryTest {
     private static final String TTS_CLASSES_PROPERTY = "tts.plugin.classes";
     private static final String AI_CLASSES_PROPERTY = "ai.plugin.classes";
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
-    private static final String GUI_THEME_CLASSES_PROPERTY = "gui-theme.plugin.classes";
-    private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
+    private static final String GUI_THEME_CLASSES_PROPERTY = "gui-swing.plugin.classes";
+    private static final String GUI_THEME_JAR_PROPERTY = "gui-swing.plugin.jar";
     private static final String DOUYIN_SCHEDULE_MODULE_ENTRY =
             "static/pixiv-douyin-download/douyin-schedule-sources.js";
     private static final Set<String> NOVEL_OWNED_BACKEND_MESSAGE_KEYS = Set.of(
@@ -215,8 +215,7 @@ class DistributionPackagingBoundaryTest {
                 .as("旧 novel-gallery 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.recoverysentinel.RecoverySentinelPf4jPlugin"))
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
-        assertThat(canLoad(host, "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin"))
-                .as("外置 gui-theme 插件类不应在 boot jar 内").isFalse();
+        // gui-swing 是本模块的 test-scope 依赖；其独立产物边界由下方 JAR-with-lib 用例验证。
         assertThat(canLoad(host, "top.sywyar.pixivdownload.notificationbase.NotificationPf4jPlugin"))
                 .as("外置 notification 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.multimodesurvey.MultiModeDecisionSurveyPf4jPlugin"))
@@ -229,10 +228,6 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 tts 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.ai.AiPf4jPlugin"))
                 .as("外置 ai 插件类不应在 boot jar 内").isFalse();
-        assertThat(canLoad(host, "com.formdev.flatlaf.FlatLaf"))
-                .as("FlatLaf 不应在 app boot jar 运行期类路径内").isFalse();
-        assertThat(canLoad(host, "com.sun.jna.Native"))
-                .as("JNA 不应在 app boot jar 运行期类路径内").isFalse();
         assertThat(canLoad(host, "jakarta.mail.Session"))
                 .as("Jakarta Mail 不应在 app boot jar 运行期类路径内").isFalse();
         assertThat(canLoad(host, "org.springframework.mail.javamail.JavaMailSenderImpl"))
@@ -307,8 +302,7 @@ class DistributionPackagingBoundaryTest {
                 .as("novel 后端 i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/novel/messages_en.properties"))
                 .as("novel 英文后端 i18n 资源不应在 boot jar 内").isNull();
-        assertThat(host.getResource("i18n/web/gui-theme.properties"))
-                .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
+        // gui-swing 资源随本模块的 test-scope 依赖进入测试类路径；独立 JAR 形态由专用用例验证。
         assertThat(host.getResource("i18n/web/notification.properties"))
                 .as("notification i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/multi-mode-decision-survey.properties"))
@@ -406,7 +400,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/i18n/web/artwork",
                 "BOOT-INF/classes/i18n/web/showcase",
                 "BOOT-INF/classes/i18n/web/series",
-                "BOOT-INF/classes/i18n/web/gui-theme",
+                "BOOT-INF/classes/i18n/web/gui-swing",
                 "BOOT-INF/classes/i18n/web/notification",
                 "BOOT-INF/classes/i18n/web/multi-mode-decision-survey",
                 "BOOT-INF/classes/i18n/web/push",
@@ -584,28 +578,31 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("gui-theme 以 JAR-with-lib 形态打包：根 descriptor + 插件类 + lib/*.jar")
+    @DisplayName("gui-swing 以 JAR-with-lib 形态打包：根 descriptor + 插件类 + lib/*.jar")
     void guiThemePackagesAsJarWithPrivateLibraries(@TempDir Path tempDir) {
         Path classesDir = locateConfiguredDir(GUI_THEME_CLASSES_PROPERTY);
         requireAvailable(classesDir != null && Files.isDirectory(classesDir),
-                "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-theme），无法验证 JAR-with-lib 形态");
+                "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-swing），无法验证 JAR-with-lib 形态");
 
         assertThat(classesDir.resolve("plugin.properties"))
                 .as("主题插件构建产物根部应含 plugin.properties").exists();
-        assertThat(classesDir.resolve("top/sywyar/pixivdownload/guitheme/GuiThemePf4jPlugin.class"))
-                .as("主题插件构建产物应含外置主类").exists();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/guitheme/GuiSwingPf4jPlugin.class"))
+                .as("Swing GUI 插件构建产物应含外置主类").exists();
         assertThat(classesDir.resolve("top/sywyar/pixivdownload/plugin/api"))
                 .as("主题插件不得打入共享契约 plugin-api").doesNotExist();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/gui/MainFrame.class"))
+                .as("Swing GUI 插件应包含完整主窗口实现").exists();
         assertThat(classesDir.resolve("top/sywyar/pixivdownload/gui/theme/GuiThemeManager.class"))
-                .as("主题插件不得打入 app 核心主题管理类").doesNotExist();
+                .as("Swing GUI 插件应包含合并后的主题管理实现").exists();
 
         Path jar = locateConfiguredGuiThemeJar(classesDir);
-        if (skipMissingPackagedArtifact(jar, "pixivdownload-plugin-gui-theme 的真实插件 JAR 未生成")) {
+        if (skipMissingPackagedArtifact(jar, "pixivdownload-plugin-gui-swing 的真实插件 JAR 未生成")) {
             return;
         }
         List<String> entries = jarEntryNames(jar);
         assertThat(entries).contains("plugin.properties");
-        assertThat(entries).contains("top/sywyar/pixivdownload/guitheme/GuiThemePf4jPlugin.class");
+        assertThat(entries).contains("top/sywyar/pixivdownload/guitheme/GuiSwingPf4jPlugin.class");
+        assertThat(entries).contains("top/sywyar/pixivdownload/gui/MainFrame.class");
         assertThat(entries).as("主题插件 JAR 内不得嵌套根插件 jar").noneMatch(name -> name.matches("[^/]+\\.jar"));
         assertThat(entries).as("FlatLaf 必须只在 theme JAR 的 lib/ 中")
                 .anyMatch(name -> name.matches("lib/flatlaf-[0-9][^/]*\\.jar"));
@@ -850,7 +847,7 @@ class DistributionPackagingBoundaryTest {
             return null;
         }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(
-                targetDir, "pixivdownload-plugin-gui-theme-*.jar")) {
+                targetDir, "pixivdownload-plugin-gui-swing-*.jar")) {
             for (Path candidate : stream) {
                 String name = candidate.getFileName().toString();
                 if (name.endsWith("-sources.jar") || name.endsWith("-javadoc.jar")) {
@@ -910,7 +907,7 @@ class DistributionPackagingBoundaryTest {
     }
 
     private static void assertGuiThemeJarLoadsWithPluginClassLoader(Path jar, Path tempDir) {
-        Path materialized = tempDir.resolve("gui-theme-materialized");
+        Path materialized = tempDir.resolve("gui-swing-materialized");
         materializeJarWithPrivateLibs(jar, materialized);
 
         List<URL> urls = new ArrayList<>();
@@ -921,10 +918,10 @@ class DistributionPackagingBoundaryTest {
                     urls.add(lib.toUri().toURL());
                 }
             }
-            try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new),
+            try (URLClassLoader loader = new GuiSwingJarClassLoader(urls.toArray(URL[]::new),
                     DistributionPackagingBoundaryTest.class.getClassLoader())) {
                 Class<?> plugin = Class.forName(
-                        "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin", false, loader);
+                        "top.sywyar.pixivdownload.guitheme.GuiSwingPf4jPlugin", false, loader);
                 Class<?> flatLaf = Class.forName("com.formdev.flatlaf.FlatLaf", false, loader);
                 Class<?> jna = Class.forName("com.sun.jna.Native", false, loader);
 
@@ -945,7 +942,7 @@ class DistributionPackagingBoundaryTest {
         Object previousDefaultsClassLoader = UIManager.getDefaults().get("ClassLoader");
         Object previousLookAndFeelDefaultsClassLoader = UIManager.getLookAndFeelDefaults().get("ClassLoader");
         try {
-            Class<?> featureClass = Class.forName("top.sywyar.pixivdownload.guitheme.GuiThemePlugin", true, loader);
+            Class<?> featureClass = Class.forName("top.sywyar.pixivdownload.guitheme.GuiSwingPlugin", true, loader);
             PixivFeaturePlugin feature = (PixivFeaturePlugin) featureClass.getDeclaredConstructor().newInstance();
             GuiThemeContribution light = feature.guiThemes().stream()
                     .filter(theme -> "light".equals(theme.themeId()))
@@ -956,7 +953,7 @@ class DistributionPackagingBoundaryTest {
                 try {
                     light.applyOnEventDispatchThread();
                 } catch (Exception e) {
-                    throw new IllegalStateException("无法应用 gui-theme light 主题", e);
+                    throw new IllegalStateException("无法应用 gui-swing light 主题", e);
                 }
             });
 
@@ -989,6 +986,42 @@ class DistributionPackagingBoundaryTest {
             return;
         }
         defaults.put(key, previousValue);
+    }
+
+    private static final class GuiSwingJarClassLoader extends URLClassLoader {
+        private GuiSwingJarClassLoader(URL[] urls, ClassLoader parent) {
+            super(urls, parent);
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (!isPluginOwned(name)) {
+                return super.loadClass(name, resolve);
+            }
+            synchronized (getClassLoadingLock(name)) {
+                Class<?> loaded = findLoadedClass(name);
+                if (loaded == null) {
+                    try {
+                        loaded = findClass(name);
+                    } catch (ClassNotFoundException ignored) {
+                        return super.loadClass(name, resolve);
+                    }
+                }
+                if (resolve) {
+                    resolveClass(loaded);
+                }
+                return loaded;
+            }
+        }
+
+        private static boolean isPluginOwned(String name) {
+            return name.startsWith("top.sywyar.pixivdownload.guitheme.")
+                    || name.startsWith("top.sywyar.pixivdownload.gui.")
+                    || name.startsWith("top.sywyar.pixivdownload.imageclassifier.")
+                    || name.equals("top.sywyar.pixivdownload.tools.FolderChecker")
+                    || name.startsWith("com.formdev.flatlaf.")
+                    || name.startsWith("com.sun.jna.");
+        }
     }
 
     private static void runOnEdtAndWait(Runnable task) {

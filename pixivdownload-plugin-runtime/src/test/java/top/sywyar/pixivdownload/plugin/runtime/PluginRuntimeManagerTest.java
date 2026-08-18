@@ -984,8 +984,8 @@ class PluginRuntimeManagerTest {
         Path portable = plugins.resolve("portable");
         Files.createDirectories(fullOffline);
         Files.createDirectories(portable);
-        Path firstJar = fullOffline.resolve("pixivdownload-plugin-gui-theme-1.0.0.jar");
-        Path secondJar = portable.resolve("pixivdownload-plugin-gui-theme.jar");
+        Path firstJar = fullOffline.resolve("pixivdownload-plugin-gui-swing-1.0.0.jar");
+        Path secondJar = portable.resolve("pixivdownload-plugin-gui-swing.jar");
         writeProbeJar(firstJar, true);
         Files.write(secondJar, Files.readAllBytes(firstJar));
         writeLocalProvenance(plugins, firstJar);

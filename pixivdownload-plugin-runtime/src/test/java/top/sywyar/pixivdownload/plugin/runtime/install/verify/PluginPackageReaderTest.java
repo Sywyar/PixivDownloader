@@ -87,14 +87,14 @@ class PluginPackageReaderTest {
         entries.put("lib/nested/ignored.jar", PluginPackageFixtures.bytes("not-a-direct-lib"));
         Path jar = tempDir.resolve("with-private-libs.jar");
         Files.write(jar, PluginPackageFixtures.pluginJarBytes(
-                "gui-theme", "1.0.0", null, "com.example.ThemePlugin", entries));
+                "gui-swing", "1.0.0", null, "com.example.ThemePlugin", entries));
 
         PluginPackageInspection inspection = PluginPackageReader.inspect(jar);
 
         assertThat(inspection.format()).isEqualTo(PluginPackageFormat.SINGLE_JAR);
         assertThat(inspection.innerJarEntry()).isNull();
         assertThat(inspection.containsPrivateLibraries()).isTrue();
-        assertThat(inspection.descriptor().id()).isEqualTo("gui-theme");
+        assertThat(inspection.descriptor().id()).isEqualTo("gui-swing");
     }
 
     @Test

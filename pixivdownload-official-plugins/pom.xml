@@ -58,7 +58,7 @@
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>pixivdownload-plugin-gui-theme</artifactId>
+            <artifactId>pixivdownload-plugin-gui-swing</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
