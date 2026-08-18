@@ -10,6 +10,8 @@ import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.ByteArrayResource;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -39,7 +41,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("空列表写为单行键、读回空")
     void emptyListRoundTrips() throws IOException {
         Path file = writeFile("plugin-catalog.enabled: false", "plugin-catalog.repositories:");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         assertThat(editor.read()).isEmpty();
         editor.write(List.of());
@@ -54,7 +56,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("单项写入后能原样读回，且是合法 YAML、可被 Spring 绑定")
     void singleEntryRoundTrips() throws IOException {
         Path file = writeFile("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         editor.write(List.of(repo("myrepo", "https://example.com/manifest.json", true, "direct-strict")));
 
@@ -77,7 +79,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("多项写入保留顺序、覆盖值与代理策略，Spring 绑定一致")
     void multipleEntriesPreserveOrderAndOverrides() throws IOException {
         Path file = writeFile("plugin-catalog.enabled: true", "plugin-catalog.repositories:", "");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         editor.write(List.of(
                 RepositoryConfigEntry.create("alpha", "", "https://a.example/manifest.json", true, "proxy-trusted",
@@ -105,7 +107,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("自定义代理策略四个网络开关可经 YAML 与 Spring Binder 完整往返")
     void customNetworkOptionsRoundTrip() throws IOException {
         Path file = writeFile("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         editor.write(List.of(RepositoryConfigEntry.createCustom(
                 "lan", "", "http://192.168.1.10/manifest.json", true,
@@ -130,7 +132,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("仓库 trusted-keys 作为一等字段往返保留，Spring Binder 绑定等价")
     void trustedKeysRoundTripAndBind() throws IOException {
         Path file = writeFile("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
         TrustedKeyConfigEntry customKey = TrustedKeyConfigEntry.create(
                 "custom-key", "Ed25519",
                 "MCowBQYDK2VwAyEA8no36HyWNxrjbl10qGcIumILxcgau/0egy3RODVNUIc=",
@@ -159,7 +161,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("未填写仓库 trusted key 时不写入官方 root")
     void emptyTrustedKeysDoNotWriteOfficialRoot() throws IOException {
         Path file = writeFile("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         editor.write(List.of(repo("plain", "https://plain.example/manifest.json", true, "direct-strict")));
 
@@ -178,7 +180,7 @@ class PluginRepositoryConfigEditorTest {
                 "    manifest-url: https://repo.example/manifest.json",
                 "    proxy-policy: custom");
 
-        RepositoryConfigEntry entry = new PluginRepositoryConfigEditor(file).read().get(0);
+        RepositoryConfigEntry entry = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file)).read().get(0);
         assertThat(entry.allowRedirects()).isFalse();
         assertThat(entry.strictHttps()).isTrue();
         assertThat(entry.allowNonPublicAddresses()).isFalse();
@@ -195,7 +197,7 @@ class PluginRepositoryConfigEditorTest {
                 "    proxy-policy: direct-strict",
                 "    signature-pin: abc123",
                 "    experimental-flag: true");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         List<RepositoryConfigEntry> entries = editor.read();
         assertThat(entries).hasSize(1);
@@ -222,7 +224,7 @@ class PluginRepositoryConfigEditorTest {
                 "",
                 "# ---- 代理 ----",
                 "proxy.enabled: true                           # 代理开关");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         assertThat(editor.read()).hasSize(1);
         editor.write(List.of());
@@ -243,7 +245,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("反复保存幂等：内容与读回结果稳定")
     void repeatedSaveIsIdempotent() throws IOException {
         Path file = writeFile("plugin-catalog.repositories:");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
         List<RepositoryConfigEntry> entries = List.of(
                 repo("alpha", "https://a.example/manifest.json", true, "direct-strict"),
                 repo("beta", "https://b.example/manifest.json", false, "proxy-trusted"));
@@ -261,7 +263,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("仓库键不存在时插入到 plugin-catalog 段之后")
     void insertsKeyWhenMissing() throws IOException {
         Path file = writeFile("plugin-catalog.enabled: true", "proxy.enabled: true");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         editor.write(List.of(repo("solo", "https://solo.example/manifest.json", true, "direct-strict")));
 
@@ -281,7 +283,7 @@ class PluginRepositoryConfigEditorTest {
     @DisplayName("非法 YAML 抛 IOException 而非静默吞掉")
     void malformedYamlThrows() throws IOException {
         Path file = writeFile("plugin-catalog.repositories: [unclosed");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
         org.junit.jupiter.api.Assertions.assertThrows(IOException.class, editor::read);
     }
 
@@ -299,7 +301,7 @@ class PluginRepositoryConfigEditorTest {
                 "    manifest-url: https://b.example/manifest.json",
                 "    enabled: true",
                 "proxy.enabled: true");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         assertThat(editor.read()).extracting(RepositoryConfigEntry::id).containsExactly("alpha", "beta");
         editor.write(editor.read()); // 往返：此前空行会让块在 alpha 后提前结束，把 beta 块悬挂 / 重复
@@ -325,7 +327,7 @@ class PluginRepositoryConfigEditorTest {
                 "",
                 "# 代理设置",
                 "proxy.enabled: false");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         editor.write(editor.read());
 
@@ -347,7 +349,7 @@ class PluginRepositoryConfigEditorTest {
                 "    manifest-url: https://b.example/manifest.json",
                 "# tail",
                 "proxy.enabled: true");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         assertThat(editor.read()).hasSize(2);
         editor.write(List.of());
@@ -375,7 +377,7 @@ class PluginRepositoryConfigEditorTest {
                 "    manifest-url: https://b.example/manifest.json",
                 "    enabled: true",
                 "proxy.enabled: true");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         assertThat(editor.read()).extracting(RepositoryConfigEntry::id).containsExactly("alpha", "beta");
         editor.write(editor.read()); // 往返
@@ -405,7 +407,7 @@ class PluginRepositoryConfigEditorTest {
                 "  - id: beta",
                 "    manifest-url: https://b.example/manifest.json",
                 "proxy.enabled: true");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         assertThat(editor.read()).extracting(RepositoryConfigEntry::id).containsExactly("alpha", "beta");
         editor.write(editor.read());
@@ -430,7 +432,7 @@ class PluginRepositoryConfigEditorTest {
                 "    enabled: true",
                 "# 代理设置（紧贴块尾、无空行分隔）",
                 "proxy.enabled: false");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         editor.write(editor.read());
 
@@ -451,7 +453,7 @@ class PluginRepositoryConfigEditorTest {
                 "  - id: b",
                 "    manifest-url: https://b.example/manifest.json",
                 "proxy.enabled: true");
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file));
 
         assertThat(editor.read()).hasSize(2);
         editor.write(List.of());

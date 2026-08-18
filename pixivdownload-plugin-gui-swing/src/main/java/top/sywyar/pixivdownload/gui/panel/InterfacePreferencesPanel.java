@@ -1,14 +1,13 @@
 package top.sywyar.pixivdownload.gui.panel;
 
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
-import top.sywyar.pixivdownload.i18n.LocaleCatalog;
-import top.sywyar.pixivdownload.i18n.LocaleDescriptor;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 
 import javax.swing.*;
@@ -113,10 +112,11 @@ final class InterfacePreferencesPanel extends JPanel {
     }
 
     private void configureLanguageSelector() {
-        LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
+        Font currentFont = languageCombo.getFont();
+        languageCombo.setFont(new Font(Font.DIALOG, currentFont.getStyle(), currentFont.getSize()));
         List<LocaleOption> options = new ArrayList<>();
         options.add(new LocaleOption(null, message("gui.interface.language.option.follow-system")));
-        for (LocaleDescriptor descriptor : catalog.visibleLocales()) {
+        for (DesktopUiHost.UiLocale descriptor : SwingHost.host().visibleLocales()) {
             options.add(new LocaleOption(descriptor.toLocale(), descriptor.nativeName()));
         }
         for (LocaleOption option : options) {
@@ -164,8 +164,7 @@ final class InterfacePreferencesPanel extends JPanel {
             selectLanguageOption(options.get(0));
             return;
         }
-        LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
-        LocaleDescriptor matched = catalog.match(persisted).orElse(null);
+        DesktopUiHost.UiLocale matched = SwingHost.host().matchLocale(persisted).orElse(null);
         if (matched == null) {
             selectLanguageOption(options.get(0));
             return;
@@ -190,7 +189,7 @@ final class InterfacePreferencesPanel extends JPanel {
             return null;
         }
         try {
-            return new ConfigFileEditor(configPath).read("app.language");
+            return SwingHost.host().applicationConfig().read("app.language");
         } catch (Exception e) {
             log.debug(logMessage("gui.interface.log.language.read-failed", e.getMessage()));
             return null;
@@ -220,7 +219,7 @@ final class InterfacePreferencesPanel extends JPanel {
         if (option.locale() != null) {
             Locale.setDefault(option.locale());
         } else {
-            SystemLocaleDetector.detectAndApply();
+            SwingHost.host().detectSystemLocale();
         }
         GuiMessages.clearLocaleOverride();
         SwingUtilities.invokeLater(() -> GuiThemeManager.applyThemeId(GuiThemeManager.configuredThemeId()));
@@ -241,7 +240,7 @@ final class InterfacePreferencesPanel extends JPanel {
             return false;
         }
         try {
-            new ConfigFileEditor(configPath).write("app.language", value == null ? "" : value);
+            SwingHost.host().applicationConfig().write("app.language", value == null ? "" : value);
             return true;
         } catch (Exception e) {
             log.warn(logMessage("gui.interface.log.language.persist-failed", e.getMessage()));
@@ -259,7 +258,7 @@ final class InterfacePreferencesPanel extends JPanel {
             return;
         }
 
-        boolean persisted = GuiThemeManager.persistThemeId(configPath, next);
+        boolean persisted = GuiThemeManager.persistThemeId(SwingHost.host().applicationConfig(), next);
         SwingUtilities.invokeLater(() -> GuiThemeManager.applyThemeId(next));
 
         if (!persisted && configPath != null) {
@@ -281,7 +280,7 @@ final class InterfacePreferencesPanel extends JPanel {
             return false;
         }
         try {
-            return Boolean.parseBoolean(new ConfigFileEditor(configPath).read(EXPAND_ALL_CONFIG_KEY));
+            return Boolean.parseBoolean(SwingHost.host().applicationConfig().read(EXPAND_ALL_CONFIG_KEY));
         } catch (Exception e) {
             log.warn(logMessage("gui.interface.log.config-menu-expand-all.read-failed", e.getMessage()));
             return false;
@@ -305,7 +304,7 @@ final class InterfacePreferencesPanel extends JPanel {
             return false;
         }
         try {
-            new ConfigFileEditor(configPath).write(EXPAND_ALL_CONFIG_KEY, Boolean.toString(expanded));
+            SwingHost.host().applicationConfig().write(EXPAND_ALL_CONFIG_KEY, Boolean.toString(expanded));
             return true;
         } catch (Exception e) {
             log.warn(logMessage("gui.interface.log.config-menu-expand-all.persist-failed", e.getMessage()));
@@ -318,7 +317,7 @@ final class InterfacePreferencesPanel extends JPanel {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 
     private static final class PreferenceContentPanel extends JPanel implements Scrollable {

@@ -1,27 +1,18 @@
 package top.sywyar.pixivdownload.gui.panel;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation;
-import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
-import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
-import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
 import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
-import top.sywyar.pixivdownload.gui.client.GuiLocalApiClient;
-import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.common.AppInfo;
-import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
-import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -31,8 +22,10 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -48,14 +41,13 @@ public class StatusPanel extends JPanel {
     private static final long LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS = 30L;
     private static final long PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS = 60_000L;
     private static final String BATCH_PAGE = "/pixiv-batch.html";
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static String message(String code, Object... args) {
         return GuiMessages.get(code, args);
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 
     private final JLabel portLabel = valueLabel("--");
@@ -81,7 +73,6 @@ public class StatusPanel extends JPanel {
     private final Path configPath;
     private final Runnable onConfigChanged;
     private final GuiWebEntrySnapshot guiWebEntries;
-    private final GuiLocalApiClient guiApiClient;
 
     private volatile String serverDomain = "localhost";
     private volatile String serverScheme = "http";
@@ -94,7 +85,7 @@ public class StatusPanel extends JPanel {
     private Timer startupElapsedTimer;
     private Timer liveStatusTimer;
     private long startupStartedAtMillis = -1L;
-    private final BackendLifecycleManager.Listener backendListener = this::applyBackendSnapshot;
+    private final SwingBackendLifecycle.Listener backendListener = this::applyBackendSnapshot;
 
     private final JPanel updateBanner = new JPanel(new BorderLayout(8, 0));
     private final JLabel updateBannerLabel = new JLabel();
@@ -142,10 +133,9 @@ public class StatusPanel extends JPanel {
         this.configPath = configPath;
         this.onConfigChanged = onConfigChanged;
         this.guiWebEntries = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
-        this.guiApiClient = new GuiLocalApiClient(serverPort);
         buildUi();
         themeListenerSession = GuiThemeManager.addChangeListener(themeChangeListener);
-        BackendLifecycleManager.addListener(backendListener);
+        SwingBackendLifecycle.addListener(backendListener);
         startPolling();
         refreshFfmpegState();
         scheduleInitialUpdateLookup();
@@ -484,17 +474,17 @@ public class StatusPanel extends JPanel {
 
     private void fetchStatus() {
         Thread worker = new Thread(() -> {
-            GuiLocalApiClient.StatusResponse response = guiApiClient.fetchStatus();
-            if (response.responseParsed()) {
+            DesktopUiHost.GuiResponse response = SwingHost.host().guiGet("status", 2_000);
+            if (response.successful() && response.responseParsed()) {
                 SwingUtilities.invokeLater(() -> updateLabels(response.body()));
             } else if (!response.successful()) {
-                MaintenanceStatusHolder.Snapshot maintenance = MaintenanceStatusHolder.snapshot();
+                DesktopUiHost.MaintenanceSnapshot maintenance = SwingHost.host().maintenanceSnapshot();
                 if (maintenance.active()) {
                     // 维护期间后端仍在运行，只是 AuthFilter 把 /api/gui/status 以 503 短路。
                     // 不当作离线/连接失败，改为展示维护进度（含 >30s 实时秒数）。
                     SwingUtilities.invokeLater(() -> applyMaintenanceState(maintenance));
                 } else {
-                    SwingUtilities.invokeLater(() -> applyOfflineState(BackendLifecycleManager.snapshot()));
+                    SwingUtilities.invokeLater(() -> applyOfflineState(SwingBackendLifecycle.snapshot()));
                 }
             }
         }, "gui-status-poll");
@@ -502,7 +492,7 @@ public class StatusPanel extends JPanel {
         worker.start();
     }
 
-    private void updateLabels(JsonNode node) {
+    private void updateLabels(DesktopUiHost.GuiValue node) {
         leaveStartingState();
         stopLiveStatusTimer();
         statusBadge.setText(message("gui.backend.state.running"));
@@ -530,7 +520,7 @@ public class StatusPanel extends JPanel {
         triggerPixivConnectivityCheck(false);
     }
 
-    private void applyBackendSnapshot(BackendLifecycleManager.Snapshot snapshot) {
+    private void applyBackendSnapshot(SwingBackendLifecycle.Snapshot snapshot) {
         switch (snapshot.state()) {
             case STARTING -> enterStartingState();
             case STOPPING -> {
@@ -554,19 +544,19 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private void applyOfflineState(BackendLifecycleManager.Snapshot snapshot) {
-        if (snapshot.state() == BackendLifecycleManager.State.RUNNING) {
+    private void applyOfflineState(SwingBackendLifecycle.Snapshot snapshot) {
+        if (snapshot.state() == SwingBackendLifecycle.State.RUNNING) {
             leaveStartingState();
             stopLiveStatusTimer();
             statusBadge.setText(message("gui.status.state.connection-failed"));
             statusBadge.setForeground(new Color(180, 60, 60));
-        } else if (snapshot.state() == BackendLifecycleManager.State.STOPPED) {
+        } else if (snapshot.state() == SwingBackendLifecycle.State.STOPPED) {
             leaveStartingState();
             applyStoppedBadge();
-        } else if (snapshot.state() == BackendLifecycleManager.State.STOPPING) {
+        } else if (snapshot.state() == SwingBackendLifecycle.State.STOPPING) {
             leaveStartingState();
             applyStoppingBadge();
-        } else if (snapshot.state() == BackendLifecycleManager.State.STARTING) {
+        } else if (snapshot.state() == SwingBackendLifecycle.State.STARTING) {
             enterStartingState();
         } else {
             leaveStartingState();
@@ -581,13 +571,13 @@ public class StatusPanel extends JPanel {
      * 维护窗口进度徽标：单个维护任务运行超过 {@link #LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS}s
      * 时附带实时已运行秒数。由 1 秒一次的 {@link #liveStatusTimer} 持续刷新。
      */
-    private void applyMaintenanceState(MaintenanceStatusHolder.Snapshot maintenance) {
+    private void applyMaintenanceState(DesktopUiHost.MaintenanceSnapshot maintenance) {
         leaveStartingState();
         renderMaintenanceBadge(maintenance);
         startLiveStatusTimer();
     }
 
-    private void renderMaintenanceBadge(MaintenanceStatusHolder.Snapshot maintenance) {
+    private void renderMaintenanceBadge(DesktopUiHost.MaintenanceSnapshot maintenance) {
         statusBadge.setForeground(new Color(180, 100, 0));
         if (maintenance.index() <= 0 || maintenance.taskName() == null) {
             statusBadge.setText(message("gui.status.state.maintenance.preparing"));
@@ -712,14 +702,14 @@ public class StatusPanel extends JPanel {
     }
 
     private void liveStatusTick() {
-        MaintenanceStatusHolder.Snapshot maintenance = MaintenanceStatusHolder.snapshot();
+        DesktopUiHost.MaintenanceSnapshot maintenance = SwingHost.host().maintenanceSnapshot();
         if (maintenance.active()) {
             renderMaintenanceBadge(maintenance);
             return;
         }
         String tool = ExclusiveToolHolder.get();
         if (tool != null && !tool.isBlank()
-                && BackendLifecycleManager.state() == BackendLifecycleManager.State.STOPPED) {
+                && SwingBackendLifecycle.state() == SwingBackendLifecycle.State.STOPPED) {
             renderStoppedByToolBadge(tool);
             return;
         }
@@ -799,7 +789,7 @@ public class StatusPanel extends JPanel {
         pixivConnectivityCheckButton.setEnabled(false);
 
         Thread worker = new Thread(() -> {
-            JsonNode node = callLocalGuiEndpoint(
+            DesktopUiHost.GuiValue node = callLocalGuiEndpoint(
                     "GET",
                     "/api/gui/pixiv-connectivity",
                     null,
@@ -811,9 +801,9 @@ public class StatusPanel extends JPanel {
         worker.start();
     }
 
-    private void applyPixivConnectivityResult(JsonNode node) {
+    private void applyPixivConnectivityResult(DesktopUiHost.GuiValue node) {
         pixivConnectivityChecking = false;
-        boolean backendRunning = BackendLifecycleManager.snapshot().state() == BackendLifecycleManager.State.RUNNING;
+        boolean backendRunning = SwingBackendLifecycle.snapshot().state() == SwingBackendLifecycle.State.RUNNING;
         pixivConnectivityCheckButton.setEnabled(backendRunning);
         if (!backendRunning) {
             pixivConnectivityLabel.setText("--");
@@ -859,8 +849,8 @@ public class StatusPanel extends JPanel {
         };
     }
 
-    private static String textOf(JsonNode node, String field) {
-        JsonNode value = node.get(field);
+    private static String textOf(DesktopUiHost.GuiValue node, String field) {
+        DesktopUiHost.GuiValue value = node.get(field);
         return (value == null || value.isNull()) ? "--" : value.asText();
     }
 
@@ -877,17 +867,17 @@ public class StatusPanel extends JPanel {
             return;
         }
 
-        FfmpegInstallation installation = FfmpegLocator.locate().orElse(null);
+        DesktopUiHost.FfmpegInstallation installation = SwingHost.host().locateFfmpeg().orElse(null);
         if (installation == null) {
             ffmpegBadge.setText(message("gui.ffmpeg.badge.missing"));
             ffmpegBadge.setForeground(new Color(180, 100, 0));
             ffmpegSourceLabel.setText(message("gui.ffmpeg.hint.missing"));
-            ffmpegPathLabel.setText(message("gui.ffmpeg.path.managed", FfmpegLocator.managedToolsDir()));
-            ffmpegPathLabel.setToolTipText(FfmpegLocator.managedToolsDir().toString());
-            ffmpegActionButton.setText(FfmpegInstaller.supportsManagedDownload()
+            ffmpegPathLabel.setText(message("gui.ffmpeg.path.managed", SwingHost.host().managedFfmpegDirectory()));
+            ffmpegPathLabel.setToolTipText(SwingHost.host().managedFfmpegDirectory().toString());
+            ffmpegActionButton.setText(SwingHost.host().supportsManagedFfmpegInstall()
                     ? message("gui.ffmpeg.action.download")
                     : message("gui.ffmpeg.action.manual"));
-            ffmpegActionButton.setEnabled(FfmpegInstaller.supportsManagedDownload());
+            ffmpegActionButton.setEnabled(SwingHost.host().supportsManagedFfmpegInstall());
             openFfmpegDirButton.setEnabled(true);
             return;
         }
@@ -895,22 +885,21 @@ public class StatusPanel extends JPanel {
         ffmpegBadge.setText(message("gui.ffmpeg.badge.ready"));
         ffmpegBadge.setForeground(new Color(0, 140, 0));
         String sourceLabel = message(installation.sourceMessageCode());
-        String sourceMessage = installation.hasFfprobe()
+        String sourceMessage = (installation.ffprobePath()!=null&&Files.isRegularFile(installation.ffprobePath()))
                 ? message("gui.ffmpeg.source.label", sourceLabel)
                 : message("gui.ffmpeg.source.label.missing-ffprobe", sourceLabel);
         ffmpegSourceLabel.setText(sourceMessage);
         ffmpegPathLabel.setText(message("gui.ffmpeg.path.label", installation.ffmpegPath()));
         ffmpegPathLabel.setToolTipText(installation.ffmpegPath().toString());
-        ffmpegActionButton.setText(switch (installation.source()) {
-            case MANAGED -> message("gui.ffmpeg.action.redownload");
-            case BUNDLED, SYSTEM -> message("gui.ffmpeg.action.download-to-managed");
-        });
-        ffmpegActionButton.setEnabled(FfmpegInstaller.supportsManagedDownload());
+        ffmpegActionButton.setText(installation.sourceMessageCode().endsWith(".managed")
+                ? message("gui.ffmpeg.action.reinstall")
+                : message("gui.ffmpeg.action.install-managed"));
+        ffmpegActionButton.setEnabled(SwingHost.host().supportsManagedFfmpegInstall());
         openFfmpegDirButton.setEnabled(true);
     }
 
     private void triggerFfmpegInstall() {
-        if (!FfmpegInstaller.supportsManagedDownload()) {
+        if (!SwingHost.host().supportsManagedFfmpegInstall()) {
             JOptionPane.showMessageDialog(this,
                     message("gui.ffmpeg.dialog.unsupported.message"),
                     message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
@@ -937,10 +926,10 @@ public class StatusPanel extends JPanel {
         ffmpegProgress.setString(message("gui.ffmpeg.progress.preparing"));
         ffmpegProgress.setVisible(true);
 
-        SwingWorker<FfmpegInstallation, FfmpegProgress> worker = new SwingWorker<>() {
+        SwingWorker<DesktopUiHost.FfmpegInstallation, FfmpegProgress> worker = new SwingWorker<>() {
             @Override
-            protected FfmpegInstallation doInBackground() throws Exception {
-                return FfmpegInstaller.installManaged(loadProxySettings(),
+            protected DesktopUiHost.FfmpegInstallation doInBackground() throws Exception {
+                return SwingHost.host().installManagedFfmpeg(loadProxySettings(),
                         (stage, current, total) -> publish(new FfmpegProgress(stage, current, total)));
             }
 
@@ -956,7 +945,7 @@ public class StatusPanel extends JPanel {
                 ffmpegInstalling = false;
                 ffmpegProgress.setVisible(false);
                 try {
-                    FfmpegInstallation installation = get();
+                    DesktopUiHost.FfmpegInstallation installation = get();
                     refreshFfmpegState();
                     JOptionPane.showMessageDialog(StatusPanel.this,
                             message("gui.ffmpeg.dialog.install-success.message",
@@ -996,27 +985,27 @@ public class StatusPanel extends JPanel {
                 message("gui.ffmpeg.dialog.install-failed.message", detail));
     }
 
-    private FfmpegInstaller.ProxySettings loadProxySettings() {
+    private DesktopUiHost.FfmpegProxy loadProxySettings() {
         if (configPath == null || !Files.exists(configPath)) {
-            return FfmpegInstaller.ProxySettings.disabled();
+            return new DesktopUiHost.FfmpegProxy(false, "", 0);
         }
         try {
-            ConfigFileEditor editor = new ConfigFileEditor(configPath);
+            DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
             boolean enabled = Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), "false"));
             if (!enabled) {
-                return FfmpegInstaller.ProxySettings.disabled();
+                return new DesktopUiHost.FfmpegProxy(false, "", 0);
             }
 
             String host = defaultIfBlank(editor.read("proxy.host"), "");
             String portValue = defaultIfBlank(editor.read("proxy.port"), "0");
             int port = Integer.parseInt(portValue.trim());
             if (host.isBlank() || port <= 0) {
-                return FfmpegInstaller.ProxySettings.disabled();
+                return new DesktopUiHost.FfmpegProxy(false, "", 0);
             }
-            return new FfmpegInstaller.ProxySettings(true, host, port);
+            return new DesktopUiHost.FfmpegProxy(true, host, port);
         } catch (Exception e) {
             log.warn(logMessage("gui.status.log.ffmpeg-proxy.read-failed", e.getMessage()));
-            return FfmpegInstaller.ProxySettings.disabled();
+            return new DesktopUiHost.FfmpegProxy(false, "", 0);
         }
     }
 
@@ -1053,7 +1042,7 @@ public class StatusPanel extends JPanel {
 
     private void openFfmpegDirectory() {
         try {
-            Path dir = FfmpegLocator.locate()
+            Path dir = SwingHost.host().locateFfmpeg()
                     .map(installation -> {
                         Path homeDir = installation.homeDir();
                         if (homeDir != null && Files.isDirectory(homeDir)) {
@@ -1063,9 +1052,9 @@ public class StatusPanel extends JPanel {
                         return ffmpegPath == null ? null : ffmpegPath.getParent();
                     })
                     .filter(path -> path != null)
-                    .orElseGet(FfmpegLocator::managedToolsDir);
+                    .orElseGet(() -> SwingHost.host().managedFfmpegDirectory());
 
-            Files.createDirectories(dir);
+            dir = SwingHost.host().prepareManagedFfmpegDirectory();
             Desktop.getDesktop().open(dir.toFile());
         } catch (Exception e) {
             log.warn(logMessage("gui.status.log.open-ffmpeg-dir-failed", e.getMessage()), e);
@@ -1088,7 +1077,7 @@ public class StatusPanel extends JPanel {
     private void performRestart() {
         Thread worker = new Thread(() -> {
             try {
-                if (!BackendLifecycleManager.restartAsync()) {
+                if (!SwingBackendLifecycle.restartAsync()) {
                     SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(StatusPanel.this,
                             message("gui.message.backend-busy"),
                             message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE));
@@ -1111,7 +1100,7 @@ public class StatusPanel extends JPanel {
     /** 拉取 path_prefixes 列表后在 EDT 上弹出「迁移下载目录」对话框。 */
     private void openMigrateDirectoryDialog() {
         Thread worker = new Thread(() -> {
-            JsonNode node = callLocalGuiEndpoint("GET", "/api/gui/path-prefixes", null,
+            DesktopUiHost.GuiValue node = callLocalGuiEndpoint("GET", "/api/gui/path-prefixes", null,
                     10_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> showMigrateDirectoryDialog(node));
         }, "gui-path-prefixes-list");
@@ -1119,13 +1108,13 @@ public class StatusPanel extends JPanel {
         worker.start();
     }
 
-    private void showMigrateDirectoryDialog(JsonNode listNode) {
+    private void showMigrateDirectoryDialog(DesktopUiHost.GuiValue listNode) {
         if (listNode == null) {
             GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                     message("gui.migrate-dir.error.unreachable"));
             return;
         }
-        JsonNode prefixes = listNode.path("prefixes");
+        DesktopUiHost.GuiValue prefixes = listNode.path("prefixes");
         if (!prefixes.isArray() || prefixes.isEmpty()) {
             JOptionPane.showMessageDialog(this, message("gui.migrate-dir.empty"),
                     message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
@@ -1140,7 +1129,7 @@ public class StatusPanel extends JPanel {
 
         String appRoot = listNode.path("appRoot").asText("");
         boolean firstCard = true;
-        for (JsonNode p : prefixes) {
+        for (DesktopUiHost.GuiValue p : prefixes) {
             long id = p.path("id").asLong();
             String path = p.path("path").asText("");
             boolean isRoot = p.path("downloadRoot").asBoolean(false);
@@ -1284,29 +1273,16 @@ public class StatusPanel extends JPanel {
 
     private void applyDirectoryMigration(java.util.List<MigrationChange> changes,
                                          String rootSyncPath, String registerOldRoot) {
-        String payload;
-        try {
-            var root = MAPPER.createObjectNode();
-            var arr = root.putArray("updates");
-            for (MigrationChange c : changes) {
-                var o = arr.addObject();
-                o.put("id", c.id());
-                o.put("path", c.path());
-            }
-            if (registerOldRoot != null && !registerOldRoot.isBlank()) {
-                root.putArray("registerPaths").add(registerOldRoot);
-            }
-            payload = MAPPER.writeValueAsString(root);
-        } catch (Exception e) {
-            log.error(logMessage("gui.status.log.path-prefix.call-failed",
-                    "/api/gui/path-prefixes", safeText(e)), e);
-            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                    message("gui.migrate-dir.failed", safeText(e)));
-            return;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("updates", changes.stream()
+                .map(change -> Map.<String, Object>of("id", change.id(), "path", change.path()))
+                .toList());
+        if (registerOldRoot != null && !registerOldRoot.isBlank()) {
+            payload.put("registerPaths", List.of(registerOldRoot));
         }
 
         Thread worker = new Thread(() -> {
-            JsonNode node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes", payload,
+            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes", payload,
                     15_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> applyDirectoryMigrationResult(node, rootSyncPath));
         }, "gui-path-prefixes-apply");
@@ -1314,7 +1290,7 @@ public class StatusPanel extends JPanel {
         worker.start();
     }
 
-    private void applyDirectoryMigrationResult(JsonNode node, String rootSyncPath) {
+    private void applyDirectoryMigrationResult(DesktopUiHost.GuiValue node, String rootSyncPath) {
         if (node == null) {
             GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                     message("gui.migrate-dir.error.unreachable"));
@@ -1322,7 +1298,7 @@ public class StatusPanel extends JPanel {
         }
         if (!node.path("success").asBoolean(false)) {
             StringBuilder sb = new StringBuilder();
-            for (JsonNode err : node.path("errors")) {
+            for (DesktopUiHost.GuiValue err : node.path("errors")) {
                 sb.append("\n• ").append(migrateReason(err.path("reason").asText("")));
             }
             GuiErrorDialog.show(this, message("gui.dialog.error.title"),
@@ -1364,8 +1340,8 @@ public class StatusPanel extends JPanel {
             return false;
         }
         try {
-            new ConfigFileEditor(configPath).write("download.root-folder",
-                    RuntimeFiles.normalizeRootFolder(newRoot));
+            SwingHost.host().applicationConfig().write("download.root-folder",
+                    SwingHost.host().normalizeRootFolder(newRoot));
             return true;
         } catch (Exception e) {
             log.warn(logMessage("gui.status.log.path-prefix.root-persist-failed", safeText(e)), e);
@@ -1512,7 +1488,7 @@ public class StatusPanel extends JPanel {
         if (value == null) {
             return "";
         }
-        return PathPrefixCodec.stripTrailingSeparators(value)
+        return SwingHost.host().stripTrailingPathSeparators(value)
                 .replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
@@ -1540,7 +1516,7 @@ public class StatusPanel extends JPanel {
         stopStartupElapsedTimer();
         stopDownloadProgressTimer();
         stopLiveStatusTimer();
-        BackendLifecycleManager.removeListener(backendListener);
+        SwingBackendLifecycle.removeListener(backendListener);
         themeListenerSession = closeThemeListenerSession(themeListenerSession);
     }
 
@@ -1573,7 +1549,7 @@ public class StatusPanel extends JPanel {
             boolean lastAttempt = attempts[0] >= maxAttempts;
             inFlight[0] = true;
             Thread worker = new Thread(() -> {
-                JsonNode node = callLocalGuiEndpoint("GET", "/api/gui/path-prefixes", null,
+                DesktopUiHost.GuiValue node = callLocalGuiEndpoint("GET", "/api/gui/path-prefixes", null,
                         10_000, "gui.status.log.path-prefix.call-failed");
                 SwingUtilities.invokeLater(() -> {
                     inFlight[0] = false;
@@ -1620,18 +1596,9 @@ public class StatusPanel extends JPanel {
             promptSymbolicOrphanRepair(suggestedPath);
             return;
         }
-        String payload;
-        try {
-            var root = MAPPER.createObjectNode();
-            root.put("path", path);
-            payload = MAPPER.writeValueAsString(root);
-        } catch (Exception ex) {
-            log.error(logMessage("gui.status.log.path-prefix.call-failed",
-                    "/api/gui/path-prefixes/pin", safeText(ex)), ex);
-            return;
-        }
+        Map<String, Object> payload = Map.of("path", path);
         Thread worker = new Thread(() -> {
-            JsonNode node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes/pin", payload,
+            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes/pin", payload,
                     15_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> {
                 if (node != null && node.path("success").asBoolean(false)) {
@@ -1683,7 +1650,7 @@ public class StatusPanel extends JPanel {
      */
     private void queryLastUpdateResult(java.util.function.Consumer<Boolean> onComplete) {
         Thread worker = new Thread(() -> {
-            JsonNode node = callUpdateEndpoint("GET", "/api/gui/update/last", null);
+            DesktopUiHost.GuiValue node = callUpdateEndpoint("GET", "/api/gui/update/last", null);
             SwingUtilities.invokeLater(() -> {
                 if (node != null) {
                     applyUpdateResult(node);
@@ -1703,7 +1670,7 @@ public class StatusPanel extends JPanel {
         }
         updateChecking = true;
         Thread worker = new Thread(() -> {
-            JsonNode node = callUpdateEndpoint("GET", "/api/gui/update/check?force=" + force, null);
+            DesktopUiHost.GuiValue node = callUpdateEndpoint("GET", "/api/gui/update/check?force=" + force, null);
             SwingUtilities.invokeLater(() -> {
                 updateChecking = false;
                 if (node == null) {
@@ -1721,7 +1688,7 @@ public class StatusPanel extends JPanel {
         worker.start();
     }
 
-    private void showCheckCompletionDialog(JsonNode node) {
+    private void showCheckCompletionDialog(DesktopUiHost.GuiValue node) {
         boolean enabled = node.path("enabled").asBoolean(false);
         if (!enabled) {
             JOptionPane.showMessageDialog(this,
@@ -1748,11 +1715,11 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private void applyUpdateResult(JsonNode node) {
+    private void applyUpdateResult(DesktopUiHost.GuiValue node) {
         String current = node.path("currentVersion").asText("");
         boolean officialAvailable = node.path("updateAvailable").asBoolean(false);
-        JsonNode officialNode = officialAvailable ? node : null;
-        JsonNode nightlyNode = node.path("nightlyAlternative");
+        DesktopUiHost.GuiValue officialNode = officialAvailable ? node : null;
+        DesktopUiHost.GuiValue nightlyNode = node.path("nightlyAlternative");
         boolean nightlyAvailable = nightlyNode != null
                 && !nightlyNode.isMissingNode()
                 && nightlyNode.path("updateAvailable").asBoolean(false);
@@ -1783,7 +1750,7 @@ public class StatusPanel extends JPanel {
         updateBanner.getParent().repaint();
     }
 
-    private static PendingInstall extractPendingInstall(JsonNode node) {
+    private static PendingInstall extractPendingInstall(DesktopUiHost.GuiValue node) {
         return new PendingInstall(
                 node.path("assetUrl").asText(null),
                 node.path("assetSizeBytes").asLong(0L),
@@ -1803,7 +1770,7 @@ public class StatusPanel extends JPanel {
 
         // jar 启动（java -jar）无法走「下载安装包静默覆盖安装」流程——那只对 jpackage 的 exe 启动有效。
         // 此时改为引导用户到 GitHub 发布页手动下载最新版本，不发起任何安装包下载。
-        if (!AppInfo.isLaunchedFromExe()) {
+        if (!SwingHost.host().launchedFromExecutable()) {
             promptManualDownloadForJarLaunch(target);
             return;
         }
@@ -1813,7 +1780,7 @@ public class StatusPanel extends JPanel {
         if (!nightlyChannel) {
             String confirmMessage = message("gui.update.dialog.install.confirm.message",
                     target.latestVersion(), formatSize(target.size()));
-            boolean currentIsNightly = UpdateConfig.isCurrentVersionNightly();
+            boolean currentIsNightly = SwingHost.host().currentVersionNightly();
             // 仅在「每夜构建版 → 正式版」回退时询问；安装每夜构建版一律默认开启
             Object dialogMessage;
             if (currentIsNightly) {
@@ -1862,11 +1829,11 @@ public class StatusPanel extends JPanel {
 
         String downloadPath = "/api/gui/update/download?channel="
                 + (nightlyChannel ? "nightly" : "official");
-        SwingWorker<JsonNode, Void> worker = new SwingWorker<>() {
+        SwingWorker<DesktopUiHost.GuiValue, Void> worker = new SwingWorker<>() {
             @Override
-            protected JsonNode doInBackground() throws InterruptedException {
+            protected DesktopUiHost.GuiValue doInBackground() throws InterruptedException {
                 // 发起下载（立即返回 202）；超时只需覆盖握手时间
-                JsonNode startResp = callUpdateEndpoint("POST", downloadPath, null, 10_000);
+                DesktopUiHost.GuiValue startResp = callUpdateEndpoint("POST", downloadPath, null, 10_000);
                 // 409 = 已有下载进行中，startResp 含 error 字段
                 if (startResp != null && startResp.hasNonNull("error")) {
                     return startResp;
@@ -1875,7 +1842,7 @@ public class StatusPanel extends JPanel {
                 // 轮询直到 done 或 failed，间隔 1 秒，无硬超时
                 while (!Thread.currentThread().isInterrupted()) {
                     Thread.sleep(1000);
-                    JsonNode progress = callUpdateEndpoint("GET", "/api/gui/update/download/progress", null, 5_000);
+                    DesktopUiHost.GuiValue progress = callUpdateEndpoint("GET", "/api/gui/update/download/progress", null, 5_000);
                     if (progress == null) continue;
                     if (progress.path("done").asBoolean(false) || progress.path("failed").asBoolean(false)) {
                         return progress;
@@ -1888,7 +1855,7 @@ public class StatusPanel extends JPanel {
             protected void done() {
                 stopDownloadProgressTimer();
                 updateProgressPanel.setVisible(false);
-                JsonNode result;
+                DesktopUiHost.GuiValue result;
                 try {
                     result = get();
                 } catch (Exception e) {
@@ -1930,7 +1897,7 @@ public class StatusPanel extends JPanel {
         }
         String url = target.releaseNotesUrl() != null && !target.releaseNotesUrl().isBlank()
                 ? target.releaseNotesUrl()
-                : AppInfo.RELEASES_URL;
+                : SwingHost.host().releasesUrl();
         openExternalUrl(url);
     }
 
@@ -2025,14 +1992,14 @@ public class StatusPanel extends JPanel {
 
     private void pollDownloadProgress() {
         Thread t = new Thread(() -> {
-            JsonNode node = callUpdateEndpoint("GET", "/api/gui/update/download/progress", null);
+            DesktopUiHost.GuiValue node = callUpdateEndpoint("GET", "/api/gui/update/download/progress", null);
             SwingUtilities.invokeLater(() -> applyDownloadProgress(node));
         }, "gui-update-progress");
         t.setDaemon(true);
         t.start();
     }
 
-    private void applyDownloadProgress(JsonNode node) {
+    private void applyDownloadProgress(DesktopUiHost.GuiValue node) {
         if (node == null) return;
         long received = node.path("received").asLong(0);
         long total = node.path("total").asLong(0);
@@ -2054,7 +2021,7 @@ public class StatusPanel extends JPanel {
      */
     private void persistCheckNightlyPreference(boolean enabled) {
         try {
-            new ConfigFileEditor(configPath).write("update.check-nightly", Boolean.toString(enabled));
+            SwingHost.host().applicationConfig().write("update.check-nightly", Boolean.toString(enabled));
         } catch (java.io.IOException e) {
             log.warn(logMessage("gui.status.log.update.check-nightly-persist-failed",
                     safeText(e)), e);
@@ -2063,7 +2030,7 @@ public class StatusPanel extends JPanel {
 
     private void launchInstaller() {
         Thread worker = new Thread(() -> {
-            JsonNode node = callUpdateEndpoint("POST", "/api/gui/update/install", "");
+            DesktopUiHost.GuiValue node = callUpdateEndpoint("POST", "/api/gui/update/install", "");
             SwingUtilities.invokeLater(() -> {
                 if (node == null || node.hasNonNull("error")) {
                     restoreBannerAfterInstallFailure();
@@ -2089,14 +2056,14 @@ public class StatusPanel extends JPanel {
      * 调用 /api/gui/update/** 端点，参照 {@link #fetchStatus()} 的 scheme 探测策略。
      * 返回 JSON 节点；HTTP 失败或异常时返回 null。
      */
-    private JsonNode callUpdateEndpoint(String method, String path, String formBody) {
+    private DesktopUiHost.GuiValue callUpdateEndpoint(String method, String path, String formBody) {
         return callUpdateEndpoint(method, path, formBody, 60_000);
     }
 
     /**
      * 同上，允许自定义读超时（毫秒）。下载安装包等长耗时操作应传入较大值。
      */
-    private JsonNode callUpdateEndpoint(String method, String path, String formBody, int readTimeoutMs) {
+    private DesktopUiHost.GuiValue callUpdateEndpoint(String method, String path, String formBody, int readTimeoutMs) {
         return callLocalGuiEndpoint(method, path, formBody, readTimeoutMs, "gui.status.log.update.call-failed");
     }
 
@@ -2104,21 +2071,25 @@ public class StatusPanel extends JPanel {
      * 调用本机 /api/gui/** 端点（表单编码 body），参照 {@link #fetchStatus()} 的 scheme 探测策略。
      * 返回 JSON 节点；HTTP 失败或异常时返回 null。
      */
-    private JsonNode callLocalGuiEndpoint(String method,
+    private DesktopUiHost.GuiValue callLocalGuiEndpoint(String method,
                                           String path,
                                           String formBody,
                                           int readTimeoutMs,
                                           String failureLogCode) {
-        return guiApiClient.exchangeForm(method, path, formBody, readTimeoutMs, failureLogCode);
+        DesktopUiHost.GuiResponse response = SwingHost.host().guiForm(method, path, formBody, readTimeoutMs);
+        if (!response.reachable()) log.debug(logMessage(failureLogCode, path, "unreachable"));
+        return response.body();
     }
 
     /** 同上，但以 {@code application/json} 发送 body。 */
-    private JsonNode callLocalGuiEndpointJson(String method,
+    private DesktopUiHost.GuiValue callLocalGuiEndpointJson(String method,
                                               String path,
-                                              String jsonBody,
+                                              Object jsonBody,
                                               int readTimeoutMs,
                                               String failureLogCode) {
-        return guiApiClient.exchangeJson(method, path, jsonBody, readTimeoutMs, failureLogCode);
+        DesktopUiHost.GuiResponse response = SwingHost.host().guiPostJson(path, jsonBody, readTimeoutMs);
+        if (!response.reachable()) log.debug(logMessage(failureLogCode, path, "unreachable"));
+        return response.body();
     }
 
     private static String formatSize(long bytes) {

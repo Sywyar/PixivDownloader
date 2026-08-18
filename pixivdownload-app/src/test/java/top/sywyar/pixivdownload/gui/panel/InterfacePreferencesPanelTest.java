@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import javax.swing.*;
@@ -29,6 +30,7 @@ class InterfacePreferencesPanelTest {
     @BeforeEach
     void setUp() {
         originalLocale = Locale.getDefault();
+        DesktopUiTestHost.install(tempDir.resolve("config.yaml"));
         GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
     }
 

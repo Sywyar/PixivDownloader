@@ -1,22 +1,29 @@
 package top.sywyar.pixivdownload.gui.panel;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
-import top.sywyar.pixivdownload.gui.AutoStartManager;
-import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
 import top.sywyar.pixivdownload.gui.DebugUnlockState;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
-import top.sywyar.pixivdownload.gui.config.*;
+import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
+import top.sywyar.pixivdownload.gui.config.ConfigFieldSnapshot;
+import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
+import top.sywyar.pixivdownload.gui.config.ConfigGroupSpec;
+import top.sywyar.pixivdownload.gui.config.ConfigSnapshot;
+import top.sywyar.pixivdownload.gui.config.FieldRenderer;
+import top.sywyar.pixivdownload.gui.config.FieldType;
+import top.sywyar.pixivdownload.gui.config.GuiConfigContributionDiagnostic;
+import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
+import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSectionContext;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigFieldRows;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigMenuTree;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigSectionResolver;
-import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 
 import javax.swing.*;
@@ -46,15 +53,13 @@ import java.util.function.Function;
 @Slf4j
 public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final List<String> MAINTENANCE_WEEKDAYS = List.of(
             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday");
 
     private final Path configPath;
     private final int serverPort;
-    private final ConfigFileEditor editor;
-    private final PluginCredentialStore credentialStore = new PluginCredentialStore();
-    private final Map<String, PropertiesConfigFileEditor> pluginConfigEditors = new HashMap<>();
+    private final DesktopUiHost.ConfigFile editor;
+    private final Map<String, DesktopUiHost.ConfigFile> pluginConfigEditors = new HashMap<>();
     /** Web 页 URL 构造器（scheme 按 SSL、主机名按域名推导），供「打开 Web 插件市场」入口复用。 */
     private final Function<String, String> webUrlProvider;
     private final Runnable onLocaleChanged;
@@ -70,8 +75,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final String serverGroup;
     private final String maintenanceGroup;
 
-    /** 本地后端测试 / 热重载端点的统一 HTTP 客户端（供各 section 与热重载复用）。 */
-    private final GuiConfigTestClient testClient;
     /** 特殊分组（自带控件 / 异步测试 / 预设联动）的可插拔实现。 */
     private List<ConfigSection> sections = List.of();
 
@@ -109,7 +112,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                        Runnable onLocaleChanged,
                        BooleanSupplier languageChangeBlocked) {
         this(configPath, serverPort, webUrlProvider, fieldSnapshot, onLocaleChanged, languageChangeBlocked,
-                null, BackendLifecycleManager::restartAsync);
+                null, SwingBackendLifecycle::restartAsync);
     }
 
     ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider,
@@ -127,9 +130,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 ? this::confirmBackendRestart
                 : restartConfirmation;
         this.backendRestarter = backendRestarter == null
-                ? BackendLifecycleManager::restartAsync
+                ? SwingBackendLifecycle::restartAsync
                 : backendRestarter;
-        this.editor = new ConfigFileEditor(configPath);
+        this.editor = SwingHost.host().applicationConfig();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
         this.allFields = snapshot.fields();
         this.fieldsByKey = snapshot.fieldsByKey();
@@ -137,7 +140,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         this.groupSpecs = snapshot.groupSpecs();
         this.serverGroup = message("gui.config.group.server");
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
-        this.testClient = new GuiConfigTestClient(serverPort);
         logContributionDiagnostics(snapshot.diagnostics());
         buildUi();
         loadCurrentValues();
@@ -737,9 +739,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private JPanel buildAutoStartPanel() {
-        autoStartSupported = AutoStartManager.isSupported();
+        autoStartSupported = SwingHost.host().autoStartSupported();
         autoStartCheckBox = new JCheckBox();
-        autoStartCheckBox.setSelected(AutoStartManager.isEnabled());
+        autoStartCheckBox.setSelected(SwingHost.host().autoStartEnabled());
         autoStartCheckBox.setEnabled(autoStartSupported);
         String helpText = message(autoStartSupported
                 ? "gui.config.field.autostart.help"
@@ -1027,14 +1029,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
      * 后端不可达时放行保存（无法转换，孤儿 {@code {0}} 由启动检查兜底提示修复）。
      */
     private boolean confirmAndPinSymbolicRoot(String oldValue, String newValue) {
-        String oldRoot = RuntimeFiles.normalizeRootFolder(oldValue);
+        String oldRoot = SwingHost.host().normalizeRootFolder(oldValue);
         try {
             if (Path.of(oldRoot).isAbsolute()) {
                 return true; // 旧配置已是绝对路径，符号根未启用
             }
             // 解析结果未变（如「pixiv-download」与「./pixiv-download」）→ 与 {0} 无关
             Path oldAbs = Path.of(oldRoot).toAbsolutePath().normalize();
-            Path newAbs = Path.of(RuntimeFiles.normalizeRootFolder(newValue)).toAbsolutePath().normalize();
+            Path newAbs = Path.of(SwingHost.host().normalizeRootFolder(newValue)).toAbsolutePath().normalize();
             if (oldAbs.equals(newAbs)) {
                 return true;
             }
@@ -1042,7 +1044,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return true; // 路径无法解析时不拦截，交由后端校验
         }
 
-        GuiConfigTestClient.Response resp = testClient.getJson("path-prefixes", 10_000);
+        DesktopUiHost.GuiResponse resp = SwingHost.host().guiGet("path-prefixes", 10_000);
         if (!resp.reachable() || !resp.is2xx() || resp.body() == null || resp.body().isEmpty()) {
             log.warn(logMessage("gui.config.log.symbolic-pin.status-unavailable"));
             return true; // 后端不可达：先保存，孤儿记录由下次启动检查提示修复
@@ -1050,7 +1052,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         boolean referenced;
         String currentResolved = null;
         try {
-            var node = MAPPER.readTree(resp.body());
+            var node = resp.body();
             referenced = node.path("symbolicReferenced").asBoolean(false);
             for (var p : node.path("prefixes")) {
                 if (p.path("symbolic").asBoolean(false)) {
@@ -1076,10 +1078,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         try {
-            byte[] body = MAPPER.writeValueAsBytes(Map.of("path", currentResolved));
-            GuiConfigTestClient.Response pin = testClient.postJson("path-prefixes/pin", body, 15_000);
+            DesktopUiHost.GuiResponse pin = SwingHost.host().guiPostJson(
+                    "path-prefixes/pin", Map.of("path", currentResolved), 15_000);
             if (pin.reachable() && pin.is2xx() && pin.body() != null
-                    && MAPPER.readTree(pin.body()).path("success").asBoolean(false)) {
+                    && pin.body().path("success").asBoolean(false)) {
                 return true;
             }
             log.warn(logMessage("gui.config.log.symbolic-pin.failed",
@@ -1109,8 +1111,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private String validateFieldValueForSave(ConfigFieldSpec spec, String value) {
         try {
-            ConfigFileEditor.requireSafeKey(spec.key());
-            ConfigFileEditor.requireSafeValue(value);
+            SwingHost.host().requireSafeConfigKey(spec.key());
+            SwingHost.host().requireSafeConfigValue(value);
         } catch (IOException e) {
             return message("gui.config.validation.storage-safe");
         }
@@ -1199,7 +1201,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             String pluginId = entry.getKey();
             Set<String> credentialKeys = new LinkedHashSet<>(
                     index.pluginCredentialKeys().getOrDefault(pluginId, List.of()));
-            PropertiesConfigFileEditor pluginEditor = null;
+            DesktopUiHost.ConfigFile pluginEditor = null;
             try {
                 pluginEditor = pluginConfigEditor(pluginId);
             } catch (RuntimeException e) {
@@ -1243,7 +1245,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
             }
             if (!credentialKeys.isEmpty()) {
-                Map<String, String> storedCredentials = credentialStore.readAll(pluginId);
+                Map<String, String> storedCredentials = SwingHost.host().readCredentials(pluginId);
                 Map<String, String> credentialUpdates = new LinkedHashMap<>();
                 Set<String> removablePropertyKeys = new LinkedHashSet<>();
                 Set<String> removableYamlCredentialKeys = new LinkedHashSet<>();
@@ -1288,7 +1290,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         if (split.empty()) {
             return;
         }
-        credentialStore.withOwnerLocks(
+        SwingHost.host().withCredentialLocks(
                 split.credentialValues().keySet(),
                 () -> writeStoredValuesWithCredentialLocks(split));
     }
@@ -1298,14 +1300,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         try {
             boolean credentialChanges = split.credentialValues().values().stream().anyMatch(map -> !map.isEmpty());
             if (!split.coreValues().isEmpty() || credentialChanges) {
-                ConfigFileEditor.FileSnapshot snapshot = editor.snapshot();
+                DesktopUiHost.ConfigSnapshot snapshot = editor.snapshot();
                 rollbacks.add(new ConfigFileRollback("config.yaml", () -> editor.restore(snapshot)));
             }
             Set<String> snapshottedPluginOwners = new LinkedHashSet<>();
             for (Map.Entry<String, Map<String, String>> entry : split.pluginValues().entrySet()) {
                 if (!entry.getValue().isEmpty()) {
-                    PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(entry.getKey());
-                    PropertiesConfigFileEditor.FileSnapshot snapshot = pluginEditor.snapshot();
+                    DesktopUiHost.ConfigFile pluginEditor = pluginConfigEditor(entry.getKey());
+                    DesktopUiHost.ConfigSnapshot snapshot = pluginEditor.snapshot();
                     snapshottedPluginOwners.add(entry.getKey());
                     rollbacks.add(new ConfigFileRollback(
                             "config/plugins/" + entry.getKey() + ".properties",
@@ -1317,12 +1319,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     continue;
                 }
                 String pluginId = entry.getKey();
-                PluginCredentialStore.Snapshot credentialSnapshot = credentialStore.snapshot(pluginId);
+                DesktopUiHost.CredentialSnapshot credentialSnapshot = SwingHost.host().snapshotCredentials(pluginId);
                 rollbacks.add(new ConfigFileRollback("plugin credentials: " + pluginId,
-                        () -> credentialStore.restore(pluginId, credentialSnapshot)));
+                        () -> SwingHost.host().restoreCredentials(pluginId, credentialSnapshot)));
                 if (snapshottedPluginOwners.add(pluginId)) {
-                    PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(pluginId);
-                    PropertiesConfigFileEditor.FileSnapshot pluginSnapshot = pluginEditor.snapshot();
+                    DesktopUiHost.ConfigFile pluginEditor = pluginConfigEditor(pluginId);
+                    DesktopUiHost.ConfigSnapshot pluginSnapshot = pluginEditor.snapshot();
                     rollbacks.add(new ConfigFileRollback(
                             "config/plugins/" + pluginId + ".properties",
                             () -> pluginEditor.restore(pluginSnapshot)));
@@ -1349,7 +1351,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                         setKeys.add(key);
                     }
                 });
-                PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(entry.getKey());
+                DesktopUiHost.ConfigFile pluginEditor = pluginConfigEditor(entry.getKey());
 
                 // A clear must retire every legacy source before deleting the encrypted value.
                 // If the process stops between these steps, the still-present encrypted value wins
@@ -1366,7 +1368,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     }
                 }
 
-                credentialStore.update(entry.getKey(), entry.getValue());
+                SwingHost.host().updateCredentials(entry.getKey(), entry.getValue());
 
                 if (!setKeys.isEmpty()) {
                     pluginEditor.removeAll(setKeys);
@@ -1397,19 +1399,19 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 && (yamlKeysToRemove == null || yamlKeysToRemove.isEmpty())) {
             return;
         }
-        Map<String, String> safePluginValues = ConfigFileEditor.validatedValues(pluginValues);
-        Set<String> safeYamlKeys = ConfigFileEditor.validatedKeySet(yamlKeysToRemove);
-        PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(pluginId);
+        Map<String, String> safePluginValues = SwingHost.host().validatedConfigValues(pluginValues);
+        Set<String> safeYamlKeys = SwingHost.host().validatedConfigKeys(yamlKeysToRemove);
+        DesktopUiHost.ConfigFile pluginEditor = pluginConfigEditor(pluginId);
         List<ConfigFileRollback> rollbacks = new ArrayList<>();
         try {
             if (!safePluginValues.isEmpty()) {
-                PropertiesConfigFileEditor.FileSnapshot pluginSnapshot = pluginEditor.snapshot();
+                DesktopUiHost.ConfigSnapshot pluginSnapshot = pluginEditor.snapshot();
                 rollbacks.add(new ConfigFileRollback(
                         "config/plugins/" + pluginId + ".properties",
                         () -> pluginEditor.restore(pluginSnapshot)));
             }
             if (!safeYamlKeys.isEmpty()) {
-                ConfigFileEditor.FileSnapshot yamlSnapshot = editor.snapshot();
+                DesktopUiHost.ConfigSnapshot yamlSnapshot = editor.snapshot();
                 rollbacks.add(new ConfigFileRollback("config.yaml", () -> editor.restore(yamlSnapshot)));
             }
 
@@ -1442,10 +1444,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                                                 Map<String, String> credentialUpdates,
                                                 Set<String> propertyKeysToRemove,
                                                 Set<String> yamlKeysToRemove) throws IOException {
-        Map<String, String> safeUpdates = ConfigFileEditor.validatedValues(credentialUpdates);
-        Set<String> safePropertyKeys = ConfigFileEditor.validatedKeySet(propertyKeysToRemove);
-        Set<String> safeYamlKeys = ConfigFileEditor.validatedKeySet(yamlKeysToRemove);
-        credentialStore.withOwnerLocks(
+        Map<String, String> safeUpdates = SwingHost.host().validatedConfigValues(credentialUpdates);
+        Set<String> safePropertyKeys = SwingHost.host().validatedConfigKeys(propertyKeysToRemove);
+        Set<String> safeYamlKeys = SwingHost.host().validatedConfigKeys(yamlKeysToRemove);
+        SwingHost.host().withCredentialLocks(
                 Set.of(pluginId),
                 () -> migrateLegacyPluginCredentialsWithOwnerLock(
                         pluginId, safeUpdates, safePropertyKeys, safeYamlKeys));
@@ -1456,26 +1458,26 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             Map<String, String> safeUpdates,
             Set<String> safePropertyKeys,
             Set<String> safeYamlKeys) throws IOException {
-        PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(pluginId);
+        DesktopUiHost.ConfigFile pluginEditor = pluginConfigEditor(pluginId);
         List<ConfigFileRollback> rollbacks = new ArrayList<>();
         try {
             if (!safeUpdates.isEmpty()) {
-                PluginCredentialStore.Snapshot snapshot = credentialStore.snapshot(pluginId);
+                DesktopUiHost.CredentialSnapshot snapshot = SwingHost.host().snapshotCredentials(pluginId);
                 rollbacks.add(new ConfigFileRollback("plugin credentials: " + pluginId,
-                        () -> credentialStore.restore(pluginId, snapshot)));
+                        () -> SwingHost.host().restoreCredentials(pluginId, snapshot)));
             }
             if (!safePropertyKeys.isEmpty()) {
-                PropertiesConfigFileEditor.FileSnapshot snapshot = pluginEditor.snapshot();
+                DesktopUiHost.ConfigSnapshot snapshot = pluginEditor.snapshot();
                 rollbacks.add(new ConfigFileRollback("config/plugins/" + pluginId + ".properties",
                         () -> pluginEditor.restore(snapshot)));
             }
             if (!safeYamlKeys.isEmpty()) {
-                ConfigFileEditor.FileSnapshot snapshot = editor.snapshot();
+                DesktopUiHost.ConfigSnapshot snapshot = editor.snapshot();
                 rollbacks.add(new ConfigFileRollback("config.yaml", () -> editor.restore(snapshot)));
             }
 
             if (!safeUpdates.isEmpty()) {
-                credentialStore.update(pluginId, safeUpdates);
+                SwingHost.host().updateCredentials(pluginId, safeUpdates);
             }
             if (!safePropertyKeys.isEmpty()) {
                 pluginEditor.removeAll(safePropertyKeys);
@@ -1507,12 +1509,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         Map<String, Map<String, String>> pluginValues = new LinkedHashMap<>();
         Map<String, Map<String, String>> credentialValues = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : values.entrySet()) {
-            String key = ConfigFileEditor.requireSafeKey(entry.getKey());
+            String key = SwingHost.host().requireSafeConfigKey(entry.getKey());
             ConfigFieldSpec spec = index.specsByKey().get(key);
             if (spec == null) {
                 throw new IOException("Unknown config field key: " + key);
             }
-            String value = ConfigFileEditor.requireSafeValue(entry.getValue());
+            String value = SwingHost.host().requireSafeConfigValue(entry.getValue());
             if (isPluginCredential(spec)) {
                 credentialValues.computeIfAbsent(spec.ownerPluginId(), ignored -> new LinkedHashMap<>())
                         .put(key, value);
@@ -1539,12 +1541,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             if (spec == null) {
                 continue;
             }
-            String key = ConfigFileEditor.requireSafeKey(spec.key());
+            String key = SwingHost.host().requireSafeConfigKey(spec.key());
             if (specsByKey.putIfAbsent(key, spec) != null) {
                 throw new IOException("Duplicate config field key: " + key);
             }
             if (spec.pluginContributed()) {
-                String ownerPluginId = ConfigFileEditor.requireSafeKey(spec.ownerPluginId());
+                String ownerPluginId = SwingHost.host().requireSafeConfigKey(spec.ownerPluginId());
                 pluginKeys.computeIfAbsent(ownerPluginId, ignored -> new ArrayList<>()).add(key);
                 if (isPluginCredential(spec)) {
                     pluginCredentialKeys.computeIfAbsent(ownerPluginId, ignored -> new ArrayList<>()).add(key);
@@ -1588,9 +1590,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return e instanceof IOException io ? io : new IOException(e.getMessage(), e);
     }
 
-    private PropertiesConfigFileEditor pluginConfigEditor(String pluginId) {
+    private DesktopUiHost.ConfigFile pluginConfigEditor(String pluginId) {
         return pluginConfigEditors.computeIfAbsent(pluginId, id ->
-                new PropertiesConfigFileEditor(RuntimeFiles.resolvePluginConfigPath(id, "properties")));
+                SwingHost.host().pluginConfig(id));
     }
 
     private boolean hasChangedField(Set<String> changedKeys, boolean requiresRestart) {
@@ -1681,10 +1683,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             @Override
             protected Boolean doInBackground() {
                 try {
-                    GuiConfigTestClient.Response response = testClient.postJson("config/reload",
-                            MAPPER.writeValueAsBytes(Map.of("changedKeys", hotReloadKeys)), 5000);
+                    DesktopUiHost.GuiResponse response = SwingHost.host().guiPostJson(
+                            "config/reload", Map.of("changedKeys", hotReloadKeys), 5000);
                     return response.reachable() && response.is2xx();
-                } catch (IOException e) {
+                } catch (RuntimeException e) {
                     log.warn(logMessage("gui.config.log.hot-reload-failed", e.getMessage()));
                     return false;
                 }
@@ -1812,7 +1814,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() throws Exception {
-                AutoStartManager.setEnabled(targetEnabled);
+                SwingHost.host().setAutoStartEnabled(targetEnabled);
                 return null;
             }
 
@@ -2041,8 +2043,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         @Override
-        public GuiConfigTestClient testClient() {
-            return delegate.testClient();
+        public DesktopUiHost desktopHost() {
+            return delegate.desktopHost();
         }
     }
 
@@ -2082,7 +2084,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 
     // ── ConfigSectionContext 实现 ─────────────────────────────────────────────────
@@ -2132,7 +2134,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 || !rf.credentialStored()) {
             return current == null ? "" : current;
         }
-        return credentialStore.readAll(spec.ownerPluginId()).getOrDefault(key, "");
+        return SwingHost.host().readCredentials(spec.ownerPluginId()).getOrDefault(key, "");
     }
 
     @Override
@@ -2186,7 +2188,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     @Override
-    public GuiConfigTestClient testClient() {
-        return testClient;
+    public DesktopUiHost desktopHost() {
+        return SwingHost.host();
     }
 }

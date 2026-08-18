@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
+import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -7,8 +9,8 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbeFeaturePlugin;
 import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbePlugin;
 import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
-import top.sywyar.pixivdownload.gui.config.RepositoryConfigEntry;
-import top.sywyar.pixivdownload.gui.config.TrustedKeyConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
@@ -104,7 +106,7 @@ class GuiLauncherPluginVerifierBootstrapTest {
                 ? List.of(TrustedKeyConfigEntry.create("gui-custom-key", "Ed25519", publicKey, "ACTIVE",
                 "GUI Test Publisher", "GUI Test Trust"))
                 : List.of();
-        new PluginRepositoryConfigEditor(config).write(List.of(new RepositoryConfigEntry(
+        new PluginRepositoryConfigEditor(new TestDesktopConfigFile(config)).write(List.of(new RepositoryConfigEntry(
                 "custom", "", "https://example.invalid/manifest.json", true,
                 "direct-strict", false, true, false, false,
                 0, 0, 0, 0, trustedKeys, new LinkedHashMap<>())));

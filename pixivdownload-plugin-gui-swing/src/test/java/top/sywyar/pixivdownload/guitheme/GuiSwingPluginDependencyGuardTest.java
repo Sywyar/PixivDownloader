@@ -25,7 +25,7 @@ class GuiSwingPluginDependencyGuardTest {
                         node -> child(node, "scope"),
                         (left, right) -> left));
 
-        assertThat(scopes).doesNotContainKey("pixivdownload-app");
+        assertThat(scopes).doesNotContainKeys("pixivdownload-app", "spring-web", "sqlite-jdbc");
         assertThat(scopes).containsEntry("pixivdownload-plugin-api", "provided")
                 .containsEntry("pixivdownload-core-api", "provided")
                 .containsEntry("pixivdownload-plugin-signature", "provided")
@@ -50,5 +50,29 @@ class GuiSwingPluginDependencyGuardTest {
             if (Files.isRegularFile(nested.resolve("pom.xml"))) return nested;
         }
         throw new IllegalStateException("pixivdownload-plugin-gui-swing module not found");
+    }
+
+    @org.junit.jupiter.api.Test
+    void productionSourcesStayInsideSwingUiResponsibilities() throws java.io.IOException {
+        java.nio.file.Path root=java.nio.file.Path.of("src/main/java/top/sywyar/pixivdownload");
+        java.util.List<String> allowed=java.util.List.of("gui/","guiswing/","guitheme/","imageclassifier/","tools/");
+        try(var files=java.nio.file.Files.walk(root)){
+            java.util.List<String> violations=files.filter(path->path.toString().endsWith(".java"))
+                    .map(root::relativize).map(path->path.toString().replace('\\','/'))
+                    .filter(path->allowed.stream().noneMatch(path::startsWith)).sorted().toList();
+            org.assertj.core.api.Assertions.assertThat(violations)
+                    .as("gui-swing production code must remain Swing UI only").isEmpty();
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void desktopToolViewsDoNotOwnPersistenceOrTransport() throws java.io.IOException {
+        java.nio.file.Path root = locateModule().resolve("src/main/java/top/sywyar/pixivdownload");
+        String sources = java.nio.file.Files.readString(root.resolve("tools/FolderChecker.java"))
+                + java.nio.file.Files.readString(root.resolve("imageclassifier/ImageClassifier.java"));
+        org.assertj.core.api.Assertions.assertThat(sources)
+                .doesNotContain("org.sqlite", "java.sql.", "DriverManager", "RestTemplate",
+                        "org.springframework.web", "WorkSidecarFiles", "FileInputStream",
+                        "FileOutputStream", "StandardCopyOption");
     }
 }

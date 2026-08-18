@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.gui.panel.SecurityPanel;
 import top.sywyar.pixivdownload.gui.panel.StatusPanel;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
 import top.sywyar.pixivdownload.gui.panel.WelcomePanel;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
 
 import javax.swing.*;
 import java.awt.*;
@@ -122,8 +123,10 @@ public class MainFrame extends JFrame {
         // “完成” = 首次安装已完成 且 整套引导已走到最后一页。任一不满足都还要展示引导。
         // setup 未完成却存在残留的旧标记 → 复位，避免未配置用户被错误地带过引导。
         // 整套引导已完成时 buildTabs() 不会再添加欢迎 tab，状态页位于第 0 个标签。
-        if (!OnboardingState.isComplete(rootFolder) && !OnboardingState.isSetupComplete(rootFolder)) {
-            OnboardingState.clear();
+        var onboardingState = SwingHost.host().onboardingState(rootFolder);
+        if (!onboardingState.complete() && !onboardingState.setupComplete()) {
+            SwingHost.host().clearOnboardingState();
+            onboardingState = SwingHost.host().onboardingState(rootFolder);
         }
         tabs.setSelectedIndex(0);
     }
@@ -141,7 +144,8 @@ public class MainFrame extends JFrame {
                 this::reloadLocale, onConfigChanged, currentWebEntries);
 
         // 整套引导已走完后不再添加欢迎 tab，避免重复展示并消除针对后端的轮询请求。
-        if (!OnboardingState.isComplete(rootFolder)) {
+        var onboardingState = SwingHost.host().onboardingState(rootFolder);
+        if (!onboardingState.complete()) {
             welcomePanel = new WelcomePanel(statusPanel, serverPort, guiOnboarding,
                     () -> {
                         showWindow();

@@ -1,8 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
@@ -14,9 +13,10 @@ import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigPresetSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionNoticeSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.GuiValue;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeRefresh;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
@@ -62,7 +62,6 @@ import java.util.concurrent.ExecutionException;
 @Slf4j
 final class DeclaredGuiConfigSection implements ConfigSection {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
     static final String NOTICE_ID_PROPERTY = "pixivdownload.guiConfig.sectionNoticeId";
     static final String NOTICE_STYLE_PROPERTY = "pixivdownload.guiConfig.sectionNoticeStyle";
     private static final Color HINT_COLOR = new Color(0, 128, 96);
@@ -529,10 +528,9 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         ctx.showNotice(action.sendingNotice().isBlank()
                 ? message("gui.config.action.notice.sending", action.label())
                 : action.sendingNotice());
-        byte[] body;
+        Map<String, Object> body;
         try {
-            ObjectNode payload = buildPayload(section, action);
-            body = MAPPER.writeValueAsBytes(payload);
+            body = buildPayload(section, action);
         } catch (Exception e) {
             log.warn(logMessage("gui.config.log.action.payload-failed", action.actionId(), safeMessage(e)), e);
             ctx.showNotice(message("gui.config.action.notice.failed", action.label(), safeMessage(e)));
@@ -540,17 +538,17 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             return;
         }
 
-        SwingWorker<GuiConfigTestClient.Response, Void> worker = new SwingWorker<>() {
+        SwingWorker<DesktopUiHost.GuiResponse, Void> worker = new SwingWorker<>() {
             @Override
-            protected GuiConfigTestClient.Response doInBackground() {
+            protected DesktopUiHost.GuiResponse doInBackground() {
                 String owner = effectiveOwner(action.ownerPluginId(), section);
-                return ctx.testClient().postJson(action.endpoint(), body, action.readTimeoutMillis(), owner);
+                return ctx.desktopHost().guiPostJson(action.endpoint(), body, action.readTimeoutMillis(), owner);
             }
 
             @Override
             protected void done() {
                 try {
-                    GuiConfigTestClient.Response response = get();
+                    DesktopUiHost.GuiResponse response = get();
                     ctx.showNotice(actionNotice(action, response));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -569,7 +567,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         worker.execute();
     }
 
-    private String actionNotice(GuiConfigActionSpec action, GuiConfigTestClient.Response response) {
+    private String actionNotice(GuiConfigActionSpec action, DesktopUiHost.GuiResponse response) {
         ActionResult result = ActionResult.from(response, action.resultSummary());
         for (GuiConfigActionResultRuleSpec rule : action.resultRules()) {
             if (rule.conditions().stream().allMatch(condition -> matches(result, condition))) {
@@ -609,8 +607,8 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 : value;
     }
 
-    private ObjectNode buildPayload(GuiConfigSectionSpec section, GuiConfigActionSpec action) throws IOException {
-        ObjectNode root = MAPPER.createObjectNode();
+    private Map<String, Object> buildPayload(GuiConfigSectionSpec section, GuiConfigActionSpec action) throws IOException {
+        Map<String, Object> root = new LinkedHashMap<>();
         String owner = effectiveOwner(action.ownerPluginId(), section);
         if (owner == null || !section.ownerPluginIds().contains(owner)) {
             throw new IllegalStateException("GUI action owner is unavailable");
@@ -628,15 +626,15 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         return root;
     }
 
-    private void putPayload(ObjectNode root, String path, String value, GuiConfigActionPayloadType type) {
+    @SuppressWarnings("unchecked")
+    private void putPayload(Map<String, Object> root, String path, String value, GuiConfigActionPayloadType type) {
         String[] parts = path.split("\\.");
-        ObjectNode current = root;
+        Map<String, Object> current = root;
         for (int i = 0; i < parts.length - 1; i++) {
             String part = parts[i];
-            if (!current.path(part).isObject()) {
-                current.set(part, MAPPER.createObjectNode());
-            }
-            current = (ObjectNode) current.path(part);
+            Object child = current.computeIfAbsent(part, ignored -> new LinkedHashMap<String, Object>());
+            if (!(child instanceof Map<?, ?>)) throw new IllegalStateException("GUI action payload path conflict");
+            current = (Map<String, Object>) child;
         }
         String leaf = parts[parts.length - 1];
         switch (type) {
@@ -725,20 +723,12 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             boolean reachable,
             boolean http2xx,
             int status,
-            JsonNode body,
+            GuiValue body,
             String summary
     ) {
-        private static ActionResult from(GuiConfigTestClient.Response response,
+        private static ActionResult from(DesktopUiHost.GuiResponse response,
                                          GuiConfigActionResultSummary summarySpec) {
-            JsonNode parsed = null;
-            String body = response.body();
-            if (!response.bodyLimitExceeded() && body != null && !body.isBlank()) {
-                try {
-                    parsed = MAPPER.readTree(body);
-                } catch (Exception ignored) {
-                    parsed = null;
-                }
-            }
+            GuiValue parsed = response.bodyLimitExceeded() ? null : response.body();
             return new ActionResult(response.reachable(), response.is2xx(), response.status(), parsed,
                     buildSummary(parsed, summarySpec));
         }
@@ -758,7 +748,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             if (!GuiConfigActionResultSafety.isSafeJsonPath(path, false)) {
                 return "";
             }
-            JsonNode node = nodeAt(body, path);
+            GuiValue node = nodeAt(body, path);
             if (node == null || node.isMissingNode() || node.isNull()) {
                 return "";
             }
@@ -774,7 +764,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             return GuiConfigActionResultSafety.sanitizeDisplayText(node.asText(""));
         }
 
-        private static String buildSummary(JsonNode body, GuiConfigActionResultSummary spec) {
+        private static String buildSummary(GuiValue body, GuiConfigActionResultSummary spec) {
             if (body == null || spec == null
                     || !GuiConfigActionResultSafety.isSafeJsonPath(spec.arrayPath(), false)
                     || !GuiConfigActionResultSafety.isSafeJsonPath(spec.labelPath(), false)
@@ -782,13 +772,13 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                     || !GuiConfigActionResultSafety.isSafeJsonPath(spec.detailPath(), true)) {
                 return "";
             }
-            JsonNode array = nodeAt(body, spec.arrayPath());
+            GuiValue array = nodeAt(body, spec.arrayPath());
             if (array == null || !array.isArray() || array.isEmpty()) {
                 return "";
             }
             StringBuilder sb = new StringBuilder();
             int itemCount = 0;
-            for (JsonNode item : array) {
+            for (GuiValue item : array) {
                 if (itemCount >= GuiConfigActionResultSafety.MAX_SUMMARY_ITEMS) {
                     break;
                 }
@@ -822,25 +812,25 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             return GuiConfigActionResultSafety.sanitizeSummary(sb.toString());
         }
 
-        private static String textAt(JsonNode node, String path) {
+        private static String textAt(GuiValue node, String path) {
             if (!GuiConfigActionResultSafety.isSafeJsonPath(path, true)) {
                 return "";
             }
-            JsonNode found = nodeAt(node, path);
+            GuiValue found = nodeAt(node, path);
             if (found == null || found.isMissingNode() || found.isNull() || !found.isValueNode()) {
                 return "";
             }
             return GuiConfigActionResultSafety.sanitizeDisplayText(found.asText(""));
         }
 
-        private static JsonNode nodeAt(JsonNode root, String path) {
+        private static GuiValue nodeAt(GuiValue root, String path) {
             if (root == null) {
                 return null;
             }
             if (path == null || path.isBlank()) {
                 return root;
             }
-            JsonNode current = root;
+            GuiValue current = root;
             for (String part : path.split("\\.")) {
                 if (part.isBlank()) {
                     return null;
@@ -866,6 +856,6 @@ final class DeclaredGuiConfigSection implements ConfigSection {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 }

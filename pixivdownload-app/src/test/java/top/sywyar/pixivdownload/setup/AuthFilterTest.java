@@ -22,7 +22,7 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
-import top.sywyar.pixivdownload.common.web.GuiActionInvocationHeaders;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiActionInvocationHeaders;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.TestGalleryPlugin;

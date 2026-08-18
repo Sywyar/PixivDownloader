@@ -1,7 +1,10 @@
 package top.sywyar.pixivdownload.gui.config;
 
-import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
-import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -38,8 +41,7 @@ public final class RepositoryConfigValidator {
             return "gui.config.market.repo.error.id-empty";
         }
         String normalized = trimmed.toLowerCase(Locale.ROOT);
-        if (PluginRepository.OFFICIAL_ID.equals(normalized)
-                || PluginRepository.LEGACY_CONFIGURED_ID.equals(normalized)) {
+        if (SwingHost.host().reservedPluginRepositoryIds().contains(normalized)) {
             return "gui.config.market.repo.error.id-reserved";
         }
         if (others != null) {

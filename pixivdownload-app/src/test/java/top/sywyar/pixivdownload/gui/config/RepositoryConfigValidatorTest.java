@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.gui.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 
 import java.util.List;
 
@@ -9,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("自定义仓库表单前置校验：id / URL / 代理策略 / 超时大小")
 class RepositoryConfigValidatorTest {
+    static { DesktopUiTestHost.ensureInstalled(); }
 
     private static RepositoryConfigEntry repo(String id) {
         return RepositoryConfigEntry.create(id, "", "https://x.example/manifest.json", true, "direct-strict", 0, 0, 0, 0);

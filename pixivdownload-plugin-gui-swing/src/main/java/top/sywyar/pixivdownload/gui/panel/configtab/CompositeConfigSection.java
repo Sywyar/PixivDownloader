@@ -207,8 +207,8 @@ final class CompositeConfigSection implements ConfigSection {
         }
 
         @Override
-        public GuiConfigTestClient testClient() {
-            return delegate.testClient();
+        public top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost desktopHost() {
+            return delegate.desktopHost();
         }
     }
 }

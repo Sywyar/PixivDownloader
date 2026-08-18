@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.i18n.PluginContributionText;
-import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
-import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -381,7 +381,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
                 ConfigFieldSpec.builder("maintenance.monday.time", message("gui.config.field.maintenance.monday.time.label"), STRING, groupMaintenance)
-                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .defaultValue(SwingHost.host().defaultMaintenanceTime())
                         .help(message("gui.config.field.maintenance.day.time.help"))
                         .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.monday.enabled"))
                         .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.monday.enabled"))
@@ -395,7 +395,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
                 ConfigFieldSpec.builder("maintenance.tuesday.time", message("gui.config.field.maintenance.tuesday.time.label"), STRING, groupMaintenance)
-                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .defaultValue(SwingHost.host().defaultMaintenanceTime())
                         .help(message("gui.config.field.maintenance.day.time.help"))
                         .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.tuesday.enabled"))
                         .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.tuesday.enabled"))
@@ -409,7 +409,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
                 ConfigFieldSpec.builder("maintenance.wednesday.time", message("gui.config.field.maintenance.wednesday.time.label"), STRING, groupMaintenance)
-                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .defaultValue(SwingHost.host().defaultMaintenanceTime())
                         .help(message("gui.config.field.maintenance.day.time.help"))
                         .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.wednesday.enabled"))
                         .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.wednesday.enabled"))
@@ -423,7 +423,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
                 ConfigFieldSpec.builder("maintenance.thursday.time", message("gui.config.field.maintenance.thursday.time.label"), STRING, groupMaintenance)
-                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .defaultValue(SwingHost.host().defaultMaintenanceTime())
                         .help(message("gui.config.field.maintenance.day.time.help"))
                         .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.thursday.enabled"))
                         .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.thursday.enabled"))
@@ -437,7 +437,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
                 ConfigFieldSpec.builder("maintenance.friday.time", message("gui.config.field.maintenance.friday.time.label"), STRING, groupMaintenance)
-                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .defaultValue(SwingHost.host().defaultMaintenanceTime())
                         .help(message("gui.config.field.maintenance.day.time.help"))
                         .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.friday.enabled"))
                         .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.friday.enabled"))
@@ -451,7 +451,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
                 ConfigFieldSpec.builder("maintenance.saturday.time", message("gui.config.field.maintenance.saturday.time.label"), STRING, groupMaintenance)
-                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .defaultValue(SwingHost.host().defaultMaintenanceTime())
                         .help(message("gui.config.field.maintenance.day.time.help"))
                         .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.saturday.enabled"))
                         .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.saturday.enabled"))
@@ -465,7 +465,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
                 ConfigFieldSpec.builder("maintenance.sunday.time", message("gui.config.field.maintenance.sunday.time.label"), STRING, groupMaintenance)
-                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .defaultValue(SwingHost.host().defaultMaintenanceTime())
                         .help(message("gui.config.field.maintenance.day.time.help"))
                         .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.sunday.enabled"))
                         .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.sunday.enabled"))
@@ -555,14 +555,14 @@ public final class ConfigFieldRegistry {
                         .build(),
 
                 ConfigFieldSpec.builder("update.manifest-url", message("gui.config.field.update.manifest-url.label"), STRING, groupUpdate)
-                        .defaultValue(UpdateConfig.DEFAULT_MANIFEST_URL)
+                        .defaultValue(SwingHost.host().defaultUpdateManifestUrl())
                         .help(message("gui.config.field.update.manifest-url.help"))
                         .enabledWhen(snap -> snap.isTrue("update.enabled"))
                         .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("update.nightly-manifest-url", message("gui.config.field.update.nightly-manifest-url.label"), STRING, groupUpdate)
-                        .defaultValue(UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL)
+                        .defaultValue(SwingHost.host().defaultNightlyUpdateManifestUrl())
                         .help(message("gui.config.field.update.nightly-manifest-url.help"))
                         .enabledWhen(snap -> snap.isTrue("update.enabled") && snap.isTrue("update.check-nightly"))
                         .hotReloadable()
@@ -576,7 +576,7 @@ public final class ConfigFieldRegistry {
                         .build(),
 
                 ConfigFieldSpec.builder("update.check-nightly", message("gui.config.field.update.check-nightly.label"), BOOL, groupUpdate)
-                        .defaultValue(Boolean.toString(UpdateConfig.isCurrentVersionNightly()))
+                        .defaultValue(Boolean.toString(SwingHost.host().currentVersionNightly()))
                         .help(message("gui.config.field.update.check-nightly.help"))
                         .enabledWhen(snap -> snap.isTrue("update.enabled"))
                         .hotReloadable()
@@ -709,7 +709,7 @@ public final class ConfigFieldRegistry {
     }
 
     private static String validateMaintenanceTime(String value) {
-        return MaintenanceProperties.isValidTime(value)
+        return SwingHost.host().validMaintenanceTime(value)
                 ? null
                 : message("gui.config.validation.time-hh-mm");
     }

@@ -1,28 +1,16 @@
 package top.sywyar.pixivdownload.gui.panel;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
-import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.setup.SetupService;
 
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.security.cert.X509Certificate;
+import java.util.Map;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 /**
  * "安全"页：当前仅包含修改管理员密码的子面板。
@@ -32,22 +20,15 @@ import java.security.cert.X509Certificate;
 @Slf4j
 public class SecurityPanel extends JPanel {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
-
-    private final int serverPort;
-
     private final JPasswordField currentPasswordField = new JPasswordField(24);
     private final JPasswordField newPasswordField = new JPasswordField(24);
     private final JPasswordField confirmPasswordField = new JPasswordField(24);
     private final JButton submitButton = new JButton(message("gui.security.action.submit"));
     private final JLabel statusLabel = secondaryLabel(message("gui.security.status.idle"));
 
-    private volatile String preferredScheme = "http";
     private volatile boolean submitting;
 
     public SecurityPanel(int serverPort) {
-        this.serverPort = serverPort;
         buildUi();
     }
 
@@ -164,7 +145,7 @@ public class SecurityPanel extends JPanel {
             newPasswordField.requestFocusInWindow();
             return;
         }
-        if (next.length() < SetupService.MIN_PASSWORD_LENGTH) {
+        if (next.length() < SwingHost.host().minimumPasswordLength()) {
             setStatus(message("gui.security.validation.weak-password"));
             newPasswordField.requestFocusInWindow();
             return;
@@ -193,61 +174,12 @@ public class SecurityPanel extends JPanel {
     }
 
     private ChangePasswordOutcome sendChangePassword(String oldPwd, String newPwd) {
-        String payload;
-        try {
-            payload = MAPPER.writeValueAsString(new ChangePasswordRequest(oldPwd, newPwd));
-        } catch (Exception e) {
-            log.error(logMessage("gui.security.log.change-password.failed", e.getMessage()), e);
-            return ChangePasswordOutcome.unexpected(e.getMessage());
-        }
-
-        String[] schemes = "https".equals(preferredScheme)
-                ? new String[]{"https", "http"}
-                : new String[]{"http", "https"};
-        Exception lastError = null;
-
-        for (String scheme : schemes) {
-            try {
-                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/change-password").toURL();
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
-                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
-                    https.setHostnameVerifier((h, s) -> true);
-                }
-                conn.setConnectTimeout(3000);
-                conn.setReadTimeout(5000);
-                conn.setRequestMethod("POST");
-                conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                String guiToken = GuiTokenHolder.get();
-                if (guiToken != null) {
-                    conn.setRequestProperty(GuiTokenHolder.headerName(), guiToken);
-                }
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(payload.getBytes(StandardCharsets.UTF_8));
-                }
-                int code = conn.getResponseCode();
-                preferredScheme = scheme;
-                InputStream stream = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
-                String errorKind = null;
-                if (stream != null) {
-                    try (InputStream is = stream) {
-                        JsonNode node = MAPPER.readTree(is);
-                        if (node != null && node.hasNonNull("error")) {
-                            errorKind = node.get("error").asText(null);
-                        }
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (code >= 200 && code < 300) {
-                    return ChangePasswordOutcome.success();
-                }
-                return ChangePasswordOutcome.serverError(code, errorKind);
-            } catch (Exception e) {
-                lastError = e;
-            }
-        }
-        return ChangePasswordOutcome.unreachable(lastError == null ? "unknown" : String.valueOf(lastError.getMessage()));
+        DesktopUiHost.GuiResponse response = SwingHost.host().guiPostJson("change-password",
+                Map.of("oldPassword", oldPwd, "newPassword", newPwd), 5_000);
+        if (!response.reachable()) return ChangePasswordOutcome.unreachable("unreachable");
+        if (response.is2xx()) return ChangePasswordOutcome.success();
+        String error = response.body() == null ? null : response.body().path("error").asText(null);
+        return ChangePasswordOutcome.serverError(response.status(), error);
     }
 
     private void finishSubmit(ChangePasswordOutcome outcome) {
@@ -335,26 +267,8 @@ public class SecurityPanel extends JPanel {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
-
-    private static SSLContext buildTrustAllSslContext() {
-        try {
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, new TrustManager[]{
-                    new X509TrustManager() {
-                        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                        public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                        public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                    }
-            }, null);
-            return ctx;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private record ChangePasswordRequest(String oldPassword, String newPassword) {}
 
     private record ChangePasswordOutcome(Kind kind, String detail) {
         enum Kind {

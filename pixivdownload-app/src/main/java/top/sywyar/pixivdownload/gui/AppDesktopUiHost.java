@@ -10,18 +10,113 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
 /** App-owned implementation of the stable desktop UI host contract. */
 final class AppDesktopUiHost implements DesktopUiHost {
+    private final DesktopUiLocalApiClient localApiClient;
+    private final ConfigFile applicationConfig;
+    private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
+
+    AppDesktopUiHost(int serverPort) {
+        this(serverPort, yamlConfig(RuntimeFiles.resolveConfigYamlPath()));
+    }
+
+    AppDesktopUiHost(int serverPort, ConfigFile applicationConfig) {
+        this.localApiClient = new DesktopUiLocalApiClient(serverPort);
+        this.applicationConfig = applicationConfig;
+    }
+
+    @Override public String applicationName(){return top.sywyar.pixivdownload.common.AppInfo.NAME;}
+    @Override public String projectUrl(){return top.sywyar.pixivdownload.common.AppInfo.GITHUB_URL;}
+    @Override public String releasesUrl(){return top.sywyar.pixivdownload.common.AppInfo.RELEASES_URL;}
+    @Override public String defaultUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_MANIFEST_URL;}
+    @Override public String defaultNightlyUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL;}
+    @Override public ConfigFile applicationConfig(){return applicationConfig;}
+    @Override public List<RepositoryConfigEntry> readPluginRepositories(ConfigFile configFile) throws IOException {
+        return new top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor(configFile).read();
+    }
+    @Override public void writePluginRepositories(ConfigFile configFile, List<RepositoryConfigEntry> entries)
+            throws IOException {
+        new top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor(configFile).write(entries);
+    }
+    @Override public TrustedKeyConfigEntry officialPluginRepositoryKey() {
+        var key = PluginTrustStores.builtInOfficialRoot();
+        return TrustedKeyConfigEntry.create(key.keyId(), key.algorithm(), key.publicKeySpkiBase64(),
+                key.state().name(), key.publisher(), key.trustLabel());
+    }
+    @Override public ConfigFile pluginConfig(String pluginId){return propertiesConfig(resolvePluginConfigPath(pluginId,"properties"));}
+    @Override public java.util.List<UiLocale> visibleLocales(){
+        return top.sywyar.pixivdownload.i18n.LocaleCatalog.defaultCatalog().visibleLocales().stream().map(AppDesktopUiHost::mapLocale).toList();
+    }
+    @Override public java.util.Optional<UiLocale> matchLocale(String tag){
+        return top.sywyar.pixivdownload.i18n.LocaleCatalog.defaultCatalog().match(tag).map(AppDesktopUiHost::mapLocale);
+    }
+    @Override public UiLocaleResolution resolveLocale(java.util.Locale requested){
+        var catalog=top.sywyar.pixivdownload.i18n.LocaleCatalog.defaultCatalog();
+        var target=catalog.resolve(requested);
+        return new UiLocaleResolution(mapLocale(target),catalog.fallbackChain(target).stream().map(AppDesktopUiHost::mapLocale).toList());
+    }
+    @Override public java.util.Locale detectSystemLocale(){return top.sywyar.pixivdownload.i18n.SystemLocaleDetector.detectAndApply();}
+    @Override public String stripTrailingPathSeparators(String value){return top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec.stripTrailingSeparators(value);}
+    @Override public String defaultProxyHost(){return top.sywyar.pixivdownload.config.ProxyConfig.DEFAULT_HOST;}
+    @Override public int defaultProxyPort(){return top.sywyar.pixivdownload.config.ProxyConfig.DEFAULT_PORT;}
+    @Override public int minimumPasswordLength(){return top.sywyar.pixivdownload.setup.SetupService.MIN_PASSWORD_LENGTH;}
+    @Override public int recommendedPasswordLength(){return top.sywyar.pixivdownload.setup.SetupService.RECOMMENDED_PASSWORD_LENGTH;}
+    @Override public String defaultMaintenanceTime(){return top.sywyar.pixivdownload.maintenance.MaintenanceProperties.DEFAULT_TIME;}
+    @Override public boolean validMaintenanceTime(String value){return top.sywyar.pixivdownload.maintenance.MaintenanceProperties.parseTime(value).isPresent();}
+    @Override public java.util.Set<String> reservedPluginRepositoryIds(){
+        return java.util.Set.of(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository.OFFICIAL_ID,
+                top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository.LEGACY_CONFIGURED_ID);
+    }
+    @Override public java.util.Set<String> validatedConfigKeys(java.util.Collection<String> keys)throws java.io.IOException{
+        return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.validatedKeySet(keys);
+    }
+    @Override public java.util.Map<String,String> validatedConfigValues(java.util.Map<String,String> values)throws java.io.IOException{
+        return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.validatedValues(values);
+    }
+    @Override public String requireSafeConfigKey(String key)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeKey(key);}
+    @Override public String requireSafeConfigValue(String value)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeValue(value);}
+    private static UiLocale mapLocale(top.sywyar.pixivdownload.i18n.LocaleDescriptor descriptor){
+        return new UiLocale(descriptor.tag(),descriptor.nativeName(),descriptor.resourceSuffix());
+    }
+    private static ConfigFile yamlConfig(java.nio.file.Path path){
+        var editor=new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(path);
+        return new ConfigFile(){
+            @Override public java.util.Map<String,String> readAll(java.util.Collection<String> keys)throws java.io.IOException{return editor.readAll(keys);}
+            @Override public void writeAll(java.util.Map<String,String> values)throws java.io.IOException{editor.writeAll(values);}
+            @Override public void removeAll(java.util.Collection<String> keys)throws java.io.IOException{editor.removeAll(keys);}
+            @Override public ConfigSnapshot snapshot()throws java.io.IOException{var snapshot=editor.snapshot();return new ConfigSnapshot(snapshot.existed(),snapshot.lines());}
+            @Override public void restore(ConfigSnapshot snapshot)throws java.io.IOException{
+                editor.restore(new top.sywyar.pixivdownload.gui.config.ConfigFileEditor.FileSnapshot(snapshot.existed(),snapshot.lines()));
+            }
+        };
+    }
+    private static ConfigFile propertiesConfig(java.nio.file.Path path){
+        var editor=new top.sywyar.pixivdownload.gui.config.PropertiesConfigFileEditor(path);
+        return new ConfigFile(){
+            @Override public java.util.Map<String,String> readAll(java.util.Collection<String> keys)throws java.io.IOException{return editor.readAll(keys);}
+            @Override public void writeAll(java.util.Map<String,String> values)throws java.io.IOException{editor.writeAll(values);}
+            @Override public void removeAll(java.util.Collection<String> keys)throws java.io.IOException{editor.removeAll(keys);}
+            @Override public ConfigSnapshot snapshot()throws java.io.IOException{var snapshot=editor.snapshot();return new ConfigSnapshot(snapshot.existed(),snapshot.lines());}
+            @Override public void restore(ConfigSnapshot snapshot)throws java.io.IOException{
+                editor.restore(new top.sywyar.pixivdownload.gui.config.PropertiesConfigFileEditor.FileSnapshot(snapshot.existed(),snapshot.lines()));
+            }
+        };
+    }
     private final PluginCredentialStore credentialStore = new PluginCredentialStore();
 
     @Override public String message(String code, Object... arguments) { return MessageBundles.get(code, arguments); }
@@ -71,6 +166,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
                 value.homeDir(), value.sourceMessageCode()));
     }
     @Override public Path managedFfmpegDirectory() { return FfmpegLocator.managedToolsDir(); }
+    @Override public Path prepareManagedFfmpegDirectory() throws IOException {
+        return Files.createDirectories(managedFfmpegDirectory());
+    }
     @Override public boolean supportsManagedFfmpegInstall() { return FfmpegInstaller.supportsManagedDownload(); }
     @Override public FfmpegInstallation installManagedFfmpeg(FfmpegProxy proxy, FfmpegProgressListener listener)
             throws IOException, InterruptedException {
@@ -113,6 +211,52 @@ final class AppDesktopUiHost implements DesktopUiHost {
             @Override public void openLatestInBrowser() throws Exception { delegate.openLatestInBrowser(); }
             @Override public void close() { delegate.close(); }
         };
+    }
+
+    @Override public GuiResponse exchangeGui(GuiRequest request) { return localApiClient.exchange(request); }
+    @Override public OnboardingSnapshot onboardingState(String rootFolder) { return onboardingState.snapshot(rootFolder); }
+    @Override public boolean saveOnboardingProgress(int step) { return onboardingState.saveProgress(step); }
+    @Override public boolean markOnboardingSeen() { return onboardingState.markSeen(); }
+    @Override public boolean markOnboardingProxyConfigured() { return onboardingState.markProxyConfigured(); }
+    @Override public boolean markOnboardingFinished() { return onboardingState.markFinished(); }
+    @Override public boolean clearOnboardingState() { return onboardingState.clear(); }
+
+    private final DesktopUiTools desktopUiTools = new DesktopUiTools();
+
+    @Override public FolderCheckResult checkArtworkFolders(Path databasePath) throws Exception {
+        return desktopUiTools.checkArtworkFolders(databasePath);
+    }
+    @Override public void updateArtworkFolder(Path databasePath, long artworkId, boolean moved, String newPath) throws Exception {
+        desktopUiTools.updateArtworkFolder(databasePath, artworkId, moved, newPath);
+    }
+    @Override public ImageClassifierSettings loadImageClassifierSettings(String rootFolder) throws IOException {
+        return desktopUiTools.loadImageClassifierSettings(rootFolder);
+    }
+    @Override public void saveImageClassifierSettings(String rootFolder, ImageClassifierSettings settings) throws IOException {
+        desktopUiTools.saveImageClassifierSettings(rootFolder, settings);
+    }
+    @Override public boolean isImageClassifierDirectory(Path path) {
+        return desktopUiTools.isImageClassifierDirectory(path);
+    }
+    @Override public List<Path> listImageClassifierFolders(Path parent) throws IOException {
+        return desktopUiTools.listImageClassifierFolders(parent);
+    }
+    @Override public List<Path> listImageClassifierImages(Path folder) throws IOException {
+        return desktopUiTools.listImageClassifierImages(folder);
+    }
+    @Override public void deleteImageClassifierFolderIfEmpty(Path folder) throws IOException {
+        desktopUiTools.deleteImageClassifierFolderIfEmpty(folder);
+    }
+    @Override public ImageClassifierServer checkImageClassifierServer(String configuredUrl) {
+        return desktopUiTools.checkImageClassifierServer(configuredUrl);
+    }
+    @Override public Optional<ImageClassifierArtwork> resolveImageClassifierArtwork(Path folder, ImageClassifierServer server) {
+        return desktopUiTools.resolveImageClassifierArtwork(folder, server);
+    }
+    @Override public Path classifyImageFolder(Path sourceFolder, List<Path> images, long artworkId, Path targetFolder,
+                                              ImageClassifierServer server,
+                                              ImageClassifierDeleteFailureHandler deleteFailureHandler) throws IOException {
+        return desktopUiTools.classifyImageFolder(sourceFolder, images, artworkId, targetFolder, server, deleteFailureHandler);
     }
 
     private static BackendSnapshot map(BackendLifecycleManager.Snapshot value) {

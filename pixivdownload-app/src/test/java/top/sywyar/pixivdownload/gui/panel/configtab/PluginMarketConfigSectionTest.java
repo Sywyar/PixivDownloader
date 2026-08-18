@@ -1,14 +1,18 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
+
+import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
-import top.sywyar.pixivdownload.gui.config.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
-import top.sywyar.pixivdownload.gui.config.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @DisplayName("插件市场配置 section：入口门控 / 代理策略 / 市场页目标 / 读取失败写回守卫")
 class PluginMarketConfigSectionTest {
+    static { DesktopUiTestHost.ensureInstalled(); }
 
     @TempDir
     Path tempDir;
@@ -38,7 +43,7 @@ class PluginMarketConfigSectionTest {
     }
 
     private PluginMarketConfigSection section(Path configPath) {
-        return new PluginMarketConfigSection(null, configPath, url -> url);
+        return new PluginMarketConfigSection(null, new TestDesktopConfigFile(configPath), url -> url);
     }
 
     @Test
@@ -110,8 +115,8 @@ class PluginMarketConfigSectionTest {
 
         List<TrustedKeyConfigEntry> keys = PluginMarketConfigSection.trustedKeysForSave(List.of(custom), true);
 
-        assertThat(keys).contains(TrustedKeyConfigEntry.officialRoot(), custom);
-        assertThat(keys.get(0)).isEqualTo(TrustedKeyConfigEntry.officialRoot());
+        assertThat(keys).contains(PluginMarketConfigSection.officialRoot(), custom);
+        assertThat(keys.get(0)).isEqualTo(PluginMarketConfigSection.officialRoot());
         assertThat(PluginMarketConfigSection.hasDuplicateTrustedKeyIds(keys)).isFalse();
     }
 
@@ -121,7 +126,7 @@ class PluginMarketConfigSectionTest {
         Path file = writeConfig("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
         List<TrustedKeyConfigEntry> keys = PluginMarketConfigSection.trustedKeysForSave(List.of(), true);
 
-        new PluginRepositoryConfigEditor(file).write(List.of(new RepositoryConfigEntry(
+        new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file)).write(List.of(new RepositoryConfigEntry(
                 "custom", "", "https://custom.example/manifest.json", true,
                 "direct-strict", false, true, false, false,
                 0, 0, 0, 0, keys, new LinkedHashMap<>())));
@@ -129,9 +134,9 @@ class PluginMarketConfigSectionTest {
         String content = Files.readString(file, StandardCharsets.UTF_8);
         assertThat(content).contains("plugin-catalog.repositories:");
         assertThat(content).contains("trusted-keys:");
-        assertThat(content).contains("key-id: " + TrustedKeyConfigEntry.officialRoot().keyId());
-        assertThat(new PluginRepositoryConfigEditor(file).read().get(0).trustedKeys())
-                .containsExactly(TrustedKeyConfigEntry.officialRoot());
+        assertThat(content).contains("key-id: " + PluginMarketConfigSection.officialRoot().keyId());
+        assertThat(new PluginRepositoryConfigEditor(new TestDesktopConfigFile(file)).read().get(0).trustedKeys())
+                .containsExactly(PluginMarketConfigSection.officialRoot());
     }
 
     @Test

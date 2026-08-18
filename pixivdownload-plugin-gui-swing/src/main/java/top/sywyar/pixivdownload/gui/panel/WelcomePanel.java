@@ -1,38 +1,24 @@
 package top.sywyar.pixivdownload.gui.panel;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.config.ProxyConfig;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
-import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
-import top.sywyar.pixivdownload.gui.GuiTokenHolder;
-import top.sywyar.pixivdownload.gui.OnboardingState;
-import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot;
 import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingStepSpec;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.setup.SetupService;
 
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.security.cert.X509Certificate;
+import java.util.Map;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -49,8 +35,6 @@ import java.util.Set;
 @Slf4j
 public class WelcomePanel extends JPanel {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
     private static final int POLL_INTERVAL_MS = 2000;
 
     private static final int STEP_SERVICE = 1;
@@ -62,7 +46,6 @@ public class WelcomePanel extends JPanel {
     private static final int STEP_DONE = 7;
 
     private final StatusPanel statusPanel;
-    private final int serverPort;
     private final GuiOnboardingStepSpec guideStep;
     private final Runnable returnToGui;
     private final Runnable openStatusTab;
@@ -71,7 +54,6 @@ public class WelcomePanel extends JPanel {
     private Timer pulseTimer;
     private Timer pollTimer;
     private float pulsePhase;
-    private volatile String currentScheme = "http";
 
     private int currentStep = STEP_SERVICE;
     private boolean bootstrapped;
@@ -79,7 +61,8 @@ public class WelcomePanel extends JPanel {
     // 引导状态
     private boolean serviceReady;
     private boolean setupComplete;
-    private boolean proxyConfigured = OnboardingState.isSeen() || OnboardingState.isProxyConfigured();
+    private boolean proxyConfigured = SwingHost.host().onboardingState(null).seen()
+            || SwingHost.host().onboardingState(null).proxyConfigured();
     private boolean batchVisited;
     private boolean guideStepCompleted;
     private Set<String> completedOnboardingSteps = Set.of();
@@ -108,7 +91,7 @@ public class WelcomePanel extends JPanel {
     private final JLabel proxyFeedback = new JLabel();
     private boolean proxyDefaultsLoaded;
 
-    private final BackendLifecycleManager.Listener backendListener = s ->
+    private final SwingBackendLifecycle.Listener backendListener = s ->
             SwingUtilities.invokeLater(() -> {
                 applyBackendState(s);
                 reconcile(true);
@@ -123,7 +106,6 @@ public class WelcomePanel extends JPanel {
                         GuiOnboardingSnapshot guiOnboarding,
                         Runnable returnToGui, Runnable openStatusTab) {
         this.statusPanel = statusPanel;
-        this.serverPort = serverPort;
         this.guideStep = guiOnboarding == null ? null : guiOnboarding.firstStep().orElse(null);
         this.returnToGui = returnToGui;
         this.openStatusTab = openStatusTab;
@@ -157,14 +139,14 @@ public class WelcomePanel extends JPanel {
             }
         });
 
-        BackendLifecycleManager.addListener(backendListener);
-        applyBackendState(BackendLifecycleManager.snapshot());
+        SwingBackendLifecycle.addListener(backendListener);
+        applyBackendState(SwingBackendLifecycle.snapshot());
         startPulse();
 
         // 恢复上次保存的页码。把 bootstrapped 置位并提前快照标志位，
         // 这样首次 reconcile 不会再跳到 firstIncompleteStep —— 用户落在自己上次离开的那一页。
         // 下限取 firstIncompleteStep()：避免持久数据被外部清掉（如 setup 重置）后还停在过远的步骤。
-        int saved = OnboardingState.loadProgress();
+        int saved = SwingHost.host().onboardingState(null).progress();
         int starting = Math.max(saved, firstIncompleteStep());
         if (starting < STEP_SERVICE) starting = STEP_SERVICE;
         if (starting > STEP_DONE) starting = STEP_DONE;
@@ -174,7 +156,7 @@ public class WelcomePanel extends JPanel {
 
         // 已彻底完成的引导不再发任何轮询；同时 MainFrame 在该状态下不会创建本面板，
         // 这里只是冗余防御。
-        if (!OnboardingState.isFinished()) {
+        if (!SwingHost.host().onboardingState(null).finished()) {
             startPolling();
         }
 
@@ -188,11 +170,11 @@ public class WelcomePanel extends JPanel {
         }
         int dir = target > currentStep ? 1 : -1;
         currentStep = target;
-        OnboardingState.saveProgress(target);
+        SwingHost.host().saveOnboardingProgress(target);
         if (target == STEP_DONE) {
             // 走到完成页：写入 finished 标记，下次启动起欢迎页就会被隐藏；同时停掉轮询，
             // 不再向已成功一次的后端发请求。
-            OnboardingState.markFinished();
+            SwingHost.host().markOnboardingFinished();
             stopPolling();
         }
         slider.show(buildStep(target), animated ? dir : 0, animated);
@@ -226,7 +208,7 @@ public class WelcomePanel extends JPanel {
         } else if (currentStep == STEP_START && batchVisited) {
             goTo(stepAfterStart(), animated);
         } else if (currentStep == STEP_GUIDE && guideStepCompleted) {
-            OnboardingState.markSeen();
+            SwingHost.host().markOnboardingSeen();
             goTo(STEP_ADVANCED, animated);
             if (returnToGui != null) {
                 returnToGui.run();
@@ -403,13 +385,13 @@ public class WelcomePanel extends JPanel {
         }
         proxyDefaultsLoaded = true;
         boolean enabled = true;
-        String host = ProxyConfig.DEFAULT_HOST;
-        String port = Integer.toString(ProxyConfig.DEFAULT_PORT);
+        String host = SwingHost.host().defaultProxyHost();
+        String port = Integer.toString(SwingHost.host().defaultProxyPort());
         try {
-            ConfigFileEditor editor = new ConfigFileEditor(RuntimeFiles.resolveConfigYamlPath());
-            String e = editor.read(ProxyConfig.KEY_ENABLED);
-            String h = editor.read(ProxyConfig.KEY_HOST);
-            String p = editor.read(ProxyConfig.KEY_PORT);
+            DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
+            String e = editor.read("proxy.enabled");
+            String h = editor.read("proxy.host");
+            String p = editor.read("proxy.port");
             if (e != null && !e.isBlank()) {
                 enabled = Boolean.parseBoolean(e.trim());
             }
@@ -455,21 +437,21 @@ public class WelcomePanel extends JPanel {
         } else {
             // 关闭代理时仍落盘 host/port，缺省回退默认值以便后续开启复用
             if (host.isEmpty()) {
-                host = ProxyConfig.DEFAULT_HOST;
+                host = SwingHost.host().defaultProxyHost();
             }
             if (port < 1 || port > 65535) {
-                port = ProxyConfig.DEFAULT_PORT;
+                port = SwingHost.host().defaultProxyPort();
             }
         }
 
         Map<String, String> values = new LinkedHashMap<>();
-        values.put(ProxyConfig.KEY_ENABLED, Boolean.toString(enabled));
-        values.put(ProxyConfig.KEY_HOST, host);
-        values.put(ProxyConfig.KEY_PORT, Integer.toString(port));
+        values.put("proxy.enabled", Boolean.toString(enabled));
+        values.put("proxy.host", host);
+        values.put("proxy.port", Integer.toString(port));
         try {
-            new ConfigFileEditor(RuntimeFiles.resolveConfigYamlPath()).writeAll(values);
+            SwingHost.host().applicationConfig().writeAll(values);
         } catch (IOException ex) {
-            log.warn(MessageBundles.get("gui.config.log.save-failed", ex.getMessage()));
+            log.warn(SwingHost.host().message("gui.config.log.save-failed", ex.getMessage()));
             showProxyError(GuiMessages.get("gui.welcome.proxy.failed", safe(ex.getMessage())));
             GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
                     GuiMessages.get("gui.welcome.proxy.failed", safe(ex.getMessage())));
@@ -477,7 +459,7 @@ public class WelcomePanel extends JPanel {
         }
 
         proxyConfigured = true;
-        OnboardingState.markProxyConfigured();
+        SwingHost.host().markOnboardingProxyConfigured();
         triggerHotReloadAsync();
         goTo(STEP_START, true);
     }
@@ -493,7 +475,7 @@ public class WelcomePanel extends JPanel {
         new SwingWorker<int[], Void>() {
             @Override
             protected int[] doInBackground() {
-                return postJson("/api/gui/config/reload", "{}", b -> {
+                return postJson("/api/gui/config/reload", Map.of(), b -> {
                 });
             }
 
@@ -502,10 +484,10 @@ public class WelcomePanel extends JPanel {
                 try {
                     int status = get()[0];
                     if (status != 200) {
-                        log.warn(MessageBundles.get("gui.config.log.hot-reload-failed", "status=" + status));
+                        log.warn(SwingHost.host().message("gui.config.log.hot-reload-failed", "status=" + status));
                     }
                 } catch (Exception e) {
-                    log.warn(MessageBundles.get("gui.config.log.hot-reload-failed", safe(e.getMessage())));
+                    log.warn(SwingHost.host().message("gui.config.log.hot-reload-failed", safe(e.getMessage())));
                 }
             }
         }.execute();
@@ -544,7 +526,7 @@ public class WelcomePanel extends JPanel {
         JLabel hint = secondary(guideStep.waitingText());
         s.add(hint);
         s.footer(GuiMessages.get("gui.welcome.nav.finish"), true, () -> {
-            OnboardingState.markSeen();
+            SwingHost.host().markOnboardingSeen();
             Set<String> next = new HashSet<>(completedOnboardingSteps);
             next.add(guideStep.completionKey());
             completedOnboardingSteps = Set.copyOf(next);
@@ -567,7 +549,7 @@ public class WelcomePanel extends JPanel {
         // 进阶 · 动图支持
         s.heading("gui.welcome.ffmpeg.title");
         s.para("gui.welcome.ffmpeg.intro");
-        boolean ffmpegReady = FfmpegLocator.locate().isPresent();
+        boolean ffmpegReady = SwingHost.host().locateFfmpeg().isPresent();
         JLabel state = new JLabel(GuiMessages.get("gui.welcome.ffmpeg.state",
                 GuiMessages.get(ffmpegReady
                         ? "gui.welcome.ffmpeg.state.ready" : "gui.welcome.ffmpeg.state.missing")));
@@ -607,11 +589,11 @@ public class WelcomePanel extends JPanel {
             showConfigError(GuiMessages.get("gui.welcome.config.invalid.username"));
             return;
         }
-        if (password.length() < SetupService.MIN_PASSWORD_LENGTH) {
+        if (password.length() < SwingHost.host().minimumPasswordLength()) {
             showConfigError(GuiMessages.get("gui.welcome.config.invalid.password"));
             return;
         }
-        if (password.length() < SetupService.RECOMMENDED_PASSWORD_LENGTH
+        if (password.length() < SwingHost.host().recommendedPasswordLength()
                 && !weakPasswordConfirmationPending) {
             weakPasswordConfirmationPending = true;
             showConfigWarning(GuiMessages.get("gui.welcome.config.password-warning.message"));
@@ -624,14 +606,7 @@ public class WelcomePanel extends JPanel {
         configFeedback.setText(GuiMessages.get("gui.welcome.config.submitting"));
         slider.refreshCurrent(buildStep(STEP_CONFIG));
 
-        String payload;
-        try {
-            payload = MAPPER.writeValueAsString(new SetupPayload(username, password, mode));
-        } catch (Exception e) {
-            submitting = false;
-            handleConfigFailure(e.getMessage());
-            return;
-        }
+        Map<String, Object> payload = Map.of("username", username, "password", password, "mode", mode);
 
         new SwingWorker<int[], Void>() {
             private String errorBody = "";
@@ -679,17 +654,14 @@ public class WelcomePanel extends JPanel {
     }
 
     private void handleConfigFailure(String detail) {
-        log.warn(MessageBundles.get("gui.status.log.update.call-failed", "/api/gui/setup/init", detail));
+        log.warn(SwingHost.host().message("gui.status.log.update.call-failed", "/api/gui/setup/init", detail));
         showConfigError(GuiMessages.get("gui.welcome.config.failed", detail == null ? "" : detail));
         GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
                 GuiMessages.get("gui.welcome.config.failed", detail == null ? "" : detail));
     }
 
-    private record SetupPayload(String username, String password, String mode) {
-    }
-
     // ── 后端联动 ─────────────────────────────────────────────────────────────
-    private void applyBackendState(BackendLifecycleManager.Snapshot snapshot) {
+    private void applyBackendState(SwingBackendLifecycle.Snapshot snapshot) {
         switch (snapshot.state()) {
             case RUNNING -> {
                 serviceReady = true;
@@ -736,7 +708,7 @@ public class WelcomePanel extends JPanel {
             return;
         }
         Thread worker = new Thread(() -> {
-            JsonNode node = getJson("/api/gui/onboarding");
+            DesktopUiHost.GuiValue node = getJson("/api/gui/onboarding");
             if (node == null) {
                 return;
             }
@@ -746,7 +718,7 @@ public class WelcomePanel extends JPanel {
         worker.start();
     }
 
-    private void applyOnboarding(JsonNode node) {
+    private void applyOnboarding(DesktopUiHost.GuiValue node) {
         if (node.path("setupComplete").asBoolean(false)) {
             setupComplete = true;
         }
@@ -763,12 +735,12 @@ public class WelcomePanel extends JPanel {
         }
     }
 
-    private static Set<String> completedSteps(JsonNode node) {
+    private static Set<String> completedSteps(DesktopUiHost.GuiValue node) {
         if (node == null || !node.isArray()) {
             return Set.of();
         }
         Set<String> steps = new HashSet<>();
-        for (JsonNode item : node) {
+        for (DesktopUiHost.GuiValue item : node) {
             if (item != null && item.isTextual() && !item.asText().isBlank()) {
                 steps.add(item.asText().trim());
             }
@@ -780,89 +752,21 @@ public class WelcomePanel extends JPanel {
         try {
             Desktop.getDesktop().browse(new URI(url));
         } catch (Exception e) {
-            log.warn(MessageBundles.get("gui.status.log.open-browser-failed", url, e.getMessage()), e);
+            log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", url, e.getMessage()), e);
             GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
                     GuiMessages.get("gui.error.open-browser", e.getMessage()));
         }
     }
 
-    // ── 轻量 HTTP（携带 GUI 令牌，参照 StatusPanel 的 scheme 探测）──────────────
-    private JsonNode getJson(String path) {
-        String[] schemes = "https".equals(currentScheme)
-                ? new String[]{"https", "http"} : new String[]{"http", "https"};
-        for (String scheme : schemes) {
-            HttpURLConnection conn = null;
-            try {
-                URL url = new URI(scheme + "://localhost:" + serverPort + path).toURL();
-                conn = open(url);
-                conn.setRequestMethod("GET");
-                if (conn.getResponseCode() == 200) {
-                    currentScheme = scheme;
-                    try (InputStream is = conn.getInputStream()) {
-                        return MAPPER.readTree(is);
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("Failed to fetch {} via {}", path, scheme, e);
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
-            }
-        }
-        return null;
+    private DesktopUiHost.GuiValue getJson(String path) {
+        DesktopUiHost.GuiResponse response = SwingHost.host().guiGet(path, 4_000);
+        return response.is2xx() ? response.body() : null;
     }
 
-    private int[] postJson(String path, String jsonBody, java.util.function.Consumer<String> errorSink) {
-        String[] schemes = "https".equals(currentScheme)
-                ? new String[]{"https", "http"} : new String[]{"http", "https"};
-        for (String scheme : schemes) {
-            HttpURLConnection conn = null;
-            try {
-                URL url = new URI(scheme + "://localhost:" + serverPort + path).toURL();
-                conn = open(url);
-                conn.setRequestMethod("POST");
-                conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/json");
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(jsonBody.getBytes(StandardCharsets.UTF_8));
-                }
-                int code = conn.getResponseCode();
-                currentScheme = scheme;
-                if (code >= 400) {
-                    try (InputStream es = conn.getErrorStream()) {
-                        if (es != null) {
-                            errorSink.accept(new String(es.readAllBytes(), StandardCharsets.UTF_8));
-                        }
-                    } catch (Exception e) {
-                        log.debug("Failed to read error stream from {} response", path, e);
-                    }
-                }
-                return new int[]{code};
-            } catch (Exception e) {
-                log.warn("Failed to POST {}", path, e);
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
-            }
-        }
-        return new int[]{-1};
-    }
-
-    private static HttpURLConnection open(URL url) throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
-            https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
-            https.setHostnameVerifier((h, s) -> true);
-        }
-        conn.setConnectTimeout(2000);
-        conn.setReadTimeout(4000);
-        String guiToken = GuiTokenHolder.get();
-        if (guiToken != null) {
-            conn.setRequestProperty(GuiTokenHolder.headerName(), guiToken);
-        }
-        return conn;
+    private int[] postJson(String path, Object body, java.util.function.Consumer<String> errorSink) {
+        DesktopUiHost.GuiResponse response = SwingHost.host().guiPostJson(path, body, 4_000);
+        if (response.status() >= 400) errorSink.accept(response.rawBody());
+        return new int[]{response.reachable() ? response.status() : -1};
     }
 
     private static String safe(String s) {
@@ -903,7 +807,7 @@ public class WelcomePanel extends JPanel {
             pulseTimer = null;
         }
         stopPolling();
-        BackendLifecycleManager.removeListener(backendListener);
+        SwingBackendLifecycle.removeListener(backendListener);
     }
 
     // ── 单步面板布局：标题 + 副标题 + 内容 + 底部导航 ─────────────────────────
@@ -1218,26 +1122,4 @@ public class WelcomePanel extends JPanel {
         }
     }
 
-    private static SSLContext buildTrustAllSslContext() {
-        try {
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, new TrustManager[]{
-                    new X509TrustManager() {
-                        public X509Certificate[] getAcceptedIssuers() {
-                            return new X509Certificate[0];
-                        }
-
-                        public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                        }
-
-                        public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                        }
-                    }
-            }, null);
-            return ctx;
-        } catch (Exception e) {
-            log.warn("Failed to create trust-all SSL context", e);
-            return null;
-        }
-    }
 }

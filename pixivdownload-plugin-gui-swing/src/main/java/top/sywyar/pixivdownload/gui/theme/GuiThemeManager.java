@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import javax.swing.SwingUtilities;
@@ -13,9 +14,6 @@ import java.awt.Color;
 import java.awt.Window;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -24,8 +22,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Swing-only GUI theme manager. The core owns only theme id persistence, contribution selection, listener lifetime,
@@ -36,11 +32,8 @@ public final class GuiThemeManager {
     public static final String DEFAULT_THEME_ID = "system";
 
     private static final Logger log = LoggerFactory.getLogger(GuiThemeManager.class);
-    private static final Pattern APP_THEME_PATTERN =
-            Pattern.compile("^(\\s*app\\.theme\\s*:\\s*)([^#]*?)(\\s*(?:#.*)?)$");
     private static final Object LOCK = new Object();
 
-    private static Path configPath;
     private static String configuredThemeId = DEFAULT_THEME_ID;
     private static String activeThemeId = DEFAULT_THEME_ID;
     private static GuiThemeAppearance currentAppearance = GuiThemeAppearance.UNKNOWN;
@@ -52,28 +45,20 @@ public final class GuiThemeManager {
     private GuiThemeManager() {
     }
 
-    public static String readPersistedThemeId(Path configPath) {
-        if (configPath == null || !Files.isRegularFile(configPath)) {
-            return DEFAULT_THEME_ID;
-        }
+    public static String readPersistedThemeId(DesktopUiHost.ConfigFile configFile) {
+        if (configFile == null) return DEFAULT_THEME_ID;
         try {
-            for (String line : Files.readAllLines(configPath, StandardCharsets.UTF_8)) {
-                Matcher matcher = APP_THEME_PATTERN.matcher(line);
-                if (matcher.matches()) {
-                    return normalizeThemeId(stripYamlScalar(matcher.group(2)));
-                }
-            }
+            return normalizeThemeId(configFile.read("app.theme"));
         } catch (IOException e) {
-            log.warn("Failed to read app.theme from {}: {}", configPath, e.toString());
+            log.warn("Failed to read app.theme: {}", e.toString());
         }
         return DEFAULT_THEME_ID;
     }
 
-    public static void applyBeforeFirstWindow(Path configPath, String configuredThemeId,
+    public static void applyBeforeFirstWindow(DesktopUiHost.ConfigFile configFile, String configuredThemeId,
                                               Collection<ThemePluginSource> activePlugins) {
         Runnable task = () -> {
             synchronized (LOCK) {
-                GuiThemeManager.configPath = configPath;
                 GuiThemeManager.configuredThemeId = normalizeThemeId(configuredThemeId);
                 themes = collectThemes(activePlugins);
             }
@@ -122,11 +107,10 @@ public final class GuiThemeManager {
         return List.copyOf(result);
     }
 
-    public static boolean applyUserSelection(Path configPath, String themeId) {
+    public static boolean applyUserSelection(DesktopUiHost.ConfigFile configFile, String themeId) {
         String normalized = normalizeThemeId(themeId);
-        boolean persisted = persistThemeId(configPath, normalized);
+        boolean persisted = persistThemeId(configFile, normalized);
         synchronized (LOCK) {
-            GuiThemeManager.configPath = configPath;
             GuiThemeManager.configuredThemeId = normalized;
         }
         Runnable task = () -> applyConfiguredTheme(true);
@@ -151,29 +135,14 @@ public final class GuiThemeManager {
         }
     }
 
-    public static boolean persistThemeId(Path configPath, String themeId) {
-        if (configPath == null || !Files.exists(configPath)) {
-            return false;
-        }
+    public static boolean persistThemeId(DesktopUiHost.ConfigFile configFile, String themeId) {
+        if (configFile == null) return false;
         String normalized = normalizeThemeId(themeId);
         try {
-            List<String> lines = new ArrayList<>(Files.readAllLines(configPath, StandardCharsets.UTF_8));
-            boolean replaced = false;
-            for (int i = 0; i < lines.size(); i++) {
-                Matcher matcher = APP_THEME_PATTERN.matcher(lines.get(i));
-                if (matcher.matches()) {
-                    lines.set(i, matcher.group(1) + normalized + matcher.group(3));
-                    replaced = true;
-                    break;
-                }
-            }
-            if (!replaced) {
-                lines.add("app.theme: " + normalized);
-            }
-            Files.write(configPath, lines, StandardCharsets.UTF_8);
+            configFile.write("app.theme", normalized);
             return true;
         } catch (IOException | RuntimeException e) {
-            log.warn("Failed to write app.theme to {}: {}", configPath, e.toString());
+            log.warn("Failed to write app.theme: {}", e.toString());
             return false;
         }
     }
@@ -213,7 +182,6 @@ public final class GuiThemeManager {
     static void resetForTests() {
         synchronized (LOCK) {
             closeContributionListener();
-            configPath = null;
             configuredThemeId = DEFAULT_THEME_ID;
             activeThemeId = DEFAULT_THEME_ID;
             currentAppearance = GuiThemeAppearance.UNKNOWN;
@@ -447,19 +415,6 @@ public final class GuiThemeManager {
         }
         String trimmed = value.trim().toLowerCase(Locale.ROOT);
         return trimmed.isEmpty() ? DEFAULT_THEME_ID : trimmed;
-    }
-
-    private static String stripYamlScalar(String value) {
-        if (value == null) {
-            return "";
-        }
-        String trimmed = value.trim();
-        if ((trimmed.startsWith("\"") && trimmed.endsWith("\""))
-                || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-            return trimmed.substring(1, trimmed.length() - 1);
-        }
-        int comment = trimmed.indexOf('#');
-        return comment >= 0 ? trimmed.substring(0, comment).trim() : trimmed;
     }
 
     public record ThemeChoice(String id, String displayName, GuiThemeAppearance appearance, boolean unavailable) {

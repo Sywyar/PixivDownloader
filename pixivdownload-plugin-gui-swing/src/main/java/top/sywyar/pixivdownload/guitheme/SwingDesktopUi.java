@@ -29,8 +29,8 @@ final class SwingDesktopUi {
             List<GuiThemeManager.ThemePluginSource> themes = startup.stream()
                     .map(source -> new GuiThemeManager.ThemePluginSource(source.id(), source.plugin()))
                     .toList();
-            GuiThemeManager.applyBeforeFirstWindow(context.configPath(),
-                    GuiThemeManager.readPersistedThemeId(context.configPath()), themes);
+            GuiThemeManager.applyBeforeFirstWindow(context.host().applicationConfig(),
+                    GuiThemeManager.readPersistedThemeId(context.host().applicationConfig()), themes);
             MainFrame frame = new MainFrame(context.serverPort(), context.rootFolder(), context.configPath(),
                     () -> GuiConfigContributionAggregator.fromRegisteredPlugins(context.currentPluginSources()),
                     () -> GuiWebEntryContributionAggregator.fromRegisteredPlugins(context.currentPluginSources()),
