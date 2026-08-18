@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -56,6 +57,15 @@ class ConfigFieldRegistryTest {
         assertThat(spec.group()).isEqualTo(pluginsGroup);
         assertThat(spec.defaultValue()).isEqualTo("true");
         assertThat(spec.label()).isNotBlank().doesNotStartWith("gui.config.field.");
+    }
+
+    @Test
+    @DisplayName("启动期冻结的核心配置要求完整重启")
+    void processOwnedCoreFieldsRequireFullRestart() {
+        assertThat(ConfigFieldRegistry.allFields())
+                .filteredOn(field -> field.effect() == GuiConfigEffect.PROCESS_RESTART)
+                .extracting(ConfigFieldSpec::key)
+                .contains("server.port", "download.root-folder");
     }
 
     @Test

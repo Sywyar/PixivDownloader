@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -258,7 +259,7 @@ public final class FieldRenderer {
         return new RenderedPanel(buildFieldPanel(
                 spec.label() + message("gui.punctuation.colon"),
                 control,
-                buildEffectLabel(spec.requiresRestart()),
+                effectLabel(spec.effect()),
                 spec.helpText(),
                 validationError), validationError);
     }
@@ -267,22 +268,24 @@ public final class FieldRenderer {
         return buildFieldPanel(labelText, control, effect, helpText, null);
     }
 
-    /**
-     * 为不进入普通字段注册表、但仍需采用标准配置项外观的控件构建统一字段面板。
-     */
-    public static JPanel fieldPanel(String labelText, JComponent control,
-                                    boolean requiresRestart, String helpText) {
-        return buildFieldPanel(labelText, control, buildEffectLabel(requiresRestart), helpText, null);
+    /** 为注册表外控件构建带统一生效方式标记的字段面板。 */
+    public static JPanel fieldPanelWithEffect(String labelText, JComponent control,
+                                              GuiConfigEffect effect, String helpText) {
+        return buildFieldPanel(labelText, control, effectLabel(effect), helpText, null);
     }
 
-    private static JLabel buildEffectLabel(boolean requiresRestart) {
-        JLabel effect = new JLabel(message(requiresRestart
-                ? "gui.label.restart-required"
-                : "gui.label.hot-reload"));
+    public static JLabel effectLabel(GuiConfigEffect effectLevel) {
+        JLabel effect = new JLabel(message(switch (effectLevel) {
+            case HOT_RELOAD -> "gui.label.hot-reload";
+            case BACKEND_RESTART -> "gui.label.restart-required";
+            case PROCESS_RESTART -> "gui.label.process-restart-required";
+        }));
         effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
-        effect.setForeground(requiresRestart
-                ? new Color(180, 100, 0)
-                : new Color(0, 128, 96));
+        effect.setForeground(switch (effectLevel) {
+            case HOT_RELOAD -> new Color(0, 128, 96);
+            case BACKEND_RESTART -> new Color(180, 100, 0);
+            case PROCESS_RESTART -> VALIDATION_ERROR_COLOR;
+        });
         return effect;
     }
 

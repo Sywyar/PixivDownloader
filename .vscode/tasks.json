@@ -12,7 +12,7 @@
         "-pl",
         "pixivdownload-official-plugins",
         "-am",
-        "compile",
+        "process-classes",
         "-Dexec.skip=true"
       ],
       "options": {

@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -245,7 +246,7 @@ public class AiPlugin implements PixivFeaturePlugin {
                                                     GuiConfigCondition... enabledWhen) {
         String prefix = "gui.config.field." + key;
         return new GuiConfigFieldContribution(key, GuiConfigGroups.AI, prefix + ".label", prefix + ".help",
-                ID, type, defaultValue, order, false, false, enumValues,
+                ID, type, defaultValue, order, false, GuiConfigEffect.HOT_RELOAD, enumValues,
                 List.of(enabledWhen), List.of(), null, null);
     }
 }

@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -376,7 +377,8 @@ public class PushPlugin implements PixivFeaturePlugin {
                                                     String defaultValue, int order,
                                                     GuiConfigCondition... enabledWhen) {
         return new GuiConfigFieldContribution(key, GuiConfigGroups.NOTIFICATION, keyPrefix(key) + ".label", helpKey,
-                ID, type, defaultValue, order, type == GuiConfigFieldType.PASSWORD, false, List.of(),
+                ID, type, defaultValue, order, type == GuiConfigFieldType.PASSWORD,
+                GuiConfigEffect.HOT_RELOAD, List.of(),
                 List.of(enabledWhen), List.of(), null, null);
     }
 

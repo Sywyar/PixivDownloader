@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.gui.panel.configtab.ConfigFieldRows;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigMenuTree;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigSectionResolver;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -66,6 +67,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final BooleanSupplier languageChangeBlocked;
     private final BooleanSupplier restartConfirmation;
     private final BooleanSupplier backendRestarter;
+    private final BooleanSupplier processRestartConfirmation;
+    private final BooleanSupplier processRestarter;
 
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
@@ -121,6 +124,18 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 BooleanSupplier languageChangeBlocked,
                 BooleanSupplier restartConfirmation,
                 BooleanSupplier backendRestarter) {
+        this(configPath, serverPort, webUrlProvider, fieldSnapshot, onLocaleChanged, languageChangeBlocked,
+                restartConfirmation, backendRestarter, null, null);
+    }
+
+    ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider,
+                ConfigFieldSnapshot fieldSnapshot,
+                Runnable onLocaleChanged,
+                BooleanSupplier languageChangeBlocked,
+                BooleanSupplier restartConfirmation,
+                BooleanSupplier backendRestarter,
+                BooleanSupplier processRestartConfirmation,
+                BooleanSupplier processRestarter) {
         this.configPath = configPath;
         this.serverPort = serverPort;
         this.webUrlProvider = webUrlProvider;
@@ -132,6 +147,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         this.backendRestarter = backendRestarter == null
                 ? SwingBackendLifecycle::restartAsync
                 : backendRestarter;
+        this.processRestartConfirmation = processRestartConfirmation == null
+                ? this::confirmProcessRestart
+                : processRestartConfirmation;
+        this.processRestarter = processRestarter == null
+                ? () -> SwingHost.host().restartApplication()
+                : processRestarter;
         this.editor = SwingHost.host().applicationConfig();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
         this.allFields = snapshot.fields();
@@ -698,7 +719,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         JPanel panel = FieldRenderer.fieldPanel(
                 message("gui.config.field.maintenance.weekdays.label") + message("gui.punctuation.colon"),
                 checkBoxRow,
-                buildEffectLabel(false),
+                FieldRenderer.effectLabel(GuiConfigEffect.HOT_RELOAD),
                 message("gui.config.field.maintenance.weekdays.help"));
 
         for (Map.Entry<ConfigFieldSpec, JCheckBox> entry : checkBoxes.entrySet()) {
@@ -719,17 +740,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return fields.stream()
                 .filter(field -> key.equals(field.key()))
                 .findFirst();
-    }
-
-    private static JLabel buildEffectLabel(boolean requiresRestart) {
-        JLabel effect = new JLabel(message(requiresRestart
-                ? "gui.label.restart-required"
-                : "gui.label.hot-reload"));
-        effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
-        effect.setForeground(requiresRestart
-                ? new Color(180, 100, 0)
-                : new Color(0, 128, 96));
-        return effect;
     }
 
     private static JTextArea createHiddenValidationError() {
@@ -969,9 +979,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         Set<String> changedKeys = changedKeys(before, values);
-        Set<String> hotReloadKeys = changedFieldKeys(changedKeys, false);
+        Set<String> hotReloadKeys = changedFieldKeys(changedKeys, GuiConfigEffect.HOT_RELOAD);
         boolean hasHotReloadChanges = !hotReloadKeys.isEmpty();
-        boolean hasRestartRequiredChanges = hasChangedField(changedKeys, true);
+        boolean hasBackendRestartChanges = hasChangedField(changedKeys, GuiConfigEffect.BACKEND_RESTART);
+        boolean hasProcessRestartChanges = hasChangedField(changedKeys, GuiConfigEffect.PROCESS_RESTART);
 
         // 下载根目录原本以符号根（跟随软件目录）方式记录时，改目录前必须先把旧记录固定为绝对路径，
         // 否则旧作品会随新配置解析到错误位置。用户取消或固定失败 → 整个保存中止。
@@ -991,9 +1002,21 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     sectionRestartChange = true;
                 }
             }
-            boolean restartRequired = hasRestartRequiredChanges || sectionRestartChange;
+            GuiConfigEffect pendingRestart = hasProcessRestartChanges
+                    ? GuiConfigEffect.PROCESS_RESTART
+                    : hasBackendRestartChanges || sectionRestartChange
+                            ? GuiConfigEffect.BACKEND_RESTART
+                            : GuiConfigEffect.HOT_RELOAD;
             log.info(logMessage("gui.config.log.saved", configPath));
-            if (restartRequired && restartConfirmation.getAsBoolean()) {
+            if (pendingRestart == GuiConfigEffect.PROCESS_RESTART
+                    && processRestartConfirmation.getAsBoolean()) {
+                if (requestProcessRestart()) {
+                    showNotice(message("gui.config.notice.process-restarting"));
+                } else {
+                    showNotice(message("gui.message.process-restart-failed"));
+                }
+            } else if (pendingRestart == GuiConfigEffect.BACKEND_RESTART
+                    && restartConfirmation.getAsBoolean()) {
                 if (requestBackendRestart()) {
                     showNotice(message("gui.config.notice.restarting"));
                 } else {
@@ -1001,11 +1024,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
             } else if (hasHotReloadChanges) {
                 showNotice(message("gui.config.notice.hot-reloading"));
-                reloadHotConfigAsync(restartRequired, hotReloadKeys);
+                reloadHotConfigAsync(pendingRestart, hotReloadKeys);
             } else {
-                showNotice(message(restartRequired
-                        ? "gui.config.notice.saved"
-                        : "gui.config.notice.saved-no-change"));
+                showNotice(message(switch (pendingRestart) {
+                    case PROCESS_RESTART -> "gui.config.notice.saved-process";
+                    case BACKEND_RESTART -> "gui.config.notice.saved";
+                    case HOT_RELOAD -> "gui.config.notice.saved-no-change";
+                }));
             }
         } catch (IOException e) {
             log.error(logMessage("gui.config.log.save-failed", e.getMessage()));
@@ -1138,6 +1163,15 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
     }
 
+    private boolean requestProcessRestart() {
+        try {
+            return processRestarter.getAsBoolean();
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.status.log.restart-request.failed", safeMessage(e)), e);
+            return false;
+        }
+    }
+
     private boolean confirmBackendRestart() {
         if (!isShowing()) {
             return false;
@@ -1149,6 +1183,25 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         int answer = JOptionPane.showOptionDialog(this,
                 message("gui.config.dialog.restart-required.message"),
                 message("gui.config.dialog.restart-required.title"),
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]);
+        return answer == 0;
+    }
+
+    private boolean confirmProcessRestart() {
+        if (!isShowing()) {
+            return false;
+        }
+        Object[] options = {
+                message("gui.action.restart-application"),
+                message("gui.action.restart-later")
+        };
+        int answer = JOptionPane.showOptionDialog(this,
+                message("gui.config.dialog.process-restart-required.message"),
+                message("gui.config.dialog.process-restart-required.title"),
                 JOptionPane.DEFAULT_OPTION,
                 JOptionPane.QUESTION_MESSAGE,
                 null,
@@ -1595,14 +1648,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 SwingHost.host().pluginConfig(id));
     }
 
-    private boolean hasChangedField(Set<String> changedKeys, boolean requiresRestart) {
-        return !changedFieldKeys(changedKeys, requiresRestart).isEmpty();
+    private boolean hasChangedField(Set<String> changedKeys, GuiConfigEffect effect) {
+        return !changedFieldKeys(changedKeys, effect).isEmpty();
     }
 
-    private Set<String> changedFieldKeys(Set<String> changedKeys, boolean requiresRestart) {
+    private Set<String> changedFieldKeys(Set<String> changedKeys, GuiConfigEffect effect) {
         Set<String> keys = new LinkedHashSet<>();
         for (ConfigFieldSpec spec : allFields) {
-            if (spec.requiresRestart() == requiresRestart && changedKeys.contains(spec.key())) {
+            if (spec.effect() == effect && changedKeys.contains(spec.key())) {
                 keys.add(spec.key());
             }
         }
@@ -1678,7 +1731,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return false;
     }
 
-    private void reloadHotConfigAsync(boolean hasRestartRequiredChanges, Set<String> hotReloadKeys) {
+    private void reloadHotConfigAsync(GuiConfigEffect pendingRestart, Set<String> hotReloadKeys) {
         SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
             @Override
             protected Boolean doInBackground() {
@@ -1696,22 +1749,32 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             protected void done() {
                 try {
                     if (Boolean.TRUE.equals(get())) {
-                        showNotice(message(hasRestartRequiredChanges
-                                ? "gui.config.notice.saved-mixed"
-                                : "gui.config.notice.saved-hot"));
+                        showNotice(message(pendingRestart == GuiConfigEffect.PROCESS_RESTART
+                                ? "gui.config.notice.saved-process"
+                                : pendingRestart == GuiConfigEffect.BACKEND_RESTART
+                                        ? "gui.config.notice.saved-mixed"
+                                        : "gui.config.notice.saved-hot"));
                     } else {
-                        showNotice(message(hasRestartRequiredChanges
-                                ? "gui.config.notice.saved-hot-failed-mixed"
-                                : "gui.config.notice.saved-hot-failed"));
+                        showNotice(message(pendingRestart == GuiConfigEffect.PROCESS_RESTART
+                                ? "gui.config.notice.saved-process"
+                                : pendingRestart == GuiConfigEffect.BACKEND_RESTART
+                                        ? "gui.config.notice.saved-hot-failed-mixed"
+                                        : "gui.config.notice.saved-hot-failed"));
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    showNotice(message("gui.config.notice.saved-hot-failed"));
+                    showNotice(message(pendingRestart == GuiConfigEffect.PROCESS_RESTART
+                            ? "gui.config.notice.saved-process"
+                            : pendingRestart == GuiConfigEffect.BACKEND_RESTART
+                                    ? "gui.config.notice.saved-hot-failed-mixed"
+                                    : "gui.config.notice.saved-hot-failed"));
                 } catch (ExecutionException e) {
                     log.warn(logMessage("gui.config.log.hot-reload-failed", safeMessage(e.getCause())));
-                    showNotice(message(hasRestartRequiredChanges
-                            ? "gui.config.notice.saved-hot-failed-mixed"
-                            : "gui.config.notice.saved-hot-failed"));
+                    showNotice(message(pendingRestart == GuiConfigEffect.PROCESS_RESTART
+                            ? "gui.config.notice.saved-process"
+                            : pendingRestart == GuiConfigEffect.BACKEND_RESTART
+                                    ? "gui.config.notice.saved-hot-failed-mixed"
+                                    : "gui.config.notice.saved-hot-failed"));
                 }
             }
         };
@@ -2023,8 +2086,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         @Override
-        public JLabel effectLabel(boolean requiresRestart) {
-            return delegate.effectLabel(requiresRestart);
+        public JLabel effectLabel(GuiConfigEffect effect) {
+            return delegate.effectLabel(effect);
         }
 
         @Override
@@ -2173,8 +2236,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     @Override
-    public JLabel effectLabel(boolean requiresRestart) {
-        return buildEffectLabel(requiresRestart);
+    public JLabel effectLabel(GuiConfigEffect effect) {
+        return FieldRenderer.effectLabel(effect);
     }
 
     @Override

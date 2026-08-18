@@ -18,8 +18,8 @@ class DesktopUiDocumentTest {
     @DisplayName("桌面 UI 文档保持页面顺序并冻结输入")
     void documentPreservesOrderAndCopiesInput() {
         var pages = new ArrayList<>(List.of(
-                new Page(PageKind.STATUS, "gui.tab.status", ScrollPolicy.SCROLL_PANE),
-                new Page(PageKind.CONFIG, "gui.tab.config", ScrollPolicy.NONE)));
+                new Page(PageKind.STATUS, "test.page.status", ScrollPolicy.SCROLL_PANE),
+                new Page(PageKind.CONFIG, "test.page.config", ScrollPolicy.NONE)));
 
         DesktopUiDocument document = new DesktopUiDocument(pages);
         pages.clear();
@@ -31,7 +31,7 @@ class DesktopUiDocumentTest {
     @Test
     @DisplayName("桌面 UI 文档拒绝重复的页面语义")
     void documentRejectsDuplicatePageKinds() {
-        Page status = new Page(PageKind.STATUS, "gui.tab.status", ScrollPolicy.SCROLL_PANE);
+        Page status = new Page(PageKind.STATUS, "test.page.status", ScrollPolicy.SCROLL_PANE);
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new DesktopUiDocument(List.of(status, status)))

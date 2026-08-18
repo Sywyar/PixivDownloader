@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -119,7 +120,7 @@ class GuiConfigContributionAggregatorTest {
                                 "",
                                 20,
                                 true,
-                                false,
+                                GuiConfigEffect.PROCESS_RESTART,
                                 List.of(),
                                 List.of(GuiConfigCondition.isTrue("fixture.enabled")),
                                 List.of(),
@@ -137,7 +138,7 @@ class GuiConfigContributionAggregatorTest {
         assertThat(mode.label()).isEqualTo("fixture.mode.label");
         assertThat(mode.group()).isEqualTo("fixture.group.label");
         assertThat(secret.type()).isEqualTo(FieldType.PASSWORD);
-        assertThat(secret.requiresRestart()).isFalse();
+        assertThat(secret.effect()).isEqualTo(GuiConfigEffect.PROCESS_RESTART);
         assertThat(secret.enabledWhen().test(new ConfigSnapshot(Map.of("fixture.enabled", "true")))).isTrue();
         assertThat(secret.enabledWhen().test(new ConfigSnapshot(Map.of("fixture.enabled", "false")))).isFalse();
         assertThat(snapshot.diagnostics()).isEmpty();
@@ -157,7 +158,7 @@ class GuiConfigContributionAggregatorTest {
                         "auto",
                         10,
                         false,
-                        false,
+                        GuiConfigEffect.HOT_RELOAD,
                         List.of("auto", "manual"),
                         List.of(),
                         List.of(),
@@ -464,7 +465,7 @@ class GuiConfigContributionAggregatorTest {
                                 "",
                                 10,
                                 false,
-                                true,
+                                GuiConfigEffect.BACKEND_RESTART,
                                 List.of(),
                                 List.of(GuiConfigCondition.isTrue("first.enabled")),
                                 List.of(),
@@ -480,7 +481,7 @@ class GuiConfigContributionAggregatorTest {
                                 "",
                                 20,
                                 false,
-                                true,
+                                GuiConfigEffect.BACKEND_RESTART,
                                 List.of(),
                                 List.of(GuiConfigCondition.isTrue("missing.enabled")),
                                 List.of(),
@@ -895,7 +896,7 @@ class GuiConfigContributionAggregatorTest {
                         "",
                         10,
                         false,
-                        true,
+                        GuiConfigEffect.BACKEND_RESTART,
                         List.of(),
                         List.of(),
                         List.of(),
@@ -1033,7 +1034,7 @@ class GuiConfigContributionAggregatorTest {
                                 "",
                                 10,
                                 false,
-                                true,
+                                GuiConfigEffect.BACKEND_RESTART,
                                 List.of(),
                                 List.of(),
                                 List.of(),
@@ -1154,11 +1155,13 @@ class GuiConfigContributionAggregatorTest {
                 new GuiConfigFieldContribution(
                         "fixture.mode", GuiConfigGroups.PLUGINS, "fixture.mode.label", "",
                         null, GuiConfigFieldType.ENUM, "one", 10,
-                        false, false, List.of("one", "two"), List.of(), List.of(), null, null),
+                        false, GuiConfigEffect.HOT_RELOAD,
+                        List.of("one", "two"), List.of(), List.of(), null, null),
                 new GuiConfigFieldContribution(
                         "fixture.enabled", GuiConfigGroups.PLUGINS, "fixture.enabled.label", "",
                         null, GuiConfigFieldType.BOOL, "true", 20,
-                        false, false, List.of(), List.of(hidden), List.of(hidden), null, null)
+                        false, GuiConfigEffect.HOT_RELOAD,
+                        List.of(), List.of(hidden), List.of(hidden), null, null)
         ))));
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
                 aggregate(new PluginRegistry(List.of(plugin))));

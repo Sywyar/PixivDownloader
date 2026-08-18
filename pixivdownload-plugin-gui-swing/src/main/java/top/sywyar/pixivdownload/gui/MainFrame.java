@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.gui.panel.SecurityPanel;
 import top.sywyar.pixivdownload.gui.panel.StatusPanel;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
 import top.sywyar.pixivdownload.gui.panel.WelcomePanel;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.PageKind;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.ScrollPolicy;
@@ -138,7 +139,8 @@ public class MainFrame extends JFrame {
                 case SECURITY -> new SecurityPanel(serverPort);
                 case ABOUT -> new AboutPanel();
             };
-            tabs.addTab(GuiMessages.get(page.titleI18nKey()), applyScrollPolicy(page.scrollPolicy(), content));
+            tabs.addTab(SwingHost.host().message(page.titleI18nKey()),
+                    applyScrollPolicy(page.scrollPolicy(), content));
             pageIndexes.put(page.kind(), tabs.getTabCount() - 1);
         }
         return tabs;

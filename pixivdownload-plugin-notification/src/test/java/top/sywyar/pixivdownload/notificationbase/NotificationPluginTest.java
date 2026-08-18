@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -46,7 +47,7 @@ class NotificationPluginTest {
             assertThat(field.i18nNamespace()).isEqualTo(NotificationPlugin.ID);
             assertThat(field.type()).isEqualTo(GuiConfigFieldType.BOOL);
             assertThat(field.defaultValue()).isEqualTo("true");
-            assertThat(field.requiresRestart()).isFalse();
+            assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
             assertThat(field.contributesGroupVisibility()).isFalse();
         });
     }
@@ -100,7 +101,7 @@ class NotificationPluginTest {
                     assertThat(field.groupId()).isEqualTo(GuiConfigGroups.NOTIFICATION);
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.BOOL);
                     assertThat(field.defaultValue()).isEqualTo("true");
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                     assertThat(field.contributesGroupVisibility()).isTrue();
                 });
         assertThat(fields).filteredOn(field -> field.key().equals(NotificationPlugin.INBOX_MAX_MESSAGES_KEY))
@@ -109,7 +110,7 @@ class NotificationPluginTest {
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
                     assertThat(field.defaultValue()).isEqualTo("500");
                     assertThat(field.minValue()).isEqualTo(1);
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
         assertThat(fields).filteredOn(field -> field.key().equals(NotificationPlugin.INBOX_RETENTION_DAYS_KEY))
                 .singleElement()
@@ -117,7 +118,7 @@ class NotificationPluginTest {
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
                     assertThat(field.defaultValue()).isEqualTo("90");
                     assertThat(field.minValue()).isEqualTo(1);
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
         assertThat(sections).filteredOn(section -> section.sectionId().equals("notification.services"))
                 .singleElement()

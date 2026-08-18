@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -172,7 +173,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                 "",
                 order,
                 false,
-                false,
+                GuiConfigEffect.HOT_RELOAD,
                 List.of(),
                 List.of(),
                 List.of(),
@@ -191,7 +192,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                 "inherit",
                 20,
                 false,
-                false,
+                GuiConfigEffect.HOT_RELOAD,
                 List.of("inherit", "proxy", "custom", "direct"),
                 List.of(),
                 List.of(),
@@ -232,7 +233,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                 "false",
                 50,
                 false,
-                false,
+                GuiConfigEffect.HOT_RELOAD,
                 List.of(),
                 List.of(),
                 List.of(),
@@ -254,7 +255,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                 "",
                 order,
                 false,
-                false,
+                GuiConfigEffect.HOT_RELOAD,
                 List.of(),
                 List.of(),
                 List.of(GuiConfigCondition.equalsTo(DouyinPluginSettingsService.KEY_PROXY_MODE, "custom")),

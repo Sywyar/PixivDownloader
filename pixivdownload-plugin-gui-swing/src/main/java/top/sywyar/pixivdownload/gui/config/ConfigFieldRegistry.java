@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.i18n.PluginContributionText;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 
@@ -194,6 +195,7 @@ public final class ConfigFieldRegistry {
                 ConfigFieldSpec.builder("server.port", message("gui.config.field.server.port.label"), PORT, groupServer)
                         .defaultValue("6999")
                         .help(message("gui.config.field.server.port.help"))
+                        .effect(GuiConfigEffect.PROCESS_RESTART)
                         .validator(v -> {
                             try {
                                 int p = Integer.parseInt(v);
@@ -228,6 +230,7 @@ public final class ConfigFieldRegistry {
                 ConfigFieldSpec.builder("download.root-folder", message("gui.config.field.download.root-folder.label"), PATH_DIR, groupDownload)
                         .defaultValue("pixiv-download")
                         .help(message("gui.config.field.download.root-folder.help"))
+                        .effect(GuiConfigEffect.PROCESS_RESTART)
                         .build(),
 
                 ConfigFieldSpec.builder("download.user-flat-folder", message("gui.config.field.download.user-flat-folder.label"), BOOL, groupDownload)

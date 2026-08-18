@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
@@ -115,7 +116,7 @@ class DouyinPluginContributionTest {
                 .satisfies(field -> {
                     assertThat(field.groupId()).isEqualTo("douyin");
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.PATH_DIR);
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
         assertThat(contribution.fields())
                 .filteredOn(field -> field.key().equals(DouyinPluginSettingsService.KEY_PROXY_MODE))
@@ -125,7 +126,7 @@ class DouyinPluginContributionTest {
                     assertThat(field.enumValues()).containsExactly("inherit", "proxy", "custom", "direct");
                     assertThat(field.enumValueLabelKeys()).containsKeys("inherit", "proxy", "custom", "direct");
                     assertThat(field.visibleWhen()).isEmpty();
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
         assertThat(contribution.fields())
                 .filteredOn(field -> field.key().equals(DouyinPluginSettingsService.KEY_PROXY_HOST))
@@ -134,7 +135,7 @@ class DouyinPluginContributionTest {
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.STRING);
                     assertThat(field.visibleWhen()).containsExactly(
                             GuiConfigCondition.equalsTo(DouyinPluginSettingsService.KEY_PROXY_MODE, "custom"));
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
         assertThat(contribution.fields())
                 .filteredOn(field -> field.key().equals(DouyinPluginSettingsService.KEY_PROXY_PORT))
@@ -143,7 +144,7 @@ class DouyinPluginContributionTest {
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.PORT);
                     assertThat(field.visibleWhen()).containsExactly(
                             GuiConfigCondition.equalsTo(DouyinPluginSettingsService.KEY_PROXY_MODE, "custom"));
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
         assertThat(contribution.fields())
                 .filteredOn(field -> field.key().equals(DouyinPluginSettingsService.KEY_INCLUDE_COVER))
@@ -151,7 +152,7 @@ class DouyinPluginContributionTest {
                 .satisfies(field -> {
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.BOOL);
                     assertThat(field.defaultValue()).isEqualTo("false");
-                    assertThat(field.requiresRestart()).isFalse();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
     }
 

@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigConditionOperator;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
@@ -366,12 +367,17 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 checkBoxes.put(spec, checkBox);
                 grid.add(checkBox);
             }
-            boolean requiresRestart = compactFields.stream().anyMatch(ConfigFieldSpec::requiresRestart);
+            GuiConfigEffect effect = compactFields.stream()
+                    .anyMatch(field -> field.effect() == GuiConfigEffect.PROCESS_RESTART)
+                    ? GuiConfigEffect.PROCESS_RESTART
+                    : compactFields.stream().anyMatch(field -> field.effect() == GuiConfigEffect.BACKEND_RESTART)
+                            ? GuiConfigEffect.BACKEND_RESTART
+                            : GuiConfigEffect.HOT_RELOAD;
             JPanel panel = FieldRenderer.fieldPanel(
                     textOrDefault(section.layoutLabel(), "gui.config.section.compact.label")
                             + message("gui.punctuation.colon"),
                     grid,
-                    ctx.effectLabel(requiresRestart),
+                    ctx.effectLabel(effect),
                     textOrDefault(section.layoutHelp(), "gui.config.section.compact.help"));
             addPanel(content, panel);
             for (Map.Entry<ConfigFieldSpec, JCheckBox> entry : checkBoxes.entrySet()) {

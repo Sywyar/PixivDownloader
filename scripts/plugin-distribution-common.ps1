@@ -91,7 +91,21 @@ function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
     $plugins = @(
-        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false }
+        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{
+            Id = "gui-compose"; Module = "pixivdownload-plugin-gui-compose"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
+            RequiredLibPatterns = @(
+                "^ui-desktop-[0-9].*\.jar$",
+                "^skiko-awt-[0-9].*\.jar$",
+                "^skiko-awt-runtime-windows-x64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-windows-arm64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-linux-x64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-linux-arm64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-macos-arm64-[0-9].*\.jar$",
+                "^kotlin-stdlib-[0-9].*\.jar$"
+            )
+        }
     )
     if ($IncludeSentinel) {
         $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }
