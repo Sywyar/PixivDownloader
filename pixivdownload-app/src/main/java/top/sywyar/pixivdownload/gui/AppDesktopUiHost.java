@@ -33,14 +33,14 @@ import java.util.function.Consumer;
 /** App-owned implementation of the stable desktop UI host contract. */
 final class AppDesktopUiHost implements DesktopUiHost {
     private static final Page WELCOME_PAGE = new Page(
-            PageKind.WELCOME, "gui.tab.welcome", ScrollPolicy.NONE);
+            PageKind.WELCOME, "desktop.ui.page.welcome", ScrollPolicy.NONE);
     private static final DesktopUiDocument STANDARD_DOCUMENT = new DesktopUiDocument(List.of(
-            new Page(PageKind.STATUS, "gui.tab.status", ScrollPolicy.SCROLL_PANE),
-            new Page(PageKind.CONFIG, "gui.tab.config", ScrollPolicy.NONE),
-            new Page(PageKind.PLUGINS, "gui.tab.plugins", ScrollPolicy.NONE),
-            new Page(PageKind.TOOLS, "gui.tab.tools", ScrollPolicy.NONE),
-            new Page(PageKind.SECURITY, "gui.tab.security", ScrollPolicy.NONE),
-            new Page(PageKind.ABOUT, "gui.tab.about", ScrollPolicy.NONE)
+            new Page(PageKind.STATUS, "desktop.ui.page.status", ScrollPolicy.SCROLL_PANE),
+            new Page(PageKind.CONFIG, "desktop.ui.page.config", ScrollPolicy.NONE),
+            new Page(PageKind.PLUGINS, "desktop.ui.page.plugins", ScrollPolicy.NONE),
+            new Page(PageKind.TOOLS, "desktop.ui.page.tools", ScrollPolicy.NONE),
+            new Page(PageKind.SECURITY, "desktop.ui.page.security", ScrollPolicy.NONE),
+            new Page(PageKind.ABOUT, "desktop.ui.page.about", ScrollPolicy.NONE)
     ));
 
     private final DesktopUiLocalApiClient localApiClient;

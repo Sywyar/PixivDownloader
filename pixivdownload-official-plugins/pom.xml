@@ -64,6 +64,12 @@
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-gui-compose</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-mail</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>

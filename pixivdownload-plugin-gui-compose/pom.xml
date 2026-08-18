@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>top.sywyar.lovepopup</groupId>
+        <artifactId>pixivdownload-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>pixivdownload-plugin-gui-compose</artifactId>
+    <packaging>jar</packaging>
+    <name>PixivDownloader Compose Multiplatform GUI Plugin</name>
+    <description>Gradle-built optional Compose Multiplatform desktop UI provider packaged as a PF4J JAR-with-lib.</description>
+
+    <properties>
+        <skipTests>false</skipTests>
+        <maven.test.skip>false</maven.test.skip>
+        <gradle.plugin.skip>false</gradle.plugin.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-api</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pf4j</groupId>
+            <artifactId>pf4j</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Gradle is the only compiler, test runner, resource processor and artifact producer. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution><id>default-resources</id><phase>none</phase></execution>
+                    <execution><id>default-testResources</id><phase>none</phase></execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution><id>default-compile</id><phase>none</phase></execution>
+                    <execution><id>default-testCompile</id><phase>none</phase></execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution><id>default-test</id><phase>none</phase></execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution><id>default-jar</id><phase>none</phase></execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <executions>
+                    <execution><id>attach-sources</id><phase>none</phase></execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <executions>
+                    <execution><id>attach-javadocs</id><phase>none</phase></execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>write-gradle-sdk-classpath</id>
+                        <phase>validate</phase>
+                        <goals><goal>build-classpath</goal></goals>
+                        <configuration>
+                            <includeScope>test</includeScope>
+                            <includeArtifactIds>pixivdownload-plugin-api,pf4j,slf4j-api</includeArtifactIds>
+                            <outputFile>${project.build.directory}/gradle-sdk-classpath.txt</outputFile>
+                            <fileSeparator>${file.separator}</fileSeparator>
+                            <pathSeparator>${path.separator}</pathSeparator>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <skip>${gradle.plugin.skip}</skip>
+                    <executable>${gradle.executable}</executable>
+                    <workingDirectory>${project.basedir}</workingDirectory>
+                    <arguments>
+                        <argument>--no-daemon</argument>
+                        <argument>-PmavenVersion=${project.version}</argument>
+                        <argument>-PmavenFinalName=${project.build.finalName}</argument>
+                        <argument>-PmavenBuildDirectory=${project.build.directory}</argument>
+                        <argument>-PmavenClasspathFile=${project.build.directory}/gradle-sdk-classpath.txt</argument>
+                        <argument>-PmavenSkipTests=${skipTests}</argument>
+                        <argument>-PmavenTestSkip=${maven.test.skip}</argument>
+                        <argument>-PmavenOffline=${settings.offline}</argument>
+                    </arguments>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>gradle-clean</id>
+                        <phase>clean</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration><arguments combine.children="append"><argument>cleanPlugin</argument></arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>gradle-compile</id>
+                        <phase>compile</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration><arguments combine.children="append"><argument>compilePlugin</argument></arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>gradle-process-classes</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration><arguments combine.children="append"><argument>stagePluginDevelopment</argument></arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>gradle-test</id>
+                        <phase>test</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration><arguments combine.children="append"><argument>mavenTest</argument></arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>gradle-package</id>
+                        <phase>package</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration><arguments combine.children="append"><argument>assemblePlugin</argument></arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>gradle-verify</id>
+                        <phase>verify</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration><arguments combine.children="append"><argument>checkPlugin</argument></arguments></configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>gradle-wrapper-windows</id>
+            <activation><os><family>Windows</family></os></activation>
+            <properties><gradle.executable>${project.basedir}/gradlew.bat</gradle.executable></properties>
+        </profile>
+        <profile>
+            <id>gradle-wrapper-unix</id>
+            <activation><os><family>unix</family></os></activation>
+            <properties><gradle.executable>${project.basedir}/gradlew</gradle.executable></properties>
+        </profile>
+    </profiles>
+</project>

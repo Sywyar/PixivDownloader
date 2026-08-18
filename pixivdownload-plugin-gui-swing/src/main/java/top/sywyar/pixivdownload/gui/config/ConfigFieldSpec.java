@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
 import java.util.List;
 import java.util.Map;
@@ -24,7 +25,7 @@ public record ConfigFieldSpec(
         Predicate<ConfigSnapshot> enabledWhen,
         Predicate<ConfigSnapshot> visibleWhen,
         List<GuiConfigCondition> visibleWhenConditions,
-        boolean requiresRestart,
+        GuiConfigEffect effect,
         boolean contributesGroupVisibility
 ) {
 
@@ -42,6 +43,7 @@ public record ConfigFieldSpec(
         visibleWhenConditions = visibleWhenConditions == null
                 ? List.of()
                 : List.copyOf(visibleWhenConditions);
+        effect = effect == null ? GuiConfigEffect.BACKEND_RESTART : effect;
     }
 
     public boolean pluginContributed() {
@@ -74,7 +76,7 @@ public record ConfigFieldSpec(
         private Predicate<ConfigSnapshot> enabledWhen = snap -> true;
         private Predicate<ConfigSnapshot> visibleWhen = snap -> true;
         private List<GuiConfigCondition> visibleWhenConditions = List.of();
-        private boolean requiresRestart = true;
+        private GuiConfigEffect effect = GuiConfigEffect.BACKEND_RESTART;
         private boolean contributesGroupVisibility = true;
 
         private Builder(String key, String label, FieldType type, String group) {
@@ -137,7 +139,12 @@ public record ConfigFieldSpec(
         }
 
         public Builder hotReloadable() {
-            this.requiresRestart = false;
+            this.effect = GuiConfigEffect.HOT_RELOAD;
+            return this;
+        }
+
+        public Builder effect(GuiConfigEffect effect) {
+            this.effect = effect == null ? GuiConfigEffect.BACKEND_RESTART : effect;
             return this;
         }
 
@@ -149,7 +156,7 @@ public record ConfigFieldSpec(
         public ConfigFieldSpec build() {
             return new ConfigFieldSpec(key, label, type, group, groupId, ownerPluginId, helpText, defaultValue,
                     validator, enumValues, enumValueLabels, enabledWhen, visibleWhen,
-                    visibleWhenConditions, requiresRestart, contributesGroupVisibility);
+                    visibleWhenConditions, effect, contributesGroupVisibility);
         }
     }
 }

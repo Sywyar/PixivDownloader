@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -302,7 +303,7 @@ public class MailPlugin implements PixivFeaturePlugin {
                                                     GuiConfigCondition... enabledWhen) {
         String prefix = "gui.config.field." + key;
         return new GuiConfigFieldContribution(key, GuiConfigGroups.NOTIFICATION, prefix + ".label", prefix + ".help",
-                ID, type, defaultValue, order, false, false, enumValues,
+                ID, type, defaultValue, order, false, GuiConfigEffect.HOT_RELOAD, enumValues,
                 List.of(enabledWhen), List.of(), null, null);
     }
 }

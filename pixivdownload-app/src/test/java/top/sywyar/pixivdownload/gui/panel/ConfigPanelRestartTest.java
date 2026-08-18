@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldSnapshot;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldType;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
 import javax.swing.JButton;
 import java.awt.Component;
@@ -27,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
-@DisplayName("配置页保存与后端重启引导")
+@DisplayName("配置页保存与重启引导")
 class ConfigPanelRestartTest {
 
     @TempDir
@@ -94,6 +95,41 @@ class ConfigPanelRestartTest {
         assertThatCode(() -> findButton(panel, GuiMessages.get("gui.button.save")).doClick())
                 .doesNotThrowAnyException();
 
+        assertThat(Files.readString(configPath, StandardCharsets.UTF_8))
+                .contains("fixture.restart: after");
+    }
+
+    @Test
+    @DisplayName("完整重启配置不会误走后端重启")
+    void processRestartSettingUsesFullApplicationRestart() throws Exception {
+        AtomicInteger backendConfirmations = new AtomicInteger();
+        AtomicInteger backendRestarts = new AtomicInteger();
+        AtomicInteger processConfirmations = new AtomicInteger();
+        AtomicInteger processRestarts = new AtomicInteger();
+        Path configPath = tempDir.resolve("config.yaml");
+        Files.writeString(configPath, "fixture.restart: before\n", StandardCharsets.UTF_8);
+        String group = GuiMessages.get("gui.config.group.server");
+        ConfigFieldSpec field = ConfigFieldSpec.builder(
+                        "fixture.restart", "Restart fixture", FieldType.STRING, group)
+                .defaultValue("before")
+                .effect(GuiConfigEffect.PROCESS_RESTART)
+                .build();
+        DesktopUiTestHost.install(configPath);
+        ConfigPanel panel = new ConfigPanel(configPath, 6999, path -> path,
+                new ConfigFieldSnapshot(List.of(group), List.of(field), List.of()),
+                null, null,
+                () -> backendConfirmations.incrementAndGet() == 1,
+                () -> backendRestarts.incrementAndGet() == 1,
+                () -> processConfirmations.incrementAndGet() == 1,
+                () -> processRestarts.incrementAndGet() == 1);
+        panel.setFieldValue("fixture.restart", "after");
+
+        findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+
+        assertThat(processConfirmations).hasValue(1);
+        assertThat(processRestarts).hasValue(1);
+        assertThat(backendConfirmations).hasValue(0);
+        assertThat(backendRestarts).hasValue(0);
         assertThat(Files.readString(configPath, StandardCharsets.UTF_8))
                 .contains("fixture.restart: after");
     }

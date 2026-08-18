@@ -17,7 +17,7 @@ import java.util.Map;
  * @param defaultValue 配置 key 缺失时使用的值
  * @param order 插件贡献字段内的排序提示
  * @param sensitive 值是否为 secret；{@link GuiConfigFieldType#PASSWORD} 始终规范化为敏感字段
- * @param requiresRestart 保存变更值后是否需要重启
+ * @param effect 保存变更值后的生效方式
  * @param enumValues {@link GuiConfigFieldType#ENUM} 允许的值
  * @param enabledWhen 字段启用前必须全部匹配的条件
  * @param visibleWhen 字段可见前必须全部匹配的条件
@@ -36,7 +36,7 @@ public record GuiConfigFieldContribution(
         String defaultValue,
         int order,
         boolean sensitive,
-        boolean requiresRestart,
+        GuiConfigEffect effect,
         List<String> enumValues,
         List<GuiConfigCondition> enabledWhen,
         List<GuiConfigCondition> visibleWhen,
@@ -58,7 +58,7 @@ public record GuiConfigFieldContribution(
      * @param defaultValue 默认值
      * @param order 排序值
      * @param sensitive 是否包含敏感信息
-     * @param requiresRestart 是否需要重启
+     * @param effect 生效方式
      * @param enumValues 枚举值列表
      * @param enabledWhen 启用条件
      * @param visibleWhen 可见条件
@@ -72,6 +72,7 @@ public record GuiConfigFieldContribution(
         i18nNamespace = blankToNull(i18nNamespace);
         defaultValue = defaultValue == null ? "" : defaultValue;
         sensitive = sensitive || type == GuiConfigFieldType.PASSWORD;
+        effect = effect == null ? GuiConfigEffect.BACKEND_RESTART : effect;
         enumValues = enumValues == null ? List.of() : List.copyOf(enumValues);
         enabledWhen = enabledWhen == null ? List.of() : List.copyOf(enabledWhen);
         visibleWhen = visibleWhen == null ? List.of() : List.copyOf(visibleWhen);
@@ -93,7 +94,8 @@ public record GuiConfigFieldContribution(
     public GuiConfigFieldContribution(String key, String groupId, String labelKey,
                                       GuiConfigFieldType type, String defaultValue, int order) {
         this(key, groupId, labelKey, "", null, type, defaultValue, order,
-                false, true, List.of(), List.of(), List.of(), null, null, true, Map.of());
+                false, GuiConfigEffect.BACKEND_RESTART, List.of(), List.of(), List.of(),
+                null, null, true, Map.of());
     }
 
     /**
@@ -107,13 +109,13 @@ public record GuiConfigFieldContribution(
      * @param defaultValue 默认值
      * @param order 排序提示
      * @param sensitive 值是否为 secret
-     * @param requiresRestart 保存变更值后是否需要重启
+     * @param effect 保存变更值后的生效方式
      */
     public GuiConfigFieldContribution(String key, String groupId, String labelKey, String helpKey,
                                       GuiConfigFieldType type, String defaultValue, int order,
-                                      boolean sensitive, boolean requiresRestart) {
+                                      boolean sensitive, GuiConfigEffect effect) {
         this(key, groupId, labelKey, helpKey, null, type, defaultValue, order,
-                sensitive, requiresRestart, List.of(), List.of(), List.of(), null, null, true, Map.of());
+                sensitive, effect, List.of(), List.of(), List.of(), null, null, true, Map.of());
     }
 
     /**
@@ -128,7 +130,7 @@ public record GuiConfigFieldContribution(
      * @param defaultValue 默认值
      * @param order 排序提示
      * @param sensitive 值是否为 secret
-     * @param requiresRestart 保存变更值后是否需要重启
+     * @param effect 保存变更值后的生效方式
      * @param enumValues 枚举允许值
      * @param enabledWhen 启用条件
      * @param visibleWhen 可见条件
@@ -145,7 +147,7 @@ public record GuiConfigFieldContribution(
             String defaultValue,
             int order,
             boolean sensitive,
-            boolean requiresRestart,
+            GuiConfigEffect effect,
             List<String> enumValues,
             List<GuiConfigCondition> enabledWhen,
             List<GuiConfigCondition> visibleWhen,
@@ -153,7 +155,7 @@ public record GuiConfigFieldContribution(
             Integer maxValue
     ) {
         this(key, groupId, labelKey, helpKey, i18nNamespace, type, defaultValue, order,
-                sensitive, requiresRestart, enumValues, enabledWhen, visibleWhen, minValue, maxValue, true, Map.of());
+                sensitive, effect, enumValues, enabledWhen, visibleWhen, minValue, maxValue, true, Map.of());
     }
 
     /**
@@ -168,7 +170,7 @@ public record GuiConfigFieldContribution(
      * @param defaultValue 默认值
      * @param order 排序提示
      * @param sensitive 值是否为 secret
-     * @param requiresRestart 保存变更值后是否需要重启
+     * @param effect 保存变更值后的生效方式
      * @param enumValues 枚举允许值
      * @param enabledWhen 启用条件
      * @param visibleWhen 可见条件
@@ -186,7 +188,7 @@ public record GuiConfigFieldContribution(
             String defaultValue,
             int order,
             boolean sensitive,
-            boolean requiresRestart,
+            GuiConfigEffect effect,
             List<String> enumValues,
             List<GuiConfigCondition> enabledWhen,
             List<GuiConfigCondition> visibleWhen,
@@ -195,7 +197,7 @@ public record GuiConfigFieldContribution(
             boolean contributesGroupVisibility
     ) {
         this(key, groupId, labelKey, helpKey, i18nNamespace, type, defaultValue, order,
-                sensitive, requiresRestart, enumValues, enabledWhen, visibleWhen, minValue, maxValue,
+                sensitive, effect, enumValues, enabledWhen, visibleWhen, minValue, maxValue,
                 contributesGroupVisibility, Map.of());
     }
 

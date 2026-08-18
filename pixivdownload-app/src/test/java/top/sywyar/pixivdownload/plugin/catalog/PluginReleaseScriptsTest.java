@@ -126,6 +126,8 @@ class PluginReleaseScriptsTest {
                 "Module = \"pixivdownload-plugin-download-workbench\"",
                 "Id = \"douyin\"",
                 "Module = \"pixivdownload-plugin-douyin\"",
+                "Id = \"gui-compose\"",
+                "Module = \"pixivdownload-plugin-gui-compose\"",
                 "function Get-OfficialDistributionPlugins",
                 "Format = \"jar\"",
                 "PrivateLibs = $true",
@@ -141,6 +143,8 @@ class PluginReleaseScriptsTest {
                 "Assert-ThinPluginJar",
                 "^flatlaf-[0-9].*\\.jar$",
                 "^jna-[0-9].*\\.jar$",
+                "^ui-desktop-[0-9].*\\.jar$",
+                "^skiko-awt-runtime-linux-arm64-[0-9].*\\.jar$",
                 "Plugin jar is not thin - found private lib/*.jar entries");
         assertThat(common).doesNotContain("Format = \"zip\"");
         assertThat(common).doesNotContain("Assert-ExplodedPluginZip");
@@ -160,6 +164,7 @@ class PluginReleaseScriptsTest {
         assertThat(officialPluginIds).contains("multi-mode-decision-survey");
         assertThat(officialPluginIds).contains("notification");
         assertThat(officialPluginIds).contains("douyin");
+        assertThat(officialPluginIds).contains("gui-compose");
         assertThat(generator).contains(
                 "pixiv.display-namespace",
                 "pixiv.display-name-key",
@@ -238,10 +243,11 @@ class PluginReleaseScriptsTest {
         assertThat(curation.path("notification").path("category").asText()).isEqualTo("dependency");
         assertThat(curation.path("posthog").path("category").asText()).isEqualTo("dependency");
         assertThat(curation.path("douyin").path("category").asText()).isEqualTo("download-type");
+        assertThat(curation.path("gui-compose").path("category").asText()).isEqualTo("ui");
     }
 
     @Test
-    @DisplayName("默认安装集合包含除 Douyin 外的全部用户插件，optional 集合仅保留 Douyin")
+    @DisplayName("默认安装集合保留 Swing，Compose 与 Douyin 作为按需插件")
     void distributionSeparatesDefaultInstalledAndOnDemandPlugins() throws Exception {
         String common = script("plugin-distribution-common.ps1");
         Matcher defaultInstalled = Pattern.compile(
@@ -254,13 +260,13 @@ class PluginReleaseScriptsTest {
                 "Id = \"gallery\"", "Id = \"novel\"", "Id = \"notification\"",
                 "Id = \"multi-mode-decision-survey\"",
                 "Id = \"push\"", "Id = \"mail\"", "Id = \"tts\"", "Id = \"ai\"")
-                .doesNotContain("Id = \"douyin\"", "Id = \"recovery-sentinel\"");
+                .doesNotContain("Id = \"douyin\"", "Id = \"gui-compose\"", "Id = \"recovery-sentinel\"");
 
         Matcher optional = Pattern.compile(
                 "function Get-OfficialOptionalPlugins(?<body>.*?)function Get-OfficialDistributionPlugins",
                 Pattern.DOTALL).matcher(common);
         assertThat(optional.find()).isTrue();
-        assertThat(optional.group("body")).contains("Id = \"douyin\"")
+        assertThat(optional.group("body")).contains("Id = \"douyin\"", "Id = \"gui-compose\"")
                 .doesNotContain("Id = \"stats\"", "Id = \"gallery\"");
         assertThat(common).contains("$plugins = @(Get-OfficialDefaultInstalledPlugins)");
     }

@@ -271,6 +271,15 @@ public interface DesktopUiHost {
      */
     boolean restartBackend(Runnable afterRestart);
     /**
+     * Requests a complete application-process restart through the authenticated local GUI endpoint.
+     *
+     * @return whether the restart request was accepted
+     */
+    default boolean restartApplication() {
+        GuiResponse response = guiPostJson("restart", Map.of(), 5000);
+        return response.reachable() && response.is2xx();
+    }
+    /**
      * Returns whether operating-system auto-start is supported.
      *
      * @return whether auto-start is supported

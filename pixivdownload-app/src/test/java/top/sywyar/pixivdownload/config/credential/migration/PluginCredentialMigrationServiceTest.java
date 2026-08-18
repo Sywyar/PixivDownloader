@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.i18n.LocaleCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
@@ -1012,7 +1013,8 @@ class PluginCredentialMigrationServiceTest {
 
     private static GuiConfigFieldContribution passwordField(String key) {
         return new GuiConfigFieldContribution(
-                key, "fixture", key, "", GuiConfigFieldType.PASSWORD, "", 10, true, true);
+                key, "fixture", key, "", GuiConfigFieldType.PASSWORD, "", 10,
+                true, GuiConfigEffect.BACKEND_RESTART);
     }
 
     private HistoricalCredentialOracle historicalOracle(String version) throws IOException {

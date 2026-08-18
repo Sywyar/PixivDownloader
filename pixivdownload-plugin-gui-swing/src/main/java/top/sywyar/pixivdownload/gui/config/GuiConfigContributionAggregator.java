@@ -352,6 +352,7 @@ public final class GuiConfigContributionAggregator {
                 .visibleWhen(predicate(field.visibleWhen()))
                 .visibleWhenConditions(field.visibleWhen())
                 .validator(validator(field))
+                .effect(field.effect())
                 .contributesGroupVisibility(field.contributesGroupVisibility());
         if (field.type() == GuiConfigFieldType.ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));
@@ -361,9 +362,6 @@ public final class GuiConfigContributionAggregator {
                 return null;
             }
             builder.enumValueLabels(enumValueLabels);
-        }
-        if (!field.requiresRestart()) {
-            builder.hotReloadable();
         }
         int groupOrder = ConfigFieldRegistry.groupOrder(groupId)
                 .orElseGet(() -> customGroups.get(groupId).spec().order());

@@ -41,7 +41,7 @@ class InterfacePreferencesPanelTest {
     }
 
     @Test
-    @DisplayName("同时呈现语言主题和菜单展开三项偏好")
+    @DisplayName("同时呈现四项界面偏好并区分完整重启等级")
     void exposesLanguageThemeAndMenuExpansionPreferences() throws Exception {
         Path configPath = tempDir.resolve("config.yaml");
         Files.writeString(configPath, """
@@ -54,11 +54,17 @@ class InterfacePreferencesPanelTest {
                 configPath, () -> { }, () -> false, ignored -> { });
 
         JComboBox<?> language = preferenceControl(panel, "app.language", JComboBox.class);
+        JComboBox<?> provider = preferenceControl(
+                panel, InterfacePreferencesPanel.GUI_PROVIDER_CONFIG_KEY, JComboBox.class);
         JComboBox<?> theme = preferenceControl(panel, "app.theme", JComboBox.class);
         JCheckBox expandAll = preferenceControl(
                 panel, InterfacePreferencesPanel.EXPAND_ALL_CONFIG_KEY, JCheckBox.class);
 
         assertThat(language.getSelectedItem()).hasToString("English");
+        assertThat(descendants(provider.getParent(), JLabel.class))
+                .extracting(JLabel::getText)
+                .contains(GuiMessages.get("gui.label.process-restart-required"))
+                .doesNotContain(GuiMessages.get("gui.label.hot-reload"));
         assertThat(theme.getItemCount()).isPositive();
         assertThat(expandAll.isSelected()).isTrue();
         assertThat(expandAll.getText()).isEmpty();

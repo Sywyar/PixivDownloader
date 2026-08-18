@@ -4,8 +4,11 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -53,6 +56,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>{@code gui-swing} 以 PF4J JAR-with-lib 打包</b>——根 {@code plugin.properties}、
  *       标准 JAR 类路径与 {@code lib/*.jar} 在位，FlatLaf / IntelliJ Themes / JNA 仅在 JAR 的 {@code lib/} 中，
  *       并通过模拟 runtime materialization 后的独立 classloader 真实加载。</li>
+ *   <li><b>{@code gui-compose} 由 Gradle 生成 PF4J JAR-with-lib</b>——Compose / Kotlin / 全平台 Skiko
+ *       运行库仅位于 {@code lib/}，并通过独立 classloader 真实初始化当前平台原生库。</li>
  * </ol>
  *
  * <p>插件构建产物目录经 surefire 系统属性 {@code gallery.plugin.classes} / {@code novel.plugin.classes} / {@code stats.plugin.classes} /
@@ -89,6 +94,8 @@ class DistributionPackagingBoundaryTest {
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
     private static final String GUI_THEME_CLASSES_PROPERTY = "gui-swing.plugin.classes";
     private static final String GUI_THEME_JAR_PROPERTY = "gui-swing.plugin.jar";
+    private static final String GUI_COMPOSE_CLASSES_PROPERTY = "gui-compose.plugin.classes";
+    private static final String GUI_COMPOSE_JAR_PROPERTY = "gui-compose.plugin.jar";
     private static final String DOUYIN_SCHEDULE_MODULE_ENTRY =
             "static/pixiv-douyin-download/douyin-schedule-sources.js";
     private static final Set<String> NOVEL_OWNED_BACKEND_MESSAGE_KEYS = Set.of(
@@ -215,6 +222,8 @@ class DistributionPackagingBoundaryTest {
                 .as("旧 novel-gallery 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.recoverysentinel.RecoverySentinelPf4jPlugin"))
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.guicompose.GuiComposePf4jPlugin"))
+                .as("外置 gui-compose 插件类不应在 boot jar 内").isFalse();
         // gui-swing 是本模块的 test-scope 依赖；其独立产物边界由下方 JAR-with-lib 用例验证。
         assertThat(canLoad(host, "top.sywyar.pixivdownload.notificationbase.NotificationPf4jPlugin"))
                 .as("外置 notification 插件类不应在 boot jar 内").isFalse();
@@ -302,6 +311,8 @@ class DistributionPackagingBoundaryTest {
                 .as("novel 后端 i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/novel/messages_en.properties"))
                 .as("novel 英文后端 i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/gui-compose.properties"))
+                .as("gui-compose i18n 资源不应在 boot jar 内").isNull();
         // gui-swing 资源随本模块的 test-scope 依赖进入测试类路径；独立 JAR 形态由专用用例验证。
         assertThat(host.getResource("i18n/web/notification.properties"))
                 .as("notification i18n 资源不应在 boot jar 内").isNull();
@@ -364,6 +375,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/top/sywyar/pixivdownload/novel/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/novelgallery/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/guicompose/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/douyin/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
@@ -401,6 +413,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/i18n/web/showcase",
                 "BOOT-INF/classes/i18n/web/series",
                 "BOOT-INF/classes/i18n/web/gui-swing",
+                "BOOT-INF/classes/i18n/web/gui-compose",
                 "BOOT-INF/classes/i18n/web/notification",
                 "BOOT-INF/classes/i18n/web/multi-mode-decision-survey",
                 "BOOT-INF/classes/i18n/web/push",
@@ -419,6 +432,11 @@ class DistributionPackagingBoundaryTest {
                     .as("boot jar must not contain external plugin payload prefix " + prefix)
                     .noneMatch(name -> name.startsWith(prefix) && !name.endsWith("/"));
         }
+        assertThat(entries).as("Compose / Kotlin / Skiko 私有运行库不得进入 boot jar")
+                .noneMatch(name -> name.startsWith("BOOT-INF/lib/desktop-jvm-")
+                        || name.startsWith("BOOT-INF/lib/ui-desktop-")
+                        || name.startsWith("BOOT-INF/lib/skiko-awt-")
+                        || name.startsWith("BOOT-INF/lib/kotlin-stdlib-"));
 
         List<String> forbiddenLibPatterns = List.of(
                 "BOOT-INF/lib/flatlaf-[^/]+\\.jar",
@@ -616,6 +634,42 @@ class DistributionPackagingBoundaryTest {
         assertThat(entries).noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
 
         assertGuiThemeJarLoadsWithPluginClassLoader(jar, tempDir);
+    }
+
+    @Test
+    @DisplayName("gui-compose 由 Gradle 生成通用 JAR-with-lib，并可从私有类加载器初始化 Skiko")
+    void guiComposePackagesAsGradleJarWithPrivateLibraries(@TempDir Path tempDir) {
+        Path classesDir = locateConfiguredDir(GUI_COMPOSE_CLASSES_PROPERTY);
+        requireAvailable(classesDir != null && Files.isDirectory(classesDir),
+                "插件构建产物未就绪（需 reactor 先 process-classes pixivdownload-plugin-gui-compose）");
+
+        assertThat(classesDir.resolve("plugin.properties")).isRegularFile();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/guicompose/GuiComposePf4jPlugin.class"))
+                .isRegularFile();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/plugin/api")).doesNotExist();
+        assertThat(Files.isDirectory(classesDir.resolve("lib"))).isTrue();
+
+        Path jar = locateConfiguredPluginJar(
+                GUI_COMPOSE_JAR_PROPERTY, classesDir, "pixivdownload-plugin-gui-compose");
+        if (skipMissingPackagedArtifact(jar, "pixivdownload-plugin-gui-compose 的真实 Gradle 插件 JAR 未生成")) {
+            return;
+        }
+        List<String> entries = jarEntryNames(jar);
+        assertThat(entries).contains(
+                "plugin.properties",
+                "top/sywyar/pixivdownload/guicompose/GuiComposePf4jPlugin.class");
+        assertThat(entries).anyMatch(name -> name.matches("lib/ui-desktop-[0-9][^/]*\\.jar"));
+        assertThat(entries).anyMatch(name -> name.matches("lib/kotlin-stdlib-[0-9][^/]*\\.jar"));
+        for (String target : List.of(
+                "windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-arm64")) {
+            assertThat(entries).as("Compose 插件应包含 Skiko " + target + " 运行库")
+                    .anyMatch(name -> name.matches("lib/skiko-awt-runtime-" + target + "-[0-9][^/]*\\.jar"));
+        }
+        assertThat(entries).noneMatch(name -> name.startsWith("BOOT-INF/")
+                || name.startsWith("top/sywyar/pixivdownload/plugin/api/")
+                || name.startsWith("org/pf4j/"));
+
+        assertGuiComposeJarLoadsAndInitializesSkiko(jar, tempDir);
     }
 
     // --- 验证 thin 外置插件形态：先据构建 classes 目录，jar 存在时再据真实 jar 追加更强断言 ---
@@ -863,6 +917,17 @@ class DistributionPackagingBoundaryTest {
         return null;
     }
 
+    private static Path locateConfiguredPluginJar(String property, Path classesDir, String artifactId) {
+        String configured = System.getProperty(property);
+        if (configured != null && !configured.isBlank()) {
+            Path configuredPath = Path.of(configured);
+            if (Files.isRegularFile(configuredPath) && isFreshArtifact(configuredPath, classesDir)) {
+                return configuredPath;
+            }
+        }
+        return locateModuleJar(classesDir, artifactId);
+    }
+
     /** 在插件模块 {@code target/} 下定位真实插件 jar（{@code <artifactId>-*.jar}，排除 sources / javadoc）；缺失返回 null。 */
     private static Path locateModuleJar(Path classesDir, String artifactId) {
         Path targetDir = classesDir.getParent();
@@ -933,6 +998,48 @@ class DistributionPackagingBoundaryTest {
             }
         } catch (IOException | ReflectiveOperationException e) {
             throw new IllegalStateException("无法通过主题插件 JAR-with-lib classloader 加载类: " + jar, e);
+        }
+    }
+
+    private static void assertGuiComposeJarLoadsAndInitializesSkiko(Path jar, Path tempDir) {
+        Path materialized = tempDir.resolve("gui-compose-materialized");
+        materializeJarWithPrivateLibs(jar, materialized);
+
+        List<URL> urls = new ArrayList<>();
+        try {
+            urls.add(materialized.resolve("classes").toUri().toURL());
+            try (DirectoryStream<Path> libs = Files.newDirectoryStream(materialized.resolve("lib"), "*.jar")) {
+                for (Path lib : libs) {
+                    urls.add(lib.toUri().toURL());
+                }
+            }
+            try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new),
+                    DistributionPackagingBoundaryTest.class.getClassLoader())) {
+                Class<?> plugin = Class.forName(
+                        "top.sywyar.pixivdownload.guicompose.GuiComposePf4jPlugin", false, loader);
+                PixivFeaturePlugin feature = ((PixivPluginProvider) plugin.getDeclaredConstructor().newInstance())
+                        .featurePlugin();
+                assertThat(feature).isInstanceOf(DesktopUiProvider.class);
+                DesktopUiProvider provider = (DesktopUiProvider) feature;
+                assertThat(provider.id()).isEqualTo("gui-compose");
+                assertThat(provider.supportedNodeKinds()).containsExactlyInAnyOrder(DesktopUiNode.Kind.values());
+                Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
+                Object companion = imageType.getField("Companion").get(null);
+                byte[] pixel = Base64.getDecoder().decode(
+                        "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==");
+                Object image = companion.getClass().getMethod("makeFromEncoded", byte[].class)
+                        .invoke(companion, (Object) pixel);
+                try {
+                    assertThat(plugin.getClassLoader()).isSameAs(loader);
+                    assertThat(imageType.getClassLoader()).isSameAs(loader);
+                    assertThat(imageType.getMethod("getWidth").invoke(image)).isEqualTo(1);
+                    assertThat(imageType.getMethod("getHeight").invoke(image)).isEqualTo(1);
+                } finally {
+                    ((AutoCloseable) image).close();
+                }
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("无法从 gui-compose 真实插件 artifact 初始化 Skiko: " + jar, e);
         }
     }
 

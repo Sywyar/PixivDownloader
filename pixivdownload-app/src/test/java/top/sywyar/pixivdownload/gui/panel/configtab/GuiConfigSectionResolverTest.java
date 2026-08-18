@@ -1246,7 +1246,7 @@ class GuiConfigSectionResolverTest {
         }
 
         @Override
-        public JLabel effectLabel(boolean requiresRestart) {
+        public JLabel effectLabel(top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect effect) {
             return new JLabel();
         }
 

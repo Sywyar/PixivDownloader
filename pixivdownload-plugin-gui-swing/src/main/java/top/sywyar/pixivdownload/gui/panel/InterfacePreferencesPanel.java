@@ -1,13 +1,15 @@
 package top.sywyar.pixivdownload.gui.panel;
 
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
-
-import top.sywyar.pixivdownload.guiswing.SwingHost;
-
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.i18n.PluginContributionText;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 
 import javax.swing.*;
@@ -22,9 +24,10 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
- * “界面”配置页：集中管理语言、主题与配置菜单层级偏好。
+ * “界面”配置页：集中管理语言、桌面 UI 提供者、主题与配置菜单层级偏好。
  *
- * <p>三项偏好都即时生效并直接写回 {@code config.yaml}，不经过普通配置字段网格。
+ * <p>偏好直接写回 {@code config.yaml}，不经过普通配置字段网格。桌面 UI 提供者在完整进程重启后生效，
+ * 其它三项即时生效。
  * 语言切换仍由主窗口回调重建本地化面板；主题继续由 {@link GuiThemeManager} 应用；
  * 菜单层级只通过中性的布尔回调通知 {@link ConfigPanel} 重新挂载既有叶子页面。</p>
  */
@@ -32,6 +35,7 @@ import java.util.function.Consumer;
 final class InterfacePreferencesPanel extends JPanel {
 
     static final String EXPAND_ALL_CONFIG_KEY = "app.config-menu-expand-all";
+    static final String GUI_PROVIDER_CONFIG_KEY = "app.gui-provider";
     static final String PREFERENCE_KEY_PROPERTY = "gui.interface.preference-key";
 
     private final Path configPath;
@@ -40,14 +44,17 @@ final class InterfacePreferencesPanel extends JPanel {
     private final Consumer<Boolean> onExpandAllChanged;
 
     private final JComboBox<LocaleOption> languageCombo = new JComboBox<>();
+    private final JComboBox<ProviderOption> providerCombo = new JComboBox<>();
     private final JComboBox<StatusPanelThemeOption> themeCombo = new JComboBox<>();
     private final JCheckBox expandAllCheckBox = new JCheckBox();
 
     private final java.awt.event.ActionListener languageActionListener = e -> applyLanguageSelection();
+    private final java.awt.event.ActionListener providerActionListener = e -> applyProviderSelection();
     private final java.awt.event.ActionListener themeActionListener = e -> applyThemeSelection();
     private final Runnable themeChangeListener = this::syncThemeComboSelection;
 
     private LocaleOption currentAppliedLanguageOption;
+    private ProviderOption currentProviderOption;
     private GuiThemeListenerSession themeListenerSession = GuiThemeListenerSession.none();
 
     InterfacePreferencesPanel(Path configPath,
@@ -89,18 +96,28 @@ final class InterfacePreferencesPanel extends JPanel {
         addPreferenceField(content,
                 message("gui.interface.language.label"),
                 languageCombo,
+                GuiConfigEffect.HOT_RELOAD,
                 message("gui.interface.language.help"));
+
+        configureProviderSelector();
+        addPreferenceField(content,
+                message("gui.interface.provider.label"),
+                providerCombo,
+                GuiConfigEffect.PROCESS_RESTART,
+                message("gui.interface.provider.help"));
 
         configureThemeSelector();
         addPreferenceField(content,
                 message("gui.interface.theme.label"),
                 themeCombo,
+                GuiConfigEffect.HOT_RELOAD,
                 message("gui.interface.theme.help"));
 
         configureExpandAllCheckBox();
         addPreferenceField(content,
                 message("gui.interface.config-menu-expand-all.label"),
                 expandAllCheckBox,
+                GuiConfigEffect.HOT_RELOAD,
                 message("gui.interface.config-menu-expand-all.help"));
         content.add(Box.createVerticalGlue());
 
@@ -140,6 +157,32 @@ final class InterfacePreferencesPanel extends JPanel {
         themeCombo.addActionListener(themeActionListener);
     }
 
+    private void configureProviderSelector() {
+        List<ProviderOption> options;
+        try {
+            options = providerOptions(SwingHost.context().currentPluginSources());
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
+            options = List.of();
+        }
+        options.forEach(providerCombo::addItem);
+
+        String configured = readPersistedProviderId();
+        ProviderOption selected = selectedProviderOption(options, configured);
+        providerCombo.setSelectedItem(selected);
+        currentProviderOption = selected;
+        providerCombo.setEnabled(options.size() > 1);
+        providerCombo.setToolTipText(message("gui.interface.provider.tooltip"));
+        providerCombo.putClientProperty(PREFERENCE_KEY_PROPERTY, GUI_PROVIDER_CONFIG_KEY);
+        providerCombo.addActionListener(providerActionListener);
+
+        boolean configuredUnavailable = configured != null && !configured.isBlank()
+                && options.stream().noneMatch(option -> option.id().equals(configured.trim()));
+        if (configuredUnavailable && selected != null) {
+            persistProviderPreference(selected.id());
+        }
+    }
+
     private void configureExpandAllCheckBox() {
         expandAllCheckBox.setToolTipText(message("gui.interface.config-menu-expand-all.tooltip"));
         expandAllCheckBox.putClientProperty(PREFERENCE_KEY_PROPERTY, EXPAND_ALL_CONFIG_KEY);
@@ -150,9 +193,10 @@ final class InterfacePreferencesPanel extends JPanel {
     private static void addPreferenceField(JPanel content,
                                            String labelText,
                                            JComponent control,
+                                           GuiConfigEffect effect,
                                            String helpText) {
-        JPanel field = FieldRenderer.fieldPanel(
-                labelText + message("gui.punctuation.colon"), control, false, helpText);
+        JPanel field = FieldRenderer.fieldPanelWithEffect(
+                labelText + message("gui.punctuation.colon"), control, effect, helpText);
         field.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(field);
         content.add(Box.createVerticalStrut(2));
@@ -246,6 +290,97 @@ final class InterfacePreferencesPanel extends JPanel {
             log.warn(logMessage("gui.interface.log.language.persist-failed", e.getMessage()));
             return false;
         }
+    }
+
+    private String readPersistedProviderId() {
+        if (configPath == null || !Files.exists(configPath)) {
+            return null;
+        }
+        try {
+            return SwingHost.host().applicationConfig().read(GUI_PROVIDER_CONFIG_KEY);
+        } catch (Exception e) {
+            log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
+            return null;
+        }
+    }
+
+    private void applyProviderSelection() {
+        ProviderOption selected = (ProviderOption) providerCombo.getSelectedItem();
+        if (selected == null || selected.equals(currentProviderOption)) {
+            return;
+        }
+        if (!persistProviderPreference(selected.id())) {
+            providerCombo.removeActionListener(providerActionListener);
+            providerCombo.setSelectedItem(currentProviderOption);
+            providerCombo.addActionListener(providerActionListener);
+            JOptionPane.showMessageDialog(this,
+                    message("gui.interface.provider.persist-failed.message"),
+                    message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        currentProviderOption = selected;
+        JOptionPane.showMessageDialog(this,
+                message("gui.interface.provider.restart-required.message", selected.label()),
+                message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private boolean persistProviderPreference(String providerId) {
+        if (configPath == null || !Files.exists(configPath)) {
+            return false;
+        }
+        try {
+            SwingHost.host().applicationConfig().write(GUI_PROVIDER_CONFIG_KEY, providerId);
+            return true;
+        } catch (Exception e) {
+            log.warn(logMessage("gui.config.log.save-failed", e.getMessage()));
+            return false;
+        }
+    }
+
+    static List<ProviderOption> providerOptions(List<DesktopUiContext.PluginSource> sources) {
+        List<ProviderOption> options = new ArrayList<>();
+        List<DesktopUiContext.PluginSource> safeSources = sources == null ? List.of() : sources;
+        for (DesktopUiContext.PluginSource source : safeSources) {
+            if (!(source.plugin() instanceof DesktopUiProvider provider)) {
+                continue;
+            }
+            boolean defaultProvider;
+            try {
+                defaultProvider = provider.defaultProvider();
+            } catch (RuntimeException ignored) {
+                defaultProvider = false;
+            }
+            String label = source.id();
+            try {
+                String key = source.plugin().displayName();
+                String resolved = PluginContributionText.resolve(source.plugin().i18n(), source.classLoader(),
+                        source.plugin().displayNamespace(), key);
+                if (resolved != null && !resolved.isBlank() && !resolved.equals(key)) {
+                    label = resolved;
+                }
+            } catch (RuntimeException ignored) {
+                // A broken display contribution must not hide an otherwise valid desktop provider.
+            }
+            options.add(new ProviderOption(source.id(), label, defaultProvider));
+        }
+        return List.copyOf(options);
+    }
+
+    static ProviderOption selectedProviderOption(List<ProviderOption> options, String configuredId) {
+        String configured = configuredId == null ? "" : configuredId.trim();
+        if (!configured.isEmpty()) {
+            for (ProviderOption option : options) {
+                if (option.id().equals(configured)) {
+                    return option;
+                }
+            }
+        }
+        for (ProviderOption option : options) {
+            if (option.defaultProvider()) {
+                return option;
+            }
+        }
+        return null;
     }
 
     private void applyThemeSelection() {
@@ -356,6 +491,18 @@ final class InterfacePreferencesPanel extends JPanel {
         @Override
         public String toString() {
             return label;
+        }
+    }
+
+    record ProviderOption(String id, String label, boolean defaultProvider) {
+        ProviderOption {
+            id = Objects.requireNonNull(id, "id");
+            label = Objects.requireNonNull(label, "label");
+        }
+
+        @Override
+        public String toString() {
+            return label + " (" + id + ")";
         }
     }
 }

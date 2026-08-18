@@ -56,14 +56,10 @@ class GuiWebEntryContributionAggregatorTest {
     void rebuiltWebEntriesUseCurrentGuiLocale() {
         GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
         GuiWebEntrySnapshot zhSnapshot = aggregate(externalGallery());
-        String zhConfigTab = GuiMessages.get("gui.tab.config");
 
         GuiMessages.setLocale(Locale.US);
         GuiWebEntrySnapshot enSnapshot = aggregate(externalGallery());
-        String enConfigTab = GuiMessages.get("gui.tab.config");
 
-        assertThat(zhConfigTab).isEqualTo("配置");
-        assertThat(enConfigTab).isEqualTo("Config");
         assertThat(action(zhSnapshot.statusActions()).label()).isEqualTo("本地画廊");
         assertThat(action(zhSnapshot.trayActions()).label()).isEqualTo("本地画廊");
         assertThat(action(enSnapshot.statusActions()).label()).isEqualTo("Local Gallery");

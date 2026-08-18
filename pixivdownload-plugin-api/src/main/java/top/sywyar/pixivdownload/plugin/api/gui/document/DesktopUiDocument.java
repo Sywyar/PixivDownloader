@@ -25,7 +25,8 @@ public record DesktopUiDocument(List<Page> pages) {
      * Root page descriptor.
      *
      * @param kind semantic page kind implemented by every desktop renderer
-     * @param titleI18nKey untranslated title key
+     * @param titleI18nKey untranslated host-owned title key resolved through
+     *                     {@code DesktopUiHost.message(...)}
      * @param scrollPolicy toolkit-neutral scrolling policy
      */
     public record Page(PageKind kind, String titleI18nKey, ScrollPolicy scrollPolicy) {

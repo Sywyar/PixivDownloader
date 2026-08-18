@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.panel.configtab;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -54,8 +55,8 @@ public interface ConfigSectionContext {
     /** 让滚动面板首次显示时把视口重置回顶部（预设锁定会让视口偏离原点）。 */
     void resetScrollToTopOnFirstShow(JScrollPane sp);
 
-    /** 「热重载 / 需重启」生效方式标记。 */
-    JLabel effectLabel(boolean requiresRestart);
+    /** 配置字段的生效方式标记。 */
+    JLabel effectLabel(GuiConfigEffect effect);
 
     /** 一个隐藏的校验错误占位 {@link JTextArea}（多复选框聚合字段用）。 */
     JTextArea hiddenValidationError();

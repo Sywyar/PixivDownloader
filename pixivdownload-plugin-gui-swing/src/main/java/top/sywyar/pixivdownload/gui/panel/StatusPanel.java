@@ -1070,11 +1070,11 @@ public class StatusPanel extends JPanel {
         if (confirm != JOptionPane.YES_OPTION) {
             return;
         }
-        performRestart();
+        performBackendRestart();
     }
 
-    /** 触发后端重启（不含确认对话框）。供「重启服务」按钮与迁移下载目录后的同步流程复用。 */
-    private void performRestart() {
+    /** 触发后端重启（不含确认对话框）。 */
+    private void performBackendRestart() {
         Thread worker = new Thread(() -> {
             try {
                 if (!SwingBackendLifecycle.restartAsync()) {
@@ -1091,6 +1091,25 @@ public class StatusPanel extends JPanel {
                 statusBadge.setForeground(new Color(180, 100, 0));
             });
         }, "gui-restart");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** 触发完整应用进程重启（不含确认对话框）。 */
+    private void performProcessRestart() {
+        Thread worker = new Thread(() -> {
+            boolean accepted = false;
+            try {
+                accepted = SwingHost.host().restartApplication();
+            } catch (RuntimeException e) {
+                log.warn(logMessage("gui.status.log.restart-request.failed", e.getMessage()), e);
+            }
+            if (!accepted) {
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(StatusPanel.this,
+                        message("gui.message.process-restart-failed"),
+                        message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE));
+            }
+        }, "gui-process-restart");
         worker.setDaemon(true);
         worker.start();
     }
@@ -1330,7 +1349,7 @@ public class StatusPanel extends JPanel {
                 successMessage,
                 message("gui.migrate-dir.title"), JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
         if (restart == JOptionPane.YES_OPTION) {
-            performRestart();
+            performProcessRestart();
         }
     }
 

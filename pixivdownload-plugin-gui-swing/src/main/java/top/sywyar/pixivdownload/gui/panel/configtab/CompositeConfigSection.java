@@ -187,8 +187,8 @@ final class CompositeConfigSection implements ConfigSection {
         }
 
         @Override
-        public JLabel effectLabel(boolean requiresRestart) {
-            return delegate.effectLabel(requiresRestart);
+        public JLabel effectLabel(top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect effect) {
+            return delegate.effectLabel(effect);
         }
 
         @Override

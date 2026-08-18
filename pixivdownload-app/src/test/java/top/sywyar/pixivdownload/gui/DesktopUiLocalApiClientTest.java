@@ -71,10 +71,27 @@ class DesktopUiLocalApiClientTest {
         assertThat(response.responseParsed()).isFalse();
     }
 
+    @Test
+    void desktopHostRequestsFullRestartThroughAuthenticatedGuiEndpoint() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> token = new AtomicReference<>();
+        server = server(exchange -> {
+            method.set(exchange.getRequestMethod());
+            token.set(exchange.getRequestHeaders().getFirst(GuiTokenHolder.HEADER_NAME));
+            respond(exchange, 200, new byte[0]);
+        });
+        GuiTokenHolder.set("restart-token");
+
+        assertThat(new AppDesktopUiHost(port()).restartApplication()).isTrue();
+        assertThat(method).hasValue("POST");
+        assertThat(token).hasValue("restart-token");
+    }
+
     private HttpServer server(Handler handler) throws IOException {
         HttpServer created = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         created.createContext("/api/gui/mail/test", exchange -> handle(exchange, handler));
         created.createContext("/api/gui/status", exchange -> handle(exchange, handler));
+        created.createContext("/api/gui/restart", exchange -> handle(exchange, handler));
         created.start();
         return created;
     }

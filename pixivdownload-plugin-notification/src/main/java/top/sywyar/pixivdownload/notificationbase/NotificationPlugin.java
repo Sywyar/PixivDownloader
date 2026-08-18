@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -175,7 +176,7 @@ public class NotificationPlugin implements PixivFeaturePlugin {
                 "true",
                 90,
                 false,
-                false,
+                GuiConfigEffect.HOT_RELOAD,
                 List.of(),
                 List.of(),
                 List.of(),
@@ -194,7 +195,7 @@ public class NotificationPlugin implements PixivFeaturePlugin {
                 Integer.toString(defaultValue),
                 order,
                 false,
-                false,
+                GuiConfigEffect.HOT_RELOAD,
                 List.of(),
                 List.of(),
                 List.of(),
@@ -304,7 +305,7 @@ public class NotificationPlugin implements PixivFeaturePlugin {
                 "true",
                 10 + scenario.ordinal() * 10,
                 false,
-                false,
+                GuiConfigEffect.HOT_RELOAD,
                 List.of(),
                 List.of(),
                 List.of(),

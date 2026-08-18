@@ -214,6 +214,8 @@
                         <novel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel/target/classes</novel.plugin.classes>
                         <gui-swing.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/classes</gui-swing.plugin.classes>
                         <gui-swing.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/pixivdownload-plugin-gui-swing-${project.version}.jar</gui-swing.plugin.jar>
+                        <gui-compose.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-compose/target/classes</gui-compose.plugin.classes>
+                        <gui-compose.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-compose/target/pixivdownload-plugin-gui-compose-${project.version}.jar</gui-compose.plugin.jar>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
