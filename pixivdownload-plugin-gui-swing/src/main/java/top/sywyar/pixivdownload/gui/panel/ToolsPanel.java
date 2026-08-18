@@ -1,19 +1,17 @@
 package top.sywyar.pixivdownload.gui.panel;
 
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.LoggerFactory;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
 import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
-import top.sywyar.pixivdownload.gui.ToolHtmlLogSession;
-import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.imageclassifier.ImageClassifier;
-import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
-import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import top.sywyar.pixivdownload.tools.FolderChecker;
 
 import javax.swing.*;
@@ -62,17 +60,17 @@ public class ToolsPanel extends JPanel {
     private String exclusiveToolName;
     private boolean backfillRunning;
     private boolean migrationRunning;
-    private volatile ToolHtmlLogSession currentBackfillLogSession;
-    private volatile ToolHtmlLogSession currentMigrationLogSession;
+    private volatile DesktopUiHost.ToolLogSession currentBackfillLogSession;
+    private volatile DesktopUiHost.ToolLogSession currentMigrationLogSession;
 
-    private final BackendLifecycleManager.Listener backendListener = this::handleBackendState;
+    private final SwingBackendLifecycle.Listener backendListener = this::handleBackendState;
 
     public ToolsPanel(Path configPath) {
         this.configPath = configPath;
         buildUi();
         GuiInputStyleNormalizer.apply(this);
         loadDefaults();
-        BackendLifecycleManager.addListener(backendListener);
+        SwingBackendLifecycle.addListener(backendListener);
         refreshActionStates();
     }
 
@@ -311,13 +309,13 @@ public class ToolsPanel extends JPanel {
     }
 
     private void loadDefaults() {
-        String rootFolder = RuntimeFiles.readDownloadRootFromConfig(configPath, RuntimeFiles.DEFAULT_DOWNLOAD_ROOT);
-        String resolvedDbPath = RuntimeFiles.resolveDatabasePath(rootFolder).toString();
+        String rootFolder = SwingHost.host().readDownloadRootFromConfig(configPath, SwingHost.context().rootFolder());
+        String resolvedDbPath = SwingHost.host().resolveDatabasePath(rootFolder).toString();
         dbPathField.setText(resolvedDbPath);
         migrationDbPathField.setText(resolvedDbPath);
         migrationRootFolderField.setText(rootFolder);
 
-        ArtworksBackFill.Options defaults = ArtworksBackFill.Options.defaults();
+        DesktopUiHost.BackfillOptions defaults = SwingHost.host().defaultBackfillOptions();
         proxyEnabledCheck.setSelected(defaults.useProxy());
         proxyHostField.setText(defaults.proxyHost());
         proxyPortSpinner.setValue(defaults.proxyPort());
@@ -327,7 +325,7 @@ public class ToolsPanel extends JPanel {
 
         if (Files.isRegularFile(configPath)) {
             try {
-                ConfigFileEditor editor = new ConfigFileEditor(configPath);
+                DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
                 proxyEnabledCheck.setSelected(Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), String.valueOf(defaults.useProxy()))));
                 proxyHostField.setText(defaultIfBlank(editor.read("proxy.host"), defaults.proxyHost()));
                 proxyPortSpinner.setValue(Integer.parseInt(defaultIfBlank(editor.read("proxy.port"), String.valueOf(defaults.proxyPort()))));
@@ -354,7 +352,7 @@ public class ToolsPanel extends JPanel {
         }
 
         setBackfillStatus(message("gui.tools.folder-checker.status.preparing"));
-        boolean accepted = BackendLifecycleManager.stopAsync(() -> {
+        boolean accepted = SwingBackendLifecycle.stopAsync(() -> {
             try {
                 FolderChecker checker = new FolderChecker(JFrame.DISPOSE_ON_CLOSE, this::handleFolderCheckerClosed);
                 checker.showWindow();
@@ -364,7 +362,7 @@ public class ToolsPanel extends JPanel {
                 refreshActionStates();
                 setBackfillStatus(message("gui.tools.folder-checker.status.open-failed"));
                 log.error(logMessage("gui.tools.log.folder-checker.open-failed"), e);
-                BackendLifecycleManager.startAsync();
+                SwingBackendLifecycle.startAsync();
                 GuiErrorDialog.show(this,
                         message("gui.dialog.error.title"),
                         message("gui.tools.dialog.folder-checker-open-failed.message", e.getMessage()));
@@ -383,7 +381,7 @@ public class ToolsPanel extends JPanel {
         exclusiveToolName = null;
         refreshActionStates();
         setBackfillStatus(message("gui.tools.folder-checker.status.restoring"));
-        if (!BackendLifecycleManager.startAsync(() ->
+        if (!SwingBackendLifecycle.startAsync(() ->
                 setBackfillStatus(message("gui.tools.folder-checker.status.completed")))) {
             setBackfillStatus(message("gui.tools.folder-checker.status.closed"));
         }
@@ -394,7 +392,7 @@ public class ToolsPanel extends JPanel {
             return;
         }
 
-        ArtworksBackFill.Options options;
+        DesktopUiHost.BackfillOptions options;
         try {
             options = buildBackfillOptions();
         } catch (Exception e) {
@@ -411,7 +409,7 @@ public class ToolsPanel extends JPanel {
         refreshActionStates();
         setBackfillStatus(message("gui.tools.backfill.status.preparing"));
 
-        boolean accepted = BackendLifecycleManager.stopAsync(() -> prepareBackfillInBackground(options));
+        boolean accepted = SwingBackendLifecycle.stopAsync(() -> prepareBackfillInBackground(options));
         if (!accepted) {
             backfillRunning = false;
             exclusiveToolName = null;
@@ -423,13 +421,13 @@ public class ToolsPanel extends JPanel {
         }
     }
 
-    private void prepareBackfillInBackground(ArtworksBackFill.Options options) {
+    private void prepareBackfillInBackground(DesktopUiHost.BackfillOptions options) {
         setBackfillStatus(BACKFILL_COUNTING_STATUS);
 
         Thread worker = new Thread(() -> {
             int totalCandidates;
             try {
-                totalCandidates = ArtworksBackFill.countCandidates(options);
+                totalCandidates = SwingHost.host().countBackfillCandidates(options);
             } catch (Throwable error) {
                 handleBackfillPreparationFailure(
                         message("gui.tools.backfill.status.count-failed"),
@@ -446,7 +444,7 @@ public class ToolsPanel extends JPanel {
             }
 
             try {
-                currentBackfillLogSession = ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class);
+                currentBackfillLogSession = SwingHost.host().openToolLog("artworks-backfill");
                 SwingUtilities.invokeLater(this::refreshActionStates);
                 currentBackfillLogSession.openLatestInBrowser();
             } catch (Exception error) {
@@ -479,22 +477,22 @@ public class ToolsPanel extends JPanel {
                     dialogPrefix + (failure.getMessage() == null
                             ? message("gui.dialog.error.no-detail") : failure.getMessage()));
         });
-        if (!BackendLifecycleManager.startAsync(afterRestart)) {
+        if (!SwingBackendLifecycle.startAsync(afterRestart)) {
             afterRestart.run();
         }
     }
 
-    private void runBackfillInBackground(ArtworksBackFill.Options options) {
+    private void runBackfillInBackground(DesktopUiHost.BackfillOptions options) {
         setBackfillStatus(message("gui.tools.backfill.status.running"));
 
         Thread worker = new Thread(() -> {
-            ArtworksBackFill.Summary summary = null;
+            DesktopUiHost.BackfillSummary summary = null;
             Throwable failure = null;
-            var toolLogger = LoggerFactory.getLogger(ArtworksBackFill.class);
+            var toolLogger = LoggerFactory.getLogger(ToolsPanel.class);
 
             try {
                 toolLogger.info(logMessage("gui.tools.log.backfill.requested"));
-                summary = ArtworksBackFill.run(options);
+                summary = SwingHost.host().runBackfill(options);
             } catch (Throwable error) {
                 failure = error;
                 toolLogger.error(logMessage("gui.tools.log.backfill.failed"), error);
@@ -505,9 +503,9 @@ public class ToolsPanel extends JPanel {
                 exclusiveToolName = null;
                 SwingUtilities.invokeLater(this::refreshActionStates);
 
-                ArtworksBackFill.Summary finalSummary = summary;
+                DesktopUiHost.BackfillSummary finalSummary = summary;
                 Throwable finalFailure = failure;
-                if (!BackendLifecycleManager.startAsync(() ->
+                if (!SwingBackendLifecycle.startAsync(() ->
                         SwingUtilities.invokeLater(() -> finishBackfill(finalSummary, finalFailure)))) {
                     SwingUtilities.invokeLater(() -> finishBackfill(finalSummary, finalFailure));
                 }
@@ -517,7 +515,7 @@ public class ToolsPanel extends JPanel {
         worker.start();
     }
 
-    private void finishBackfill(ArtworksBackFill.Summary summary, Throwable failure) {
+    private void finishBackfill(DesktopUiHost.BackfillSummary summary, Throwable failure) {
         if (failure != null) {
             setBackfillStatus(message("gui.tools.backfill.status.failed"));
             GuiErrorDialog.show(this,
@@ -542,13 +540,13 @@ public class ToolsPanel extends JPanel {
                 message("gui.tools.dialog.backfill.completed.title"), JOptionPane.INFORMATION_MESSAGE);
     }
 
-    private ArtworksBackFill.Options buildBackfillOptions() {
+    private DesktopUiHost.BackfillOptions buildBackfillOptions() {
         String dbPath = dbPathField.getText().trim();
         if (dbPath.isBlank()) {
             throw new IllegalArgumentException(message("gui.tools.validation.database-path.required"));
         }
 
-        return new ArtworksBackFill.Options(
+        return new DesktopUiHost.BackfillOptions(
                 dbPath,
                 proxyHostField.getText().trim(),
                 ((Number) proxyPortSpinner.getValue()).intValue(),
@@ -626,7 +624,7 @@ public class ToolsPanel extends JPanel {
             return;
         }
 
-        JsonToSqliteMigration.Options options;
+        DesktopUiHost.MigrationOptions options;
         try {
             options = buildMigrationOptions();
         } catch (Exception e) {
@@ -643,7 +641,7 @@ public class ToolsPanel extends JPanel {
         refreshActionStates();
         setMigrationStatus(message("gui.tools.migration.status.preparing"));
 
-        boolean accepted = BackendLifecycleManager.stopAsync(() -> prepareMigrationInBackground(options));
+        boolean accepted = SwingBackendLifecycle.stopAsync(() -> prepareMigrationInBackground(options));
         if (!accepted) {
             migrationRunning = false;
             exclusiveToolName = null;
@@ -655,13 +653,13 @@ public class ToolsPanel extends JPanel {
         }
     }
 
-    private void prepareMigrationInBackground(JsonToSqliteMigration.Options options) {
+    private void prepareMigrationInBackground(DesktopUiHost.MigrationOptions options) {
         setMigrationStatus(MIGRATION_COUNTING_STATUS);
 
         Thread worker = new Thread(() -> {
             int totalCandidates;
             try {
-                totalCandidates = JsonToSqliteMigration.countCandidates(options);
+                totalCandidates = SwingHost.host().countMigrationCandidates(options);
             } catch (Throwable error) {
                 handleMigrationPreparationFailure(
                         message("gui.tools.migration.status.count-failed"),
@@ -678,7 +676,7 @@ public class ToolsPanel extends JPanel {
             }
 
             try {
-                currentMigrationLogSession = ToolHtmlLogSession.open("json-to-sqlite-migration", JsonToSqliteMigration.class);
+                currentMigrationLogSession = SwingHost.host().openToolLog("json-to-sqlite-migration");
                 SwingUtilities.invokeLater(this::refreshActionStates);
                 currentMigrationLogSession.openLatestInBrowser();
             } catch (Exception error) {
@@ -711,22 +709,22 @@ public class ToolsPanel extends JPanel {
                     dialogPrefix + (failure.getMessage() == null
                             ? message("gui.dialog.error.no-detail") : failure.getMessage()));
         });
-        if (!BackendLifecycleManager.startAsync(afterRestart)) {
+        if (!SwingBackendLifecycle.startAsync(afterRestart)) {
             afterRestart.run();
         }
     }
 
-    private void runMigrationInBackground(JsonToSqliteMigration.Options options) {
+    private void runMigrationInBackground(DesktopUiHost.MigrationOptions options) {
         setMigrationStatus(message("gui.tools.migration.status.running"));
 
         Thread worker = new Thread(() -> {
-            JsonToSqliteMigration.Summary summary = null;
+            DesktopUiHost.MigrationSummary summary = null;
             Throwable failure = null;
-            var toolLogger = LoggerFactory.getLogger(JsonToSqliteMigration.class);
+            var toolLogger = LoggerFactory.getLogger(ToolsPanel.class);
 
             try {
                 toolLogger.info(logMessage("gui.tools.log.migration.requested"));
-                summary = JsonToSqliteMigration.run(options, toolLogger::info);
+                summary = SwingHost.host().runMigration(options, toolLogger::info);
             } catch (Throwable error) {
                 failure = error;
                 toolLogger.error(logMessage("gui.tools.log.migration.failed"), error);
@@ -737,9 +735,9 @@ public class ToolsPanel extends JPanel {
                 exclusiveToolName = null;
                 SwingUtilities.invokeLater(this::refreshActionStates);
 
-                JsonToSqliteMigration.Summary finalSummary = summary;
+                DesktopUiHost.MigrationSummary finalSummary = summary;
                 Throwable finalFailure = failure;
-                if (!BackendLifecycleManager.startAsync(() ->
+                if (!SwingBackendLifecycle.startAsync(() ->
                         SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure)))) {
                     SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure));
                 }
@@ -749,7 +747,7 @@ public class ToolsPanel extends JPanel {
         worker.start();
     }
 
-    private void finishMigration(JsonToSqliteMigration.Summary summary, Throwable failure) {
+    private void finishMigration(DesktopUiHost.MigrationSummary summary, Throwable failure) {
         if (failure != null) {
             setMigrationStatus(message("gui.tools.migration.status.failed"));
             GuiErrorDialog.show(this,
@@ -778,7 +776,7 @@ public class ToolsPanel extends JPanel {
                 message("gui.tools.dialog.migration.completed.title"), JOptionPane.INFORMATION_MESSAGE);
     }
 
-    private JsonToSqliteMigration.Options buildMigrationOptions() {
+    private DesktopUiHost.MigrationOptions buildMigrationOptions() {
         String dbPath = migrationDbPathField.getText().trim();
         if (dbPath.isBlank()) {
             throw new IllegalArgumentException(message("gui.tools.validation.database-path.required"));
@@ -787,7 +785,7 @@ public class ToolsPanel extends JPanel {
         if (rootFolder.isBlank()) {
             throw new IllegalArgumentException(message("gui.tools.validation.root-folder.required"));
         }
-        return new JsonToSqliteMigration.Options(dbPath, rootFolder);
+        return new DesktopUiHost.MigrationOptions(dbPath, rootFolder);
     }
 
     private void openMigrationLogPage() {
@@ -811,7 +809,7 @@ public class ToolsPanel extends JPanel {
         }
     }
 
-    private void handleBackendState(BackendLifecycleManager.Snapshot snapshot) {
+    private void handleBackendState(SwingBackendLifecycle.Snapshot snapshot) {
         backendStateLabel.setText(message("gui.tools.backend-status", switch (snapshot.state()) {
             case RUNNING -> message("gui.backend.state.running");
             case STARTING -> message("gui.tools.backend-status.starting");
@@ -820,7 +818,7 @@ public class ToolsPanel extends JPanel {
             case FAILED -> message("gui.backend.state.failed");
         }));
 
-        if (snapshot.state() == BackendLifecycleManager.State.FAILED && !backfillRunning && !migrationRunning && exclusiveToolName == null) {
+        if (snapshot.state() == SwingBackendLifecycle.State.FAILED && !backfillRunning && !migrationRunning && exclusiveToolName == null) {
             setBackfillStatus(message("gui.tools.backfill.status.backend-failed"));
             setMigrationStatus(message("gui.tools.migration.status.backend-failed"));
         }
@@ -832,8 +830,8 @@ public class ToolsPanel extends JPanel {
         if (!ensureNoExclusiveTool(toolName)) {
             return false;
         }
-        BackendLifecycleManager.State state = BackendLifecycleManager.state();
-        if (state == BackendLifecycleManager.State.STARTING || state == BackendLifecycleManager.State.STOPPING) {
+        SwingBackendLifecycle.State state = SwingBackendLifecycle.state();
+        if (state == SwingBackendLifecycle.State.STARTING || state == SwingBackendLifecycle.State.STOPPING) {
             JOptionPane.showMessageDialog(this,
                     message("gui.message.backend-busy"),
                     message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
@@ -855,9 +853,9 @@ public class ToolsPanel extends JPanel {
     }
 
     private void refreshActionStates() {
-        BackendLifecycleManager.State state = BackendLifecycleManager.state();
-        boolean backendTransitioning = state == BackendLifecycleManager.State.STARTING
-                || state == BackendLifecycleManager.State.STOPPING;
+        SwingBackendLifecycle.State state = SwingBackendLifecycle.state();
+        boolean backendTransitioning = state == SwingBackendLifecycle.State.STARTING
+                || state == SwingBackendLifecycle.State.STOPPING;
         boolean exclusiveBusy = exclusiveToolName != null || backfillRunning || migrationRunning;
 
         imageClassifierButton.setEnabled(!exclusiveBusy && !backendTransitioning);
@@ -936,7 +934,7 @@ public class ToolsPanel extends JPanel {
     }
 
     public void dispose() {
-        BackendLifecycleManager.removeListener(backendListener);
+        SwingBackendLifecycle.removeListener(backendListener);
         closeBackfillLogSession();
         closeMigrationLogSession();
     }
@@ -946,6 +944,6 @@ public class ToolsPanel extends JPanel {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 }

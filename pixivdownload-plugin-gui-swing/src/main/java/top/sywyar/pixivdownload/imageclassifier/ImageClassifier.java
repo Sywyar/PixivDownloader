@@ -1,15 +1,11 @@
 package top.sywyar.pixivdownload.imageclassifier;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import javax.swing.*;
 import javax.swing.Timer;
@@ -17,11 +13,7 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.*;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.List;
 import java.util.Properties;
@@ -57,7 +49,8 @@ public class ImageClassifier extends JFrame {
     private int        currentFolderIndex = 0;
     private List<File> currentImages;
     private int        currentGroupIndex  = 0;
-    private boolean    serverRunning      = false;
+    private volatile DesktopUiHost.ImageClassifierServer serverStatus =
+            new DesktopUiHost.ImageClassifierServer(false, "http://localhost:6999");
     private Long       currentArtworkId   = null;
 
     // =========================================================================
@@ -67,7 +60,7 @@ public class ImageClassifier extends JFrame {
     private Properties   config;
     private List<String> targetFolders;
     private List<String> folderRemarks;
-    private final File   configFile;
+    private final String rootFolder;
     private final int    closeOperation;
 
     // =========================================================================
@@ -97,7 +90,6 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private final ThumbnailManager thumbnailManager = new ThumbnailManager();
-    private final RestTemplate     restTemplate     = new RestTemplate();
 
     // =========================================================================
     // 构造 & 入口
@@ -108,23 +100,12 @@ public class ImageClassifier extends JFrame {
     }
 
     public ImageClassifier(boolean exitOnClose) {
-        String rootFolder = RuntimeFiles.readDownloadRootFromConfig(
-                RuntimeFiles.resolveConfigYamlPath(),
-                RuntimeFiles.DEFAULT_DOWNLOAD_ROOT);
-        this.configFile = RuntimeFiles.resolveImageClassifierPath(rootFolder).toFile();
+        this.rootFolder = SwingHost.context().rootFolder();
         this.closeOperation = exitOnClose ? JFrame.EXIT_ON_CLOSE : JFrame.DISPOSE_ON_CLOSE;
         loadConfig();
         initUI();
         checkServerStatus();
         autoOpenDefaultFolder();
-    }
-
-    public static void main(String[] args) {
-        Utf8ConsoleStreams.install();
-        SwingUtilities.invokeLater(() -> {
-            ImageClassifier classifier = new ImageClassifier();
-            classifier.setVisible(true);
-        });
     }
 
     // =========================================================================
@@ -133,43 +114,37 @@ public class ImageClassifier extends JFrame {
 
     private void loadConfig() {
         config = new Properties();
-
-        try {
-            if (configFile.exists()) {
-                try (FileInputStream input = new FileInputStream(configFile)) {
-                    config.load(input);
-                }
-            }
-        } catch (IOException e) {
-            log.warn(logMessage("gui.image-classifier.log.config-load-fallback", e.getMessage()));
-        }
-
+        config.setProperty("show.skip.button", "true");
+        config.setProperty("server.url", "http://localhost:6999");
         targetFolders = new ArrayList<>();
         folderRemarks = new ArrayList<>();
 
-        for (int i = 0; i < 20; i++) {
-            String folder = config.getProperty("target.folder." + i);
-            String remark = config.getProperty("folder.remark." + i);
-            if (folder != null && remark != null) {
-                targetFolders.add(stripTrailingSlash(folder));
-                folderRemarks.add(remark);
+        try {
+            DesktopUiHost.ImageClassifierSettings settings =
+                    SwingHost.host().loadImageClassifierSettings(rootFolder);
+            config.setProperty("default.folder", settings.defaultFolder());
+            config.setProperty("show.skip.button", Boolean.toString(settings.showSkipButton()));
+            config.setProperty("server.url", settings.serverUrl());
+            for (DesktopUiHost.ImageClassifierTarget target : settings.targets()) {
+                targetFolders.add(stripTrailingSlash(target.folder()));
+                folderRemarks.add(target.remark());
             }
+        } catch (IOException e) {
+            log.warn(logMessage("gui.image-classifier.log.config-load-fallback", e.getMessage()));
         }
     }
 
     private void saveConfig() {
         try {
-            for (int i = 0; i < 20; i++) {
-                config.remove("target.folder." + i);
-                config.remove("folder.remark." + i);
-            }
+            List<DesktopUiHost.ImageClassifierTarget> targets = new ArrayList<>();
             for (int i = 0; i < targetFolders.size(); i++) {
-                config.setProperty("target.folder." + i, targetFolders.get(i));
-                config.setProperty("folder.remark." + i, folderRemarks.get(i));
+                targets.add(new DesktopUiHost.ImageClassifierTarget(targetFolders.get(i), folderRemarks.get(i)));
             }
-            try (FileOutputStream output = new FileOutputStream(configFile)) {
-                config.store(output, message("gui.image-classifier.config.comment"));
-            }
+            SwingHost.host().saveImageClassifierSettings(rootFolder, new DesktopUiHost.ImageClassifierSettings(
+                    config.getProperty("default.folder", ""),
+                    Boolean.parseBoolean(config.getProperty("show.skip.button", "true")),
+                    config.getProperty("server.url", "http://localhost:6999"),
+                    targets));
             log.info(logMessage("gui.image-classifier.log.config-saved"));
         } catch (IOException e) {
             log.error(logMessage("gui.image-classifier.log.config-save-failed", e.getMessage()));
@@ -825,7 +800,7 @@ public class ImageClassifier extends JFrame {
         String defaultFolder = config.getProperty("default.folder", "").trim();
         if (!defaultFolder.isEmpty()) {
             File folder = new File(defaultFolder);
-            if (folder.exists() && folder.isDirectory()) {
+            if (SwingHost.host().isImageClassifierDirectory(folder.toPath())) {
                 folderPathField.setText(defaultFolder);
                 SwingUtilities.invokeLater(this::openParentFolderFromField);
             } else {
@@ -846,7 +821,7 @@ public class ImageClassifier extends JFrame {
             return;
         }
         File folder = new File(folderPath);
-        if (!folder.exists() || !folder.isDirectory()) {
+        if (!SwingHost.host().isImageClassifierDirectory(folder.toPath())) {
             JOptionPane.showMessageDialog(
                     this,
                     message("gui.image-classifier.validation.folder-path.invalid"),
@@ -888,23 +863,18 @@ public class ImageClassifier extends JFrame {
     }
 
     private void loadSubFolders() {
-        File[] folders = parentFolder.listFiles(File::isDirectory);
-        if (folders != null) {
-            Arrays.sort(folders, (f1, f2) -> {
-                try {
-                    return Integer.compare(Integer.parseInt(f1.getName()), Integer.parseInt(f2.getName()));
-                } catch (NumberFormatException e) {
-                    return f1.getName().compareTo(f2.getName());
-                }
-            });
-            subFolders = Arrays.asList(folders);
+        try {
+            subFolders = SwingHost.host().listImageClassifierFolders(parentFolder.toPath()).stream()
+                    .map(java.nio.file.Path::toFile)
+                    .toList();
             currentFolderIndex = 0;
             currentGroupIndex  = 0;
-        } else {
+        } catch (IOException exception) {
+            log.error(logMessage("gui.image-classifier.log.default-folder-invalid", parentFolder), exception);
             subFolders = List.of();
             JOptionPane.showMessageDialog(
                     this,
-                    message("gui.image-classifier.validation.no-subfolders"),
+                    exception.getMessage(),
                     message("gui.dialog.error.title"),
                     JOptionPane.ERROR_MESSAGE
             );
@@ -914,17 +884,13 @@ public class ImageClassifier extends JFrame {
     private void loadImagesFromCurrentFolder() {
         if (currentFolderIndex >= subFolders.size()) return;
         File currentFolder = subFolders.get(currentFolderIndex);
-        File[] imageFiles  = currentFolder.listFiles((dir, name) -> {
-            for (String ext : IMAGE_EXTENSIONS) {
-                if (name.toLowerCase().endsWith(ext)) return true;
-            }
-            return false;
-        });
-        if (imageFiles != null && imageFiles.length > 0) {
-            Arrays.sort(imageFiles, Comparator.comparing(File::getName));
-            currentImages     = Arrays.asList(imageFiles);
+        try {
+            currentImages = SwingHost.host().listImageClassifierImages(currentFolder.toPath()).stream()
+                    .map(java.nio.file.Path::toFile)
+                    .toList();
             currentGroupIndex = 0;
-        } else {
+        } catch (IOException exception) {
+            log.error(logMessage("gui.image-classifier.log.viewer-load-failed", exception.getMessage()), exception);
             currentImages = List.of();
         }
     }
@@ -938,7 +904,7 @@ public class ImageClassifier extends JFrame {
         int temp = currentFolderIndex;
         do {
             temp--;
-        }while (temp >=0 && !subFolders.get(temp).exists());
+        }while (temp >=0 && !SwingHost.host().isImageClassifierDirectory(subFolders.get(temp).toPath()));
         if (temp == -1) {
             JOptionPane.showMessageDialog(
                     this,
@@ -956,13 +922,18 @@ public class ImageClassifier extends JFrame {
 
     private void moveToNextFolder() {
         File currentFolder  = subFolders.get(currentFolderIndex);
-        File[] remaining    = currentFolder.listFiles();
-        if (remaining == null || remaining.length == 0) currentFolder.delete();
+        try {
+            SwingHost.host().deleteImageClassifierFolderIfEmpty(currentFolder.toPath());
+        } catch (IOException exception) {
+            log.debug(logMessage("gui.image-classifier.log.delete-residual-failed", currentFolder.getAbsolutePath()),
+                    exception);
+        }
 
         int temp = currentFolderIndex;
         do {
             temp++;
-        }while (temp < subFolders.size() && !subFolders.get(temp).exists());
+        }while (temp < subFolders.size()
+                && !SwingHost.host().isImageClassifierDirectory(subFolders.get(temp).toPath()));
 
         currentFolderIndex = temp;
         if (currentFolderIndex < subFolders.size()) {
@@ -1091,48 +1062,46 @@ public class ImageClassifier extends JFrame {
                 currentImages.size()
         ));
 
-        Long resolvedId = serverRunning ? resolveArtworkId(currentFolder) : null;
-        currentArtworkId = resolvedId;
-        if (resolvedId != null) {
-            final long artworkId = resolvedId;
-            final int remainingFolders = subFolders.size() - currentFolderIndex;
-            final int imageCount = currentImages.size();
-            new Thread(() -> {
-                try {
-                    String serverUrl = config.getProperty("server.url", "http://localhost:6999");
-                    ResponseEntity<Map> resp = restTemplate.getForEntity(serverUrl + "/api/downloaded/" + artworkId, Map.class);
-                    if (resp.getStatusCode() == HttpStatus.OK && resp.getBody() != null) {
-                        Object  r18Val   = resp.getBody().get("xRestrict");
-                        Integer xRestrict = r18Val instanceof Number n ? n.intValue() : null;
-                        Object  titleVal = resp.getBody().get("title");
-                        String  title    = titleVal instanceof String s ? s : null;
-                        SwingUtilities.invokeLater(() -> {
-                            if (title != null && !title.isEmpty()) {
-                                setTitle(message(
-                                        "gui.image-classifier.title.remaining-folders.with-artwork",
-                                        remainingFolders,
-                                        imageCount,
-                                        title
-                                ));
-                            }
-                            if (xRestrict != null && xRestrict == 2) {
-                                statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18g"));
-                                statusLabel.setForeground(C_DANGER);
-                            } else if (xRestrict != null && xRestrict == 1) {
-                                statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18"));
-                                statusLabel.setForeground(C_DANGER);
-                            } else if (xRestrict != null) {
-                                statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.sfw"));
-                                statusLabel.setForeground(new Color(34, 139, 87));
-                            } else {
-                                statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.unknown"));
-                                statusLabel.setForeground(C_TEXT_MUTED);
-                            }
-                        });
-                    }
-                } catch (Exception ignored) {}
-            }).start();
-        }
+        currentArtworkId = null;
+        final int remainingFolders = subFolders.size() - currentFolderIndex;
+        final int imageCount = currentImages.size();
+        new Thread(() -> {
+            Optional<DesktopUiHost.ImageClassifierArtwork> resolved =
+                    SwingHost.host().resolveImageClassifierArtwork(currentFolder.toPath(), serverStatus);
+            SwingUtilities.invokeLater(() -> {
+                if (currentFolderIndex >= subFolders.size()
+                        || !currentFolder.equals(subFolders.get(currentFolderIndex))) {
+                    return;
+                }
+                currentArtworkId = resolved.map(DesktopUiHost.ImageClassifierArtwork::artworkId).orElse(null);
+                if (resolved.isEmpty()) {
+                    return;
+                }
+                DesktopUiHost.ImageClassifierArtwork artwork = resolved.get();
+                if (artwork.title() != null && !artwork.title().isEmpty()) {
+                    setTitle(message(
+                            "gui.image-classifier.title.remaining-folders.with-artwork",
+                            remainingFolders,
+                            imageCount,
+                            artwork.title()
+                    ));
+                }
+                Integer xRestrict = artwork.xRestrict();
+                if (xRestrict != null && xRestrict == 2) {
+                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18g"));
+                    statusLabel.setForeground(C_DANGER);
+                } else if (xRestrict != null && xRestrict == 1) {
+                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18"));
+                    statusLabel.setForeground(C_DANGER);
+                } else if (xRestrict != null) {
+                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.sfw"));
+                    statusLabel.setForeground(new Color(34, 139, 87));
+                } else {
+                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.unknown"));
+                    statusLabel.setForeground(C_TEXT_MUTED);
+                }
+            });
+        }, "ImageClassifier-Artwork").start();
     }
 
     private void updateRemarkLabel() {
@@ -1225,125 +1194,24 @@ public class ImageClassifier extends JFrame {
         }
 
         File targetFolder = new File(targetFolders.get(index));
-        if (!targetFolder.exists() && !targetFolder.mkdirs()) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    message("gui.image-classifier.dialog.create-target-folder-failed.message", targetFolder.getAbsolutePath()),
-                    message("gui.dialog.error.title"),
-                    JOptionPane.ERROR_MESSAGE
-            );
-            return;
-        }
-
-        File destDir;
-        File numberedFolder = null;
         try {
-            if (currentImages.size() == 1) {
-                destDir = targetFolder;
-            } else {
-                numberedFolder = new File(targetFolder, String.valueOf(findNextFolderNumber(targetFolder)));
-                if (!numberedFolder.mkdirs()) {
-                    throw new IOException(message("gui.image-classifier.error.create-subfolder", numberedFolder.getAbsolutePath()));
-                }
-                destDir = numberedFolder;
-            }
-
-            final String moveReportPath    = destDir.toPath().toString();
-            final File   finalNumberedFolder = numberedFolder;
-            List<File[]> copyPairs         = new ArrayList<>();
-            // 作品 meta sidecar（{artworkId}.meta.json，per-work 命名避免单图摊平进共享目录时撞名）随图片迁移。
-            File sidecarSource = new File(currentSubFolder, WorkSidecarFiles.fileName(artworkId));
-
-            // ==========================================
-            // 步骤 1：复制所有文件
-            // ==========================================
-            try {
-                for (File image : currentImages) {
-                    File dest = new File(destDir, image.getName());
-                    Files.copy(image.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                    copyPairs.add(new File[]{image, dest});
-                }
-                if (sidecarSource.isFile()) {
-                    File sidecarDest = new File(destDir, sidecarSource.getName());
-                    Files.copy(sidecarSource.toPath(), sidecarDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                    copyPairs.add(new File[]{sidecarSource, sidecarDest});
-                }
-            } catch (IOException copyErr) {
-                // 如果是多图创建了独立文件夹，直接删除整个新建的文件夹
-                if (finalNumberedFolder != null && finalNumberedFolder.exists()) {
-                    deleteDir(finalNumberedFolder);
-                } else {
-                    // 如果是单图没创建文件夹，则只删除已拷贝过去的文件
-                    for (File[] pair : copyPairs) {
-                        try {
-                            Files.deleteIfExists(pair[1].toPath());
-                        } catch (IOException re) {
-                            log.error(logMessage("gui.image-classifier.log.rollback-delete-failed", re.getMessage()));
-                        }
-                    }
-                }
-                throw copyErr; // 抛出异常交给外层 catch 弹窗并终止当前操作
-            }
-
-            // ==========================================
-            // 步骤 2：删除源文件 (发生错误不回滚目标文件)
-            // ==========================================
-            while (currentSubFolder.exists()) {
-                try {
-                    // 尝试删除所有源图片
-                    for (File image : currentImages) {
-                        if (image.exists()) {
-                            Files.delete(image.toPath());
-                        }
-                    }
-                    // 删除源 meta sidecar，使下方「源目录清空」检查通过（已复制到目标目录）
-                    if (sidecarSource.exists()) {
-                        Files.delete(sidecarSource.toPath());
-                    }
-
-                    // 尝试删除源文件夹
-                    File[] remaining = currentSubFolder.listFiles();
-                    if (remaining == null || remaining.length == 0) {
-                        Files.delete(currentSubFolder.toPath());
-                    } else {
-                        throw new IOException(message("gui.image-classifier.error.source-folder-has-other-files", remaining.length));
-                    }
-                } catch (Exception delErr) {
-                    // 如果在弹窗前，用户已经光速手动删除了文件夹，则直接跳出循环
-                    if (!currentSubFolder.exists()) {
-                        break;
-                    }
-
-                    int option = JOptionPane.showConfirmDialog(
+            SwingHost.host().classifyImageFolder(
+                    currentSubFolder.toPath(),
+                    currentImages.stream().map(File::toPath).toList(),
+                    artworkId,
+                    targetFolder.toPath(),
+                    serverStatus,
+                    (detail, sourceFolder) -> JOptionPane.showConfirmDialog(
                             this,
                             message(
                                     "gui.image-classifier.dialog.delete-source-failed.message",
-                                    delErr.getMessage(),
-                                    currentSubFolder.getAbsolutePath()
+                                    detail,
+                                    sourceFolder
                             ),
                             message("gui.image-classifier.dialog.delete-source-failed.title"),
                             JOptionPane.OK_CANCEL_OPTION,
                             JOptionPane.WARNING_MESSAGE
-                    );
-
-                    if (option != JOptionPane.OK_OPTION) {
-                        // 用户放弃挣扎，打断循环，保留源文件垃圾
-                        break;
-                    }
-                }
-            }
-
-            // ==========================================
-            // Phase 3：记录及跳转
-            // ==========================================
-            if (serverRunning) {
-                try {
-                    sendMoveArtWorkInfo(artworkId, moveReportPath,
-                            stripTrailingSlash(targetFolder.getAbsolutePath()));
-                }
-                catch (Exception e) { log.error(logMessage("gui.image-classifier.log.record-move-failed"), e); }
-            }
-
+                    ) == JOptionPane.OK_OPTION);
             moveToNextFolder();
 
         } catch (IOException e) {
@@ -1364,27 +1232,11 @@ public class ImageClassifier extends JFrame {
 
     private void checkServerStatus() {
         new Thread(() -> {
-            String configuredUrl = config.getProperty("server.url", "http://localhost:6999");
-            boolean ok = tryCheckStatus(configuredUrl);
-            if (!ok && configuredUrl.startsWith("http://")) {
-                String httpsUrl = "https" + configuredUrl.substring(4);
-                ok = tryCheckStatus(httpsUrl);
-                if (ok) {
-                    log.info(logMessage("gui.image-classifier.log.server-url-fallback-https",
-                            configuredUrl, httpsUrl));
-                }
-            } else if (!ok && configuredUrl.startsWith("https://")) {
-                String httpUrl = "http" + configuredUrl.substring(5);
-                ok = tryCheckStatus(httpUrl);
-                if (ok) {
-                    log.info(logMessage("gui.image-classifier.log.server-url-fallback-http",
-                            configuredUrl, httpUrl));
-                }
-            }
-            serverRunning = ok;
-            final boolean finalOk = ok;
+            DesktopUiHost.ImageClassifierServer status = SwingHost.host().checkImageClassifierServer(
+                    config.getProperty("server.url", "http://localhost:6999"));
+            serverStatus = status;
             SwingUtilities.invokeLater(() -> {
-                if (finalOk) {
+                if (status.available()) {
                     serverStatusLabel.setText(message("gui.image-classifier.server.ok"));
                     serverStatusLabel.setForeground(new Color(34, 139, 87));
                 } else {
@@ -1392,47 +1244,7 @@ public class ImageClassifier extends JFrame {
                     serverStatusLabel.setForeground(C_DANGER);
                 }
             });
-        }).start();
-    }
-
-    private boolean tryCheckStatus(String serverUrl) {
-        try {
-            ResponseEntity<byte[]> response = restTemplate.getForEntity(
-                    serverUrl + "/api/download/status", byte[].class);
-            if (response.getStatusCode() == HttpStatus.OK) {
-                return true;
-            }
-            log.debug(logMessage("gui.image-classifier.log.server-status-non-ok", response.getStatusCode()));
-        } catch (Exception e) {
-            log.debug(logMessage("gui.image-classifier.log.server-status-check-failed", e.getMessage()));
-        }
-        return false;
-    }
-
-    private void sendMoveArtWorkInfo(Long artWork, String movePath, String classifierTargetFolder) {
-        String serverUrl = config.getProperty("server.url", "http://localhost:6999");
-        String url       = serverUrl + "/api/downloaded/move/" + artWork;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("movePath", movePath);
-        body.put("moveTime", System.currentTimeMillis());
-        if (classifierTargetFolder != null && !classifierTargetFolder.isBlank()) {
-            // 让服务端把"分类工具内置目录"注册成 path_prefixes 行，
-            // 后续同根的编号子目录就都能编码成 {N}/<seq>。
-            body.put("classifierTargetFolder", classifierTargetFolder);
-        }
-
-        try {
-            ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), byte[].class);
-            byte[] respBody = response.getBody();
-            log.info(logMessage("gui.image-classifier.log.move-api-response",
-                    respBody != null ? new String(respBody, java.nio.charset.StandardCharsets.UTF_8) : ""));
-        } catch (Exception e) {
-            log.error(logMessage("gui.image-classifier.log.move-api-request-failed", e.getMessage()));
-        }
+        }, "ImageClassifier-ServerCheck").start();
     }
 
     // =========================================================================
@@ -1571,26 +1383,6 @@ public class ImageClassifier extends JFrame {
         SwingUtilities.invokeLater(loadImage);
     }
 
-    /**
-     * 递归删除文件夹及其所有内容
-     */
-    private void deleteDir(File file) {
-        if (file == null || !file.exists()) return;
-        if (file.isDirectory()) {
-            File[] files = file.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    deleteDir(f);
-                }
-            }
-        }
-        try {
-            file.delete();
-        } catch (Exception e) {
-            log.error(logMessage("gui.image-classifier.log.delete-residual-failed", file.getAbsolutePath()));
-        }
-    }
-
     // =========================================================================
     // 工具方法
     // =========================================================================
@@ -1601,33 +1393,9 @@ public class ImageClassifier extends JFrame {
      * 回退到文件夹名本身即作品 ID（原始下载目录，如 137315774）。
      */
     private Long resolveArtworkId(File folder) {
-        if (serverRunning) {
-            try {
-                String serverUrl = config.getProperty("server.url", "http://localhost:6999");
-                ResponseEntity<Map> resp = restTemplate.getForEntity(
-                        serverUrl + "/api/downloaded/by-move-folder?path={path}",
-                        Map.class, folder.getAbsolutePath());
-                if (resp.getStatusCode() == HttpStatus.OK && resp.getBody() != null) {
-                    Object idVal = resp.getBody().get("artworkId");
-                    if (idVal instanceof Number) return ((Number) idVal).longValue();
-                }
-            } catch (org.springframework.web.client.HttpClientErrorException ignored) {
-            } catch (Exception e) {
-                log.debug(logMessage("gui.image-classifier.log.resolve-artwork-id-by-move-folder-failed", e.getMessage()));
-            }
-        }
-        try {
-            long id = Long.parseLong(folder.getName());
-            if (id > 0) return id;
-        } catch (NumberFormatException ignored) {}
-        return null;
-    }
-
-    private int findNextFolderNumber(File parentFolder) {
-        for (int i = 0; i < Integer.MAX_VALUE; i++) {
-            if (!Files.exists(parentFolder.toPath().resolve(String.valueOf(i)))) return i;
-        }
-        return Integer.MAX_VALUE;
+        return SwingHost.host().resolveImageClassifierArtwork(folder.toPath(), serverStatus)
+                .map(DesktopUiHost.ImageClassifierArtwork::artworkId)
+                .orElse(null);
     }
 
     private static String message(String code, Object... args) {
@@ -1635,10 +1403,10 @@ public class ImageClassifier extends JFrame {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 
     private static String stripTrailingSlash(String path) {
-        return PathPrefixCodec.stripTrailingSeparators(path);
+        return SwingHost.host().stripTrailingPathSeparators(path);
     }
 }

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.entry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("GUI Web 入口 contribution 聚合")
 class GuiWebEntryContributionAggregatorTest {
+    static { DesktopUiTestHost.ensureInstalled(); }
 
     @AfterEach
     void clearLocale() {
@@ -54,10 +56,14 @@ class GuiWebEntryContributionAggregatorTest {
     void rebuiltWebEntriesUseCurrentGuiLocale() {
         GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
         GuiWebEntrySnapshot zhSnapshot = aggregate(externalGallery());
+        String zhConfigTab = GuiMessages.get("gui.tab.config");
 
         GuiMessages.setLocale(Locale.US);
         GuiWebEntrySnapshot enSnapshot = aggregate(externalGallery());
+        String enConfigTab = GuiMessages.get("gui.tab.config");
 
+        assertThat(zhConfigTab).isEqualTo("配置");
+        assertThat(enConfigTab).isEqualTo("Config");
         assertThat(action(zhSnapshot.statusActions()).label()).isEqualTo("本地画廊");
         assertThat(action(zhSnapshot.trayActions()).label()).isEqualTo("本地画廊");
         assertThat(action(enSnapshot.statusActions()).label()).isEqualTo("Local Gallery");

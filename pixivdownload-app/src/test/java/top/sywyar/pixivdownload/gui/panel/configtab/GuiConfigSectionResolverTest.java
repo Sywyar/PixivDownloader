@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,6 +24,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -55,9 +59,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("GUI 配置 section resolver")
 class GuiConfigSectionResolverTest {
-
     @TempDir
     Path tempDir;
+
+    @BeforeEach
+    void installDesktopHost() {
+        DesktopUiTestHost.install(tempDir.resolve("config.yaml"));
+    }
 
     @AfterEach
     void resetLocale() {
@@ -1266,8 +1274,8 @@ class GuiConfigSectionResolverTest {
         }
 
         @Override
-        public GuiConfigTestClient testClient() {
-            return new GuiConfigTestClient(0);
+        public DesktopUiHost desktopHost() {
+            return SwingHost.host();
         }
 
         private int registrationCount(String key) {

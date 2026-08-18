@@ -1,9 +1,10 @@
 package top.sywyar.pixivdownload.gui;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.*;
 import java.awt.*;
@@ -225,6 +226,6 @@ public final class SystemTrayManager {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 }

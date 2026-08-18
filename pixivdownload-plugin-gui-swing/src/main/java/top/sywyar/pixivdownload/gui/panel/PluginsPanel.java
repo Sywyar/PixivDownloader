@@ -1,12 +1,13 @@
 package top.sywyar.pixivdownload.gui.panel;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
 import top.sywyar.pixivdownload.gui.plugin.GuiPluginStatusModel;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.*;
 import java.awt.*;
@@ -17,7 +18,7 @@ import java.util.function.Function;
  * “插件”页：在桌面端只读展示已发现插件的安装 / 运行状态（外置统计插件等），并把启用 / 停用 / 安装 / 卸载等写操作清楚地
  * 引导到 Web 插件管理页。
  *
- * <p><b>不自行扫描、不绕过后端</b>：状态全部来自 {@code GET /api/gui/plugins/status}（经 {@code GuiConfigTestClient} 的
+ * <p><b>不自行扫描、不绕过后端</b>：状态全部来自 {@code GET /api/gui/plugins/status}（经 {@code DesktopUiHost} 的
  * 本机 + GUI token 通道），后端再委托核心 {@code PluginManagementService}——GUI 与 Web 管理页共享同一份状态语义。本页
  * <b>不</b>提供运行期生命周期动词按钮（load / start / quiesce / stop / unload / remove / restart / reload），那些经 Web
  * 插件管理页的 ADMIN 接口执行，本页不放宽任何鉴权 / 校验边界。
@@ -30,7 +31,6 @@ public class PluginsPanel extends JPanel {
     private static final String PLUGIN_MANAGE_PAGE = "/plugin-manage.html";
     private static final int READ_TIMEOUT_MS = 5000;
 
-    private final GuiConfigTestClient client;
     private final Function<String, String> webUrlProvider;
 
     private final JLabel stateLabel = new JLabel();
@@ -39,7 +39,7 @@ public class PluginsPanel extends JPanel {
     private final JPanel listPanel = new JPanel();
     private final JButton refreshButton = new JButton(message("gui.plugins.action.refresh"));
 
-    private final BackendLifecycleManager.Listener backendListener = this::onBackendStateChanged;
+    private final SwingBackendLifecycle.Listener backendListener = this::onBackendStateChanged;
     private volatile boolean disposed;
     private volatile boolean refreshing;
 
@@ -49,10 +49,9 @@ public class PluginsPanel extends JPanel {
      *                       插件管理页」按钮
      */
     public PluginsPanel(int serverPort, Function<String, String> webUrlProvider) {
-        this.client = new GuiConfigTestClient(serverPort);
         this.webUrlProvider = webUrlProvider;
         buildUi();
-        BackendLifecycleManager.addListener(backendListener);
+        SwingBackendLifecycle.addListener(backendListener);
     }
 
     private void buildUi() {
@@ -145,7 +144,7 @@ public class PluginsPanel extends JPanel {
         refreshButton.setEnabled(false);
         stateLabel.setText(message("gui.plugins.state.loading"));
         Thread worker = new Thread(() -> {
-            GuiConfigTestClient.Response response = client.getJson("plugins/status", READ_TIMEOUT_MS);
+            DesktopUiHost.GuiResponse response = SwingHost.host().guiGet("plugins/status", READ_TIMEOUT_MS);
             GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(
                     response.reachable(), response.status(), response.body());
             SwingUtilities.invokeLater(() -> {
@@ -159,11 +158,11 @@ public class PluginsPanel extends JPanel {
         worker.start();
     }
 
-    private void onBackendStateChanged(BackendLifecycleManager.Snapshot snapshot) {
+    private void onBackendStateChanged(SwingBackendLifecycle.Snapshot snapshot) {
         if (disposed) {
             return;
         }
-        if (snapshot.state() == BackendLifecycleManager.State.RUNNING) {
+        if (snapshot.state() == SwingBackendLifecycle.State.RUNNING) {
             refresh();
         } else {
             renderModel(GuiPluginStatusModel.offline());
@@ -264,7 +263,7 @@ public class PluginsPanel extends JPanel {
         try {
             Desktop.getDesktop().browse(new URI(webUrlProvider.apply(PLUGIN_MANAGE_PAGE)));
         } catch (Exception e) {
-            log.warn(MessageBundles.get("gui.status.log.open-browser-failed", PLUGIN_MANAGE_PAGE, e.getMessage()), e);
+            log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", PLUGIN_MANAGE_PAGE, e.getMessage()), e);
             GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                     message("gui.error.open-browser", e.getMessage()));
         }
@@ -272,7 +271,7 @@ public class PluginsPanel extends JPanel {
 
     public void dispose() {
         disposed = true;
-        BackendLifecycleManager.removeListener(backendListener);
+        SwingBackendLifecycle.removeListener(backendListener);
     }
 
     private static String message(String code, Object... args) {

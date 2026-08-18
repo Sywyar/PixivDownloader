@@ -1,8 +1,7 @@
 package top.sywyar.pixivdownload.gui.plugin;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.GuiValue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,12 +11,10 @@ import java.util.List;
  * 解析为面板可直接渲染的不可变模型，并提供来源 / 状态 / 阶段的本地化标签工具方法。
  *
  * <p>本类<b>不</b>依赖 Swing、<b>不</b>发起网络请求，便于无界面（headless）下做纯逻辑测试——HTTP 调用由
- * {@code GuiConfigTestClient} 负责、UI 渲染由 {@code PluginsPanel} 负责，三者职责分离。它<b>不复制</b>任何插件扫描或
+ * {@code DesktopUiHost} 负责、UI 渲染由 {@code PluginsPanel} 负责，三者职责分离。它<b>不复制</b>任何插件扫描或
  * 状态判断逻辑：状态语义全部来自后端投影，本类只做「响应 → 展示行」的结构化映射与标签本地化。
  */
 public final class GuiPluginStatusModel {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** 一次状态读取的结果分类。 */
     public enum Outcome {
@@ -72,11 +69,11 @@ public final class GuiPluginStatusModel {
     /**
      * 从一次 {@code /api/gui/plugins/status} 调用的结果构造模型。
      *
-     * @param reachable  后端是否可达（{@code GuiConfigTestClient.Response.reachable()}）
+     * @param reachable  后端是否可达
      * @param httpStatus HTTP 状态码（可达时有效）
      * @param body       响应正文（JSON；可空）
      */
-    public static GuiPluginStatusModel fromResponse(boolean reachable, int httpStatus, String body) {
+    public static GuiPluginStatusModel fromResponse(boolean reachable, int httpStatus, GuiValue root) {
         if (!reachable) {
             return offline();
         }
@@ -86,26 +83,21 @@ public final class GuiPluginStatusModel {
         if (httpStatus < 200 || httpStatus >= 300) {
             return new GuiPluginStatusModel(Outcome.ERROR, false, List.of());
         }
-        if (body == null || body.isBlank()) {
+        if (root == null) {
             return new GuiPluginStatusModel(Outcome.ERROR, false, List.of());
         }
-        try {
-            JsonNode root = MAPPER.readTree(body);
-            boolean recovery = root.path("recoveryMode").asBoolean(false);
-            List<Row> rows = new ArrayList<>();
-            JsonNode plugins = root.path("plugins");
-            if (plugins.isArray()) {
-                for (JsonNode node : plugins) {
-                    rows.add(toRow(node));
-                }
+        boolean recovery = root.path("recoveryMode").asBoolean(false);
+        List<Row> rows = new ArrayList<>();
+        GuiValue plugins = root.path("plugins");
+        if (plugins.isArray()) {
+            for (GuiValue node : plugins) {
+                rows.add(toRow(node));
             }
-            return new GuiPluginStatusModel(Outcome.OK, recovery, rows);
-        } catch (Exception e) {
-            return new GuiPluginStatusModel(Outcome.ERROR, false, List.of());
         }
+        return new GuiPluginStatusModel(Outcome.OK, recovery, rows);
     }
 
-    private static Row toRow(JsonNode node) {
+    private static Row toRow(GuiValue node) {
         String id = textOrNull(node, "id");
         String name = textOrNull(node, "name");
         return new Row(
@@ -120,8 +112,8 @@ public final class GuiPluginStatusModel {
                 textOrNull(node.path("verification"), "status"));
     }
 
-    private static String textOrNull(JsonNode node, String field) {
-        JsonNode value = node.get(field);
+    private static String textOrNull(GuiValue node, String field) {
+        GuiValue value = node.get(field);
         return (value == null || value.isNull()) ? null : value.asText();
     }
 

@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 
 import javax.swing.SwingUtilities;
 import java.nio.file.Files;
@@ -37,7 +38,8 @@ class GuiThemeManagerTest {
         Files.writeString(config, "app.theme: moonlight\n");
 
         SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                config, GuiThemeManager.readPersistedThemeId(config), List.of()));
+                new TestDesktopConfigFile(config),
+                GuiThemeManager.readPersistedThemeId(new TestDesktopConfigFile(config)), List.of()));
 
         assertThat(GuiThemeManager.configuredThemeId()).isEqualTo("moonlight");
         assertThat(GuiThemeManager.activeThemeId()).isEqualTo("system");
@@ -113,7 +115,8 @@ class GuiThemeManagerTest {
         TestPlugin brokenPlugin = new TestPlugin("broken-theme", null);
 
         assertThatCode(() -> SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                config, GuiThemeManager.readPersistedThemeId(config), List.of(source(brokenPlugin)))))
+                new TestDesktopConfigFile(config),
+                GuiThemeManager.readPersistedThemeId(new TestDesktopConfigFile(config)), List.of(source(brokenPlugin)))))
                 .doesNotThrowAnyException();
 
         assertThat(GuiThemeManager.configuredThemeId()).isEqualTo("moonlight");

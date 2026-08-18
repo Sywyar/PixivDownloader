@@ -1,11 +1,10 @@
 package top.sywyar.pixivdownload.gui.panel;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.common.AppInfo;
-import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.*;
 import java.awt.*;
@@ -18,9 +17,6 @@ import java.net.URI;
  */
 @Slf4j
 public class AboutPanel extends JPanel {
-
-    private static final String GITHUB_URL = AppInfo.GITHUB_URL;
-    private static final String APP_NAME = AppInfo.NAME;
 
     private static final String LICENSE_TEXT = """
                                 GNU AFFERO GENERAL PUBLIC LICENSE
@@ -687,7 +683,7 @@ public class AboutPanel extends JPanel {
 
     public AboutPanel() {
         setLayout(new BorderLayout(0, 0));
-        String appVersion = AppVersion.getDisplayVersionOrDefault(GuiMessages.get("app.version.unknown"));
+        String appVersion = (SwingHost.host().applicationVersion()==null||SwingHost.host().applicationVersion().isBlank())?GuiMessages.get("app.version.unknown"):SwingHost.host().applicationVersion();
 
         // ── 顶部：图标 + 名称 + 描述 + 链接 + 技术栈 ────────────────────────────
         JPanel topPanel = new JPanel();
@@ -705,7 +701,7 @@ public class AboutPanel extends JPanel {
         }
 
         // 应用名称
-        JLabel nameLabel = new JLabel(APP_NAME);
+        JLabel nameLabel = new JLabel(SwingHost.host().applicationName());
         nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 20f));
         nameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         topPanel.add(nameLabel);
@@ -726,7 +722,7 @@ public class AboutPanel extends JPanel {
         topPanel.add(Box.createVerticalStrut(6));
 
         // GitHub 链接
-        JLabel link = new JLabel("<html><a href=''>" + GITHUB_URL + "</a></html>");
+        JLabel link = new JLabel("<html><a href=''>" + SwingHost.host().projectUrl() + "</a></html>");
         link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         link.setHorizontalAlignment(SwingConstants.CENTER);
         link.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -734,10 +730,10 @@ public class AboutPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 try {
-                    Desktop.getDesktop().browse(new URI(GITHUB_URL));
+                    Desktop.getDesktop().browse(new URI(SwingHost.host().projectUrl()));
                 } catch (Exception ex) {
-                    log.warn(MessageBundles.get("gui.about.log.open-github-failed",
-                            GITHUB_URL, ex.getMessage()), ex);
+                    log.warn(SwingHost.host().message("gui.about.log.open-github-failed",
+                            SwingHost.host().projectUrl(), ex.getMessage()), ex);
                     GuiErrorDialog.show(AboutPanel.this,
                             GuiMessages.get("gui.dialog.error.title"),
                             GuiMessages.get("gui.error.open-browser", ex.getMessage()));

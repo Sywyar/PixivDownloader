@@ -1,17 +1,19 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.RepositoryProxyPolicy;
+
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
-import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
-import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
-import top.sywyar.pixivdownload.gui.config.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
-import top.sywyar.pixivdownload.gui.config.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
@@ -20,7 +22,6 @@ import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -32,7 +33,7 @@ import java.util.function.Function;
  * 「插件」分组标签页：在受信 catalog 标量字段之外，提供<b>自定义仓库列表编辑器</b>（增 / 改 / 删 / 上移 / 下移）
  * 与「打开 Web 插件市场」入口。Swing 只做<b>配置与打开入口</b>，<b>不</b>在桌面端复刻完整市场浏览 / 安装页。
  *
- * <p>仓库列表是列表型配置、无法靠 {@code ConfigFieldSpec} 字段网格渲染，故本 section 用 {@link PluginRepositoryConfigEditor}
+ * <p>仓库列表是列表型配置、无法靠 {@code ConfigFieldSpec} 字段网格渲染，故本 section 经 {@link DesktopUiHost}
  * 结构化读写 {@code plugin-catalog.repositories}（{@link #onValuesLoaded()} 读、{@link #onSave()} 写）。标量字段（catalog
  * 主开关 / 官方仓库开关 / 全局超时 / 大小默认）仍由宿主 {@code ConfigPanel} 的字段网格统一加载 / 保存。
  *
@@ -52,8 +53,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
 
     private final ConfigSectionContext ctx;
     private final Function<String, String> webUrlProvider;
-    private final ConfigFileEditor scalarEditor;
-    private final PluginRepositoryConfigEditor repoEditor;
+    private final DesktopUiHost.ConfigFile scalarEditor;
     private final String group = ConfigFieldRegistry.groupPlugins();
 
     private final List<RepositoryConfigEntry> entries = new ArrayList<>();
@@ -71,11 +71,10 @@ public final class PluginMarketConfigSection implements ConfigSection {
     private JButton openMarketButton;
     private boolean marketToggleReadFailureLogged;
 
-    public PluginMarketConfigSection(ConfigSectionContext ctx, Path configPath, Function<String, String> webUrlProvider) {
+    public PluginMarketConfigSection(ConfigSectionContext ctx, DesktopUiHost.ConfigFile configFile, Function<String, String> webUrlProvider) {
         this.ctx = ctx;
         this.webUrlProvider = webUrlProvider;
-        this.scalarEditor = new ConfigFileEditor(configPath);
-        this.repoEditor = new PluginRepositoryConfigEditor(configPath);
+        this.scalarEditor = configFile;
     }
 
     @Override
@@ -250,7 +249,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
     IOException reloadRepositories() {
         entries.clear();
         try {
-            entries.addAll(repoEditor.read());
+            entries.addAll(SwingHost.host().readPluginRepositories(scalarEditor));
             repositoriesLoaded = true;
             return null;
         } catch (IOException e) {
@@ -268,7 +267,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
         }
         List<RepositoryConfigEntry> onDisk;
         try {
-            onDisk = repoEditor.read();
+            onDisk = SwingHost.host().readPluginRepositories(scalarEditor);
         } catch (IOException e) {
             // 加载时可读、保存前重读却失败：同样拒绝写回（成功重读前不写），不冒险覆盖。
             throw new IOException("plugin repositories re-read failed before save; refusing to overwrite: " + safeMessage(e), e);
@@ -276,7 +275,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
         if (entries.equals(onDisk)) {
             return false;
         }
-        repoEditor.write(entries);
+        SwingHost.host().writePluginRepositories(scalarEditor, entries);
         return true;
     }
 
@@ -492,17 +491,22 @@ public final class PluginMarketConfigSection implements ConfigSection {
     static List<TrustedKeyConfigEntry> trustedKeysForSave(List<TrustedKeyConfigEntry> editedKeys,
                                                           boolean inheritOfficialRoot) {
         List<TrustedKeyConfigEntry> result = new ArrayList<>();
+        TrustedKeyConfigEntry officialRoot = officialRoot();
         if (inheritOfficialRoot) {
-            result.add(TrustedKeyConfigEntry.officialRoot());
+            result.add(officialRoot);
         }
         if (editedKeys != null) {
             for (TrustedKeyConfigEntry key : editedKeys) {
-                if (!key.matchesBuiltInOfficialRoot()) {
+                if (!key.equals(officialRoot)) {
                     result.add(key);
                 }
             }
         }
         return List.copyOf(result);
+    }
+
+    static TrustedKeyConfigEntry officialRoot() {
+        return SwingHost.host().officialPluginRepositoryKey();
     }
 
     static boolean hasDuplicateTrustedKeyIds(List<TrustedKeyConfigEntry> keys) {
@@ -855,7 +859,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
                 manifestBytesField.setText(overrideText(entry.maxManifestBytes()));
                 packageBytesField.setText(overrideText(entry.maxPackageBytes()));
                 for (TrustedKeyConfigEntry trustedKey : entry.trustedKeys()) {
-                    if (trustedKey.matchesBuiltInOfficialRoot()) {
+                    if (trustedKey.equals(officialRoot())) {
                         inheritOfficialRootBox.setSelected(true);
                     } else {
                         trustedKeys.add(trustedKey);
@@ -1165,7 +1169,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return SwingHost.host().message(code, args);
     }
 
     private static String trustedKeyStateLabel(String state) {

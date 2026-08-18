@@ -8,14 +8,14 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Swing-side compatibility facade over the toolkit-neutral host lifecycle contract. */
-public final class BackendLifecycleManager {
+public final class SwingBackendLifecycle {
     public enum State { STOPPED, STARTING, RUNNING, STOPPING, FAILED }
     public record Snapshot(State state, Throwable lastError) {}
     @FunctionalInterface public interface Listener { void onStateChanged(Snapshot snapshot); }
 
     private static final Map<Listener, AutoCloseable> SUBSCRIPTIONS = new ConcurrentHashMap<>();
 
-    private BackendLifecycleManager() {}
+    private SwingBackendLifecycle() {}
 
     public static Snapshot snapshot() { return map(SwingHost.host().backendSnapshot()); }
     public static State state() { return snapshot().state(); }

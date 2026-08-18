@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui.panel.configtab;
 
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -67,6 +68,6 @@ public interface ConfigSectionContext {
     /** 触发一次全量可见 / 启用态重算（值变更或预设应用后调用）。 */
     void updateEnabledStates();
 
-    /** 本地后端测试 / 热重载端点的统一 HTTP 客户端。 */
-    GuiConfigTestClient testClient();
+    /** Toolkit-neutral desktop host used for local GUI actions. */
+    DesktopUiHost desktopHost();
 }

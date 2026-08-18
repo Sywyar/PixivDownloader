@@ -1,10 +1,13 @@
 package top.sywyar.pixivdownload.gui.plugin;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.plugin.GuiPluginStatusModel.Outcome;
 import top.sywyar.pixivdownload.gui.plugin.GuiPluginStatusModel.Row;
 import top.sywyar.pixivdownload.gui.plugin.GuiPluginStatusModel.Source;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.GuiValue;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,12 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DisplayName("GuiPluginStatusModel GUI 插件状态展示模型")
 class GuiPluginStatusModelTest {
+    static { DesktopUiTestHost.ensureInstalled(); }
 
     @Test
     @DisplayName("空列表：OK、非恢复模式、无展示行")
     void emptyList() {
         GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(
-                true, 200, "{\"recoveryMode\":false,\"plugins\":[]}");
+                true, 200, json("{\"recoveryMode\":false,\"plugins\":[]}"));
 
         assertThat(model.outcome()).isEqualTo(Outcome.OK);
         assertThat(model.recoveryMode()).isFalse();
@@ -31,7 +35,7 @@ class GuiPluginStatusModelTest {
     @DisplayName("恢复模式：recoveryMode=true 被解析为真")
     void recoveryMode() {
         GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(
-                true, 200, "{\"recoveryMode\":true,\"plugins\":[]}");
+                true, 200, json("{\"recoveryMode\":true,\"plugins\":[]}"));
 
         assertThat(model.outcome()).isEqualTo(Outcome.OK);
         assertThat(model.recoveryMode()).isTrue();
@@ -46,7 +50,7 @@ class GuiPluginStatusModelTest {
                 + "\"required\":false,\"version\":\"1.0.0\","
                 + "\"verification\":{\"status\":\"PROVENANCE_INVALID\"}}]}";
 
-        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, body);
+        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, json(body));
 
         assertThat(model.outcome()).isEqualTo(Outcome.OK);
         assertThat(model.rows()).hasSize(1);
@@ -70,7 +74,7 @@ class GuiPluginStatusModelTest {
                 + "\"status\":\"STARTED\",\"runtimePhase\":null,\"managed\":false,"
                 + "\"required\":true,\"version\":\"0.0.1\"}]}";
 
-        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, body);
+        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, json(body));
 
         Row row = model.rows().get(0);
         assertThat(row.required()).isTrue();
@@ -86,7 +90,7 @@ class GuiPluginStatusModelTest {
                 + "\"id\":\"download-workbench\",\"source\":\"not-installed\","
                 + "\"status\":\"MISSING_REQUIRED\",\"managed\":false,\"required\":true}]}";
 
-        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, body);
+        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, json(body));
 
         Row row = model.rows().get(0);
         assertThat(row.source()).isEqualTo(Source.NOT_INSTALLED);
@@ -102,7 +106,7 @@ class GuiPluginStatusModelTest {
         String body = "{\"recoveryMode\":false,\"plugins\":[{"
                 + "\"id\":\"x\",\"name\":\"x\",\"source\":\"future-kind\",\"status\":\"STARTED\"}]}";
 
-        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, body);
+        GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, json(body));
 
         assertThat(model.rows().get(0).source()).isEqualTo(Source.UNKNOWN);
     }
@@ -117,15 +121,13 @@ class GuiPluginStatusModelTest {
     @Test
     @DisplayName("错误提示：403 → FORBIDDEN")
     void forbiddenWhen403() {
-        assertThat(GuiPluginStatusModel.fromResponse(true, 403, "{}").outcome()).isEqualTo(Outcome.FORBIDDEN);
+        assertThat(GuiPluginStatusModel.fromResponse(true, 403, null).outcome()).isEqualTo(Outcome.FORBIDDEN);
     }
 
     @Test
     @DisplayName("错误提示：非 2xx → ERROR；坏正文 / 空正文 → ERROR")
     void errorWhenBadStatusOrBody() {
-        assertThat(GuiPluginStatusModel.fromResponse(true, 500, "{}").outcome()).isEqualTo(Outcome.ERROR);
-        assertThat(GuiPluginStatusModel.fromResponse(true, 200, "not-json{").outcome()).isEqualTo(Outcome.ERROR);
-        assertThat(GuiPluginStatusModel.fromResponse(true, 200, "").outcome()).isEqualTo(Outcome.ERROR);
+        assertThat(GuiPluginStatusModel.fromResponse(true, 500, null).outcome()).isEqualTo(Outcome.ERROR);
         assertThat(GuiPluginStatusModel.fromResponse(true, 200, null).outcome()).isEqualTo(Outcome.ERROR);
     }
 
@@ -146,5 +148,13 @@ class GuiPluginStatusModelTest {
                 .isNotBlank().isNotEqualTo("PROVENANCE_INVALID");
         assertThat(GuiPluginStatusModel.verificationLabel("IO_ERROR"))
                 .isNotBlank().isNotEqualTo("IO_ERROR");
+    }
+
+    private static GuiValue json(String value) {
+        try {
+            return GuiValue.of(new ObjectMapper().readValue(value, Object.class));
+        } catch (Exception failure) {
+            throw new AssertionError(failure);
+        }
     }
 }

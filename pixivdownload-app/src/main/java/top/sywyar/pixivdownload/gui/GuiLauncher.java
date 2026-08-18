@@ -282,7 +282,7 @@ public class GuiLauncher {
                     startupPluginSources,
                     () -> buildDesktopUiPluginSources(pluginRegistry(
                             pluginSession, pluginSession.manager().discoverFeaturePlugins())),
-                    new AppDesktopUiHost());
+                    new AppDesktopUiHost(port));
             DesktopUiSession ui = selection.provider().launch(context);
             ACTIVE_UI.set(ui);
             singleInstanceManager.setActivationHandler(ui::activate);

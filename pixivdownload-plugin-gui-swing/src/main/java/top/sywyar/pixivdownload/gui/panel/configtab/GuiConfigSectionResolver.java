@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import top.sywyar.pixivdownload.gui.config.ConfigGroupSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
@@ -106,7 +108,7 @@ public final class GuiConfigSectionResolver {
                                                       Function<String, String> webUrlProvider) {
         Function<ConfigSectionContext, ConfigSection> factory = switch (spec.sectionId()) {
             case PLUGIN_MARKET_SECTION -> sectionContext ->
-                    new PluginMarketConfigSection(sectionContext, configPath, webUrlProvider);
+                    new PluginMarketConfigSection(sectionContext, SwingHost.host().applicationConfig(), webUrlProvider);
             default -> null;
         };
         if (factory == null) {

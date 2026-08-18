@@ -692,22 +692,6 @@ class PluginApiDependencyGuardTest {
                 .check(CLASSES);
     }
 
-    @Test
-    @DisplayName("imageclassifier 包不得依赖 sidecar 实现类：sidecar 命名经中性 WorkSidecarFiles 判定")
-    void imageClassifierDoesNotDependOnSidecarImplementation() {
-        noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.imageclassifier..")
-                .should().dependOnClassesThat()
-                .belongToAnyOf(
-                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore.class,
-                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator.class,
-                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
-                        top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta.class)
-                .because("ImageClassifier 是独立 Swing 应用，搬移图片时携带 sidecar 经核心中性类 "
-                        + "core.metadata.sidecar.WorkSidecarFiles 判定文件名，不得反向依赖 sidecar 捕获 / 存储实现类")
-                .check(importGuiSwingClasses());
-    }
-
     private static boolean contains(Path path, String needle) {
         try {
             return Files.readString(path, StandardCharsets.UTF_8).contains(needle);

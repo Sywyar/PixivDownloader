@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.gui;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.JButton;
 import javax.swing.JOptionPane;
@@ -67,7 +68,7 @@ public final class GuiErrorDialog {
             }
             Desktop.getDesktop().open(absolute.toFile());
         } catch (Exception e) {
-            log.warn(MessageBundles.get("gui.dialog.error.log.open-failed",
+            log.warn(SwingHost.host().message("gui.dialog.error.log.open-failed",
                     absolute, e.getMessage()), e);
             JOptionPane.showMessageDialog(parent,
                     GuiMessages.get("gui.dialog.error.open-log-failed", e.getMessage()),
