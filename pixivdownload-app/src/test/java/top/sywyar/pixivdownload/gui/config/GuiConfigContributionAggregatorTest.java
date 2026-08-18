@@ -5,11 +5,13 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
@@ -71,6 +73,11 @@ class GuiConfigContributionAggregatorTest {
 
     @TempDir
     Path tempDir;
+
+    @BeforeEach
+    void installDesktopHost() {
+        DesktopUiTestHost.install(tempDir.resolve("config.yaml"));
+    }
 
     @AfterEach
     void resetLocale() {

@@ -12,6 +12,10 @@ import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.Page;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.PageKind;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.ScrollPolicy;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import top.sywyar.pixivdownload.update.UpdateConfig;
@@ -19,6 +23,7 @@ import top.sywyar.pixivdownload.update.UpdateConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +32,17 @@ import java.util.function.Consumer;
 
 /** App-owned implementation of the stable desktop UI host contract. */
 final class AppDesktopUiHost implements DesktopUiHost {
+    private static final Page WELCOME_PAGE = new Page(
+            PageKind.WELCOME, "gui.tab.welcome", ScrollPolicy.NONE);
+    private static final DesktopUiDocument STANDARD_DOCUMENT = new DesktopUiDocument(List.of(
+            new Page(PageKind.STATUS, "gui.tab.status", ScrollPolicy.SCROLL_PANE),
+            new Page(PageKind.CONFIG, "gui.tab.config", ScrollPolicy.NONE),
+            new Page(PageKind.PLUGINS, "gui.tab.plugins", ScrollPolicy.NONE),
+            new Page(PageKind.TOOLS, "gui.tab.tools", ScrollPolicy.NONE),
+            new Page(PageKind.SECURITY, "gui.tab.security", ScrollPolicy.NONE),
+            new Page(PageKind.ABOUT, "gui.tab.about", ScrollPolicy.NONE)
+    ));
+
     private final DesktopUiLocalApiClient localApiClient;
     private final ConfigFile applicationConfig;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
@@ -38,6 +54,23 @@ final class AppDesktopUiHost implements DesktopUiHost {
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig) {
         this.localApiClient = new DesktopUiLocalApiClient(serverPort);
         this.applicationConfig = applicationConfig;
+    }
+
+    void resetIncompleteOnboardingState(String rootFolder) {
+        var state = onboardingState.snapshot(rootFolder);
+        if (!state.complete() && !state.setupComplete()) onboardingState.clear();
+    }
+
+    DesktopUiDocument desktopUiDocument(String rootFolder) {
+        return desktopUiDocument(onboardingState.snapshot(rootFolder).complete());
+    }
+
+    static DesktopUiDocument desktopUiDocument(boolean onboardingComplete) {
+        if (onboardingComplete) return STANDARD_DOCUMENT;
+        var pages = new ArrayList<Page>(STANDARD_DOCUMENT.pages().size() + 1);
+        pages.add(WELCOME_PAGE);
+        pages.addAll(STANDARD_DOCUMENT.pages());
+        return new DesktopUiDocument(pages);
     }
 
     @Override public String applicationName(){return top.sywyar.pixivdownload.common.AppInfo.NAME;}
@@ -163,7 +196,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
 
     @Override public Optional<FfmpegInstallation> locateFfmpeg() {
         return FfmpegLocator.locate().map(value -> new FfmpegInstallation(value.ffmpegPath(), value.ffprobePath(),
-                value.homeDir(), value.sourceMessageCode()));
+                value.homeDir(), map(value.source())));
     }
     @Override public Path managedFfmpegDirectory() { return FfmpegLocator.managedToolsDir(); }
     @Override public Path prepareManagedFfmpegDirectory() throws IOException {
@@ -173,8 +206,25 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public FfmpegInstallation installManagedFfmpeg(FfmpegProxy proxy, FfmpegProgressListener listener)
             throws IOException, InterruptedException {
         var value = FfmpegInstaller.installManaged(new FfmpegInstaller.ProxySettings(proxy.enabled(), proxy.host(), proxy.port()),
-                listener::onProgress);
-        return new FfmpegInstallation(value.ffmpegPath(), value.ffprobePath(), value.homeDir(), value.sourceMessageCode());
+                (stage, current, total) -> listener.onProgress(map(stage), current, total));
+        return new FfmpegInstallation(value.ffmpegPath(), value.ffprobePath(), value.homeDir(), map(value.source()));
+    }
+
+    private static FfmpegSource map(top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation.Source source) {
+        return switch (source) {
+            case MANAGED -> FfmpegSource.MANAGED;
+            case BUNDLED -> FfmpegSource.BUNDLED;
+            case SYSTEM -> FfmpegSource.SYSTEM;
+        };
+    }
+
+    private static FfmpegInstallStage map(FfmpegInstaller.ProgressStage stage) {
+        return switch (stage) {
+            case CONNECTING -> FfmpegInstallStage.CONNECTING;
+            case DOWNLOADING -> FfmpegInstallStage.DOWNLOADING;
+            case EXTRACTING -> FfmpegInstallStage.EXTRACTING;
+            case COMPLETED -> FfmpegInstallStage.COMPLETED;
+        };
     }
 
     @Override public MaintenanceSnapshot maintenanceSnapshot() {

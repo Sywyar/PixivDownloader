@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import javax.swing.JPasswordField;
@@ -12,6 +13,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("配置字段渲染器")
 class FieldRendererTest {
+
+    static { DesktopUiTestHost.ensureInstalled(); }
 
     @Test
     @DisplayName("INT 字段渲染为左对齐文本框且保留 1000 原文")

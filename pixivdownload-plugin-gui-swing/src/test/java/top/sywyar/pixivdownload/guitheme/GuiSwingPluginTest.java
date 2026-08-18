@@ -1,19 +1,24 @@
 package top.sywyar.pixivdownload.guitheme;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@DisplayName("Swing GUI 插件")
 class GuiSwingPluginTest {
 
     private static final String BUNDLE = "i18n.web.gui-swing";
 
     @Test
+    @DisplayName("公开官方主题标识与本地化名称")
     void exposesOfficialThemeIdsAndLocaleNames() {
         GuiSwingPlugin plugin = new GuiSwingPlugin();
 
@@ -30,6 +35,13 @@ class GuiSwingPluginTest {
         assertThat(plugin.guiThemes())
                 .extracting(theme -> theme.displayName(Locale.SIMPLIFIED_CHINESE))
                 .containsExactlyElementsOf(themeNames(Locale.SIMPLIFIED_CHINESE));
+    }
+
+    @Test
+    @DisplayName("声明支持全部稳定桌面 UI 节点种类")
+    void supportsEveryStableDesktopUiNodeKind() {
+        assertThat(new GuiSwingPlugin().supportedNodeKinds())
+                .containsExactlyInAnyOrderElementsOf(EnumSet.allOf(DesktopUiNode.Kind.class));
     }
 
     private static List<String> themeNames(Locale locale) {

@@ -640,9 +640,11 @@ public interface DesktopUiHost {
      * @param ffmpegPath FFmpeg executable path
      * @param ffprobePath FFprobe executable path
      * @param homeDir installation home directory
-     * @param sourceMessageCode localized source message code
+     * @param source installation origin
      */
-    record FfmpegInstallation(Path ffmpegPath, Path ffprobePath, Path homeDir, String sourceMessageCode) {}
+    record FfmpegInstallation(Path ffmpegPath, Path ffprobePath, Path homeDir, FfmpegSource source) {}
+    /** Stable origin of an FFmpeg installation. */
+    enum FfmpegSource { MANAGED, BUNDLED, SYSTEM }
     /**
      * Proxy settings used only for the managed FFmpeg download.
      *
@@ -660,6 +662,8 @@ public interface DesktopUiHost {
          */
         public FfmpegProxy { host = host == null ? "" : host.trim(); }
     }
+    /** Stable stages reported while installing managed FFmpeg. */
+    enum FfmpegInstallStage { CONNECTING, DOWNLOADING, EXTRACTING, COMPLETED }
     /** Receives coarse progress while installing managed FFmpeg. */
     @FunctionalInterface interface FfmpegProgressListener {
         /**
@@ -669,7 +673,7 @@ public interface DesktopUiHost {
          * @param current completed units
          * @param total total units, or zero when unknown
          */
-        void onProgress(String stage, long current, long total);
+        void onProgress(FfmpegInstallStage stage, long current, long total);
     }
     /**
      * Database column requested by a desktop backfill tool.

@@ -13,19 +13,24 @@ import top.sywyar.pixivdownload.gui.panel.SecurityPanel;
 import top.sywyar.pixivdownload.gui.panel.StatusPanel;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
 import top.sywyar.pixivdownload.gui.panel.WelcomePanel;
-import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.PageKind;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.ScrollPolicy;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
  * GUI 主窗口（960x720，可调整大小）。
- * 包含六个标签页：首页（引导未完成时）、状态、配置、工具、安全、关于。引导完成后首页标签页不显示，共五个标签页。
+ * 根页面的顺序、标题与滚动策略来自宿主提供的 {@link DesktopUiDocument}，本类只负责 Swing 渲染。
  * 关闭窗口时缩回系统托盘，不退出进程。
  */
 public class MainFrame extends JFrame {
@@ -36,47 +41,21 @@ public class MainFrame extends JFrame {
     private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
+    private final Supplier<DesktopUiDocument> desktopUiDocumentSupplier;
     private final Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier;
     private final Supplier<GuiWebEntrySnapshot> guiWebEntrySupplier;
     private final GuiOnboardingSnapshot guiOnboarding;
 
-    private static final int STATUS_TAB_INDEX = 1;
-
     private JTabbedPane tabs;
+    private Map<PageKind, Integer> pageIndexes = Map.of();
     private WelcomePanel welcomePanel;
     private StatusPanel statusPanel;
     private ToolsPanel toolsPanel;
     private ConfigPanel configPanel;
     private PluginsPanel pluginsPanel;
 
-    public MainFrame(int serverPort, String rootFolder, Path configPath) {
-        this(serverPort, rootFolder, configPath,
-                GuiConfigContributionSnapshot.empty(), GuiWebEntrySnapshot.empty(), GuiOnboardingSnapshot.empty());
-    }
-
     public MainFrame(int serverPort, String rootFolder, Path configPath,
-                     GuiConfigContributionSnapshot guiConfigContributions) {
-        this(serverPort, rootFolder, configPath, guiConfigContributions,
-                GuiWebEntrySnapshot.empty(), GuiOnboardingSnapshot.empty());
-    }
-
-    public MainFrame(int serverPort, String rootFolder, Path configPath,
-                     GuiConfigContributionSnapshot guiConfigContributions,
-                     GuiWebEntrySnapshot guiWebEntries,
-                     GuiOnboardingSnapshot guiOnboarding) {
-        this(serverPort, rootFolder, configPath, fixedConfigSnapshot(guiConfigContributions),
-                fixedWebEntrySnapshot(guiWebEntries), guiOnboarding);
-    }
-
-    public MainFrame(int serverPort, String rootFolder, Path configPath,
-                     Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier,
-                     GuiWebEntrySnapshot guiWebEntries,
-                     GuiOnboardingSnapshot guiOnboarding) {
-        this(serverPort, rootFolder, configPath, guiConfigContributionSupplier,
-                fixedWebEntrySnapshot(guiWebEntries), guiOnboarding);
-    }
-
-    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     Supplier<DesktopUiDocument> desktopUiDocumentSupplier,
                      Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier,
                      Supplier<GuiWebEntrySnapshot> guiWebEntrySupplier,
                      GuiOnboardingSnapshot guiOnboarding) {
@@ -84,6 +63,8 @@ public class MainFrame extends JFrame {
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
+        this.desktopUiDocumentSupplier = Objects.requireNonNull(
+                desktopUiDocumentSupplier, "desktopUiDocumentSupplier");
         this.guiConfigContributionSupplier = guiConfigContributionSupplier == null
                 ? GuiConfigContributionSnapshot::empty
                 : guiConfigContributionSupplier;
@@ -118,21 +99,17 @@ public class MainFrame extends JFrame {
 
         // 彩蛋：任意界面连续按出「上上下下左右左右 BABA」即解锁「配置 → 服务器」下的调试模式复选框。
         KonamiCodeListener.install(DebugUnlockState::unlock);
-
-        // 引导未完成前每次启动都停留在引导首页（含未完成配置的情况）；
-        // “完成” = 首次安装已完成 且 整套引导已走到最后一页。任一不满足都还要展示引导。
-        // setup 未完成却存在残留的旧标记 → 复位，避免未配置用户被错误地带过引导。
-        // 整套引导已完成时 buildTabs() 不会再添加欢迎 tab，状态页位于第 0 个标签。
-        var onboardingState = SwingHost.host().onboardingState(rootFolder);
-        if (!onboardingState.complete() && !onboardingState.setupComplete()) {
-            SwingHost.host().clearOnboardingState();
-            onboardingState = SwingHost.host().onboardingState(rootFolder);
-        }
         tabs.setSelectedIndex(0);
     }
 
     private JTabbedPane buildTabs() {
+        DesktopUiDocument document = desktopUiDocument();
         tabs = new JTabbedPane();
+        pageIndexes = new EnumMap<>(PageKind.class);
+        welcomePanel = null;
+        toolsPanel = null;
+        configPanel = null;
+        pluginsPanel = null;
         // 迁移下载目录同步了 download.root-folder 后，刷新配置页让其立即显示新值。
         Runnable onConfigChanged = () -> {
             if (configPanel != null) {
@@ -143,43 +120,41 @@ public class MainFrame extends JFrame {
         statusPanel = new StatusPanel(serverPort, rootFolder, configPath,
                 this::reloadLocale, onConfigChanged, currentWebEntries);
 
-        // 整套引导已走完后不再添加欢迎 tab，避免重复展示并消除针对后端的轮询请求。
-        var onboardingState = SwingHost.host().onboardingState(rootFolder);
-        if (!onboardingState.complete()) {
-            welcomePanel = new WelcomePanel(statusPanel, serverPort, guiOnboarding,
-                    () -> {
-                        showWindow();
-                        if (tabs != null) {
-                            tabs.setSelectedIndex(0);
-                        }
-                    },
-                    () -> { if (tabs != null) tabs.setSelectedIndex(STATUS_TAB_INDEX); });
-            tabs.addTab(GuiMessages.get("gui.tab.welcome"), welcomePanel);
-        } else {
-            welcomePanel = null;
+        for (DesktopUiDocument.Page page : document.pages()) {
+            JComponent content = switch (page.kind()) {
+                case WELCOME -> welcomePanel = new WelcomePanel(statusPanel, serverPort, guiOnboarding,
+                        () -> {
+                            showWindow();
+                            selectPage(PageKind.WELCOME);
+                        },
+                        () -> selectPage(PageKind.STATUS));
+                case STATUS -> statusPanel;
+                // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机）。
+                case CONFIG -> configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
+                        ConfigFieldRegistry.snapshot(guiConfigContributions()),
+                        this::reloadLocale, statusPanel::isUpdateInstalling);
+                case PLUGINS -> pluginsPanel = new PluginsPanel(serverPort, statusPanel::getWebUrl);
+                case TOOLS -> toolsPanel = new ToolsPanel(configPath);
+                case SECURITY -> new SecurityPanel(serverPort);
+                case ABOUT -> new AboutPanel();
+            };
+            tabs.addTab(GuiMessages.get(page.titleI18nKey()), applyScrollPolicy(page.scrollPolicy(), content));
+            pageIndexes.put(page.kind(), tabs.getTabCount() - 1);
         }
-
-        toolsPanel = new ToolsPanel(configPath);
-        // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件市场 / 管理页」。
-        configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
-                ConfigFieldRegistry.snapshot(guiConfigContributions()),
-                this::reloadLocale, statusPanel::isUpdateInstalling);
-        pluginsPanel = new PluginsPanel(serverPort, statusPanel::getWebUrl);
-        tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
-        tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);
-        tabs.addTab(GuiMessages.get("gui.tab.plugins"), pluginsPanel);
-        tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
-        tabs.addTab(GuiMessages.get("gui.tab.security"), new SecurityPanel(serverPort));
-        tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
         return tabs;
     }
 
-    private JScrollPane scrollableStatusPanel(StatusPanel panel) {
-        JScrollPane scroll = new JScrollPane(panel);
-        scroll.setBorder(null);
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
-        scroll.getHorizontalScrollBar().setUnitIncrement(16);
-        return scroll;
+    private JComponent applyScrollPolicy(ScrollPolicy policy, JComponent content) {
+        return switch (policy) {
+            case NONE -> content;
+            case SCROLL_PANE -> {
+                JScrollPane scroll = new JScrollPane(content);
+                scroll.setBorder(null);
+                scroll.getVerticalScrollBar().setUnitIncrement(16);
+                scroll.getHorizontalScrollBar().setUnitIncrement(16);
+                yield scroll;
+            }
+        };
     }
 
     /**
@@ -188,7 +163,7 @@ public class MainFrame extends JFrame {
      * 必须在 EDT 上调用。
      */
     public void reloadLocale() {
-        int previousTab = tabs == null ? 0 : tabs.getSelectedIndex();
+        PageKind previousPage = selectedPage();
 
         if (welcomePanel != null) {
             welcomePanel.dispose();
@@ -206,9 +181,7 @@ public class MainFrame extends JFrame {
         setTitle(GuiMessages.get("app.name"));
         setContentPane(buildTabs());
 
-        if (previousTab >= 0 && previousTab < tabs.getTabCount()) {
-            tabs.setSelectedIndex(previousTab);
-        }
+        if (previousPage != null) selectPage(previousPage);
 
         SystemTrayManager.refreshLocale();
 
@@ -233,22 +206,29 @@ public class MainFrame extends JFrame {
         return snapshot == null ? GuiConfigContributionSnapshot.empty() : snapshot;
     }
 
+    private DesktopUiDocument desktopUiDocument() {
+        return Objects.requireNonNull(desktopUiDocumentSupplier.get(),
+                "desktopUiDocumentSupplier returned null");
+    }
+
+    private PageKind selectedPage() {
+        if (tabs == null) return null;
+        int selectedIndex = tabs.getSelectedIndex();
+        return pageIndexes.entrySet().stream()
+                .filter(entry -> entry.getValue() == selectedIndex)
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void selectPage(PageKind page) {
+        Integer index = pageIndexes.get(page);
+        if (tabs != null && index != null) tabs.setSelectedIndex(index);
+    }
+
     private GuiWebEntrySnapshot guiWebEntries() {
         GuiWebEntrySnapshot snapshot = guiWebEntrySupplier.get();
         return snapshot == null ? GuiWebEntrySnapshot.empty() : snapshot;
-    }
-
-    private static Supplier<GuiConfigContributionSnapshot> fixedConfigSnapshot(
-            GuiConfigContributionSnapshot guiConfigContributions) {
-        GuiConfigContributionSnapshot fixed = guiConfigContributions == null
-                ? GuiConfigContributionSnapshot.empty()
-                : guiConfigContributions;
-        return () -> fixed;
-    }
-
-    private static Supplier<GuiWebEntrySnapshot> fixedWebEntrySnapshot(GuiWebEntrySnapshot guiWebEntries) {
-        GuiWebEntrySnapshot fixed = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
-        return () -> fixed;
     }
 
     public void showWindow() {
@@ -270,8 +250,12 @@ public class MainFrame extends JFrame {
         if (welcomePanel != null) {
             welcomePanel.dispose();
         }
-        statusPanel.dispose();
-        toolsPanel.dispose();
+        if (statusPanel != null) {
+            statusPanel.dispose();
+        }
+        if (toolsPanel != null) {
+            toolsPanel.dispose();
+        }
         if (pluginsPanel != null) {
             pluginsPanel.dispose();
         }

@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
+
+import java.util.Set;
+
 /** Process-lifetime desktop UI supplied by an external plugin. */
 public interface DesktopUiProvider {
     /**
@@ -15,6 +19,15 @@ public interface DesktopUiProvider {
      * @return whether this is the default provider
      */
     default boolean defaultProvider() { return false; }
+
+    /**
+     * Returns the stable declarative node kinds this provider can render, including every semantic variant
+     * defined by each advertised kind.
+     * An empty set means the provider only supports its own native pages.
+     *
+     * @return immutable supported node-kind set
+     */
+    default Set<DesktopUiNode.Kind> supportedNodeKinds() { return Set.of(); }
 
     /**
      * Starts the process-lifetime desktop UI.

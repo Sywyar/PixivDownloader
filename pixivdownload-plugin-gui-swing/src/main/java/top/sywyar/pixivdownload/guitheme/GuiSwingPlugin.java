@@ -1,10 +1,12 @@
 package top.sywyar.pixivdownload.guitheme;
 
-import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
+import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -13,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
+import java.util.Set;
 
 public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
 
@@ -52,6 +55,11 @@ public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
     @Override
     public boolean defaultProvider() {
         return true;
+    }
+
+    @Override
+    public Set<DesktopUiNode.Kind> supportedNodeKinds() {
+        return SwingDesktopUiNodeRenderer.supportedKinds();
     }
 
     @Override

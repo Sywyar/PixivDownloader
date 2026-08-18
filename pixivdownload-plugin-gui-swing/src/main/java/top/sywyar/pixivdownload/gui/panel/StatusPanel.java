@@ -884,16 +884,16 @@ public class StatusPanel extends JPanel {
 
         ffmpegBadge.setText(message("gui.ffmpeg.badge.ready"));
         ffmpegBadge.setForeground(new Color(0, 140, 0));
-        String sourceLabel = message(installation.sourceMessageCode());
+        String sourceLabel = message(ffmpegSourceMessageCode(installation.source()));
         String sourceMessage = (installation.ffprobePath()!=null&&Files.isRegularFile(installation.ffprobePath()))
                 ? message("gui.ffmpeg.source.label", sourceLabel)
                 : message("gui.ffmpeg.source.label.missing-ffprobe", sourceLabel);
         ffmpegSourceLabel.setText(sourceMessage);
         ffmpegPathLabel.setText(message("gui.ffmpeg.path.label", installation.ffmpegPath()));
         ffmpegPathLabel.setToolTipText(installation.ffmpegPath().toString());
-        ffmpegActionButton.setText(installation.sourceMessageCode().endsWith(".managed")
-                ? message("gui.ffmpeg.action.reinstall")
-                : message("gui.ffmpeg.action.install-managed"));
+        ffmpegActionButton.setText(installation.source() == DesktopUiHost.FfmpegSource.MANAGED
+                ? message("gui.ffmpeg.action.redownload")
+                : message("gui.ffmpeg.action.download-to-managed"));
         ffmpegActionButton.setEnabled(SwingHost.host().supportsManagedFfmpegInstall());
         openFfmpegDirButton.setEnabled(true);
     }
@@ -949,7 +949,7 @@ public class StatusPanel extends JPanel {
                     refreshFfmpegState();
                     JOptionPane.showMessageDialog(StatusPanel.this,
                             message("gui.ffmpeg.dialog.install-success.message",
-                                    message(installation.sourceMessageCode()), installation.ffmpegPath()),
+                                    message(ffmpegSourceMessageCode(installation.source())), installation.ffmpegPath()),
                             message("gui.ffmpeg.dialog.install-success.title"), JOptionPane.INFORMATION_MESSAGE);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -963,7 +963,7 @@ public class StatusPanel extends JPanel {
     }
 
     private void applyFfmpegProgress(FfmpegProgress progress) {
-        ffmpegProgress.setString(progress.stage());
+        ffmpegProgress.setString(message(ffmpegStageMessageCode(progress.stage())));
         if (progress.total() > 0) {
             ffmpegProgress.setIndeterminate(false);
             ffmpegProgress.setMaximum(100);
@@ -2109,7 +2109,24 @@ public class StatusPanel extends JPanel {
         return msg == null ? cause.getClass().getSimpleName() : msg;
     }
 
-    private record FfmpegProgress(String stage, long current, long total) {}
+    private static String ffmpegSourceMessageCode(DesktopUiHost.FfmpegSource source) {
+        return switch (source) {
+            case MANAGED -> "ffmpeg.source.managed";
+            case BUNDLED -> "ffmpeg.source.bundled";
+            case SYSTEM -> "ffmpeg.source.system";
+        };
+    }
+
+    private static String ffmpegStageMessageCode(DesktopUiHost.FfmpegInstallStage stage) {
+        return switch (stage) {
+            case CONNECTING -> "gui.ffmpeg.install.stage.connecting";
+            case DOWNLOADING -> "gui.ffmpeg.install.stage.downloading";
+            case EXTRACTING -> "gui.ffmpeg.install.stage.extracting";
+            case COMPLETED -> "gui.ffmpeg.install.completed";
+        };
+    }
+
+    private record FfmpegProgress(DesktopUiHost.FfmpegInstallStage stage, long current, long total) {}
 
     /** 「迁移下载目录」对话框中的一行：前缀 id、原绝对路径、是否为当前下载根、是否为符号根虚拟行、对应输入框。 */
     private record PrefixRow(long id, String original, boolean isRoot, boolean symbolic, JTextField field) {}
