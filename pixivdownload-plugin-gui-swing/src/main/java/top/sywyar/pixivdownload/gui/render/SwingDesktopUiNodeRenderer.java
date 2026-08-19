@@ -69,7 +69,6 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.HierarchyEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,7 +93,10 @@ public final class SwingDesktopUiNodeRenderer {
 
     /** Returns the complete node-kind set implemented by this renderer. */
     public static Set<Kind> supportedKinds() {
-        return Set.copyOf(EnumSet.allOf(Kind.class));
+        return Set.of(Kind.CONTAINER, Kind.DOCK, Kind.SURFACE, Kind.GROUP, Kind.FORM, Kind.TABS,
+                Kind.SCROLL, Kind.SPLIT, Kind.TEXT, Kind.IMAGE, Kind.SEPARATOR, Kind.SPACER,
+                Kind.PROGRESS, Kind.TEXT_INPUT, Kind.TOGGLE, Kind.CHOICE, Kind.NUMBER_INPUT,
+                Kind.TABLE, Kind.TREE, Kind.BUTTON, Kind.LINK);
     }
 
     /** Runs toolkit state restoration without projecting it as user input. */

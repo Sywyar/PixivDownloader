@@ -3,13 +3,13 @@ package top.sywyar.pixivdownload.guicompose
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.jetbrains.skia.Image
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
 import java.awt.Dimension
 import java.awt.Insets
 import java.awt.Point
 import java.awt.Rectangle
 import java.util.Base64
-import java.util.EnumSet
 import java.util.Locale
 import java.util.ResourceBundle
 import kotlin.test.assertEquals
@@ -18,13 +18,26 @@ import kotlin.test.assertFalse
 @DisplayName("Compose Multiplatform GUI 插件")
 class GuiComposePluginTest {
     @Test
-    @DisplayName("作为按需桌面提供者公开全部稳定节点种类")
+    @DisplayName("作为按需桌面提供者显式声明稳定节点与语义能力")
     fun exposesOptionalCompleteRenderer() {
         val plugin = GuiComposePlugin()
 
         assertEquals("gui-compose", plugin.id())
         assertFalse(plugin.defaultProvider())
-        assertEquals(EnumSet.allOf(DesktopUiNode.Kind::class.java), plugin.supportedNodeKinds())
+        assertEquals(setOf(
+            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
+            DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,
+            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT,
+            DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
+            DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
+            DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
+            DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK,
+        ), plugin.supportedNodeKinds())
+        assertEquals(setOf(
+            DesktopUiCapability.INPUT_PATH_FILE,
+            DesktopUiCapability.INPUT_PATH_DIRECTORY,
+            DesktopUiCapability.SELECTION_MULTIPLE,
+        ), plugin.supportedCapabilities())
         assertEquals("Compose Multiplatform GUI",
             ResourceBundle.getBundle("i18n.web.gui-compose", Locale.US).getString("plugin.name"))
     }
@@ -32,7 +45,7 @@ class GuiComposePluginTest {
     @Test
     @DisplayName("完整声明式节点树通过稳定契约校验")
     fun validatesEverySupportedNodeKind() {
-        assertEquals(EnumSet.allOf(DesktopUiNode.Kind::class.java), DesktopUiNode.validateTree(completeTree()))
+        assertEquals(GuiComposePlugin().supportedNodeKinds(), DesktopUiNode.validateTree(completeTree()))
     }
 
     @Test

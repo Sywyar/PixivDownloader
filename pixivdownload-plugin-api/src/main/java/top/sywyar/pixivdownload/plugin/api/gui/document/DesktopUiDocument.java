@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui.document;
 
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -90,6 +92,18 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         for (Page page : pages) kinds.addAll(DesktopUiNode.validateTree(page.content()));
         for (Dialog dialog : dialogs) kinds.addAll(DesktopUiNode.validateTree(dialog.content()));
         return Set.copyOf(kinds);
+    }
+
+    /**
+     * Returns every semantic capability required to render this document without silent degradation.
+     *
+     * @return immutable required capability set
+     */
+    public Set<DesktopUiCapability> requiredCapabilities() {
+        var capabilities = new HashSet<DesktopUiCapability>();
+        for (Page page : pages) capabilities.addAll(DesktopUiNode.requiredCapabilities(page.content()));
+        for (Dialog dialog : dialogs) capabilities.addAll(DesktopUiNode.requiredCapabilities(dialog.content()));
+        return Set.copyOf(capabilities);
     }
 
     /**

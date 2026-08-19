@@ -86,7 +86,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.jetbrains.skia.Image as SkiaImage
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
-import java.util.EnumSet
 import javax.swing.JFileChooser
 import kotlin.math.roundToInt
 
@@ -95,7 +94,15 @@ object ComposeDesktopUiNodeRenderer {
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
 
     fun supportedKinds(): Set<DesktopUiNode.Kind> =
-        EnumSet.allOf(DesktopUiNode.Kind::class.java).toSet()
+        setOf(
+            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
+            DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,
+            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT,
+            DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
+            DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
+            DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
+            DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK,
+        )
 
     @Composable
     fun Render(

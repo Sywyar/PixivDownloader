@@ -2,10 +2,10 @@ package top.sywyar.pixivdownload.guitheme;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
@@ -38,10 +38,26 @@ class GuiSwingPluginTest {
     }
 
     @Test
-    @DisplayName("声明支持全部稳定桌面 UI 节点种类")
-    void supportsEveryStableDesktopUiNodeKind() {
-        assertThat(new GuiSwingPlugin().supportedNodeKinds())
-                .containsExactlyInAnyOrderElementsOf(EnumSet.allOf(DesktopUiNode.Kind.class));
+    @DisplayName("显式声明稳定桌面节点与语义能力")
+    void declaresStableDesktopUiCapabilities() {
+        GuiSwingPlugin plugin = new GuiSwingPlugin();
+
+        assertThat(plugin.supportedNodeKinds()).containsExactlyInAnyOrder(
+                DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
+                DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,
+                DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT,
+                DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
+                DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
+                DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
+                DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK);
+        assertThat(plugin.supportedCapabilities()).containsExactlyInAnyOrder(
+                DesktopUiCapability.SPLIT_USER_RESIZABLE,
+                DesktopUiCapability.TREE_EXPAND_COLLAPSE,
+                DesktopUiCapability.TABLE_LARGE_DATA_SCROLL,
+                DesktopUiCapability.INPUT_NUMERIC,
+                DesktopUiCapability.INPUT_PATH_FILE,
+                DesktopUiCapability.INPUT_PATH_DIRECTORY,
+                DesktopUiCapability.SELECTION_MULTIPLE);
     }
 
     private static List<String> themeNames(Locale locale) {

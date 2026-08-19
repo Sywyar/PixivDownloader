@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.guitheme;
 
 import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
@@ -60,6 +61,17 @@ public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
     @Override
     public Set<DesktopUiNode.Kind> supportedNodeKinds() {
         return SwingDesktopUiNodeRenderer.supportedKinds();
+    }
+
+    @Override
+    public Set<DesktopUiCapability> supportedCapabilities() {
+        return Set.of(DesktopUiCapability.SPLIT_USER_RESIZABLE,
+                DesktopUiCapability.TREE_EXPAND_COLLAPSE,
+                DesktopUiCapability.TABLE_LARGE_DATA_SCROLL,
+                DesktopUiCapability.INPUT_NUMERIC,
+                DesktopUiCapability.INPUT_PATH_FILE,
+                DesktopUiCapability.INPUT_PATH_DIRECTORY,
+                DesktopUiCapability.SELECTION_MULTIPLE);
     }
 
     @Override

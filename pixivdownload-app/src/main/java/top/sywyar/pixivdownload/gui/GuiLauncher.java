@@ -300,17 +300,12 @@ public class GuiLauncher {
             AppDesktopUiModel desktopUiModel = new AppDesktopUiModel(
                     port, root, configPath, desktopUiHost, currentDesktopSources);
             ACTIVE_UI_MODEL.set(desktopUiModel);
-            Set<DesktopUiNode.Kind> missingKinds =
-                    new java.util.LinkedHashSet<>(desktopUiModel.document().requiredNodeKinds());
-            missingKinds.removeAll(selection.provider().supportedNodeKinds());
-            if (!missingKinds.isEmpty()) {
-                throw new IllegalStateException("Desktop UI provider '" + selection.provider().id()
-                        + "' cannot render required node kinds: " + missingKinds);
-            }
             DesktopUiContext context = new DesktopUiContext(startupLaunch, desktopUiHost.applicationName(),
                     desktopUiModel, token -> resolveDesktopText(token, currentDesktopBundles),
                     desktopUiHost::requestApplicationExit,
-                    () -> readConfigScalar(configPath, "app.theme"));
+                    () -> readConfigScalar(configPath, "app.theme"),
+                    selection.provider().id(), selection.provider().supportedNodeKinds(),
+                    selection.provider().supportedCapabilities());
             DesktopUiSession ui = selection.provider().launch(context);
             ACTIVE_UI.set(ui);
             singleInstanceManager.setActivationHandler(ui::activate);
