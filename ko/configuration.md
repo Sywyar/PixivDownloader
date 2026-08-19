@@ -30,6 +30,8 @@ HTTPS 종료를 프록시에서 수행하는 경우 `Forwarded` 또는 `X-Forwar
 
 `app.language`에 `ko-KR`, `en-US`, `zh-CN`, `zh-Hant`, `ja-JP` 같은 BCP 47 태그를 지정할 수 있습니다. 비워 두면 시스템 언어를 따르며, 현재 UI 언어와 콘텐츠 번역 언어는 서로 독립적입니다.
 
+`app.gui-provider`의 기본값은 `gui-swing`입니다. GUI의 선택지는 현재 활성화된 `DesktopUiProvider` 플러그인이 동적으로 제공하며 호스트에 내장된 목록이 아닙니다. 공식 `gui-swing`은 기본 설치이고 `gui-compose`는 필요할 때 설치합니다. provider 전환에는 전체 애플리케이션 재시작이 필요하며, 설정한 provider를 사용할 수 없으면 유일한 기본 provider로만 fallback합니다.
+
 ### 업데이트 및 예약 호스트
 
 온라인 업데이트 채널, 확인 주기, 예약 작업의 호스트 주소와 기본 프록시를 설정합니다. 변경 후 즉시 적용되는지 여부는 설정 항목과 플러그인의 수명 주기 정책에 따라 다릅니다.
@@ -40,7 +42,7 @@ HTTPS 종료를 프록시에서 수행하는 경우 `Forwarded` 또는 `X-Forwar
 
 ## 플러그인 업무 설정
 
-각 플러그인은 자체 설정 네임스페이스를 소유합니다. 예를 들어 다운로드 워크벤치는 검색, 파일명, Cookie 및 작업 큐 설정을 관리하고, 소설 플러그인은 EPUB·TTS·AI 번역 설정을 관리합니다.
+각 플러그인은 자체 설정 네임스페이스를 소유합니다. 플러그인의 `GuiConfigContribution`은 field, group, layout, action, preset을 포함한 해당 설정 section 전체의 기준입니다. 애플리케이션 셸이 core 설정과 하나의 toolkit-neutral desktop document로 병합하고 저장하며 Swing / Compose는 같은 문서를 렌더링할 뿐 별도 플러그인 페이지를 유지하지 않습니다.
 
 ## 플러그인 인증 정보
 

@@ -14,6 +14,8 @@ PixivDownload.exe
 --intro
 ```
 
+기본적으로 포함된 `gui-swing` provider가 시작됩니다. Compose를 사용하려면 신뢰할 수 있는 플러그인 저장소에서 `gui-compose`를 설치하고 **설정 → 인터페이스**에서 선택한 뒤 애플리케이션을 완전히 다시 시작하세요. 서버/Docker 환경에서는 `--no-gui`를 사용할 수 있습니다.
+
 ### CLI 관리자 명령
 
 서버/Docker 환경에서는 `--setup`, `--change-password`, `--reset-password`와 같은 관리자 명령을 사용할 수 있습니다. 비밀번호가 셸 기록에 남지 않도록 보호된 입력을 사용하세요.

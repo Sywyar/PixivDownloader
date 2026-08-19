@@ -8,6 +8,14 @@
 
 플러그인은 descriptor, 설정, 정적 리소스, 웹 라우트, i18n, 알림 템플릿과 다운로드 유형을 기여할 수 있습니다. 호스트는 등록·시작·중지·reload·unload 시 publication을 관리합니다.
 
+### 선언형 데스크톱 UI 경계
+
+Swing과 Compose가 동일한 페이지를 각각 유지하지 않습니다. 애플리케이션 셸이 toolkit-neutral 전체 `DesktopUiDocument`와 페이지 구조, 상태, 설정 저장, 백엔드 상호작용, typed event 처리를 소유합니다. `gui-swing`과 `gui-compose`는 같은 문서를 그리는 범용 `DesktopUiProvider`이며 renderer, 창, tray, theme와 플랫폼 통합만 담당합니다. provider에서 페이지 ID, 플러그인 ID, 설정 key 또는 i18n key를 기준으로 전용 레이아웃을 만들지 마세요.
+
+기능 플러그인은 pure-data `GuiConfigContribution`의 field, group, section, layout, action, preset으로 자신의 설정 section 전체 구조만 선언합니다. 호스트가 신뢰된 owner 기준으로 병합·검증·저장합니다. Swing / Compose component나 최상위 창을 반환하지 마세요. 공통 위젯이 필요하면 중립 `DesktopUiNode` 계약을 확장하고 모든 provider에서 범용으로 구현합니다.
+
+공식 `gui-swing`은 기본 설치 및 기본 provider이고, `gui-compose`는 필요할 때 설치합니다. 둘 다 `process-restart`이므로 전환, 설치, 업데이트, 비활성화 또는 제거 후 전체 애플리케이션을 다시 시작해야 합니다. Compose 플러그인의 Kotlin / Compose 컴파일과 JAR-with-lib 생성은 Gradle Wrapper가 수행하고 Maven reactor가 공식 빌드, 서명, 배포 흐름에 연결합니다.
+
 ## 템플릿에서 시작하기
 
 `plugin-templates/download-type-plugin`은 다운로드 유형 예제이고 `minimal-feature-plugin`은 최소 기능 예제입니다. 템플릿을 복사한 뒤 ID, 패키지, 클래스, 리소스와 표시 이름을 모두 독립적인 값으로 바꾸세요.

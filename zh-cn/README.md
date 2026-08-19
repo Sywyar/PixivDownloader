@@ -1,6 +1,6 @@
 # PixivDownloader Wiki
 
-PixivDownloader 是一款**本地 Pixiv 作品批量下载工具**，基于 Spring Boot 3.5.7 / Java 17 构建，支持桌面 GUI（Swing + FlatLaf）、Web 界面和 Tampermonkey 油猴脚本三种交互方式。
+PixivDownloader 是一款**本地 Pixiv 作品批量下载工具**，基于 Spring Boot 3.5.7 / Java 17 构建，支持可替换桌面 GUI provider（默认 Swing + FlatLaf，可选 Compose Multiplatform + Material 3）、Web 界面和 Tampermonkey 油猴脚本三种交互方式。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/releases)
@@ -27,7 +27,7 @@ PixivDownloader 是一款**本地 Pixiv 作品批量下载工具**，基于 Spri
 | 👥 **多人模式** | 多用户共享服务器，配额与限流控制 |
 | 🔗 **访客邀请** | 邀请码分享画廊，支持内容分级/标签/作者白名单 |
 
-?> Windows 安装包与 Java 标准包预置除 Douyin 外的全部官方插件（含必需的 `download-workbench`）；离线全量包会额外携带 Douyin。作品画廊、小说画廊、统计、疑似重复、TTS、AI、通知、推送、邮件和 GUI 主题等能力由官方插件提供。
+?> Windows 安装包与 Java 标准包预置默认安装的官方插件集合，其中包含必需的 `download-workbench` 和默认 `gui-swing` provider，不含按需安装的 `douyin` 与 `gui-compose`；离线全量包会额外携带二者。画廊、小说、统计、疑似重复、TTS、AI、通知、推送、邮件和桌面 GUI provider 均保持为独立官方插件。
 
 ---
 

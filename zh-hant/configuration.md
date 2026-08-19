@@ -159,8 +159,9 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 | `app.language` | 空 | 跟隨系統；也可使用受支持語言代碼 |
 | `app.theme` | `system` | GUI 主題 id |
 | `app.config-menu-expand-all` | `false` | 是否默認展開全部配置菜單 |
+| `app.gui-provider` | `gui-swing` | 桌面 GUI provider id；只能選擇當前活動插件提供的值 |
 
-可用主題由已安裝的主題插件貢獻；配置值不是宿主對具體主題實現的硬編碼清單。
+可用主題由已安裝的主題插件貢獻；GUI provider 下拉項同樣由當前活動的 `DesktopUiProvider` 動態提供，不是宿主硬編碼清單。官方 `gui-swing` 默認安裝，`gui-compose` 按需安裝。切換 provider 必須完整重啓；配置的 provider 不可用時，只會回退到唯一默認 provider，不按發現順序任選。
 
 ### 在線更新
 
@@ -207,7 +208,7 @@ example.output-format=json
 
 宿主會拒絕插件配置文件覆蓋宿主默認鍵、`plugins.*.enabled` 或看起來像憑據的鍵。不同插件文件中的鍵也不應重複。插件子 Spring 上下文通過 `Environment`、`@Value` 或 `@ConfigurationProperties` 讀取這些值；第三方插件不應直接讀配置文件，也不應依賴應用殼的配置類。
 
-插件 GUI 配置貢獻是字段定義和保存入口的事實來源。保存後，宿主會刷新插件配置源，並按字段與插件生命週期策略給出即時生效、後端重啓或完整進程重啓結果。手工編輯後不確定時，完整重啓最穩妥。
+插件的 `GuiConfigContribution` 是其完整配置 section 的事實來源，可聲明字段、分組、佈局、動作、預設和聯動。應用殼把它與核心配置合併爲一份工具包無關的桌面文檔並負責統一保存；Swing / Compose 只渲染，不各自維護插件頁面。保存後，宿主會刷新插件配置源，並按字段與插件生命週期策略給出即時生效、後端重啓或完整進程重啓結果。手工編輯後不確定時，完整重啓最穩妥。
 
 ## 插件憑據
 

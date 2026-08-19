@@ -64,6 +64,14 @@ Plugins declare capabilities through descriptors and contributions. The host reg
 
 Spring Beans are not returned from `PixivFeaturePlugin`. An external entry point declares configuration classes through `PixivPluginProvider.configurationClasses()`, and the host creates a separate child `ApplicationContext` for each active plugin.
 
+### Declarative desktop UI boundary
+
+Swing and Compose do not maintain separate copies of each desktop page. The application shell produces the complete toolkit-neutral `DesktopUiDocument` and owns page structure, state, configuration persistence, backend interaction, and typed event handling. `gui-swing` and `gui-compose` are generic `DesktopUiProvider` implementations that render the same document and own only their renderer, windows, tray, theme, and platform integration. A provider must not special-case a page id, plugin id, field key, or i18n key.
+
+A feature plugin declares the complete domain structure of its own configuration section using the pure-data `GuiConfigContribution` field, group, section, layout, action, and preset records. The host merges, validates, and persists contributions under the trusted owner. Plugins must not return Swing or Compose components, own top-level windows, or copy host pages. If a new reusable widget is needed, extend the neutral `DesktopUiNode` contract and implement it generically in every provider instead of adding a provider-only exception.
+
+The official `gui-swing` provider is default-installed and is the default. `gui-compose` is installed on demand. Both use `process-restart`, so switching, installing, upgrading, disabling, or removing one requires a full application restart. Gradle Wrapper performs the Compose plugin's Kotlin / Compose compilation and JAR-with-lib production; the Maven reactor invokes Gradle and connects its artifact to the normal official build, signing, and distribution pipeline.
+
 ## Start from a template
 
 ### Choose a template

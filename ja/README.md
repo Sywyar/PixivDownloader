@@ -1,6 +1,6 @@
 # PixivDownloader Wiki
 
-PixivDownloader は、Pixiv の作品をローカルに一括ダウンロードするツールです。Spring Boot 3.5.7 / Java 17 を基盤とし、デスクトップ GUI（Swing + FlatLaf）、Web インターフェース、Tampermonkey ユーザースクリプトの 3 つの操作方法に対応しています。
+PixivDownloader は、Pixiv の作品をローカルに一括ダウンロードするツールです。Spring Boot 3.5.7 / Java 17 を基盤とし、交換可能なデスクトップ GUI provider（既定の Swing + FlatLaf、任意の Compose Multiplatform + Material 3）、Web インターフェース、Tampermonkey ユーザースクリプトの 3 つの操作方法に対応しています。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/releases)
@@ -27,7 +27,7 @@ PixivDownloader は、Pixiv の作品をローカルに一括ダウンロード�
 | 👥 **マルチモード** | クォータとレート制限付きの複数ユーザー共有サーバー |
 | 🔗 **ゲスト招待** | コンテンツレーティング、タグ、作者の許可リストを指定してギャラリーを共有 |
 
-?> Windows インストーラーと Java 標準パッケージには、Douyin を除く公式プラグイン（必須の `download-workbench` を含む）があらかじめ含まれています。完全オフラインパッケージには Douyin も含まれます。作品ギャラリー、小説ギャラリー、統計、重複候補、TTS、AI、通知、プッシュ、メール、GUI テーマは公式プラグインで提供されます。
+?> Windows インストーラーと Java 標準パッケージには、必須の `download-workbench` と既定の `gui-swing` provider を含む標準インストール対象の公式プラグインが入ります。オンデマンドの `douyin` と `gui-compose` は含まれず、完全オフラインパッケージには両方が追加されます。ギャラリー、小説、統計、重複候補、TTS、AI、通知、プッシュ、メール、デスクトップ GUI provider は独立した公式プラグインです。
 
 ## 初めて使う場合
 

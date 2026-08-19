@@ -159,7 +159,7 @@ Mail 插件通過 SMTP 發送配置測試郵件和業務通知。連接會攜帶
 - `stats`：讀取本地數據庫並生成統計。
 - `duplicate`：讀取本地文件和 Hash 數據進行重複檢測。
 - `gallery`：瀏覽本地下載記錄和本地媒體。
-- `gui-theme`：提供本地 GUI 主題資源。
+- `gui-swing` 與 `gui-compose`：渲染應用的本地桌面文檔，提供窗口、托盤、主題和平台資源，不增加固定第三方運行時目標。
 - `recovery-sentinel`：僅用於恢復模式驗證，不包含在常規用戶發行包中。
 
 它們的頁面仍會調用當前 PixivDownloader 實例的同源 API，但這不是訪問第三方公網。

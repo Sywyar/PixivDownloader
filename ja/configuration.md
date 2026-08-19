@@ -122,8 +122,9 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 | `app.language` | 空 | システムに従うか、対応言語コードを指定 |
 | `app.theme` | `system` | GUI テーマ ID |
 | `app.config-menu-expand-all` | `false` | 初期状態で全グループを展開 |
+| `app.gui-provider` | `gui-swing` | デスクトップ GUI provider ID。選択肢は有効な provider プラグインから取得 |
 
-テーマはインストール済みテーマプラグインから提供されます。
+テーマはインストール済みテーマプラグインから提供されます。GUI provider の選択肢も有効な `DesktopUiProvider` から動的に取得され、ホストには固定一覧がありません。公式 `gui-swing` は既定でインストールされ、`gui-compose` はオンデマンドです。切り替えにはアプリケーション全体の再起動が必要です。指定した provider が利用できない場合は、唯一の既定 provider にだけフォールバックできます。
 
 ### 更新とスケジュールホスト
 
@@ -150,7 +151,7 @@ example.timeout-ms=15000
 example.output-format=json
 ```
 
-ホストキー、`plugins.*.enabled`、認証情報らしいキーの上書きは拒否されます。プラグインは子 Spring コンテキストの `Environment`、`@Value`、`@ConfigurationProperties` から値を読み取り、ファイルを直接読まないでください。保存後、ホストは即時反映、バックエンド再起動、プロセス再起動のどれが必要かを示します。
+ホストキー、`plugins.*.enabled`、認証情報らしいキーの上書きは拒否されます。プラグインは子 Spring コンテキストの `Environment`、`@Value`、`@ConfigurationProperties` から値を読み取り、ファイルを直接読まないでください。`GuiConfigContribution` は field、group、layout、action、preset を含むプラグイン設定 section 全体の事実源です。アプリケーションシェルがコア設定と統合して保存し、Swing / Compose は同じ文書を描画するだけです。保存後、ホストは即時反映、バックエンド再起動、プロセス再起動のどれが必要かを示します。
 
 ## プラグイン認証情報
 

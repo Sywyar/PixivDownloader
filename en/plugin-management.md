@@ -4,15 +4,15 @@ The **Plugin Management** page (top nav → **Plugins**) lets an admin see all o
 
 ?> This page is admin-only. Non-admin users don't see the entry and are denied direct access.
 
-> To enable/disable **optional plugins** at the config level, see `plugins.<plugin id>.enabled` in [Configuration](/en/configuration). `download-workbench` is a required external plugin and cannot be disabled. Official plugins such as `stats`, `duplicate`, `gallery`, `novel-gallery`, `notification`, `tts`, `ai`, `push`, `mail`, and `gui-theme` appear here once installed.
+> To enable/disable **optional plugins** at the config level, see `plugins.<plugin id>.enabled` in [Configuration](/en/configuration). `download-workbench` is a required external plugin and cannot be disabled. Official external plugins include `gui-swing`, `stats`, `posthog`, `duplicate`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`; `douyin` and `gui-compose` are installed on demand.
 
 ---
 
 ## Where plugins come from
 
-- **Built-in**: compiled and shipped with the app (core, plugin market, core novel downloading, etc.). They are usually read-only here; whether they can be disabled through `config.yaml` depends on whether the plugin is optional.
+- **Built-in**: compiled and shipped with the app (core, plugin market, etc.). They are usually read-only here; whether they can be disabled through `config.yaml` depends on whether the plugin is optional.
 - **Required external**: `download-workbench` provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The default downloader package and default Windows installer bundle it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path.
-- **Official optional external plugins**: `stats`, `duplicate`, `gallery`, `novel-gallery`, `notification`, `push`, `mail`, `tts`, `ai`, `gui-theme`, etc. are plugin packages under the working directory's `plugins/` folder. Missing or disabling them only withdraws their own contributions and does not trigger recovery.
+- **Official optional external plugins**: the default-installed `gui-swing`, `stats`, `posthog`, `duplicate`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`, plus on-demand `douyin` and `gui-compose`, remain separate packages under the working directory's `plugins/` folder. Missing or disabling one withdraws only its own contributions and does not by itself trigger recovery.
 - **Required but not installed**: a plugin declared required but currently missing shows up as a "Not installed" placeholder so you can add it.
 
 ---
@@ -99,22 +99,23 @@ The marketplace does not provide arbitrary URL install, auto update, delete, or 
 
 A required plugin such as `download-workbench` being missing, corrupted, incompatible, or failing verification puts the app into recovery mode. A crash while any plugin is starting does the same. The Plugin Marketplace banner names the missing required plugin or the plugin that failed to start, includes the available diagnostic, and shows default-installed plugins so they can be repaired. Normal features remain unavailable while the repair entries stay accessible.
 
-Missing or disabling official optional plugins such as `duplicate`, `gallery`, `novel-gallery`, `stats`, `notification`, `tts`, `ai`, `push`, `mail`, and `gui-theme` does not trigger recovery:
+Missing or disabling an official optional plugin such as `duplicate`, `gallery`, `novel`, `stats`, `notification`, `tts`, `ai`, `push`, `mail`, or a desktop GUI provider does not trigger recovery by itself:
 
 - Missing `duplicate` does not affect image Hash writes or historical Hash data.
 - Missing `gallery` does not affect the download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, or local resource index.
-- Missing `novel-gallery` does not affect novel downloading, body storage, translation state, series compilation, scheduled novel runner, TTS / AI degradation behavior, or reading historical novel data.
+- Missing `novel` withdraws novel downloading, its gallery, body storage, translation state, series compilation, and scheduled novel runner together; the core does not retain a parallel novel implementation.
 - Missing TTS / AI / push / mail makes the corresponding capability unavailable or skipped; there is no fallback implementation inside the core.
 
 ---
 
 ## Desktop GUI entry
 
-If you use the desktop app (GUI), the main window has a **Plugins** tab (alongside Status / Config / Tools) that **read-only** shows the same plugin status as this page (name / source / status / runtime phase / required / version), with **Refresh** and **Open web plugin manager** buttons.
+If you use the desktop app, its app-owned declarative document includes a **Plugins** page that **read-only** shows the same plugin status as this page (name / source / status / runtime phase / required / version), with **Refresh** and **Open web plugin manager** actions. Swing and Compose render the same page rather than maintaining separate plugin-management screens.
 
 - Enabling / disabling / installing / uninstalling plugins is **not done in the GUI** — click **Open web plugin manager** to come here and do it.
 - Once the external statistics (`stats`) plugin is installed you can see its install and runtime status in the GUI; when the core enters recovery mode for a missing required download plugin, the GUI shows a clear notice too.
 - The GUI reads status from the backend (same as this page); it never scans the plugin folder itself and does not relax any permission checks.
+- `gui-swing` is the default-installed desktop provider and `gui-compose` is on demand. Both use `process-restart`; install, update, enable/disable, remove, or provider selection changes require a full application restart.
 
 ---
 

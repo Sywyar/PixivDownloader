@@ -32,7 +32,7 @@ PixivDownload.exe
 --help, -h  # 打印帮助并退出
 ```
 
-?> 默认启动桌面 GUI（Swing），服务器场景才建议 `--no-gui`。
+?> 默认启动预置的 `gui-swing` provider。若要使用 Compose，请从受信插件仓库安装 `gui-compose`，在“配置 → 界面”选择后完整重启软件。只有服务器场景才建议 `--no-gui`。
 
 ### CLI 管理命令
 

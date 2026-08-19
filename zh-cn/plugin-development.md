@@ -63,6 +63,14 @@ SDK 由 `pixivdownload-sdk-info`、`pixivdownload-plugin-api` 和 `pixivdownload
 
 Spring Bean 不从 `PixivFeaturePlugin` 返回。外置入口通过 `PixivPluginProvider.configurationClasses()` 声明配置类，宿主为活动插件创建独立的子 `ApplicationContext`。
 
+### 声明式桌面 UI 边界
+
+桌面页面不是由 Swing 和 Compose 各维护一份。应用壳生成完整、工具包无关的 `DesktopUiDocument`，并拥有页面结构、状态、配置保存、后端交互和类型化事件处理；`gui-swing` 与 `gui-compose` 只是读取同一文档的通用 `DesktopUiProvider`，负责各自的渲染、窗口、托盘、主题和平台适配。provider 不得按页面 id、插件 id、字段 key 或 i18n key 编写专用布局。
+
+功能插件只通过 `GuiConfigContribution` 及其 field、group、section、layout、action、preset 纯数据记录，声明自己配置 section 的完整领域结构。宿主按可信 owner 合并、校验和保存；插件不得返回 Swing / Compose 组件，也不得拥有顶层窗口或复制宿主页面。新增稳定节点类型时应扩展中性 `DesktopUiNode` 契约，并让所有 provider 通用实现，而不是只在某个 provider 中补特例。
+
+官方 `gui-swing` 默认安装并作为默认 provider；`gui-compose` 按需安装。两者均为 `process-restart` 插件，切换、安装、升级、禁用或卸载后必须完整重启。Compose 插件的 Kotlin / Compose 编译和 JAR-with-lib 产物由 Gradle Wrapper 实际生成，Maven reactor 只负责调用 Gradle 并接入官方构建、签名和分发流程。
+
 ## 从模板开始
 
 ### 选择模板

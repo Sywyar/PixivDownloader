@@ -26,7 +26,7 @@ java -version
 
 [Releases](https://github.com/Sywyar/PixivDownloader/releases) から次を選びます。
 
-- `PixivDownload-*-java.zip` — Windows インストーラーと同じ既定プラグイン構成（Douyin を除く）
+- `PixivDownload-*-java.zip` — Windows インストーラーと同じ既定プラグイン構成（オンデマンドの Douyin と Compose GUI を除く）
 - `PixivDownload-*-full-offline.zip` — 上記に Douyin を追加した完全オフライン版
 
 アーカイブは**すべて展開**してください。JAR だけを取り出してはいけません。起動スクリプトと `plugins/` ディレクトリが必要です。公式外部プラグインは起動時に作業ディレクトリの `plugins/` から読み込まれます。
@@ -69,7 +69,7 @@ java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
 
 インストーラーをもう一度実行すると、修復、コンポーネント変更、アンインストールを選べます。インストール時は `PixivDownload.exe` が実行中なら終了を求められます。
 
-?> Windows インストーラーには Douyin を除く公式プラグインが含まれます。Douyin は Web プラグインマーケットから必要なときに追加できます。
+?> Windows インストーラーには、必須 `download-workbench` と既定 `gui-swing` を含む標準インストール対象の公式プラグインが入ります。オンデマンドの `douyin` と `gui-compose` は Web プラグインマーケットから追加でき、完全オフラインパッケージには両方が含まれます。
 
 ## 方法 3：Docker
 

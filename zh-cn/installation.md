@@ -81,7 +81,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载 `PixivDownload-x.x.x-win-x64-setup.exe`。
 
-?> Windows 默认安装包预置除 Douyin 外的全部官方插件，启动后即可使用下载页。离线全量包会额外携带 Douyin，适合不方便联网安装插件的环境；Douyin 也可从 Web 插件市场按需安装。
+?> Windows 默认安装包预置默认安装的官方插件集合，其中包含必需的 `download-workbench` 和默认 `gui-swing`，启动后即可使用下载页和桌面 GUI。按需安装的 `douyin` 与 `gui-compose` 不在其中；离线全量包会额外携带二者，也可从 Web 插件市场安装。
 
 ### 2. 安装过程
 
@@ -310,11 +310,11 @@ FFmpeg 用于 Ugoira 动图转换为 WebP，普通图片下载不需要。
 
 `download-workbench` 是 required 外置插件，负责下载页、下载 API、队列、userscript 入口、Pixiv 插画代理和计划任务宿主。缺失、损坏、不兼容或离线复验失败时，程序进入恢复路径，只开放登录、插件管理和安装修复入口。
 
-官方插件默认安装集合包括 `download-workbench`、`stats`、`duplicate`、`gallery`、`novel`、`notification`、`push`、`mail`、`tts`、`ai` 和 `gui-theme`；`douyin` 是唯一的按需安装插件。缺失或禁用可选插件只会让对应页面、API、导航、静态资源、i18n、GUI 配置字段或能力贡献缺席，不会让程序进入恢复路径。
+官方插件默认安装集合包括 `download-workbench`、`gui-swing`、`stats`、`posthog`、`duplicate`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts` 和 `ai`；`douyin` 与 `gui-compose` 按需安装。缺失或禁用可选插件只会让对应页面、API、导航、静态资源、i18n、GUI 配置 section 或能力贡献缺席，本身不会让程序进入恢复路径。
 
-- Windows 安装包：内置 JRE，预置除 `douyin` 外的全部官方插件；`douyin` 可从 Web 插件市场按需安装。
-- Java 标准包（`*-java.zip`）：与 Windows 安装包默认插件集合一致，不含 `douyin`；不含 JRE、不含 FFmpeg。
-- 离线全量包（`*-full-offline.zip`）：在 Java 标准包集合基础上额外携带 `douyin`；不含 JRE、不含 FFmpeg。
+- Windows 安装包：内置 JRE 与默认安装插件集合；`douyin`、`gui-compose` 可从 Web 插件市场按需安装。
+- Java 标准包（`*-java.zip`）：与 Windows 安装包的 default-installed 插件集合一致；不含 JRE、不含 FFmpeg。
+- 离线全量包（`*-full-offline.zip`）：在 Java 标准包集合基础上额外携带 `douyin` 与 `gui-compose`；不含 JRE、不含 FFmpeg。
 - `duplicate` 缺失不影响图片 Hash 写入和历史 Hash 数据。
 - `gallery` 缺失不影响下载页、下载 API、userscript、Pixiv 插画代理、计划任务宿主、作品元数据、下载事实、Hash 与本地资源索引。
-- `novel` 缺失不影响小说下载核心、正文保存、翻译状态、系列合订、计划任务小说执行器、TTS / AI 能力降级与历史数据读取。
+- `novel` 缺失会让小说下载、小说画廊、正文保存、翻译状态、系列合订和计划任务小说执行器一并缺席；核心不保留平行实现。

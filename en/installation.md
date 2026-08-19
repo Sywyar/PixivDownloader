@@ -82,7 +82,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 Download `PixivDownload-x.x.x-win-x64-setup.exe` from [Releases](https://github.com/Sywyar/PixivDownloader/releases).
 
-?> The default Windows installer preinstalls all official plugins except Douyin, so the download page works after startup. The full-offline package additionally carries Douyin for environments where installing plugins online is inconvenient; Douyin can also be installed on demand from the web plugin marketplace.
+?> The default Windows installer preinstalls the default-installed official plugin set, including required `download-workbench` and default `gui-swing`, so the download page and desktop GUI work after startup. On-demand `douyin` and `gui-compose` are omitted; the full-offline package carries both, and either can be installed from the Web Plugin Marketplace.
 
 ### 2. Installation Process
 
@@ -311,11 +311,11 @@ After startup, visit in your browser:
 
 `download-workbench` is the required external plugin. It owns the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. If it is missing, corrupted, incompatible, or fails offline verification, the app enters the recovery path and only exposes login, plugin management, and repair/install entry points.
 
-The default installed official plugin set is `download-workbench`, `stats`, `duplicate`, `gallery`, `novel`, `notification`, `push`, `mail`, `tts`, `ai`, and `gui-theme`; `douyin` is the only on-demand plugin. Missing or disabling optional plugins only removes their pages, APIs, navigation, static resources, i18n, GUI config fields, or capability contributions; it does not trigger recovery.
+The default-installed official plugin set is `download-workbench`, `gui-swing`, `stats`, `posthog`, `duplicate`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`; `douyin` and `gui-compose` are on demand. Missing or disabling an optional plugin only removes its pages, APIs, navigation, static resources, i18n, GUI configuration sections, or capability contributions; it does not by itself trigger recovery.
 
-- Windows installer: bundles the JRE and preinstalls all official plugins except `douyin`; `douyin` can be installed on demand from the web plugin marketplace.
-- Java standard package (`*-java.zip`): same default plugin set as the Windows installer, without `douyin`; no JRE, no FFmpeg.
-- Full-offline package (`*-full-offline.zip`): the Java standard set plus `douyin`; no JRE, no FFmpeg.
+- Windows installer: bundles the JRE and the canonical default-installed plugin set; `douyin` and `gui-compose` can be installed on demand from the Web Plugin Marketplace.
+- Java standard package (`*-java.zip`): the same default-installed plugin set as the Windows installer; no JRE, no FFmpeg.
+- Full-offline package (`*-full-offline.zip`): the Java standard set plus `douyin` and `gui-compose`; no JRE, no FFmpeg.
 - Missing `duplicate` does not affect image Hash writes or historical Hash data.
 - Missing `gallery` does not affect the download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, or local resource index.
-- Missing `novel` does not affect novel downloading, body storage, translation state, series compilation, scheduled novel runner, TTS / AI degradation behavior, or reading historical novel data.
+- Missing `novel` withdraws novel downloading, its gallery, body storage, translation state, series compilation, and scheduled novel runner together; the core does not retain a parallel implementation.

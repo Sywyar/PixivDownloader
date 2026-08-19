@@ -130,7 +130,7 @@ OpenAI 互換の `/chat/completions` に、翻訳・処理対象のテキスト�
 
 ## 固定された公開先を追加しない公式プラグイン
 
-`stats`、`duplicate`、`gallery`、`gui-theme` は主にローカルデータ、ファイル、テーマ資源を使います。ページから現在の PixivDownloader への同一オリジン API を呼ぶことはありますが、第三者公開先への固定接続は追加しません。
+`stats`、`duplicate`、`gallery`、`gui-swing`、`gui-compose` は主にローカルデータ、ファイル、デスクトップ文書、ウィンドウ、トレイ、テーマ資源を使います。現在の PixivDownloader への同一オリジン API を呼ぶことはありますが、第三者公開先への固定接続は追加しません。
 
 ## ローカル、同一オリジン、管理者定義の宛先
 

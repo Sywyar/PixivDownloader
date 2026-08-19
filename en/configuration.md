@@ -159,8 +159,9 @@ The application walks a proxy chain from right to left, selects the first untrus
 | `app.language` | empty | Follow the system, or use a supported language code |
 | `app.theme` | `system` | GUI theme id |
 | `app.config-menu-expand-all` | `false` | Expand all configuration groups initially |
+| `app.gui-provider` | `gui-swing` | Desktop GUI provider id; selectable values come only from active provider plugins |
 
-Available themes are contributed by installed theme plugins; the setting is not a host hard-coded list of concrete implementations.
+Available themes are contributed by installed theme plugins. The GUI provider selector is also populated dynamically from active `DesktopUiProvider` plugins rather than a host hard-coded list. The official `gui-swing` provider is default-installed; `gui-compose` is installed on demand. Switching providers requires a full restart. If the configured provider is unavailable, selection may fall back only to the unique default provider, never discovery order.
 
 ### Updates
 
@@ -194,7 +195,7 @@ The host owns `plugins.{pluginId}.enabled`, for example:
 plugins.douyin.enabled: true
 ```
 
-A required plugin cannot be disabled. Whether a change is immediate depends on the plugin's `pixiv.lifecycle-policy` and the requested lifecycle operation; see [plugin management](/zh-cn/plugin-management).
+A required plugin cannot be disabled. Whether a change is immediate depends on the plugin's `pixiv.lifecycle-policy` and the requested lifecycle operation; see [plugin management](/en/plugin-management).
 
 ## Plugin business configuration
 
@@ -207,7 +208,7 @@ example.output-format=json
 
 The host rejects attempts to override default host keys, `plugins.*.enabled`, or credential-like keys from these files. Keys should not collide across plugin files. A plugin child Spring context reads values through `Environment`, `@Value`, or `@ConfigurationProperties`; a third-party plugin should not read files directly or depend on app-shell configuration classes.
 
-The plugin's GUI configuration contribution is the source of truth for fields and persistence. After save, the host refreshes plugin property sources and reports whether the result is immediate, requires a backend restart, or requires a process restart. After uncertain manual edits, a full restart is safest.
+The plugin's `GuiConfigContribution` is the source of truth for its complete configuration section, including fields, groups, layout, actions, presets, and interactions. The application shell merges it with core configuration into one toolkit-neutral desktop document and owns the unified save flow; Swing and Compose only render it and do not maintain separate plugin pages. After save, the host refreshes plugin property sources and reports whether the result is immediate, requires a backend restart, or requires a process restart. After uncertain manual edits, a full restart is safest.
 
 ## Plugin credentials
 

@@ -35,6 +35,14 @@ SDK は `pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-c
 
 `PixivFeaturePlugin` の主な入口は `id`、表示情報、`start` / `stop`、`schema`、`routes`、`staticResources`、`i18n`、`navigation`、`startupRoutes`、`landings`、`pageSections`、`uiSlots`、`guiThemes`、`guiConfigContributions`、`guiOnboardingSteps`、`drilldowns`、`userscripts`、`scheduledSourceDescriptors`、`downloadTypes` です。未使用の入口は空リストのままにします。Spring Bean はこのメソッドから返さず、`PixivPluginProvider.configurationClasses()` で設定クラスを宣言し、プラグインごとの子 `ApplicationContext` を使います。
 
+### 宣言的デスクトップ UI の境界
+
+Swing と Compose が同じページを別々に保守する構成ではありません。アプリケーションシェルがツールキット非依存の完全な `DesktopUiDocument` を生成し、ページ構造、状態、設定保存、バックエンド連携、型付きイベント処理を所有します。`gui-swing` と `gui-compose` は同じ文書を描画する汎用 `DesktopUiProvider` であり、レンダラー、ウィンドウ、トレイ、テーマ、プラットフォーム連携だけを所有します。ページ ID、プラグイン ID、設定キー、i18n キーによる専用分岐を provider に追加しないでください。
+
+機能プラグインは純データの `GuiConfigContribution` と field / group / section / layout / action / preset で、自分の設定 section の完全な業務構造だけを宣言します。ホストが信頼済み owner ごとに統合、検証、保存します。Swing / Compose コンポーネントやトップレベルウィンドウを返してはいけません。再利用可能な UI 要素が必要なら中立な `DesktopUiNode` 契約を拡張し、すべての provider で汎用実装します。
+
+公式 `gui-swing` は既定でインストールされる既定 provider、`gui-compose` はオンデマンドです。どちらも `process-restart` のため、切り替え、インストール、更新、無効化、削除にはアプリケーション全体の再起動が必要です。Compose プラグインは Gradle Wrapper が Kotlin / Compose のコンパイルと JAR-with-lib 生成を実行し、Maven reactor がその成果物を通常の公式ビルド、署名、配布へ接続します。
+
 ## テンプレートから開始
 
 | テンプレート | 用途 | 内容 |

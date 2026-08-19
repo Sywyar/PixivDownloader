@@ -159,7 +159,7 @@ The following plugins do not add a fixed third-party network destination:
 - `stats`: reads the local database and calculates statistics.
 - `duplicate`: reads local files and hash data for duplicate detection.
 - `gallery`: browses local download records and local media.
-- `gui-theme`: provides local GUI theme resources.
+- `gui-swing` and `gui-compose`: render the app's local desktop document and provide local window, tray, theme, and platform resources. They add no fixed third-party runtime destination.
 - `recovery-sentinel`: a recovery-mode test fixture that is not included in standard user distributions.
 
 Their pages may still call same-origin APIs on the current PixivDownloader instance, which is not a third-party public connection.

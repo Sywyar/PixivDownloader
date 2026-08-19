@@ -1,6 +1,6 @@
 ﻿# PixivDownloader Wiki
 
-PixivDownloader is a **local batch download tool for Pixiv artwork**, built on Spring Boot 3.5.7 / Java 17, supporting three interaction modes: desktop GUI (Swing + FlatLaf), web interface, and Tampermonkey userscripts.
+PixivDownloader is a **local batch download tool for Pixiv artwork**, built on Spring Boot 3.5.7 / Java 17, supporting three interaction modes: replaceable desktop GUI providers (default Swing + FlatLaf or optional Compose Multiplatform + Material 3), web interface, and Tampermonkey userscripts.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/releases)
@@ -27,7 +27,7 @@ PixivDownloader is a **local batch download tool for Pixiv artwork**, built on S
 | 👥 **Multi Mode** | Multi-user shared server with quota and rate limiting |
 | 🔗 **Guest Invite** | Share galleries via invite codes with content rating / tag / author allowlist control |
 
-?> The Windows installer and the Java standard package preinstall all official plugins except Douyin (including the required `download-workbench`); the full-offline package additionally carries Douyin. Artwork gallery, novel gallery, stats, suspected duplicates, TTS, AI, notifications, push, mail, and GUI themes are provided by official plugins.
+?> The Windows installer and Java standard package contain the default-installed official plugin set, including required `download-workbench` and the default `gui-swing` provider. On-demand `douyin` and `gui-compose` are omitted; the full-offline package carries both. Gallery, novel, stats, suspected-duplicate detection, TTS, AI, notifications, push, mail, and desktop GUI providers remain separate official plugins.
 
 ---
 

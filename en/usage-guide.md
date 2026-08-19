@@ -32,7 +32,7 @@ PixivDownload.exe
 --help, -h  # Print help and exit
 ```
 
-?> Desktop GUI (Swing) launches by default. `--no-gui` is only recommended for server scenarios.
+?> The default-installed `gui-swing` provider launches unless `app.gui-provider` selects another active provider. Install `gui-compose` from a trusted plugin repository, select it under **Configuration → Interface**, then fully restart the application. `--no-gui` is recommended only for server scenarios.
 
 ### CLI Admin Commands
 

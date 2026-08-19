@@ -1,6 +1,6 @@
 # PixivDownloader 문서
 
-PixivDownloader는 Pixiv 작품을 로컬에서 일괄 다운로드하는 도구입니다. Spring Boot 3.5.7과 Java 17을 기반으로 하며, 데스크톱 GUI, 웹 인터페이스, Tampermonkey 사용자 스크립트를 지원합니다.
+PixivDownloader는 Pixiv 작품을 로컬에서 일괄 다운로드하는 도구입니다. Spring Boot 3.5.7과 Java 17을 기반으로 하며, 교체 가능한 데스크톱 GUI provider(기본 Swing + FlatLaf, 선택적 Compose Multiplatform + Material 3), 웹 인터페이스, Tampermonkey 사용자 스크립트를 지원합니다.
 
 ?> 이 문서에서 작품은 일러스트, 만화, 애니메이션(Ugoira), 소설을 포함합니다.
 
@@ -20,6 +20,8 @@ PixivDownloader는 Pixiv 작품을 로컬에서 일괄 다운로드하는 도구
 | 🧩 **사용자 스크립트** | Pixiv 페이지에서 직접 작동하는 전용 스크립트 6개와 All-in-One 번들입니다. |
 | 🌐 **다국어 및 다크 모드** | 여러 언어와 모든 페이지의 다크 모드를 지원합니다. |
 | 👥 **다중 사용자 모드** | 할당량과 속도 제한이 있는 공유 서버를 지원합니다. |
+
+?> Windows 설치 프로그램과 Java 표준 패키지는 필수 `download-workbench`와 기본 `gui-swing`을 포함한 기본 설치 공식 플러그인을 제공합니다. 필요할 때 설치하는 `douyin`과 `gui-compose`는 제외되며 full-offline 패키지에는 둘 다 포함됩니다.
 
 ## 처음 사용하는 경우
 
