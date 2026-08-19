@@ -94,7 +94,8 @@ public final class MainFrame extends JFrame {
                 || !locale.equals(renderedLocale);
         Function<DesktopUiNode.TextToken, String> textResolver =
                 token -> resolve(token, pluginSources);
-        SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(textResolver, context::dispatchEvent);
+        SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
+                textResolver, event -> context.dispatchEvent(targetRevision, event));
         Map<String, Integer> nextIndexes = new LinkedHashMap<>();
         Map<String, DesktopUiDocument.Page> nextDescriptors = new LinkedHashMap<>();
         for (int index = 0; index < document.pages().size(); index++) {
@@ -186,8 +187,9 @@ public final class MainFrame extends JFrame {
         dialog.addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent event) {
                 DesktopUiDocument.Dialog descriptor = dialogDescriptors.get(id);
-                if (descriptor != null && descriptor.dismissible()) context.dispatchEvent(new DesktopUiNode.Event(
-                        DesktopUiNode.EventType.ACTIVATE, id, descriptor.dismissActionId(),
+                if (descriptor != null && descriptor.dismissible()) context.dispatchEvent(
+                        renderedRevision, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.ACTIVATE, id,
                         DesktopUiNode.Value.empty()));
             }
         });
@@ -320,8 +322,8 @@ public final class MainFrame extends JFrame {
             DesktopUiDocument.MatchResult match = shortcut.advance(
                     shortcutIndexes.getOrDefault(shortcut.id(), 0), pressed);
             if (match.completed()) {
-                context.dispatchEvent(new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
-                        shortcut.id(), shortcut.actionId(), DesktopUiNode.Value.empty()));
+                context.dispatchEvent(context.currentDocumentRevision(), new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.ACTIVATE, shortcut.id(), DesktopUiNode.Value.empty()));
                 consume |= shortcut.consume();
             }
             shortcutIndexes.put(shortcut.id(), match.nextIndex());

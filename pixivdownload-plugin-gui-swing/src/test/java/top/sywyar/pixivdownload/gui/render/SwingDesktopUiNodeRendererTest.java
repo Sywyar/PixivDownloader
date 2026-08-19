@@ -75,12 +75,12 @@ class SwingDesktopUiNodeRendererTest {
         });
 
         assertThat(events.stream()
-                .filter(event -> event.targetId().equals("choice.list"))
+                .filter(event -> event.nodeId().equals("choice.list"))
                 .map(event -> event.value().values())
                 .toList()).containsExactly(List.of("two"));
         assertThat(events).anySatisfy(event -> {
             assertThat(event.type()).isEqualTo(DesktopUiNode.EventType.ACTIVATE);
-            assertThat(event.targetId()).isEqualTo("action.run");
+            assertThat(event.nodeId()).isEqualTo("button");
         });
     }
 
