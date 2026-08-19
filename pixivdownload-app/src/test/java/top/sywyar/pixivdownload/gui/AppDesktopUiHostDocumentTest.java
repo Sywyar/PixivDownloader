@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
@@ -131,6 +132,77 @@ class AppDesktopUiHostDocumentTest {
         assertThat(item.label().namespace()).isEqualTo("fixture");
         assertThat(item.label().key()).isEqualTo("navigation.label");
         assertThat(item.actionId()).isEqualTo(item.id() + ".open");
+    }
+
+    @Test
+    @DisplayName("活动插件页面按声明排序并随来源撤回")
+    void pluginDesktopPagesJoinAndLeaveTheHostDocument() {
+        PixivFeaturePlugin plugin = new PixivFeaturePlugin() {
+            @Override public String id() { return "page-fixture"; }
+            @Override public String displayName() { return "plugin.name"; }
+            @Override public String description() { return "plugin.description"; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public List<WebRouteContribution> routes() {
+                return List.of(new WebRouteContribution("/api/gui/page-fixture/run",
+                        AccessPolicy.GUI, Set.of(HttpMethod.POST), false));
+            }
+            @Override public List<DesktopUiPageContribution> desktopPages() {
+                DesktopUiNode.Text first = new DesktopUiNode.Text(
+                        "page-fixture.first.content", DesktopUiNode.TextToken.raw("First"),
+                        DesktopUiNode.TextStyle.BODY, true, false);
+                DesktopUiNode.Button run = new DesktopUiNode.Button(
+                        "page-fixture.second.run", "page-fixture.second.run.action",
+                        DesktopUiNode.TextToken.raw("Run"), null, DesktopUiNode.ButtonStyle.NORMAL, true);
+                DesktopUiDocument.Dialog dialog = new DesktopUiDocument.Dialog(
+                        "page-fixture.second.dialog", DesktopUiNode.TextToken.raw("Dialog"),
+                        DesktopUiDocument.DialogStyle.INFO,
+                        new DesktopUiNode.Text("page-fixture.second.dialog.content",
+                                DesktopUiNode.TextToken.raw("Open"), DesktopUiNode.TextStyle.BODY, true, false),
+                        "page-fixture.second.dialog.dismiss", true, 0, 0);
+                DesktopUiNode.Button invalid = new DesktopUiNode.Button(
+                        "page-fixture.invalid.run", "page-fixture.invalid.run.action",
+                        DesktopUiNode.TextToken.raw("Invalid"), null, DesktopUiNode.ButtonStyle.NORMAL, true);
+                DesktopUiNode.Image svg = new DesktopUiNode.Image(
+                        "page-fixture.svg.image", new DesktopUiNode.ImageData("image/svg+xml", "PHN2Zy8+"),
+                        DesktopUiNode.TextToken.raw("SVG"), 16, 16, DesktopUiNode.ScaleMode.FIT);
+                return List.of(
+                        new DesktopUiPageContribution("page-fixture.second", 20,
+                                DesktopUiNode.TextToken.raw("Second"), run,
+                                Map.of("page-fixture.second.run.action", "page-fixture/run",
+                                        "page-fixture.second.dialog.dismiss", "page-fixture/run"),
+                                List.of(dialog)),
+                        new DesktopUiPageContribution("page-fixture.first", 10,
+                                DesktopUiNode.TextToken.raw("First"), first),
+                        new DesktopUiPageContribution("page-fixture.invalid", 30,
+                                DesktopUiNode.TextToken.raw("Invalid"), invalid,
+                                Map.of("page-fixture.invalid.run.action", "page-fixture/missing"), List.of()),
+                        new DesktopUiPageContribution("page-fixture.svg", 40,
+                                DesktopUiNode.TextToken.raw("SVG"), svg));
+            }
+        };
+        DesktopUiPluginSource source = new DesktopUiPluginSource(
+                plugin.id(), false, plugin, plugin.getClass().getClassLoader());
+        AtomicReference<List<DesktopUiPluginSource>> sources = new AtomicReference<>(List.of(source));
+        Path config = tempDir.resolve("plugin-page.yaml");
+        AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
+                config, new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), sources::get));
+
+        assertThat(model.document().pages()).extracting(DesktopUiDocument.Page::id)
+                .endsWith("page-fixture.first", "page-fixture.second")
+                .doesNotContain("page-fixture.invalid", "page-fixture.svg");
+        assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+                .contains("page-fixture.second.dialog");
+
+        long activeRevision = model.revision();
+        sources.set(List.of());
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "debug.unlock.shortcut", DesktopUiNode.Value.empty());
+
+        assertThat(model.revision()).isGreaterThan(activeRevision);
+        assertThat(model.document().pages()).extracting(DesktopUiDocument.Page::id)
+                .doesNotContain("page-fixture.first", "page-fixture.second");
+        assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+                .doesNotContain("page-fixture.second.dialog");
     }
 
     @Test

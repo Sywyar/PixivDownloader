@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
@@ -343,6 +344,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             List<DesktopUiDocument.Dialog> dialogs = new ArrayList<>();
             if (dialogState != null) dialogs.add(dialog(dialogState, nextActions));
             if (toolDialog != null) dialogs.add(toolDialog(toolDialog, nextActions));
+            appendPluginPages(pages, dialogs, nextActions);
             DesktopUiDocument.Tray tray = tray(nextActions);
             nextActions.put("debug.unlock", this::unlockDebugConfiguration);
             actions = Map.copyOf(nextActions);
@@ -4547,6 +4549,169 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         }
     }
 
+    private void appendPluginPages(List<DesktopUiDocument.Page> pages,
+                                   List<DesktopUiDocument.Dialog> dialogs,
+                                   Map<String, Runnable> nextActions) {
+        List<PluginPageCandidate> candidates = new ArrayList<>();
+        for (DesktopUiPluginSource source : currentSources().stream()
+                .sorted(Comparator.comparing(DesktopUiPluginSource::id)).toList()) {
+            List<DesktopUiPageContribution> contributions;
+            try {
+                contributions = source.plugin().desktopPages();
+            } catch (RuntimeException failure) {
+                LOG.warn("Unable to read desktop page contributions (owner={}, generation={})",
+                        source.id(), source.generation(), failure);
+                continue;
+            }
+            if (contributions == null) continue;
+            List<WebRouteContribution> routes;
+            try {
+                List<WebRouteContribution> declared = source.plugin().routes();
+                routes = declared == null ? List.of() : declared.stream().filter(Objects::nonNull).toList();
+            } catch (RuntimeException failure) {
+                LOG.warn("Unable to read desktop page routes (owner={}, generation={})",
+                        source.id(), source.generation(), failure);
+                routes = List.of();
+            }
+            for (int index = 0; index < contributions.size(); index++) {
+                DesktopUiPageContribution contribution = contributions.get(index);
+                if (contribution != null) {
+                    candidates.add(new PluginPageCandidate(source.id(), source.generation(), index,
+                            contribution, routes));
+                }
+            }
+        }
+        candidates.sort(Comparator.comparingInt((PluginPageCandidate candidate) -> candidate.page().order())
+                .thenComparing(PluginPageCandidate::owner)
+                .thenComparing(candidate -> candidate.page().pageId())
+                .thenComparingInt(PluginPageCandidate::declarationOrder));
+        Set<String> seenPageIds = new LinkedHashSet<>();
+        Set<String> duplicatePageIds = new LinkedHashSet<>();
+        for (PluginPageCandidate candidate : candidates) {
+            if (!seenPageIds.add(candidate.page().pageId())) duplicatePageIds.add(candidate.page().pageId());
+        }
+        for (PluginPageCandidate candidate : candidates) {
+            DesktopUiPageContribution contribution = candidate.page();
+            if (duplicatePageIds.contains(contribution.pageId())
+                    || !validPluginPage(candidate.owner(), contribution, candidate.routes())) {
+                LOG.warn("Ignored invalid desktop page contribution (owner={}, generation={}, pageId={})",
+                        candidate.owner(), candidate.generation(), contribution.pageId());
+                continue;
+            }
+            DesktopUiDocument.Page page = new DesktopUiDocument.Page(
+                    contribution.pageId(), contribution.title(), contribution.content());
+            try {
+                List<DesktopUiDocument.Page> candidatePages = new ArrayList<>(pages);
+                candidatePages.add(page);
+                List<DesktopUiDocument.Dialog> candidateDialogs = new ArrayList<>(dialogs);
+                candidateDialogs.addAll(contribution.dialogs());
+                new DesktopUiDocument(candidatePages, candidateDialogs);
+            } catch (RuntimeException invalid) {
+                LOG.warn("Ignored conflicting desktop page contribution (owner={}, generation={}, pageId={})",
+                        candidate.owner(), candidate.generation(), contribution.pageId(), invalid);
+                continue;
+            }
+            if (contribution.actions().keySet().stream().anyMatch(nextActions::containsKey)) {
+                LOG.warn("Ignored desktop page contribution with conflicting actions (owner={}, generation={}, pageId={})",
+                        candidate.owner(), candidate.generation(), contribution.pageId());
+                continue;
+            }
+            pages.add(page);
+            dialogs.addAll(contribution.dialogs());
+            String owner = candidate.owner();
+            for (Map.Entry<String, String> action : contribution.actions().entrySet()) {
+                String actionId = action.getKey();
+                String endpoint = action.getValue();
+                nextActions.put(actionId, () -> runPluginPageAction(owner, actionId, endpoint));
+            }
+        }
+    }
+
+    private static boolean validPluginPage(String owner, DesktopUiPageContribution contribution,
+                                           List<WebRouteContribution> routes) {
+        String pagePrefix = contribution.pageId() + ".";
+        if (!contribution.pageId().startsWith(owner + ".")) return false;
+        Set<String> referencedActions = new LinkedHashSet<>();
+        if (!validPluginPageNode(contribution.content(), pagePrefix, referencedActions)) return false;
+        for (DesktopUiDocument.Dialog dialog : contribution.dialogs()) {
+            if (dialog == null || !dialog.id().startsWith(pagePrefix)
+                    || !dialog.dismissActionId().startsWith(pagePrefix)
+                    || !validPluginPageNode(dialog.content(), pagePrefix, referencedActions)) return false;
+            if (dialog.dismissible()) referencedActions.add(dialog.dismissActionId());
+        }
+        if (!referencedActions.equals(contribution.actions().keySet())) return false;
+        return contribution.actions().entrySet().stream().allMatch(entry ->
+                entry.getKey().startsWith(pagePrefix) && validId(entry.getKey())
+                        && validGuiEndpoint(entry.getValue())
+                        && hasExactGuiPostRoute(routes, entry.getValue()));
+    }
+
+    private static boolean validPluginPageNode(DesktopUiNode node, String pagePrefix,
+                                               Set<String> referencedActions) {
+        if (!node.id().startsWith(pagePrefix)) return false;
+        if (node instanceof DesktopUiNode.Image image
+                && "image/svg+xml".equals(image.image().mediaType())) return false;
+        if (node instanceof DesktopUiNode.Button button) {
+            if (!button.actionId().startsWith(pagePrefix)) return false;
+            referencedActions.add(button.actionId());
+        } else if (node instanceof DesktopUiNode.Link link) {
+            if (!link.actionId().startsWith(pagePrefix)) return false;
+            referencedActions.add(link.actionId());
+        } else {
+            String bindingId = pluginBindingId(node);
+            if (bindingId != null && (!bindingId.startsWith(pagePrefix) || pluginInputEnabled(node))) return false;
+        }
+        for (DesktopUiNode child : node.childNodes()) {
+            if (!validPluginPageNode(child, pagePrefix, referencedActions)) return false;
+        }
+        return true;
+    }
+
+    private static String pluginBindingId(DesktopUiNode node) {
+        if (node instanceof DesktopUiNode.TextInput input) return input.bindingId();
+        if (node instanceof DesktopUiNode.Toggle toggle) return toggle.bindingId();
+        if (node instanceof DesktopUiNode.Choice choice) return choice.bindingId();
+        if (node instanceof DesktopUiNode.NumberInput input) return input.bindingId();
+        if (node instanceof DesktopUiNode.Table table) return table.bindingId();
+        if (node instanceof DesktopUiNode.Tree tree) return tree.bindingId();
+        return null;
+    }
+
+    private static boolean pluginInputEnabled(DesktopUiNode node) {
+        if (node instanceof DesktopUiNode.TextInput input) return input.enabled();
+        if (node instanceof DesktopUiNode.Toggle toggle) return toggle.enabled();
+        if (node instanceof DesktopUiNode.Choice choice) return choice.enabled();
+        if (node instanceof DesktopUiNode.NumberInput input) return input.enabled();
+        if (node instanceof DesktopUiNode.Table table) return table.enabled();
+        return node instanceof DesktopUiNode.Tree tree && tree.enabled();
+    }
+
+    private void runPluginPageAction(String owner, String actionId, String endpoint) {
+        runBusy(() -> {
+            try {
+                DesktopUiHost.GuiResponse response = host.guiPostJson(endpoint, Map.of(), 30_000, owner);
+                if (!response.reachable()) {
+                    LOG.warn("Desktop plugin page action could not reach the backend (owner={}, actionId={})",
+                            owner, actionId);
+                    showDialog("plugin.action.failed", "gui.dialog.error.title",
+                            appToken("gui.config.action.notice.unreachable", actionId),
+                            DesktopUiDocument.DialogStyle.ERROR);
+                } else if (response.status() < 200 || response.status() >= 300) {
+                    LOG.warn("Desktop plugin page action failed (owner={}, actionId={}, status={})",
+                            owner, actionId, response.status());
+                    showDialog("plugin.action.failed", "gui.dialog.error.title",
+                            appToken("gui.config.action.notice.failed", actionId, "HTTP " + response.status()),
+                            DesktopUiDocument.DialogStyle.ERROR);
+                }
+            } catch (RuntimeException failure) {
+                LOG.warn("Desktop plugin page action failed (owner={}, actionId={})", owner, actionId, failure);
+                showDialog("plugin.action.failed", "gui.dialog.error.title",
+                        appToken("gui.config.action.notice.failed", actionId, safeMessage(failure)),
+                        DesktopUiDocument.DialogStyle.ERROR);
+            }
+        });
+    }
+
     private synchronized void loadConfiguration() {
         List<ConfigField> fields = new ArrayList<>();
         Map<String, GuiConfigGroupContribution> groups = new LinkedHashMap<>();
@@ -5753,7 +5918,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private record PluginConfig(String owner, String namespace, String displayNameKey,
                                  List<GuiConfigContribution> contributions,
-                                List<WebRouteContribution> routes) {}
+                                 List<WebRouteContribution> routes) {}
+    private record PluginPageCandidate(String owner, long generation, int declarationOrder,
+                                       DesktopUiPageContribution page,
+                                       List<WebRouteContribution> routes) {}
     private record PluginOnboardingStep(GuiOnboardingStepContribution step) {}
 
     @FunctionalInterface

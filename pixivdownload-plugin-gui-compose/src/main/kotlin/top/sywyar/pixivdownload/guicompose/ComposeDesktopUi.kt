@@ -475,7 +475,13 @@ private fun ComposeDesktopRoot(
     var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
     val activePage = selectedIdOrFirst(selected, pageIds)
     val pageStates = rememberSaveableStateHolder()
+    val retainedPageIds = remember { linkedSetOf<String>() }
     LaunchedEffect(activePage) { selected = activePage }
+    LaunchedEffect(pageIds) {
+        removedPageIds(retainedPageIds, pageIds).forEach(pageStates::removeState)
+        retainedPageIds.clear()
+        retainedPageIds.addAll(pageIds)
+    }
 
     BoxWithConstraints(
         Modifier.fillMaxSize().background(
@@ -533,6 +539,9 @@ private fun ComposeDesktopRoot(
 
 internal fun selectedIdOrFirst(selectedId: String, orderedIds: List<String>): String =
     selectedId.takeIf(orderedIds::contains) ?: orderedIds.first()
+
+internal fun removedPageIds(previousIds: Set<String>, currentIds: Collection<String>): Set<String> =
+    previousIds - currentIds.toSet()
 
 @Composable
 private fun NavigationPanel(

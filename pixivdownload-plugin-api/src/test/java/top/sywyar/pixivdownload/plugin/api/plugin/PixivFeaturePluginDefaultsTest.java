@@ -62,6 +62,7 @@ class PixivFeaturePluginDefaultsTest {
         assertThat(plugin.displayNamespace()).isNull();
         assertThat(plugin.guiThemes()).isEmpty();
         assertThat(plugin.guiConfigContributions()).isEmpty();
+        assertThat(plugin.desktopPages()).isEmpty();
         assertThat(plugin.guiOnboardingSteps()).isEmpty();
         assertThat(plugin.scheduledSourceDescriptors()).isEmpty();
         assertThat(plugin.downloadTypes()).isEmpty();
