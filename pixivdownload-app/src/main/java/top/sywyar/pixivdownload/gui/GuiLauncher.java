@@ -854,7 +854,8 @@ public class GuiLauncher {
         return registry.registeredPlugins().stream()
                 .map(registered -> new DesktopUiPluginSource(
                         registered.id(), registered.source() == PluginSource.BUILT_IN,
-                        registered.plugin(), registered.classLoader()))
+                        registered.plugin(), registered.classLoader(),
+                        registered.packageId(), registered.generation()))
                 .toList();
     }
 

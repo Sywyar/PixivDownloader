@@ -204,7 +204,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile long exclusiveToolStartedAt;
     private volatile AutoCloseable backendSubscription;
     private volatile List<DesktopUiPluginSource> rebuildSources;
-    private volatile List<DesktopUiPluginSource> documentSources = List.of();
+    private volatile List<DesktopUiPluginSource.Fingerprint> documentSourceFingerprints = List.of();
     private volatile Locale documentLocale;
     private volatile boolean closed;
 
@@ -318,7 +318,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         if (closed) return;
         List<DesktopUiPluginSource> previousSources = rebuildSources;
         rebuildSources = loadCurrentSources();
-        boolean sourcesChanged = !rebuildSources.equals(documentSources);
+        List<DesktopUiPluginSource.Fingerprint> sourceFingerprints = rebuildSources.stream()
+                .map(DesktopUiPluginSource::fingerprint).toList();
+        boolean sourcesChanged = !sourceFingerprints.equals(documentSourceFingerprints);
         Locale currentLocale = Locale.getDefault();
         boolean localeChanged = !currentLocale.equals(documentLocale);
         try {
@@ -353,7 +355,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             eventEndpoints = indexEventEndpoints(nextDocument);
             if (sourcesChanged || localeChanged || !nextDocument.equals(document)) {
                 document = nextDocument;
-                documentSources = rebuildSources;
+                documentSourceFingerprints = sourceFingerprints;
                 documentLocale = currentLocale;
                 revision.incrementAndGet();
             }
