@@ -96,12 +96,15 @@ val mavenClasspathFiles = mavenClasspathFile
     }
     ?: emptyList()
 val mavenClasspath = files(mavenClasspathFiles)
-val classpathOptionalTasks = setOf("clean", "cleanPlugin", "wrapper")
-val requestedTasks = gradle.startParameter.taskNames
-require(mavenClasspathFiles.isNotEmpty() || requestedTasks.isNotEmpty() && requestedTasks.all {
-    it.substringAfterLast(':') in classpathOptionalTasks
-}) {
-    "Missing Maven-owned SDK classpath; invoke this module through Maven or pass -PmavenClasspathFile=<file>."
+val missingMavenClasspathFiles = mavenClasspathFiles.filterNot(File::exists)
+val mavenClasspathReady = mavenClasspathFiles.isNotEmpty() && missingMavenClasspathFiles.isEmpty()
+val idePluginApiClasses = layout.projectDirectory.dir("../pixivdownload-plugin-api/target/classes")
+val sdkClasspath = if (mavenClasspathReady) mavenClasspath else files(idePluginApiClasses)
+val idePf4jVersion = if (mavenClasspathReady) null else {
+    val parentPom = providers.fileContents(layout.projectDirectory.file("../pom.xml")).asText.get()
+    Regex("""<pf4j\.version>\s*([^<\s]+)\s*</pf4j\.version>""")
+        .find(parentPom)?.groupValues?.get(1)
+        ?: error("Missing pf4j.version in the Maven parent POM")
 }
 
 kotlin {
@@ -124,7 +127,10 @@ configurations.configureEach {
 }
 
 dependencies {
-    compileOnly(mavenClasspath)
+    compileOnly(sdkClasspath)
+    idePf4jVersion?.let { version ->
+        compileOnly("org.pf4j:pf4j:$version") { isTransitive = false }
+    }
     implementation(compose.desktop.currentOs)
     val material3Version = providers.gradleProperty("composeMaterial3Version").get()
     implementation("org.jetbrains.compose.material3:material3:$material3Version")
@@ -135,11 +141,40 @@ dependencies {
     runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-arm64:$skikoVersion")
     runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:$skikoVersion")
 
-    testImplementation(mavenClasspath)
+    testImplementation(sdkClasspath)
+    idePf4jVersion?.let { version ->
+        testImplementation("org.pf4j:pf4j:$version") { isTransitive = false }
+    }
     testImplementation(platform("org.junit:junit-bom:5.13.4"))
     testImplementation(kotlin("test-junit5"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
+
+val verifyMavenClasspath = tasks.register("verifyMavenClasspath") {
+    group = "verification"
+    description = "Fails build tasks unless Maven supplied the exact SDK classpath."
+    inputs.property("mavenClasspathFile", mavenClasspathFile.absolutePath)
+    notCompatibleWithConfigurationCache("Reads the Maven-generated classpath at task execution time.")
+    doLast {
+        val classpathFile = File(inputs.properties.getValue("mavenClasspathFile").toString())
+        val entries = classpathFile.takeIf(File::isFile)
+            ?.readText(Charsets.UTF_8)
+            ?.split(File.pathSeparatorChar)
+            ?.filter(String::isNotBlank)
+            ?.map(::File)
+            ?: emptyList()
+        check(entries.isNotEmpty()) {
+            "Missing Maven-owned SDK classpath; invoke this module through Maven before running build tasks."
+        }
+        val missingEntries = entries.filterNot(File::exists)
+        check(missingEntries.isEmpty()) {
+            "Maven-owned SDK classpath contains missing entries: $missingEntries"
+        }
+    }
+}
+
+tasks.named("compileKotlin") { dependsOn(verifyMavenClasspath) }
+tasks.named("compileJava") { dependsOn(verifyMavenClasspath) }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
