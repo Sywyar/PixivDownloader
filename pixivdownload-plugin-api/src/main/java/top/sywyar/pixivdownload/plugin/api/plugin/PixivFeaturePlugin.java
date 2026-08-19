@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
@@ -228,6 +229,18 @@ public interface PixivFeaturePlugin {
      * @return 方法返回的列表
      */
     default List<GuiConfigContribution> guiConfigContributions() {
+        return List.of();
+    }
+
+    /**
+     * Declares independent toolkit-neutral desktop pages owned by this plugin. The host validates owner-scoped ids,
+     * exact GUI POST routes and action references before merging each page into the complete desktop document.
+     * Returning an empty list or withdrawing a page removes its page, dialogs, actions and renderer state on the
+     * next document rebuild.
+     *
+     * @return independent desktop page declarations
+     */
+    default List<DesktopUiPageContribution> desktopPages() {
         return List.of();
     }
 

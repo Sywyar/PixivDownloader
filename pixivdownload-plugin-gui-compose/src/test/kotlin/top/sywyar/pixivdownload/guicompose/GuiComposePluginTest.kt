@@ -136,6 +136,7 @@ class GuiComposePluginTest {
     fun preservesStableSelectionAcrossReordering() {
         assertEquals("details", selectedIdOrFirst("details", listOf("details", "overview")))
         assertEquals("overview", selectedIdOrFirst("removed", listOf("overview", "details")))
+        assertEquals(setOf("removed"), removedPageIds(setOf("overview", "removed"), listOf("overview", "added")))
     }
 
     @Test
