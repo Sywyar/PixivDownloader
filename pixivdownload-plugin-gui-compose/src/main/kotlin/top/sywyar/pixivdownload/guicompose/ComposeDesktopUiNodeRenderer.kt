@@ -500,21 +500,25 @@ object ComposeDesktopUiNodeRenderer {
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
     ) {
-        var selected by remember(node.id(), node.tabs().map { it.id() }) { mutableStateOf(0) }
+        val tabIds = node.tabs().map { it.id() }
+        var selectedId by rememberSaveable(node.id()) { mutableStateOf(tabIds.first()) }
+        val activeTabId = selectedIdOrFirst(selectedId, tabIds)
+        val selectedIndex = tabIds.indexOf(activeTabId)
+        LaunchedEffect(activeTabId) { selectedId = activeTabId }
         Column(modifier) {
             PrimaryScrollableTabRow(
-                selectedTabIndex = selected,
+                selectedTabIndex = selectedIndex,
                 edgePadding = 4.dp,
                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .36f),
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 divider = {},
             ) {
-                node.tabs().forEachIndexed { index, tab ->
-                    Tab(selected == index, onClick = { selected = index }, text = {
+                node.tabs().forEach { tab ->
+                    Tab(activeTabId == tab.id(), onClick = { selectedId = tab.id() }, text = {
                         Text(
                             resolve(tab.title(), text),
                             style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (selected == index) FontWeight.SemiBold else FontWeight.Medium,
+                            fontWeight = if (activeTabId == tab.id()) FontWeight.SemiBold else FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -522,17 +526,17 @@ object ComposeDesktopUiNodeRenderer {
                 }
             }
             AnimatedContent(
-                targetState = selected,
+                targetState = activeTabId,
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp),
                 transitionSpec = {
-                    val direction = if (targetState >= initialState) 1 else -1
+                    val direction = if (tabIds.indexOf(targetState) >= tabIds.indexOf(initialState)) 1 else -1
                     (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 24 })
                         .togetherWith(fadeOut(tween(120)) +
                                 slideOutHorizontally(tween(180)) { -direction * it / 30 })
                 },
-                contentKey = { node.tabs()[it].id() },
-            ) { index ->
-                Node(node.tabs()[index].content(), text, emit, Modifier.fillMaxSize())
+                contentKey = { it },
+            ) { tabId ->
+                Node(node.tabs().first { it.id() == tabId }.content(), text, emit, Modifier.fillMaxSize())
             }
         }
     }
