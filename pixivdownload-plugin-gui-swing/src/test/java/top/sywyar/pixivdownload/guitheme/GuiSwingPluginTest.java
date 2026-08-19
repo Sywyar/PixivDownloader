@@ -35,6 +35,9 @@ class GuiSwingPluginTest {
         assertThat(plugin.guiThemes())
                 .extracting(theme -> theme.displayName(Locale.SIMPLIFIED_CHINESE))
                 .containsExactlyElementsOf(themeNames(Locale.SIMPLIFIED_CHINESE));
+        assertThat(plugin.guiThemes())
+                .extracting(theme -> theme.displayName(Locale.forLanguageTag("zh-Hant")))
+                .containsExactlyElementsOf(themeNames(Locale.forLanguageTag("zh-Hant")));
     }
 
     @Test

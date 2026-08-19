@@ -42,6 +42,8 @@ public final class MainFrame extends JFrame {
     private static final Dimension DEFAULT_SIZE = new Dimension(960, 720);
     private static final Dimension MINIMUM_SIZE = new Dimension(760, 560);
 
+    enum CloseBehavior { HIDE, EXIT }
+
     private final DesktopUiContext context;
     private final Timer documentTimer;
     private final KeyEventDispatcher shortcutDispatcher = this::dispatchShortcut;
@@ -57,13 +59,13 @@ public final class MainFrame extends JFrame {
     public MainFrame(DesktopUiContext context) {
         super(context.applicationName());
         this.context = Objects.requireNonNull(context, "context");
-        setSize(DEFAULT_SIZE);
-        setMinimumSize(MINIMUM_SIZE);
+        setSize(defaultWindowSize());
+        setMinimumSize(minimumWindowSize());
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent event) {
-                if (closeToTray) setVisible(false);
+                if (closeBehavior(closeToTray) == CloseBehavior.HIDE) setVisible(false);
                 else context.requestApplicationExit();
             }
         });
@@ -154,9 +156,7 @@ public final class MainFrame extends JFrame {
             dialog.setContentPane(renderer.render(descriptor.content()));
             dialog.pack();
             Dimension preferred = dialog.getSize();
-            dialog.setSize(
-                    descriptor.preferredWidth() > 0 ? descriptor.preferredWidth() : preferred.width,
-                    descriptor.preferredHeight() > 0 ? descriptor.preferredHeight() : preferred.height);
+            dialog.setSize(dialogSize(preferred, descriptor.preferredWidth(), descriptor.preferredHeight()));
             Container dialogContent = dialog.getContentPane();
             renderer.withoutEvents(() -> restoreState(dialogContent, state));
             if (location == null) dialog.setLocationRelativeTo(this);
@@ -184,7 +184,7 @@ public final class MainFrame extends JFrame {
         return dialog;
     }
 
-    private static Map<String, ComponentState> captureState(Component root) {
+    static Map<String, ComponentState> captureState(Component root) {
         Map<String, ComponentState> state = new LinkedHashMap<>();
         visit(root, component -> {
             if (!(component instanceof JComponent value)) return;
@@ -200,7 +200,7 @@ public final class MainFrame extends JFrame {
         return state;
     }
 
-    private static void restoreState(Component root, Map<String, ComponentState> state) {
+    static void restoreState(Component root, Map<String, ComponentState> state) {
         try {
             visit(root, component -> {
                 if (!(component instanceof JComponent value)) return;
@@ -239,6 +239,20 @@ public final class MainFrame extends JFrame {
         return context.resolveText(token);
     }
 
+    static Dimension defaultWindowSize() { return new Dimension(DEFAULT_SIZE); }
+
+    static Dimension minimumWindowSize() { return new Dimension(MINIMUM_SIZE); }
+
+    static Dimension dialogSize(Dimension preferred, int preferredWidth, int preferredHeight) {
+        Objects.requireNonNull(preferred, "preferred");
+        return new Dimension(preferredWidth > 0 ? preferredWidth : preferred.width,
+                preferredHeight > 0 ? preferredHeight : preferred.height);
+    }
+
+    static CloseBehavior closeBehavior(boolean closeToTray) {
+        return closeToTray ? CloseBehavior.HIDE : CloseBehavior.EXIT;
+    }
+
     private String selectedPage() {
         if (tabs == null || tabs.getSelectedIndex() < 0) return null;
         int selected = tabs.getSelectedIndex();
@@ -265,8 +279,8 @@ public final class MainFrame extends JFrame {
         super.dispose();
     }
 
-    private record ComponentState(Integer tab, Point scroll, Integer divider, Integer caret,
-                                  boolean focused, char[] password) { }
+    record ComponentState(Integer tab, Point scroll, Integer divider, Integer caret,
+                          boolean focused, char[] password) { }
 
     private boolean dispatchShortcut(KeyEvent event) {
         if (event.getID() != KeyEvent.KEY_PRESSED) return false;
