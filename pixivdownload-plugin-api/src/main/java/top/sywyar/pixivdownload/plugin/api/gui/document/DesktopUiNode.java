@@ -502,6 +502,9 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             if (minimum > maximum) throw new IllegalArgumentException("minimum must not exceed maximum");
             if (value < minimum || value > maximum) throw new IllegalArgumentException("value out of range");
             if (step <= 0) throw new IllegalArgumentException("step must be positive");
+            if (Math.floorMod((long) value - minimum, (long) step) != 0) {
+                throw new IllegalArgumentException("value must align with minimum and step");
+            }
         }
 
         @Override public Kind kind() { return Kind.NUMBER_INPUT; }

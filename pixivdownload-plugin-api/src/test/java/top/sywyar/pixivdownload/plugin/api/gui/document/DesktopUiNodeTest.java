@@ -58,6 +58,16 @@ class DesktopUiNodeTest {
     }
 
     @Test
+    @DisplayName("数值节点初始值必须与最小值和步长对齐")
+    void rejectsMisalignedNumberInputValue() {
+        assertThatThrownBy(() -> new DesktopUiNode.NumberInput(
+                "number", "number.value", DesktopUiNode.TextToken.raw("Number"), null,
+                DesktopUiNode.NumberStyle.SLIDER, 5, 0, 10, 3, true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("align");
+    }
+
+    @Test
     @DisplayName("事件意图必须由渲染文档版本盖章")
     void stampsEventIntentWithDocumentRevision() {
         DesktopUiNode.Event intent = new DesktopUiNode.Event(
