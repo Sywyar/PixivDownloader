@@ -25,7 +25,19 @@ public final class DesktopUiContext {
     private final Set<DesktopUiNode.Kind> supportedKinds;
     private final Set<DesktopUiCapability> supportedCapabilities;
 
-    /** Creates a validated renderer context for the selected provider. */
+    /**
+     * Creates a validated renderer context for the selected provider.
+     *
+     * @param startupLaunch whether startup came from an operating-system startup entry
+     * @param applicationName native window title
+     * @param model host-owned document and event model
+     * @param textResolver unified host text resolver
+     * @param applicationExit host-owned process exit request
+     * @param themePreference current shared theme preference supplier
+     * @param providerId selected provider id used in diagnostics
+     * @param supportedKinds node kinds implemented by the provider
+     * @param supportedCapabilities semantic capabilities implemented by the provider
+     */
     public DesktopUiContext(boolean startupLaunch, String applicationName, DesktopUiModel model,
                             Function<DesktopUiNode.TextToken, String> textResolver,
                             Runnable applicationExit, Supplier<String> themePreference,
@@ -60,13 +72,22 @@ public final class DesktopUiContext {
     /** @return current monotonic document revision */
     public long currentDocumentRevision() { return model.revision(); }
 
-    /** Resolves one host- or plugin-owned text token through the host's unified resolver. */
+    /**
+     * Resolves one host- or plugin-owned text token through the host's unified resolver.
+     *
+     * @param token text token to resolve
+     * @return resolved display text
+     */
     public String resolveText(DesktopUiNode.TextToken token) {
         return Objects.requireNonNull(textResolver.apply(Objects.requireNonNull(token, "token")),
                 "textResolver returned null");
     }
 
-    /** Dispatches an event that already carries the revision of the rendered document. */
+    /**
+     * Dispatches an event that already carries the revision of the rendered document.
+     *
+     * @param event revision-stamped renderer event
+     */
     public void dispatchEvent(DesktopUiNode.Event event) {
         DesktopUiNode.Event value = Objects.requireNonNull(event, "event");
         if (value.documentRevision() < 0) {
@@ -75,7 +96,12 @@ public final class DesktopUiContext {
         model.dispatch(value);
     }
 
-    /** Stamps an event intent with the exact revision from which its control was rendered. */
+    /**
+     * Stamps an event intent with the exact revision from which its control was rendered.
+     *
+     * @param documentRevision revision from which the control was rendered
+     * @param event renderer event intent
+     */
     public void dispatchEvent(long documentRevision, DesktopUiNode.Event event) {
         dispatchEvent(Objects.requireNonNull(event, "event").atRevision(documentRevision));
     }
