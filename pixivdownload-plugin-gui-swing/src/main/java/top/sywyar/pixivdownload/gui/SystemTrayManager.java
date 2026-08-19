@@ -99,6 +99,7 @@ public final class SystemTrayManager {
 
     private static JPopupMenu buildPopupMenu(MainFrame frame, DesktopUiContext context) {
         JPopupMenu menu = new JPopupMenu();
+        long documentRevision = context.currentDocumentRevision();
         DesktopUiDocument.Tray tray = context.currentDocument().tray().orElse(null);
         if (tray == null) return menu;
         for (DesktopUiDocument.TrayItem descriptor : tray.items()) {
@@ -111,8 +112,8 @@ public final class SystemTrayManager {
                 if (descriptor.role() == DesktopUiDocument.TrayItemRole.ACTIVATE_WINDOW) {
                     showFrame(frame);
                 } else {
-                    context.dispatchEvent(new DesktopUiNode.Event(
-                            DesktopUiNode.EventType.ACTIVATE, descriptor.id(), descriptor.actionId(),
+                    context.dispatchEvent(documentRevision, new DesktopUiNode.Event(
+                            DesktopUiNode.EventType.ACTIVATE, descriptor.id(),
                             DesktopUiNode.Value.empty()));
                 }
             });

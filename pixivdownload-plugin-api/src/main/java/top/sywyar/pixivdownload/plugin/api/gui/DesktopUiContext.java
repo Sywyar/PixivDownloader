@@ -81,7 +81,22 @@ public record DesktopUiContext(int serverPort, String rootFolder, Path configPat
      * @param event typed renderer event
      */
     public void dispatchEvent(top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Event event) {
-        model.dispatch(Objects.requireNonNull(event, "event"));
+        var value = Objects.requireNonNull(event, "event");
+        if (value.documentRevision() < 0) {
+            throw new IllegalArgumentException("renderer event must carry a document revision");
+        }
+        model.dispatch(value);
+    }
+
+    /**
+     * Stamps one renderer event intent with the exact rendered document revision before dispatch.
+     *
+     * @param documentRevision rendered document revision
+     * @param event typed renderer event intent
+     */
+    public void dispatchEvent(long documentRevision,
+                              top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Event event) {
+        dispatchEvent(Objects.requireNonNull(event, "event").atRevision(documentRevision));
     }
 
     /**

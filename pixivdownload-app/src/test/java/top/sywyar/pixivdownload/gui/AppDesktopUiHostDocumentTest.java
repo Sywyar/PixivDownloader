@@ -184,11 +184,10 @@ class AppDesktopUiHostDocumentTest {
 
         assertThat(nodes(model.document())).extracting(DesktopUiNode::id)
                 .doesNotContain("interface.save");
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                "interface.config-menu-expand-all.input", "interface.config-menu-expand-all",
-                DesktopUiNode.Value.bool(true)));
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
-                "config.save", "config.save", DesktopUiNode.Value.empty()));
+        dispatch(model, DesktopUiNode.EventType.CHANGE,
+                "interface.config-menu-expand-all.input", DesktopUiNode.Value.bool(true));
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "config.save", DesktopUiNode.Value.empty());
 
         await(() -> "true".equals(read(configFile, "app.config-menu-expand-all")));
         assertThat(configFile.readAll(List.of("app.language", "app.gui-provider", "app.theme",
@@ -201,26 +200,147 @@ class AppDesktopUiHostDocumentTest {
 
     @Test
     @DisplayName("配置重置先由声明式对话框确认再修改字段")
-    void configurationResetRequiresDeclarativeConfirmation() {
+    void configurationResetRequiresDeclarativeConfirmation() throws Exception {
         AppDesktopUiModel model = model();
+        awaitButtonEnabled(model, "config.reset");
         DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
 
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                root.id(), root.bindingId(), DesktopUiNode.Value.text("changed-root")));
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
-                "config.reset", "config.reset", DesktopUiNode.Value.empty()));
+        dispatch(model, DesktopUiNode.EventType.CHANGE,
+                root.id(), DesktopUiNode.Value.text("changed-root"));
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "config.reset", DesktopUiNode.Value.empty());
 
         assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
-                .containsExactly("config.reset");
+                .containsExactly("config.reset.dialog");
         assertThat(configTextInput(model.document(), "download.root-folder").value())
                 .isEqualTo("changed-root");
 
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
-                "config.reset.confirm", "config.reset.confirm", DesktopUiNode.Value.empty()));
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "config.reset.confirm", DesktopUiNode.Value.empty());
 
         assertThat(model.document().dialogs()).isEmpty();
         assertThat(configTextInput(model.document(), "download.root-folder").value())
                 .isEqualTo(root.value());
+    }
+
+    @Test
+    @DisplayName("过期事件和已关闭对话框事件不会执行")
+    void staleAndClosedDialogEventsAreIgnored() throws Exception {
+        AppDesktopUiModel model = model();
+        awaitButtonEnabled(model, "config.reset");
+        long pageRevision = model.revision();
+        model.dispatch(new DesktopUiNode.Event(pageRevision, DesktopUiNode.EventType.ACTIVATE,
+                "config.reset", DesktopUiNode.Value.empty()));
+        long dialogRevision = model.revision();
+        DesktopUiNode.Event confirm = new DesktopUiNode.Event(
+                dialogRevision, DesktopUiNode.EventType.ACTIVATE,
+                "config.reset.confirm", DesktopUiNode.Value.empty());
+
+        model.dispatch(new DesktopUiNode.Event(pageRevision, DesktopUiNode.EventType.ACTIVATE,
+                "config.reset.confirm", DesktopUiNode.Value.empty()));
+        assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+                .containsExactly("config.reset.dialog");
+
+        model.dispatch(confirm);
+        assertThat(model.document().dialogs()).isEmpty();
+        long closedRevision = model.revision();
+        model.dispatch(confirm);
+        assertThat(model.document().dialogs()).isEmpty();
+        assertThat(model.revision()).isEqualTo(closedRevision);
+    }
+
+    @Test
+    @DisplayName("禁用节点的重复事件不会执行业务动作")
+    void disabledNodeEventsAreRejectedBeforeDispatch() {
+        AppDesktopUiModel model = model();
+        DesktopUiNode.Button disabled = nodes(model.document()).stream()
+                .filter(DesktopUiNode.Button.class::isInstance)
+                .map(DesktopUiNode.Button.class::cast)
+                .filter(button -> !button.enabled())
+                .findFirst().orElseThrow();
+        DesktopUiDocument before = model.document();
+        long revision = model.revision();
+        DesktopUiNode.Event click = new DesktopUiNode.Event(
+                revision, DesktopUiNode.EventType.ACTIVATE, disabled.id(), DesktopUiNode.Value.empty());
+
+        model.dispatch(click);
+        assertThat(model.document()).isEqualTo(before);
+        assertThat(model.revision()).isEqualTo(revision);
+
+        model.dispatch(click);
+        assertThat(model.document()).isEqualTo(before);
+        assertThat(model.revision()).isEqualTo(revision);
+    }
+
+    @Test
+    @DisplayName("当前文档拒绝伪造选项和值类型")
+    void currentDocumentRejectsForgedOptionsAndValueKinds() {
+        AppDesktopUiModel model = model();
+        DesktopUiNode.Choice language = nodes(model.document()).stream()
+                .filter(DesktopUiNode.Choice.class::isInstance)
+                .map(DesktopUiNode.Choice.class::cast)
+                .filter(choice -> "interface.language.input".equals(choice.id()))
+                .findFirst().orElseThrow();
+        List<String> selected = language.selectedIds();
+        long optionRevision = model.revision();
+
+        model.dispatch(new DesktopUiNode.Event(optionRevision, DesktopUiNode.EventType.SELECTION,
+                language.id(), DesktopUiNode.Value.selection("forged-option")));
+        DesktopUiNode.Choice afterForgedOption = nodes(model.document()).stream()
+                .filter(DesktopUiNode.Choice.class::isInstance)
+                .map(DesktopUiNode.Choice.class::cast)
+                .filter(choice -> language.id().equals(choice.id()))
+                .findFirst().orElseThrow();
+        assertThat(afterForgedOption.selectedIds()).isEqualTo(selected);
+
+        DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
+        long typeRevision = model.revision();
+        model.dispatch(new DesktopUiNode.Event(typeRevision, DesktopUiNode.EventType.SELECTION,
+                root.id(), DesktopUiNode.Value.selection("forged-value")));
+        assertThat(configTextInput(model.document(), "download.root-folder").value()).isEqualTo(root.value());
+        assertThat(model.revision()).isEqualTo(typeRevision);
+    }
+
+    @Test
+    @DisplayName("当前文档索引拒绝禁用选项、伪造行和树项以及越界数字")
+    void currentDocumentIndexRejectsForgedSelectionsAndInvalidNumbers() {
+        DesktopUiNode.TextToken label = DesktopUiNode.TextToken.raw("Label");
+        DesktopUiNode.Choice choice = new DesktopUiNode.Choice(
+                "choice", "choice.value", label, null,
+                DesktopUiNode.ChoiceStyle.COMBO_BOX, DesktopUiNode.SelectionMode.SINGLE,
+                List.of(new DesktopUiNode.Option("disabled-option", label, false)), List.of(), true);
+        DesktopUiNode.Table table = new DesktopUiNode.Table(
+                "table", "table.value", List.of(new DesktopUiNode.TableColumn("value", label, 0)),
+                List.of(new DesktopUiNode.TableRow("row", List.of("Row"))),
+                DesktopUiNode.SelectionMode.SINGLE, List.of(), true);
+        DesktopUiNode.Tree tree = new DesktopUiNode.Tree(
+                "tree", "tree.value", List.of(new DesktopUiNode.TreeItem("item", label, List.of())),
+                DesktopUiNode.SelectionMode.SINGLE, List.of(), true);
+        DesktopUiNode.NumberInput number = new DesktopUiNode.NumberInput(
+                "number", "number.value", label, null, DesktopUiNode.NumberStyle.SPINNER,
+                1, 1, 9, 2, true);
+        DesktopUiDocument document = new DesktopUiDocument(List.of(new DesktopUiDocument.Page(
+                "page", label, new DesktopUiNode.Container(
+                "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 0,
+                DesktopUiNode.Alignment.STRETCH, List.of(choice, table, tree, number)))));
+        Map<String, AppDesktopUiModel.EventEndpoint> endpoints =
+                AppDesktopUiModel.indexEventEndpoints(document);
+
+        assertThat(AppDesktopUiModel.validateEvent(endpoints.get(choice.id()), new DesktopUiNode.Event(
+                0, DesktopUiNode.EventType.SELECTION, choice.id(),
+                DesktopUiNode.Value.selection("disabled-option")))).isEqualTo("choice option is disabled");
+        assertThat(AppDesktopUiModel.validateEvent(endpoints.get(table.id()), new DesktopUiNode.Event(
+                0, DesktopUiNode.EventType.SELECTION, table.id(),
+                DesktopUiNode.Value.selection("forged-row")))).isEqualTo("unknown table row");
+        assertThat(AppDesktopUiModel.validateEvent(endpoints.get(tree.id()), new DesktopUiNode.Event(
+                0, DesktopUiNode.EventType.SELECTION, tree.id(),
+                DesktopUiNode.Value.selection("forged-item")))).isEqualTo("unknown tree item");
+        assertThat(AppDesktopUiModel.validateEvent(endpoints.get(number.id()), new DesktopUiNode.Event(
+                0, DesktopUiNode.EventType.CHANGE, number.id(),
+                DesktopUiNode.Value.number(10)))).isEqualTo("number is outside bounds");
+        assertThat(AppDesktopUiModel.validateEvent(endpoints.get(number.id()), new DesktopUiNode.Event(
+                0, DesktopUiNode.EventType.CHANGE, number.id(),
+                DesktopUiNode.Value.number(4)))).isEqualTo("number does not align with step");
     }
 
     @Test
@@ -261,18 +381,20 @@ class AppDesktopUiHostDocumentTest {
         DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
         String replacement = tempDir.resolve("new-download").toString();
 
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                root.id(), root.bindingId(), DesktopUiNode.Value.text(replacement)));
+        dispatch(model, DesktopUiNode.EventType.CHANGE,
+                root.id(), DesktopUiNode.Value.text(replacement));
         simulateSymbolicReference.set(true);
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
-                "config.save", "config.save", DesktopUiNode.Value.empty()));
+        awaitButtonEnabled(model, "config.save");
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "config.save", DesktopUiNode.Value.empty());
 
         await(() -> model.document().dialogs().stream()
                 .anyMatch(dialog -> "config.symbolic-pin".equals(dialog.id())));
         assertThat(configFile.read("download.root-folder")).isEqualTo("relative-download");
 
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
-                "config.symbolic-pin.confirm", "config.symbolic-pin.confirm", DesktopUiNode.Value.empty()));
+        awaitButtonEnabled(model, "config.symbolic-pin.confirm");
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "config.symbolic-pin.confirm", DesktopUiNode.Value.empty());
 
         await(() -> pinned.get() && replacement.equals(read(configFile, "download.root-folder")));
     }
@@ -336,8 +458,8 @@ class AppDesktopUiHostDocumentTest {
         assertThat(bindingIds(model.document())).noneMatch(id -> id.endsWith("debug.enabled"));
 
         DesktopUiDocument.KeyboardShortcut shortcut = model.document().shortcuts().get(0);
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
-                shortcut.id(), shortcut.actionId(), DesktopUiNode.Value.empty()));
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                shortcut.id(), DesktopUiNode.Value.empty());
         assertThat(bindingIds(model.document())).anyMatch(id -> id.endsWith("debug.enabled"));
 
         Path config = tempDir.resolve("enabled-debug.yaml");
@@ -393,7 +515,7 @@ class AppDesktopUiHostDocumentTest {
 
     @Test
     @DisplayName("插件丰富配置贡献由宿主转换为通用节点树")
-    void richPluginConfigurationBecomesGenericDocumentNodes() {
+    void richPluginConfigurationBecomesGenericDocumentNodes() throws Exception {
         PixivFeaturePlugin plugin = richConfigPlugin();
         DesktopUiContext.PluginSource source = new DesktopUiContext.PluginSource(
                 "schema-test", false, plugin, plugin.getClass().getClassLoader());
@@ -419,8 +541,9 @@ class AppDesktopUiHostDocumentTest {
         DesktopUiNode.Choice mode = nodes(document).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
                 .filter(choice -> choice.bindingId().endsWith("schema-test.mode")).findFirst().orElseThrow();
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.SELECTION, mode.id(), mode.bindingId(),
-                DesktopUiNode.Value.selection(mode.options().get(1).id())));
+        awaitChoiceEnabled(model, mode.id());
+        dispatch(model, DesktopUiNode.EventType.SELECTION, mode.id(),
+                DesktopUiNode.Value.selection(mode.options().get(1).id()));
         DesktopUiNode.Toggle enabledField = nodes(model.document()).stream()
                 .filter(DesktopUiNode.Toggle.class::isInstance).map(DesktopUiNode.Toggle.class::cast)
                 .filter(toggle -> toggle.bindingId().endsWith("schema-test.enabled")).findFirst().orElseThrow();
@@ -429,8 +552,9 @@ class AppDesktopUiHostDocumentTest {
         DesktopUiNode.Choice preset = nodes(model.document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
                 .filter(choice -> choice.bindingId().contains(".card.main.preset")).findFirst().orElseThrow();
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.SELECTION, preset.id(), preset.bindingId(),
-                DesktopUiNode.Value.selection(preset.options().get(0).id())));
+        awaitChoiceEnabled(model, preset.id());
+        dispatch(model, DesktopUiNode.EventType.SELECTION, preset.id(),
+                DesktopUiNode.Value.selection(preset.options().get(0).id()));
         DesktopUiNode.Toggle field = nodes(model.document()).stream()
                 .filter(DesktopUiNode.Toggle.class::isInstance).map(DesktopUiNode.Toggle.class::cast)
                 .filter(toggle -> toggle.bindingId().endsWith("schema-test.enabled")).findFirst().orElseThrow();
@@ -440,7 +564,7 @@ class AppDesktopUiHostDocumentTest {
 
     @Test
     @DisplayName("合并的卡片 section 只显示当前卡片来源的提示")
-    void mergedCardSectionShowsOnlyTheSelectedCardsNotices() {
+    void mergedCardSectionShowsOnlyTheSelectedCardsNotices() throws Exception {
         PixivFeaturePlugin first = mergeableCardPlugin("card-a-plugin", "card-a", "notice.card-a");
         PixivFeaturePlugin second = mergeableCardPlugin("card-b-plugin", "card-b", "notice.card-b");
         AppDesktopUiModel model = model(List.of(
@@ -456,8 +580,9 @@ class AppDesktopUiHostDocumentTest {
         assertThat(tokens).extracting(DesktopUiNode.TextToken::key)
                 .contains("notice.card-a").doesNotContain("notice.card-b");
 
-        model.dispatch(new DesktopUiNode.Event(DesktopUiNode.EventType.SELECTION, selector.id(),
-                selector.bindingId(), DesktopUiNode.Value.selection("card-b")));
+        awaitChoiceEnabled(model, selector.id());
+        dispatch(model, DesktopUiNode.EventType.SELECTION, selector.id(),
+                DesktopUiNode.Value.selection("card-b"));
         tokens.clear();
         collectTokens(model.document(), tokens);
         assertThat(tokens).extracting(DesktopUiNode.TextToken::key)
@@ -639,6 +764,7 @@ class AppDesktopUiHostDocumentTest {
     private static List<DesktopUiNode> nodes(DesktopUiDocument document) {
         List<DesktopUiNode> nodes = new ArrayList<>();
         document.pages().forEach(page -> collectNodes(page.content(), nodes));
+        document.dialogs().forEach(dialog -> collectNodes(dialog.content(), nodes));
         return nodes;
     }
 
@@ -664,6 +790,13 @@ class AppDesktopUiHostDocumentTest {
         return new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(body), "", false);
     }
 
+    private static void dispatch(AppDesktopUiModel model, DesktopUiNode.EventType type,
+                                 String nodeId, DesktopUiNode.Value value) {
+        synchronized (model) {
+            model.dispatch(new DesktopUiNode.Event(model.revision(), type, nodeId, value));
+        }
+    }
+
     private static String read(DesktopUiHost.ConfigFile config, String key) {
         try {
             return config.read(key);
@@ -676,6 +809,20 @@ class AppDesktopUiHostDocumentTest {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
         while (!condition.getAsBoolean() && System.nanoTime() < deadline) Thread.sleep(10L);
         assertThat(condition.getAsBoolean()).isTrue();
+    }
+
+    private static void awaitButtonEnabled(AppDesktopUiModel model, String id) throws InterruptedException {
+        await(() -> nodes(model.document()).stream()
+                .filter(DesktopUiNode.Button.class::isInstance)
+                .map(DesktopUiNode.Button.class::cast)
+                .anyMatch(button -> id.equals(button.id()) && button.enabled()));
+    }
+
+    private static void awaitChoiceEnabled(AppDesktopUiModel model, String id) throws InterruptedException {
+        await(() -> nodes(model.document()).stream()
+                .filter(DesktopUiNode.Choice.class::isInstance)
+                .map(DesktopUiNode.Choice.class::cast)
+                .anyMatch(choice -> id.equals(choice.id()) && choice.enabled()));
     }
 
     private static <T extends DesktopUiNode> T assertPageContent(

@@ -55,6 +55,7 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -144,6 +145,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile Map<String, ConfigField> fieldBindings = Map.of();
     private volatile Map<String, Consumer<String>> selectionBindings = Map.of();
     private volatile Map<String, Runnable> actions = Map.of();
+    private volatile Map<String, EventEndpoint> eventEndpoints = Map.of();
     private volatile DesktopUiDocument document;
     private volatile DesktopUiHost.BackendSnapshot backend;
     private volatile String statusNotice = "";
@@ -255,28 +257,42 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     @Override public long revision() { return revision.get(); }
 
     @Override
-    public void dispatch(DesktopUiNode.Event event) {
+    public synchronized void dispatch(DesktopUiNode.Event event) {
         Objects.requireNonNull(event, "event");
         if (closed) return;
+        long currentRevision = revision.get();
+        if (event.documentRevision() != currentRevision) {
+            LOG.warn("Ignored stale desktop UI event (nodeId={}, type={}, eventRevision={}, currentRevision={})",
+                    event.nodeId(), event.type(), event.documentRevision(), currentRevision);
+            return;
+        }
+        EventEndpoint endpoint = eventEndpoints.get(event.nodeId());
+        String rejection = validateEvent(endpoint, event);
+        if (rejection != null) {
+            LOG.warn("Ignored invalid desktop UI event (nodeId={}, type={}, reason={})",
+                    event.nodeId(), event.type(), rejection);
+            return;
+        }
+        String targetId = endpoint.targetId();
         if (event.type() == DesktopUiNode.EventType.ACTIVATE) {
-            Runnable action = actions.get(event.targetId());
+            Runnable action = actions.get(targetId);
             if (action != null) action.run();
             return;
         }
-        ConfigField field = fieldBindings.get(event.targetId());
+        ConfigField field = fieldBindings.get(targetId);
         String value = event.value().values().stream().findFirst().orElse("");
         if (field != null) {
             values.put(field.key(), value);
             if (field.affectsConditions()) rebuild();
             return;
         }
-        Consumer<String> selection = selectionBindings.get(event.targetId());
+        Consumer<String> selection = selectionBindings.get(targetId);
         if (selection != null) {
             selection.accept(value);
             return;
         }
-        formValues.put(event.targetId(), value);
-        switch (event.targetId()) {
+        formValues.put(targetId, value);
+        switch (targetId) {
             case "interface.language" -> applyLocale(value);
             case "interface.config-menu-expand-all" -> rebuild();
             case "tools.backfill.proxy" -> rebuild();
@@ -290,7 +306,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 rebuild();
             }
             case "config.market.repository.proxy", "config.market.repository.trusted.selected" -> {
-                if (event.targetId().endsWith("trusted.selected")) {
+                if (targetId.endsWith("trusted.selected")) {
                     selectedTrustedKeyRow = value.isBlank() ? null : value;
                 }
                 rebuild();
@@ -336,6 +352,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     keyStroke("ArrowLeft"), keyStroke("ArrowRight"), keyStroke("ArrowLeft"), keyStroke("ArrowRight"),
                     keyStroke("KeyB"), keyStroke("KeyA"), keyStroke("KeyB"), keyStroke("KeyA")),
                     "debug.unlock", false)), Optional.of(tray));
+            eventEndpoints = indexEventEndpoints(nextDocument);
             if (sourcesChanged || localeChanged || !nextDocument.equals(document)) {
                 document = nextDocument;
                 documentSources = rebuildSources;
@@ -346,6 +363,131 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             rebuildSources = previousSources;
         }
     }
+
+    static Map<String, EventEndpoint> indexEventEndpoints(DesktopUiDocument document) {
+        Map<String, EventEndpoint> endpoints = new LinkedHashMap<>();
+        document.pages().forEach(page -> indexNode(page.content(), endpoints));
+        for (DesktopUiDocument.Dialog dialog : document.dialogs()) {
+            indexNode(dialog.content(), endpoints);
+            if (dialog.dismissible()) putEventEndpoint(endpoints, dialog.id(), new EventEndpoint(
+                    dialog.dismissActionId(), DesktopUiNode.EventType.ACTIVATE, true, null));
+        }
+        document.shortcuts().forEach(shortcut -> putEventEndpoint(endpoints, shortcut.id(), new EventEndpoint(
+                shortcut.actionId(), DesktopUiNode.EventType.ACTIVATE, true, null)));
+        document.tray().ifPresent(tray -> tray.items().stream()
+                .filter(item -> item.role() == DesktopUiDocument.TrayItemRole.DISPATCH)
+                .forEach(item -> putEventEndpoint(endpoints, item.id(), new EventEndpoint(
+                        item.actionId(), DesktopUiNode.EventType.ACTIVATE, true, null))));
+        return Map.copyOf(endpoints);
+    }
+
+    private static void indexNode(DesktopUiNode node, Map<String, EventEndpoint> endpoints) {
+        EventEndpoint endpoint = null;
+        if (node instanceof DesktopUiNode.TextInput value) endpoint = new EventEndpoint(
+                value.bindingId(), DesktopUiNode.EventType.CHANGE, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.Toggle value) endpoint = new EventEndpoint(
+                value.bindingId(), DesktopUiNode.EventType.CHANGE, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.Choice value) endpoint = new EventEndpoint(
+                value.bindingId(), DesktopUiNode.EventType.SELECTION, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.NumberInput value) endpoint = new EventEndpoint(
+                value.bindingId(), DesktopUiNode.EventType.CHANGE, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.Table value) endpoint = new EventEndpoint(
+                value.bindingId(), DesktopUiNode.EventType.SELECTION, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.Tree value) endpoint = new EventEndpoint(
+                value.bindingId(), DesktopUiNode.EventType.SELECTION, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.Button value) endpoint = new EventEndpoint(
+                value.actionId(), DesktopUiNode.EventType.ACTIVATE, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.Link value) endpoint = new EventEndpoint(
+                value.actionId(), DesktopUiNode.EventType.ACTIVATE, value.enabled(), value);
+        if (endpoint != null) putEventEndpoint(endpoints, node.id(), endpoint);
+        node.childNodes().forEach(child -> indexNode(child, endpoints));
+    }
+
+    private static void putEventEndpoint(Map<String, EventEndpoint> endpoints, String id,
+                                         EventEndpoint endpoint) {
+        if (endpoints.putIfAbsent(id, endpoint) != null) {
+            throw new IllegalArgumentException("duplicate desktop UI event endpoint id: " + id);
+        }
+    }
+
+    static String validateEvent(EventEndpoint endpoint, DesktopUiNode.Event event) {
+        if (endpoint == null) return "unknown node";
+        if (!endpoint.enabled()) return "node is disabled";
+        if (endpoint.eventType() != event.type()) return "event type does not match node";
+        DesktopUiNode node = endpoint.node();
+        if (node == null || node instanceof DesktopUiNode.Button || node instanceof DesktopUiNode.Link) {
+            return event.value().kind() == DesktopUiNode.ValueKind.NONE ? null : "action carries a value";
+        }
+        if (node instanceof DesktopUiNode.TextInput input) {
+            if (event.value().kind() != DesktopUiNode.ValueKind.TEXT || event.value().values().size() != 1) {
+                return "text input requires one text value";
+            }
+            return null;
+        }
+        if (node instanceof DesktopUiNode.Toggle) {
+            return event.value().kind() == DesktopUiNode.ValueKind.BOOLEAN
+                    && event.value().values().size() == 1 ? null : "toggle requires one boolean value";
+        }
+        if (node instanceof DesktopUiNode.NumberInput input) {
+            if (event.value().kind() != DesktopUiNode.ValueKind.NUMBER || event.value().values().size() != 1) {
+                return "number input requires one numeric value";
+            }
+            try {
+                int value = new BigDecimal(first(event.value().values())).intValueExact();
+                if (value < input.minimum() || value > input.maximum()) return "number is outside bounds";
+                return Math.floorMod(value - input.minimum(), input.step()) == 0
+                        ? null : "number does not align with step";
+            } catch (ArithmeticException invalid) {
+                return "number must be an integer";
+            }
+        }
+        if (node instanceof DesktopUiNode.Choice choice) {
+            String kindError = validateSelectionKind(choice.selectionMode(), event.value());
+            if (kindError != null) return kindError;
+            Map<String, Boolean> options = choice.options().stream().collect(java.util.stream.Collectors.toMap(
+                    DesktopUiNode.Option::id, DesktopUiNode.Option::enabled));
+            for (String id : event.value().values()) {
+                if (!options.containsKey(id)) return "unknown choice option";
+                if (!options.get(id)) return "choice option is disabled";
+            }
+            return null;
+        }
+        if (node instanceof DesktopUiNode.Table table) {
+            String kindError = validateSelectionKind(table.selectionMode(), event.value());
+            if (kindError != null) return kindError;
+            Set<String> ids = table.rows().stream().map(DesktopUiNode.TableRow::id)
+                    .collect(java.util.stream.Collectors.toSet());
+            return ids.containsAll(event.value().values()) ? null : "unknown table row";
+        }
+        if (node instanceof DesktopUiNode.Tree tree) {
+            String kindError = validateSelectionKind(tree.selectionMode(), event.value());
+            if (kindError != null) return kindError;
+            Set<String> ids = new LinkedHashSet<>();
+            collectTreeItemIds(tree.items(), ids);
+            return ids.containsAll(event.value().values()) ? null : "unknown tree item";
+        }
+        return "node does not emit events";
+    }
+
+    private static String validateSelectionKind(SelectionMode mode, DesktopUiNode.Value value) {
+        DesktopUiNode.ValueKind expected = mode == SelectionMode.SINGLE
+                ? DesktopUiNode.ValueKind.SELECTION : DesktopUiNode.ValueKind.MULTI_SELECTION;
+        return value.kind() == expected ? null : "selection kind does not match selection mode";
+    }
+
+    private static void collectTreeItemIds(List<DesktopUiNode.TreeItem> items, Set<String> ids) {
+        for (DesktopUiNode.TreeItem item : items) {
+            ids.add(item.id());
+            collectTreeItemIds(item.children(), ids);
+        }
+    }
+
+    private static String first(List<String> values) {
+        return values.isEmpty() ? "" : values.get(0);
+    }
+
+    record EventEndpoint(String targetId, DesktopUiNode.EventType eventType,
+                         boolean enabled, DesktopUiNode node) { }
 
     private static DesktopUiDocument.KeyStroke keyStroke(String key) {
         return DesktopUiDocument.KeyStroke.key(key);
@@ -3478,10 +3620,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                 appToken("gui.config.symbolic-pin.message", path), TextStyle.BODY, true, false),
                         row("config.symbolic-pin.actions",
                                 button("config.symbolic-pin.confirm", "config.symbolic-pin.confirm",
-                                        "desktop.ui.action.confirm", true, nextActions,
+                                        "desktop.ui.action.confirm", !busy, nextActions,
                                         () -> pinSymbolicRootAndSave(path)),
                                 button("config.symbolic-pin.cancel", "config.symbolic-pin.cancel",
-                                        "desktop.ui.action.cancel", true, nextActions, () -> {
+                                        "desktop.ui.action.cancel", !busy, nextActions, () -> {
                                             dialogState = null;
                                             setConfigNotice(host.message("gui.config.symbolic-pin.cancelled"));
                                             rebuild();
@@ -3679,7 +3821,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private void requestConfigurationReset() {
-        showDialog("config.reset", "gui.config.dialog.reset-confirm.title",
+        showDialog("config.reset.dialog", "gui.config.dialog.reset-confirm.title",
                 DesktopUiDocument.DialogStyle.QUESTION,
                 (nextActions, dismissAction, dismiss) -> column("config.reset.content",
                         text("config.reset.message", "gui.config.dialog.reset-confirm.message", TextStyle.BODY),

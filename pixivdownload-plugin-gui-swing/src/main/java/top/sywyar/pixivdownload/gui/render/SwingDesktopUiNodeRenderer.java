@@ -752,7 +752,7 @@ public final class SwingDesktopUiNodeRenderer {
     }
 
     private void emit(EventType type, String nodeId, String targetId, Value value) {
-        if (!eventsSuppressed) eventSink.accept(new Event(type, nodeId, targetId, value));
+        if (!eventsSuppressed) eventSink.accept(new Event(type, nodeId, value));
     }
 
     private String text(TextToken token) {

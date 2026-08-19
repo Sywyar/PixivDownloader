@@ -847,17 +847,28 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
      * Renderer-to-host event containing no executable plugin callback.
      * Hosts must not log or persist values emitted by {@link InputKind#PASSWORD} nodes.
      */
-    record Event(EventType type, String nodeId, String targetId, Value value) {
+    record Event(long documentRevision, EventType type, String nodeId, Value value) {
         /**
+         * Creates an event intent that must be stamped by {@code DesktopUiContext} before dispatch.
+         *
          * @param type renderer event type
          * @param nodeId emitting node id
-         * @param targetId action or binding target id
+         * @param value typed event value
+         */
+        public Event(EventType type, String nodeId, Value value) {
+            this(-1L, type, nodeId, value);
+        }
+
+        /**
+         * @param documentRevision revision from which the emitting control was rendered
+         * @param type renderer event type
+         * @param nodeId emitting node id
          * @param value typed event value
          */
         public Event {
+            if (documentRevision < -1L) throw new IllegalArgumentException("documentRevision must be -1 or greater");
             type = Objects.requireNonNull(type, "type");
             nodeId = requireId(nodeId, "nodeId");
-            targetId = requireId(targetId, "targetId");
             value = value == null ? Value.empty() : value;
             if (type == EventType.ACTIVATE && value.kind() != ValueKind.NONE) {
                 throw new IllegalArgumentException("ACTIVATE event must not carry a value");
@@ -871,6 +882,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
                     && value.kind() != ValueKind.NUMBER) {
                 throw new IllegalArgumentException("CHANGE event requires a text, boolean, or number value");
             }
+        }
+
+        /** @return this event intent stamped with the rendered document revision */
+        public Event atRevision(long revision) {
+            if (revision < 0) throw new IllegalArgumentException("revision must not be negative");
+            return new Event(revision, type, nodeId, value);
         }
     }
 

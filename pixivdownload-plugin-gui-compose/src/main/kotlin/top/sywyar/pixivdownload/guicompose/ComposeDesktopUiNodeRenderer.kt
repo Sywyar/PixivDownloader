@@ -1061,14 +1061,14 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     private fun activate(nodeId: String, actionId: String) = DesktopUiNode.Event(
-        DesktopUiNode.EventType.ACTIVATE, nodeId, actionId, DesktopUiNode.Value.empty(),
+        DesktopUiNode.EventType.ACTIVATE, nodeId, DesktopUiNode.Value.empty(),
     )
 
     private fun change(nodeId: String, bindingId: String, value: DesktopUiNode.Value) = DesktopUiNode.Event(
-        DesktopUiNode.EventType.CHANGE, nodeId, bindingId, value,
+        DesktopUiNode.EventType.CHANGE, nodeId, value,
     )
 
     private fun selection(nodeId: String, bindingId: String, value: DesktopUiNode.Value) = DesktopUiNode.Event(
-        DesktopUiNode.EventType.SELECTION, nodeId, bindingId, value,
+        DesktopUiNode.EventType.SELECTION, nodeId, value,
     )
 }

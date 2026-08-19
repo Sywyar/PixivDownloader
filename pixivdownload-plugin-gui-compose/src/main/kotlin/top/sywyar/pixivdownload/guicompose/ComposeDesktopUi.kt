@@ -156,10 +156,9 @@ internal object ComposeDesktopUi {
                                         DesktopUiDocument.TrayItemRole.ACTIVATE_WINDOW ->
                                             activateWindow(visible, windowRef)
                                         DesktopUiDocument.TrayItemRole.DISPATCH ->
-                                            context.dispatchEvent(DesktopUiNode.Event(
+                                            context.dispatchEvent(observed.revision, DesktopUiNode.Event(
                                                 DesktopUiNode.EventType.ACTIVATE,
                                                 item.id(),
-                                                item.actionId(),
                                                 DesktopUiNode.Value.empty(),
                                             ))
                                         DesktopUiDocument.TrayItemRole.SEPARATOR -> Unit
@@ -193,7 +192,7 @@ internal object ComposeDesktopUi {
                         }
                         PixivDownloaderTheme {
                             Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
-                                ComposeDesktopRoot(context, document, messages)
+                                ComposeDesktopRoot(context, document, observed.revision, messages)
                                 message.value?.let { current ->
                                     AlertDialog(
                                         onDismissRequest = { message.value = null },
@@ -423,10 +422,9 @@ private class ComposeShortcutDispatcher(private val context: DesktopUiContext) :
         context.currentDocument().shortcuts().forEach { shortcut ->
             val match = shortcut.advance(indexes[shortcut.id()] ?: 0, pressed)
             if (match.completed()) {
-                context.dispatchEvent(DesktopUiNode.Event(
+                context.dispatchEvent(context.currentDocumentRevision(), DesktopUiNode.Event(
                     DesktopUiNode.EventType.ACTIVATE,
                     shortcut.id(),
-                    shortcut.actionId(),
                     DesktopUiNode.Value.empty(),
                 ))
                 consume = consume || shortcut.consume()
@@ -465,6 +463,7 @@ private class ComposeShortcutDispatcher(private val context: DesktopUiContext) :
 private fun ComposeDesktopRoot(
     context: DesktopUiContext,
     document: DesktopUiDocument,
+    documentRevision: Long,
     messages: ComposeMessages,
 ) {
     var selected by remember { mutableStateOf(document.pages().first().id()) }
@@ -513,14 +512,14 @@ private fun ComposeDesktopRoot(
                     ComposeDesktopUiNodeRenderer.Render(
                         document.pages()[index].content(),
                         messages::resolve,
-                        context::dispatchEvent,
+                        { event -> context.dispatchEvent(documentRevision, event) },
                         Modifier.fillMaxSize(),
                     )
                 }
             }
         }
     }
-    document.dialogs().forEach { dialog -> DocumentDialog(dialog, messages, context) }
+    document.dialogs().forEach { dialog -> DocumentDialog(dialog, documentRevision, messages, context) }
 }
 
 @Composable
@@ -618,14 +617,14 @@ internal fun applicationInitials(name: String): String {
 @Composable
 private fun DocumentDialog(
     dialog: DesktopUiDocument.Dialog,
+    documentRevision: Long,
     messages: ComposeMessages,
     context: DesktopUiContext,
 ) {
     Dialog(onDismissRequest = {
-        if (dialog.dismissible()) context.dispatchEvent(DesktopUiNode.Event(
+        if (dialog.dismissible()) context.dispatchEvent(documentRevision, DesktopUiNode.Event(
             DesktopUiNode.EventType.ACTIVATE,
             dialog.id(),
-            dialog.dismissActionId(),
             DesktopUiNode.Value.empty(),
         ))
     }) {
@@ -636,7 +635,8 @@ private fun DocumentDialog(
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(messages.resolve(dialog.title()), style = MaterialTheme.typography.titleLarge)
                 ComposeDesktopUiNodeRenderer.Render(
-                    dialog.content(), messages::resolve, context::dispatchEvent, Modifier.fillMaxWidth(),
+                    dialog.content(), messages::resolve,
+                    { event -> context.dispatchEvent(documentRevision, event) }, Modifier.fillMaxWidth(),
                 )
             }
         }

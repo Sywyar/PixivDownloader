@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("声明式桌面 UI 节点")
@@ -51,9 +52,19 @@ class DesktopUiNodeTest {
     @DisplayName("事件类型和值类型必须保持一致")
     void rejectsMismatchedEventValue() {
         assertThatThrownBy(() -> new DesktopUiNode.Event(
-                DesktopUiNode.EventType.ACTIVATE, "button", "action.run", DesktopUiNode.Value.bool(true)))
+                DesktopUiNode.EventType.ACTIVATE, "button", DesktopUiNode.Value.bool(true)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not carry a value");
+    }
+
+    @Test
+    @DisplayName("事件意图必须由渲染文档版本盖章")
+    void stampsEventIntentWithDocumentRevision() {
+        DesktopUiNode.Event intent = new DesktopUiNode.Event(
+                DesktopUiNode.EventType.ACTIVATE, "button", DesktopUiNode.Value.empty());
+
+        assertThat(intent.documentRevision()).isEqualTo(-1);
+        assertThat(intent.atRevision(7).documentRevision()).isEqualTo(7);
     }
 
     private static DesktopUiNode.Text text(String id) {
