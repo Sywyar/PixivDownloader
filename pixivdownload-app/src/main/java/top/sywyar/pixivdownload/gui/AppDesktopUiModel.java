@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
@@ -2321,20 +2322,11 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             }
         }
 
-        Locale locale = Locale.getDefault();
-        Map<String, String> themeNames = new LinkedHashMap<>();
-        for (DesktopUiPluginSource source : currentSources()) {
-            try {
-                source.plugin().guiThemes().stream().filter(Objects::nonNull)
-                        .filter(theme -> validId(theme.themeId()))
-                        .forEach(theme -> themeNames.putIfAbsent(theme.themeId(), theme.displayName(locale)));
-            } catch (RuntimeException ignored) {
-                // One invalid optional contribution does not remove the settings page.
-            }
-        }
-        List<DesktopUiNode.Option> themes = themeNames.entrySet().stream()
-                .map(entry -> new DesktopUiNode.Option(entry.getKey(), TextToken.raw(entry.getValue()), true))
-                .toList();
+        String selectedProvider = selected("app.gui-provider", "gui-swing");
+        List<DesktopUiNode.Option> themes = themeOptions(selectedProvider);
+        String configuredTheme = selected("app.theme", "system");
+        String selectedTheme = themes.stream().anyMatch(theme -> theme.id().equals(configuredTheme))
+                ? configuredTheme : "system";
 
         List<DesktopUiNode> nodes = new ArrayList<>();
         nodes.add(formField("interface.language", key("gui.interface.language.label"),
@@ -2350,7 +2342,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         nodes.add(formField("interface.theme", key("gui.interface.theme.label"),
                 key("gui.interface.theme.help"),
                 choice("interface.theme.input", "interface.theme", "gui.interface.theme.label",
-                        null, themes, selected("app.theme", "system"), !themes.isEmpty()),
+                        null, themes, selectedTheme, true),
                 GuiConfigEffect.HOT_RELOAD));
         nodes.add(formField("interface.config-menu-expand-all",
                 key("gui.interface.config-menu-expand-all.label"),
@@ -2364,6 +2356,40 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         return scroll("interface.scroll", new DesktopUiNode.Surface("interface.padding",
                 DesktopUiNode.SurfaceStyle.PLAIN, DesktopUiNode.Insets.all(16), true,
                 column("interface.content", nodes)));
+    }
+
+    private List<DesktopUiNode.Option> themeOptions(String providerId) {
+        Map<String, DesktopUiNode.Option> themes = new LinkedHashMap<>();
+        themes.put("system", new DesktopUiNode.Option(
+                "system", key("gui.interface.theme.option.system"), true));
+        themes.put("light", new DesktopUiNode.Option(
+                "light", key("gui.interface.theme.option.light"), true));
+        themes.put("dark", new DesktopUiNode.Option(
+                "dark", key("gui.interface.theme.option.dark"), true));
+        DesktopUiPluginSource source = currentSources().stream()
+                .filter(candidate -> candidate.id().equals(providerId))
+                .filter(candidate -> candidate.plugin() instanceof DesktopUiProvider)
+                .findFirst().orElse(null);
+        if (source == null) return List.copyOf(themes.values());
+        try {
+            List<GuiThemeContribution> contributions = source.plugin().guiThemes();
+            if (contributions == null) return List.copyOf(themes.values());
+            Set<String> providerThemeIds = new LinkedHashSet<>();
+            for (GuiThemeContribution contribution : contributions) {
+                if (contribution == null || !validId(contribution.themeId())
+                        || Set.of("system", "light", "dark").contains(contribution.themeId())) continue;
+                String id = contribution.themeId();
+                if (!providerThemeIds.add(id)) {
+                    themes.remove(id);
+                    continue;
+                }
+                themes.put(id, new DesktopUiNode.Option(
+                        id, TextToken.raw(contribution.displayName(Locale.getDefault())), true));
+            }
+        } catch (RuntimeException failure) {
+            LOG.warn("Ignored invalid desktop UI themes from provider '{}': {}", providerId, failure.toString());
+        }
+        return List.copyOf(themes.values());
     }
 
     private DesktopUiNode configFieldNode(ConfigField field, Set<FieldKey> locked,
@@ -3857,14 +3883,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 .map(DesktopUiPluginSource::id).collect(java.util.stream.Collectors.toSet());
         String provider = form("interface.provider", selected("app.gui-provider", "gui-swing"));
         if (!availableProviders.contains(provider)) provider = "gui-swing";
-        Set<String> availableThemes = currentSources().stream().flatMap(source -> {
-            try {
-                return source.plugin().guiThemes().stream().filter(Objects::nonNull)
-                        .map(theme -> theme.themeId());
-            } catch (RuntimeException ignored) {
-                return java.util.stream.Stream.empty();
-            }
-        }).collect(java.util.stream.Collectors.toSet());
+        Set<String> availableThemes = themeOptions(provider).stream()
+                .map(DesktopUiNode.Option::id).collect(java.util.stream.Collectors.toSet());
         String theme = form("interface.theme", selected("app.theme", "system"));
         if (!availableThemes.contains(theme)) theme = "system";
         String expandAll = Boolean.toString(boolForm("interface.config-menu-expand-all",

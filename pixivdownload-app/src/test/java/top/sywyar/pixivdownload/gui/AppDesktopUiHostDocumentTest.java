@@ -8,6 +8,10 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
@@ -21,6 +25,8 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -125,6 +131,27 @@ class AppDesktopUiHostDocumentTest {
         assertThat(item.label().namespace()).isEqualTo("fixture");
         assertThat(item.label().key()).isEqualTo("navigation.label");
         assertThat(item.actionId()).isEqualTo(item.id() + ".open");
+    }
+
+    @Test
+    @DisplayName("主题选项只包含当前桌面提供者支持的专属主题")
+    void themeOptionsFollowTheSelectedDesktopProvider() {
+        ThemeProviderPlugin swing = new ThemeProviderPlugin("gui-swing", List.of(
+                new GuiThemeContribution("moonlight", locale -> "Moonlight",
+                        GuiThemeAppearance.DARK, () -> { })));
+        ThemeProviderPlugin compose = new ThemeProviderPlugin("gui-compose", List.of());
+        AppDesktopUiModel model = model(List.of(source(swing), source(compose)));
+
+        DesktopUiNode.Choice themes = choice(model.document(), "interface.theme.input");
+        assertThat(themes.options()).extracting(DesktopUiNode.Option::id)
+                .containsExactly("system", "light", "dark", "moonlight");
+
+        dispatch(model, DesktopUiNode.EventType.SELECTION, "interface.provider.input",
+                DesktopUiNode.Value.selection("gui-compose"));
+        themes = choice(model.document(), "interface.theme.input");
+        assertThat(themes.options()).extracting(DesktopUiNode.Option::id)
+                .containsExactly("system", "light", "dark");
+        assertThat(themes.selectedIds()).containsExactly("system");
     }
 
     @Test
@@ -692,6 +719,31 @@ class AppDesktopUiHostDocumentTest {
         return track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config,
                 new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> sources));
+    }
+
+    private static DesktopUiPluginSource source(ThemeProviderPlugin plugin) {
+        return new DesktopUiPluginSource(plugin.id(), false, plugin, plugin.getClass().getClassLoader());
+    }
+
+    private static DesktopUiNode.Choice choice(DesktopUiDocument document, String id) {
+        return nodes(document).stream()
+                .filter(DesktopUiNode.Choice.class::isInstance)
+                .map(DesktopUiNode.Choice.class::cast)
+                .filter(choice -> id.equals(choice.id()))
+                .findFirst().orElseThrow();
+    }
+
+    private record ThemeProviderPlugin(String id, List<GuiThemeContribution> themes)
+            implements PixivFeaturePlugin, DesktopUiProvider {
+        @Override public String displayName() { return id; }
+        @Override public String description() { return id; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+        @Override public List<GuiThemeContribution> guiThemes() { return themes; }
+        @Override public Set<DesktopUiNode.Kind> supportedNodeKinds() { return Set.of(DesktopUiNode.Kind.TEXT); }
+        @Override public Set<DesktopUiCapability> supportedCapabilities() { return Set.of(); }
+        @Override public DesktopUiSession launch(DesktopUiContext context) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     private AppDesktopUiModel track(AppDesktopUiModel model) {
