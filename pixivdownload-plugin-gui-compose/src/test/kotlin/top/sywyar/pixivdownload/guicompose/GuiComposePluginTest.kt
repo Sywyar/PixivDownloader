@@ -130,6 +130,13 @@ class GuiComposePluginTest {
         assertEquals(9, ComposeDesktopUiNodeRenderer.alignedNumberValue(99, 0, 10, 3))
     }
 
+    @Test
+    @DisplayName("动态重排按稳定标识保持选择并在删除后回退")
+    fun preservesStableSelectionAcrossReordering() {
+        assertEquals("details", selectedIdOrFirst("details", listOf("details", "overview")))
+        assertEquals("overview", selectedIdOrFirst("removed", listOf("overview", "details")))
+    }
+
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(

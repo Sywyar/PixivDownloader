@@ -40,11 +40,14 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -466,9 +469,11 @@ private fun ComposeDesktopRoot(
     documentRevision: Long,
     messages: ComposeMessages,
 ) {
-    var selected by remember { mutableStateOf(document.pages().first().id()) }
-    val activePage = selected.takeIf { id -> document.pages().any { it.id() == id } }
-        ?: document.pages().first().id()
+    val pageIds = document.pages().map { it.id() }
+    var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
+    val activePage = selectedIdOrFirst(selected, pageIds)
+    val pageStates = rememberSaveableStateHolder()
+    LaunchedEffect(activePage) { selected = activePage }
 
     BoxWithConstraints(
         Modifier.fillMaxSize().background(
@@ -480,7 +485,6 @@ private fun ComposeDesktopRoot(
     ) {
         val compact = maxWidth < 760.dp
         val navigationWidth = if (compact) 128.dp else 196.dp
-        val selectedIndex = document.pages().indexOfFirst { it.id() == activePage }.coerceAtLeast(0)
         Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             NavigationPanel(
                 applicationName = context.applicationName(),
@@ -499,29 +503,34 @@ private fun ComposeDesktopRoot(
                 shadowElevation = 3.dp,
             ) {
                 AnimatedContent(
-                    targetState = selectedIndex,
+                    targetState = activePage,
                     modifier = Modifier.fillMaxSize(),
                     transitionSpec = {
-                        val direction = if (targetState >= initialState) 1 else -1
+                        val direction = if (pageIds.indexOf(targetState) >= pageIds.indexOf(initialState)) 1 else -1
                         (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { direction * it / 18 })
                             .togetherWith(fadeOut(tween(140)) +
                                     slideOutHorizontally(tween(200)) { -direction * it / 24 })
                     },
-                    contentKey = { document.pages()[it].id() },
-                ) { index ->
-                    ComposeDesktopUiNodeRenderer.Render(
-                        document.pages()[index].content(),
-                        messages::resolve,
-                        { event -> context.dispatchEvent(documentRevision, event) },
-                        Modifier.fillMaxSize(),
-                        documentRevision,
-                    )
+                    contentKey = { it },
+                ) { pageId ->
+                    pageStates.SaveableStateProvider(pageId) {
+                        ComposeDesktopUiNodeRenderer.Render(
+                            document.pages().first { it.id() == pageId }.content(),
+                            messages::resolve,
+                            { event -> context.dispatchEvent(documentRevision, event) },
+                            Modifier.fillMaxSize(),
+                            documentRevision,
+                        )
+                    }
                 }
             }
         }
     }
     document.dialogs().forEach { dialog -> DocumentDialog(dialog, documentRevision, messages, context) }
 }
+
+internal fun selectedIdOrFirst(selectedId: String, orderedIds: List<String>): String =
+    selectedId.takeIf(orderedIds::contains) ?: orderedIds.first()
 
 @Composable
 private fun NavigationPanel(
