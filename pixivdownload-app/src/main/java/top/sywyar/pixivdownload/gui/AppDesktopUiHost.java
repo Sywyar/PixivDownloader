@@ -12,18 +12,15 @@ import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.Page;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.PageKind;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.ScrollPolicy;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;
+import java.awt.datatransfer.StringSelection;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.awt.Desktop;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -32,17 +29,6 @@ import java.util.function.Consumer;
 
 /** App-owned implementation of the stable desktop UI host contract. */
 final class AppDesktopUiHost implements DesktopUiHost {
-    private static final Page WELCOME_PAGE = new Page(
-            PageKind.WELCOME, "desktop.ui.page.welcome", ScrollPolicy.NONE);
-    private static final DesktopUiDocument STANDARD_DOCUMENT = new DesktopUiDocument(List.of(
-            new Page(PageKind.STATUS, "desktop.ui.page.status", ScrollPolicy.SCROLL_PANE),
-            new Page(PageKind.CONFIG, "desktop.ui.page.config", ScrollPolicy.NONE),
-            new Page(PageKind.PLUGINS, "desktop.ui.page.plugins", ScrollPolicy.NONE),
-            new Page(PageKind.TOOLS, "desktop.ui.page.tools", ScrollPolicy.NONE),
-            new Page(PageKind.SECURITY, "desktop.ui.page.security", ScrollPolicy.NONE),
-            new Page(PageKind.ABOUT, "desktop.ui.page.about", ScrollPolicy.NONE)
-    ));
-
     private final DesktopUiLocalApiClient localApiClient;
     private final ConfigFile applicationConfig;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
@@ -59,18 +45,6 @@ final class AppDesktopUiHost implements DesktopUiHost {
     void resetIncompleteOnboardingState(String rootFolder) {
         var state = onboardingState.snapshot(rootFolder);
         if (!state.complete() && !state.setupComplete()) onboardingState.clear();
-    }
-
-    DesktopUiDocument desktopUiDocument(String rootFolder) {
-        return desktopUiDocument(onboardingState.snapshot(rootFolder).complete());
-    }
-
-    static DesktopUiDocument desktopUiDocument(boolean onboardingComplete) {
-        if (onboardingComplete) return STANDARD_DOCUMENT;
-        var pages = new ArrayList<Page>(STANDARD_DOCUMENT.pages().size() + 1);
-        pages.add(WELCOME_PAGE);
-        pages.addAll(STANDARD_DOCUMENT.pages());
-        return new DesktopUiDocument(pages);
     }
 
     @Override public String applicationName(){return top.sywyar.pixivdownload.common.AppInfo.NAME;}
@@ -167,6 +141,15 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public Path resolveDatabasePath(String rootFolder) { return RuntimeFiles.resolveDatabasePath(rootFolder); }
     @Override public String readDownloadRootFromConfig(Path path, String fallback) { return RuntimeFiles.readDownloadRootFromConfig(path, fallback); }
     @Override public String normalizeRootFolder(String rootFolder) { return RuntimeFiles.normalizeRootFolder(rootFolder); }
+    @Override public void openExternalUri(java.net.URI uri) throws Exception {
+        Desktop.getDesktop().browse(uri);
+    }
+    @Override public void openLocalPath(Path path) throws Exception {
+        Desktop.getDesktop().open(path.toFile());
+    }
+    @Override public void copyText(String text) {
+        java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+    }
 
     @Override public BackendSnapshot backendSnapshot() { return map(BackendLifecycleManager.snapshot()); }
     @Override public AutoCloseable subscribeBackend(Consumer<BackendSnapshot> consumer) {
@@ -177,6 +160,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public boolean startBackend(Runnable afterStart) { return BackendLifecycleManager.startAsync(afterStart); }
     @Override public boolean stopBackend(Runnable afterStop) { return BackendLifecycleManager.stopAsync(afterStop); }
     @Override public boolean restartBackend(Runnable afterRestart) { return BackendLifecycleManager.restartAsync(afterRestart); }
+    @Override public void requestApplicationExit() {
+        GuiLauncher.requestApplicationExit();
+    }
     @Override public boolean autoStartSupported() { return AutoStartManager.isSupported(); }
     @Override public boolean autoStartEnabled() { return AutoStartManager.isEnabled(); }
     @Override public void setAutoStartEnabled(boolean enabled) throws IOException, InterruptedException { AutoStartManager.setEnabled(enabled); }

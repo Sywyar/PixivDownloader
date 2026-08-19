@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntryContributionAggregator;
 import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
-import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingContributionAggregator;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 
@@ -61,8 +60,7 @@ class PluginDisableSemanticsTest {
         assertThat(aggregateWebEntries(disabled).statusActions())
                 .extracting(action -> action.pluginId())
                 .doesNotContain("gallery");
-        assertThat(aggregateOnboarding(disabled).steps())
-                .extracting(step -> step.pluginId())
+        assertThat(onboardingOwners(disabled))
                 .doesNotContain("gallery");
         assertThat(routeOwners(disabled)).doesNotContain("gallery");
 
@@ -124,11 +122,9 @@ class PluginDisableSemanticsTest {
                 .extracting(action -> action.id())
                 .doesNotContain("gallery-gui-open");
 
-        assertThat(aggregateOnboarding(allEnabled()).steps())
-                .extracting(step -> step.stepId())
+        assertThat(onboardingStepIds(allEnabled()))
                 .contains("local-gallery-guide");
-        assertThat(aggregateOnboarding(registryDisabling("gallery")).steps())
-                .extracting(step -> step.stepId())
+        assertThat(onboardingStepIds(registryDisabling("gallery")))
                 .doesNotContain("local-gallery-guide");
     }
 
@@ -233,8 +229,17 @@ class PluginDisableSemanticsTest {
         return GuiWebEntryContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registry));
     }
 
-    private static top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot aggregateOnboarding(
-            PluginRegistry registry) {
-        return GuiOnboardingContributionAggregator.fromRegisteredPlugins(DesktopUiTestSources.from(registry));
+    private static List<String> onboardingOwners(PluginRegistry registry) {
+        return DesktopUiTestSources.from(registry).stream()
+                .filter(source -> !source.plugin().guiOnboardingSteps().isEmpty())
+                .map(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext.PluginSource::id)
+                .toList();
+    }
+
+    private static List<String> onboardingStepIds(PluginRegistry registry) {
+        return DesktopUiTestSources.from(registry).stream()
+                .flatMap(source -> source.plugin().guiOnboardingSteps().stream())
+                .map(top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution::stepId)
+                .toList();
     }
 }

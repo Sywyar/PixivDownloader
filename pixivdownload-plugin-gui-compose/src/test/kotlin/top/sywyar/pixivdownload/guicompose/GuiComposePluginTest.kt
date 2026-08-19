@@ -4,6 +4,10 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.jetbrains.skia.Image
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
+import java.awt.Dimension
+import java.awt.Insets
+import java.awt.Point
+import java.awt.Rectangle
 import java.util.Base64
 import java.util.EnumSet
 import java.util.Locale
@@ -40,10 +44,45 @@ class GuiComposePluginTest {
         }
     }
 
+    @Test
+    @DisplayName("桌面品牌缩写兼容 CamelCase 与本地化名称")
+    fun derivesCompactApplicationInitials() {
+        assertEquals("PD", applicationInitials("PixivDownloader"))
+        assertEquals("像素", applicationInitials("像素下载器"))
+        assertEquals("UI", applicationInitials("  "))
+    }
+
+    @Test
+    @DisplayName("现代托盘菜单以图标为锚点并保持在可用屏幕内")
+    fun anchorsTrayPopupInsideUsableScreen() {
+        val anchor = Point(1209, 795)
+        val popup = Dimension(260, 262)
+        val origin = trayPopupOrigin(anchor, popup, Rectangle(0, 0, 1600, 1000), Insets(0, 0, 0, 0))
+
+        assertEquals(Point(949, 533), origin)
+        assertEquals(anchor, Point(origin.x + popup.width, origin.y + popup.height))
+        assertEquals(
+            Point(1650, 880),
+            trayPopupOrigin(
+                Point(1910, 1070),
+                Dimension(260, 160),
+                Rectangle(0, 0, 1920, 1080),
+                Insets(0, 0, 40, 0),
+            ),
+        )
+    }
+
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
+            DesktopUiNode.Dock("dock", 4, text("dock.top"), text("dock.center"), null, null, null),
+            DesktopUiNode.Surface("surface", DesktopUiNode.SurfaceStyle.CARD,
+                DesktopUiNode.Insets.all(8), true, text("surface.text")),
             DesktopUiNode.Group("group", raw("Group"), text("group.text")),
+            DesktopUiNode.Form("form", DesktopUiNode.FormStyle.RESPONSIVE, raw(":"), listOf(
+                DesktopUiNode.FormRow("form.row", raw("Field"), raw("Help"),
+                    input("form.input", DesktopUiNode.InputKind.NUMBER), text("form.trailing")),
+            )),
             DesktopUiNode.Tabs("tabs", listOf(DesktopUiNode.Tab("tab", raw("Tab"), text("tab.text")))),
             DesktopUiNode.Scroll("scroll", text("scroll.text")),
             DesktopUiNode.Split("split", DesktopUiNode.Axis.HORIZONTAL, .5, text("split.first"), text("split.second")),

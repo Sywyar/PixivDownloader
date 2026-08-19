@@ -191,6 +191,14 @@ public final class GuiThemeManager {
         }
     }
 
+    public static void shutdown() {
+        synchronized (LOCK) {
+            closeContributionListener();
+            themes = Map.of();
+            changeListeners.clear();
+        }
+    }
+
     private static void applyConfiguredTheme(boolean refreshExistingWindows) {
         RegisteredTheme registered;
         String target;

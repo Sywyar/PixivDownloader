@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.gui.i18n;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
 
@@ -35,7 +37,7 @@ public final class PluginContributionText {
             }
             try {
                 ResourceBundle bundle = ResourceBundle.getBundle(
-                        ns.baseName(), GuiMessages.currentLocale(), effectiveClassLoader, PLUGIN_BUNDLE_CONTROL);
+                        ns.baseName(), currentLocale(), effectiveClassLoader, PLUGIN_BUNDLE_CONTROL);
                 String resolved = getString(bundle, key);
                 if (resolved != null) {
                     return resolved;
@@ -45,6 +47,13 @@ public final class PluginContributionText {
             }
         }
         return key;
+    }
+
+    private static Locale currentLocale() {
+        Locale requested = Locale.getDefault();
+        return SwingHost.installed()
+                ? SwingHost.host().resolveLocale(requested).target().toLocale()
+                : requested;
     }
 
     private static String getString(ResourceBundle bundle, String key) {

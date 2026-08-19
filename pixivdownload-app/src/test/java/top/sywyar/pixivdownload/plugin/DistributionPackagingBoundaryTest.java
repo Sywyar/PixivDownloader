@@ -1015,32 +1015,42 @@ class DistributionPackagingBoundaryTest {
             }
             try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new),
                     DistributionPackagingBoundaryTest.class.getClassLoader())) {
-                Class<?> plugin = Class.forName(
-                        "top.sywyar.pixivdownload.guicompose.GuiComposePf4jPlugin", false, loader);
-                PixivFeaturePlugin feature = ((PixivPluginProvider) plugin.getDeclaredConstructor().newInstance())
-                        .featurePlugin();
-                assertThat(feature).isInstanceOf(DesktopUiProvider.class);
-                DesktopUiProvider provider = (DesktopUiProvider) feature;
-                assertThat(provider.id()).isEqualTo("gui-compose");
-                assertThat(provider.supportedNodeKinds()).containsExactlyInAnyOrder(DesktopUiNode.Kind.values());
-                Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
-                Object companion = imageType.getField("Companion").get(null);
-                byte[] pixel = Base64.getDecoder().decode(
-                        "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==");
-                Object image = companion.getClass().getMethod("makeFromEncoded", byte[].class)
-                        .invoke(companion, (Object) pixel);
                 try {
-                    assertThat(plugin.getClassLoader()).isSameAs(loader);
-                    assertThat(imageType.getClassLoader()).isSameAs(loader);
-                    assertThat(imageType.getMethod("getWidth").invoke(image)).isEqualTo(1);
-                    assertThat(imageType.getMethod("getHeight").invoke(image)).isEqualTo(1);
+                    Class<?> plugin = Class.forName(
+                            "top.sywyar.pixivdownload.guicompose.GuiComposePf4jPlugin", false, loader);
+                    PixivFeaturePlugin feature = ((PixivPluginProvider) plugin.getDeclaredConstructor().newInstance())
+                            .featurePlugin();
+                    assertThat(feature).isInstanceOf(DesktopUiProvider.class);
+                    DesktopUiProvider provider = (DesktopUiProvider) feature;
+                    assertThat(provider.id()).isEqualTo("gui-compose");
+                    assertThat(provider.supportedNodeKinds()).containsExactlyInAnyOrder(DesktopUiNode.Kind.values());
+                    Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
+                    Object companion = imageType.getField("Companion").get(null);
+                    byte[] pixel = Base64.getDecoder().decode(
+                            "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==");
+                    Object image = companion.getClass().getMethod("makeFromEncoded", byte[].class)
+                            .invoke(companion, (Object) pixel);
+                    try {
+                        assertThat(plugin.getClassLoader()).isSameAs(loader);
+                        assertThat(imageType.getClassLoader()).isSameAs(loader);
+                        assertThat(imageType.getMethod("getWidth").invoke(image)).isEqualTo(1);
+                        assertThat(imageType.getMethod("getHeight").invoke(image)).isEqualTo(1);
+                    } finally {
+                        ((AutoCloseable) image).close();
+                    }
                 } finally {
-                    ((AutoCloseable) image).close();
+                    shutdownPrivateCoroutineRuntime(loader);
                 }
             }
         } catch (Exception e) {
             throw new IllegalStateException("无法从 gui-compose 真实插件 artifact 初始化 Skiko: " + jar, e);
         }
+    }
+
+    private static void shutdownPrivateCoroutineRuntime(ClassLoader loader) throws ReflectiveOperationException {
+        Class<?> executorType = Class.forName("kotlinx.coroutines.DefaultExecutor", true, loader);
+        Object executor = executorType.getField("INSTANCE").get(null);
+        executorType.getMethod("shutdownForTests", long.class).invoke(executor, 5_000L);
     }
 
     private static void assertGuiThemeLookAndFeelCanCreateSwingDelegates(URLClassLoader loader)
@@ -1124,8 +1134,6 @@ class DistributionPackagingBoundaryTest {
         private static boolean isPluginOwned(String name) {
             return name.startsWith("top.sywyar.pixivdownload.guitheme.")
                     || name.startsWith("top.sywyar.pixivdownload.gui.")
-                    || name.startsWith("top.sywyar.pixivdownload.imageclassifier.")
-                    || name.equals("top.sywyar.pixivdownload.tools.FolderChecker")
                     || name.startsWith("com.formdev.flatlaf.")
                     || name.startsWith("com.sun.jna.");
         }

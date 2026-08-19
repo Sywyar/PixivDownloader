@@ -14,6 +14,7 @@ public class AppVersion {
     private static final String JPACKAGE_APP_VERSION = "jpackage.app-version";
     private static final String APP_VERSION_PROPERTIES = "/app-version.properties";
     private static final String APP_VERSION_KEY = "app.version";
+    private static final String KOTLIN_VERSION_KEY = "kotlin.version";
     private static final String MAVEN_POM_PROPERTIES = AppInfo.MAVEN_POM_PROPERTIES_RESOURCE;
 
     /**
@@ -33,6 +34,11 @@ public class AppVersion {
 
     public static String getDisplayVersionOrDefault(String defaultVersion) {
         String version = getDisplayVersionOrNull();
+        return version != null ? version : defaultVersion;
+    }
+
+    public static String getKotlinVersionOrDefault(String defaultVersion) {
+        String version = normalize(readVersionFromProperties(APP_VERSION_PROPERTIES, KOTLIN_VERSION_KEY));
         return version != null ? version : defaultVersion;
     }
 

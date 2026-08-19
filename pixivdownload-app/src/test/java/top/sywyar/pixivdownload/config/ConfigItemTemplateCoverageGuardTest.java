@@ -7,15 +7,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
-import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
-import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
-import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 配置项覆盖守卫：固化「每个配置项都要进 config.yaml 模板，并做 GUI 配套（或显式登记豁免）」这一约束，
  * 防止三份各写一遍的清单（{@link DefaultConfigTemplate} 模板、{@code @ConfigurationProperties} 配置类、
- * GUI {@link ConfigFieldRegistry}）相互漂移。
+ * App-owned declarative GUI schema）相互漂移。
  *
  * <ul>
  *   <li><b>前缀覆盖</b>：扫描到的每个 {@code @ConfigurationProperties} 前缀，模板里至少要出现一个对应键，
@@ -39,8 +41,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DisplayName("配置项覆盖守卫：模板 / GUI / @ConfigurationProperties 三方一致")
 class ConfigItemTemplateCoverageGuardTest {
-
-    static { DesktopUiTestHost.ensureInstalled(); }
 
     private static final String BASE_PACKAGE = "top.sywyar.pixivdownload";
 
@@ -156,11 +156,23 @@ class ConfigItemTemplateCoverageGuardTest {
         return key.startsWith("plugins.") && key.endsWith(".enabled");
     }
 
-    /** GUI 配置面板的全部字段键。 */
+    /** App-owned Schema 中声明的全部核心配置字段键。 */
     private static Set<String> guiFieldKeys() {
-        return ConfigFieldRegistry.allFields().stream()
-                .map(ConfigFieldSpec::key)
-                .collect(Collectors.toCollection(TreeSet::new));
+        try {
+            String source = Files.readString(Path.of(
+                    "src/main/java/top/sywyar/pixivdownload/gui/AppDesktopUiModel.java"), StandardCharsets.UTF_8);
+            Matcher matcher = Pattern.compile("core\\(\"([^\"]+)\"").matcher(source);
+            Set<String> keys = new TreeSet<>();
+            while (matcher.find()) keys.add(matcher.group(1));
+            for (String day : Set.of("monday", "tuesday", "wednesday", "thursday",
+                    "friday", "saturday", "sunday")) {
+                keys.add("maintenance." + day + ".enabled");
+                keys.add("maintenance." + day + ".time");
+            }
+            return keys;
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("无法读取 AppDesktopUiModel Schema", failure);
+        }
     }
 
     /** 扫描 {@value #BASE_PACKAGE} 下所有 {@code @ConfigurationProperties} 类，取其前缀（非空）。 */

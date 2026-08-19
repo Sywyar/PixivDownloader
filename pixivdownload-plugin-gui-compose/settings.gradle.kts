@@ -1,6 +1,11 @@
 import org.gradle.api.initialization.resolve.RepositoriesMode
 
 pluginManagement {
+    plugins {
+        kotlin("jvm") version providers.gradleProperty("kotlinVersion").get()
+        id("org.jetbrains.kotlin.plugin.compose") version providers.gradleProperty("kotlinVersion").get()
+        id("org.jetbrains.compose") version providers.gradleProperty("composeVersion").get()
+    }
     repositories {
         gradlePluginPortal()
         mavenCentral()

@@ -21,10 +21,11 @@ class PluginContributionTextTest {
 
     @TempDir
     private Path tempDir;
+    private final Locale originalLocale = Locale.getDefault();
 
     @AfterEach
     void clearLocale() {
-        GuiMessages.clearLocaleOverride();
+        Locale.setDefault(originalLocale);
     }
 
     @Test
@@ -37,7 +38,7 @@ class PluginContributionTextTest {
                 "\uFEFFplugin.name=BOM Name\nplugin.summary=BOM Summary\n",
                 StandardCharsets.UTF_8);
 
-        GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
+        Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
         try (URLClassLoader classLoader = new URLClassLoader(
                 new URL[]{tempDir.toUri().toURL()}, getClass().getClassLoader())) {
             String text = PluginContributionText.resolve(

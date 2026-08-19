@@ -2,10 +2,6 @@ package top.sywyar.pixivdownload.guitheme;
 
 import top.sywyar.pixivdownload.gui.MainFrame;
 import top.sywyar.pixivdownload.gui.SystemTrayManager;
-import top.sywyar.pixivdownload.gui.config.GuiConfigContributionAggregator;
-import top.sywyar.pixivdownload.gui.entry.GuiWebEntryContributionAggregator;
-import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingContributionAggregator;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
@@ -31,13 +27,10 @@ final class SwingDesktopUi {
                     .toList();
             GuiThemeManager.applyBeforeFirstWindow(context.host().applicationConfig(),
                     GuiThemeManager.readPersistedThemeId(context.host().applicationConfig()), themes);
-            MainFrame frame = new MainFrame(context.serverPort(), context.rootFolder(), context.configPath(),
-                    context::currentDocument,
-                    () -> GuiConfigContributionAggregator.fromRegisteredPlugins(context.currentPluginSources()),
-                    () -> GuiWebEntryContributionAggregator.fromRegisteredPlugins(context.currentPluginSources()),
-                    GuiOnboardingContributionAggregator.fromRegisteredPlugins(startup));
+            MainFrame frame = new MainFrame(context);
             frameRef.set(frame);
-            boolean trayInstalled = SystemTrayManager.install(frame, context.rootFolder());
+            boolean trayInstalled = SystemTrayManager.install(frame, context);
+            frame.setCloseToTray(trayInstalled);
             if (!context.startupLaunch() || !trayInstalled) frame.showWindow();
         };
         runAndWait(create);
@@ -69,7 +62,18 @@ final class SwingDesktopUi {
             };
             onEdt(() -> JOptionPane.showMessageDialog(frame, message, title, type));
         }
-        @Override public void close() { onEdt(frame::dispose); }
+        @Override public void close() {
+            try {
+                runAndWait(() -> {
+                    SystemTrayManager.uninstall();
+                    frame.dispose();
+                    GuiThemeManager.shutdown();
+                    SwingHost.uninstall();
+                });
+            } catch (Exception failure) {
+                throw new IllegalStateException(failure);
+            }
+        }
         private static void onEdt(Runnable action) {
             if (SwingUtilities.isEventDispatchThread()) action.run(); else SwingUtilities.invokeLater(action);
         }

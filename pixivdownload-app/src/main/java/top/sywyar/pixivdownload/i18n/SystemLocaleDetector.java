@@ -9,7 +9,7 @@ import java.util.Locale;
 /**
  * 在 {@code main()} 第一行调用，确定本次运行的全局 locale，并通过
  * {@link Locale#setDefault} 设回 JVM 默认 locale，让所有依赖 {@code Locale.getDefault()}
- * 的代码（{@link AppMessages#getForLog} / {@code GuiMessages} / {@code HtmlLogLayout} 等）
+ * 的代码（{@link AppMessages#getForLog}、桌面 UI 文案解析、{@code HtmlLogLayout} 等）
  * 都从同一份信号读取。
  *
  * <h3>检测优先级（高 → 低）</h3>
