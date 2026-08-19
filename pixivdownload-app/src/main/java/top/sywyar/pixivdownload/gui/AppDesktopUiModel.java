@@ -283,37 +283,33 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         String value = event.value().values().stream().findFirst().orElse("");
         if (field != null) {
             values.put(field.key(), value);
-            if (field.affectsConditions()) rebuild();
+            rebuild();
             return;
         }
         Consumer<String> selection = selectionBindings.get(targetId);
         if (selection != null) {
             selection.accept(value);
+            rebuild();
             return;
         }
         formValues.put(targetId, value);
         switch (targetId) {
             case "interface.language" -> applyLocale(value);
-            case "interface.config-menu-expand-all" -> rebuild();
-            case "tools.backfill.proxy" -> rebuild();
             case "welcome.password" -> weakPasswordConfirmationPending = false;
             case "folder.selected" -> {
                 selectedFolderRow = value.isBlank() ? null : value;
-                rebuild();
             }
             case "config.market.repositories.selected" -> {
                 selectedRepositoryRow = value.isBlank() ? null : value;
-                rebuild();
             }
             case "config.market.repository.proxy", "config.market.repository.trusted.selected" -> {
                 if (targetId.endsWith("trusted.selected")) {
                     selectedTrustedKeyRow = value.isBlank() ? null : value;
                 }
-                rebuild();
             }
-            case "classifier.source", "classifier.target" -> rebuild();
             default -> { }
         }
+        rebuild();
     }
 
     private synchronized void rebuild() {

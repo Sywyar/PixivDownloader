@@ -514,6 +514,7 @@ private fun ComposeDesktopRoot(
                         messages::resolve,
                         { event -> context.dispatchEvent(documentRevision, event) },
                         Modifier.fillMaxSize(),
+                        documentRevision,
                     )
                 }
             }
@@ -637,6 +638,7 @@ private fun DocumentDialog(
                 ComposeDesktopUiNodeRenderer.Render(
                     dialog.content(), messages::resolve,
                     { event -> context.dispatchEvent(documentRevision, event) }, Modifier.fillMaxWidth(),
+                    documentRevision,
                 )
             }
         }

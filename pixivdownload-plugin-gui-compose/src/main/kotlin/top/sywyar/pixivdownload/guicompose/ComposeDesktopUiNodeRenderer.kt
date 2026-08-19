@@ -59,12 +59,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -89,6 +92,8 @@ import kotlin.math.roundToInt
 
 /** Compose Multiplatform renderer for the complete stable desktop node vocabulary. */
 object ComposeDesktopUiNodeRenderer {
+    private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
+
     fun supportedKinds(): Set<DesktopUiNode.Kind> =
         EnumSet.allOf(DesktopUiNode.Kind::class.java).toSet()
 
@@ -98,9 +103,12 @@ object ComposeDesktopUiNodeRenderer {
         textResolver: (DesktopUiNode.TextToken) -> String,
         eventSink: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier = Modifier,
+        documentRevision: Long = 0L,
     ) {
         remember(root) { DesktopUiNode.validateTree(root) }
-        Node(root, textResolver, eventSink, modifier)
+        CompositionLocalProvider(LocalDocumentRevision provides documentRevision) {
+            Node(root, textResolver, eventSink, modifier)
+        }
     }
 
     @Composable
@@ -639,7 +647,9 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier,
         includeLabel: Boolean = true,
     ) {
-        var value by remember(node.id(), node.stateRevision(), node.value()) { mutableStateOf(node.value()) }
+        val documentRevision = LocalDocumentRevision.current
+        var value by remember(node.id()) { mutableStateOf(node.value()) }
+        LaunchedEffect(documentRevision, node.stateRevision(), node.value()) { value = node.value() }
         fun update(next: String) {
             value = next
             emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.text(next)))
@@ -685,7 +695,9 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier,
         includeLabel: Boolean = true,
     ) {
-        var checked by remember(node.id(), node.selected()) { mutableStateOf(node.selected()) }
+        val documentRevision = LocalDocumentRevision.current
+        var checked by remember(node.id()) { mutableStateOf(node.selected()) }
+        LaunchedEffect(documentRevision, node.selected()) { checked = node.selected() }
         Row(
             modifier,
             verticalAlignment = Alignment.CenterVertically,
@@ -712,7 +724,12 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier,
         includeLabel: Boolean = true,
     ) {
-        val selected = remember(node.id(), node.selectedIds()) { mutableStateListOf<String>().apply { addAll(node.selectedIds()) } }
+        val documentRevision = LocalDocumentRevision.current
+        val selected = remember(node.id()) { mutableStateListOf<String>().apply { addAll(node.selectedIds()) } }
+        LaunchedEffect(documentRevision, node.selectedIds()) {
+            selected.clear()
+            selected.addAll(node.selectedIds())
+        }
         fun choose(id: String) {
             if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE) {
                 selected.clear(); selected.add(id)
@@ -819,7 +836,9 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier,
         includeLabel: Boolean = true,
     ) {
-        var value by remember(node.id(), node.value()) { mutableStateOf(node.value()) }
+        val documentRevision = LocalDocumentRevision.current
+        var value by remember(node.id()) { mutableStateOf(node.value()) }
+        LaunchedEffect(documentRevision, node.value()) { value = node.value() }
         fun update(next: Long) {
             value = next.coerceIn(node.minimum().toLong(), node.maximum().toLong()).toInt()
             emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.number(value)))
@@ -874,8 +893,13 @@ object ComposeDesktopUiNodeRenderer {
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
     ) {
-        val selected = remember(node.id(), node.selectedRowIds()) {
+        val documentRevision = LocalDocumentRevision.current
+        val selected = remember(node.id()) {
             mutableStateListOf<String>().apply { addAll(node.selectedRowIds()) }
+        }
+        LaunchedEffect(documentRevision, node.selectedRowIds()) {
+            selected.clear()
+            selected.addAll(node.selectedRowIds())
         }
         fun choose(id: String) {
             if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE) { selected.clear(); selected.add(id) }
@@ -930,7 +954,12 @@ object ComposeDesktopUiNodeRenderer {
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
     ) {
-        val selected = remember(node.id(), node.selectedIds()) { mutableStateListOf<String>().apply { addAll(node.selectedIds()) } }
+        val documentRevision = LocalDocumentRevision.current
+        val selected = remember(node.id()) { mutableStateListOf<String>().apply { addAll(node.selectedIds()) } }
+        LaunchedEffect(documentRevision, node.selectedIds()) {
+            selected.clear()
+            selected.addAll(node.selectedIds())
+        }
         fun choose(id: String) {
             if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE) { selected.clear(); selected.add(id) }
             else if (!selected.remove(id)) selected.add(id)
