@@ -30,6 +30,14 @@ public interface DesktopUiProvider {
     Set<DesktopUiNode.Kind> supportedNodeKinds();
 
     /**
+     * Returns the stable semantic capabilities implemented by this provider.
+     * The set must be explicit so adding a future capability never expands an old provider implicitly.
+     *
+     * @return immutable supported semantic-capability set
+     */
+    Set<DesktopUiCapability> supportedCapabilities();
+
+    /**
      * Starts the process-lifetime desktop UI.
      *
      * @param context immutable host startup context

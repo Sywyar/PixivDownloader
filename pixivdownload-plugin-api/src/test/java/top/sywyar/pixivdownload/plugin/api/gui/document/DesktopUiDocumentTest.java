@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.api.gui.document;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.Page;
 
 import java.util.ArrayList;
@@ -54,6 +55,39 @@ class DesktopUiDocumentTest {
 
         assertThat(document.requiredNodeKinds()).containsExactlyInAnyOrder(
                 DesktopUiNode.Kind.TEXT, DesktopUiNode.Kind.SURFACE);
+    }
+
+    @Test
+    @DisplayName("桌面 UI 文档汇总节点所需的语义能力")
+    void documentCollectsRequiredSemanticCapabilities() {
+        DesktopUiNode content = new DesktopUiNode.Container(
+                "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4,
+                DesktopUiNode.Alignment.STRETCH, List.of(
+                new DesktopUiNode.Split("split", DesktopUiNode.Axis.HORIZONTAL, .5,
+                        text("split.first"), text("split.second")),
+                new DesktopUiNode.Tree("tree", "tree.value",
+                        List.of(new DesktopUiNode.TreeItem("tree.item", DesktopUiNode.TextToken.raw("Item"), List.of())),
+                        DesktopUiNode.SelectionMode.MULTIPLE, List.of(), true),
+                new DesktopUiNode.Table("table", "table.value",
+                        List.of(new DesktopUiNode.TableColumn("value", DesktopUiNode.TextToken.raw("Value"), 80)),
+                        List.of(new DesktopUiNode.TableRow("table.row", List.of("value"))),
+                        DesktopUiNode.SelectionMode.MULTIPLE, List.of(), true),
+                new DesktopUiNode.Choice("choice", "choice.value", DesktopUiNode.TextToken.raw("Choice"), null,
+                        DesktopUiNode.ChoiceStyle.LIST, DesktopUiNode.SelectionMode.MULTIPLE,
+                        List.of(new DesktopUiNode.Option("option", DesktopUiNode.TextToken.raw("Option"), true)),
+                        List.of(), true),
+                input("number", DesktopUiNode.InputKind.NUMBER),
+                input("date", DesktopUiNode.InputKind.DATE),
+                input("time", DesktopUiNode.InputKind.TIME),
+                input("date-time", DesktopUiNode.InputKind.DATE_TIME),
+                input("file", DesktopUiNode.InputKind.FILE),
+                input("directory", DesktopUiNode.InputKind.DIRECTORY)));
+
+        DesktopUiDocument document = new DesktopUiDocument(List.of(
+                new Page("capabilities", DesktopUiNode.TextToken.raw("Capabilities"), content)));
+
+        assertThat(document.requiredCapabilities())
+                .containsExactlyInAnyOrder(DesktopUiCapability.values());
     }
 
     @Test
@@ -128,5 +162,10 @@ class DesktopUiDocumentTest {
     private static DesktopUiNode.Text text(String id) {
         return new DesktopUiNode.Text(id, DesktopUiNode.TextToken.raw(id),
                 DesktopUiNode.TextStyle.BODY, true, false);
+    }
+
+    private static DesktopUiNode.TextInput input(String id, DesktopUiNode.InputKind kind) {
+        return new DesktopUiNode.TextInput(id, id + ".value", DesktopUiNode.TextToken.raw(id), null,
+                kind, "", 12, 1, true);
     }
 }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui.document;
 
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -56,6 +58,14 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         EnumSet<Kind> kinds = EnumSet.noneOf(Kind.class);
         validateNode(root, documentIds, kinds, 0);
         return Set.copyOf(kinds);
+    }
+
+    /** @return semantic renderer capabilities required by this node tree */
+    static Set<DesktopUiCapability> requiredCapabilities(DesktopUiNode root) {
+        Objects.requireNonNull(root, "root");
+        EnumSet<DesktopUiCapability> capabilities = EnumSet.noneOf(DesktopUiCapability.class);
+        collectCapabilities(root, capabilities);
+        return Set.copyOf(capabilities);
     }
 
     /** General column, row, flow, or grid container. */
@@ -1084,6 +1094,37 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         if (ids.size() > maxCollectionSize()) throw new IllegalArgumentException("UI tree is too large");
         kinds.add(node.kind());
         for (DesktopUiNode child : node.childNodes()) validateNode(child, ids, kinds, depth + 1);
+    }
+
+    private static void collectCapabilities(DesktopUiNode node, Set<DesktopUiCapability> capabilities) {
+        if (node instanceof Split) capabilities.add(DesktopUiCapability.SPLIT_USER_RESIZABLE);
+        if (node instanceof Tree tree) {
+            capabilities.add(DesktopUiCapability.TREE_EXPAND_COLLAPSE);
+            if (tree.selectionMode() == SelectionMode.MULTIPLE) {
+                capabilities.add(DesktopUiCapability.SELECTION_MULTIPLE);
+            }
+        }
+        if (node instanceof Table table) {
+            capabilities.add(DesktopUiCapability.TABLE_LARGE_DATA_SCROLL);
+            if (table.selectionMode() == SelectionMode.MULTIPLE) {
+                capabilities.add(DesktopUiCapability.SELECTION_MULTIPLE);
+            }
+        }
+        if (node instanceof Choice choice && choice.selectionMode() == SelectionMode.MULTIPLE) {
+            capabilities.add(DesktopUiCapability.SELECTION_MULTIPLE);
+        }
+        if (node instanceof TextInput input) {
+            switch (input.inputKind()) {
+                case NUMBER -> capabilities.add(DesktopUiCapability.INPUT_NUMERIC);
+                case DATE -> capabilities.add(DesktopUiCapability.INPUT_TEMPORAL_DATE);
+                case TIME -> capabilities.add(DesktopUiCapability.INPUT_TEMPORAL_TIME);
+                case DATE_TIME -> capabilities.add(DesktopUiCapability.INPUT_TEMPORAL_DATE_TIME);
+                case FILE -> capabilities.add(DesktopUiCapability.INPUT_PATH_FILE);
+                case DIRECTORY -> capabilities.add(DesktopUiCapability.INPUT_PATH_DIRECTORY);
+                default -> { }
+            }
+        }
+        for (DesktopUiNode child : node.childNodes()) collectCapabilities(child, capabilities);
     }
 
     private static int maxCollectionSize() { return 10_000; }

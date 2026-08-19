@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.guicompose
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
@@ -17,6 +18,12 @@ class GuiComposePlugin : PixivFeaturePlugin, DesktopUiProvider {
     override fun kind(): PluginKind = PluginKind.FEATURE
     override fun supportedNodeKinds(): Set<DesktopUiNode.Kind> =
         ComposeDesktopUiNodeRenderer.supportedKinds()
+
+    override fun supportedCapabilities(): Set<DesktopUiCapability> = setOf(
+        DesktopUiCapability.INPUT_PATH_FILE,
+        DesktopUiCapability.INPUT_PATH_DIRECTORY,
+        DesktopUiCapability.SELECTION_MULTIPLE,
+    )
 
     override fun launch(context: DesktopUiContext): DesktopUiSession = ComposeDesktopUi.launch(context)
 
