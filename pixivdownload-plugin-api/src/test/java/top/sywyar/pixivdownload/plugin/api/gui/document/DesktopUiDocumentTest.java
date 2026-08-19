@@ -57,6 +57,30 @@ class DesktopUiDocumentTest {
     }
 
     @Test
+    @DisplayName("桌面 UI 文档拒绝跨页面重复的节点标识")
+    void documentRejectsNodeIdsDuplicatedAcrossPages() {
+        Page first = new Page("first", DesktopUiNode.TextToken.raw("First"), text("shared"));
+        Page second = new Page("second", DesktopUiNode.TextToken.raw("Second"), text("shared"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new DesktopUiDocument(List.of(first, second)))
+                .withMessageContaining("duplicate node id: shared");
+    }
+
+    @Test
+    @DisplayName("桌面 UI 文档拒绝页面与对话框重复的节点标识")
+    void documentRejectsNodeIdsDuplicatedAcrossPageAndDialog() {
+        Page page = new Page("page", DesktopUiNode.TextToken.raw("Page"), text("shared"));
+        DesktopUiDocument.Dialog dialog = new DesktopUiDocument.Dialog(
+                "dialog", DesktopUiNode.TextToken.raw("Dialog"), DesktopUiDocument.DialogStyle.INFO,
+                text("shared"), "dialog.dismiss", true, 320, 0);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new DesktopUiDocument(List.of(page), List.of(dialog)))
+                .withMessageContaining("duplicate node id: shared");
+    }
+
+    @Test
     @DisplayName("键盘序列在错键后可从首键重新匹配")
     void keyboardShortcutAdvancesAndRestarts() {
         DesktopUiDocument.KeyboardShortcut shortcut = new DesktopUiDocument.KeyboardShortcut(
@@ -98,7 +122,11 @@ class DesktopUiDocumentTest {
 
     private static Page page(String id, String titleKey) {
         return new Page(id, DesktopUiNode.TextToken.key(titleKey),
-                new DesktopUiNode.Text(id + ".content", DesktopUiNode.TextToken.raw(id),
-                        DesktopUiNode.TextStyle.BODY, true, false));
+                text(id + ".content"));
+    }
+
+    private static DesktopUiNode.Text text(String id) {
+        return new DesktopUiNode.Text(id, DesktopUiNode.TextToken.raw(id),
+                DesktopUiNode.TextStyle.BODY, true, false);
     }
 }

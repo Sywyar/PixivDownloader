@@ -63,13 +63,14 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         tray = Objects.requireNonNull(tray, "tray");
         if (pages.isEmpty()) throw new IllegalArgumentException("pages must not be empty");
         var ids = new HashSet<String>();
+        var nodeIds = new HashSet<String>();
         for (Page page : pages) {
             if (!ids.add(page.id())) throw new IllegalArgumentException("duplicate page id: " + page.id());
-            DesktopUiNode.validateTree(page.content());
+            DesktopUiNode.validateTree(page.content(), nodeIds);
         }
         for (Dialog dialog : dialogs) {
             if (!ids.add(dialog.id())) throw new IllegalArgumentException("duplicate document id: " + dialog.id());
-            DesktopUiNode.validateTree(dialog.content());
+            DesktopUiNode.validateTree(dialog.content(), nodeIds);
         }
         for (KeyboardShortcut shortcut : shortcuts) {
             if (!ids.add(shortcut.id())) throw new IllegalArgumentException("duplicate document id: " + shortcut.id());
