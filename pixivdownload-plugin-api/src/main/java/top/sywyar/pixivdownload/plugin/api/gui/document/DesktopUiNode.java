@@ -39,10 +39,22 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
      * @return immutable required node-kind set
      */
     static Set<Kind> validateTree(DesktopUiNode root) {
-        Objects.requireNonNull(root, "root");
         Set<String> ids = new HashSet<>();
+        return validateTree(root, ids);
+    }
+
+    /**
+     * Validates one tree against document-wide ids and returns all required renderer kinds.
+     *
+     * @param root declarative root node
+     * @param documentIds mutable document-wide id set
+     * @return immutable required node-kind set
+     */
+    static Set<Kind> validateTree(DesktopUiNode root, Set<String> documentIds) {
+        Objects.requireNonNull(root, "root");
+        Objects.requireNonNull(documentIds, "documentIds");
         EnumSet<Kind> kinds = EnumSet.noneOf(Kind.class);
-        validateNode(root, ids, kinds, 0);
+        validateNode(root, documentIds, kinds, 0);
         return Set.copyOf(kinds);
     }
 
