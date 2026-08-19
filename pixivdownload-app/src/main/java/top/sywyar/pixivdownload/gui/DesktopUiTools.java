@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import java.io.IOException;
 import java.io.InputStream;

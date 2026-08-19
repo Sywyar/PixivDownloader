@@ -8,8 +8,6 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
@@ -117,7 +115,7 @@ class AppDesktopUiHostDocumentTest {
                         "/fixture.html", "link", AccessPolicy.PUBLIC, 10));
             }
         };
-        DesktopUiContext.PluginSource source = new DesktopUiContext.PluginSource(
+        DesktopUiPluginSource source = new DesktopUiPluginSource(
                 plugin.id(), false, plugin, plugin.getClass().getClassLoader());
 
         DesktopUiDocument.TrayItem item = model(List.of(source)).document().tray().orElseThrow().items().stream()
@@ -552,7 +550,7 @@ class AppDesktopUiHostDocumentTest {
     @DisplayName("插件丰富配置贡献由宿主转换为通用节点树")
     void richPluginConfigurationBecomesGenericDocumentNodes() throws Exception {
         PixivFeaturePlugin plugin = richConfigPlugin();
-        DesktopUiContext.PluginSource source = new DesktopUiContext.PluginSource(
+        DesktopUiPluginSource source = new DesktopUiPluginSource(
                 "schema-test", false, plugin, plugin.getClass().getClassLoader());
         AppDesktopUiModel model = model(List.of(source));
         DesktopUiDocument document = model.document();
@@ -603,8 +601,8 @@ class AppDesktopUiHostDocumentTest {
         PixivFeaturePlugin first = mergeableCardPlugin("card-a-plugin", "card-a", "notice.card-a");
         PixivFeaturePlugin second = mergeableCardPlugin("card-b-plugin", "card-b", "notice.card-b");
         AppDesktopUiModel model = model(List.of(
-                new DesktopUiContext.PluginSource(first.id(), false, first, first.getClass().getClassLoader()),
-                new DesktopUiContext.PluginSource(second.id(), false, second, second.getClass().getClassLoader())));
+                new DesktopUiPluginSource(first.id(), false, first, first.getClass().getClassLoader()),
+                new DesktopUiPluginSource(second.id(), false, second, second.getClass().getClassLoader())));
 
         DesktopUiNode.Choice selector = nodes(model.document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
@@ -639,7 +637,7 @@ class AppDesktopUiHostDocumentTest {
                                 "field.label", GuiConfigFieldType.STRING, "", 0))));
             }
         };
-        DesktopUiContext.PluginSource source = new DesktopUiContext.PluginSource(
+        DesktopUiPluginSource source = new DesktopUiPluginSource(
                 plugin.id(), false, plugin, plugin.getClass().getClassLoader());
         List<DesktopUiNode.TextToken> tokens = new ArrayList<>();
 
@@ -660,7 +658,7 @@ class AppDesktopUiHostDocumentTest {
         Files.writeString(config, "fixture.value: legacy-value\nfixture.secret: legacy-secret\n",
                 StandardCharsets.UTF_8);
         PixivFeaturePlugin plugin = pluginWithMigratedFields();
-        DesktopUiContext.PluginSource source = new DesktopUiContext.PluginSource(
+        DesktopUiPluginSource source = new DesktopUiPluginSource(
                 "fixture", false, plugin, plugin.getClass().getClassLoader());
 
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
@@ -689,7 +687,7 @@ class AppDesktopUiHostDocumentTest {
         return model(List.of());
     }
 
-    private AppDesktopUiModel model(List<DesktopUiContext.PluginSource> sources) {
+    private AppDesktopUiModel model(List<DesktopUiPluginSource> sources) {
         Path config = tempDir.resolve("config.yaml");
         return track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config,

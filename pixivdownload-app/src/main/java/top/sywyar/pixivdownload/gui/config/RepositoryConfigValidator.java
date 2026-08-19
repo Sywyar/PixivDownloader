@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gui.config;
 
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.gui.DesktopUiHost.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 

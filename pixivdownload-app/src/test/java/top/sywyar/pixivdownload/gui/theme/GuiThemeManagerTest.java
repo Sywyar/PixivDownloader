@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 
 import javax.swing.SwingUtilities;
 import java.nio.file.Files;
@@ -37,9 +36,7 @@ class GuiThemeManagerTest {
         Path config = Files.createTempFile("pixiv-theme-", ".yaml");
         Files.writeString(config, "app.theme: moonlight\n");
 
-        SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                new TestDesktopConfigFile(config),
-                GuiThemeManager.readPersistedThemeId(new TestDesktopConfigFile(config)), List.of()));
+        SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow("moonlight", List.of()));
 
         assertThat(GuiThemeManager.configuredThemeId()).isEqualTo("moonlight");
         assertThat(GuiThemeManager.activeThemeId()).isEqualTo("system");
@@ -70,7 +67,7 @@ class GuiThemeManagerTest {
         GuiThemeListenerSession session = GuiThemeManager.addChangeListener(managerNotifications::incrementAndGet);
 
         SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                null, "moonlight", List.of(source(plugin))));
+                "moonlight", List.of(source(plugin))));
 
         assertThat(applied).isTrue();
         assertThat(GuiThemeManager.activeThemeId()).isEqualTo("moonlight");
@@ -97,7 +94,7 @@ class GuiThemeManagerTest {
         GuiThemeContribution second = contribution("moonlight", GuiThemeAppearance.DARK);
 
         SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                null, "moonlight",
+                "moonlight",
                 List.of(source(new TestPlugin("one", List.of(first))),
                         source(new TestPlugin("two", List.of(second))))));
 
@@ -115,8 +112,7 @@ class GuiThemeManagerTest {
         TestPlugin brokenPlugin = new TestPlugin("broken-theme", null);
 
         assertThatCode(() -> SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                new TestDesktopConfigFile(config),
-                GuiThemeManager.readPersistedThemeId(new TestDesktopConfigFile(config)), List.of(source(brokenPlugin)))))
+                "moonlight", List.of(source(brokenPlugin)))))
                 .doesNotThrowAnyException();
 
         assertThat(GuiThemeManager.configuredThemeId()).isEqualTo("moonlight");
@@ -139,7 +135,7 @@ class GuiThemeManagerTest {
                 });
 
         assertThatCode(() -> SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                null, "dark", List.of(source(new TestPlugin("gui-swing", List.of(failing)))))))
+                "dark", List.of(source(new TestPlugin("gui-swing", List.of(failing)))))))
                 .doesNotThrowAnyException();
         assertThat(GuiThemeManager.activeThemeId()).isEqualTo("system");
         assertThat(GuiThemeManager.configuredThemeId()).isEqualTo("dark");
@@ -158,7 +154,7 @@ class GuiThemeManagerTest {
                 "healthy-theme", List.of(contribution("healthy", GuiThemeAppearance.DARK)));
 
         assertThatCode(() -> SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                null, "healthy",
+                "healthy",
                 List.of(new GuiThemeManager.ThemePluginSource("broken-theme", broken), source(healthy)))))
                 .doesNotThrowAnyException();
 
@@ -200,7 +196,7 @@ class GuiThemeManagerTest {
         };
 
         assertThatCode(() -> SwingUtilities.invokeAndWait(() -> GuiThemeManager.applyBeforeFirstWindow(
-                null, "trusted", List.of(new GuiThemeManager.ThemePluginSource("trusted-owner", plugin)))))
+                "trusted", List.of(new GuiThemeManager.ThemePluginSource("trusted-owner", plugin)))))
                 .doesNotThrowAnyException();
         assertThat(GuiThemeManager.activeThemeId()).isEqualTo("trusted");
     }

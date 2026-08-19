@@ -21,12 +21,9 @@ final class SwingDesktopUi {
         SwingHost.install(context);
         AtomicReference<MainFrame> frameRef = new AtomicReference<>();
         Runnable create = () -> {
-            List<DesktopUiContext.PluginSource> startup = context.startupPluginSources();
-            List<GuiThemeManager.ThemePluginSource> themes = startup.stream()
-                    .map(source -> new GuiThemeManager.ThemePluginSource(source.id(), source.plugin()))
-                    .toList();
-            GuiThemeManager.applyBeforeFirstWindow(context.host().applicationConfig(),
-                    GuiThemeManager.readPersistedThemeId(context.host().applicationConfig()), themes);
+            List<GuiThemeManager.ThemePluginSource> themes = List.of(
+                    new GuiThemeManager.ThemePluginSource(GuiSwingPlugin.ID, new GuiSwingPlugin()));
+            GuiThemeManager.applyBeforeFirstWindow(context.themePreference(), themes);
             MainFrame frame = new MainFrame(context);
             frameRef.set(frame);
             boolean trayInstalled = SystemTrayManager.install(frame, context);

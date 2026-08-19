@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 
@@ -18,7 +17,7 @@ class GuiLauncherDesktopSourcesTest {
                 List.of(), List.of(new PluginLoadFailure("broken.jar", "invalid")));
         PluginDiscoveryResult[] current = {initial};
         AtomicInteger builds = new AtomicInteger();
-        List<DesktopUiContext.PluginSource> initialSources = List.of();
+        List<DesktopUiPluginSource> initialSources = List.of();
         var sources = GuiLauncher.memoizedDesktopUiSources(
                 () -> current[0], discovery -> {
                     builds.incrementAndGet();

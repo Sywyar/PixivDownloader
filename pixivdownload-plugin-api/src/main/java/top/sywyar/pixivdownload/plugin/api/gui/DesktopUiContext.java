@@ -1,125 +1,78 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
-import java.nio.file.Path;
-import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Immutable startup context passed from the host to the selected desktop UI provider.
- *
- * @param serverPort local backend port
- * @param rootFolder configured application root folder
- * @param configPath host configuration path
- * @param startupLaunch whether the process was started by an operating-system startup entry
- * @param startupPluginSources verified plugin snapshot used before the backend starts
- * @param currentPluginSourcesSupplier supplier for the current verified plugin snapshot
- * @param model host-owned toolkit-neutral desktop UI state and event dispatcher
- * @param host toolkit-neutral host operations
+ * Narrow process-lifetime renderer context.
+ * Renderers can observe immutable documents, resolve text, emit revisioned events, and use only desktop chrome
+ * lifecycle settings. Application business services and plugin instances deliberately remain host-internal.
  */
-public record DesktopUiContext(int serverPort, String rootFolder, Path configPath, boolean startupLaunch,
-                               List<PluginSource> startupPluginSources,
-                               Supplier<List<PluginSource>> currentPluginSourcesSupplier,
-                               DesktopUiModel model,
-                               DesktopUiHost host) {
-    /**
-     * Validates and defensively copies the startup context.
-     *
-     * @param serverPort local backend port
-     * @param rootFolder configured application root folder
-     * @param configPath host configuration path
-     * @param startupLaunch whether the process was started by an operating-system startup entry
-     * @param startupPluginSources verified startup plugin snapshot
-     * @param currentPluginSourcesSupplier supplier for the current plugin snapshot
-     * @param model host-owned desktop UI state and event dispatcher
-     * @param host toolkit-neutral host operations
-     */
-    public DesktopUiContext {
-        if (serverPort <= 0 || serverPort > 65_535) throw new IllegalArgumentException("serverPort out of range: " + serverPort);
-        rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
-        configPath = Objects.requireNonNull(configPath, "configPath");
-        startupPluginSources = List.copyOf(Objects.requireNonNull(startupPluginSources, "startupPluginSources"));
-        currentPluginSourcesSupplier = Objects.requireNonNull(currentPluginSourcesSupplier, "currentPluginSourcesSupplier");
-        model = Objects.requireNonNull(model, "model");
-        host = Objects.requireNonNull(host, "host");
+public final class DesktopUiContext {
+    private final boolean startupLaunch;
+    private final String applicationName;
+    private final DesktopUiModel model;
+    private final Function<DesktopUiNode.TextToken, String> textResolver;
+    private final Runnable applicationExit;
+    private final Supplier<String> themePreference;
+
+    /** Creates a validated renderer context for the selected provider. */
+    public DesktopUiContext(boolean startupLaunch, String applicationName, DesktopUiModel model,
+                            Function<DesktopUiNode.TextToken, String> textResolver,
+                            Runnable applicationExit, Supplier<String> themePreference) {
+        this.startupLaunch = startupLaunch;
+        this.applicationName = Objects.requireNonNull(applicationName, "applicationName");
+        this.model = Objects.requireNonNull(model, "model");
+        this.textResolver = Objects.requireNonNull(textResolver, "textResolver");
+        this.applicationExit = Objects.requireNonNull(applicationExit, "applicationExit");
+        this.themePreference = Objects.requireNonNull(themePreference, "themePreference");
     }
 
-    /**
-     * Returns a defensive copy of the current verified plugin snapshot.
-     *
-     * @return current verified plugin sources
-     */
-    public List<PluginSource> currentPluginSources() {
-        List<PluginSource> sources = currentPluginSourcesSupplier.get();
-        return sources == null ? List.of() : List.copyOf(sources);
-    }
+    /** @return whether startup was initiated by an operating-system startup entry */
+    public boolean startupLaunch() { return startupLaunch; }
 
-    /**
-     * Returns the current toolkit-neutral desktop UI document.
-     *
-     * @return current desktop UI document
-     */
+    /** @return application title used by native desktop chrome */
+    public String applicationName() { return applicationName; }
+
+    /** @return current immutable document */
     public DesktopUiDocument currentDocument() {
         return Objects.requireNonNull(model.document(), "model returned null document");
     }
 
-    /**
-     * Returns the current document revision.
-     *
-     * @return current document revision
-     */
-    public long currentDocumentRevision() {
-        return model.revision();
+    /** @return current monotonic document revision */
+    public long currentDocumentRevision() { return model.revision(); }
+
+    /** Resolves one host- or plugin-owned text token through the host's unified resolver. */
+    public String resolveText(DesktopUiNode.TextToken token) {
+        return Objects.requireNonNull(textResolver.apply(Objects.requireNonNull(token, "token")),
+                "textResolver returned null");
     }
 
-    /**
-     * Dispatches one typed renderer event to the host-owned model.
-     *
-     * @param event typed renderer event
-     */
-    public void dispatchEvent(top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Event event) {
-        var value = Objects.requireNonNull(event, "event");
+    /** Dispatches an event that already carries the revision of the rendered document. */
+    public void dispatchEvent(DesktopUiNode.Event event) {
+        DesktopUiNode.Event value = Objects.requireNonNull(event, "event");
         if (value.documentRevision() < 0) {
             throw new IllegalArgumentException("renderer event must carry a document revision");
         }
         model.dispatch(value);
     }
 
-    /**
-     * Stamps one renderer event intent with the exact rendered document revision before dispatch.
-     *
-     * @param documentRevision rendered document revision
-     * @param event typed renderer event intent
-     */
-    public void dispatchEvent(long documentRevision,
-                              top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Event event) {
+    /** Stamps an event intent with the exact revision from which its control was rendered. */
+    public void dispatchEvent(long documentRevision, DesktopUiNode.Event event) {
         dispatchEvent(Objects.requireNonNull(event, "event").atRevision(documentRevision));
     }
 
-    /**
-     * Host-verified plugin identity and classloader; consumers must not re-read {@link PixivFeaturePlugin#id()}.
-     *
-     * @param id verified plugin id
-     * @param builtIn whether the plugin is built into the host
-     * @param plugin stable feature-plugin view
-     * @param classLoader classloader that owns plugin resources
-     */
-    public record PluginSource(String id, boolean builtIn, PixivFeaturePlugin plugin, ClassLoader classLoader) {
-        /**
-         * Validates the verified plugin projection.
-         *
-         * @param id verified plugin id
-         * @param builtIn whether the plugin is built into the host
-         * @param plugin stable feature-plugin view
-         * @param classLoader classloader that owns plugin resources
-         */
-        public PluginSource {
-            if (id == null || id.isBlank()) throw new IllegalArgumentException("id must not be blank");
-            plugin = Objects.requireNonNull(plugin, "plugin");
-            classLoader = Objects.requireNonNull(classLoader, "classLoader");
-        }
+    /** Requests the host-owned process exit path. */
+    public void requestApplicationExit() { applicationExit.run(); }
+
+    /** @return current shared SYSTEM/LIGHT/DARK theme preference */
+    public String themePreference() {
+        String value = themePreference.get();
+        return value == null || value.isBlank() ? "system" : value.trim().toLowerCase(Locale.ROOT);
     }
 }

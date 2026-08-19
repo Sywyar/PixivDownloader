@@ -113,8 +113,7 @@ public final class SystemTrayManager {
                     showFrame(frame);
                 } else {
                     context.dispatchEvent(documentRevision, new DesktopUiNode.Event(
-                            DesktopUiNode.EventType.ACTIVATE, descriptor.id(),
-                            DesktopUiNode.Value.empty()));
+                            DesktopUiNode.EventType.ACTIVATE, descriptor.id(), DesktopUiNode.Value.empty()));
                 }
             });
             menu.add(item);
@@ -214,6 +213,7 @@ public final class SystemTrayManager {
     }
 
     private static String logMessage(DesktopUiContext context, String code, Object... args) {
-        return context.host().message(code, args);
+        return context.resolveText(new DesktopUiNode.TextToken(null, code, code,
+                java.util.Arrays.stream(args).map(String::valueOf).toList()));
     }
 }

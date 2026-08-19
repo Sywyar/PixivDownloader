@@ -1,4 +1,7 @@
-package top.sywyar.pixivdownload.plugin.api.gui;
+package top.sywyar.pixivdownload.gui;
+
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -9,7 +12,7 @@ import java.util.Optional;
 import java.util.Iterator;
 import java.util.function.Consumer;
 
-/** Toolkit-neutral host operations required by an official desktop UI plugin. */
+/** App-internal business operations consumed only by the host-owned desktop model. */
 public interface DesktopUiHost {
     /** @return product name rendered by the desktop UI */
     String applicationName();
