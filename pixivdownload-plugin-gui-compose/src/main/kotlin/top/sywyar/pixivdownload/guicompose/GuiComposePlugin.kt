@@ -20,6 +20,9 @@ class GuiComposePlugin : PixivFeaturePlugin, DesktopUiProvider {
         ComposeDesktopUiNodeRenderer.supportedKinds()
 
     override fun supportedCapabilities(): Set<DesktopUiCapability> = setOf(
+        DesktopUiCapability.SPLIT_USER_RESIZABLE,
+        DesktopUiCapability.TABLE_LARGE_DATA_SCROLL,
+        DesktopUiCapability.INPUT_NUMERIC,
         DesktopUiCapability.INPUT_PATH_FILE,
         DesktopUiCapability.INPUT_PATH_DIRECTORY,
         DesktopUiCapability.SELECTION_MULTIPLE,

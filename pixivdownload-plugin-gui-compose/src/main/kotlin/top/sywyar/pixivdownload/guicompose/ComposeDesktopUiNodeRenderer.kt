@@ -12,6 +12,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -32,6 +33,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -74,6 +79,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
@@ -538,25 +544,48 @@ object ComposeDesktopUiNodeRenderer {
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
     ) {
-        val firstWeight = node.resizeWeight().toFloat().coerceIn(.01f, .99f)
-        val secondWeight = 1f - firstWeight
-        if (node.axis() == DesktopUiNode.Axis.HORIZONTAL) {
-            Row(modifier) {
-                Box(Modifier.weight(firstWeight)) { Node(node.first(), text, emit, Modifier.fillMaxSize()) }
-                VerticalDivider(
-                    Modifier.fillMaxHeight().width(1.dp).padding(vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-                Box(Modifier.weight(secondWeight)) { Node(node.second(), text, emit, Modifier.fillMaxSize()) }
-            }
-        } else {
-            Column(modifier) {
-                Box(Modifier.weight(firstWeight)) { Node(node.first(), text, emit, Modifier.fillMaxSize()) }
-                HorizontalDivider(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-                Box(Modifier.weight(secondWeight)) { Node(node.second(), text, emit, Modifier.fillMaxSize()) }
+        var firstWeight by rememberSaveable(node.id()) {
+            mutableStateOf(node.resizeWeight().toFloat().coerceIn(.1f, .9f))
+        }
+        BoxWithConstraints(modifier) {
+            val splitWidth = constraints.maxWidth
+            val splitHeight = constraints.maxHeight
+            if (node.axis() == DesktopUiNode.Axis.HORIZONTAL) {
+                Row(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(firstWeight)) { Node(node.first(), text, emit, Modifier.fillMaxSize()) }
+                    VerticalDivider(
+                        Modifier.fillMaxHeight().width(9.dp)
+                            .pointerInput(node.id(), splitWidth) {
+                                detectDragGestures { change, drag ->
+                                    change.consume()
+                                    firstWeight = resizedSplitWeight(firstWeight, drag.x, splitWidth)
+                                }
+                            }
+                            .padding(horizontal = 4.dp, vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                    Box(Modifier.weight(1f - firstWeight)) {
+                        Node(node.second(), text, emit, Modifier.fillMaxSize())
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(firstWeight)) { Node(node.first(), text, emit, Modifier.fillMaxSize()) }
+                    HorizontalDivider(
+                        Modifier.fillMaxWidth().height(9.dp)
+                            .pointerInput(node.id(), splitHeight) {
+                                detectDragGestures { change, drag ->
+                                    change.consume()
+                                    firstWeight = resizedSplitWeight(firstWeight, drag.y, splitHeight)
+                                }
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                    Box(Modifier.weight(1f - firstWeight)) {
+                        Node(node.second(), text, emit, Modifier.fillMaxSize())
+                    }
+                }
             }
         }
     }
@@ -849,19 +878,22 @@ object ComposeDesktopUiNodeRenderer {
         var value by remember(node.id()) { mutableStateOf(node.value()) }
         LaunchedEffect(documentRevision, node.value()) { value = node.value() }
         fun update(next: Long) {
-            value = next.coerceIn(node.minimum().toLong(), node.maximum().toLong()).toInt()
+            value = alignedNumberValue(next, node.minimum(), node.maximum(), node.step())
             emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.number(value)))
         }
         val content: @Composable () -> Unit = {
             if (node.numberStyle() == DesktopUiNode.NumberStyle.SLIDER) {
+                val lastAligned = alignedNumberValue(
+                    node.maximum().toLong(), node.minimum(), node.maximum(), node.step())
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Slider(
                         value.toFloat(),
                         onValueChange = { update(it.roundToInt().toLong()) },
-                        valueRange = node.minimum().toFloat()..node.maximum().toFloat(),
-                        steps = ((node.maximum().toLong() - node.minimum()) / node.step() - 1)
+                        valueRange = node.minimum().toFloat()..
+                            (if (lastAligned > node.minimum()) lastAligned else node.maximum()).toFloat(),
+                        steps = ((lastAligned.toLong() - node.minimum()) / node.step() - 1)
                             .coerceIn(0, Int.MAX_VALUE.toLong()).toInt(),
-                        enabled = node.enabled(),
+                        enabled = node.enabled() && lastAligned > node.minimum(),
                         modifier = Modifier.weight(1f),
                     )
                     Text(value.toString(), Modifier.padding(start = 8.dp))
@@ -869,7 +901,9 @@ object ComposeDesktopUiNodeRenderer {
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val canDecrease = node.enabled() && value > node.minimum()
-                    val canIncrease = node.enabled() && value < node.maximum()
+                    val lastAligned = alignedNumberValue(
+                        node.maximum().toLong(), node.minimum(), node.maximum(), node.step())
+                    val canIncrease = node.enabled() && value < lastAligned
                     OutlinedButton(
                         { update(value.toLong() - node.step()) },
                         enabled = canDecrease,
@@ -910,6 +944,10 @@ object ComposeDesktopUiNodeRenderer {
             selected.clear()
             selected.addAll(node.selectedRowIds())
         }
+        val listState = rememberLazyListState()
+        val tableWidth = node.columns().sumOf {
+            if (it.preferredWidth() > 0) it.preferredWidth() else 160
+        }.dp
         fun choose(id: String) {
             if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE) { selected.clear(); selected.add(id) }
             else if (!selected.remove(id)) selected.add(id)
@@ -925,8 +963,8 @@ object ComposeDesktopUiNodeRenderer {
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             color = MaterialTheme.colorScheme.surface,
         ) {
-            Column(Modifier.horizontalScroll(rememberScrollState())) {
-                Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f))) {
+            Column(Modifier.horizontalScroll(rememberScrollState()).width(tableWidth)) {
+                Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f))) {
                     node.columns().forEach { column ->
                         Text(
                             resolve(column.label(), text),
@@ -936,23 +974,32 @@ object ComposeDesktopUiNodeRenderer {
                         )
                     }
                 }
-                node.rows().forEach { row ->
-                    val active = selected.contains(row.id())
-                    Row(
-                        Modifier.background(if (active) MaterialTheme.colorScheme.primaryContainer
-                            else Color.Transparent)
-                            .hand(node.enabled()).clickable(enabled = node.enabled()) { choose(row.id()) },
-                    ) {
-                        row.cells().forEachIndexed { index, cell ->
-                            Text(
-                                cell,
-                                Modifier.width(columnWidth(node.columns()[index]))
-                                    .padding(horizontal = 10.dp, vertical = 9.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                            )
+                Box(Modifier.fillMaxWidth().heightIn(min = 48.dp, max = 360.dp)) {
+                    LazyColumn(Modifier.fillMaxWidth().padding(end = 12.dp), state = listState) {
+                        items(node.rows(), key = { it.id() }) { row ->
+                            val active = selected.contains(row.id())
+                            Row(
+                                Modifier.fillMaxWidth().background(if (active)
+                                    MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .hand(node.enabled())
+                                    .clickable(enabled = node.enabled()) { choose(row.id()) },
+                            ) {
+                                row.cells().forEachIndexed { index, cell ->
+                                    Text(
+                                        cell,
+                                        Modifier.width(columnWidth(node.columns()[index]))
+                                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                }
+                            }
                         }
                     }
+                    VerticalScrollbar(
+                        adapter = rememberScrollbarAdapter(listState),
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                    )
                 }
             }
         }
@@ -1025,6 +1072,15 @@ object ComposeDesktopUiNodeRenderer {
         }
         items.forEach(::visit)
         return ids
+    }
+
+    internal fun resizedSplitWeight(current: Float, delta: Float, extent: Int): Float =
+        if (extent <= 0) current else (current + delta / extent).coerceIn(.1f, .9f)
+
+    internal fun alignedNumberValue(value: Long, minimum: Int, maximum: Int, step: Int): Int {
+        val bounded = value.coerceIn(minimum.toLong(), maximum.toLong())
+        val steps = (bounded - minimum) / step
+        return (minimum.toLong() + steps * step).toInt()
     }
 
     @Composable

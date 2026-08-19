@@ -34,6 +34,9 @@ class GuiComposePluginTest {
             DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK,
         ), plugin.supportedNodeKinds())
         assertEquals(setOf(
+            DesktopUiCapability.SPLIT_USER_RESIZABLE,
+            DesktopUiCapability.TABLE_LARGE_DATA_SCROLL,
+            DesktopUiCapability.INPUT_NUMERIC,
             DesktopUiCapability.INPUT_PATH_FILE,
             DesktopUiCapability.INPUT_PATH_DIRECTORY,
             DesktopUiCapability.SELECTION_MULTIPLE,
@@ -106,6 +109,25 @@ class GuiComposePluginTest {
                 listOf("last", "root"),
             ),
         )
+    }
+
+    @Test
+    @DisplayName("分栏拖动比例保持在可用范围并处理零尺寸")
+    fun boundsResizableSplitWeight() {
+        assertEquals(.7f, ComposeDesktopUiNodeRenderer.resizedSplitWeight(.5f, 20f, 100), .0001f)
+        assertEquals(.9f, ComposeDesktopUiNodeRenderer.resizedSplitWeight(.8f, 50f, 100), .0001f)
+        assertEquals(.1f, ComposeDesktopUiNodeRenderer.resizedSplitWeight(.2f, -50f, 100), .0001f)
+        assertEquals(.5f, ComposeDesktopUiNodeRenderer.resizedSplitWeight(.5f, 20f, 0), .0001f)
+    }
+
+    @Test
+    @DisplayName("数值控件输出始终限制并对齐到最小值步长")
+    fun alignsNumericControlValues() {
+        assertEquals(0, ComposeDesktopUiNodeRenderer.alignedNumberValue(-5, 0, 10, 3))
+        assertEquals(0, ComposeDesktopUiNodeRenderer.alignedNumberValue(2, 0, 10, 3))
+        assertEquals(3, ComposeDesktopUiNodeRenderer.alignedNumberValue(3, 0, 10, 3))
+        assertEquals(9, ComposeDesktopUiNodeRenderer.alignedNumberValue(10, 0, 10, 3))
+        assertEquals(9, ComposeDesktopUiNodeRenderer.alignedNumberValue(99, 0, 10, 3))
     }
 
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
