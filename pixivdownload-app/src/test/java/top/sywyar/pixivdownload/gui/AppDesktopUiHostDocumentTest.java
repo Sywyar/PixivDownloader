@@ -224,6 +224,30 @@ class AppDesktopUiHostDocumentTest {
     }
 
     @Test
+    @DisplayName("业务输入立即发布并由重新加载的宿主值覆盖")
+    void businessInputIsControlledByPublishedDocument() throws Exception {
+        AppDesktopUiModel model = model();
+        awaitButtonEnabled(model, "config.reload");
+        DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
+        long initialRevision = model.revision();
+
+        dispatch(model, DesktopUiNode.EventType.CHANGE,
+                root.id(), DesktopUiNode.Value.text("changed-root"));
+
+        assertThat(model.revision()).isGreaterThan(initialRevision);
+        assertThat(configTextInput(model.document(), "download.root-folder").value())
+                .isEqualTo("changed-root");
+        long editedRevision = model.revision();
+
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "config.reload", DesktopUiNode.Value.empty());
+
+        assertThat(model.revision()).isGreaterThan(editedRevision);
+        assertThat(configTextInput(model.document(), "download.root-folder").value())
+                .isEqualTo(root.value());
+    }
+
+    @Test
     @DisplayName("过期事件和已关闭对话框事件不会执行")
     void staleAndClosedDialogEventsAreIgnored() throws Exception {
         AppDesktopUiModel model = model();
