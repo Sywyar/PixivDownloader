@@ -60,7 +60,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         return Set.copyOf(kinds);
     }
 
-    /** @return semantic renderer capabilities required by this node tree */
+    /**
+     * @param root declarative root node
+     * @return semantic renderer capabilities required by this node tree
+     */
     static Set<DesktopUiCapability> requiredCapabilities(DesktopUiNode root) {
         Objects.requireNonNull(root, "root");
         EnumSet<DesktopUiCapability> capabilities = EnumSet.noneOf(DesktopUiCapability.class);
@@ -897,7 +900,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             }
         }
 
-        /** @return this event intent stamped with the rendered document revision */
+        /**
+         * @param revision rendered document revision
+         * @return this event intent stamped with the rendered document revision
+         */
         public Event atRevision(long revision) {
             if (revision < 0) throw new IllegalArgumentException("revision must not be negative");
             return new Event(revision, type, nodeId, value);
