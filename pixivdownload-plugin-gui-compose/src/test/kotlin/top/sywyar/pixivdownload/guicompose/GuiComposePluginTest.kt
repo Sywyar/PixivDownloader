@@ -14,6 +14,7 @@ import java.util.Locale
 import java.util.ResourceBundle
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @DisplayName("Compose Multiplatform GUI 插件")
 class GuiComposePluginTest {
@@ -135,6 +136,15 @@ class GuiComposePluginTest {
     fun preservesStableSelectionAcrossReordering() {
         assertEquals("details", selectedIdOrFirst("details", listOf("details", "overview")))
         assertEquals("overview", selectedIdOrFirst("removed", listOf("overview", "details")))
+    }
+
+    @Test
+    @DisplayName("共享主题偏好映射为 Material 明暗外观")
+    fun mapsSharedThemePreferenceToMaterialAppearance() {
+        assertFalse(darkForThemePreference("light", true))
+        assertTrue(darkForThemePreference("dark", false))
+        assertTrue(darkForThemePreference("system", true))
+        assertFalse(darkForThemePreference("unsupported", false))
     }
 
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(

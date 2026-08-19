@@ -150,6 +150,7 @@ internal object ComposeDesktopUi {
                         trayPopup.value?.let { popup ->
                             TrayPopup(
                                 tray = tray,
+                                themePreference = context.themePreference(),
                                 messages = messages,
                                 request = popup,
                                 onDismiss = { trayPopup.value = null },
@@ -193,7 +194,7 @@ internal object ComposeDesktopUi {
                                 windowRef.compareAndSet(composeWindow, null)
                             }
                         }
-                        PixivDownloaderTheme {
+                        PixivDownloaderTheme(context.themePreference()) {
                             Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
                                 ComposeDesktopRoot(context, document, observed.revision, messages)
                                 message.value?.let { current ->
@@ -317,6 +318,7 @@ private data class TrayPopupRequest(val anchor: Point)
 @Composable
 private fun TrayPopup(
     tray: DesktopUiDocument.Tray,
+    themePreference: String,
     messages: ComposeMessages,
     request: TrayPopupRequest,
     onDismiss: () -> Unit,
@@ -354,7 +356,7 @@ private fun TrayPopup(
             }
             onDispose { window.removeWindowFocusListener(focusListener) }
         }
-        PixivDownloaderTheme {
+        PixivDownloaderTheme(themePreference) {
             Box(Modifier.fillMaxSize().padding(8.dp)) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -747,11 +749,19 @@ private val DesktopShapes = Shapes(
 )
 
 @Composable
-private fun PixivDownloaderTheme(content: @Composable () -> Unit) {
+private fun PixivDownloaderTheme(themePreference: String, content: @Composable () -> Unit) {
+    val dark = darkForThemePreference(themePreference, isSystemInDarkTheme())
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
+        colorScheme = if (dark) DarkColors else LightColors,
         typography = DesktopTypography,
         shapes = DesktopShapes,
         content = content,
     )
 }
+
+internal fun darkForThemePreference(themePreference: String, systemDark: Boolean): Boolean =
+    when (themePreference) {
+        "light" -> false
+        "dark" -> true
+        else -> systemDark
+    }
