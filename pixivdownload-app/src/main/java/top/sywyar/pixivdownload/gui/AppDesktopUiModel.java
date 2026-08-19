@@ -143,7 +143,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile int editingTrustedKeyIndex = -1;
     private volatile String repositoryFormErrorKey = "";
     private volatile Map<String, ConfigField> fieldBindings = Map.of();
-    private volatile Map<String, Consumer<String>> selectionBindings = Map.of();
+    private volatile Map<String, Consumer<List<String>>> selectionBindings = Map.of();
     private volatile Map<String, Runnable> actions = Map.of();
     private volatile Map<String, EventEndpoint> eventEndpoints = Map.of();
     private volatile DesktopUiDocument document;
@@ -286,9 +286,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             rebuild();
             return;
         }
-        Consumer<String> selection = selectionBindings.get(targetId);
+        Consumer<List<String>> selection = selectionBindings.get(targetId);
         if (selection != null) {
-            selection.accept(value);
+            acceptSelection(selection, event.value());
             rebuild();
             return;
         }
@@ -312,6 +312,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         rebuild();
     }
 
+    static void acceptSelection(Consumer<List<String>> selection, DesktopUiNode.Value value) {
+        selection.accept(value.values());
+    }
+
     private synchronized void rebuild() {
         if (closed) return;
         List<DesktopUiContext.PluginSource> previousSources = rebuildSources;
@@ -321,7 +325,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         boolean localeChanged = !currentLocale.equals(documentLocale);
         try {
             Map<String, ConfigField> nextBindings = new LinkedHashMap<>();
-            Map<String, Consumer<String>> nextSelections = new LinkedHashMap<>();
+            Map<String, Consumer<List<String>>> nextSelections = new LinkedHashMap<>();
             Map<String, Runnable> nextActions = new LinkedHashMap<>();
             List<DesktopUiDocument.Page> pages = new ArrayList<>();
             if (!host.onboardingState(rootFolder).complete()) pages.add(page("welcome", welcomePage(nextActions),
@@ -1133,7 +1137,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private DesktopUiNode configPage(Map<String, ConfigField> nextBindings,
-                                     Map<String, Consumer<String>> nextSelections,
+                                     Map<String, Consumer<List<String>>> nextSelections,
                                      Map<String, Runnable> nextActions) {
         Map<String, GuiConfigGroupContribution> groups = new LinkedHashMap<>();
         CORE_GROUPS.forEach(group -> groups.put(group.groupId(), group));
@@ -1221,7 +1225,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                    List<GuiConfigGroupContribution> groups, Set<String> groupIds,
                                    Set<FieldKey> claimed, Set<FieldKey> rendered, Set<FieldKey> locked,
                                    Map<String, ConfigField> nextBindings,
-                                   Map<String, Consumer<String>> nextSelections,
+                                   Map<String, Consumer<List<String>>> nextSelections,
                                    Map<String, Runnable> nextActions) {
         List<DesktopUiNode> content = new ArrayList<>();
         for (GuiConfigGroupContribution group : groups) {
@@ -1253,7 +1257,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                          List<GuiConfigGroupContribution> groups, Set<String> groupIds,
                                          Set<FieldKey> claimed, Set<FieldKey> rendered, Set<FieldKey> locked,
                                          Map<String, ConfigField> nextBindings,
-                                         Map<String, Consumer<String>> nextSelections,
+                                         Map<String, Consumer<List<String>>> nextSelections,
                                          Map<String, Runnable> nextActions) {
         List<DesktopUiNode.Tab> scopes = new ArrayList<>();
         List<DesktopUiNode.Tab> pluginTabs = new ArrayList<>();
@@ -1289,7 +1293,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                                  Set<FieldKey> claimed, Set<FieldKey> rendered,
                                                  Set<FieldKey> locked,
                                                  Map<String, ConfigField> nextBindings,
-                                                 Map<String, Consumer<String>> nextSelections,
+                                                 Map<String, Consumer<List<String>>> nextSelections,
                                                  Map<String, Runnable> nextActions) {
         List<DesktopUiNode> nodes = new ArrayList<>();
         configSections.stream()
@@ -1311,7 +1315,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             String helpKey = autoStartSupported
                     ? "gui.config.field.autostart.help"
                     : "gui.config.field.autostart.unsupported.help";
-            nextSelections.put(binding, value -> updateAutoStart(Boolean.parseBoolean(value)));
+            nextSelections.put(binding, values -> updateAutoStart(Boolean.parseBoolean(first(values))));
             nodes.add(new DesktopUiNode.Form("config.autostart.form", DesktopUiNode.FormStyle.RESPONSIVE,
                     key("gui.punctuation.colon"), List.of(new DesktopUiNode.FormRow(
                             "config.autostart.row", key("gui.config.field.autostart.label"), key(helpKey),
@@ -1861,7 +1865,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private DesktopUiNode configSectionNode(ConfigSection section, Set<FieldKey> rendered,
                                              Set<FieldKey> locked,
                                              Map<String, ConfigField> nextBindings,
-                                             Map<String, Consumer<String>> nextSelections,
+                                             Map<String, Consumer<List<String>>> nextSelections,
                                              Map<String, Runnable> nextActions) {
         String base = "config.section." + safeId(section.id());
         List<DesktopUiNode> nodes = new ArrayList<>();
@@ -1893,7 +1897,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                             .filter(Objects::nonNull).findFirst().orElse(LocalizedText.raw(cardId));
                     options.add(new DesktopUiNode.Option(cardId, label.token(), true));
                 }
-                nextSelections.put(binding, value -> {
+                nextSelections.put(binding, values -> {
+                    String value = first(values);
                     if (cards.containsKey(value)) {
                         formValues.put(binding, value);
                         rebuild();
@@ -1984,7 +1989,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                                List<ConfigLayout> layouts, Set<FieldKey> rendered,
                                                Set<FieldKey> locked,
                                                Map<String, ConfigField> nextBindings,
-                                               Map<String, Consumer<String>> nextSelections,
+                                               Map<String, Consumer<List<String>>> nextSelections,
                                                Map<String, Runnable> nextActions) {
         String base = "config.section." + safeId(section.id())
                 + (cardId == null ? "" : ".card." + safeId(cardId));
@@ -2006,15 +2011,15 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private List<DesktopUiNode> presetNodes(String base, ConfigSection section, String cardId,
                                             List<ConfigPreset> presets,
-                                            Map<String, Consumer<String>> nextSelections) {
+                                            Map<String, Consumer<List<String>>> nextSelections) {
         if (presets.isEmpty()) return List.of();
         String binding = base + ".preset";
         ConfigPreset selected = selectedPreset(presets);
         List<DesktopUiNode.Option> options = presets.stream()
                 .map(preset -> new DesktopUiNode.Option(presetOptionId(preset), preset.label().token(), true))
                 .toList();
-        nextSelections.put(binding, value -> presets.stream()
-                .filter(preset -> presetOptionId(preset).equals(value)).findFirst()
+        nextSelections.put(binding, values -> presets.stream()
+                .filter(preset -> presetOptionId(preset).equals(first(values))).findFirst()
                 .ifPresent(this::applyPreset));
         LocalizedText label = section.presetLabel() == null
                 ? LocalizedText.app("gui.config.section.preset.label") : section.presetLabel();
@@ -2363,7 +2368,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private DesktopUiNode configFieldNode(ConfigField field, Set<FieldKey> locked,
                                           Map<String, ConfigField> nextBindings,
-                                          Map<String, Consumer<String>> nextSelections,
+                                          Map<String, Consumer<List<String>>> nextSelections,
                                           Map<String, Runnable> nextActions) {
         String binding = bindingId(field.key());
         GuiConfigFieldContribution spec = field.spec();
@@ -2384,7 +2389,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     options.add(new DesktopUiNode.Option("option." + index, enumToken(field, option), true));
                 }
                 int selectedIndex = spec.enumValues().indexOf(value);
-                nextSelections.put(binding, selectedId -> {
+                nextSelections.put(binding, selectedIds -> {
+                    String selectedId = first(selectedIds);
                     int index = selectedId.startsWith("option.")
                             ? parseInt(selectedId.substring("option.".length()), -1) : -1;
                     if (index >= 0 && index < spec.enumValues().size()) {

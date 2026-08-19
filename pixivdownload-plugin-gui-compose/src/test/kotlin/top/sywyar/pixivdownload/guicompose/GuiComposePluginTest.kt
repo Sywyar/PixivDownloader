@@ -72,6 +72,29 @@ class GuiComposePluginTest {
         )
     }
 
+    @Test
+    @DisplayName("多选值按文档顺序完整投射")
+    fun projectsMultipleSelectionsInDocumentOrder() {
+        val items = listOf(
+            DesktopUiNode.TreeItem("root", raw("Root"), listOf(
+                DesktopUiNode.TreeItem("child", raw("Child"), emptyList()),
+            )),
+            DesktopUiNode.TreeItem("last", raw("Last"), emptyList()),
+        )
+
+        assertEquals(
+            listOf("root", "child", "last"),
+            ComposeDesktopUiNodeRenderer.treeItemIds(items),
+        )
+        assertEquals(
+            listOf("root", "last"),
+            ComposeDesktopUiNodeRenderer.selectedIdsInDocumentOrder(
+                ComposeDesktopUiNodeRenderer.treeItemIds(items),
+                listOf("last", "root"),
+            ),
+        )
+    }
+
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(

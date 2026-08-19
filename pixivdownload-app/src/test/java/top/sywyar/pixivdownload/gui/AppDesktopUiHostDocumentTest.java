@@ -93,6 +93,17 @@ class AppDesktopUiHostDocumentTest {
     }
 
     @Test
+    @DisplayName("宿主选择绑定保留全部多选值")
+    void selectionBindingsReceiveEverySelectedId() {
+        AtomicReference<List<String>> selected = new AtomicReference<>();
+
+        AppDesktopUiModel.acceptSelection(selected::set,
+                DesktopUiNode.Value.selections(List.of("first", "second")));
+
+        assertThat(selected).hasValue(List.of("first", "second"));
+    }
+
+    @Test
     @DisplayName("插件托盘入口进入宿主完整 Schema")
     void pluginTrayNavigationJoinsTheHostDocument() {
         PixivFeaturePlugin plugin = new PixivFeaturePlugin() {

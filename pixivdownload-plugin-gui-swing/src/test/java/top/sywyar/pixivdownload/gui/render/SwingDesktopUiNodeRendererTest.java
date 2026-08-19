@@ -68,6 +68,9 @@ class SwingDesktopUiNodeRendererTest {
             JList<?> list = descendants(rendered, JList.class).get(0);
             list.setSelectedIndex(1);
             list.setSelectedIndex(2);
+            descendants(rendered, JCheckBox.class).stream()
+                    .filter(box -> box.getText().equals("Two"))
+                    .findFirst().orElseThrow().doClick();
             descendants(rendered, JButton.class).stream()
                     .filter(button -> button.getText().equals("Run"))
                     .findFirst().orElseThrow().doClick();
@@ -78,6 +81,10 @@ class SwingDesktopUiNodeRendererTest {
                 .filter(event -> event.nodeId().equals("choice.list"))
                 .map(event -> event.value().values())
                 .toList()).containsExactly(List.of("two"));
+        assertThat(events.stream()
+                .filter(event -> event.nodeId().equals("choice.checkboxes"))
+                .map(event -> event.value().values())
+                .toList()).containsExactly(List.of("one", "two"));
         assertThat(events).anySatisfy(event -> {
             assertThat(event.type()).isEqualTo(DesktopUiNode.EventType.ACTIVATE);
             assertThat(event.nodeId()).isEqualTo("button");
