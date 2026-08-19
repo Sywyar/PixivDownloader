@@ -46,11 +46,11 @@ class MaintenanceTaskPublicationBoundaryTest {
     @Test
     @DisplayName("宿主状态页与 GUI 文案不硬编码外置维护任务 id")
     void hostGuiDoesNotKnowExternalMaintenanceTaskIds() throws IOException {
-        Path guiRoot = appRoot().getParent().resolve("pixivdownload-plugin-gui-swing");
+        Path guiRoot = appRoot();
         List<Path> hostFiles = List.of(
-                guiRoot.resolve("src/main/java/top/sywyar/pixivdownload/gui/panel/StatusPanel.java"),
-                guiRoot.resolve("src/main/resources/i18n/gui.properties"),
-                guiRoot.resolve("src/main/resources/i18n/gui_en.properties"));
+                guiRoot.resolve("src/main/java/top/sywyar/pixivdownload/gui/AppDesktopUiModel.java"),
+                guiRoot.resolve("src/main/resources/i18n/messages.properties"),
+                guiRoot.resolve("src/main/resources/i18n/messages_en.properties"));
 
         for (Path hostFile : hostFiles) {
             assertThat(Files.readString(hostFile, StandardCharsets.UTF_8))

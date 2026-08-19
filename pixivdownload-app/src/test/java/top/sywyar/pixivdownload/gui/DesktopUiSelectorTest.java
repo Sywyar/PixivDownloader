@@ -4,8 +4,11 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,6 +37,9 @@ class DesktopUiSelectorTest {
     }
 
     private record Provider(String id, boolean defaultProvider) implements DesktopUiProvider {
+        @Override public Set<DesktopUiNode.Kind> supportedNodeKinds() {
+            return EnumSet.allOf(DesktopUiNode.Kind.class);
+        }
         @Override public DesktopUiSession launch(DesktopUiContext context) { throw new UnsupportedOperationException(); }
     }
 }

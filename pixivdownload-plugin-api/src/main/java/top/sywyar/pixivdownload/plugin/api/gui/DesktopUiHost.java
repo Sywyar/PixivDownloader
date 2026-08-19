@@ -11,90 +11,164 @@ import java.util.function.Consumer;
 
 /** Toolkit-neutral host operations required by an official desktop UI plugin. */
 public interface DesktopUiHost {
-    /** Returns the product name rendered by the desktop UI. */
+    /** @return product name rendered by the desktop UI */
     String applicationName();
-    /** Returns the public project URL. */
+    /** @return public project URL */
     String projectUrl();
-    /** Returns the public releases URL. */
+    /** @return public releases URL */
     String releasesUrl();
-    /** Returns the default stable update manifest URL. */
+    /** @return default stable update manifest URL */
     String defaultUpdateManifestUrl();
-    /** Returns the default nightly update manifest URL. */
+    /** @return default nightly update manifest URL */
     String defaultNightlyUpdateManifestUrl();
-    /** Returns the host-owned application configuration port. */
+    /** @return host-owned application configuration port */
     ConfigFile applicationConfig();
-    /** Returns a host-owned plugin properties configuration port. */
+    /**
+     * @param pluginId verified plugin id
+     * @return host-owned plugin properties configuration port
+     */
     ConfigFile pluginConfig(String pluginId);
-    /** Returns locales visible in the desktop language selector. */
+    /** @return locales visible in the desktop language selector */
     java.util.List<UiLocale> visibleLocales();
-    /** Matches a persisted locale tag or alias. */
+    /**
+     * @param tag persisted locale tag or alias
+     * @return matching visible locale, if any
+     */
     java.util.Optional<UiLocale> matchLocale(String tag);
-    /** Resolves a locale and its ordered target-to-source fallback chain. */
+    /**
+     * @param requested requested locale
+     * @return resolved locale and ordered target-to-source fallback chain
+     */
     UiLocaleResolution resolveLocale(java.util.Locale requested);
-    /** Detects and applies the host system locale policy. */
+    /** @return detected system locale after applying host policy */
     java.util.Locale detectSystemLocale();
-    /** Returns the default proxy host. */
-    /** Removes trailing separators from a path value using host path rules. */
+    /**
+     * Removes trailing separators from a path value using host path rules.
+     *
+     * @param value path value
+     * @return path value without trailing separators
+     */
     String stripTrailingPathSeparators(String value);
+    /** @return default proxy host */
     String defaultProxyHost();
-    /** Returns the default proxy port. */
+    /** @return default proxy port */
     int defaultProxyPort();
-    /** Returns the minimum accepted setup password length. */
+    /** @return minimum accepted setup password length */
     int minimumPasswordLength();
-    /** Returns the recommended setup password length. */
+    /** @return recommended setup password length */
     int recommendedPasswordLength();
-    /** Returns the default maintenance time. */
+    /** @return default maintenance time */
     String defaultMaintenanceTime();
-    /** Validates a maintenance time. */
+    /**
+     * @param value maintenance time value
+     * @return whether the value is valid
+     */
     boolean validMaintenanceTime(String value);
-    /** Returns repository ids reserved by the host. */
+    /** @return repository ids reserved by the host */
     java.util.Set<String> reservedPluginRepositoryIds();
-    /** Validates configuration keys with the host's authoritative rules. */
+    /**
+     * @param keys configuration keys
+     * @return validated normalized keys
+     * @throws IOException when validation cannot complete
+     */
     java.util.Set<String> validatedConfigKeys(java.util.Collection<String> keys) throws java.io.IOException;
-    /** Validates configuration values with the host's authoritative rules. */
+    /**
+     * @param values configuration values
+     * @return validated normalized values
+     * @throws IOException when validation cannot complete
+     */
     java.util.Map<String,String> validatedConfigValues(java.util.Map<String,String> values) throws java.io.IOException;
-    /** Validates one configuration key. */
+    /**
+     * @param key configuration key
+     * @return validated normalized key
+     * @throws IOException when the key is invalid
+     */
     String requireSafeConfigKey(String key) throws java.io.IOException;
-    /** Validates one configuration value. */
+    /**
+     * @param value configuration value
+     * @return validated normalized value
+     * @throws IOException when the value is invalid
+     */
     String requireSafeConfigValue(String value) throws java.io.IOException;
-    /** Reads structured plugin repositories from a host-owned configuration file. */
+    /**
+     * Reads structured plugin repositories from a host-owned configuration file.
+     *
+     * @param configFile host-owned configuration file
+     * @return structured repository entries
+     * @throws IOException when the configuration cannot be read
+     */
     default List<RepositoryConfigEntry> readPluginRepositories(ConfigFile configFile) throws IOException {
         throw new UnsupportedOperationException("Plugin repository persistence is not supported by this host");
     }
-    /** Writes structured plugin repositories to a host-owned configuration file. */
+    /**
+     * Writes structured plugin repositories to a host-owned configuration file.
+     *
+     * @param configFile host-owned configuration file
+     * @param entries structured repository entries
+     * @throws IOException when the configuration cannot be written
+     */
     default void writePluginRepositories(ConfigFile configFile, List<RepositoryConfigEntry> entries) throws IOException {
         throw new UnsupportedOperationException("Plugin repository persistence is not supported by this host");
     }
-    /** Returns the built-in official repository trust root as a pure configuration value. */
+    /** @return built-in official repository trust root as a pure configuration value */
     default TrustedKeyConfigEntry officialPluginRepositoryKey() {
         throw new UnsupportedOperationException("The official plugin repository key is not supported by this host");
     }
 
     /** Host-owned configuration persistence port. */
     interface ConfigFile {
-        /** Reads one key. */
+        /**
+         * @param key configuration key
+         * @return configured value, or {@code null}
+         * @throws IOException when the file cannot be read
+         */
         default String read(String key) throws java.io.IOException {
             return readAll(java.util.Set.of(key)).get(key);
         }
-        /** Reads selected keys. */
+        /**
+         * @param keys configuration keys
+         * @return configured values keyed by name
+         * @throws IOException when the file cannot be read
+         */
         java.util.Map<String,String> readAll(java.util.Collection<String> keys) throws java.io.IOException;
-        /** Writes one key. */
+        /**
+         * @param key configuration key
+         * @param value configuration value
+         * @throws IOException when the file cannot be written
+         */
         default void write(String key,String value) throws java.io.IOException {
             writeAll(java.util.Map.of(key,value == null ? "" : value));
         }
-        /** Writes selected values. */
+        /**
+         * @param values configuration values
+         * @throws IOException when the file cannot be written
+         */
         void writeAll(java.util.Map<String,String> values) throws java.io.IOException;
-        /** Removes selected keys. */
+        /**
+         * @param keys configuration keys
+         * @throws IOException when the file cannot be written
+         */
         void removeAll(java.util.Collection<String> keys) throws java.io.IOException;
-        /** Captures exact file state for rollback. */
+        /**
+         * @return exact file state for rollback
+         * @throws IOException when the file cannot be read
+         */
         ConfigSnapshot snapshot() throws java.io.IOException;
-        /** Restores exact file state. */
+        /**
+         * @param snapshot exact file state to restore
+         * @throws IOException when the file cannot be restored
+         */
         void restore(ConfigSnapshot snapshot) throws java.io.IOException;
     }
 
     /** Exact line snapshot of a host-owned configuration file. */
     record ConfigSnapshot(boolean existed,java.util.List<String> lines) {
-        /** Defensively copies snapshot lines. */
+        /**
+         * Defensively copies snapshot lines.
+         *
+         * @param existed whether the file existed
+         * @param lines exact file lines
+         */
         public ConfigSnapshot {
             lines=java.util.List.copyOf(lines == null ? java.util.List.of() : lines);
         }
@@ -102,13 +176,18 @@ public interface DesktopUiHost {
 
     /** Desktop locale descriptor. */
     record UiLocale(String tag,String nativeName,String resourceSuffix) {
-        /** Returns this descriptor as a JDK locale. */
+        /** @return this descriptor as a JDK locale */
         public java.util.Locale toLocale(){return java.util.Locale.forLanguageTag(tag);}
     }
 
     /** Resolved desktop locale and fallback chain. */
     record UiLocaleResolution(UiLocale target,java.util.List<UiLocale> fallbackChain) {
-        /** Defensively copies the fallback chain. */
+        /**
+         * Defensively copies the fallback chain.
+         *
+         * @param target resolved target locale
+         * @param fallbackChain ordered fallback chain
+         */
         public UiLocaleResolution {fallbackChain=java.util.List.copyOf(fallbackChain);}
     }
 
@@ -124,9 +203,12 @@ public interface DesktopUiHost {
         public static final RepositoryProxyPolicy DEFAULT=DIRECT_STRICT;
         private final String configId;
         RepositoryProxyPolicy(String configId){this.configId=configId;}
-        /** Returns the persisted policy id. */
+        /** @return persisted policy id */
         public String configId(){return configId;}
-        /** Resolves a persisted id or the default. */
+        /**
+         * @param raw persisted policy id
+         * @return matching policy or the default
+         */
         public static RepositoryProxyPolicy fromConfig(String raw){
             if(raw!=null){
                 for(RepositoryProxyPolicy policy:values()){
@@ -237,6 +319,34 @@ public interface DesktopUiHost {
      */
     String normalizeRootFolder(String rootFolder);
     /**
+     * Opens one trusted application URI in the operating-system browser.
+     *
+     * @param uri trusted application URI
+     * @throws Exception when the operating system cannot open the URI
+     */
+    default void openExternalUri(java.net.URI uri) throws Exception {
+        throw new UnsupportedOperationException("Opening external URIs is not supported by this host");
+    }
+    /**
+     * Opens one trusted local path with the operating-system default application.
+     *
+     * @param path trusted local path
+     * @throws Exception when the operating system cannot open the path
+     */
+    default void openLocalPath(Path path) throws Exception {
+        throw new UnsupportedOperationException("Opening local paths is not supported by this host");
+    }
+
+    /**
+     * Copies plain text to the desktop clipboard.
+     *
+     * @param text text to copy
+     * @throws Exception when the desktop clipboard is unavailable
+     */
+    default void copyText(String text) throws Exception {
+        throw new UnsupportedOperationException("The desktop clipboard is not supported by this host");
+    }
+    /**
      * Returns the current backend lifecycle snapshot.
      *
      * @return backend snapshot
@@ -278,6 +388,13 @@ public interface DesktopUiHost {
     default boolean restartApplication() {
         GuiResponse response = guiPostJson("restart", Map.of(), 5000);
         return response.reachable() && response.is2xx();
+    }
+    /**
+     * Requests a graceful exit of the current application process.
+     * Renderers must delegate process ownership to the host instead of terminating the JVM themselves.
+     */
+    default void requestApplicationExit() {
+        throw new UnsupportedOperationException("Application exit is not supported by this host");
     }
     /**
      * Returns whether operating-system auto-start is supported.
@@ -351,7 +468,12 @@ public interface DesktopUiHost {
      * @return managed FFmpeg directory
      */
     Path managedFfmpegDirectory();
-    /** Creates and returns the directory reserved for a host-managed FFmpeg installation. */
+    /**
+     * Creates and returns the directory reserved for a host-managed FFmpeg installation.
+     *
+     * @return prepared managed FFmpeg directory
+     * @throws IOException when the directory cannot be prepared
+     */
     default Path prepareManagedFfmpegDirectory() throws IOException {
         throw new UnsupportedOperationException("Managed FFmpeg storage is not supported by this host");
     }
@@ -432,49 +554,95 @@ public interface DesktopUiHost {
      */
     ToolLogSession openToolLog(String stem) throws Exception;
 
-    /** Executes one authenticated request against the host-owned local GUI API. */
+    /**
+     * Executes one authenticated request against the host-owned local GUI API.
+     *
+     * @param request toolkit-neutral GUI request
+     * @return toolkit-neutral GUI response
+     */
     default GuiResponse exchangeGui(GuiRequest request) {
         throw new UnsupportedOperationException("Local GUI requests are not supported by this host");
     }
 
-    /** Reads one local GUI endpoint. Relative paths are resolved below {@code /api/gui/}. */
+    /**
+     * Reads one local GUI endpoint. Relative paths are resolved below {@code /api/gui/}.
+     *
+     * @param path relative or absolute local GUI path
+     * @param readTimeoutMillis read timeout in milliseconds
+     * @return toolkit-neutral GUI response
+     */
     default GuiResponse guiGet(String path, int readTimeoutMillis) {
         return exchangeGui(GuiRequest.get(path, readTimeoutMillis));
     }
 
-    /** Posts a JSON-compatible JDK value to one local GUI endpoint. */
+    /**
+     * Posts a JSON-compatible JDK value to one local GUI endpoint.
+     *
+     * @param path relative or absolute local GUI path
+     * @param body JSON-compatible JDK value
+     * @param readTimeoutMillis read timeout in milliseconds
+     * @return toolkit-neutral GUI response
+     */
     default GuiResponse guiPostJson(String path, Object body, int readTimeoutMillis) {
         return exchangeGui(GuiRequest.json(path, body, readTimeoutMillis, null));
     }
 
-    /** Posts a plugin-owned GUI action with the discovery-bound owner header. */
+    /**
+     * Posts a plugin-owned GUI action with the discovery-bound owner header.
+     *
+     * @param path relative or absolute local GUI path
+     * @param body JSON-compatible JDK value
+     * @param readTimeoutMillis read timeout in milliseconds
+     * @param ownerPluginId discovery-bound owner plugin id
+     * @return toolkit-neutral GUI response
+     */
     default GuiResponse guiPostJson(String path, Object body, int readTimeoutMillis, String ownerPluginId) {
         return exchangeGui(GuiRequest.json(path, body, readTimeoutMillis, ownerPluginId));
     }
 
-    /** Sends a form request to one local GUI endpoint. */
+    /**
+     * Sends a form request to one local GUI endpoint.
+     *
+     * @param method HTTP method
+     * @param path relative or absolute local GUI path
+     * @param body form-encoded body, or {@code null}
+     * @param readTimeoutMillis read timeout in milliseconds
+     * @return toolkit-neutral GUI response
+     */
     default GuiResponse guiForm(String method, String path, String body, int readTimeoutMillis) {
         return exchangeGui(GuiRequest.form(method, path, body, readTimeoutMillis));
     }
 
-    /** Returns the host-owned onboarding persistence snapshot. */
+    /**
+     * Returns the host-owned onboarding persistence snapshot.
+     *
+     * @param rootFolder application root folder
+     * @return onboarding state
+     */
     default OnboardingSnapshot onboardingState(String rootFolder) {
         throw new UnsupportedOperationException("Onboarding state is not supported by this host");
     }
 
-    /** Persists the current onboarding page. */
+    /**
+     * @param step current onboarding page index
+     * @return whether the state was persisted
+     */
     default boolean saveOnboardingProgress(int step) { return false; }
-    /** Marks the onboarding guide entry as seen. */
+    /** @return whether the state was persisted */
     default boolean markOnboardingSeen() { return false; }
-    /** Marks proxy configuration as completed. */
+    /** @return whether the state was persisted */
     default boolean markOnboardingProxyConfigured() { return false; }
-    /** Marks the onboarding wizard as finished. */
+    /** @return whether the state was persisted */
     default boolean markOnboardingFinished() { return false; }
-    /** Clears all persisted onboarding markers. */
+    /** @return whether the state was cleared */
     default boolean clearOnboardingState() { return false; }
 
     /** Supported request body encodings for the local GUI transport. */
-    enum GuiBodyFormat { NONE, JSON, FORM }
+    enum GuiBodyFormat {
+        /** Request has no body. */ NONE,
+        /** Request body is a JSON-compatible JDK value. */ JSON,
+        /** Request body is form encoded. */ FORM
+    }
 
     /** Toolkit-neutral local GUI request. */
     record GuiRequest(String method, String path, Object body, GuiBodyFormat bodyFormat,
@@ -483,6 +651,18 @@ public interface DesktopUiHost {
         private static final int MAX_GET_BYTES = 1024 * 1024;
         private static final int MAX_POST_BYTES = 64 * 1024;
 
+        /**
+         * Validates and normalizes one local GUI request.
+         *
+         * @param method HTTP method
+         * @param path relative or absolute local GUI path
+         * @param body request body
+         * @param bodyFormat request body format
+         * @param readTimeoutMillis read timeout in milliseconds
+         * @param maxResponseBytes maximum accepted response size
+         * @param ownerPluginId discovery-bound owner plugin id, if any
+         * @param languageTag requested response language
+         */
         public GuiRequest {
             method = method == null ? "GET" : method.trim().toUpperCase(java.util.Locale.ROOT);
             if (!method.equals("GET") && !method.equals("POST")) {
@@ -504,13 +684,32 @@ public interface DesktopUiHost {
                     : languageTag;
         }
 
+        /**
+         * @param path relative or absolute local GUI path
+         * @param timeout read timeout in milliseconds
+         * @return bounded GET request
+         */
         public static GuiRequest get(String path, int timeout) {
             return new GuiRequest("GET", path, null, GuiBodyFormat.NONE, timeout, MAX_GET_BYTES, null, null);
         }
+        /**
+         * @param path relative or absolute local GUI path
+         * @param body JSON-compatible JDK value
+         * @param timeout read timeout in milliseconds
+         * @param ownerPluginId discovery-bound owner plugin id, if any
+         * @return bounded JSON POST request
+         */
         public static GuiRequest json(String path, Object body, int timeout, String ownerPluginId) {
             return new GuiRequest("POST", path, body, GuiBodyFormat.JSON, timeout, MAX_POST_BYTES,
                     ownerPluginId, null);
         }
+        /**
+         * @param method HTTP method
+         * @param path relative or absolute local GUI path
+         * @param body form-encoded body, or {@code null}
+         * @param timeout read timeout in milliseconds
+         * @return bounded form request
+         */
         public static GuiRequest form(String method, String path, String body, int timeout) {
             return new GuiRequest(method, path, body, body == null ? GuiBodyFormat.NONE : GuiBodyFormat.FORM,
                     timeout, MAX_POST_BYTES, null, null);
@@ -520,10 +719,23 @@ public interface DesktopUiHost {
     /** Reachability, HTTP status and parsed response of one local GUI request. */
     record GuiResponse(boolean reachable, int status, GuiValue body, String rawBody,
                        boolean bodyLimitExceeded) {
+        /**
+         * Normalizes a missing raw body.
+         *
+         * @param reachable whether the local endpoint was reached
+         * @param status HTTP status, or zero when unreachable
+         * @param body parsed response body, if available
+         * @param rawBody raw response body
+         * @param bodyLimitExceeded whether the response exceeded its bound
+         */
         public GuiResponse { rawBody = rawBody == null ? "" : rawBody; }
+        /** @return whether the response has a 2xx status */
         public boolean is2xx() { return status >= 200 && status < 300; }
+        /** @return whether the response has status 200 */
         public boolean successful() { return status == 200; }
+        /** @return whether a response body was parsed */
         public boolean responseParsed() { return body != null; }
+        /** @return response representing an unreachable local endpoint */
         public static GuiResponse unreachable() { return new GuiResponse(false, 0, null, "", false); }
     }
 
@@ -533,43 +745,82 @@ public interface DesktopUiHost {
         private static final GuiValue MISSING_VALUE = new GuiValue(MISSING);
         private final Object value;
         private GuiValue(Object value) { this.value = value; }
+        /**
+         * @param value JDK map, list, scalar, or {@code null}
+         * @return read-only GUI value
+         */
         public static GuiValue of(Object value) { return new GuiValue(value); }
+        /**
+         * @param field object field name
+         * @return field value or a missing sentinel
+         */
         public GuiValue path(String field) {
             if (value instanceof Map<?, ?> map && map.containsKey(field)) return of(map.get(field));
             return MISSING_VALUE;
         }
+        /**
+         * @param index array index
+         * @return indexed value or a missing sentinel
+         */
         public GuiValue path(int index) {
             if (value instanceof List<?> list && index >= 0 && index < list.size()) return of(list.get(index));
             return MISSING_VALUE;
         }
+        /**
+         * @param field object field name
+         * @return field value, or {@code null} when absent
+         */
         public GuiValue get(String field) {
             return value instanceof Map<?, ?> map && map.containsKey(field) ? of(map.get(field)) : null;
         }
+        /**
+         * @param field object field name
+         * @return whether a non-null field exists
+         */
         public boolean hasNonNull(String field) {
             GuiValue child = get(field);
             return child != null && !child.isNull();
         }
+        /** @return whether this value is the missing sentinel */
         public boolean isMissingNode() { return value == MISSING; }
+        /** @return whether this value is JSON null */
         public boolean isNull() { return value == null; }
+        /** @return whether this value is an array */
         public boolean isArray() { return value instanceof List<?>; }
+        /** @return whether this value is an object */
         public boolean isObject() { return value instanceof Map<?, ?>; }
+        /** @return whether this value is a boolean */
         public boolean isBoolean() { return value instanceof Boolean; }
+        /** @return whether this value is a number */
         public boolean isNumber() { return value instanceof Number; }
+        /** @return whether this value is text */
         public boolean isTextual() { return value instanceof String; }
+        /** @return whether this value is a scalar or JSON null */
         public boolean isValueNode() {
             return value == null || value instanceof String || value instanceof Number || value instanceof Boolean;
         }
+        /** @return whether this collection or text value is empty */
         public boolean isEmpty() {
             if (value instanceof List<?> list) return list.isEmpty();
             if (value instanceof Map<?, ?> map) return map.isEmpty();
             if (value instanceof String text) return text.isEmpty();
             return false;
         }
+        /** @return scalar value as text, or an empty string */
         public String asText() { return asText(""); }
+        /**
+         * @param fallback fallback for non-scalar or null values
+         * @return scalar value as text, or the fallback
+         */
         public String asText(String fallback) {
             return isValueNode() && value != null ? String.valueOf(value) : fallback;
         }
+        /** @return value as a boolean, or {@code false} */
         public boolean asBoolean() { return asBoolean(false); }
+        /**
+         * @param fallback fallback for non-boolean values
+         * @return value as a boolean, or the fallback
+         */
         public boolean asBoolean(boolean fallback) {
             if (value instanceof Boolean bool) return bool;
             if (value instanceof String text) {
@@ -578,18 +829,29 @@ public interface DesktopUiHost {
             }
             return fallback;
         }
+        /** @return value as an integer, or zero */
         public int asInt() { return asInt(0); }
+        /**
+         * @param fallback fallback for non-integer values
+         * @return value as an integer, or the fallback
+         */
         public int asInt(int fallback) {
             if (value instanceof Number number) return number.intValue();
             try { return value == null ? fallback : Integer.parseInt(String.valueOf(value)); }
             catch (NumberFormatException ignored) { return fallback; }
         }
+        /** @return value as a long integer, or zero */
         public long asLong() { return asLong(0L); }
+        /**
+         * @param fallback fallback for non-integer values
+         * @return value as a long integer, or the fallback
+         */
         public long asLong(long fallback) {
             if (value instanceof Number number) return number.longValue();
             try { return value == null ? fallback : Long.parseLong(String.valueOf(value)); }
             catch (NumberFormatException ignored) { return fallback; }
         }
+        /** @return array-value iterator, or an empty iterator for other kinds */
         @Override public Iterator<GuiValue> iterator() {
             if (!(value instanceof List<?> list)) return java.util.Collections.emptyIterator();
             return list.stream().map(GuiValue::of).iterator();
@@ -599,6 +861,7 @@ public interface DesktopUiHost {
     /** Persisted onboarding state plus setup completion. */
     record OnboardingSnapshot(boolean seen, boolean proxyConfigured, int progress,
                               boolean finished, boolean setupComplete) {
+        /** @return whether onboarding and setup are complete */
         public boolean complete() { return finished && setupComplete; }
     }
 
@@ -653,7 +916,11 @@ public interface DesktopUiHost {
      */
     record FfmpegInstallation(Path ffmpegPath, Path ffprobePath, Path homeDir, FfmpegSource source) {}
     /** Stable origin of an FFmpeg installation. */
-    enum FfmpegSource { MANAGED, BUNDLED, SYSTEM }
+    enum FfmpegSource {
+        /** Installed into host-managed storage. */ MANAGED,
+        /** Bundled with the application distribution. */ BUNDLED,
+        /** Discovered from the operating system. */ SYSTEM
+    }
     /**
      * Proxy settings used only for the managed FFmpeg download.
      *
@@ -672,7 +939,12 @@ public interface DesktopUiHost {
         public FfmpegProxy { host = host == null ? "" : host.trim(); }
     }
     /** Stable stages reported while installing managed FFmpeg. */
-    enum FfmpegInstallStage { CONNECTING, DOWNLOADING, EXTRACTING, COMPLETED }
+    enum FfmpegInstallStage {
+        /** Establishing the download connection. */ CONNECTING,
+        /** Downloading the archive. */ DOWNLOADING,
+        /** Extracting the downloaded archive. */ EXTRACTING,
+        /** Managed installation completed. */ COMPLETED
+    }
     /** Receives coarse progress while installing managed FFmpeg. */
     @FunctionalInterface interface FfmpegProgressListener {
         /**
@@ -936,7 +1208,12 @@ public interface DesktopUiHost {
      * @param inaccessible inaccessible artwork folders
      */
     record FolderCheckResult(int total, List<FolderArtwork> inaccessible) {
-        /** Copies the result list so callers cannot mutate host state. */
+        /**
+         * Copies the result list so callers cannot mutate host state.
+         *
+         * @param total total active artwork count
+         * @param inaccessible inaccessible artwork folders
+         */
         public FolderCheckResult {
             inaccessible = inaccessible == null ? List.of() : List.copyOf(inaccessible);
         }
@@ -960,7 +1237,14 @@ public interface DesktopUiHost {
      */
     record ImageClassifierSettings(String defaultFolder, boolean showSkipButton, String serverUrl,
                                    List<ImageClassifierTarget> targets) {
-        /** Normalizes nullable scalar values and copies the target list. */
+        /**
+         * Normalizes nullable scalar values and copies the target list.
+         *
+         * @param defaultFolder default source parent folder
+         * @param showSkipButton whether the skip button is visible
+         * @param serverUrl configured backend URL
+         * @param targets classifier destinations
+         */
         public ImageClassifierSettings {
             defaultFolder = defaultFolder == null ? "" : defaultFolder;
             serverUrl = serverUrl == null || serverUrl.isBlank() ? "http://localhost:6999" : serverUrl.trim();

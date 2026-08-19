@@ -19,6 +19,10 @@ public final class SwingHost {
         return context != null;
     }
 
+    public static void uninstall() {
+        context = null;
+    }
+
     public static DesktopUiContext context() {
         DesktopUiContext value = context;
         if (value == null) throw new IllegalStateException("Swing desktop UI host is not installed");

@@ -13,20 +13,21 @@ import java.util.Set;
  * Pure-JDK declarative UI node vocabulary shared by desktop renderers.
  * Nodes carry bounded values and stable ids only; they never carry toolkit components or executable callbacks.
  */
-public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUiNode.Group,
-        DesktopUiNode.Tabs, DesktopUiNode.Scroll, DesktopUiNode.Split, DesktopUiNode.Text,
+public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUiNode.Dock,
+        DesktopUiNode.Surface, DesktopUiNode.Group, DesktopUiNode.Form, DesktopUiNode.Tabs, DesktopUiNode.Scroll,
+        DesktopUiNode.Split, DesktopUiNode.Text,
         DesktopUiNode.Image, DesktopUiNode.Separator, DesktopUiNode.Spacer, DesktopUiNode.Progress,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link {
 
-    /** Stable node identity within one document. */
+    /** @return stable node identity within one document */
     String id();
 
-    /** Node kind used for renderer capability negotiation. */
+    /** @return node kind used for renderer capability negotiation */
     Kind kind();
 
-    /** Direct child nodes used by document validation and renderers. */
+    /** @return direct child nodes used by document validation and renderers */
     default List<DesktopUiNode> childNodes() {
         return List.of();
     }
@@ -48,6 +49,14 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** General column, row, flow, or grid container. */
     record Container(String id, ContainerLayout layout, int columns, int gap,
                      Alignment alignment, List<DesktopUiNode> children) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param layout container layout
+         * @param columns grid column count
+         * @param gap logical child gap
+         * @param alignment logical child alignment
+         * @param children ordered child nodes
+         */
         public Container {
             id = requireId(id, "id");
             layout = Objects.requireNonNull(layout, "layout");
@@ -62,8 +71,76 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return children; }
     }
 
+    /** Border-layout style container with fixed edges and a growing center. */
+    record Dock(String id, int gap, DesktopUiNode top, DesktopUiNode center,
+                DesktopUiNode bottom, DesktopUiNode start, DesktopUiNode end) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param gap logical child gap
+         * @param top optional top child
+         * @param center optional growing center child
+         * @param bottom optional bottom child
+         * @param start optional leading child
+         * @param end optional trailing child
+         */
+        public Dock {
+            id = requireId(id, "id");
+            requireRange(gap, 0, 128, "gap");
+            if (top == null && center == null && bottom == null && start == null && end == null) {
+                throw new IllegalArgumentException("dock requires at least one child");
+            }
+        }
+
+        @Override public Kind kind() { return Kind.DOCK; }
+        @Override public List<DesktopUiNode> childNodes() {
+            return java.util.stream.Stream.of(top, center, bottom, start, end)
+                    .filter(Objects::nonNull).toList();
+        }
+    }
+
+    /** Semantic visual surface with toolkit-neutral logical padding. */
+    record Surface(String id, SurfaceStyle style, Insets padding,
+                   boolean fillWidth, boolean fillHeight, DesktopUiNode content) implements DesktopUiNode {
+        /**
+         * Creates a width-aware surface that does not fill available height.
+         *
+         * @param id stable node id
+         * @param style semantic surface style
+         * @param padding logical padding
+         * @param fillWidth whether to fill available width
+         * @param content surface content
+         */
+        public Surface(String id, SurfaceStyle style, Insets padding,
+                       boolean fillWidth, DesktopUiNode content) {
+            this(id, style, padding, fillWidth, false, content);
+        }
+
+        /**
+         * @param id stable node id
+         * @param style semantic surface style
+         * @param padding logical padding
+         * @param fillWidth whether to fill available width
+         * @param fillHeight whether to fill available height
+         * @param content surface content
+         */
+        public Surface {
+            id = requireId(id, "id");
+            style = style == null ? SurfaceStyle.PLAIN : style;
+            padding = padding == null ? Insets.NONE : padding;
+            content = Objects.requireNonNull(content, "content");
+        }
+
+        @Override public Kind kind() { return Kind.SURFACE; }
+        @Override public List<DesktopUiNode> childNodes() { return List.of(content); }
+    }
+
     /** Titled group container. */
     record Group(String id, TextToken title, DesktopUiNode content) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param title localized group title
+         * @param content group content
+         */
         public Group {
             id = requireId(id, "id");
             title = Objects.requireNonNull(title, "title");
@@ -74,8 +151,39 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return List.of(content); }
     }
 
+    /**
+     * Aligned form rows. The row owns the visible label and help text, so renderers render row content as the
+     * control itself rather than repeating the control node's own label.
+     */
+    record Form(String id, FormStyle formStyle, TextToken labelSuffix,
+                List<FormRow> rows) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param formStyle label sizing and density policy
+         * @param labelSuffix optional localized label suffix
+         * @param rows ordered form rows
+         */
+        public Form {
+            id = requireId(id, "id");
+            formStyle = formStyle == null ? FormStyle.RESPONSIVE : formStyle;
+            rows = copyBounded(rows, "rows");
+            if (rows.isEmpty()) throw new IllegalArgumentException("form rows must not be empty");
+            requireUnique(rows.stream().map(FormRow::id).toList(), "form row id");
+        }
+
+        @Override public Kind kind() { return Kind.FORM; }
+        @Override public List<DesktopUiNode> childNodes() {
+            return rows.stream().flatMap(row -> java.util.stream.Stream.of(row.content(), row.trailing()))
+                    .filter(Objects::nonNull).toList();
+        }
+    }
+
     /** Tabbed container. */
     record Tabs(String id, List<Tab> tabs) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param tabs ordered tab descriptors
+         */
         public Tabs {
             id = requireId(id, "id");
             tabs = copyBounded(tabs, "tabs");
@@ -89,6 +197,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Scrollable child container. */
     record Scroll(String id, DesktopUiNode content) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param content scrollable content
+         */
         public Scroll {
             id = requireId(id, "id");
             content = Objects.requireNonNull(content, "content");
@@ -101,6 +213,13 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Two-pane split container. */
     record Split(String id, Axis axis, double resizeWeight,
                  DesktopUiNode first, DesktopUiNode second) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param axis split orientation
+         * @param resizeWeight proportion of extra space assigned to the first child
+         * @param first first child
+         * @param second second child
+         */
         public Split {
             id = requireId(id, "id");
             axis = Objects.requireNonNull(axis, "axis");
@@ -117,11 +236,33 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Plain localized text. Raw HTML is intentionally unsupported. */
     record Text(String id, TextToken text, TextStyle style,
-                boolean wrap, boolean selectable) implements DesktopUiNode {
+                boolean wrap, boolean selectable, TextAlignment textAlignment) implements DesktopUiNode {
+        /**
+         * Creates start-aligned text.
+         *
+         * @param id stable node id
+         * @param text localized text
+         * @param style semantic text style
+         * @param wrap whether text may wrap
+         * @param selectable whether text may be selected
+         */
+        public Text(String id, TextToken text, TextStyle style, boolean wrap, boolean selectable) {
+            this(id, text, style, wrap, selectable, TextAlignment.START);
+        }
+
+        /**
+         * @param id stable node id
+         * @param text localized text
+         * @param style semantic text style
+         * @param wrap whether text may wrap
+         * @param selectable whether text may be selected
+         * @param textAlignment logical text alignment
+         */
         public Text {
             id = requireId(id, "id");
             text = Objects.requireNonNull(text, "text");
             style = style == null ? TextStyle.BODY : style;
+            textAlignment = textAlignment == null ? TextAlignment.START : textAlignment;
         }
 
         @Override public Kind kind() { return Kind.TEXT; }
@@ -130,6 +271,14 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Bounded, materialized image with localized alternative text. */
     record Image(String id, ImageData image, TextToken altText,
                  int preferredWidth, int preferredHeight, ScaleMode scaleMode) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param image materialized image data
+         * @param altText localized alternative text
+         * @param preferredWidth preferred logical width
+         * @param preferredHeight preferred logical height
+         * @param scaleMode image scaling policy
+         */
         public Image {
             id = requireId(id, "id");
             image = Objects.requireNonNull(image, "image");
@@ -144,6 +293,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Horizontal or vertical separator. */
     record Separator(String id, Axis axis) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param axis separator orientation
+         */
         public Separator {
             id = requireId(id, "id");
             axis = Objects.requireNonNull(axis, "axis");
@@ -154,6 +307,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Fixed logical spacer. */
     record Spacer(String id, int width, int height) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param width logical width
+         * @param height logical height
+         */
         public Spacer {
             id = requireId(id, "id");
             requireRange(width, 0, 4096, "width");
@@ -166,6 +324,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Determinate or indeterminate progress display. */
     record Progress(String id, double progress, boolean indeterminate,
                     TextToken text) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param progress determinate progress from zero to one
+         * @param indeterminate whether progress is indeterminate
+         * @param text optional localized progress text
+         */
         public Progress {
             id = requireId(id, "id");
             if (!indeterminate && (!Double.isFinite(progress) || progress < 0d || progress > 1d)) {
@@ -179,7 +343,38 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Text-like input including password, multiline, search, temporal, file, and directory variants. */
     record TextInput(String id, String bindingId, TextToken label, TextToken help,
                      InputKind inputKind, String value, int columns, int rows,
-                     boolean enabled) implements DesktopUiNode {
+                     boolean enabled, long stateRevision) implements DesktopUiNode {
+        /**
+         * Creates a text-like input at the initial state revision.
+         *
+         * @param id stable node id
+         * @param bindingId stable change-event target
+         * @param label localized label
+         * @param help optional localized help text
+         * @param inputKind text input semantic type
+         * @param value initial non-password value
+         * @param columns preferred column count
+         * @param rows preferred row count
+         * @param enabled whether the control is enabled
+         */
+        public TextInput(String id, String bindingId, TextToken label, TextToken help,
+                         InputKind inputKind, String value, int columns, int rows,
+                         boolean enabled) {
+            this(id, bindingId, label, help, inputKind, value, columns, rows, enabled, 0L);
+        }
+
+        /**
+         * @param id stable node id
+         * @param bindingId stable change-event target
+         * @param label localized label
+         * @param help optional localized help text
+         * @param inputKind text input semantic type
+         * @param value initial non-password value
+         * @param columns preferred column count
+         * @param rows preferred row count
+         * @param enabled whether the control is enabled
+         * @param stateRevision monotonic external state revision
+         */
         public TextInput {
             id = requireId(id, "id");
             bindingId = requireId(bindingId, "bindingId");
@@ -191,6 +386,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             }
             requireRange(columns, 1, 512, "columns");
             requireRange(rows, 1, 100, "rows");
+            if (stateRevision < 0) throw new IllegalArgumentException("stateRevision must not be negative");
         }
 
         @Override public Kind kind() { return Kind.TEXT_INPUT; }
@@ -199,6 +395,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Boolean checkbox or switch-style toggle. */
     record Toggle(String id, String bindingId, TextToken label, TextToken help,
                   ToggleStyle toggleStyle, boolean selected, boolean enabled) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param bindingId stable change-event target
+         * @param label localized label
+         * @param help optional localized help text
+         * @param toggleStyle toggle presentation
+         * @param selected current selected state
+         * @param enabled whether the control is enabled
+         */
         public Toggle {
             id = requireId(id, "id");
             bindingId = requireId(bindingId, "bindingId");
@@ -214,6 +419,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
                   ChoiceStyle choiceStyle, SelectionMode selectionMode,
                   List<Option> options, List<String> selectedIds,
                   boolean enabled) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param bindingId stable selection-event target
+         * @param label localized label
+         * @param help optional localized help text
+         * @param choiceStyle choice presentation
+         * @param selectionMode single or multiple selection
+         * @param options ordered selectable options
+         * @param selectedIds selected option ids
+         * @param enabled whether the control is enabled
+         */
         public Choice {
             id = requireId(id, "id");
             bindingId = requireId(bindingId, "bindingId");
@@ -244,6 +460,18 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     record NumberInput(String id, String bindingId, TextToken label, TextToken help,
                        NumberStyle numberStyle, int value, int minimum, int maximum,
                        int step, boolean enabled) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param bindingId stable change-event target
+         * @param label localized label
+         * @param help optional localized help text
+         * @param numberStyle numeric input presentation
+         * @param value current value
+         * @param minimum minimum accepted value
+         * @param maximum maximum accepted value
+         * @param step positive increment
+         * @param enabled whether the control is enabled
+         */
         public NumberInput {
             id = requireId(id, "id");
             bindingId = requireId(bindingId, "bindingId");
@@ -261,6 +489,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     record Table(String id, String bindingId, List<TableColumn> columns,
                  List<TableRow> rows, SelectionMode selectionMode,
                  List<String> selectedRowIds, boolean enabled) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param bindingId stable selection-event target
+         * @param columns ordered table columns
+         * @param rows ordered table rows
+         * @param selectionMode single or multiple row selection
+         * @param selectedRowIds selected row ids
+         * @param enabled whether selection is enabled
+         */
         public Table {
             id = requireId(id, "id");
             bindingId = requireId(bindingId, "bindingId");
@@ -292,6 +529,14 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     record Tree(String id, String bindingId, List<TreeItem> items,
                 SelectionMode selectionMode, List<String> selectedIds,
                 boolean enabled) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param bindingId stable selection-event target
+         * @param items ordered root items
+         * @param selectionMode single or multiple item selection
+         * @param selectedIds selected item ids
+         * @param enabled whether selection is enabled
+         */
         public Tree {
             id = requireId(id, "id");
             bindingId = requireId(bindingId, "bindingId");
@@ -315,6 +560,14 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Command button emitting an activation event. */
     record Button(String id, String actionId, TextToken label, TextToken help,
                   ButtonStyle buttonStyle, boolean enabled) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param actionId stable activation-event target
+         * @param label localized button label
+         * @param help optional localized help text
+         * @param buttonStyle command emphasis
+         * @param enabled whether the button is enabled
+         */
         public Button {
             id = requireId(id, "id");
             actionId = requireId(actionId, "actionId");
@@ -328,6 +581,13 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Link-like command emitting an activation event without embedding an arbitrary URI. */
     record Link(String id, String actionId, TextToken label, TextToken help,
                 boolean enabled) implements DesktopUiNode {
+        /**
+         * @param id stable node id
+         * @param actionId stable activation-event target
+         * @param label localized link label
+         * @param help optional localized help text
+         * @param enabled whether the link is enabled
+         */
         public Link {
             id = requireId(id, "id");
             actionId = requireId(actionId, "actionId");
@@ -339,6 +599,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Localized text token; fallback is used when the namespace or key is unavailable. */
     record TextToken(String namespace, String key, String fallback, List<String> arguments) {
+        /**
+         * @param namespace optional plugin i18n namespace
+         * @param key stable message key, or empty for raw fallback text
+         * @param fallback fallback text
+         * @param arguments message-format arguments
+         */
         public TextToken {
             namespace = blankToNull(boundedText(namespace, "namespace"));
             if (namespace != null) namespace = requireId(namespace, "namespace");
@@ -351,12 +617,24 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             }
         }
 
+        /**
+         * @param key stable host message key
+         * @return host message token using the key as fallback
+         */
         public static TextToken key(String key) { return new TextToken(null, key, key, List.of()); }
+        /**
+         * @param text raw fallback text
+         * @return text token without a message key
+         */
         public static TextToken raw(String text) { return new TextToken(null, "", text, List.of()); }
     }
 
     /** Immutable materialized image bytes encoded as Base64. */
     record ImageData(String mediaType, String base64) {
+        /**
+         * @param mediaType image media type
+         * @param base64 bounded Base64 image bytes
+         */
         public ImageData {
             mediaType = mediaType == null ? "" : mediaType.trim().toLowerCase();
             if (!mediaType.startsWith("image/")) throw new IllegalArgumentException("mediaType must be image/*");
@@ -376,11 +654,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             }
         }
 
+        /** @return decoded image bytes */
         public byte[] bytes() { return Base64.getDecoder().decode(base64); }
     }
 
     /** Tab descriptor. */
     record Tab(String id, TextToken title, DesktopUiNode content) {
+        /**
+         * @param id stable tab id
+         * @param title localized tab title
+         * @param content complete tab content
+         */
         public Tab {
             id = requireId(id, "id");
             title = Objects.requireNonNull(title, "title");
@@ -388,8 +672,30 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
+    /** One aligned form row; trailing content is typically an effect badge or secondary action. */
+    record FormRow(String id, TextToken label, TextToken help,
+                   DesktopUiNode content, DesktopUiNode trailing) {
+        /**
+         * @param id stable row id
+         * @param label localized row label
+         * @param help optional localized help text
+         * @param content row control or value content
+         * @param trailing optional trailing content
+         */
+        public FormRow {
+            id = requireId(id, "id");
+            label = Objects.requireNonNull(label, "label");
+            content = Objects.requireNonNull(content, "content");
+        }
+    }
+
     /** Selectable option descriptor. */
     record Option(String id, TextToken label, boolean enabled) {
+        /**
+         * @param id stable option id
+         * @param label localized option label
+         * @param enabled whether the option is enabled
+         */
         public Option {
             id = requireId(id, "id");
             label = Objects.requireNonNull(label, "label");
@@ -398,6 +704,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Table column descriptor. */
     record TableColumn(String id, TextToken label, int preferredWidth) {
+        /**
+         * @param id stable column id
+         * @param label localized column label
+         * @param preferredWidth preferred logical width, or zero for toolkit default
+         */
         public TableColumn {
             id = requireId(id, "id");
             label = Objects.requireNonNull(label, "label");
@@ -407,6 +718,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Table row descriptor. */
     record TableRow(String id, List<String> cells) {
+        /**
+         * @param id stable row id
+         * @param cells ordered plain-text cells
+         */
         public TableRow {
             id = requireId(id, "id");
             cells = copyBoundedStrings(cells, "cells");
@@ -415,6 +730,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** Recursive tree item descriptor. */
     record TreeItem(String id, TextToken label, List<TreeItem> children) {
+        /**
+         * @param id stable item id
+         * @param label localized item label
+         * @param children ordered child items
+         */
         public TreeItem {
             id = requireId(id, "id");
             label = Objects.requireNonNull(label, "label");
@@ -422,8 +742,37 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
+    /** Logical top/end/bottom/start padding shared by every renderer. */
+    record Insets(int top, int end, int bottom, int start) {
+        /** Zero padding. */
+        public static final Insets NONE = new Insets(0, 0, 0, 0);
+
+        /**
+         * @param top logical top padding
+         * @param end logical trailing padding
+         * @param bottom logical bottom padding
+         * @param start logical leading padding
+         */
+        public Insets {
+            requireRange(top, 0, 512, "top");
+            requireRange(end, 0, 512, "end");
+            requireRange(bottom, 0, 512, "bottom");
+            requireRange(start, 0, 512, "start");
+        }
+
+        /**
+         * @param value padding for every edge
+         * @return equal padding on every edge
+         */
+        public static Insets all(int value) { return new Insets(value, value, value, value); }
+    }
+
     /** Typed event value projected by a renderer. */
     record Value(ValueKind kind, List<String> values) {
+        /**
+         * @param kind stable value kind
+         * @param values bounded serialized values
+         */
         public Value {
             kind = Objects.requireNonNull(kind, "kind");
             values = copyBoundedStrings(values, "values");
@@ -448,16 +797,37 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             }
         }
 
+        /** @return empty event value */
         public static Value empty() { return new Value(ValueKind.NONE, List.of()); }
+        /**
+         * @param value text value
+         * @return text event value
+         */
         public static Value text(String value) { return new Value(ValueKind.TEXT, List.of(value == null ? "" : value)); }
+        /**
+         * @param value boolean value
+         * @return boolean event value
+         */
         public static Value bool(boolean value) { return new Value(ValueKind.BOOLEAN, List.of(Boolean.toString(value))); }
+        /**
+         * @param value numeric value
+         * @return numeric event value
+         */
         public static Value number(Number value) {
             return new Value(ValueKind.NUMBER, List.of(String.valueOf(Objects.requireNonNull(value, "value"))));
         }
+        /**
+         * @param value selected id, or {@code null}
+         * @return single-selection event value
+         */
         public static Value selection(String value) {
             return value == null ? new Value(ValueKind.SELECTION, List.of())
                     : new Value(ValueKind.SELECTION, List.of(value));
         }
+        /**
+         * @param values selected ids
+         * @return multiple-selection event value
+         */
         public static Value selections(List<String> values) { return new Value(ValueKind.MULTI_SELECTION, values); }
     }
 
@@ -466,6 +836,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
      * Hosts must not log or persist values emitted by {@link InputKind#PASSWORD} nodes.
      */
     record Event(EventType type, String nodeId, String targetId, Value value) {
+        /**
+         * @param type renderer event type
+         * @param nodeId emitting node id
+         * @param targetId action or binding target id
+         * @param value typed event value
+         */
         public Event {
             type = Objects.requireNonNull(type, "type");
             nodeId = requireId(nodeId, "nodeId");
@@ -487,34 +863,146 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** Supported node kinds. */
-    enum Kind { CONTAINER, GROUP, TABS, SCROLL, SPLIT, TEXT, IMAGE, SEPARATOR, SPACER, PROGRESS,
-        TEXT_INPUT, TOGGLE, CHOICE, NUMBER_INPUT, TABLE, TREE, BUTTON, LINK }
+    enum Kind {
+        /** General container. */ CONTAINER,
+        /** Edge-and-center container. */ DOCK,
+        /** Semantic visual surface. */ SURFACE,
+        /** Titled group. */ GROUP,
+        /** Aligned form. */ FORM,
+        /** Tabbed container. */ TABS,
+        /** Scrollable container. */ SCROLL,
+        /** Two-pane split. */ SPLIT,
+        /** Localized text. */ TEXT,
+        /** Materialized image. */ IMAGE,
+        /** Separator. */ SEPARATOR,
+        /** Fixed spacer. */ SPACER,
+        /** Progress display. */ PROGRESS,
+        /** Text-like input. */ TEXT_INPUT,
+        /** Boolean input. */ TOGGLE,
+        /** Choice input. */ CHOICE,
+        /** Bounded numeric input. */ NUMBER_INPUT,
+        /** Read-only table. */ TABLE,
+        /** Hierarchical tree. */ TREE,
+        /** Command button. */ BUTTON,
+        /** Link-like command. */ LINK
+    }
     /** General container layout. */
-    enum ContainerLayout { COLUMN, ROW, FLOW, GRID }
+    enum ContainerLayout {
+        /** Vertical column. */ COLUMN,
+        /** Horizontal row. */ ROW,
+        /** Wrapping flow. */ FLOW,
+        /** Fixed-column grid. */ GRID
+    }
     /** Logical child alignment. */
-    enum Alignment { START, CENTER, END, STRETCH }
+    enum Alignment {
+        /** Leading edge. */ START,
+        /** Center. */ CENTER,
+        /** Trailing edge. */ END,
+        /** Fill the cross axis. */ STRETCH
+    }
+    /** Semantic surface role mapped to native toolkit colors and borders. */
+    enum SurfaceStyle {
+        /** Unadorned surface. */ PLAIN,
+        /** Grouped card surface. */ CARD,
+        /** Informational surface. */ INFO,
+        /** Success surface. */ SUCCESS,
+        /** Warning surface. */ WARNING,
+        /** Error surface. */ ERROR,
+        /** De-emphasized surface. */ MUTED
+    }
+    /** Aligned-row density and label sizing policy. */
+    enum FormStyle {
+        /** Compact labels and controls. */ COMPACT,
+        /** Responsive label width. */ RESPONSIVE,
+        /** Read-only key/value presentation. */ KEY_VALUE
+    }
     /** Logical orientation. */
-    enum Axis { HORIZONTAL, VERTICAL }
+    enum Axis {
+        /** Horizontal axis. */ HORIZONTAL,
+        /** Vertical axis. */ VERTICAL
+    }
     /** Semantic text style. */
-    enum TextStyle { BODY, CAPTION, TITLE, HEADING, CODE, SUCCESS, WARNING, ERROR }
+    enum TextStyle {
+        /** Regular body text. */ BODY,
+        /** Emphasized body text. */ EMPHASIS,
+        /** De-emphasized body text. */ SECONDARY,
+        /** Bulleted body text. */ BULLET,
+        /** Small caption text. */ CAPTION,
+        /** Page title text. */ TITLE,
+        /** Section heading text. */ HEADING,
+        /** Monospaced code text. */ CODE,
+        /** Success text. */ SUCCESS,
+        /** Warning text. */ WARNING,
+        /** Error text. */ ERROR
+    }
+    /** Logical text alignment. */
+    enum TextAlignment {
+        /** Leading-aligned text. */ START,
+        /** Centered text. */ CENTER,
+        /** Trailing-aligned text. */ END
+    }
     /** Image scaling policy. */
-    enum ScaleMode { NONE, FIT, FILL }
+    enum ScaleMode {
+        /** Preserve intrinsic dimensions. */ NONE,
+        /** Fit within preferred bounds. */ FIT,
+        /** Fill preferred bounds. */ FILL
+    }
     /** Text input semantic type. */
-    enum InputKind { TEXT, PASSWORD, MULTILINE, SEARCH, DATE, TIME, DATE_TIME, FILE, DIRECTORY }
+    enum InputKind {
+        /** Single-line text. */ TEXT,
+        /** Numeric text. */ NUMBER,
+        /** Secret text. */ PASSWORD,
+        /** Multiline text. */ MULTILINE,
+        /** Search text. */ SEARCH,
+        /** Calendar date. */ DATE,
+        /** Time of day. */ TIME,
+        /** Date and time. */ DATE_TIME,
+        /** File path. */ FILE,
+        /** Directory path. */ DIRECTORY
+    }
     /** Boolean input presentation. */
-    enum ToggleStyle { CHECKBOX, SWITCH }
+    enum ToggleStyle {
+        /** Checkbox presentation. */ CHECKBOX,
+        /** Switch presentation. */ SWITCH
+    }
     /** Choice input presentation. */
-    enum ChoiceStyle { COMBO_BOX, RADIO_BUTTONS, CHECK_BOXES, LIST }
+    enum ChoiceStyle {
+        /** Drop-down combo box. */ COMBO_BOX,
+        /** Radio-button group. */ RADIO_BUTTONS,
+        /** Checkbox group. */ CHECK_BOXES,
+        /** Visible selection list. */ LIST
+    }
     /** Single or multiple selection. */
-    enum SelectionMode { SINGLE, MULTIPLE }
+    enum SelectionMode {
+        /** At most one selected item. */ SINGLE,
+        /** Multiple selected items. */ MULTIPLE
+    }
     /** Numeric input presentation. */
-    enum NumberStyle { SPINNER, SLIDER }
+    enum NumberStyle {
+        /** Spinner control. */ SPINNER,
+        /** Slider control. */ SLIDER
+    }
     /** Command emphasis. */
-    enum ButtonStyle { NORMAL, PRIMARY, DANGER }
+    enum ButtonStyle {
+        /** Normal command. */ NORMAL,
+        /** Primary command. */ PRIMARY,
+        /** Destructive command. */ DANGER
+    }
     /** Stable event value kind. */
-    enum ValueKind { NONE, TEXT, BOOLEAN, NUMBER, SELECTION, MULTI_SELECTION }
+    enum ValueKind {
+        /** No value. */ NONE,
+        /** Text value. */ TEXT,
+        /** Boolean value. */ BOOLEAN,
+        /** Numeric value. */ NUMBER,
+        /** Single selection. */ SELECTION,
+        /** Multiple selection. */ MULTI_SELECTION
+    }
     /** Stable renderer event type. */
-    enum EventType { CHANGE, SELECTION, ACTIVATE }
+    enum EventType {
+        /** Input value changed. */ CHANGE,
+        /** Selection changed. */ SELECTION,
+        /** Command activated. */ ACTIVATE
+    }
 
     private static String requireId(String value, String name) {
         if (value == null || !value.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {

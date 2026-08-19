@@ -11,6 +11,7 @@ import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.JPasswordField;
 import javax.swing.JProgressBar;
+import javax.swing.JScrollPane;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
@@ -22,6 +23,8 @@ import javax.swing.JTree;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -81,11 +84,103 @@ class SwingDesktopUiNodeRendererTest {
         });
     }
 
+    @Test
+    @DisplayName("响应式表单保持多行控件左边界一致")
+    void responsiveFormAlignsControls() throws Exception {
+        DesktopUiNode form = new DesktopUiNode.Form("form.geometry", DesktopUiNode.FormStyle.RESPONSIVE,
+                raw(":"), List.of(
+                new DesktopUiNode.FormRow("form.geometry.first", raw("Short"), null,
+                        input("form.geometry.first.input", DesktopUiNode.InputKind.TEXT, "one"), null),
+                new DesktopUiNode.FormRow("form.geometry.second", raw("A much longer label"), raw("Help"),
+                        input("form.geometry.second.input", DesktopUiNode.InputKind.TEXT, "two"), null)));
+        SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
+                token -> token.fallback(), ignored -> { });
+
+        JComponent rendered = onEdt(() -> {
+            JComponent component = renderer.render(form);
+            component.setSize(720, component.getPreferredSize().height);
+            layoutTree(component);
+            return component;
+        });
+
+        JComponent first = node(rendered, "form.geometry.first.input");
+        JComponent second = node(rendered, "form.geometry.second.input");
+        assertThat(SwingUtilities.convertPoint(first, 0, 0, rendered).x)
+                .isEqualTo(SwingUtilities.convertPoint(second, 0, 0, rendered).x);
+    }
+
+    @Test
+    @DisplayName("工具包状态恢复不会冒充用户输入")
+    void suppressesEventsWhileRestoringToolkitState() throws Exception {
+        List<DesktopUiNode.Event> events = new ArrayList<>();
+        SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
+                token -> token.fallback(), events::add);
+        JPasswordField password = onEdt(() -> descendants(renderer.render(
+                input("password", DesktopUiNode.InputKind.PASSWORD, "")), JPasswordField.class).get(0));
+
+        onEdt(() -> {
+            renderer.withoutEvents(() -> password.setText("restored"));
+            return null;
+        });
+        assertThat(events).isEmpty();
+
+        onEdt(() -> {
+            password.setText("typed");
+            return null;
+        });
+        assertThat(events).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("嵌套滚动区到达边界后把滚轮交给外层页面")
+    void nestedScrollHandsWheelToTheOuterPageAtItsBoundary() throws Exception {
+        List<DesktopUiNode.TableRow> rows = java.util.stream.IntStream.range(0, 30)
+                .mapToObj(index -> new DesktopUiNode.TableRow("row." + index, List.of("Row " + index)))
+                .toList();
+        DesktopUiNode document = new DesktopUiNode.Scroll("outer.scroll",
+                new DesktopUiNode.Container("outer.content", DesktopUiNode.ContainerLayout.COLUMN,
+                        1, 4, DesktopUiNode.Alignment.STRETCH, List.of(
+                        new DesktopUiNode.Spacer("outer.spacer", 1, 600),
+                        new DesktopUiNode.Table("inner.table", "inner.selection",
+                                List.of(new DesktopUiNode.TableColumn("value", raw("Value"), 160)),
+                                rows, DesktopUiNode.SelectionMode.SINGLE, List.of(), true))));
+        SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
+                token -> token.fallback(), ignored -> { });
+
+        int[] values = onEdt(() -> {
+            JScrollPane outer = (JScrollPane) renderer.render(document);
+            outer.setSize(320, 180);
+            layoutTree(outer);
+            JScrollPane inner = (JScrollPane) node(outer, "inner.table");
+            inner.setSize(280, 120);
+            layoutTree(inner);
+            outer.getVerticalScrollBar().setValue(120);
+            int before = outer.getVerticalScrollBar().getValue();
+            inner.getVerticalScrollBar().setValue(inner.getVerticalScrollBar().getMinimum());
+            inner.dispatchEvent(new MouseWheelEvent(inner, MouseEvent.MOUSE_WHEEL,
+                    System.currentTimeMillis(), 0, 10, 10, 0, false,
+                    MouseWheelEvent.WHEEL_UNIT_SCROLL, 3, -1));
+            return new int[]{before, outer.getVerticalScrollBar().getValue()};
+        });
+
+        assertThat(values[0]).isPositive();
+        assertThat(values[1]).isLessThan(values[0]);
+    }
+
     private static DesktopUiNode completeDocument() {
         return new DesktopUiNode.Container(
                 "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4,
                 DesktopUiNode.Alignment.STRETCH, List.of(
+                        new DesktopUiNode.Dock("dock", 4,
+                                text("dock.top", "Top"), text("dock.center", "Center"),
+                                text("dock.bottom", "Bottom"), null, null),
+                        new DesktopUiNode.Surface("surface", DesktopUiNode.SurfaceStyle.WARNING,
+                                DesktopUiNode.Insets.all(8), true, text("surface.text", "Warning")),
                         new DesktopUiNode.Group("group", raw("Group"), text("group.text", "Body")),
+                        new DesktopUiNode.Form("form", DesktopUiNode.FormStyle.RESPONSIVE, raw(":"), List.of(
+                                new DesktopUiNode.FormRow("form.row", raw("Field"), raw("Help"),
+                                        input("form.input", DesktopUiNode.InputKind.NUMBER, "1"),
+                                        text("form.trailing", "Restart")))),
                         new DesktopUiNode.Tabs("tabs", List.of(
                                 new DesktopUiNode.Tab("general", raw("General"), text("tabs.text", "Tab")))),
                         new DesktopUiNode.Scroll("scroll", text("scroll.text", "Scrollable")),
@@ -163,6 +258,19 @@ class SwingDesktopUiNodeRendererTest {
         List<T> matches = new ArrayList<>();
         collect(root, type, matches);
         return matches;
+    }
+
+    private static JComponent node(Component root, String id) {
+        return descendants(root, JComponent.class).stream()
+                .filter(component -> id.equals(component.getClientProperty(
+                        SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY)))
+                .findFirst().orElseThrow();
+    }
+
+    private static void layoutTree(Component component) {
+        if (!(component instanceof Container container)) return;
+        container.doLayout();
+        for (Component child : container.getComponents()) layoutTree(child);
     }
 
     private static <T extends Component> void collect(Component component, Class<T> type, List<T> matches) {

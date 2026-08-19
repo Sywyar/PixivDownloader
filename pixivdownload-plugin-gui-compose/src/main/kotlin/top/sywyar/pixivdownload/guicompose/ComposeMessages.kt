@@ -5,11 +5,13 @@ import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.text.MessageFormat
+import java.util.Locale
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 
 internal class ComposeMessages(private val context: DesktopUiContext) {
     private val cache = ConcurrentHashMap<String, Map<String, String>>()
+    private val pluginSources = context.currentPluginSources()
 
     fun get(key: String, vararg arguments: String): String =
         context.host().message(key, *arguments)
@@ -22,12 +24,15 @@ internal class ComposeMessages(private val context: DesktopUiContext) {
         if (token.namespace() == null) {
             return context.host().message(token.key(), *token.arguments().toTypedArray())
         }
-        val source = token.namespace()?.let { namespace ->
-            context.currentPluginSources().firstOrNull { it.id() == namespace }
-        }
-        val loader = source?.classLoader() ?: GuiComposePlugin::class.java.classLoader
-        val base = "i18n/web/${token.namespace()}"
-        val resolution = context.host().resolveLocale(context.host().detectSystemLocale())
+        val contribution = pluginSources.asSequence().mapNotNull { source ->
+            runCatching {
+                source.plugin().i18n().firstOrNull { it.namespace() == token.namespace() }
+                    ?.let { source.classLoader() to it.baseName() }
+            }.getOrNull()
+        }.firstOrNull()
+        val loader = contribution?.first ?: GuiComposePlugin::class.java.classLoader
+        val base = contribution?.second?.replace('.', '/') ?: "i18n/web/${token.namespace()}"
+        val resolution = context.host().resolveLocale(Locale.getDefault())
         val pattern = resolution.fallbackChain().asSequence()
             .mapNotNull { locale -> exact(loader, base, locale.resourceSuffix())[token.key()] }
             .firstOrNull()

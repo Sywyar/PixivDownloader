@@ -10,59 +10,41 @@ import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 插件市场 / 仓库配置的新增文案<b>中英完整一致</b>守卫：GUI 显示文案（{@code gui.properties} / {@code gui_en.properties}）
- * 与模板注释（{@code messages.properties} / {@code messages_en.properties}）里本次新增的市场相关键，两份语言文件里
- * <b>键集合一致、各值非空</b>。涵盖 proxy-trusted 风险提示等所有新文案。
+ * App-owned plugin-market schema text remains complete in every visible locale.
  */
-@DisplayName("插件市场 / 仓库配置文案：中英键集合一致且非空")
+@DisplayName("插件市场 / 仓库配置文案：全部可见语言键集合一致且非空")
 class PluginMarketConfigI18nTest {
 
+    private static final List<String> BUNDLES = List.of(
+            "messages.properties", "messages_en.properties", "messages_ja.properties",
+            "messages_ko.properties", "messages_zh-Hant.properties");
+
     @Test
-    @DisplayName("GUI 市场配置文案中英键集合一致、非空（含 proxy-trusted 风险提示）")
+    @DisplayName("Schema 市场配置文案在全部可见语言中键集合一致、非空")
     void guiMarketKeysMatchAcrossLocales() throws IOException {
-        Properties zh = load("/i18n/gui.properties");
-        Properties en = load("/i18n/gui_en.properties");
-
-        Set<String> zhKeys = subset(zh, "gui.config.market.", "gui.config.field.plugin-catalog.");
-        Set<String> enKeys = subset(en, "gui.config.market.", "gui.config.field.plugin-catalog.");
-
-        assertThat(zhKeys).as("中英 GUI 市场文案键集合应一致").isEqualTo(enKeys);
-        assertNoneBlank(zh, zhKeys);
-        assertNoneBlank(en, enKeys);
-        // 风险提示键必须存在于两份语言文件。
-        assertThat(zhKeys).contains("gui.config.market.repo.proxy-trusted.risk", "gui.config.market.repo.risk");
-    }
-
-    @Test
-    @DisplayName("中文仓库密钥文案不回退为英文配置键")
-    void chineseTrustedKeyLabelsAreLocalized() throws IOException {
-        Properties zh = load("/i18n/gui.properties");
-
-        assertThat(zh)
-                .containsEntry("gui.config.market.repo.field.trusted-keys", "受信密钥")
-                .containsEntry("gui.config.market.repo.trust.table.col.key-id", "密钥 ID")
-                .containsEntry("gui.config.market.repo.trust.table.col.algorithm", "算法")
-                .containsEntry("gui.config.market.repo.trust.table.col.state", "状态")
-                .containsEntry("gui.config.market.repo.trust.table.col.publisher", "发布者")
-                .containsEntry("gui.config.market.repo.trust.table.col.trust-label", "信任根名称")
-                .containsEntry("gui.config.market.repo.trust.field.key-id", "密钥 ID")
-                .containsEntry("gui.config.market.repo.trust.field.public-key", "公钥")
-                .containsEntry("gui.config.market.repo.trust.field.trust-label", "信任根名称")
-                .containsEntry("gui.config.market.repo.trust.error.key-id-empty", "密钥 ID 不能为空")
-                .containsEntry("gui.config.market.repo.trust.error.public-key-empty", "公钥不能为空");
-        assertThat(zh.getProperty("gui.config.market.repo.trust.hint")).doesNotContain("trusted key");
+        Set<String> expected = subset(load(BUNDLES.get(0)),
+                "gui.config.market.", "gui.config.field.plugin-catalog.");
+        assertThat(expected).isNotEmpty();
+        for (String bundle : BUNDLES) {
+            Properties messages = load(bundle);
+            Set<String> actual = subset(messages,
+                    "gui.config.market.", "gui.config.field.plugin-catalog.");
+            assertThat(actual).as(bundle).isEqualTo(expected);
+            assertNoneBlank(messages, actual);
+        }
     }
 
     @Test
     @DisplayName("插件市场模板注释中英键集合一致、非空")
     void templateCommentKeysMatchAcrossLocales() throws IOException {
-        Properties zh = load("/i18n/messages.properties");
-        Properties en = load("/i18n/messages_en.properties");
+        Properties zh = load("messages.properties");
+        Properties en = load("messages_en.properties");
 
         Set<String> zhKeys = subset(zh, "config.template.plugin-catalog.", "gui.config.market.log.");
         Set<String> enKeys = subset(en, "config.template.plugin-catalog.", "gui.config.market.log.");
@@ -99,7 +81,7 @@ class PluginMarketConfigI18nTest {
 
     private static Properties load(String resource) throws IOException {
         Properties props = new Properties();
-        try (InputStream in = PluginMarketConfigI18nTest.class.getResourceAsStream(resource)) {
+        try (InputStream in = PluginMarketConfigI18nTest.class.getResourceAsStream("/i18n/" + resource)) {
             assertThat(in).as("应能加载 %s", resource).isNotNull();
             props.load(new InputStreamReader(in, StandardCharsets.UTF_8));
         }

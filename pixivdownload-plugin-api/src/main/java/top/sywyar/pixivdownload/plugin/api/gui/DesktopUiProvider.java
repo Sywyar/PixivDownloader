@@ -23,11 +23,11 @@ public interface DesktopUiProvider {
     /**
      * Returns the stable declarative node kinds this provider can render, including every semantic variant
      * defined by each advertised kind.
-     * An empty set means the provider only supports its own native pages.
+     * Providers must advertise every kind required by the host document before launch.
      *
      * @return immutable supported node-kind set
      */
-    default Set<DesktopUiNode.Kind> supportedNodeKinds() { return Set.of(); }
+    Set<DesktopUiNode.Kind> supportedNodeKinds();
 
     /**
      * Starts the process-lifetime desktop UI.

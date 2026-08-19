@@ -4,7 +4,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
-import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.DesktopUiTestSources;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -25,16 +24,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("GUI Web 入口 contribution 聚合")
 class GuiWebEntryContributionAggregatorTest {
     static { DesktopUiTestHost.ensureInstalled(); }
+    private final Locale originalLocale = Locale.getDefault();
 
     @AfterEach
     void clearLocale() {
-        GuiMessages.clearLocaleOverride();
+        Locale.setDefault(originalLocale);
     }
 
     @Test
     @DisplayName("启用 gallery 时状态页与托盘入口出现，文案由 gallery namespace 解析")
     void galleryEntriesAppearWhenGalleryEnabled() {
-        GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
+        Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
 
         GuiWebEntrySnapshot snapshot = aggregate(registryWithGallery());
 
@@ -54,10 +54,10 @@ class GuiWebEntryContributionAggregatorTest {
     @Test
     @DisplayName("重新聚合 Web 入口时状态页与托盘动作按当前 GUI 语言解析")
     void rebuiltWebEntriesUseCurrentGuiLocale() {
-        GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
+        Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
         GuiWebEntrySnapshot zhSnapshot = aggregate(externalGallery());
 
-        GuiMessages.setLocale(Locale.US);
+        Locale.setDefault(Locale.US);
         GuiWebEntrySnapshot enSnapshot = aggregate(externalGallery());
 
         assertThat(action(zhSnapshot.statusActions()).label()).isEqualTo("本地画廊");

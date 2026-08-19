@@ -6,8 +6,10 @@ import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 import java.util.Properties
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 abstract class VerifyPluginArtifact : DefaultTask() {
     @get:InputFile
@@ -22,6 +24,23 @@ abstract class VerifyPluginArtifact : DefaultTask() {
                 "PF4J entry class is missing"
             }
             check(entries.any { it.startsWith("lib/ui-desktop-") }) { "Compose UI runtime is missing" }
+            check(entries.any { it.startsWith("lib/material3-desktop-") }) { "Material 3 runtime is missing" }
+            val classOwners = mutableMapOf<String, MutableList<String>>()
+            zip.entries().asSequence().filter { it.name.startsWith("lib/") && it.name.endsWith(".jar") }
+                .forEach { library ->
+                    ZipInputStream(zip.getInputStream(library)).use { nested ->
+                        generateSequence(nested::getNextEntry)
+                            .map { it.name }
+                            .filter { it.endsWith(".class") && !it.endsWith("module-info.class") }
+                            .forEach { className ->
+                                classOwners.getOrPut(className, ::mutableListOf).add(library.name)
+                            }
+                    }
+                }
+            val duplicateClasses = classOwners.filterValues { it.size > 1 }
+            check(duplicateClasses.isEmpty()) {
+                "Plugin runtime libraries contain duplicate classes: $duplicateClasses"
+            }
             listOf("windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-arm64").forEach { target ->
                 check(entries.any { it.startsWith("lib/skiko-awt-runtime-$target-") }) {
                     "Skiko native runtime is missing for $target"
@@ -42,9 +61,9 @@ abstract class VerifyPluginArtifact : DefaultTask() {
 }
 
 plugins {
-    kotlin("jvm") version "2.4.10"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"
-    id("org.jetbrains.compose") version "1.11.1"
+    kotlin("jvm")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.compose")
 }
 
 group = "top.sywyar.lovepopup"
@@ -64,9 +83,11 @@ val mavenFinalName = providers.gradleProperty("mavenFinalName")
 require(mavenFinalName.isNotBlank() && File(mavenFinalName).name == mavenFinalName) {
     "Maven final name must be a plain file name: $mavenFinalName"
 }
-val mavenClasspathFiles = providers.gradleProperty("mavenClasspathFile").orNull
+val mavenClasspathFile = providers.gradleProperty("mavenClasspathFile").orNull
     ?.let(::file)
-    ?.takeIf(File::isFile)
+    ?: layout.projectDirectory.file("target/gradle-sdk-classpath.txt").asFile
+val mavenClasspathFiles = mavenClasspathFile
+    .takeIf(File::isFile)
     ?.let { classpathFile ->
         classpathFile.readText(Charsets.UTF_8)
             .split(File.pathSeparatorChar)
@@ -75,13 +96,23 @@ val mavenClasspathFiles = providers.gradleProperty("mavenClasspathFile").orNull
     }
     ?: emptyList()
 val mavenClasspath = files(mavenClasspathFiles)
-require(mavenClasspathFiles.isNotEmpty() || gradle.startParameter.taskNames.all { it == "wrapper" }) {
+val classpathOptionalTasks = setOf("clean", "cleanPlugin", "wrapper")
+val requestedTasks = gradle.startParameter.taskNames
+require(mavenClasspathFiles.isNotEmpty() || requestedTasks.isNotEmpty() && requestedTasks.all {
+    it.substringAfterLast(':') in classpathOptionalTasks
+}) {
     "Missing Maven-owned SDK classpath; invoke this module through Maven or pass -PmavenClasspathFile=<file>."
 }
 
 kotlin {
     jvmToolchain(17)
-    compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        val configuredLanguageVersion = providers.gradleProperty("kotlinLanguageVersion")
+            .map(KotlinVersion::fromVersion)
+        languageVersion.set(configuredLanguageVersion)
+        apiVersion.set(configuredLanguageVersion)
+    }
 }
 
 java {
@@ -95,11 +126,14 @@ configurations.configureEach {
 dependencies {
     compileOnly(mavenClasspath)
     implementation(compose.desktop.currentOs)
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.144.6")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-arm64:0.144.6")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.144.6")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-arm64:0.144.6")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6")
+    val material3Version = providers.gradleProperty("composeMaterial3Version").get()
+    implementation("org.jetbrains.compose.material3:material3:$material3Version")
+    val skikoVersion = providers.gradleProperty("skikoVersion").get()
+    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-x64:$skikoVersion")
+    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-arm64:$skikoVersion")
+    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:$skikoVersion")
+    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-arm64:$skikoVersion")
+    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:$skikoVersion")
 
     testImplementation(mavenClasspath)
     testImplementation(platform("org.junit:junit-bom:5.13.4"))

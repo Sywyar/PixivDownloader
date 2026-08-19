@@ -49,6 +49,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -99,6 +101,8 @@ public class GuiLauncher {
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
     private static final AtomicReference<DesktopUiSession> ACTIVE_UI = new AtomicReference<>();
+    private static final AtomicReference<AutoCloseable> ACTIVE_UI_MODEL = new AtomicReference<>();
+    private static final AtomicBoolean EXIT_REQUESTED = new AtomicBoolean();
     /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
     private static final long BACKEND_CONTEXT_CLOSE_TIMEOUT_MS = 15_000L;
 
@@ -134,7 +138,7 @@ public class GuiLauncher {
 
         // ── 0a. 全局 locale 检测（必须先于 logback 初始化）────────────────────────
         //    检测器内部不允许使用 SLF4J / @Slf4j 类；通过 Locale.setDefault 写回，
-        //    使后续 HtmlLogLayout / GuiMessages / getForLog 拿到统一信号。
+        //    使后续 HtmlLogLayout / 桌面 UI 文案解析 / getForLog 拿到统一信号。
         SystemLocaleDetector.detectAndApply();
 
         // ── 0b. 在 logback 初始化前完成日志目录/属性准备 ─────────────────────────
@@ -280,11 +284,24 @@ public class GuiLauncher {
                             .toList());
             AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
             desktopUiHost.resetIncompleteOnboardingState(root);
+            Supplier<List<DesktopUiContext.PluginSource>> currentDesktopSources = memoizedDesktopUiSources(
+                    () -> pluginSession.manager().discoverFeaturePlugins(),
+                    discovery -> buildDesktopUiPluginSources(pluginRegistry(pluginSession, discovery)),
+                    pluginSession.startupDiscovery(), startupPluginSources);
+            AppDesktopUiModel desktopUiModel = new AppDesktopUiModel(
+                    port, root, configPath, desktopUiHost, currentDesktopSources);
+            ACTIVE_UI_MODEL.set(desktopUiModel);
+            Set<top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Kind> missingKinds =
+                    new java.util.LinkedHashSet<>(desktopUiModel.document().requiredNodeKinds());
+            missingKinds.removeAll(selection.provider().supportedNodeKinds());
+            if (!missingKinds.isEmpty()) {
+                throw new IllegalStateException("Desktop UI provider '" + selection.provider().id()
+                        + "' cannot render required node kinds: " + missingKinds);
+            }
             DesktopUiContext context = new DesktopUiContext(port, root, configPath, startupLaunch,
                     startupPluginSources,
-                    () -> buildDesktopUiPluginSources(pluginRegistry(
-                            pluginSession, pluginSession.manager().discoverFeaturePlugins())),
-                    () -> desktopUiHost.desktopUiDocument(root),
+                    currentDesktopSources,
+                    desktopUiModel,
                     desktopUiHost);
             DesktopUiSession ui = selection.provider().launch(context);
             ACTIVE_UI.set(ui);
@@ -832,6 +849,27 @@ public class GuiLauncher {
                         registered.plugin(), registered.classLoader()))
                 .toList();
     }
+
+    static Supplier<List<DesktopUiContext.PluginSource>> memoizedDesktopUiSources(
+            Supplier<PluginDiscoveryResult> discoveries,
+            Function<PluginDiscoveryResult, List<DesktopUiContext.PluginSource>> sourceFactory,
+            PluginDiscoveryResult initialDiscovery,
+            List<DesktopUiContext.PluginSource> initialSources) {
+        return new Supplier<>() {
+            private PluginDiscoveryResult discovery = initialDiscovery;
+            private List<DesktopUiContext.PluginSource> sources = List.copyOf(initialSources);
+
+            @Override
+            public synchronized List<DesktopUiContext.PluginSource> get() {
+                PluginDiscoveryResult current = discoveries.get();
+                if (!current.equals(discovery)) {
+                    discovery = current;
+                    sources = List.copyOf(sourceFactory.apply(current));
+                }
+                return sources;
+            }
+        };
+    }
     static ManagedDatabaseSchema.DatabaseSchema buildStartupManagedSchema(PluginEnabledSnapshot enabledSnapshot,
                                                                           PluginDiscoveryResult discovery) {
         return new DatabaseSchemaRegistry(new PluginRegistry(BuiltInPlugins.createAll(),
@@ -1007,6 +1045,7 @@ public class GuiLauncher {
                 BACKEND_CONTEXT_CLOSE_TIMEOUT_MS,
                 session);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            // 受控退出已在 System.exit 前关闭桌面 UI；shutdown hook 内不得再调用依赖 AWT 事件泵的工具包清理。
             try {
                 coordinator.shutdown();
             } catch (RuntimeException e) {
@@ -1015,6 +1054,51 @@ public class GuiLauncher {
                 }
             }
         }, "process-shutdown"));
+    }
+
+    static void requestApplicationExit() {
+        requestApplicationExit(GuiLauncher::closeActiveDesktopUiResources, () -> System.exit(0));
+    }
+
+    static void requestApplicationExit(Runnable desktopUiCloseAction, Runnable exitAction) {
+        if (!EXIT_REQUESTED.compareAndSet(false, true)) return;
+        Thread exitThread = new Thread(() -> {
+            try {
+                desktopUiCloseAction.run();
+            } catch (RuntimeException failure) {
+                if (log != null) {
+                    log.debug(logMessage("gui.launcher.log.desktop-ui.close-failed", failure.getMessage()), failure);
+                }
+            } finally {
+                exitAction.run();
+            }
+        }, "desktop-ui-exit");
+        exitThread.setDaemon(false);
+        exitThread.start();
+    }
+
+    private static void closeActiveDesktopUiResources() {
+        RuntimeException failure = null;
+        DesktopUiSession ui = ACTIVE_UI.getAndSet(null);
+        if (ui != null) {
+            try {
+                ui.close();
+            } catch (RuntimeException closeFailure) {
+                failure = closeFailure;
+            }
+        }
+        AutoCloseable model = ACTIVE_UI_MODEL.getAndSet(null);
+        if (model != null) {
+            try {
+                model.close();
+            } catch (Exception closeFailure) {
+                RuntimeException runtimeFailure = closeFailure instanceof RuntimeException runtime
+                        ? runtime : new IllegalStateException(closeFailure);
+                if (failure == null) failure = runtimeFailure;
+                else failure.addSuppressed(runtimeFailure);
+            }
+        }
+        if (failure != null) throw failure;
     }
 
     private static String message(String code, Object... args) {

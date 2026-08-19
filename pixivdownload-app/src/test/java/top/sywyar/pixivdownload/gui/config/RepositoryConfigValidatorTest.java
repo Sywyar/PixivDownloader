@@ -6,12 +6,14 @@ import top.sywyar.pixivdownload.gui.DesktopUiTestHost;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("自定义仓库表单前置校验：id / URL / 代理策略 / 超时大小")
 class RepositoryConfigValidatorTest {
     static { DesktopUiTestHost.ensureInstalled(); }
+    private static final Set<String> RESERVED_IDS = Set.of("official", "configured");
 
     private static RepositoryConfigEntry repo(String id) {
         return RepositoryConfigEntry.create(id, "", "https://x.example/manifest.json", true, "direct-strict", 0, 0, 0, 0);
@@ -20,32 +22,32 @@ class RepositoryConfigValidatorTest {
     @Test
     @DisplayName("id 为空被拒")
     void idEmptyRejected() {
-        assertThat(RepositoryConfigValidator.validateId("  ", List.of()))
+        assertThat(RepositoryConfigValidator.validateId("  ", List.of(), RESERVED_IDS))
                 .isEqualTo("gui.config.market.repo.error.id-empty");
     }
 
     @Test
     @DisplayName("保留字 id（official / configured，大小写不敏感）被拒")
     void reservedIdRejected() {
-        assertThat(RepositoryConfigValidator.validateId("official", List.of()))
+        assertThat(RepositoryConfigValidator.validateId("official", List.of(), RESERVED_IDS))
                 .isEqualTo("gui.config.market.repo.error.id-reserved");
-        assertThat(RepositoryConfigValidator.validateId("Configured", List.of()))
+        assertThat(RepositoryConfigValidator.validateId("Configured", List.of(), RESERVED_IDS))
                 .isEqualTo("gui.config.market.repo.error.id-reserved");
-        assertThat(RepositoryConfigValidator.validateId("OFFICIAL", List.of()))
+        assertThat(RepositoryConfigValidator.validateId("OFFICIAL", List.of(), RESERVED_IDS))
                 .isEqualTo("gui.config.market.repo.error.id-reserved");
     }
 
     @Test
     @DisplayName("大小写归一后重复的 id 被拒")
     void duplicateIdRejected() {
-        assertThat(RepositoryConfigValidator.validateId("MyRepo", List.of(repo("myrepo"))))
+        assertThat(RepositoryConfigValidator.validateId("MyRepo", List.of(repo("myrepo")), RESERVED_IDS))
                 .isEqualTo("gui.config.market.repo.error.id-duplicate");
     }
 
     @Test
     @DisplayName("合法且唯一的 id 通过")
     void validUniqueIdPasses() {
-        assertThat(RepositoryConfigValidator.validateId("community", List.of(repo("other")))).isNull();
+        assertThat(RepositoryConfigValidator.validateId("community", List.of(repo("other")), RESERVED_IDS)).isNull();
     }
 
     @Test
@@ -109,5 +111,21 @@ class RepositoryConfigValidatorTest {
         assertThat(RepositoryConfigValidator.parseOverride("abc")).isZero();
         assertThat(RepositoryConfigValidator.parseOverride("-5")).isZero();
         assertThat(RepositoryConfigValidator.parseOverride("5000")).isEqualTo(5000);
+    }
+
+    @Test
+    @DisplayName("仓库密钥校验拒绝重复 ID、非 Ed25519 与非法 Base64")
+    void trustedKeyValidation() {
+        assertThat(RepositoryConfigValidator.validateTrustedKey(
+                "root", "Ed25519", "cHVibGlj", "ACTIVE", List.of("ROOT")))
+                .isEqualTo("gui.config.market.repo.trust.error.key-id-duplicate");
+        assertThat(RepositoryConfigValidator.validateTrustedKey(
+                "root", "RSA", "cHVibGlj", "ACTIVE", List.of()))
+                .isEqualTo("gui.config.market.repo.trust.error.algorithm-unsupported");
+        assertThat(RepositoryConfigValidator.validateTrustedKey(
+                "root", "Ed25519", "not-base64!", "ACTIVE", List.of()))
+                .isEqualTo("gui.config.market.repo.trust.error.public-key-invalid");
+        assertThat(RepositoryConfigValidator.validateTrustedKey(
+                "root", "Ed25519", "cHVibGlj", "ACTIVE", List.of())).isNull();
     }
 }

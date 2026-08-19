@@ -180,6 +180,14 @@
                     <exclude>plugin-credential-key.properties</exclude>
                 </excludes>
             </resource>
+            <resource>
+                <directory>..</directory>
+                <targetPath>.</targetPath>
+                <filtering>false</filtering>
+                <includes>
+                    <include>LICENSE</include>
+                </includes>
+            </resource>
         </resources>
         <plugins>
             <plugin>
