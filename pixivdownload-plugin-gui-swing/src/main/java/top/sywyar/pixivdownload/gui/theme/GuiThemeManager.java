@@ -5,14 +5,12 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import java.awt.Color;
 import java.awt.Window;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,17 +43,7 @@ public final class GuiThemeManager {
     private GuiThemeManager() {
     }
 
-    public static String readPersistedThemeId(DesktopUiHost.ConfigFile configFile) {
-        if (configFile == null) return DEFAULT_THEME_ID;
-        try {
-            return normalizeThemeId(configFile.read("app.theme"));
-        } catch (IOException e) {
-            log.warn("Failed to read app.theme: {}", e.toString());
-        }
-        return DEFAULT_THEME_ID;
-    }
-
-    public static void applyBeforeFirstWindow(DesktopUiHost.ConfigFile configFile, String configuredThemeId,
+    public static void applyBeforeFirstWindow(String configuredThemeId,
                                               Collection<ThemePluginSource> activePlugins) {
         Runnable task = () -> {
             synchronized (LOCK) {
@@ -107,21 +95,6 @@ public final class GuiThemeManager {
         return List.copyOf(result);
     }
 
-    public static boolean applyUserSelection(DesktopUiHost.ConfigFile configFile, String themeId) {
-        String normalized = normalizeThemeId(themeId);
-        boolean persisted = persistThemeId(configFile, normalized);
-        synchronized (LOCK) {
-            GuiThemeManager.configuredThemeId = normalized;
-        }
-        Runnable task = () -> applyConfiguredTheme(true);
-        if (SwingUtilities.isEventDispatchThread()) {
-            task.run();
-        } else {
-            SwingUtilities.invokeLater(task);
-        }
-        return persisted;
-    }
-
     public static void applyThemeId(String themeId) {
         String normalized = normalizeThemeId(themeId);
         synchronized (LOCK) {
@@ -132,18 +105,6 @@ public final class GuiThemeManager {
             task.run();
         } else {
             SwingUtilities.invokeLater(task);
-        }
-    }
-
-    public static boolean persistThemeId(DesktopUiHost.ConfigFile configFile, String themeId) {
-        if (configFile == null) return false;
-        String normalized = normalizeThemeId(themeId);
-        try {
-            configFile.write("app.theme", normalized);
-            return true;
-        } catch (IOException | RuntimeException e) {
-            log.warn("Failed to write app.theme: {}", e.toString());
-            return false;
         }
     }
 

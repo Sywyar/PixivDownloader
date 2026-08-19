@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
@@ -143,7 +144,7 @@ class PluginApiOwnershipGuardTest {
                     "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
             Map.entry("GUI contribution 与桌面宿主契约", union(
                     types(API_PREFIX + "gui",
-                    "DesktopUiContext", "DesktopUiHost", "DesktopUiModel", "DesktopUiProvider", "DesktopUiSession", "GuiActionInvocationHeaders",
+                    "DesktopUiContext", "DesktopUiModel", "DesktopUiProvider", "DesktopUiSession", "GuiActionInvocationHeaders",
                     "GuiConfigActionContribution", "GuiConfigActionPayloadField", "GuiConfigActionPayloadType",
                     "GuiConfigActionResultArgument", "GuiConfigActionResultCondition",
                     "GuiConfigActionResultOperator", "GuiConfigActionResultRule", "GuiConfigActionResultSource",
@@ -241,7 +242,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 41),
+            Map.entry("GUI contribution 与桌面宿主契约", 40),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -317,40 +318,6 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.document.DesktopUiNode$TreeItem",
             API_PREFIX + "gui.document.DesktopUiNode$Value",
             API_PREFIX + "gui.document.DesktopUiNode$ValueKind",
-            API_PREFIX + "gui.DesktopUiContext$PluginSource",
-            API_PREFIX + "gui.DesktopUiHost$BackendSnapshot",
-            API_PREFIX + "gui.DesktopUiHost$ConfigFile",
-            API_PREFIX + "gui.DesktopUiHost$ConfigSnapshot",
-            API_PREFIX + "gui.DesktopUiHost$BackendState",
-            API_PREFIX + "gui.DesktopUiHost$BackfillOptions",
-            API_PREFIX + "gui.DesktopUiHost$BackfillSummary",
-            API_PREFIX + "gui.DesktopUiHost$CredentialSnapshot",
-            API_PREFIX + "gui.DesktopUiHost$DatabaseColumn",
-            API_PREFIX + "gui.DesktopUiHost$FfmpegInstallation",
-            API_PREFIX + "gui.DesktopUiHost$FfmpegInstallStage",
-            API_PREFIX + "gui.DesktopUiHost$FfmpegProgressListener",
-            API_PREFIX + "gui.DesktopUiHost$FfmpegProxy",
-            API_PREFIX + "gui.DesktopUiHost$FfmpegSource",
-            API_PREFIX + "gui.DesktopUiHost$FolderArtwork",
-            API_PREFIX + "gui.DesktopUiHost$FolderCheckResult",
-            API_PREFIX + "gui.DesktopUiHost$GuiBodyFormat",
-            API_PREFIX + "gui.DesktopUiHost$GuiRequest",
-            API_PREFIX + "gui.DesktopUiHost$GuiResponse",
-            API_PREFIX + "gui.DesktopUiHost$GuiValue",
-            API_PREFIX + "gui.DesktopUiHost$ImageClassifierArtwork",
-            API_PREFIX + "gui.DesktopUiHost$ImageClassifierDeleteFailureHandler",
-            API_PREFIX + "gui.DesktopUiHost$ImageClassifierServer",
-            API_PREFIX + "gui.DesktopUiHost$ImageClassifierSettings",
-            API_PREFIX + "gui.DesktopUiHost$ImageClassifierTarget",
-            API_PREFIX + "gui.DesktopUiHost$IoOperation",
-            API_PREFIX + "gui.DesktopUiHost$MaintenanceSnapshot",
-            API_PREFIX + "gui.DesktopUiHost$RepositoryProxyPolicy",
-            API_PREFIX + "gui.DesktopUiHost$UiLocale",
-            API_PREFIX + "gui.DesktopUiHost$UiLocaleResolution",
-            API_PREFIX + "gui.DesktopUiHost$MigrationOptions",
-            API_PREFIX + "gui.DesktopUiHost$MigrationSummary",
-            API_PREFIX + "gui.DesktopUiHost$OnboardingSnapshot",
-            API_PREFIX + "gui.DesktopUiHost$ToolLogSession",
             API_PREFIX + "gui.DesktopUiSession$MessageLevel",
             API_PREFIX + "download.queue.QueueTaskTracker$Task",
             API_PREFIX + "web.ApiErrorResponse$Basic",
@@ -554,6 +521,25 @@ class PluginApiOwnershipGuardTest {
         assertThat(WebUiSlotCatalog.class.getDeclaredMethods())
                 .singleElement()
                 .satisfies(method -> assertThat(method.getName()).isEqualTo("uiSlots"));
+    }
+
+    @Test
+    @DisplayName("桌面渲染上下文不暴露插件实例类加载器或业务宿主")
+    void desktopUiContextHasRendererOnlySurface() {
+        List<String> surfaceTypes = new ArrayList<>();
+        Arrays.stream(DesktopUiContext.class.getDeclaredFields())
+                .map(field -> field.getGenericType().getTypeName()).forEach(surfaceTypes::add);
+        Arrays.stream(DesktopUiContext.class.getDeclaredConstructors())
+                .flatMap(constructor -> Arrays.stream(constructor.getGenericParameterTypes()))
+                .map(type -> type.getTypeName()).forEach(surfaceTypes::add);
+        Arrays.stream(DesktopUiContext.class.getDeclaredMethods()).forEach(method -> {
+            surfaceTypes.add(method.getGenericReturnType().getTypeName());
+            Arrays.stream(method.getGenericParameterTypes())
+                    .map(type -> type.getTypeName()).forEach(surfaceTypes::add);
+        });
+
+        assertThat(surfaceTypes).allSatisfy(type -> assertThat(type)
+                .doesNotContain("DesktopUiHost", "PixivFeaturePlugin", "PluginSource", "ClassLoader"));
     }
 
     @Test

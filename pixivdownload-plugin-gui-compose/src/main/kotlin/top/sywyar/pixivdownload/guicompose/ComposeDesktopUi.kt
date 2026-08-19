@@ -171,11 +171,11 @@ internal object ComposeDesktopUi {
                     Window(
                         onCloseRequest = {
                             if (trayAvailable) visible.value = false
-                            else context.host().requestApplicationExit()
+                            else context.requestApplicationExit()
                         },
                         state = mainWindowState,
                         visible = visible.value,
-                        title = context.host().applicationName(),
+                        title = context.applicationName(),
                     ) {
                         val composeWindow = window
                         val shortcutDispatcher = remember(context) { ComposeShortcutDispatcher(context) }
@@ -483,7 +483,7 @@ private fun ComposeDesktopRoot(
         val selectedIndex = document.pages().indexOfFirst { it.id() == activePage }.coerceAtLeast(0)
         Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             NavigationPanel(
-                applicationName = context.host().applicationName(),
+                applicationName = context.applicationName(),
                 document = document,
                 selected = activePage,
                 compact = compact,

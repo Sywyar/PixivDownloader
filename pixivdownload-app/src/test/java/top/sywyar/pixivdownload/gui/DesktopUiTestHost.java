@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
-import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
@@ -23,8 +22,7 @@ public final class DesktopUiTestHost {
     }
 
     public static synchronized void install(Path configPath) {
-        SwingHost.install(new DesktopUiContext(
-                1, ".", configPath, false, List.of(), List::of,
+        SwingHost.install(new DesktopUiContext(false, "Test",
                 new DesktopUiModel() {
                     @Override public DesktopUiDocument document() {
                         return new DesktopUiDocument(List.of(new DesktopUiDocument.Page(
@@ -34,7 +32,6 @@ public final class DesktopUiTestHost {
                     }
                     @Override public long revision() { return 0; }
                     @Override public void dispatch(DesktopUiNode.Event event) { }
-                },
-                new AppDesktopUiHost(1, new TestDesktopConfigFile(configPath))));
+                }, token -> token.fallback(), () -> { }, () -> "system"));
     }
 }

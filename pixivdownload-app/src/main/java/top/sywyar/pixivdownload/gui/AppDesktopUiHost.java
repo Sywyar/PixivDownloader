@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;

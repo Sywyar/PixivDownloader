@@ -3,8 +3,6 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
@@ -115,7 +113,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private final String rootFolder;
     private final Path configPath;
     private final DesktopUiHost host;
-    private final Supplier<List<DesktopUiContext.PluginSource>> pluginSources;
+    private final Supplier<List<DesktopUiPluginSource>> pluginSources;
     private final Optional<DesktopUiNode.ImageData> applicationIcon;
     private final String licenseText;
     private final ExecutorService worker = Executors.newCachedThreadPool(runnable -> {
@@ -205,13 +203,13 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile String exclusiveToolName = "";
     private volatile long exclusiveToolStartedAt;
     private volatile AutoCloseable backendSubscription;
-    private volatile List<DesktopUiContext.PluginSource> rebuildSources;
-    private volatile List<DesktopUiContext.PluginSource> documentSources = List.of();
+    private volatile List<DesktopUiPluginSource> rebuildSources;
+    private volatile List<DesktopUiPluginSource> documentSources = List.of();
     private volatile Locale documentLocale;
     private volatile boolean closed;
 
     AppDesktopUiModel(int serverPort, String rootFolder, Path configPath, DesktopUiHost host,
-                      Supplier<List<DesktopUiContext.PluginSource>> pluginSources) {
+                      Supplier<List<DesktopUiPluginSource>> pluginSources) {
         this.serverPort = serverPort;
         this.rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
         this.configPath = Objects.requireNonNull(configPath, "configPath");
@@ -318,7 +316,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private synchronized void rebuild() {
         if (closed) return;
-        List<DesktopUiContext.PluginSource> previousSources = rebuildSources;
+        List<DesktopUiPluginSource> previousSources = rebuildSources;
         rebuildSources = loadCurrentSources();
         boolean sourcesChanged = !rebuildSources.equals(documentSources);
         Locale currentLocale = Locale.getDefault();
@@ -1011,7 +1009,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private Optional<PluginOnboardingStep> onboardingPluginStep() {
         Map<String, GuiOnboardingStepContribution> unique = new LinkedHashMap<>();
         Set<String> duplicates = new LinkedHashSet<>();
-        for (DesktopUiContext.PluginSource source : currentSources()) {
+        for (DesktopUiPluginSource source : currentSources()) {
             try {
                 List<GuiOnboardingStepContribution> steps = source.plugin().guiOnboardingSteps();
                 if (steps == null) continue;
@@ -2309,8 +2307,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 safeId(locale.tag()), TextToken.raw(locale.nativeName()), true)));
 
         List<DesktopUiNode.Option> providers = new ArrayList<>();
-        for (DesktopUiContext.PluginSource source : currentSources().stream()
-                .sorted(Comparator.comparing(DesktopUiContext.PluginSource::id)).toList()) {
+        for (DesktopUiPluginSource source : currentSources().stream()
+                .sorted(Comparator.comparing(DesktopUiPluginSource::id)).toList()) {
             try {
                 if (source.plugin() instanceof DesktopUiProvider && validId(source.id())) {
                     providers.add(new DesktopUiNode.Option(source.id(), pluginToken(source,
@@ -2323,7 +2321,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
         Locale locale = Locale.getDefault();
         Map<String, String> themeNames = new LinkedHashMap<>();
-        for (DesktopUiContext.PluginSource source : currentSources()) {
+        for (DesktopUiPluginSource source : currentSources()) {
             try {
                 source.plugin().guiThemes().stream().filter(Objects::nonNull)
                         .filter(theme -> validId(theme.themeId()))
@@ -2603,7 +2601,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private List<NavigationContribution> webEntries(String placement) {
         List<NavigationContribution> entries = new ArrayList<>();
-        for (DesktopUiContext.PluginSource source : currentSources()) {
+        for (DesktopUiPluginSource source : currentSources()) {
             try {
                 for (NavigationContribution contribution : source.plugin().navigation()) {
                     if (contribution != null
@@ -3854,7 +3852,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         if (!"follow-system".equals(language) && host.matchLocale(language).isEmpty()) language = "follow-system";
         Set<String> availableProviders = currentSources().stream()
                 .filter(source -> source.plugin() instanceof DesktopUiProvider)
-                .map(DesktopUiContext.PluginSource::id).collect(java.util.stream.Collectors.toSet());
+                .map(DesktopUiPluginSource::id).collect(java.util.stream.Collectors.toSet());
         String provider = form("interface.provider", selected("app.gui-provider", "gui-swing"));
         if (!availableProviders.contains(provider)) provider = "gui-swing";
         Set<String> availableThemes = currentSources().stream().flatMap(source -> {
@@ -4537,7 +4535,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         }
         Set<FieldKey> accepted = new LinkedHashSet<>(fields.stream().map(ConfigField::key).toList());
         List<PluginConfig> plugins = new ArrayList<>();
-        for (DesktopUiContext.PluginSource source : currentSources()) {
+        for (DesktopUiPluginSource source : currentSources()) {
             List<GuiConfigContribution> contributions;
             try {
                 contributions = source.plugin().guiConfigContributions();
@@ -5058,7 +5056,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         return value == null || validId(value);
     }
 
-    private static String pluginNamespace(DesktopUiContext.PluginSource source) {
+    private static String pluginNamespace(DesktopUiPluginSource source) {
         try {
             String namespace = source.plugin().displayNamespace();
             return namespace == null || namespace.isBlank() ? source.id() : namespace;
@@ -5067,7 +5065,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         }
     }
 
-    private static String pluginDisplayNameKey(DesktopUiContext.PluginSource source) {
+    private static String pluginDisplayNameKey(DesktopUiPluginSource source) {
         try {
             String key = source.plugin().displayName();
             return key == null || key.isBlank() ? source.id() : key;
@@ -5326,21 +5324,21 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 && group.labelKey() != null && !group.labelKey().isBlank();
     }
 
-    private List<DesktopUiContext.PluginSource> currentSources() {
-        List<DesktopUiContext.PluginSource> sources = rebuildSources;
+    private List<DesktopUiPluginSource> currentSources() {
+        List<DesktopUiPluginSource> sources = rebuildSources;
         return sources == null ? loadCurrentSources() : sources;
     }
 
-    private List<DesktopUiContext.PluginSource> loadCurrentSources() {
+    private List<DesktopUiPluginSource> loadCurrentSources() {
         try {
-            List<DesktopUiContext.PluginSource> sources = pluginSources.get();
+            List<DesktopUiPluginSource> sources = pluginSources.get();
             return sources == null ? List.of() : List.copyOf(sources);
         } catch (RuntimeException ignored) {
             return List.of();
         }
     }
 
-    private TextToken pluginToken(DesktopUiContext.PluginSource source, String key, String fallback) {
+    private TextToken pluginToken(DesktopUiPluginSource source, String key, String fallback) {
         return token(source.plugin().displayNamespace(), key, fallback);
     }
 

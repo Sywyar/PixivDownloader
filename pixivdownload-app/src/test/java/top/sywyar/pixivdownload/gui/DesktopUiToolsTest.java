@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.guiswing;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import java.util.Objects;
 
@@ -29,7 +28,4 @@ public final class SwingHost {
         return value;
     }
 
-    public static DesktopUiHost host() {
-        return context().host();
-    }
 }

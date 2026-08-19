@@ -12,9 +12,12 @@ import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.i18n.LocaleCatalog;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
+import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -41,6 +44,7 @@ import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -258,8 +262,9 @@ public class GuiLauncher {
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
         // 首窗前 startup-only 消费者先取出需要的固定快照；GUI 动态贡献在面板 / 菜单重建时从运行期 manager 重新发现，
         // 以便按当前 GUI locale 重新解析插件 i18n，同时不长期持有启动 discovery。
-        final List<DesktopUiContext.PluginSource> startupPluginSources = buildDesktopUiPluginSources(
-                pluginRegistry(pluginSession, pluginSession.startupDiscovery()));
+        final PluginRegistry startupPluginRegistry = pluginRegistry(pluginSession, pluginSession.startupDiscovery());
+        final List<DesktopUiPluginSource> startupPluginSources = buildDesktopUiPluginSources(startupPluginRegistry);
+        final WebI18nBundleRegistry startupDesktopBundles = new WebI18nBundleRegistry(startupPluginRegistry);
         final ManagedDatabaseSchema.DatabaseSchema startupManagedSchema =
                 buildStartupManagedSchema(pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
 
@@ -278,31 +283,34 @@ public class GuiLauncher {
         try {
             DesktopUiSelector.Selection selection = DesktopUiSelector.select(
                     readConfigScalar(configPath, "app.gui-provider"),
-                    startupPluginSources.stream().map(DesktopUiContext.PluginSource::plugin)
+                    startupPluginSources.stream().map(DesktopUiPluginSource::plugin)
                             .filter(DesktopUiProvider.class::isInstance)
                             .map(DesktopUiProvider.class::cast)
                             .toList());
             AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
             desktopUiHost.resetIncompleteOnboardingState(root);
-            Supplier<List<DesktopUiContext.PluginSource>> currentDesktopSources = memoizedDesktopUiSources(
+            Supplier<List<DesktopUiPluginSource>> currentDesktopSources = memoizedDesktopUiSources(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
                     discovery -> buildDesktopUiPluginSources(pluginRegistry(pluginSession, discovery)),
                     pluginSession.startupDiscovery(), startupPluginSources);
+            Supplier<WebI18nBundleRegistry> currentDesktopBundles = memoizedDesktopUiBundles(
+                    () -> pluginSession.manager().discoverFeaturePlugins(),
+                    discovery -> new WebI18nBundleRegistry(pluginRegistry(pluginSession, discovery)),
+                    pluginSession.startupDiscovery(), startupDesktopBundles);
             AppDesktopUiModel desktopUiModel = new AppDesktopUiModel(
                     port, root, configPath, desktopUiHost, currentDesktopSources);
             ACTIVE_UI_MODEL.set(desktopUiModel);
-            Set<top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Kind> missingKinds =
+            Set<DesktopUiNode.Kind> missingKinds =
                     new java.util.LinkedHashSet<>(desktopUiModel.document().requiredNodeKinds());
             missingKinds.removeAll(selection.provider().supportedNodeKinds());
             if (!missingKinds.isEmpty()) {
                 throw new IllegalStateException("Desktop UI provider '" + selection.provider().id()
                         + "' cannot render required node kinds: " + missingKinds);
             }
-            DesktopUiContext context = new DesktopUiContext(port, root, configPath, startupLaunch,
-                    startupPluginSources,
-                    currentDesktopSources,
-                    desktopUiModel,
-                    desktopUiHost);
+            DesktopUiContext context = new DesktopUiContext(startupLaunch, desktopUiHost.applicationName(),
+                    desktopUiModel, token -> resolveDesktopText(token, currentDesktopBundles),
+                    desktopUiHost::requestApplicationExit,
+                    () -> readConfigScalar(configPath, "app.theme"));
             DesktopUiSession ui = selection.provider().launch(context);
             ACTIVE_UI.set(ui);
             singleInstanceManager.setActivationHandler(ui::activate);
@@ -842,25 +850,25 @@ public class GuiLauncher {
                 discovery);
     }
 
-    static List<DesktopUiContext.PluginSource> buildDesktopUiPluginSources(PluginRegistry registry) {
+    static List<DesktopUiPluginSource> buildDesktopUiPluginSources(PluginRegistry registry) {
         return registry.registeredPlugins().stream()
-                .map(registered -> new DesktopUiContext.PluginSource(
+                .map(registered -> new DesktopUiPluginSource(
                         registered.id(), registered.source() == PluginSource.BUILT_IN,
                         registered.plugin(), registered.classLoader()))
                 .toList();
     }
 
-    static Supplier<List<DesktopUiContext.PluginSource>> memoizedDesktopUiSources(
+    static Supplier<List<DesktopUiPluginSource>> memoizedDesktopUiSources(
             Supplier<PluginDiscoveryResult> discoveries,
-            Function<PluginDiscoveryResult, List<DesktopUiContext.PluginSource>> sourceFactory,
+            Function<PluginDiscoveryResult, List<DesktopUiPluginSource>> sourceFactory,
             PluginDiscoveryResult initialDiscovery,
-            List<DesktopUiContext.PluginSource> initialSources) {
+            List<DesktopUiPluginSource> initialSources) {
         return new Supplier<>() {
             private PluginDiscoveryResult discovery = initialDiscovery;
-            private List<DesktopUiContext.PluginSource> sources = List.copyOf(initialSources);
+            private List<DesktopUiPluginSource> sources = List.copyOf(initialSources);
 
             @Override
-            public synchronized List<DesktopUiContext.PluginSource> get() {
+            public synchronized List<DesktopUiPluginSource> get() {
                 PluginDiscoveryResult current = discoveries.get();
                 if (!current.equals(discovery)) {
                     discovery = current;
@@ -869,6 +877,44 @@ public class GuiLauncher {
                 return sources;
             }
         };
+    }
+
+    static Supplier<WebI18nBundleRegistry> memoizedDesktopUiBundles(
+            Supplier<PluginDiscoveryResult> discoveries,
+            Function<PluginDiscoveryResult, WebI18nBundleRegistry> bundleFactory,
+            PluginDiscoveryResult initialDiscovery,
+            WebI18nBundleRegistry initialBundles) {
+        return new Supplier<>() {
+            private PluginDiscoveryResult discovery = initialDiscovery;
+            private WebI18nBundleRegistry bundles = initialBundles;
+
+            @Override
+            public synchronized WebI18nBundleRegistry get() {
+                PluginDiscoveryResult current = discoveries.get();
+                if (!current.equals(discovery)) {
+                    discovery = current;
+                    bundles = bundleFactory.apply(current);
+                }
+                return bundles;
+            }
+        };
+    }
+
+    static String resolveDesktopText(DesktopUiNode.TextToken token,
+                                     Supplier<WebI18nBundleRegistry> bundles) {
+        java.util.Locale locale = java.util.Locale.getDefault();
+        Object[] arguments = token.arguments().toArray();
+        if (token.key().isBlank()) {
+            return new MessageFormat(token.fallback(), LocaleCatalog.defaultCatalog().resolve(locale).toLocale())
+                    .format(arguments);
+        }
+        if (token.namespace() == null) {
+            return MessageBundles.getOrDefault(locale, token.key(), token.fallback(), arguments);
+        }
+        String pattern = bundles.get().resolve(token.namespace(), locale, token.key())
+                .orElseGet(() -> token.fallback().isBlank() ? token.key() : token.fallback());
+        return new MessageFormat(pattern, LocaleCatalog.defaultCatalog().resolve(locale).toLocale())
+                .format(arguments);
     }
     static ManagedDatabaseSchema.DatabaseSchema buildStartupManagedSchema(PluginEnabledSnapshot enabledSnapshot,
                                                                           PluginDiscoveryResult discovery) {

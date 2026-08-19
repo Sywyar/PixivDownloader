@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.gui;
 
-import top.sywyar.pixivdownload.gui.i18n.PluginContributionText;
 import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
@@ -31,11 +30,9 @@ import java.awt.Toolkit;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.event.KeyEvent;
-import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
@@ -52,15 +49,13 @@ public final class MainFrame extends JFrame {
     private JTabbedPane tabs;
     private Map<String, Integer> pageIndexes = Map.of();
     private Map<String, DesktopUiDocument.Page> pageDescriptors = Map.of();
-    private List<DesktopUiContext.PluginSource> renderedPluginSources = List.of();
-    private Locale renderedLocale;
     private final Map<String, JDialog> dialogs = new LinkedHashMap<>();
     private Map<String, DesktopUiDocument.Dialog> dialogDescriptors = Map.of();
     private long renderedRevision = Long.MIN_VALUE;
     private volatile boolean closeToTray;
 
     public MainFrame(DesktopUiContext context) {
-        super(context.host().applicationName());
+        super(context.applicationName());
         this.context = Objects.requireNonNull(context, "context");
         setSize(DEFAULT_SIZE);
         setMinimumSize(MINIMUM_SIZE);
@@ -69,7 +64,7 @@ public final class MainFrame extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent event) {
                 if (closeToTray) setVisible(false);
-                else context.host().requestApplicationExit();
+                else context.requestApplicationExit();
             }
         });
         Image icon = loadAppIcon();
@@ -88,12 +83,8 @@ public final class MainFrame extends JFrame {
         Map<String, ComponentState> state = captureState(tabs);
         long targetRevision = context.currentDocumentRevision();
         DesktopUiDocument document = context.currentDocument();
-        List<DesktopUiContext.PluginSource> pluginSources = context.currentPluginSources();
-        Locale locale = Locale.getDefault();
-        boolean forceTextRefresh = !pluginSources.equals(renderedPluginSources)
-                || !locale.equals(renderedLocale);
-        Function<DesktopUiNode.TextToken, String> textResolver =
-                token -> resolve(token, pluginSources);
+        boolean forceRender = targetRevision != renderedRevision;
+        Function<DesktopUiNode.TextToken, String> textResolver = context::resolveText;
         SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
                 textResolver, event -> context.dispatchEvent(targetRevision, event));
         Map<String, Integer> nextIndexes = new LinkedHashMap<>();
@@ -118,7 +109,7 @@ public final class MainFrame extends JFrame {
             for (int index = 0; index < document.pages().size(); index++) {
                 DesktopUiDocument.Page page = document.pages().get(index);
                 tabs.setTitleAt(index, textResolver.apply(page.title()));
-                if (forceTextRefresh || !page.equals(pageDescriptors.get(page.id()))) {
+                if (forceRender || !page.equals(pageDescriptors.get(page.id()))) {
                     JComponent replacement = renderer.render(page.content());
                     tabs.setComponentAt(index, replacement);
                     renderer.withoutEvents(() -> restoreState(replacement, state));
@@ -127,13 +118,11 @@ public final class MainFrame extends JFrame {
         }
         pageIndexes = Map.copyOf(nextIndexes);
         pageDescriptors = Map.copyOf(nextDescriptors);
-        renderedPluginSources = List.copyOf(pluginSources);
-        renderedLocale = locale;
-        setTitle(context.host().applicationName());
+        setTitle(context.applicationName());
         if (selected != null && pageIndexes.containsKey(selected)) tabs.setSelectedIndex(pageIndexes.get(selected));
-        syncDialogs(document, renderer, textResolver, forceTextRefresh);
+        syncDialogs(document, renderer, textResolver, forceRender);
         renderedRevision = targetRevision;
-        String persistedTheme = GuiThemeManager.readPersistedThemeId(context.host().applicationConfig());
+        String persistedTheme = context.themePreference();
         if (!persistedTheme.equals(GuiThemeManager.configuredThemeId())) GuiThemeManager.applyThemeId(persistedTheme);
         SystemTrayManager.refreshLocale();
         revalidate();
@@ -187,10 +176,9 @@ public final class MainFrame extends JFrame {
         dialog.addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent event) {
                 DesktopUiDocument.Dialog descriptor = dialogDescriptors.get(id);
-                if (descriptor != null && descriptor.dismissible()) context.dispatchEvent(
-                        renderedRevision, new DesktopUiNode.Event(
-                        DesktopUiNode.EventType.ACTIVATE, id,
-                        DesktopUiNode.Value.empty()));
+                if (descriptor != null && descriptor.dismissible()) context.dispatchEvent(renderedRevision,
+                        new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE, id,
+                                DesktopUiNode.Value.empty()));
             }
         });
         return dialog;
@@ -248,38 +236,7 @@ public final class MainFrame extends JFrame {
     }
 
     String resolveText(DesktopUiNode.TextToken token) {
-        return resolve(token, context.currentPluginSources());
-    }
-
-    private String resolve(DesktopUiNode.TextToken token, List<DesktopUiContext.PluginSource> pluginSources) {
-        String pattern;
-        if (token.key().isBlank()) return token.fallback();
-        if (token.namespace() == null) {
-            pattern = context.host().message(token.key());
-        } else {
-            pattern = resolvePluginToken(token, pluginSources);
-        }
-        if (token.arguments().isEmpty()) return pattern;
-        return new MessageFormat(pattern, context.host().resolveLocale(java.util.Locale.getDefault())
-                .target().toLocale()).format(token.arguments().toArray());
-    }
-
-    private String resolvePluginToken(DesktopUiNode.TextToken token,
-                                      List<DesktopUiContext.PluginSource> pluginSources) {
-        String fallback = token.fallback().isBlank() ? token.key() : token.fallback();
-        for (DesktopUiContext.PluginSource source : pluginSources) {
-            try {
-                var contributions = source.plugin().i18n();
-                if (contributions == null || contributions.stream().noneMatch(
-                        i18n -> i18n != null && token.namespace().equals(i18n.namespace()))) continue;
-                String resolved = PluginContributionText.resolve(
-                        contributions, source.classLoader(), token.namespace(), token.key());
-                return resolved.equals(token.key()) ? fallback : resolved;
-            } catch (RuntimeException ignored) {
-                // An optional plugin cannot break the complete host document.
-            }
-        }
-        return fallback;
+        return context.resolveText(token);
     }
 
     private String selectedPage() {
