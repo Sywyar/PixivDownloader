@@ -735,7 +735,9 @@ object ComposeDesktopUiNodeRenderer {
                 selected.clear(); selected.add(id)
             } else if (!selected.remove(id)) selected.add(id)
             val value = if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE)
-                DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(selected.toList())
+                DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(
+                    selectedIdsInDocumentOrder(node.options().map { it.id() }, selected),
+                )
             emit(selection(node.id(), node.bindingId(), value))
         }
         val content: @Composable () -> Unit = {
@@ -905,7 +907,9 @@ object ComposeDesktopUiNodeRenderer {
             if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE) { selected.clear(); selected.add(id) }
             else if (!selected.remove(id)) selected.add(id)
             val value = if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE)
-                DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(selected.toList())
+                DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(
+                    selectedIdsInDocumentOrder(node.rows().map { it.id() }, selected),
+                )
             emit(selection(node.id(), node.bindingId(), value))
         }
         androidx.compose.material3.Surface(
@@ -964,7 +968,9 @@ object ComposeDesktopUiNodeRenderer {
             if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE) { selected.clear(); selected.add(id) }
             else if (!selected.remove(id)) selected.add(id)
             val value = if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE)
-                DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(selected.toList())
+                DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(
+                    selectedIdsInDocumentOrder(treeItemIds(node.items()), selected),
+                )
             emit(selection(node.id(), node.bindingId(), value))
         }
         Column(
@@ -997,6 +1003,21 @@ object ComposeDesktopUiNodeRenderer {
             fontWeight = if (selected.contains(item.id())) FontWeight.SemiBold else FontWeight.Normal,
         )
         item.children().forEach { TreeItem(it, depth + 1, selected, enabled, text, choose) }
+    }
+
+    internal fun selectedIdsInDocumentOrder(
+        availableIds: List<String>,
+        selectedIds: Collection<String>,
+    ): List<String> = availableIds.filter(selectedIds::contains)
+
+    internal fun treeItemIds(items: List<DesktopUiNode.TreeItem>): List<String> {
+        val ids = mutableListOf<String>()
+        fun visit(item: DesktopUiNode.TreeItem) {
+            ids += item.id()
+            item.children().forEach(::visit)
+        }
+        items.forEach(::visit)
+        return ids
     }
 
     @Composable
