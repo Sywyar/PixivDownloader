@@ -69,7 +69,11 @@ import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -190,6 +194,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile String pathPrefixAppRoot = "";
     private volatile List<PathPrefixRow> pathPrefixes = List.of();
     private volatile List<PluginStatusRow> pluginStatuses = List.of();
+    private volatile String pluginsObservedAt = "";
     private volatile List<DesktopUiNode.TableRow> folderRows = List.of();
     private volatile Map<String, DesktopUiHost.FolderArtwork> folderArtworks = Map.of();
     private volatile List<Path> classifierFolders = List.of();
@@ -437,10 +442,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                           Map<String, Consumer<List<String>>> nextSelections,
                                           Map<String, Runnable> nextActions) {
         pages.add(page("home", homePage(nextActions)));
-        pages.add(page("automation", column("automation.placeholder",
-                text("automation.placeholder.title", "desktop.ui.automation.title", TextStyle.HEADING),
-                text("automation.placeholder.empty", "desktop.ui.automation.empty", TextStyle.CAPTION))));
-        pages.add(page("plugins", pluginsPage(nextActions)));
+        pages.add(page("automation", automationPage()));
+        pages.add(page("plugins", controlCenterPluginsPage()));
         pages.add(page("tools", toolsPage(nextActions)));
         pages.add(page("security", securityPage(nextActions)));
         pages.add(page("settings", configPage(nextBindings, nextSelections, nextActions),
@@ -529,6 +532,124 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 card.path("availability").asText("UNAVAILABLE"));
         return dashboardCard(base, guiToken(card.path("title")), guiToken(card.path("primaryValue")),
                 guiToken(card.path("supportingText")), icon, tone, availability);
+    }
+
+    private DesktopUiNode automationPage() {
+        List<DesktopUiNode> sources = new ArrayList<>();
+        List<DesktopUiNode> tasks = new ArrayList<>();
+        List<AutomationRun> runs = new ArrayList<>();
+        for (DesktopUiHost.GuiValue owned : controlCenterSnapshot.path("automations")) {
+            String owner = safeId(owned.path("owner").path("pluginId").asText("unknown"));
+            DesktopUiHost.GuiValue automation = owned.path("snapshot");
+            DesktopControlCenterAvailability availability = availability(
+                    automation.path("availability").asText("UNAVAILABLE"));
+            sources.add(dashboardCard("automation.source." + owner,
+                    appToken("desktop.ui.automation.source.title", owner),
+                    key("desktop.ui.automation.availability."
+                            + availability.name().toLowerCase(Locale.ROOT)),
+                    appToken("desktop.ui.automation.observed-at",
+                            formatTimestamp(automation.path("observedAt").asText(""))),
+                    DesktopUiIcon.AUTOMATION, availability == DesktopControlCenterAvailability.AVAILABLE
+                            ? DesktopUiTone.SUCCESS : DesktopUiTone.WARNING, availability));
+            for (DesktopUiHost.GuiValue task : automation.path("tasks")) {
+                String taskId = safeId(task.path("taskId").asText("unknown"));
+                tasks.add(automationTask(owner, taskId, task));
+                for (DesktopUiHost.GuiValue nextRun : task.path("nextRuns")) {
+                    parseInstant(nextRun.asText("")).ifPresent(at ->
+                            runs.add(new AutomationRun(at, owner, taskId, task)));
+                }
+            }
+        }
+        runs.sort(Comparator.comparing(AutomationRun::at)
+                .thenComparing(AutomationRun::owner).thenComparing(AutomationRun::taskId));
+
+        List<DesktopUiNode> timeline = new ArrayList<>();
+        for (AutomationRun run : runs) {
+            String base = "automation.timeline." + run.owner() + "." + run.taskId()
+                    + "." + run.at().toEpochMilli();
+            timeline.add(new DesktopUiNode.Surface(base, DesktopUiNode.SurfaceStyle.CARD,
+                    new DesktopUiNode.Insets(10, 12, 10, 12), true,
+                    column(base + ".content",
+                            raw(base + ".time", formatTimestamp(run.at()), TextStyle.EMPHASIS),
+                            new DesktopUiNode.Text(base + ".title", guiToken(run.task().path("title")),
+                                    TextStyle.BODY, true, false),
+                            new DesktopUiNode.Text(base + ".trigger",
+                                    guiToken(run.task().path("triggerSummary")),
+                                    TextStyle.CAPTION, true, false))));
+        }
+
+        return scroll("automation.scroll", column("automation.content",
+                text("automation.title", "desktop.ui.automation.title", TextStyle.TITLE),
+                text("automation.intro", "desktop.ui.automation.intro", TextStyle.CAPTION),
+                group("automation.sources", "desktop.ui.automation.scheduler.title",
+                        sources.isEmpty()
+                                ? text("automation.sources.empty", "desktop.ui.automation.empty", TextStyle.CAPTION)
+                                : new DesktopUiNode.AdaptiveGrid(
+                                        "automation.sources.grid", 240, 2, 12, 12, sources)),
+                group("automation.timeline", "desktop.ui.automation.timeline.title",
+                        timeline.isEmpty()
+                                ? text("automation.timeline.empty",
+                                        "desktop.ui.automation.timeline.empty", TextStyle.CAPTION)
+                                : column("automation.timeline.list", timeline)),
+                group("automation.tasks", "desktop.ui.automation.tasks.title",
+                        tasks.isEmpty()
+                                ? text("automation.tasks.empty", "desktop.ui.automation.empty", TextStyle.CAPTION)
+                                : column("automation.tasks.list", tasks))));
+    }
+
+    private DesktopUiNode automationTask(String owner, String taskId, DesktopUiHost.GuiValue task) {
+        String base = "automation.task." + owner + "." + taskId;
+        String status = task.path("status").asText("UNKNOWN").toLowerCase(Locale.ROOT);
+        String result = task.path("lastResult").asText("UNKNOWN").toLowerCase(Locale.ROOT);
+        Optional<Instant> nextRun = values(task.path("nextRuns")).stream()
+                .map(DesktopUiHost.GuiValue::asText).map(AppDesktopUiModel::parseInstant)
+                .flatMap(Optional::stream).min(Comparator.naturalOrder());
+        return new DesktopUiNode.Surface(base, DesktopUiNode.SurfaceStyle.CARD,
+                new DesktopUiNode.Insets(12, 14, 12, 14), true,
+                column(base + ".content",
+                        new DesktopUiNode.Text(base + ".title", guiToken(task.path("title")),
+                                TextStyle.HEADING, true, false),
+                        new DesktopUiNode.Text(base + ".trigger", guiToken(task.path("triggerSummary")),
+                                TextStyle.CAPTION, true, false),
+                        text(base + ".status", "desktop.ui.automation.status." + status,
+                                automationStatusStyle(status)),
+                        text(base + ".last-result", "desktop.ui.automation.last-result." + result,
+                                "error".equals(result) ? TextStyle.ERROR : TextStyle.CAPTION),
+                        new DesktopUiNode.Text(base + ".next-run",
+                                nextRun.<TextToken>map(at -> appToken(
+                                                "desktop.ui.automation.next-run", formatTimestamp(at)))
+                                        .orElseGet(() -> key("desktop.ui.automation.next-run.none")),
+                                TextStyle.CAPTION, true, false),
+                        new DesktopUiNode.Text(base + ".observed-at",
+                                appToken("desktop.ui.automation.observed-at",
+                                        formatTimestamp(task.path("observedAt").asText(""))),
+                                TextStyle.CAPTION, true, false)));
+    }
+
+    private static TextStyle automationStatusStyle(String status) {
+        return switch (status) {
+            case "running" -> TextStyle.SUCCESS;
+            case "suspended", "cancel_requested" -> TextStyle.WARNING;
+            case "disabled" -> TextStyle.CAPTION;
+            default -> TextStyle.BODY;
+        };
+    }
+
+    private static Optional<Instant> parseInstant(String value) {
+        try {
+            return value == null || value.isBlank() ? Optional.empty() : Optional.of(Instant.parse(value));
+        } catch (RuntimeException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static String formatTimestamp(String value) {
+        return parseInstant(value).map(AppDesktopUiModel::formatTimestamp).orElse("—");
+    }
+
+    private static String formatTimestamp(Instant value) {
+        return DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
+                .withLocale(Locale.getDefault()).withZone(ZoneId.systemDefault()).format(value);
     }
 
     private DesktopUiNode dashboardCard(String base, TextToken title, TextToken primary,
@@ -2477,6 +2598,28 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 actions, null, null);
     }
 
+    private DesktopUiNode controlCenterPluginsPage() {
+        List<DesktopUiNode> content = new ArrayList<>();
+        content.add(text("plugins.title", "gui.plugins.title", TextStyle.TITLE));
+        content.add(text("plugins.intro", "desktop.ui.plugins.intro", TextStyle.CAPTION));
+        if (!pluginsObservedAt.isBlank()) {
+            content.add(new DesktopUiNode.Text("plugins.observed-at",
+                    appToken("desktop.ui.plugins.observed-at", formatTimestamp(pluginsObservedAt)),
+                    TextStyle.CAPTION, true, false));
+        }
+        if (recoveryMode) {
+            content.add(new DesktopUiNode.Surface("plugins.recovery", DesktopUiNode.SurfaceStyle.WARNING,
+                    new DesktopUiNode.Insets(8, 12, 8, 12), true,
+                    text("plugins.recovery.text", "gui.plugins.recovery", TextStyle.WARNING)));
+        }
+        if (!pluginsNotice.isBlank()) content.add(status("plugins.notice", pluginsNotice));
+        if (pluginStatuses.isEmpty() && pluginsNotice.isBlank()) {
+            content.add(text("plugins.empty", "gui.plugins.state.empty", TextStyle.CAPTION));
+        }
+        for (PluginStatusRow plugin : pluginStatuses) content.add(pluginCard(plugin));
+        return scroll("plugins.scroll", column("plugins.read-only", content));
+    }
+
     private DesktopUiNode pluginCard(PluginStatusRow plugin) {
         TextStyle statusStyle = switch (nullToEmpty(plugin.statusCode())) {
             case "STARTED" -> TextStyle.SUCCESS;
@@ -2514,6 +2657,13 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         }
         if (!nullToEmpty(plugin.verificationStatus()).isBlank()) {
             parts.add(localizedCode("gui.plugins.verification.", plugin.verificationStatus()));
+        }
+        if (!nullToEmpty(plugin.verificationDiagnosticCode()).isBlank()) {
+            parts.add(host.message("desktop.ui.plugins.diagnostic", plugin.verificationDiagnosticCode()));
+        }
+        if (!nullToEmpty(plugin.lastVerifiedAt()).isBlank()) {
+            parts.add(host.message("desktop.ui.plugins.last-verified-at",
+                    formatTimestamp(plugin.lastVerifiedAt())));
         }
         return String.join("  ·  ", parts);
     }
@@ -3245,6 +3395,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 while (!Thread.currentThread().isInterrupted()) {
                     java.util.concurrent.TimeUnit.SECONDS.sleep(3L);
                     refreshStatusSnapshot();
+                    if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+                        loadPluginStatus();
+                    }
                     if (backend.state() == DesktopUiHost.BackendState.RUNNING
                             && System.currentTimeMillis() - lastConnectivityCheckAt >= 60_000L) {
                         checkConnectivity();
@@ -3985,15 +4138,18 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         if (!response.reachable()) {
             pluginsNotice = host.message("gui.plugins.state.offline");
             pluginStatuses = List.of();
+            pluginsObservedAt = "";
             return;
         }
         if (!response.is2xx() || response.body() == null) {
             pluginsNotice = response.status() == 403
                     ? host.message("gui.plugins.state.forbidden") : host.message("gui.plugins.state.error");
             pluginStatuses = List.of();
+            pluginsObservedAt = "";
             return;
         }
         recoveryMode = response.body().path("recoveryMode").asBoolean(false);
+        pluginsObservedAt = response.body().path("observedAt").asText("");
         List<PluginStatusRow> rows = new ArrayList<>();
         for (DesktopUiHost.GuiValue plugin : response.body().path("plugins")) {
             String id = plugin.path("id").asText("unknown");
@@ -4001,7 +4157,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     nullableText(plugin, "source"), nullableText(plugin, "status"),
                     nullableText(plugin, "runtimePhase"), plugin.path("managed").asBoolean(false),
                     plugin.path("required").asBoolean(false), nullableText(plugin, "version"),
-                    nullableText(plugin.path("verification"), "status")));
+                    nullableText(plugin.path("verification"), "status"),
+                    nullableText(plugin.path("verification"), "diagnosticCode"),
+                    nullableText(plugin.path("verification"), "lastVerifiedAt")));
         }
         pluginStatuses = List.copyOf(rows);
         pluginsNotice = rows.isEmpty() ? host.message("gui.plugins.state.empty") : "";
@@ -6557,7 +6715,11 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private record PluginStatusRow(String id, String name, String source, String statusCode,
                                    String phaseCode, boolean managed, boolean required, String version,
-                                   String verificationStatus) { }
+                                   String verificationStatus, String verificationDiagnosticCode,
+                                   String lastVerifiedAt) { }
+
+    private record AutomationRun(Instant at, String owner, String taskId,
+                                 DesktopUiHost.GuiValue task) { }
 
     private record QuickStartEntry(String owner, NavigationContribution navigation) { }
 

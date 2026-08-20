@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService.Plugin
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementReport;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -70,7 +71,8 @@ public class GuiPluginController {
         List<GuiPluginEntry> plugins = report.plugins().stream()
                 .map(entry -> toEntry(entry, resolver))
                 .toList();
-        return ResponseEntity.ok(new GuiPluginStatusResponse(report.recoveryMode(), plugins));
+        return ResponseEntity.ok(new GuiPluginStatusResponse(
+                report.recoveryMode(), Instant.now().toString(), plugins));
     }
 
     private static GuiPluginEntry toEntry(PluginManagementEntry entry, DisplayNameResolver resolver) {
@@ -125,9 +127,11 @@ public class GuiPluginController {
      * {@link PluginManagementReport} 的状态语义，仅把展示名称解析为文案、去掉 GUI 不需要的市场 / 描述符字段。
      *
      * @param recoveryMode 核心壳当前是否处于恢复模式（存在未满足的必选插件）
+     * @param observedAt   本次状态快照的观测时间
      * @param plugins      各插件状态条目
      */
-    public record GuiPluginStatusResponse(boolean recoveryMode, List<GuiPluginEntry> plugins) {
+    public record GuiPluginStatusResponse(boolean recoveryMode, String observedAt,
+                                          List<GuiPluginEntry> plugins) {
     }
 
     /**
