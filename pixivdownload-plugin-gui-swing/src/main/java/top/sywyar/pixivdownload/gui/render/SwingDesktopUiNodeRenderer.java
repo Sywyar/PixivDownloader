@@ -81,6 +81,8 @@ import java.util.function.Function;
 public final class SwingDesktopUiNodeRenderer {
     /** Client property used to preserve toolkit state across immutable document revisions. */
     public static final String NODE_ID_PROPERTY = "pixivdownload.desktopUi.nodeId";
+    /** 将密码短暂状态限制在宿主拥有的代际内。 */
+    public static final String PASSWORD_STATE_KEY_PROPERTY = "pixivdownload.desktopUi.passwordStateKey";
 
     private final Function<TextToken, String> textResolver;
     private final Consumer<Event> eventSink;
@@ -463,7 +465,10 @@ public final class SwingDesktopUiNodeRenderer {
             }
         }
         setEnabledRecursively(input, node.enabled());
-        tagInputControl(input, node.id() + "@" + node.stateRevision());
+        tagInputControl(input, node.id());
+        if (node.inputKind() == DesktopUiNode.InputKind.PASSWORD) {
+            input.putClientProperty(PASSWORD_STATE_KEY_PROPERTY, node.id() + "@" + node.stateRevision());
+        }
         GuiInputStyleNormalizer.apply(input);
         return includeLabel ? labeled(node.label(), node.help(), input) : input;
     }

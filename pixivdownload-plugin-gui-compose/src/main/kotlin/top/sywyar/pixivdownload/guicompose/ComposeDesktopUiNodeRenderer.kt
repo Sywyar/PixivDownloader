@@ -688,8 +688,9 @@ object ComposeDesktopUiNodeRenderer {
         includeLabel: Boolean = true,
     ) {
         val documentRevision = LocalDocumentRevision.current
-        var value by remember(node.id()) { mutableStateOf(node.value()) }
-        LaunchedEffect(documentRevision, node.stateRevision(), node.value()) { value = node.value() }
+        val password = node.inputKind() == DesktopUiNode.InputKind.PASSWORD
+        var value by remember(textInputStateKey(node)) { mutableStateOf(if (password) "" else node.value()) }
+        if (!password) LaunchedEffect(documentRevision, node.value()) { value = node.value() }
         fun update(next: String) {
             value = next
             emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.text(next)))
@@ -726,6 +727,9 @@ object ComposeDesktopUiNodeRenderer {
         if (includeLabel) Labeled(resolve(node.label(), text), help(node.help(), text), modifier, content)
         else Box(modifier) { content() }
     }
+
+    internal fun textInputStateKey(node: DesktopUiNode.TextInput): Pair<String, Long?> =
+        node.id() to node.stateRevision().takeIf { node.inputKind() == DesktopUiNode.InputKind.PASSWORD }
 
     @Composable
     private fun Toggle(
