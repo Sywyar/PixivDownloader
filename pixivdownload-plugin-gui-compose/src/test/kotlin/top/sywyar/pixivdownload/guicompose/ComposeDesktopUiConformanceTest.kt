@@ -9,6 +9,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isToggleable
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
@@ -41,17 +42,9 @@ class ComposeDesktopUiConformanceTest {
     private fun runScenario(scenario: Scenario) = runComposeUiTest {
         val node = node(scenario.id, 1)
         val model = TestModel(node)
-        val observed: DesktopUiSnapshot
-        val dispatch: (DesktopUiNode.Event) -> Unit
-        if (scenario.id == "tree-multiple") {
-            // Compose 树展开/折叠能力仍未声明；这里只驱动既有静态树渲染器验证多选事件。
-            observed = model.snapshot()
-            dispatch = { model.dispatch(stamp(observed, it)) }
-        } else {
-            val context = context(model)
-            observed = context.currentSnapshot()
-            dispatch = { context.dispatchEvent(observed, it) }
-        }
+        val context = context(model)
+        val observed = context.currentSnapshot()
+        val dispatch: (DesktopUiNode.Event) -> Unit = { context.dispatchEvent(observed, it) }
         setContent {
             MaterialTheme {
                 ComposeDesktopUiNodeRenderer.Render(
@@ -83,8 +76,14 @@ class ComposeDesktopUiConformanceTest {
             "choice-multiple" -> scenario.operations.forEach {
                 onAllNodes(isToggleable())[optionIndex(it)].performClick()
             }
-            "table-multiple", "tree-multiple" -> scenario.operations.forEach {
+            "table-multiple" -> scenario.operations.forEach {
                 onNodeWithText(label(it)).performClick()
+            }
+            "tree-multiple" -> {
+                assertEquals(0, onAllNodesWithText("Child").fetchSemanticsNodes().size)
+                onNodeWithText("▸").performClick()
+                assertEquals(1, onAllNodesWithText("Child").fetchSemanticsNodes().size)
+                scenario.operations.forEach { onNodeWithText(label(it)).performClick() }
             }
             "stale-action" -> scenario.operations.forEach {
                 onNodeWithText("Run").performClick()
@@ -196,8 +195,9 @@ class ComposeDesktopUiConformanceTest {
             id,
             "$id.value",
             listOf(
-                DesktopUiNode.TreeItem("one", raw("One"), emptyList()),
-                DesktopUiNode.TreeItem("child", raw("Child"), emptyList()),
+                DesktopUiNode.TreeItem("one", raw("One"), listOf(
+                    DesktopUiNode.TreeItem("child", raw("Child"), emptyList()),
+                )),
                 DesktopUiNode.TreeItem("three", raw("Three"), emptyList()),
             ),
             DesktopUiNode.SelectionMode.MULTIPLE,

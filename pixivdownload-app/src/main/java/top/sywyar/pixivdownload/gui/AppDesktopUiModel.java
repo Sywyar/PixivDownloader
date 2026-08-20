@@ -450,9 +450,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 ? homePage(nextActions) : controlCenterWelcomePage(onboarding, nextActions)));
         pages.add(page("automation", automationPage()));
         pages.add(page("plugins", controlCenterPluginsPage()));
-        pages.add(page("tools", toolsPage(nextActions)));
+        pages.add(page("tools", controlCenterToolsPage(nextActions)));
         pages.add(page("security", securityPage(nextActions)));
-        pages.add(page("settings", configPage(nextBindings, nextSelections, nextActions),
+        pages.add(page("settings", controlCenterConfigPage(nextBindings, nextSelections, nextActions),
                 DesktopUiNode.Insets.NONE));
         pages.add(page("about", aboutPage(nextActions)));
     }
@@ -1737,6 +1737,44 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private DesktopUiNode configPage(Map<String, ConfigField> nextBindings,
                                      Map<String, Consumer<List<String>>> nextSelections,
                                      Map<String, Runnable> nextActions) {
+        List<DesktopUiNode.Tab> tabs = configTabs(nextBindings, nextSelections, nextActions);
+        List<DesktopUiNode> bottom = configFooterNodes(false, nextActions);
+        return new DesktopUiNode.Dock("config.root", 0, null,
+                new DesktopUiNode.Tabs("config.tabs", tabs),
+                new DesktopUiNode.Surface("config.bottom", DesktopUiNode.SurfaceStyle.PLAIN,
+                        DesktopUiNode.Insets.all(8), true, column("config.bottom.content", bottom)),
+                null, null);
+    }
+
+    private DesktopUiNode controlCenterConfigPage(Map<String, ConfigField> nextBindings,
+                                                  Map<String, Consumer<List<String>>> nextSelections,
+                                                  Map<String, Runnable> nextActions) {
+        List<DesktopUiNode.Tab> tabs = configTabs(nextBindings, nextSelections, nextActions);
+        String selectedId = formValues.getOrDefault("settings.category", tabs.get(0).id());
+        DesktopUiNode.Tab selected = tabs.stream().filter(tab -> tab.id().equals(selectedId))
+                .findFirst().orElse(tabs.get(0));
+        DesktopUiNode categories = new DesktopUiNode.Surface("settings.categories.surface",
+                DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(14), true,
+                column("settings.categories.content",
+                        text("settings.categories.title", "desktop.ui.settings.categories.title", TextStyle.HEADING),
+                        new DesktopUiNode.Tree("settings.categories", "settings.category",
+                                tabs.stream().map(tab -> new DesktopUiNode.TreeItem(
+                                        tab.id(), tab.title(), List.of())).toList(),
+                                SelectionMode.SINGLE, List.of(selected.id()), true)));
+        DesktopUiNode content = new DesktopUiNode.Surface("settings.content",
+                DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(14), true,
+                selected.content() instanceof DesktopUiNode.Scroll scroll ? scroll.content() : selected.content());
+        DesktopUiNode summary = new DesktopUiNode.Surface("settings.summary",
+                DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(14), true,
+                column("settings.summary.content", configFooterNodes(true, nextActions)));
+        return scroll("settings.scroll", column("settings.root",
+                new DesktopUiNode.AdaptiveGrid("settings.layout", 280, 3, 16, 16,
+                        List.of(categories, content, summary))));
+    }
+
+    private List<DesktopUiNode.Tab> configTabs(Map<String, ConfigField> nextBindings,
+                                               Map<String, Consumer<List<String>>> nextSelections,
+                                               Map<String, Runnable> nextActions) {
         Map<String, GuiConfigGroupContribution> groups = new LinkedHashMap<>();
         CORE_GROUPS.forEach(group -> groups.put(group.groupId(), group));
         for (ConfigField field : configFields) {
@@ -1790,11 +1828,18 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             addPluginConfigCategory(tabs, orderedGroups, remaining,
                     claimed, rendered, locked, nextBindings, nextSelections, nextActions);
         }
+        return List.copyOf(tabs);
+    }
+
+    private List<DesktopUiNode> configFooterNodes(boolean controlCenter,
+                                                  Map<String, Runnable> nextActions) {
         List<DesktopUiNode> bottom = new ArrayList<>();
-        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+        int pendingChanges = pendingConfigurationChangeCount();
+        if (controlCenter) {
             bottom.add(new DesktopUiNode.Text("settings.unsaved-count",
-                    appToken("gui.config.notice.unsaved-count", pendingConfigurationChangeCount()),
+                    appToken("gui.config.notice.unsaved-count", pendingChanges),
                     TextStyle.CAPTION, true, false));
+            if (pendingChanges > 0) bottom.add(effectNode("settings.impact", pendingConfigurationEffect()));
         }
         bottom.add(row("config.actions",
                 button("config.open", "config.open", "gui.button.open-config", !busy,
@@ -1810,11 +1855,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         } else if (!configNotice.isBlank()) {
             bottom.add(status("config.notice", configNotice));
         }
-        return new DesktopUiNode.Dock("config.root", 0, null,
-                new DesktopUiNode.Tabs("config.tabs", tabs),
-                new DesktopUiNode.Surface("config.bottom", DesktopUiNode.SurfaceStyle.PLAIN,
-                        DesktopUiNode.Insets.all(8), true, column("config.bottom.content", bottom)),
-                null, null);
+        return List.copyOf(bottom);
     }
 
     private static boolean renderedGroup(String id) {
@@ -2677,25 +2718,35 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private DesktopUiNode controlCenterPluginsPage() {
-        List<DesktopUiNode> content = new ArrayList<>();
-        content.add(text("plugins.title", "gui.plugins.title", TextStyle.TITLE));
-        content.add(text("plugins.intro", "desktop.ui.plugins.intro", TextStyle.CAPTION));
+        List<DesktopUiNode> cards = new ArrayList<>();
+        for (PluginStatusRow plugin : pluginStatuses) cards.add(pluginCard(plugin));
+        if (pluginStatuses.isEmpty() && pluginsNotice.isBlank()) {
+            cards.add(text("plugins.empty", "gui.plugins.state.empty", TextStyle.CAPTION));
+        }
+        DesktopUiNode installed = new DesktopUiNode.Surface("plugins.installed",
+                DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(14), true,
+                new DesktopUiNode.AdaptiveGrid("plugins.grid", 260, 2, 12, 12, cards));
+
+        List<DesktopUiNode> details = new ArrayList<>();
         if (!pluginsObservedAt.isBlank()) {
-            content.add(new DesktopUiNode.Text("plugins.observed-at",
+            details.add(new DesktopUiNode.Text("plugins.observed-at",
                     appToken("desktop.ui.plugins.observed-at", formatTimestamp(pluginsObservedAt)),
                     TextStyle.CAPTION, true, false));
         }
         if (recoveryMode) {
-            content.add(new DesktopUiNode.Surface("plugins.recovery", DesktopUiNode.SurfaceStyle.WARNING,
+            details.add(new DesktopUiNode.Surface("plugins.recovery", DesktopUiNode.SurfaceStyle.WARNING,
                     new DesktopUiNode.Insets(8, 12, 8, 12), true,
                     text("plugins.recovery.text", "gui.plugins.recovery", TextStyle.WARNING)));
         }
-        if (!pluginsNotice.isBlank()) content.add(status("plugins.notice", pluginsNotice));
-        if (pluginStatuses.isEmpty() && pluginsNotice.isBlank()) {
-            content.add(text("plugins.empty", "gui.plugins.state.empty", TextStyle.CAPTION));
-        }
-        for (PluginStatusRow plugin : pluginStatuses) content.add(pluginCard(plugin));
-        return scroll("plugins.scroll", column("plugins.read-only", content));
+        if (!pluginsNotice.isBlank()) details.add(status("plugins.notice", pluginsNotice));
+        if (details.isEmpty()) details.add(text("plugins.detail", "desktop.ui.plugins.intro", TextStyle.CAPTION));
+        DesktopUiNode status = new DesktopUiNode.Surface("plugins.summary",
+                DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(14), true,
+                column("plugins.summary.content", details));
+        return scroll("plugins.scroll", column("plugins.read-only",
+                text("plugins.intro", "desktop.ui.plugins.intro", TextStyle.CAPTION),
+                new DesktopUiNode.AdaptiveGrid("plugins.layout", 300, 2, 16, 16,
+                        List.of(installed, status))));
     }
 
     private DesktopUiNode pluginCard(PluginStatusRow plugin) {
@@ -2754,6 +2805,24 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private DesktopUiNode toolsPage(Map<String, Runnable> nextActions) {
+        return scroll("tools.scroll", column("tools.root", toolCards(nextActions, false)));
+    }
+
+    private DesktopUiNode controlCenterToolsPage(Map<String, Runnable> nextActions) {
+        List<DesktopUiNode> cards = toolCards(nextActions, true);
+        DesktopUiNode main = column("tools.workbench",
+                text("tools.quick.title", "desktop.ui.tools.quick.title", TextStyle.HEADING),
+                new DesktopUiNode.AdaptiveGrid("tools.quick.grid", 260, 2, 12, 12,
+                        List.of(cards.get(2), cards.get(3))),
+                text("tools.maintenance.title", "desktop.ui.tools.maintenance.title", TextStyle.HEADING),
+                new DesktopUiNode.AdaptiveGrid("tools.maintenance.grid", 320, 2, 12, 12,
+                        List.of(cards.get(4), cards.get(5))));
+        DesktopUiNode side = column("tools.interlock-history", cards.get(0), cards.get(1));
+        return scroll("tools.scroll", new DesktopUiNode.AdaptiveGrid(
+                "tools.layout", 360, 2, 16, 16, List.of(main, side)));
+    }
+
+    private List<DesktopUiNode> toolCards(Map<String, Runnable> nextActions, boolean includeHistory) {
         List<DesktopUiNode> cards = new ArrayList<>();
         cards.add(group("tools.overview", "gui.tools.card.overview.title",
                 column("tools.overview.content",
@@ -2762,9 +2831,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                 exclusiveToolName.isBlank() ? host.message("gui.value.none") : exclusiveToolName),
                                 TextStyle.BODY),
                         text("tools.overview.hint", "gui.tools.card.overview.hint", TextStyle.CAPTION))));
-        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
-            cards.add(toolHistoryCard());
-        }
+        if (includeHistory) cards.add(toolHistoryCard());
         cards.add(group("tools.image-classifier", "gui.tools.card.image-classifier.title",
                 column("tools.image-classifier.summary",
                         text("tools.image-classifier.description", "gui.tools.card.image-classifier.description",
@@ -2867,7 +2934,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                         !busy && Files.isRegularFile(Path.of("log", "html",
                                                 "json-to-sqlite-migration-latest.html")), nextActions,
                                         () -> openToolLog("json-to-sqlite-migration"))))));
-        return scroll("tools.scroll", column("tools.root", cards));
+        return List.copyOf(cards);
     }
 
     private DesktopUiNode toolHistoryCard() {
@@ -4423,6 +4490,20 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             if (!Objects.equals(entry.getValue(), savedValues.get(new FieldKey(null, entry.getKey())))) count++;
         }
         return count;
+    }
+
+    private GuiConfigEffect pendingConfigurationEffect() {
+        List<GuiConfigEffect> effects = changedConfigurationFields().stream()
+                .map(field -> field.spec().effect()).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        if (!pluginRepositories.equals(savedPluginRepositories)) effects.add(GuiConfigEffect.BACKEND_RESTART);
+        Map<String, String> interfaceValues = pendingInterfaceValues();
+        if (interfaceValues.entrySet().stream().anyMatch(entry -> !Objects.equals(
+                entry.getValue(), savedValues.get(new FieldKey(null, entry.getKey()))))) {
+            effects.add(Objects.equals(interfaceValues.get("app.gui-provider"),
+                    savedValues.getOrDefault(new FieldKey(null, "app.gui-provider"), "gui-swing"))
+                    ? GuiConfigEffect.HOT_RELOAD : GuiConfigEffect.PROCESS_RESTART);
+        }
+        return strongestEffect(effects);
     }
 
     private String symbolicRootPathToPin(String oldValue, String newValue) {

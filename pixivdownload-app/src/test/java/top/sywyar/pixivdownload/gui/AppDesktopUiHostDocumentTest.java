@@ -122,7 +122,30 @@ class AppDesktopUiHostDocumentTest {
         assertThat(nodes(controlCenter)).extracting(DesktopUiNode::id)
                 .contains("home.greeting", "home.hero", "home.system", "home.metrics",
                         "home.quick-start", "home.running", "home.storage",
+                        "plugins.layout", "plugins.grid", "tools.layout", "tools.quick.grid",
+                        "tools.maintenance.grid", "settings.layout", "settings.categories",
+                        "settings.content", "settings.summary",
                         "about.name", "about.docs", "about.update.check");
+    }
+
+    @Test
+    @DisplayName("控制中心插件、工具与设置页采用原型分区且 CLASSIC 结构不变")
+    void controlCenterReplicatesPrototypePagePartitionsWithoutChangingClassic() {
+        DesktopUiDocument controlCenter = modelWithOnboarding(List.of(),
+                DesktopUiExperienceProfile.CONTROL_CENTER, COMPLETE_ONBOARDING).snapshot().document();
+        DesktopUiDocument classic = model(DesktopUiExperienceProfile.CLASSIC).snapshot().document();
+
+        assertPageContent(controlCenter, "plugins", DesktopUiNode.Scroll.class);
+        assertPageContent(controlCenter, "tools", DesktopUiNode.Scroll.class);
+        assertPageContent(controlCenter, "settings", DesktopUiNode.Scroll.class);
+        assertThat(nodes(controlCenter).stream().filter(node -> "plugins.grid".equals(node.id()))
+                .findFirst().orElseThrow()).isInstanceOf(DesktopUiNode.AdaptiveGrid.class);
+        assertThat(nodes(controlCenter).stream().filter(node -> "settings.categories".equals(node.id()))
+                .findFirst().orElseThrow()).isInstanceOf(DesktopUiNode.Tree.class);
+        assertThat(nodes(controlCenter).stream().filter(node -> "config.save".equals(node.id()))).hasSize(1);
+        assertThat(nodes(classic)).extracting(DesktopUiNode::id)
+                .doesNotContain("plugins.layout", "tools.layout", "settings.layout", "settings.categories");
+        assertPageContent(classic, "config", DesktopUiNode.Dock.class);
     }
 
     @Test
@@ -689,6 +712,8 @@ class AppDesktopUiHostDocumentTest {
                 Path.of("log", "html", "json-to-sqlite-migration_2026-08-21_120000.html"));
 
         AppDesktopUiModel controlCenter = model(DesktopUiExperienceProfile.CONTROL_CENTER);
+        assertThat(nodes(controlCenter.snapshot().document())).extracting(DesktopUiNode::id)
+                .contains("tools.layout", "tools.quick.grid", "tools.maintenance.grid");
         DesktopUiNode.Table table = nodes(controlCenter.snapshot().document()).stream()
                 .filter(DesktopUiNode.Table.class::isInstance).map(DesktopUiNode.Table.class::cast)
                 .filter(node -> "tools.history.table".equals(node.id())).findFirst().orElseThrow();
@@ -787,6 +812,8 @@ class AppDesktopUiHostDocumentTest {
         awaitButtonEnabled(model, "config.save");
         assertThat(settingsUnsavedCount(model.snapshot().document())).isEqualTo(0);
 
+        dispatch(model, DesktopUiNode.EventType.SELECTION,
+                "settings.categories", DesktopUiNode.Value.selection("download"));
         DesktopUiNode.TextInput root = configTextInput(model.snapshot().document(), "download.root-folder");
         dispatch(model, DesktopUiNode.EventType.CHANGE, root.id(), DesktopUiNode.Value.text("\u0000"));
         assertThat(settingsUnsavedCount(model.snapshot().document())).isEqualTo(1);
