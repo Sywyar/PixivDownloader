@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -68,10 +69,16 @@ class AppDesktopUiHostDocumentTest {
     Path tempDir;
     private final List<AppDesktopUiModel> openModels = new ArrayList<>();
 
+    @BeforeEach
+    void isolateRuntimeState() {
+        System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, tempDir.resolve("state").toString());
+    }
+
     @AfterEach
     void clearRuntimeConfigOverride() throws Exception {
         for (AppDesktopUiModel model : openModels) model.close();
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+        System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
     }
 
     @Test
@@ -643,6 +650,36 @@ class AppDesktopUiHostDocumentTest {
         assertThat(license.textAlignment()).isEqualTo(DesktopUiNode.TextAlignment.CENTER);
         assertThat(technology.text().key()).isEqualTo("gui.about.tech");
         assertThat(technology.text().arguments()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("控制中心显示持久化工具历史且 CLASSIC 页面结构不变")
+    void controlCenterShowsToolHistoryAndRecordsClassifierClose() throws Exception {
+        DesktopToolHistory history = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
+        history.record(DesktopToolHistory.ToolId.JSON_TO_SQLITE_MIGRATION,
+                DesktopToolHistory.Outcome.SUCCEEDED, 1L, 9, 7, null,
+                Path.of("log", "html", "json-to-sqlite-migration_2026-08-21_120000.html"));
+
+        AppDesktopUiModel controlCenter = model(DesktopUiExperienceProfile.CONTROL_CENTER);
+        DesktopUiNode.Table table = nodes(controlCenter.snapshot().document()).stream()
+                .filter(DesktopUiNode.Table.class::isInstance).map(DesktopUiNode.Table.class::cast)
+                .filter(node -> "tools.history.table".equals(node.id())).findFirst().orElseThrow();
+        assertThat(table.rows()).singleElement().satisfies(row -> assertThat(row.cells())
+                .contains("9", "7", "json-to-sqlite-migration_2026-08-21_120000.html"));
+        assertThat(nodes(model(DesktopUiExperienceProfile.CLASSIC).snapshot().document()))
+                .extracting(DesktopUiNode::id).doesNotContain("tools.history", "tools.history.table");
+
+        awaitButtonEnabled(controlCenter, "tools.image-classifier.open");
+        dispatch(controlCenter, DesktopUiNode.EventType.ACTIVATE,
+                "tools.image-classifier.open", DesktopUiNode.Value.empty());
+        awaitButtonEnabled(controlCenter, "classifier.dialog.close");
+        dispatch(controlCenter, DesktopUiNode.EventType.ACTIVATE,
+                "classifier.dialog.close", DesktopUiNode.Value.empty());
+
+        assertThat(new DesktopToolHistory(RuntimeFiles.guiStateDirectory()).entries()).first().satisfies(entry -> {
+            assertThat(entry.toolId()).isEqualTo(DesktopToolHistory.ToolId.IMAGE_CLASSIFIER);
+            assertThat(entry.outcome()).isEqualTo(DesktopToolHistory.Outcome.CLOSED);
+        });
     }
 
     @Test

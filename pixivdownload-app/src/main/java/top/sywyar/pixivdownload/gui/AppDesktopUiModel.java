@@ -127,6 +127,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private final String rootFolder;
     private final Path configPath;
     private final DesktopUiHost host;
+    private final DesktopToolHistory toolHistory;
     private final Supplier<List<DesktopUiPluginSource>> pluginSources;
     private final RendererContract rendererContract;
     private final Optional<DesktopUiNode.ImageData> applicationIcon;
@@ -219,6 +220,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile DialogState dialogState;
     private volatile ToolDialog toolDialog;
     private volatile boolean folderCheckerRestartBackend;
+    private volatile long classifierToolStartedAt;
     private volatile String exclusiveToolName = "";
     private volatile long exclusiveToolStartedAt;
     private volatile AutoCloseable backendSubscription;
@@ -235,6 +237,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         this.rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
         this.configPath = Objects.requireNonNull(configPath, "configPath");
         this.host = Objects.requireNonNull(host, "host");
+        this.toolHistory = new DesktopToolHistory(host.guiStateDirectory());
         this.pluginSources = Objects.requireNonNull(pluginSources, "pluginSources");
         this.rendererContract = Objects.requireNonNull(rendererContract, "rendererContract");
         this.autoStartSupported = host.autoStartSupported();
@@ -1090,7 +1093,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         Runnable dismiss = () -> {
             toolDialog = null;
             if (value == ToolDialog.FOLDER_CHECKER) closeFolderCheckerDialog();
-            else rebuild();
+            else closeImageClassifierDialog();
         };
         nextActions.put(dismissAction, dismiss);
         DesktopUiNode content = value == ToolDialog.IMAGE_CLASSIFIER
@@ -1254,6 +1257,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private void openToolDialog(ToolDialog value) {
         if (busy) return;
         toolDialog = value;
+        if (value == ToolDialog.IMAGE_CLASSIFIER) classifierToolStartedAt = System.currentTimeMillis();
         rebuild();
         if (value == ToolDialog.IMAGE_CLASSIFIER
                 && !form("classifier.default-folder", "").isBlank()) scanClassifierFolders();
@@ -1295,10 +1299,15 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private void closeFolderCheckerDialog() {
+        long startedAt = exclusiveToolStartedAt;
         boolean restart = folderCheckerRestartBackend;
         folderCheckerRestartBackend = false;
         exclusiveToolName = "";
         exclusiveToolStartedAt = 0L;
+        if (startedAt > 0L) {
+            toolHistory.record(DesktopToolHistory.ToolId.FOLDER_CHECKER,
+                    DesktopToolHistory.Outcome.CLOSED, startedAt, null, null, null, null);
+        }
         if (!restart) {
             rebuild();
             return;
@@ -1315,6 +1324,16 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             folderNotice = host.message("gui.tools.folder-checker.status.closed");
             rebuild();
         }
+    }
+
+    private void closeImageClassifierDialog() {
+        long startedAt = classifierToolStartedAt;
+        classifierToolStartedAt = 0L;
+        if (startedAt > 0L) {
+            toolHistory.record(DesktopToolHistory.ToolId.IMAGE_CLASSIFIER,
+                    DesktopToolHistory.Outcome.CLOSED, startedAt, null, null, null, null);
+        }
+        rebuild();
     }
 
     private void openToolLog(String name) {
@@ -2684,6 +2703,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                 exclusiveToolName.isBlank() ? host.message("gui.value.none") : exclusiveToolName),
                                 TextStyle.BODY),
                         text("tools.overview.hint", "gui.tools.card.overview.hint", TextStyle.CAPTION))));
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+            cards.add(toolHistoryCard());
+        }
         cards.add(group("tools.image-classifier", "gui.tools.card.image-classifier.title",
                 column("tools.image-classifier.summary",
                         text("tools.image-classifier.description", "gui.tools.card.image-classifier.description",
@@ -2787,6 +2809,46 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                                 "json-to-sqlite-migration-latest.html")), nextActions,
                                         () -> openToolLog("json-to-sqlite-migration"))))));
         return scroll("tools.scroll", column("tools.root", cards));
+    }
+
+    private DesktopUiNode toolHistoryCard() {
+        List<DesktopToolHistory.Entry> entries = toolHistory.entries();
+        if (entries.isEmpty()) {
+            return group("tools.history", "gui.tools.history.title",
+                    text("tools.history.empty", "gui.tools.history.empty", TextStyle.CAPTION));
+        }
+        List<DesktopUiNode.TableRow> rows = new ArrayList<>(entries.size());
+        for (int index = 0; index < entries.size(); index++) {
+            DesktopToolHistory.Entry entry = entries.get(index);
+            rows.add(new DesktopUiNode.TableRow("history." + entry.finishedAtEpochMs() + "." + index,
+                    List.of(
+                            host.message("gui.tools.history.tool." + machineKey(entry.toolId().name())),
+                            host.message("gui.tools.history.outcome." + machineKey(entry.outcome().name())),
+                            formatTimestamp(Instant.ofEpochMilli(entry.startedAtEpochMs())),
+                            formatTimestamp(Instant.ofEpochMilli(entry.finishedAtEpochMs())),
+                            countCell(entry.processedCount()), countCell(entry.changedCount()),
+                            countCell(entry.failedCount()), entry.logFileName() == null ? "—" : entry.logFileName())));
+        }
+        return group("tools.history", "gui.tools.history.title",
+                new DesktopUiNode.Table("tools.history.table", "tools.history.selection",
+                        List.of(
+                                new DesktopUiNode.TableColumn("tool", key("gui.tools.history.column.tool"), 160),
+                                new DesktopUiNode.TableColumn("outcome", key("gui.tools.history.column.outcome"), 90),
+                                new DesktopUiNode.TableColumn("started", key("gui.tools.history.column.started"), 150),
+                                new DesktopUiNode.TableColumn("finished", key("gui.tools.history.column.finished"), 150),
+                                new DesktopUiNode.TableColumn("processed", key("gui.tools.history.column.processed"), 75),
+                                new DesktopUiNode.TableColumn("changed", key("gui.tools.history.column.changed"), 75),
+                                new DesktopUiNode.TableColumn("failed", key("gui.tools.history.column.failed"), 75),
+                                new DesktopUiNode.TableColumn("log", key("gui.tools.history.column.log"), 210)),
+                        rows, SelectionMode.SINGLE, List.of(), false));
+    }
+
+    private static String machineKey(String value) {
+        return value.toLowerCase(Locale.ROOT).replace('_', '-');
+    }
+
+    private static String countCell(Integer value) {
+        return value == null ? "—" : Integer.toString(value);
     }
 
     private DesktopUiNode securityPage(Map<String, Runnable> nextActions) {
@@ -4637,8 +4699,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                         appToken("gui.tools.dialog.backfill.completed.message", result,
                                 summary.processed(), summary.totalCandidates()),
                         DesktopUiDocument.DialogStyle.SUCCESS);
+                return new ToolCompletion(summary.processed(), null, null, log.sessionPath());
             }
-        });
+        }, DesktopToolHistory.ToolId.ARTWORKS_BACKFILL);
     }
 
     private void runMigration() {
@@ -4669,8 +4732,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                     summary.migrated(), summary.skipped(), summary.totalCandidates()),
                             DesktopUiDocument.DialogStyle.SUCCESS);
                 }
+                return new ToolCompletion(summary.totalCandidates(), summary.migrated(), null, log.sessionPath());
             }
-        });
+        }, DesktopToolHistory.ToolId.JSON_TO_SQLITE_MIGRATION);
     }
 
     private void checkFolders() {
@@ -4781,7 +4845,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private void runFolderAction(ThrowingRunnable action) {
         if (toolDialog != ToolDialog.FOLDER_CHECKER) {
-            runExclusiveTool(host.message("gui.tools.card.folder-checker.title"), action);
+            runExclusiveTool(host.message("gui.tools.card.folder-checker.title"), () -> {
+                action.run();
+                return ToolCompletion.EMPTY;
+            }, DesktopToolHistory.ToolId.FOLDER_CHECKER);
             return;
         }
         if (busy) return;
@@ -5080,7 +5147,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         });
     }
 
-    private void runExclusiveTool(String toolName, ThrowingRunnable operation) {
+    private void runExclusiveTool(String toolName, ToolOperation operation, DesktopToolHistory.ToolId toolId) {
         if (busy) return;
         if (backend.state() != DesktopUiHost.BackendState.RUNNING
                 && backend.state() != DesktopUiHost.BackendState.STOPPED) {
@@ -5090,7 +5157,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             return;
         }
         exclusiveToolName = toolName;
-        exclusiveToolStartedAt = System.currentTimeMillis();
+        long startedAt = System.currentTimeMillis();
+        exclusiveToolStartedAt = startedAt;
         busy = true;
         rebuild();
         executeAsync(() -> {
@@ -5103,13 +5171,21 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                         throw new IllegalStateException(host.message("gui.message.backend-busy"));
                     }
                 }
-                operation.run();
+                ToolCompletion completion = operation.run();
+                if (completion == null) completion = ToolCompletion.EMPTY;
+                toolHistory.record(toolId, DesktopToolHistory.Outcome.SUCCEEDED, startedAt,
+                        completion.processedCount(), completion.changedCount(), completion.failedCount(),
+                        completion.logPath());
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
+                toolHistory.record(toolId, DesktopToolHistory.Outcome.CANCELLED, startedAt,
+                        null, null, null, null);
                 LOG.warn("Desktop tool was interrupted", interrupted);
                 showDialog("tools.interrupted", "gui.dialog.error.title", "desktop.ui.tools.operation-failed",
                         DesktopUiDocument.DialogStyle.ERROR);
             } catch (Exception failure) {
+                toolHistory.record(toolId, DesktopToolHistory.Outcome.FAILED, startedAt,
+                        null, null, null, null);
                 LOG.error("Desktop tool failed", failure);
                 showDialog("tools.failed", "gui.dialog.error.title", "desktop.ui.tools.operation-failed",
                         DesktopUiDocument.DialogStyle.ERROR);
@@ -6843,4 +6919,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     @FunctionalInterface
     private interface ThrowingRunnable { void run() throws Exception; }
+    @FunctionalInterface
+    private interface ToolOperation { ToolCompletion run() throws Exception; }
+    private record ToolCompletion(Integer processedCount, Integer changedCount,
+                                  Integer failedCount, Path logPath) {
+        private static final ToolCompletion EMPTY = new ToolCompletion(null, null, null, null);
+    }
 }
