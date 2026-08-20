@@ -88,6 +88,9 @@ class DesktopUiDocumentTest {
 
         assertThat(document.requiredCapabilities())
                 .containsExactlyInAnyOrder(DesktopUiCapability.values());
+        assertThat(DesktopUiNode.directRequiredCapabilities(content)).isEmpty();
+        assertThat(DesktopUiNode.directRequiredCapabilities(content.childNodes().get(0)))
+                .containsExactly(DesktopUiCapability.SPLIT_USER_RESIZABLE);
     }
 
     @Test

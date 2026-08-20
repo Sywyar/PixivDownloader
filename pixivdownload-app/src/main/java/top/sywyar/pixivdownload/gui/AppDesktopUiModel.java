@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
@@ -117,7 +118,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private final Path configPath;
     private final DesktopUiHost host;
     private final Supplier<List<DesktopUiPluginSource>> pluginSources;
-    private final DesktopUiExperienceProfile experienceProfile;
+    private final RendererContract rendererContract;
     private final Optional<DesktopUiNode.ImageData> applicationIcon;
     private final String licenseText;
     private final ExecutorService worker = Executors.newCachedThreadPool(runnable -> {
@@ -210,23 +211,19 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile AutoCloseable backendSubscription;
     private volatile List<DesktopUiPluginSource> rebuildSources;
     private volatile List<DesktopUiPluginSource.Fingerprint> documentSourceFingerprints = List.of();
+    private final Set<String> dismissedCompatibilityNotices = new LinkedHashSet<>();
     private volatile Locale documentLocale;
     private volatile boolean closed;
 
     AppDesktopUiModel(int serverPort, String rootFolder, Path configPath, DesktopUiHost host,
-                      Supplier<List<DesktopUiPluginSource>> pluginSources) {
-        this(serverPort, rootFolder, configPath, host, pluginSources, DesktopUiExperienceProfile.CLASSIC);
-    }
-
-    AppDesktopUiModel(int serverPort, String rootFolder, Path configPath, DesktopUiHost host,
                       Supplier<List<DesktopUiPluginSource>> pluginSources,
-                      DesktopUiExperienceProfile experienceProfile) {
+                      RendererContract rendererContract) {
         this.serverPort = serverPort;
         this.rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
         this.configPath = Objects.requireNonNull(configPath, "configPath");
         this.host = Objects.requireNonNull(host, "host");
         this.pluginSources = Objects.requireNonNull(pluginSources, "pluginSources");
-        this.experienceProfile = Objects.requireNonNull(experienceProfile, "experienceProfile");
+        this.rendererContract = Objects.requireNonNull(rendererContract, "rendererContract");
         this.autoStartSupported = host.autoStartSupported();
         this.autoStartEnabled = autoStartSupported && host.autoStartEnabled();
         this.applicationIcon = loadApplicationIcon();
@@ -350,15 +347,14 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             Map<String, Runnable> nextActions = new LinkedHashMap<>();
             List<DesktopUiDocument.Page> pages = new ArrayList<>();
             appendHostPages(pages, nextBindings, nextSelections, nextActions);
-            fieldBindings = Map.copyOf(nextBindings);
-            selectionBindings = Map.copyOf(nextSelections);
             List<DesktopUiDocument.Dialog> dialogs = new ArrayList<>();
             if (dialogState != null) dialogs.add(dialog(dialogState, nextActions));
             if (toolDialog != null) dialogs.add(toolDialog(toolDialog, nextActions));
-            appendPluginPages(pages, dialogs, nextActions);
+            long candidateRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
+            requireCompatibleCore(pages, dialogs, candidateRevision);
+            appendPluginPages(pages, dialogs, nextActions, candidateRevision);
             DesktopUiDocument.Tray tray = tray(nextActions);
             nextActions.put("debug.unlock", this::unlockDebugConfiguration);
-            actions = Map.copyOf(nextActions);
             DesktopUiDocument nextDocument = new DesktopUiDocument(pages, dialogs,
                     List.of(new DesktopUiDocument.KeyboardShortcut(
                     "debug.unlock.shortcut", List.of(
@@ -367,15 +363,17 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     keyStroke("KeyB"), keyStroke("KeyA"), keyStroke("KeyB"), keyStroke("KeyA")),
                     "debug.unlock", false)), Optional.of(tray));
             Map<String, EventEndpoint> nextEventEndpoints = indexEventEndpoints(nextDocument);
-            eventEndpoints = nextEventEndpoints;
             Map<String, InteractionSignature> nextInteractionSignatures = interactionSignatures(
                     nextEventEndpoints, sourceFingerprints);
             Map<String, Long> nextInteractionRevisions = interactionRevisions(nextInteractionSignatures);
+            fieldBindings = Map.copyOf(nextBindings);
+            selectionBindings = Map.copyOf(nextSelections);
+            actions = Map.copyOf(nextActions);
+            eventEndpoints = nextEventEndpoints;
             if (sourcesChanged || localeChanged || snapshot == null || !nextDocument.equals(snapshot.document())) {
-                long nextRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
                 documentSourceFingerprints = sourceFingerprints;
                 documentLocale = currentLocale;
-                snapshot = new DesktopUiSnapshot(nextRevision, nextDocument, nextInteractionRevisions);
+                snapshot = new DesktopUiSnapshot(candidateRevision, nextDocument, nextInteractionRevisions);
             }
             interactionSignatures = nextInteractionSignatures;
         } finally {
@@ -387,7 +385,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                  Map<String, ConfigField> nextBindings,
                                  Map<String, Consumer<List<String>>> nextSelections,
                                  Map<String, Runnable> nextActions) {
-        switch (experienceProfile) {
+        switch (rendererContract.experienceProfile()) {
             case CLASSIC -> appendClassicPages(pages, nextBindings, nextSelections, nextActions);
             case CONTROL_CENTER -> appendControlCenterPages(pages, nextBindings, nextSelections, nextActions);
         }
@@ -413,6 +411,88 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                           Map<String, Consumer<List<String>>> nextSelections,
                                           Map<String, Runnable> nextActions) {
         appendClassicPages(pages, nextBindings, nextSelections, nextActions);
+    }
+
+    private void requireCompatibleCore(List<DesktopUiDocument.Page> pages,
+                                       List<DesktopUiDocument.Dialog> dialogs,
+                                       long candidateRevision) {
+        List<UiCompatibilityDiagnostic> diagnostics = new ArrayList<>();
+        for (DesktopUiDocument.Page page : pages) {
+            diagnostics.addAll(compatibilityDiagnostics(null, "page", page.id(), page.content(),
+                    candidateRevision, "desktop.ui.compatibility.core-unavailable"));
+        }
+        for (DesktopUiDocument.Dialog dialog : dialogs) {
+            diagnostics.addAll(compatibilityDiagnostics(null, "dialog", dialog.id(), dialog.content(),
+                    candidateRevision, "desktop.ui.compatibility.core-unavailable"));
+        }
+        if (diagnostics.isEmpty()) return;
+        diagnostics.forEach(diagnostic -> logCompatibility(diagnostic, true));
+        throw new IllegalStateException(host.message("desktop.ui.compatibility.core-unavailable",
+                rendererContract.providerId()));
+    }
+
+    private List<UiCompatibilityDiagnostic> compatibilityDiagnostics(
+            DesktopUiPluginSource source, String locationType, String locationId,
+            DesktopUiNode root, long candidateRevision, String remediationKey) {
+        List<UiCompatibilityDiagnostic> diagnostics = new ArrayList<>();
+        String owner = source == null ? APP_OWNER : safeDiagnosticValue(source.id());
+        String packageId = source == null ? APP_OWNER : safeDiagnosticValue(source.packageId());
+        long generation = source == null ? 0L : source.generation();
+        String publication = packageId + "@" + generation;
+        collectCompatibilityDiagnostics(root, new ArrayList<>(), diagnostics,
+                owner, packageId, generation, publication, locationType, locationId,
+                candidateRevision, remediationKey);
+        return List.copyOf(diagnostics);
+    }
+
+    private boolean collectCompatibilityDiagnostics(
+            DesktopUiNode node, List<String> path, List<UiCompatibilityDiagnostic> diagnostics,
+            String owner, String packageId, long generation, String publication,
+            String locationType, String locationId, long candidateRevision, String remediationKey) {
+        path.add(node.id());
+        Set<DesktopUiNode.Kind> missingKinds = rendererContract.supportedKinds().contains(node.kind())
+                ? Set.of() : Set.of(node.kind());
+        Set<DesktopUiCapability> missingCapabilities = new LinkedHashSet<>(
+                DesktopUiNode.directRequiredCapabilities(node));
+        missingCapabilities.removeAll(rendererContract.supportedCapabilities());
+        if (!missingKinds.isEmpty() || !missingCapabilities.isEmpty()) {
+            diagnostics.add(new UiCompatibilityDiagnostic(
+                    rendererContract.providerId(), rendererContract.experienceProfile(),
+                    owner, packageId, generation, publication, locationType, locationId,
+                    node.id(), String.join("/", path), missingKinds, Set.copyOf(missingCapabilities),
+                    candidateRevision, remediationKey));
+            path.remove(path.size() - 1);
+            return true;
+        }
+        for (DesktopUiNode child : node.childNodes()) {
+            if (collectCompatibilityDiagnostics(child, path, diagnostics,
+                    owner, packageId, generation, publication, locationType, locationId,
+                    candidateRevision, remediationKey)) {
+                path.remove(path.size() - 1);
+                return true;
+            }
+        }
+        path.remove(path.size() - 1);
+        return false;
+    }
+
+    private static void logCompatibility(UiCompatibilityDiagnostic diagnostic, boolean fatal) {
+        String message = "Desktop UI compatibility diagnostic (provider={}, profile={}, owner={}, package={}, "
+                + "generation={}, publication={}, locationType={}, locationId={}, nodeId={}, nodePath={}, "
+                + "missingKinds={}, missingCapabilities={}, snapshotRevision={}, remediationKey={})";
+        Object[] arguments = {
+                diagnostic.providerId(), diagnostic.experienceProfile(), diagnostic.owner(),
+                diagnostic.packageId(), diagnostic.generation(), diagnostic.publication(),
+                diagnostic.locationType(), diagnostic.locationId(), diagnostic.nodeId(), diagnostic.nodePath(),
+                diagnostic.missingKinds(), diagnostic.missingCapabilities(), diagnostic.snapshotRevision(),
+                diagnostic.remediationKey()
+        };
+        if (fatal) LOG.error(message, arguments);
+        else LOG.warn(message, arguments);
+    }
+
+    private static String safeDiagnosticValue(String value) {
+        return validId(value) ? value : "invalid";
     }
 
     private Map<String, Long> interactionRevisions(Map<String, InteractionSignature> signatures) {
@@ -596,6 +676,21 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     record EventEndpoint(String targetId, DesktopUiNode.EventType eventType,
                          boolean enabled, DesktopUiNode node) { }
+
+    record RendererContract(
+            String providerId,
+            DesktopUiExperienceProfile experienceProfile,
+            Set<DesktopUiNode.Kind> supportedKinds,
+            Set<DesktopUiCapability> supportedCapabilities
+    ) {
+        RendererContract {
+            if (!validId(providerId)) throw new IllegalArgumentException("providerId must be a stable id");
+            experienceProfile = Objects.requireNonNull(experienceProfile, "experienceProfile");
+            supportedKinds = Set.copyOf(Objects.requireNonNull(supportedKinds, "supportedKinds"));
+            supportedCapabilities = Set.copyOf(Objects.requireNonNull(
+                    supportedCapabilities, "supportedCapabilities"));
+        }
+    }
 
     private record InteractionOption(String id, boolean enabled) { }
 
@@ -4674,7 +4769,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private void appendPluginPages(List<DesktopUiDocument.Page> pages,
                                    List<DesktopUiDocument.Dialog> dialogs,
-                                   Map<String, Runnable> nextActions) {
+                                   Map<String, Runnable> nextActions,
+                                   long candidateRevision) {
         List<PluginPageCandidate> candidates = new ArrayList<>();
         for (DesktopUiPluginSource source : currentSources().stream()
                 .sorted(Comparator.comparing(DesktopUiPluginSource::id)).toList()) {
@@ -4699,13 +4795,12 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             for (int index = 0; index < contributions.size(); index++) {
                 DesktopUiPageContribution contribution = contributions.get(index);
                 if (contribution != null) {
-                    candidates.add(new PluginPageCandidate(source.id(), source.generation(), index,
-                            contribution, routes));
+                    candidates.add(new PluginPageCandidate(source, index, contribution, routes));
                 }
             }
         }
         candidates.sort(Comparator.comparingInt((PluginPageCandidate candidate) -> candidate.page().order())
-                .thenComparing(PluginPageCandidate::owner)
+                .thenComparing(candidate -> candidate.source().id())
                 .thenComparing(candidate -> candidate.page().pageId())
                 .thenComparingInt(PluginPageCandidate::declarationOrder));
         Set<String> seenPageIds = new LinkedHashSet<>();
@@ -4713,41 +4808,121 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         for (PluginPageCandidate candidate : candidates) {
             if (!seenPageIds.add(candidate.page().pageId())) duplicatePageIds.add(candidate.page().pageId());
         }
+        Set<String> activeCompatibilityNoticeKeys = new LinkedHashSet<>();
         for (PluginPageCandidate candidate : candidates) {
             DesktopUiPageContribution contribution = candidate.page();
             if (duplicatePageIds.contains(contribution.pageId())
-                    || !validPluginPage(candidate.owner(), contribution, candidate.routes())) {
+                    || !validPluginPage(candidate.source().id(), contribution, candidate.routes())) {
                 LOG.warn("Ignored invalid desktop page contribution (owner={}, generation={}, pageId={})",
-                        candidate.owner(), candidate.generation(), contribution.pageId());
+                        candidate.source().id(), candidate.source().generation(), contribution.pageId());
                 continue;
             }
-            DesktopUiDocument.Page page = new DesktopUiDocument.Page(
-                    contribution.pageId(), contribution.title(), contribution.content());
+
+            List<UiCompatibilityDiagnostic> pageDiagnostics = compatibilityDiagnostics(
+                    candidate.source(), "page", contribution.pageId(), contribution.content(),
+                    candidateRevision, "desktop.ui.compatibility.page-unavailable");
+            pageDiagnostics.forEach(diagnostic -> logCompatibility(diagnostic, false));
+            DesktopUiDocument.Page page = pageDiagnostics.isEmpty()
+                    ? new DesktopUiDocument.Page(
+                            contribution.pageId(), contribution.title(), contribution.content())
+                    : incompatiblePluginPage(contribution);
+            Set<String> acceptedActions = new LinkedHashSet<>();
+            if (pageDiagnostics.isEmpty()) collectPluginActions(contribution.content(), acceptedActions);
+            List<DesktopUiDocument.Dialog> acceptedDialogs = new ArrayList<>();
+            List<CompatibilityNotice> notices = new ArrayList<>();
+            for (int index = 0; index < contribution.dialogs().size(); index++) {
+                DesktopUiDocument.Dialog dialog = contribution.dialogs().get(index);
+                List<UiCompatibilityDiagnostic> dialogDiagnostics = compatibilityDiagnostics(
+                        candidate.source(), "dialog", dialog.id(), dialog.content(),
+                        candidateRevision, "desktop.ui.compatibility.dialog-unavailable");
+                if (dialogDiagnostics.isEmpty()) {
+                    acceptedDialogs.add(dialog);
+                    collectPluginActions(dialog.content(), acceptedActions);
+                    if (dialog.dismissible()) acceptedActions.add(dialog.dismissActionId());
+                } else {
+                    dialogDiagnostics.forEach(diagnostic -> logCompatibility(diagnostic, false));
+                    notices.add(compatibilityNotice(candidate, index, dialog.id()));
+                }
+            }
+            Set<String> candidateActionIds = new LinkedHashSet<>(acceptedActions);
+            notices.stream().filter(notice -> !dismissedCompatibilityNotices.contains(notice.key()))
+                    .forEach(notice -> candidateActionIds.add(notice.actionId()));
+            if (candidateActionIds.stream().anyMatch(nextActions::containsKey)) {
+                LOG.warn("Ignored desktop page contribution with conflicting actions "
+                                + "(owner={}, generation={}, pageId={})",
+                        candidate.source().id(), candidate.source().generation(), contribution.pageId());
+                continue;
+            }
             try {
                 List<DesktopUiDocument.Page> candidatePages = new ArrayList<>(pages);
                 candidatePages.add(page);
                 List<DesktopUiDocument.Dialog> candidateDialogs = new ArrayList<>(dialogs);
-                candidateDialogs.addAll(contribution.dialogs());
+                candidateDialogs.addAll(acceptedDialogs);
+                notices.stream().filter(notice -> !dismissedCompatibilityNotices.contains(notice.key()))
+                        .map(CompatibilityNotice::dialog).forEach(candidateDialogs::add);
                 new DesktopUiDocument(candidatePages, candidateDialogs);
             } catch (RuntimeException invalid) {
                 LOG.warn("Ignored conflicting desktop page contribution (owner={}, generation={}, pageId={})",
-                        candidate.owner(), candidate.generation(), contribution.pageId(), invalid);
-                continue;
-            }
-            if (contribution.actions().keySet().stream().anyMatch(nextActions::containsKey)) {
-                LOG.warn("Ignored desktop page contribution with conflicting actions (owner={}, generation={}, pageId={})",
-                        candidate.owner(), candidate.generation(), contribution.pageId());
+                        candidate.source().id(), candidate.source().generation(), contribution.pageId(), invalid);
                 continue;
             }
             pages.add(page);
-            dialogs.addAll(contribution.dialogs());
-            String owner = candidate.owner();
-            for (Map.Entry<String, String> action : contribution.actions().entrySet()) {
-                String actionId = action.getKey();
-                String endpoint = action.getValue();
+            dialogs.addAll(acceptedDialogs);
+            String owner = candidate.source().id();
+            for (String actionId : acceptedActions) {
+                String endpoint = contribution.actions().get(actionId);
                 nextActions.put(actionId, () -> runPluginPageAction(owner, actionId, endpoint));
             }
+            for (CompatibilityNotice notice : notices) {
+                activeCompatibilityNoticeKeys.add(notice.key());
+                if (!dismissedCompatibilityNotices.contains(notice.key())) {
+                    dialogs.add(notice.dialog());
+                    nextActions.put(notice.actionId(), notice.dismiss());
+                }
+            }
         }
+        dismissedCompatibilityNotices.retainAll(activeCompatibilityNoticeKeys);
+    }
+
+    private DesktopUiDocument.Page incompatiblePluginPage(DesktopUiPageContribution contribution) {
+        String base = contribution.pageId() + ".compatibility";
+        DesktopUiNode content = new DesktopUiNode.Surface(
+                base + ".surface", DesktopUiNode.SurfaceStyle.WARNING,
+                DesktopUiNode.Insets.all(12), true,
+                column(base + ".content",
+                        new DesktopUiNode.Text(base + ".message",
+                                key("desktop.ui.compatibility.page-unavailable"),
+                                TextStyle.BODY, true, true)));
+        return new DesktopUiDocument.Page(contribution.pageId(), contribution.title(), content);
+    }
+
+    private CompatibilityNotice compatibilityNotice(PluginPageCandidate candidate,
+                                                      int dialogIndex,
+                                                      String rejectedDialogId) {
+        String base = "desktop.compatibility." + candidate.source().id() + "."
+                + candidate.source().generation() + "." + candidate.declarationOrder() + "." + dialogIndex;
+        String actionId = base + ".dismiss";
+        String noticeKey = candidate.source().fingerprint() + ":" + rejectedDialogId;
+        DesktopUiNode content = new DesktopUiNode.Surface(
+                base + ".surface", DesktopUiNode.SurfaceStyle.WARNING,
+                DesktopUiNode.Insets.all(12), true,
+                column(base + ".content",
+                        new DesktopUiNode.Text(base + ".message",
+                                key("desktop.ui.compatibility.dialog-unavailable"),
+                                TextStyle.BODY, true, true)));
+        DesktopUiDocument.Dialog dialog = new DesktopUiDocument.Dialog(
+                base, key("gui.dialog.warning.title"), DesktopUiDocument.DialogStyle.WARNING,
+                content, actionId, true, 440, 0);
+        return new CompatibilityNotice(noticeKey, dialog, actionId, () -> {
+            dismissedCompatibilityNotices.add(noticeKey);
+            rebuild();
+        });
+    }
+
+    private static void collectPluginActions(DesktopUiNode node, Set<String> actions) {
+        if (node instanceof DesktopUiNode.Button button) actions.add(button.actionId());
+        else if (node instanceof DesktopUiNode.Link link) actions.add(link.actionId());
+        for (DesktopUiNode child : node.childNodes()) collectPluginActions(child, actions);
     }
 
     private static boolean validPluginPage(String owner, DesktopUiPageContribution contribution,
@@ -6042,9 +6217,27 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private record PluginConfig(String owner, String namespace, String displayNameKey,
                                  List<GuiConfigContribution> contributions,
                                  List<WebRouteContribution> routes) {}
-    private record PluginPageCandidate(String owner, long generation, int declarationOrder,
+    private record PluginPageCandidate(DesktopUiPluginSource source, int declarationOrder,
                                        DesktopUiPageContribution page,
                                        List<WebRouteContribution> routes) {}
+    private record CompatibilityNotice(String key, DesktopUiDocument.Dialog dialog,
+                                       String actionId, Runnable dismiss) {}
+    private record UiCompatibilityDiagnostic(
+            String providerId,
+            DesktopUiExperienceProfile experienceProfile,
+            String owner,
+            String packageId,
+            long generation,
+            String publication,
+            String locationType,
+            String locationId,
+            String nodeId,
+            String nodePath,
+            Set<DesktopUiNode.Kind> missingKinds,
+            Set<DesktopUiCapability> missingCapabilities,
+            long snapshotRevision,
+            String remediationKey
+    ) {}
     private record PluginOnboardingStep(GuiOnboardingStepContribution step) {}
 
     @FunctionalInterface

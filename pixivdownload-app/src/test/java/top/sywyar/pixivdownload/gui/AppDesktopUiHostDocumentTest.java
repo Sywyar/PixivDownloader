@@ -60,6 +60,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AppDesktopUiHostDocumentTest {
 
@@ -239,7 +240,7 @@ class AppDesktopUiHostDocumentTest {
                     }
                 });
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
-                config, host, sources::get));
+                config, host, sources::get, rendererContract(DesktopUiExperienceProfile.CLASSIC)));
 
         assertThat(model.snapshot().document().pages()).extracting(DesktopUiDocument.Page::id)
                 .endsWith("page-fixture.first", "page-fixture.readonly", "page-fixture.second")
@@ -269,6 +270,115 @@ class AppDesktopUiHostDocumentTest {
                 .doesNotContain("page-fixture.first", "page-fixture.second");
         assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
                 .doesNotContain("page-fixture.second.dialog");
+    }
+
+    @Test
+    @DisplayName("宿主页面能力不兼容时拒绝首次快照")
+    void incompatibleCoreDocumentFailsBeforePublication() {
+        Path config = tempDir.resolve("incompatible-core.yaml");
+        AppDesktopUiModel.RendererContract limited = new AppDesktopUiModel.RendererContract(
+                "limited-provider", DesktopUiExperienceProfile.CLASSIC,
+                Set.of(DesktopUiNode.Kind.TEXT), Set.of());
+
+        assertThatThrownBy(() -> new AppDesktopUiModel(
+                6999, tempDir.resolve("downloads").toString(), config,
+                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), List::of, limited))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("limited-provider");
+    }
+
+    @Test
+    @DisplayName("插件页面与对话框按当前 owner publication 隔离能力缺口")
+    void incompatiblePluginTreesAreIsolatedAndWithdrawnByPublication() {
+        PixivFeaturePlugin plugin = new PixivFeaturePlugin() {
+            @Override public String id() { return "compat-fixture"; }
+            @Override public String displayName() { return "plugin.name"; }
+            @Override public String description() { return "plugin.description"; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public List<DesktopUiPageContribution> desktopPages() {
+                DesktopUiNode.Tree pageTree = tree("compat-fixture.tree.content");
+                DesktopUiDocument.Dialog dialog = new DesktopUiDocument.Dialog(
+                        "compat-fixture.readable.dialog", DesktopUiNode.TextToken.raw("Dialog"),
+                        DesktopUiDocument.DialogStyle.INFO,
+                        tree("compat-fixture.readable.dialog.content"),
+                        "compat-fixture.readable.dialog.dismiss", false, 0, 0);
+                return List.of(
+                        new DesktopUiPageContribution(
+                                "compat-fixture.readable", 10, DesktopUiNode.TextToken.raw("Readable"),
+                                new DesktopUiNode.Text(
+                                        "compat-fixture.readable.content", DesktopUiNode.TextToken.raw("Content"),
+                                        DesktopUiNode.TextStyle.BODY, true, false),
+                                Map.of(), List.of(dialog)),
+                        new DesktopUiPageContribution(
+                                "compat-fixture.tree", 20, DesktopUiNode.TextToken.raw("Tree"), pageTree));
+            }
+
+            private DesktopUiNode.Tree tree(String id) {
+                return new DesktopUiNode.Tree(
+                        id, id + ".value",
+                        List.of(new DesktopUiNode.TreeItem(
+                                id + ".item", DesktopUiNode.TextToken.raw("Item"), List.of())),
+                        DesktopUiNode.SelectionMode.SINGLE, List.of(), false);
+            }
+        };
+        AtomicReference<List<DesktopUiPluginSource>> sources = new AtomicReference<>(List.of(
+                new DesktopUiPluginSource(plugin.id(), false, plugin, plugin.getClass().getClassLoader(),
+                        "compat-fixture", 1L)));
+        Set<DesktopUiCapability> capabilities = new LinkedHashSet<>(Set.of(DesktopUiCapability.values()));
+        capabilities.remove(DesktopUiCapability.TREE_EXPAND_COLLAPSE);
+        AppDesktopUiModel.RendererContract limited = new AppDesktopUiModel.RendererContract(
+                "limited-provider", DesktopUiExperienceProfile.CLASSIC,
+                Set.of(DesktopUiNode.Kind.values()), capabilities);
+        Path config = tempDir.resolve("incompatible-plugin.yaml");
+        AppDesktopUiModel model = track(new AppDesktopUiModel(
+                6999, tempDir.resolve("downloads").toString(), config,
+                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), sources::get, limited));
+
+        DesktopUiDocument.Page readable = model.snapshot().document().pages().stream()
+                .filter(page -> page.id().equals("compat-fixture.readable")).findFirst().orElseThrow();
+        assertThat(readable.content()).isInstanceOf(DesktopUiNode.Text.class);
+        DesktopUiDocument.Page isolated = model.snapshot().document().pages().stream()
+                .filter(page -> page.id().equals("compat-fixture.tree")).findFirst().orElseThrow();
+        List<DesktopUiNode> isolatedNodes = new ArrayList<>();
+        collectNodes(isolated.content(), isolatedNodes);
+        assertThat(isolatedNodes).noneMatch(DesktopUiNode.Tree.class::isInstance);
+        assertThat(isolatedNodes.stream()
+                .filter(DesktopUiNode.Text.class::isInstance)
+                .map(DesktopUiNode.Text.class::cast)
+                .map(text -> text.text().key()).toList())
+                .contains("desktop.ui.compatibility.page-unavailable");
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+                .doesNotContain("compat-fixture.readable.dialog");
+        DesktopUiDocument.Dialog notice = model.snapshot().document().dialogs().stream()
+                .filter(dialog -> dialog.id().startsWith("desktop.compatibility.compat-fixture."))
+                .findFirst().orElseThrow();
+        List<DesktopUiNode.TextToken> noticeTokens = new ArrayList<>();
+        collectTokens(notice.content(), noticeTokens);
+        assertThat(noticeTokens).extracting(DesktopUiNode.TextToken::key)
+                .contains("desktop.ui.compatibility.dialog-unavailable");
+        assertThat(model.snapshot().document().requiredCapabilities())
+                .doesNotContain(DesktopUiCapability.TREE_EXPAND_COLLAPSE);
+
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE, notice.id(), DesktopUiNode.Value.empty());
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+                .noneMatch(id -> id.startsWith("desktop.compatibility.compat-fixture."));
+
+        sources.set(List.of(new DesktopUiPluginSource(
+                plugin.id(), false, plugin, plugin.getClass().getClassLoader(), "compat-fixture", 2L)));
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "debug.unlock.shortcut", DesktopUiNode.Value.empty());
+        DesktopUiDocument.Dialog replacementNotice = model.snapshot().document().dialogs().stream()
+                .filter(dialog -> dialog.id().startsWith("desktop.compatibility.compat-fixture.2."))
+                .findFirst().orElseThrow();
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+                .anyMatch(id -> id.startsWith("desktop.compatibility.compat-fixture.2."));
+
+        sources.set(List.of());
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE, replacementNotice.id(), DesktopUiNode.Value.empty());
+        assertThat(model.snapshot().document().pages()).extracting(DesktopUiDocument.Page::id)
+                .doesNotContain("compat-fixture.readable", "compat-fixture.tree");
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+                .noneMatch(id -> id.startsWith("desktop.compatibility.compat-fixture."));
     }
 
     @Test
@@ -350,7 +460,8 @@ class AppDesktopUiHostDocumentTest {
         Path config = tempDir.resolve("interface.yaml");
         TestDesktopConfigFile configFile = new TestDesktopConfigFile(config);
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
-                config, new AppDesktopUiHost(6999, configFile), List::of));
+                config, new AppDesktopUiHost(6999, configFile), List::of,
+                rendererContract(DesktopUiExperienceProfile.CLASSIC)));
         await(() -> nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Button.class::isInstance)
                 .map(DesktopUiNode.Button.class::cast)
@@ -455,7 +566,8 @@ class AppDesktopUiHostDocumentTest {
                         plugin.getClass().getClassLoader(), "schema-test-package", 1L)));
         Path config = tempDir.resolve("generation-config.yaml");
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
-                config, new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), sources::get));
+                config, new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), sources::get,
+                rendererContract(DesktopUiExperienceProfile.CLASSIC)));
         DesktopUiSnapshot observed = model.snapshot();
         DesktopUiNode.Choice mode = nodes(observed.document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
@@ -622,7 +734,7 @@ class AppDesktopUiHostDocumentTest {
                     }
                 });
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
-                config, host, List::of));
+                config, host, List::of, rendererContract(DesktopUiExperienceProfile.CLASSIC)));
         await(() -> nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Button.class::isInstance)
                 .map(DesktopUiNode.Button.class::cast)
@@ -690,7 +802,7 @@ class AppDesktopUiHostDocumentTest {
                     }
                 });
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
-                config, host, List::of));
+                config, host, List::of, rendererContract(DesktopUiExperienceProfile.CLASSIC)));
         await(() -> subscriber.get() != null);
 
         connected.set(true);
@@ -715,7 +827,8 @@ class AppDesktopUiHostDocumentTest {
         Files.writeString(config, "debug.enabled: true\n", StandardCharsets.UTF_8);
         AppDesktopUiModel stored = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config,
-                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), List::of));
+                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), List::of,
+                rendererContract(DesktopUiExperienceProfile.CLASSIC)));
         assertThat(bindingIds(stored.snapshot().document())).anyMatch(id -> id.endsWith("debug.enabled"));
     }
 
@@ -879,7 +992,8 @@ class AppDesktopUiHostDocumentTest {
 
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config,
-                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> List.of(source)));
+                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> List.of(source),
+                rendererContract(DesktopUiExperienceProfile.CLASSIC)));
 
         Properties properties = new Properties();
         try (var reader = Files.newBufferedReader(
@@ -917,7 +1031,14 @@ class AppDesktopUiHostDocumentTest {
         return track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config,
                 new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> sources,
-                experienceProfile));
+                rendererContract(experienceProfile)));
+    }
+
+    private static AppDesktopUiModel.RendererContract rendererContract(
+            DesktopUiExperienceProfile experienceProfile) {
+        return new AppDesktopUiModel.RendererContract(
+                "test", experienceProfile,
+                Set.of(DesktopUiNode.Kind.values()), Set.of(DesktopUiCapability.values()));
     }
 
     private static DesktopUiPluginSource source(ThemeProviderPlugin plugin) {

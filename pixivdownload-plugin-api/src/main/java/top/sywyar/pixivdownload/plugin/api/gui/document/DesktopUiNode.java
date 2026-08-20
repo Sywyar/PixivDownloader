@@ -71,6 +71,19 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         return Set.copyOf(capabilities);
     }
 
+    /**
+     * 返回当前节点自身要求的语义能力，不包含子节点。
+     *
+     * @param node 当前声明式节点
+     * @return 不可变的直接能力集合
+     */
+    static Set<DesktopUiCapability> directRequiredCapabilities(DesktopUiNode node) {
+        Objects.requireNonNull(node, "node");
+        EnumSet<DesktopUiCapability> capabilities = EnumSet.noneOf(DesktopUiCapability.class);
+        collectDirectCapabilities(node, capabilities);
+        return Set.copyOf(capabilities);
+    }
+
     /** General column, row, flow, or grid container. */
     record Container(String id, ContainerLayout layout, int columns, int gap,
                      Alignment alignment, List<DesktopUiNode> children) implements DesktopUiNode {
@@ -1122,6 +1135,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     private static void collectCapabilities(DesktopUiNode node, Set<DesktopUiCapability> capabilities) {
+        collectDirectCapabilities(node, capabilities);
+        for (DesktopUiNode child : node.childNodes()) collectCapabilities(child, capabilities);
+    }
+
+    private static void collectDirectCapabilities(DesktopUiNode node,
+                                                  Set<DesktopUiCapability> capabilities) {
         if (node instanceof Split) capabilities.add(DesktopUiCapability.SPLIT_USER_RESIZABLE);
         if (node instanceof Tree tree) {
             capabilities.add(DesktopUiCapability.TREE_EXPAND_COLLAPSE);
@@ -1149,7 +1168,6 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
                 default -> { }
             }
         }
-        for (DesktopUiNode child : node.childNodes()) collectCapabilities(child, capabilities);
     }
 
     private static int maxCollectionSize() { return 10_000; }
