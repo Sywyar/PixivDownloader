@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.gui;
 
-import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
+import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
@@ -444,7 +445,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                           Map<String, ConfigField> nextBindings,
                                           Map<String, Consumer<List<String>>> nextSelections,
                                           Map<String, Runnable> nextActions) {
-        pages.add(page("home", homePage(nextActions)));
+        DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
+        pages.add(page("home", onboarding.complete()
+                ? homePage(nextActions) : controlCenterWelcomePage(onboarding, nextActions)));
         pages.add(page("automation", automationPage()));
         pages.add(page("plugins", controlCenterPluginsPage()));
         pages.add(page("tools", toolsPage(nextActions)));
@@ -1362,15 +1365,30 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         };
     }
 
+    private DesktopUiNode controlCenterWelcomePage(DesktopUiHost.OnboardingSnapshot onboarding,
+                                                    Map<String, Runnable> nextActions) {
+        int step = hostSetupWelcomeStep(onboarding);
+        if (step != welcomeStep) welcomeStep = step;
+        return switch (step) {
+            case 1 -> welcomeServiceStep(nextActions);
+            case 2 -> welcomeConfigStep(nextActions);
+            case 3 -> welcomeProxyStep(nextActions);
+            default -> welcomeDoneStep(nextActions);
+        };
+    }
+
     private DesktopUiNode welcomeServiceStep(Map<String, Runnable> nextActions) {
-        return welcomeStep("welcome.service", "gui.welcome.status.title", "gui.welcome.status.subtitle",
-                List.of(
+        List<DesktopUiNode> content = new ArrayList<>(List.of(
                 raw("welcome.service.state", backendMessage(), backend.state() == DesktopUiHost.BackendState.RUNNING
                         ? TextStyle.SUCCESS : backend.state() == DesktopUiHost.BackendState.FAILED
                         ? TextStyle.ERROR : TextStyle.WARNING),
                 bullet("welcome.service.point1", "gui.welcome.status.point1"),
-                bullet("welcome.service.point2", "gui.welcome.status.point2"),
-                bullet("welcome.service.point3", "gui.welcome.status.point3")),
+                bullet("welcome.service.point2", "gui.welcome.status.point2")));
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CLASSIC) {
+            content.add(bullet("welcome.service.point3", "gui.welcome.status.point3"));
+        }
+        return welcomeStep("welcome.service", "gui.welcome.status.title", "gui.welcome.status.subtitle",
+                content,
                 endRow("welcome.service.actions",
                         button("welcome.service.next", "welcome.service.next", "gui.welcome.nav.next",
                                 backend.state() == DesktopUiHost.BackendState.RUNNING, nextActions,
@@ -1387,7 +1405,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     backWelcomeButton("welcome.config.back", 1, nextActions),
                     nextWelcomeButton("welcome.config.next", 3, nextActions));
         } else {
-            content.add(bullet("welcome.config.account", "gui.welcome.config.point.account"));
+            content.add(bullet("welcome.config.account", welcomeKey("gui.welcome.config.point.account",
+                    "desktop.ui.onboarding.account.point.credentials")));
             content.add(new DesktopUiNode.Form("welcome.config.form", DesktopUiNode.FormStyle.COMPACT, null,
                     List.of(
                             new DesktopUiNode.FormRow("welcome.config.username", key("gui.welcome.config.username"),
@@ -1400,14 +1419,17 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                     !busy && backend.state() == DesktopUiHost.BackendState.RUNNING,
                                     welcomeFormRevision), null))));
             if (!welcomeNotice.isBlank()) content.add(status("welcome.config.notice", welcomeNotice));
-            content.add(secondary("welcome.config.change", "gui.welcome.config.point.change"));
+            content.add(secondary("welcome.config.change", welcomeKey("gui.welcome.config.point.change",
+                    "desktop.ui.onboarding.account.point.change")));
             actions = endRow("welcome.config.actions",
                     backWelcomeButton("welcome.config.back", 1, nextActions),
                     button("welcome.config.submit", "welcome.config.submit", "gui.welcome.config.submit",
                             !busy && backend.state() == DesktopUiHost.BackendState.RUNNING,
                             nextActions, this::submitSetup));
         }
-        return welcomeStep("welcome.config", "gui.welcome.config.title", "gui.welcome.config.body",
+        return welcomeStep("welcome.config", welcomeKey("gui.welcome.config.title",
+                        "desktop.ui.onboarding.account.title"),
+                welcomeKey("gui.welcome.config.body", "desktop.ui.onboarding.account.body"),
                 content, actions);
     }
 
@@ -1430,8 +1452,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                         form("welcome.proxy.port", Integer.toString(host.defaultProxyPort())),
                                         !busy && enabled), null))));
         if (!welcomeNotice.isBlank()) content.add(status("welcome.proxy.notice", welcomeNotice));
-        content.add(secondary("welcome.proxy.change", "gui.welcome.proxy.point.change"));
-        return welcomeStep("welcome.proxy", "gui.welcome.proxy.title", "gui.welcome.proxy.body", content,
+        content.add(secondary("welcome.proxy.change", welcomeKey("gui.welcome.proxy.point.change",
+                "desktop.ui.onboarding.proxy.point.change")));
+        return welcomeStep("welcome.proxy", "gui.welcome.proxy.title",
+                welcomeKey("gui.welcome.proxy.body", "desktop.ui.onboarding.proxy.body"), content,
                 endRow("welcome.proxy.actions",
                 backWelcomeButton("welcome.proxy.back", 2, nextActions),
                 button("welcome.proxy.next", "welcome.proxy.next", "gui.welcome.nav.next", !busy,
@@ -1501,6 +1525,17 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private DesktopUiNode welcomeDoneStep(Map<String, Runnable> nextActions) {
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+            return welcomeStep("welcome.done", "gui.welcome.done.title", "desktop.ui.onboarding.done.body",
+                    List.of(
+                            bullet("welcome.done.account", "desktop.ui.onboarding.done.point.account"),
+                            bullet("welcome.done.proxy", "desktop.ui.onboarding.done.point.proxy")),
+                    endRow("welcome.done.actions",
+                            backWelcomeButton("welcome.done.back", 3, nextActions),
+                            button("welcome.done.finish", "welcome.done.finish",
+                                    "desktop.ui.onboarding.done.button", !busy,
+                                    nextActions, this::finishOnboarding)));
+        }
         return welcomeStep("welcome.done", "gui.welcome.done.title", "gui.welcome.done.body", List.of(
                 bullet("welcome.done.start", "gui.welcome.done.point.start"),
                 bullet("welcome.done.advanced", "gui.welcome.done.point.advanced")),
@@ -1545,11 +1580,25 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         return step == 5 && onboardingPluginStep().isEmpty() ? 6 : step;
     }
 
+    private String welcomeKey(String classicKey, String controlCenterKey) {
+        return rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER
+                ? controlCenterKey : classicKey;
+    }
+
     private int initialWelcomeStep() {
         DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+            return hostSetupWelcomeStep(onboarding);
+        }
         int incomplete = backend.state() == DesktopUiHost.BackendState.RUNNING
                 ? !onboarding.setupComplete() ? 2 : !onboarding.proxyConfigured() ? 3 : 4 : 1;
         return normalizeWelcomeStep(Math.max(incomplete, Math.max(1, Math.min(7, onboarding.progress()))));
+    }
+
+    private int hostSetupWelcomeStep(DesktopUiHost.OnboardingSnapshot onboarding) {
+        if (backend.state() != DesktopUiHost.BackendState.RUNNING) return 1;
+        if (!onboarding.setupComplete()) return 2;
+        return onboarding.proxyConfigured() ? 4 : 3;
     }
 
     private Optional<PluginOnboardingStep> onboardingPluginStep() {
@@ -1651,7 +1700,12 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private DesktopUiNode updateBanner(String id, PendingInstall update, boolean nightly,
                                         Map<String, Runnable> nextActions) {
-        String base = "status.update." + id;
+        return updateBanner("status.update", id, update, nightly, nextActions);
+    }
+
+    private DesktopUiNode updateBanner(String prefix, String id, PendingInstall update, boolean nightly,
+                                        Map<String, Runnable> nextActions) {
+        String base = prefix + "." + id;
         List<DesktopUiNode> content = new ArrayList<>();
         content.add(raw(base + ".text", host.message(nightly
                 ? "gui.update.banner.nightly-text" : "gui.update.banner.text",
@@ -2892,6 +2946,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private DesktopUiNode aboutPage(Map<String, Runnable> nextActions) {
+        boolean controlCenter = rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER;
         List<DesktopUiNode> header = new ArrayList<>();
         applicationIcon.ifPresent(icon -> header.add(new DesktopUiNode.Image(
                 "about.icon", icon, key("desktop.ui.about.icon-alt"), 48, 48,
@@ -2900,12 +2955,23 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 DesktopUiNode.TextAlignment.CENTER));
         String version = host.applicationVersion().isBlank()
                 ? host.message("app.version.unknown") : host.applicationVersion();
-        header.add(alignedText("about.description", "gui.about.description", TextStyle.BODY,
+        header.add(alignedText("about.description", controlCenter
+                        ? "desktop.ui.about.description" : "gui.about.description", TextStyle.BODY,
                 DesktopUiNode.TextAlignment.CENTER));
         String projectAction = "about.project.open";
         nextActions.put(projectAction, () -> openUri(host.projectUrl()));
         header.add(new DesktopUiNode.Link("about.project", projectAction,
-                TextToken.raw(host.projectUrl()), null, true));
+                controlCenter ? key("desktop.ui.about.project") : TextToken.raw(host.projectUrl()), null, true));
+        if (controlCenter) {
+            String releasesAction = "about.releases.open";
+            nextActions.put(releasesAction, () -> openUri(AppInfo.RELEASES_URL));
+            header.add(new DesktopUiNode.Link("about.releases", releasesAction,
+                    key("desktop.ui.about.releases"), null, true));
+            String docsAction = "about.docs.open";
+            nextActions.put(docsAction, () -> openUri(AppInfo.DOCS_URL));
+            header.add(new DesktopUiNode.Link("about.docs", docsAction,
+                    key("desktop.ui.about.documentation"), null, true));
+        }
         header.add(new DesktopUiNode.Container("about.metadata", ContainerLayout.FLOW, 1, 12,
                 Alignment.CENTER, List.of(
                         new DesktopUiNode.Text("about.version", appToken("gui.about.version", version),
@@ -2916,15 +2982,31 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                 appToken("gui.about.tech", AppVersion.getKotlinVersionOrDefault("--")),
                                 TextStyle.CAPTION, false, false, DesktopUiNode.TextAlignment.CENTER))));
 
-        DesktopUiNode summary = column("about.summary",
-                new DesktopUiNode.Surface("about.header", DesktopUiNode.SurfaceStyle.PLAIN,
+        List<DesktopUiNode> summaryContent = new ArrayList<>();
+        summaryContent.add(new DesktopUiNode.Surface("about.header", DesktopUiNode.SurfaceStyle.PLAIN,
                         new DesktopUiNode.Insets(0, 0, 8, 0), true,
                         new DesktopUiNode.Container("about.header.content", ContainerLayout.COLUMN,
-                                1, 6, Alignment.CENTER, header)),
-                group("about.disclaimer", "gui.about.disclaimer.title",
-                        text("about.disclaimer.text", "gui.about.disclaimer.text", TextStyle.BODY)),
-                alignedText("about.license.title", "gui.about.license.title", TextStyle.EMPHASIS,
-                        DesktopUiNode.TextAlignment.CENTER));
+                                1, 6, Alignment.CENTER, header)));
+        if (controlCenter) {
+            List<DesktopUiNode> updates = new ArrayList<>();
+            if (pendingOfficialUpdate != null) {
+                updates.add(updateBanner("about.update", "official",
+                        pendingOfficialUpdate, false, nextActions));
+            }
+            if (pendingNightlyUpdate != null) {
+                updates.add(updateBanner("about.update", "nightly",
+                        pendingNightlyUpdate, true, nextActions));
+            }
+            updates.add(button("about.update.check", "about.update.check", "gui.update.action.check",
+                    !busy, nextActions, this::checkUpdates));
+            summaryContent.add(group("about.update", "gui.config.group.update",
+                    column("about.update.content", updates)));
+        }
+        summaryContent.add(group("about.disclaimer", "gui.about.disclaimer.title",
+                text("about.disclaimer.text", "gui.about.disclaimer.text", TextStyle.BODY)));
+        summaryContent.add(alignedText("about.license.title", "gui.about.license.title", TextStyle.EMPHASIS,
+                DesktopUiNode.TextAlignment.CENTER));
+        DesktopUiNode summary = column("about.summary", summaryContent);
         return new DesktopUiNode.Dock("about.root", 8, summary,
                 scroll("about.license.scroll", new DesktopUiNode.Text(
                         "about.license.text", TextToken.raw(licenseText), TextStyle.CODE,
@@ -3520,6 +3602,14 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private void refreshOnboardingState() {
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+            int next = hostSetupWelcomeStep(host.onboardingState(rootFolder));
+            if (next != welcomeStep) {
+                welcomeStep = next;
+                host.saveOnboardingProgress(next);
+            }
+            return;
+        }
         DesktopUiHost.GuiResponse response = host.guiGet("onboarding", 2_000);
         if (!response.is2xx() || response.body() == null) return;
         onboardingBatchVisited |= response.body().path("batchVisited").asBoolean(false);
