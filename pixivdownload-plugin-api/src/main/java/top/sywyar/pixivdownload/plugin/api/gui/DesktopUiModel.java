@@ -1,31 +1,23 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
 /**
- * Host-owned, toolkit-neutral desktop UI state.
- * Renderers read immutable documents and return typed events; unknown or stale events are ignored by the host.
+ * 宿主拥有、与工具包无关的桌面界面状态。
+ * Renderer 原子读取不可变快照并返回类型事件；宿主忽略未知或过期事件。
  */
 public interface DesktopUiModel {
     /**
-     * Returns the current complete desktop UI document.
+     * 返回当前完整桌面界面快照。
      *
-     * @return immutable desktop UI document
+     * @return 原子发布的不可变快照
      */
-    DesktopUiDocument document();
+    DesktopUiSnapshot snapshot();
 
     /**
-     * Returns the monotonic revision changed whenever {@link #document()} must be rendered again.
+     * 向宿主模型派发一个 renderer 事件。
      *
-     * @return current document revision
-     */
-    long revision();
-
-    /**
-     * Dispatches one renderer event to the host-owned model.
-     *
-     * @param event typed renderer event
+     * @param event 类型事件
      */
     void dispatch(DesktopUiNode.Event event);
 }

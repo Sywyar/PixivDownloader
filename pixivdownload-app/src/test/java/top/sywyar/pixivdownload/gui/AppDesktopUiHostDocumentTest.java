@@ -74,7 +74,7 @@ class AppDesktopUiHostDocumentTest {
     @Test
     @DisplayName("宿主模型提供全部桌面根页面")
     void hostModelProvidesCompleteDesktopDocument() {
-        DesktopUiDocument document = model().document();
+        DesktopUiDocument document = model().snapshot().document();
 
         assertThat(document.pages()).extracting(DesktopUiDocument.Page::id)
                 .containsExactly("welcome", "status", "config", "plugins", "tools", "security", "about");
@@ -125,7 +125,8 @@ class AppDesktopUiHostDocumentTest {
         DesktopUiPluginSource source = new DesktopUiPluginSource(
                 plugin.id(), false, plugin, plugin.getClass().getClassLoader());
 
-        DesktopUiDocument.TrayItem item = model(List.of(source)).document().tray().orElseThrow().items().stream()
+        DesktopUiDocument.TrayItem item = model(List.of(source)).snapshot().document()
+                .tray().orElseThrow().items().stream()
                 .filter(candidate -> candidate.id().startsWith("tray.web."))
                 .findFirst().orElseThrow();
 
@@ -187,21 +188,21 @@ class AppDesktopUiHostDocumentTest {
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config, new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), sources::get));
 
-        assertThat(model.document().pages()).extracting(DesktopUiDocument.Page::id)
+        assertThat(model.snapshot().document().pages()).extracting(DesktopUiDocument.Page::id)
                 .endsWith("page-fixture.first", "page-fixture.second")
                 .doesNotContain("page-fixture.invalid", "page-fixture.svg");
-        assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
                 .contains("page-fixture.second.dialog");
 
-        long activeRevision = model.revision();
+        long activeRevision = model.snapshot().revision();
         sources.set(List.of());
         dispatch(model, DesktopUiNode.EventType.ACTIVATE,
                 "debug.unlock.shortcut", DesktopUiNode.Value.empty());
 
-        assertThat(model.revision()).isGreaterThan(activeRevision);
-        assertThat(model.document().pages()).extracting(DesktopUiDocument.Page::id)
+        assertThat(model.snapshot().revision()).isGreaterThan(activeRevision);
+        assertThat(model.snapshot().document().pages()).extracting(DesktopUiDocument.Page::id)
                 .doesNotContain("page-fixture.first", "page-fixture.second");
-        assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
                 .doesNotContain("page-fixture.second.dialog");
     }
 
@@ -214,13 +215,13 @@ class AppDesktopUiHostDocumentTest {
         ThemeProviderPlugin compose = new ThemeProviderPlugin("gui-compose", List.of());
         AppDesktopUiModel model = model(List.of(source(swing), source(compose)));
 
-        DesktopUiNode.Choice themes = choice(model.document(), "interface.theme.input");
+        DesktopUiNode.Choice themes = choice(model.snapshot().document(), "interface.theme.input");
         assertThat(themes.options()).extracting(DesktopUiNode.Option::id)
                 .containsExactly("system", "light", "dark", "moonlight");
 
         dispatch(model, DesktopUiNode.EventType.SELECTION, "interface.provider.input",
                 DesktopUiNode.Value.selection("gui-compose"));
-        themes = choice(model.document(), "interface.theme.input");
+        themes = choice(model.snapshot().document(), "interface.theme.input");
         assertThat(themes.options()).extracting(DesktopUiNode.Option::id)
                 .containsExactly("system", "light", "dark");
         assertThat(themes.selectedIds()).containsExactly("system");
@@ -229,7 +230,7 @@ class AppDesktopUiHostDocumentTest {
     @Test
     @DisplayName("基准页面结构保留固定头尾、滚动内容与对齐表单")
     void baselinePageStructureUsesStableLayoutSemantics() {
-        DesktopUiDocument document = model().document();
+        DesktopUiDocument document = model().snapshot().document();
 
         DesktopUiNode.Dock welcome = assertPageContent(document, "welcome", DesktopUiNode.Dock.class);
         assertThat(welcome.top()).isInstanceOf(DesktopUiNode.Container.class);
@@ -252,7 +253,7 @@ class AppDesktopUiHostDocumentTest {
     @Test
     @DisplayName("工具提示与关于页保留基准排版语义")
     void toolsAndAboutKeepBaselineLayoutSemantics() {
-        DesktopUiDocument document = model().document();
+        DesktopUiDocument document = model().snapshot().document();
         List<DesktopUiNode> nodes = nodes(document);
         DesktopUiNode.Text limitHint = nodes.stream()
                 .filter(DesktopUiNode.Text.class::isInstance).map(DesktopUiNode.Text.class::cast)
@@ -285,12 +286,12 @@ class AppDesktopUiHostDocumentTest {
         TestDesktopConfigFile configFile = new TestDesktopConfigFile(config);
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config, new AppDesktopUiHost(6999, configFile), List::of));
-        await(() -> nodes(model.document()).stream()
+        await(() -> nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Button.class::isInstance)
                 .map(DesktopUiNode.Button.class::cast)
                 .anyMatch(button -> "config.save".equals(button.id()) && button.enabled()));
 
-        assertThat(nodes(model.document())).extracting(DesktopUiNode::id)
+        assertThat(nodes(model.snapshot().document())).extracting(DesktopUiNode::id)
                 .doesNotContain("interface.save");
         dispatch(model, DesktopUiNode.EventType.CHANGE,
                 "interface.config-menu-expand-all.input", DesktopUiNode.Value.bool(true));
@@ -311,23 +312,23 @@ class AppDesktopUiHostDocumentTest {
     void configurationResetRequiresDeclarativeConfirmation() throws Exception {
         AppDesktopUiModel model = model();
         awaitButtonEnabled(model, "config.reset");
-        DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
+        DesktopUiNode.TextInput root = configTextInput(model.snapshot().document(), "download.root-folder");
 
         dispatch(model, DesktopUiNode.EventType.CHANGE,
                 root.id(), DesktopUiNode.Value.text("changed-root"));
         dispatch(model, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset", DesktopUiNode.Value.empty());
 
-        assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
                 .containsExactly("config.reset.dialog");
-        assertThat(configTextInput(model.document(), "download.root-folder").value())
+        assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value())
                 .isEqualTo("changed-root");
 
         dispatch(model, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset.confirm", DesktopUiNode.Value.empty());
 
-        assertThat(model.document().dialogs()).isEmpty();
-        assertThat(configTextInput(model.document(), "download.root-folder").value())
+        assertThat(model.snapshot().document().dialogs()).isEmpty();
+        assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value())
                 .isEqualTo(root.value());
     }
 
@@ -336,22 +337,22 @@ class AppDesktopUiHostDocumentTest {
     void businessInputIsControlledByPublishedDocument() throws Exception {
         AppDesktopUiModel model = model();
         awaitButtonEnabled(model, "config.reload");
-        DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
-        long initialRevision = model.revision();
+        DesktopUiNode.TextInput root = configTextInput(model.snapshot().document(), "download.root-folder");
+        long initialRevision = model.snapshot().revision();
 
         dispatch(model, DesktopUiNode.EventType.CHANGE,
                 root.id(), DesktopUiNode.Value.text("changed-root"));
 
-        assertThat(model.revision()).isGreaterThan(initialRevision);
-        assertThat(configTextInput(model.document(), "download.root-folder").value())
+        assertThat(model.snapshot().revision()).isGreaterThan(initialRevision);
+        assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value())
                 .isEqualTo("changed-root");
-        long editedRevision = model.revision();
+        long editedRevision = model.snapshot().revision();
 
         dispatch(model, DesktopUiNode.EventType.ACTIVATE,
                 "config.reload", DesktopUiNode.Value.empty());
 
-        assertThat(model.revision()).isGreaterThan(editedRevision);
-        assertThat(configTextInput(model.document(), "download.root-folder").value())
+        assertThat(model.snapshot().revision()).isGreaterThan(editedRevision);
+        assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value())
                 .isEqualTo(root.value());
     }
 
@@ -360,77 +361,77 @@ class AppDesktopUiHostDocumentTest {
     void staleAndClosedDialogEventsAreIgnored() throws Exception {
         AppDesktopUiModel model = model();
         awaitButtonEnabled(model, "config.reset");
-        long pageRevision = model.revision();
+        long pageRevision = model.snapshot().revision();
         model.dispatch(new DesktopUiNode.Event(pageRevision, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset", DesktopUiNode.Value.empty()));
-        long dialogRevision = model.revision();
+        long dialogRevision = model.snapshot().revision();
         DesktopUiNode.Event confirm = new DesktopUiNode.Event(
                 dialogRevision, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset.confirm", DesktopUiNode.Value.empty());
 
         model.dispatch(new DesktopUiNode.Event(pageRevision, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset.confirm", DesktopUiNode.Value.empty()));
-        assertThat(model.document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
+        assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
                 .containsExactly("config.reset.dialog");
 
         model.dispatch(confirm);
-        assertThat(model.document().dialogs()).isEmpty();
-        long closedRevision = model.revision();
+        assertThat(model.snapshot().document().dialogs()).isEmpty();
+        long closedRevision = model.snapshot().revision();
         model.dispatch(confirm);
-        assertThat(model.document().dialogs()).isEmpty();
-        assertThat(model.revision()).isEqualTo(closedRevision);
+        assertThat(model.snapshot().document().dialogs()).isEmpty();
+        assertThat(model.snapshot().revision()).isEqualTo(closedRevision);
     }
 
     @Test
     @DisplayName("禁用节点的重复事件不会执行业务动作")
     void disabledNodeEventsAreRejectedBeforeDispatch() {
         AppDesktopUiModel model = model();
-        DesktopUiNode.Button disabled = nodes(model.document()).stream()
+        DesktopUiNode.Button disabled = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Button.class::isInstance)
                 .map(DesktopUiNode.Button.class::cast)
                 .filter(button -> !button.enabled())
                 .findFirst().orElseThrow();
-        DesktopUiDocument before = model.document();
-        long revision = model.revision();
+        DesktopUiDocument before = model.snapshot().document();
+        long revision = model.snapshot().revision();
         DesktopUiNode.Event click = new DesktopUiNode.Event(
                 revision, DesktopUiNode.EventType.ACTIVATE, disabled.id(), DesktopUiNode.Value.empty());
 
         model.dispatch(click);
-        assertThat(model.document()).isEqualTo(before);
-        assertThat(model.revision()).isEqualTo(revision);
+        assertThat(model.snapshot().document()).isEqualTo(before);
+        assertThat(model.snapshot().revision()).isEqualTo(revision);
 
         model.dispatch(click);
-        assertThat(model.document()).isEqualTo(before);
-        assertThat(model.revision()).isEqualTo(revision);
+        assertThat(model.snapshot().document()).isEqualTo(before);
+        assertThat(model.snapshot().revision()).isEqualTo(revision);
     }
 
     @Test
     @DisplayName("当前文档拒绝伪造选项和值类型")
     void currentDocumentRejectsForgedOptionsAndValueKinds() {
         AppDesktopUiModel model = model();
-        DesktopUiNode.Choice language = nodes(model.document()).stream()
+        DesktopUiNode.Choice language = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance)
                 .map(DesktopUiNode.Choice.class::cast)
                 .filter(choice -> "interface.language.input".equals(choice.id()))
                 .findFirst().orElseThrow();
         List<String> selected = language.selectedIds();
-        long optionRevision = model.revision();
+        long optionRevision = model.snapshot().revision();
 
         model.dispatch(new DesktopUiNode.Event(optionRevision, DesktopUiNode.EventType.SELECTION,
                 language.id(), DesktopUiNode.Value.selection("forged-option")));
-        DesktopUiNode.Choice afterForgedOption = nodes(model.document()).stream()
+        DesktopUiNode.Choice afterForgedOption = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance)
                 .map(DesktopUiNode.Choice.class::cast)
                 .filter(choice -> language.id().equals(choice.id()))
                 .findFirst().orElseThrow();
         assertThat(afterForgedOption.selectedIds()).isEqualTo(selected);
 
-        DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
-        long typeRevision = model.revision();
+        DesktopUiNode.TextInput root = configTextInput(model.snapshot().document(), "download.root-folder");
+        long typeRevision = model.snapshot().revision();
         model.dispatch(new DesktopUiNode.Event(typeRevision, DesktopUiNode.EventType.SELECTION,
                 root.id(), DesktopUiNode.Value.selection("forged-value")));
-        assertThat(configTextInput(model.document(), "download.root-folder").value()).isEqualTo(root.value());
-        assertThat(model.revision()).isEqualTo(typeRevision);
+        assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value()).isEqualTo(root.value());
+        assertThat(model.snapshot().revision()).isEqualTo(typeRevision);
     }
 
     @Test
@@ -506,11 +507,11 @@ class AppDesktopUiHostDocumentTest {
                 });
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config, host, List::of));
-        await(() -> nodes(model.document()).stream()
+        await(() -> nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Button.class::isInstance)
                 .map(DesktopUiNode.Button.class::cast)
                 .anyMatch(button -> "config.save".equals(button.id()) && button.enabled()));
-        DesktopUiNode.TextInput root = configTextInput(model.document(), "download.root-folder");
+        DesktopUiNode.TextInput root = configTextInput(model.snapshot().document(), "download.root-folder");
         String replacement = tempDir.resolve("new-download").toString();
 
         dispatch(model, DesktopUiNode.EventType.CHANGE,
@@ -520,7 +521,7 @@ class AppDesktopUiHostDocumentTest {
         dispatch(model, DesktopUiNode.EventType.ACTIVATE,
                 "config.save", DesktopUiNode.Value.empty());
 
-        await(() -> model.document().dialogs().stream()
+        await(() -> model.snapshot().document().dialogs().stream()
                 .anyMatch(dialog -> "config.symbolic-pin".equals(dialog.id())));
         assertThat(configFile.read("download.root-folder")).isEqualTo("relative-download");
 
@@ -579,7 +580,7 @@ class AppDesktopUiHostDocumentTest {
         connected.set(true);
         subscriber.get().accept(new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
 
-        await(() -> nodes(model.document()).stream()
+        await(() -> nodes(model.snapshot().document()).stream()
                 .anyMatch(node -> "plugins.card.connected-plugin".equals(node.id())));
     }
 
@@ -587,25 +588,25 @@ class AppDesktopUiHostDocumentTest {
     @DisplayName("隐藏配置由文档级快捷键解锁且既有启用值自动解锁")
     void hiddenConfigurationUsesDocumentShortcutAndStoredState() throws Exception {
         AppDesktopUiModel model = model();
-        assertThat(bindingIds(model.document())).noneMatch(id -> id.endsWith("debug.enabled"));
+        assertThat(bindingIds(model.snapshot().document())).noneMatch(id -> id.endsWith("debug.enabled"));
 
-        DesktopUiDocument.KeyboardShortcut shortcut = model.document().shortcuts().get(0);
+        DesktopUiDocument.KeyboardShortcut shortcut = model.snapshot().document().shortcuts().get(0);
         dispatch(model, DesktopUiNode.EventType.ACTIVATE,
                 shortcut.id(), DesktopUiNode.Value.empty());
-        assertThat(bindingIds(model.document())).anyMatch(id -> id.endsWith("debug.enabled"));
+        assertThat(bindingIds(model.snapshot().document())).anyMatch(id -> id.endsWith("debug.enabled"));
 
         Path config = tempDir.resolve("enabled-debug.yaml");
         Files.writeString(config, "debug.enabled: true\n", StandardCharsets.UTF_8);
         AppDesktopUiModel stored = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config,
                 new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), List::of));
-        assertThat(bindingIds(stored.document())).anyMatch(id -> id.endsWith("debug.enabled"));
+        assertThat(bindingIds(stored.snapshot().document())).anyMatch(id -> id.endsWith("debug.enabled"));
     }
 
     @Test
     @DisplayName("宿主文档中的全部宿主文本均可由每种可见语言解析")
     void allHostDocumentTokensResolveForEveryVisibleLocale() {
-        DesktopUiDocument document = model().document();
+        DesktopUiDocument document = model().snapshot().document();
         List<DesktopUiNode.TextToken> tokens = new ArrayList<>();
         collectTokens(document, tokens);
 
@@ -652,7 +653,7 @@ class AppDesktopUiHostDocumentTest {
         DesktopUiPluginSource source = new DesktopUiPluginSource(
                 "schema-test", false, plugin, plugin.getClass().getClassLoader());
         AppDesktopUiModel model = model(List.of(source));
-        DesktopUiDocument document = model.document();
+        DesktopUiDocument document = model.snapshot().document();
         List<String> ids = new ArrayList<>();
         List<DesktopUiNode.TextToken> tokens = new ArrayList<>();
         document.pages().forEach(page -> {
@@ -676,18 +677,18 @@ class AppDesktopUiHostDocumentTest {
         awaitChoiceEnabled(model, mode.id());
         dispatch(model, DesktopUiNode.EventType.SELECTION, mode.id(),
                 DesktopUiNode.Value.selection(mode.options().get(1).id()));
-        DesktopUiNode.Toggle enabledField = nodes(model.document()).stream()
+        DesktopUiNode.Toggle enabledField = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Toggle.class::isInstance).map(DesktopUiNode.Toggle.class::cast)
                 .filter(toggle -> toggle.bindingId().endsWith("schema-test.enabled")).findFirst().orElseThrow();
         assertThat(enabledField.enabled()).isTrue();
 
-        DesktopUiNode.Choice preset = nodes(model.document()).stream()
+        DesktopUiNode.Choice preset = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
                 .filter(choice -> choice.bindingId().contains(".card.main.preset")).findFirst().orElseThrow();
         awaitChoiceEnabled(model, preset.id());
         dispatch(model, DesktopUiNode.EventType.SELECTION, preset.id(),
                 DesktopUiNode.Value.selection(preset.options().get(0).id()));
-        DesktopUiNode.Toggle field = nodes(model.document()).stream()
+        DesktopUiNode.Toggle field = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Toggle.class::isInstance).map(DesktopUiNode.Toggle.class::cast)
                 .filter(toggle -> toggle.bindingId().endsWith("schema-test.enabled")).findFirst().orElseThrow();
         assertThat(field.selected()).isTrue();
@@ -703,12 +704,12 @@ class AppDesktopUiHostDocumentTest {
                 new DesktopUiPluginSource(first.id(), false, first, first.getClass().getClassLoader()),
                 new DesktopUiPluginSource(second.id(), false, second, second.getClass().getClassLoader())));
 
-        DesktopUiNode.Choice selector = nodes(model.document()).stream()
+        DesktopUiNode.Choice selector = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
                 .filter(choice -> "config.section.merged.cards.card.selector".equals(choice.id()))
                 .findFirst().orElseThrow();
         List<DesktopUiNode.TextToken> tokens = new ArrayList<>();
-        collectTokens(model.document(), tokens);
+        collectTokens(model.snapshot().document(), tokens);
         assertThat(tokens).extracting(DesktopUiNode.TextToken::key)
                 .contains("notice.card-a").doesNotContain("notice.card-b");
 
@@ -716,7 +717,7 @@ class AppDesktopUiHostDocumentTest {
         dispatch(model, DesktopUiNode.EventType.SELECTION, selector.id(),
                 DesktopUiNode.Value.selection("card-b"));
         tokens.clear();
-        collectTokens(model.document(), tokens);
+        collectTokens(model.snapshot().document(), tokens);
         assertThat(tokens).extracting(DesktopUiNode.TextToken::key)
                 .contains("notice.card-b").doesNotContain("notice.card-a");
     }
@@ -740,7 +741,7 @@ class AppDesktopUiHostDocumentTest {
                 plugin.id(), false, plugin, plugin.getClass().getClassLoader());
         List<DesktopUiNode.TextToken> tokens = new ArrayList<>();
 
-        collectTokens(model(List.of(source)).document(), tokens);
+        collectTokens(model(List.of(source)).snapshot().document(), tokens);
 
         assertThat(tokens).anySatisfy(token -> {
             assertThat(token.namespace()).isEqualTo("implicit-group");
@@ -775,7 +776,7 @@ class AppDesktopUiHostDocumentTest {
                 .containsEntry("fixture.secret", "legacy-secret");
         assertThat(Files.readString(config, StandardCharsets.UTF_8))
                 .doesNotContain("fixture.value", "fixture.secret", "legacy-secret");
-        assertThat(nodes(model.document()).stream()
+        assertThat(nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.TextInput.class::isInstance)
                 .map(DesktopUiNode.TextInput.class::cast)
                 .filter(input -> input.bindingId().endsWith("fixture.secret"))
@@ -950,7 +951,7 @@ class AppDesktopUiHostDocumentTest {
     private static void dispatch(AppDesktopUiModel model, DesktopUiNode.EventType type,
                                  String nodeId, DesktopUiNode.Value value) {
         synchronized (model) {
-            model.dispatch(new DesktopUiNode.Event(model.revision(), type, nodeId, value));
+            model.dispatch(new DesktopUiNode.Event(model.snapshot().revision(), type, nodeId, value));
         }
     }
 
@@ -969,14 +970,14 @@ class AppDesktopUiHostDocumentTest {
     }
 
     private static void awaitButtonEnabled(AppDesktopUiModel model, String id) throws InterruptedException {
-        await(() -> nodes(model.document()).stream()
+        await(() -> nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Button.class::isInstance)
                 .map(DesktopUiNode.Button.class::cast)
                 .anyMatch(button -> id.equals(button.id()) && button.enabled()));
     }
 
     private static void awaitChoiceEnabled(AppDesktopUiModel model, String id) throws InterruptedException {
-        await(() -> nodes(model.document()).stream()
+        await(() -> nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance)
                 .map(DesktopUiNode.Choice.class::cast)
                 .anyMatch(choice -> id.equals(choice.id()) && choice.enabled()));

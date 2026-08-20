@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,17 +21,30 @@ class DesktopUiContextTest {
         MutableModel model = new MutableModel(document(text("initial")));
         DesktopUiContext context = context(model, Set.of(DesktopUiNode.Kind.TEXT), Set.of());
 
-        assertThat(context.currentDocument()).isSameAs(model.document());
+        assertThat(context.currentSnapshot()).isSameAs(model.snapshot);
 
-        model.document = document(new DesktopUiNode.Split(
-                "split", DesktopUiNode.Axis.HORIZONTAL, .5, text("first"), text("second")));
-        model.revision++;
+        model.publish(document(new DesktopUiNode.Split(
+                "split", DesktopUiNode.Axis.HORIZONTAL, .5, text("first"), text("second"))));
 
-        assertThatThrownBy(context::currentDocument)
+        assertThatThrownBy(context::currentSnapshot)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("test-provider")
                 .hasMessageContaining("SPLIT")
                 .hasMessageContaining("SPLIT_USER_RESIZABLE");
+    }
+
+    @Test
+    @DisplayName("每次观察只读取一个原子快照")
+    void readsOneAtomicSnapshotPerObservation() {
+        MutableModel model = new MutableModel(document(text("initial")));
+        DesktopUiContext context = context(model, Set.of(DesktopUiNode.Kind.TEXT), Set.of());
+        model.reads = 0;
+
+        DesktopUiSnapshot observed = context.currentSnapshot();
+
+        assertThat(model.reads).isOne();
+        assertThat(observed.document()).isSameAs(model.snapshot.document());
+        assertThat(observed.revision()).isEqualTo(model.snapshot.revision());
     }
 
     @Test
@@ -62,15 +76,21 @@ class DesktopUiContextTest {
     }
 
     private static final class MutableModel implements DesktopUiModel {
-        private DesktopUiDocument document;
-        private long revision;
+        private DesktopUiSnapshot snapshot;
+        private int reads;
 
         private MutableModel(DesktopUiDocument document) {
-            this.document = document;
+            snapshot = new DesktopUiSnapshot(0L, document, Map.of());
         }
 
-        @Override public DesktopUiDocument document() { return document; }
-        @Override public long revision() { return revision; }
+        private void publish(DesktopUiDocument document) {
+            snapshot = new DesktopUiSnapshot(snapshot.revision() + 1L, document, Map.of());
+        }
+
+        @Override public DesktopUiSnapshot snapshot() {
+            reads++;
+            return snapshot;
+        }
         @Override public void dispatch(DesktopUiNode.Event event) { }
     }
 }

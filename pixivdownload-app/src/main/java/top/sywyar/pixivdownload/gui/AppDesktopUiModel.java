@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -76,7 +77,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -123,7 +123,6 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         thread.setDaemon(true);
         return thread;
     });
-    private final AtomicLong revision = new AtomicLong();
     private final Map<FieldKey, String> values = new ConcurrentHashMap<>();
     private final Map<FieldKey, String> savedValues = new ConcurrentHashMap<>();
     private volatile Set<FieldKey> storedCredentialFields = Set.of();
@@ -146,7 +145,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile Map<String, Consumer<List<String>>> selectionBindings = Map.of();
     private volatile Map<String, Runnable> actions = Map.of();
     private volatile Map<String, EventEndpoint> eventEndpoints = Map.of();
-    private volatile DesktopUiDocument document;
+    private volatile DesktopUiSnapshot snapshot;
     private volatile DesktopUiHost.BackendSnapshot backend;
     private volatile String statusNotice = "";
     private volatile String configNotice = "";
@@ -253,14 +252,13 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         scheduleSymbolicOrphanCheck();
     }
 
-    @Override public DesktopUiDocument document() { return document; }
-    @Override public long revision() { return revision.get(); }
+    @Override public DesktopUiSnapshot snapshot() { return snapshot; }
 
     @Override
     public synchronized void dispatch(DesktopUiNode.Event event) {
         Objects.requireNonNull(event, "event");
         if (closed) return;
-        long currentRevision = revision.get();
+        long currentRevision = snapshot.revision();
         if (event.documentRevision() != currentRevision) {
             LOG.warn("Ignored stale desktop UI event (nodeId={}, type={}, eventRevision={}, currentRevision={})",
                     event.nodeId(), event.type(), event.documentRevision(), currentRevision);
@@ -355,16 +353,29 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     keyStroke("ArrowLeft"), keyStroke("ArrowRight"), keyStroke("ArrowLeft"), keyStroke("ArrowRight"),
                     keyStroke("KeyB"), keyStroke("KeyA"), keyStroke("KeyB"), keyStroke("KeyA")),
                     "debug.unlock", false)), Optional.of(tray));
-            eventEndpoints = indexEventEndpoints(nextDocument);
-            if (sourcesChanged || localeChanged || !nextDocument.equals(document)) {
-                document = nextDocument;
+            Map<String, EventEndpoint> nextEventEndpoints = indexEventEndpoints(nextDocument);
+            eventEndpoints = nextEventEndpoints;
+            if (sourcesChanged || localeChanged || snapshot == null || !nextDocument.equals(snapshot.document())) {
+                long nextRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
                 documentSourceFingerprints = sourceFingerprints;
                 documentLocale = currentLocale;
-                revision.incrementAndGet();
+                snapshot = new DesktopUiSnapshot(nextRevision, nextDocument,
+                        interactionRevisions(nextEventEndpoints, nextRevision));
             }
         } finally {
             rebuildSources = previousSources;
         }
+    }
+
+    private static Map<String, Long> interactionRevisions(
+            Map<String, EventEndpoint> endpoints, long revision) {
+        Map<String, Long> revisions = new LinkedHashMap<>();
+        endpoints.forEach((nodeId, endpoint) -> {
+            if (endpoint.eventType() != DesktopUiNode.EventType.ACTIVATE) {
+                revisions.put(nodeId, revision);
+            }
+        });
+        return Map.copyOf(revisions);
     }
 
     static Map<String, EventEndpoint> indexEventEndpoints(DesktopUiDocument document) {

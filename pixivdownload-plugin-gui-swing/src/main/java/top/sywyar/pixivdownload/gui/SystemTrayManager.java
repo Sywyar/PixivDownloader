@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
@@ -35,7 +36,7 @@ public final class SystemTrayManager {
      * @return 安装是否成功（某些 Linux 桌面环境不支持系统托盘）
      */
     public static boolean install(MainFrame frame, DesktopUiContext context) {
-        DesktopUiDocument.Tray tray = context.currentDocument().tray().orElse(null);
+        DesktopUiDocument.Tray tray = context.currentSnapshot().document().tray().orElse(null);
         if (tray == null) return false;
         if (!SystemTray.isSupported()) {
             log.warn(logMessage(context, "gui.tray.log.unsupported"));
@@ -88,7 +89,7 @@ public final class SystemTrayManager {
         MainFrame frame = installedFrame;
         DesktopUiContext context = installedContext;
         if (trayIcon == null || frame == null || context == null) return;
-        DesktopUiDocument.Tray tray = context.currentDocument().tray().orElse(null);
+        DesktopUiDocument.Tray tray = context.currentSnapshot().document().tray().orElse(null);
         if (tray == null) {
             uninstall();
             return;
@@ -99,8 +100,9 @@ public final class SystemTrayManager {
 
     private static JPopupMenu buildPopupMenu(MainFrame frame, DesktopUiContext context) {
         JPopupMenu menu = new JPopupMenu();
-        long documentRevision = context.currentDocumentRevision();
-        DesktopUiDocument.Tray tray = context.currentDocument().tray().orElse(null);
+        DesktopUiSnapshot snapshot = context.currentSnapshot();
+        long documentRevision = snapshot.revision();
+        DesktopUiDocument.Tray tray = snapshot.document().tray().orElse(null);
         if (tray == null) return menu;
         for (DesktopUiDocument.TrayItem descriptor : tray.items()) {
             if (descriptor.role() == DesktopUiDocument.TrayItemRole.SEPARATOR) {

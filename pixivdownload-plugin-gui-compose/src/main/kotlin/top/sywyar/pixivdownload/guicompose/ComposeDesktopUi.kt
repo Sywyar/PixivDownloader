@@ -75,6 +75,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
 import java.awt.Dimension
@@ -106,7 +107,7 @@ import kotlin.concurrent.thread
 
 internal object ComposeDesktopUi {
     fun launch(context: DesktopUiContext): DesktopUiSession {
-        val trayAtLaunch = context.currentDocument().tray().isPresent && SystemTray.isSupported()
+        val trayAtLaunch = context.currentSnapshot().document().tray().isPresent && SystemTray.isSupported()
         val visible = mutableStateOf(!context.startupLaunch() || !trayAtLaunch)
         val message = mutableStateOf<UiMessage?>(null)
         val windowRef = AtomicReference<ComposeWindow>()
@@ -119,8 +120,8 @@ internal object ComposeDesktopUi {
                 application(exitProcessOnExit = false) {
                     exit.set { exitApplication() }
                     val observed = rememberDesktopDocument(context)
-                    val document = observed.document
-                    val messages = remember(context, observed.revision) { ComposeMessages(context) }
+                    val document = observed.document()
+                    val messages = remember(context, observed.revision()) { ComposeMessages(context) }
                     val tray = document.tray().orElse(null)
                     val trayAvailable = tray != null && SystemTray.isSupported()
                     val trayPopup = remember { mutableStateOf<TrayPopupRequest?>(null) }
@@ -160,7 +161,7 @@ internal object ComposeDesktopUi {
                                         DesktopUiDocument.TrayItemRole.ACTIVATE_WINDOW ->
                                             activateWindow(visible, windowRef)
                                         DesktopUiDocument.TrayItemRole.DISPATCH ->
-                                            context.dispatchEvent(observed.revision, DesktopUiNode.Event(
+                                            context.dispatchEvent(observed.revision(), DesktopUiNode.Event(
                                                 DesktopUiNode.EventType.ACTIVATE,
                                                 item.id(),
                                                 DesktopUiNode.Value.empty(),
@@ -196,7 +197,7 @@ internal object ComposeDesktopUi {
                         }
                         PixivDownloaderTheme(context.themePreference()) {
                             Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
-                                ComposeDesktopRoot(context, document, observed.revision, messages)
+                                ComposeDesktopRoot(context, document, observed.revision(), messages)
                                 message.value?.let { current ->
                                     AlertDialog(
                                         onDismissRequest = { message.value = null },
@@ -268,17 +269,15 @@ internal object ComposeDesktopUi {
     }
 }
 
-private data class ObservedDocument(val document: DesktopUiDocument, val revision: Long)
-
 @Composable
-private fun rememberDesktopDocument(context: DesktopUiContext): ObservedDocument {
+private fun rememberDesktopDocument(context: DesktopUiContext): DesktopUiSnapshot {
     var observed by remember {
-        mutableStateOf(ObservedDocument(context.currentDocument(), context.currentDocumentRevision()))
+        mutableStateOf(context.currentSnapshot())
     }
     DisposableEffect(context) {
         val timer = Timer(250) {
-            val revision = context.currentDocumentRevision()
-            if (revision != observed.revision) observed = ObservedDocument(context.currentDocument(), revision)
+            val snapshot = context.currentSnapshot()
+            if (snapshot.revision() != observed.revision()) observed = snapshot
         }
         timer.start()
         onDispose(timer::stop)
@@ -424,10 +423,11 @@ private class ComposeShortcutDispatcher(private val context: DesktopUiContext) :
             key, event.isAltDown, event.isControlDown, event.isShiftDown, event.isMetaDown,
         )
         var consume = false
-        context.currentDocument().shortcuts().forEach { shortcut ->
+        val snapshot = context.currentSnapshot()
+        snapshot.document().shortcuts().forEach { shortcut ->
             val match = shortcut.advance(indexes[shortcut.id()] ?: 0, pressed)
             if (match.completed()) {
-                context.dispatchEvent(context.currentDocumentRevision(), DesktopUiNode.Event(
+                context.dispatchEvent(snapshot.revision(), DesktopUiNode.Event(
                     DesktopUiNode.EventType.ACTIVATE,
                     shortcut.id(),
                     DesktopUiNode.Value.empty(),
