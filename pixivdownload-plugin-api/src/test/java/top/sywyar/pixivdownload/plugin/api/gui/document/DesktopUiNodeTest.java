@@ -2,7 +2,10 @@ package top.sywyar.pixivdownload.plugin.api.gui.document;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,6 +82,27 @@ class DesktopUiNodeTest {
         assertThat(intent.interactionRevision()).isEqualTo(-1);
         assertThat(intent.atRevision(7).documentRevision()).isEqualTo(7);
         assertThat(change.atRevisions(7, 3).interactionRevision()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("控制中心通用节点复制子项并固定四项分页契约")
+    void validatesControlCenterLayoutNodes() {
+        List<DesktopUiNode> children = new ArrayList<>(List.of(text("item")));
+        DesktopUiNode.AdaptiveGrid grid = new DesktopUiNode.AdaptiveGrid(
+                "grid", 180, 4, 12, 16, children);
+        DesktopUiNode.PagedRow row = new DesktopUiNode.PagedRow("pages", 4, 12, children);
+        DesktopUiNode.Icon icon = new DesktopUiNode.Icon(
+                "icon", DesktopUiIcon.HOME, DesktopUiTone.INFO, DesktopUiNode.TextToken.raw("Home"));
+        children.clear();
+
+        assertThat(grid.children()).hasSize(1);
+        assertThat(row.children()).hasSize(1);
+        assertThatThrownBy(grid.children()::clear).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(row.children()::clear).isInstanceOf(UnsupportedOperationException.class);
+        assertThat(icon.accessibleLabel().fallback()).isEqualTo("Home");
+        assertThatThrownBy(() -> new DesktopUiNode.PagedRow("bad", 3, 12, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must be 4");
     }
 
     private static DesktopUiNode.Text text(String id) {

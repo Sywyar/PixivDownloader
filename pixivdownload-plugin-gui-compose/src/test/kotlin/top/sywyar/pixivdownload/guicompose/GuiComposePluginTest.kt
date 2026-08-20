@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test
 import org.jetbrains.skia.Image
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
 import java.awt.Dimension
 import java.awt.Insets
@@ -28,9 +30,10 @@ class GuiComposePluginTest {
         assertFalse(plugin.defaultProvider())
         assertEquals(DesktopUiExperienceProfile.CONTROL_CENTER, plugin.experienceProfile())
         assertEquals(setOf(
-            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
+            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.ADAPTIVE_GRID, DesktopUiNode.Kind.PAGED_ROW,
+            DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
             DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,
-            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT,
+            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT, DesktopUiNode.Kind.ICON,
             DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
             DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
             DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
@@ -43,6 +46,8 @@ class GuiComposePluginTest {
             DesktopUiCapability.INPUT_PATH_FILE,
             DesktopUiCapability.INPUT_PATH_DIRECTORY,
             DesktopUiCapability.SELECTION_MULTIPLE,
+            DesktopUiCapability.LAYOUT_ADAPTIVE_GRID,
+            DesktopUiCapability.PAGED_ROW_SNAP_NAVIGATION,
         ), plugin.supportedCapabilities())
         assertEquals("Compose Multiplatform GUI",
             ResourceBundle.getBundle("i18n.web.gui-compose", Locale.US).getString("plugin.name"))
@@ -171,6 +176,8 @@ class GuiComposePluginTest {
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
             DesktopUiNode.Dock("dock", 4, text("dock.top"), text("dock.center"), null, null, null),
+            DesktopUiNode.AdaptiveGrid("adaptive", 160, 4, 8, 8, listOf(text("adaptive.text"))),
+            DesktopUiNode.PagedRow("paged", 4, 8, listOf(text("paged.text"))),
             DesktopUiNode.Surface("surface", DesktopUiNode.SurfaceStyle.CARD,
                 DesktopUiNode.Insets.all(8), true, text("surface.text")),
             DesktopUiNode.Group("group", raw("Group"), text("group.text")),
@@ -181,6 +188,7 @@ class GuiComposePluginTest {
             DesktopUiNode.Tabs("tabs", listOf(DesktopUiNode.Tab("tab", raw("Tab"), text("tab.text")))),
             DesktopUiNode.Scroll("scroll", text("scroll.text")),
             DesktopUiNode.Split("split", DesktopUiNode.Axis.HORIZONTAL, .5, text("split.first"), text("split.second")),
+            DesktopUiNode.Icon("icon", DesktopUiIcon.HOME, DesktopUiTone.INFO, raw("Home")),
             DesktopUiNode.Image("image", DesktopUiNode.ImageData("image/gif", PIXEL_GIF), raw("Pixel"), 16, 16, DesktopUiNode.ScaleMode.FIT),
             DesktopUiNode.Separator("separator", DesktopUiNode.Axis.HORIZONTAL),
             DesktopUiNode.Spacer("spacer", 4, 4),

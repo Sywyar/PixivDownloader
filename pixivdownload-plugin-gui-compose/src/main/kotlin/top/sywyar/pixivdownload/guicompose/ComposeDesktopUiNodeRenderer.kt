@@ -12,6 +12,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,6 +37,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,20 +73,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -91,19 +104,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.jetbrains.skia.Image as SkiaImage
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
 import javax.swing.JFileChooser
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Compose Multiplatform renderer for the complete stable desktop node vocabulary. */
+@OptIn(ExperimentalComposeUiApi::class)
 object ComposeDesktopUiNodeRenderer {
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
 
     fun supportedKinds(): Set<DesktopUiNode.Kind> =
         setOf(
-            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
+            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.ADAPTIVE_GRID, DesktopUiNode.Kind.PAGED_ROW,
+            DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
             DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,
-            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT,
+            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT, DesktopUiNode.Kind.ICON,
             DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
             DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
             DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
@@ -133,6 +152,8 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         when (node) {
             is DesktopUiNode.Container -> Container(node, text, emit, modifier)
+            is DesktopUiNode.AdaptiveGrid -> AdaptiveGrid(node, text, emit, modifier)
+            is DesktopUiNode.PagedRow -> PagedRow(node, text, emit, modifier)
             is DesktopUiNode.Dock -> Dock(node, text, emit, modifier)
             is DesktopUiNode.Surface -> SurfaceNode(node, text, emit, modifier)
             is DesktopUiNode.Group -> Card(
@@ -158,6 +179,7 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Scroll -> ScrollNode(node, text, emit, modifier)
             is DesktopUiNode.Split -> Split(node, text, emit, modifier)
             is DesktopUiNode.Text -> StyledText(node, text, modifier)
+            is DesktopUiNode.Icon -> Icon(node, text, modifier)
             is DesktopUiNode.Image -> ImageNode(node, text, modifier)
             is DesktopUiNode.Separator -> if (node.axis() == DesktopUiNode.Axis.HORIZONTAL) {
                 HorizontalDivider(modifier.fillMaxWidth())
@@ -399,6 +421,91 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     @Composable
+    private fun AdaptiveGrid(
+        node: DesktopUiNode.AdaptiveGrid,
+        text: (DesktopUiNode.TextToken) -> String,
+        emit: (DesktopUiNode.Event) -> Unit,
+        modifier: Modifier,
+    ) {
+        BoxWithConstraints(modifier) {
+            val columns = adaptiveGridColumnCount(
+                maxWidth.value.roundToInt(),
+                node.minimumColumnWidth(),
+                node.maximumColumns(),
+                node.horizontalGap(),
+                node.children().size,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(node.verticalGap().dp)) {
+                node.children().chunked(columns).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(node.horizontalGap().dp)) {
+                        row.forEach { child ->
+                            Box(Modifier.weight(1f)) { Node(child, text, emit, Modifier.fillMaxWidth()) }
+                        }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun PagedRow(
+        node: DesktopUiNode.PagedRow,
+        text: (DesktopUiNode.TextToken) -> String,
+        emit: (DesktopUiNode.Event) -> Unit,
+        modifier: Modifier,
+    ) {
+        val pageCount = maxOf(1, (node.children().size + node.itemsPerPage() - 1) / node.itemsPerPage())
+        val pagerState = rememberPagerState(pageCount = { pageCount })
+        val scope = rememberCoroutineScope()
+        fun move(delta: Int) {
+            val target = (pagerState.currentPage + delta).coerceIn(0, pageCount - 1)
+            if (target != pagerState.currentPage) scope.launch { pagerState.animateScrollToPage(target) }
+        }
+        HorizontalPager(
+            state = pagerState,
+            userScrollEnabled = pageCount > 1,
+            modifier = modifier.fillMaxWidth()
+                .semantics { stateDescription = "${pagerState.currentPage + 1}/$pageCount" }
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft -> { move(-1); true }
+                        Key.DirectionRight -> { move(1); true }
+                        else -> false
+                    }
+                }
+                .onPointerEvent(PointerEventType.Scroll) { event ->
+                    val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                    val delta = change.scrollDelta
+                    val primary = if (abs(delta.x) > abs(delta.y)) delta.x else delta.y
+                    if (primary != 0f) {
+                        move(if (primary > 0f) 1 else -1)
+                        change.consume()
+                    }
+                },
+        ) { page ->
+            val children = node.children().drop(page * node.itemsPerPage()).take(node.itemsPerPage())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(node.gap().dp)) {
+                children.forEach { child ->
+                    Box(Modifier.weight(1f)) { Node(child, text, emit, Modifier.fillMaxWidth()) }
+                }
+                repeat(node.itemsPerPage() - children.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+
+    internal fun adaptiveGridColumnCount(
+        availableWidth: Int,
+        minimumColumnWidth: Int,
+        maximumColumns: Int,
+        gap: Int,
+        itemCount: Int,
+    ): Int = if (itemCount <= 0) 1 else ((availableWidth + gap) / (minimumColumnWidth + gap))
+        .coerceIn(1, minOf(maximumColumns, itemCount))
+
+    @Composable
     private fun Form(
         node: DesktopUiNode.Form,
         text: (DesktopUiNode.TextToken) -> String,
@@ -629,6 +736,49 @@ object ComposeDesktopUiNodeRenderer {
                 })
         }
         if (node.selectable()) SelectionContainer(content = content) else content()
+    }
+
+    @Composable
+    private fun Icon(
+        node: DesktopUiNode.Icon,
+        text: (DesktopUiNode.TextToken) -> String,
+        modifier: Modifier,
+    ) {
+        Text(
+            iconGlyph(node.icon()),
+            modifier.semantics { contentDescription = resolve(node.accessibleLabel(), text) },
+            color = toneColor(node.tone()),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+
+    private fun iconGlyph(icon: DesktopUiIcon): String = when (icon) {
+        DesktopUiIcon.HOME -> "⌂"
+        DesktopUiIcon.AUTOMATION -> "◷"
+        DesktopUiIcon.PLUGIN -> "⧉"
+        DesktopUiIcon.TOOLS -> "⚒"
+        DesktopUiIcon.SECURITY -> "◆"
+        DesktopUiIcon.SETTINGS -> "⚙"
+        DesktopUiIcon.ABOUT, DesktopUiIcon.INFO -> "i"
+        DesktopUiIcon.DOWNLOAD -> "↓"
+        DesktopUiIcon.QUEUE -> "≡"
+        DesktopUiIcon.STORAGE -> "▣"
+        DesktopUiIcon.STATISTICS -> "▥"
+        DesktopUiIcon.TASK -> "•"
+        DesktopUiIcon.SUCCESS -> "✓"
+        DesktopUiIcon.WARNING -> "!"
+        DesktopUiIcon.ERROR -> "×"
+        DesktopUiIcon.OPEN -> "↗"
+    }
+
+    @Composable
+    private fun toneColor(tone: DesktopUiTone): Color = when (tone) {
+        DesktopUiTone.DEFAULT -> MaterialTheme.colorScheme.onSurface
+        DesktopUiTone.SUCCESS -> MaterialTheme.colorScheme.tertiary
+        DesktopUiTone.INFO -> MaterialTheme.colorScheme.primary
+        DesktopUiTone.WARNING -> MaterialTheme.colorScheme.secondary
+        DesktopUiTone.ERROR -> MaterialTheme.colorScheme.error
     }
 
     @Composable

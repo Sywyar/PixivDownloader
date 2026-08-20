@@ -65,6 +65,10 @@ class DesktopUiDocumentTest {
                 DesktopUiNode.Alignment.STRETCH, List.of(
                 new DesktopUiNode.Split("split", DesktopUiNode.Axis.HORIZONTAL, .5,
                         text("split.first"), text("split.second")),
+                new DesktopUiNode.AdaptiveGrid("adaptive", 120, 3, 8, 8,
+                        List.of(text("adaptive.item"))),
+                new DesktopUiNode.PagedRow("paged", 4, 8,
+                        List.of(text("paged.item"))),
                 new DesktopUiNode.Tree("tree", "tree.value",
                         List.of(new DesktopUiNode.TreeItem("tree.item", DesktopUiNode.TextToken.raw("Item"), List.of())),
                         DesktopUiNode.SelectionMode.MULTIPLE, List.of(), true),

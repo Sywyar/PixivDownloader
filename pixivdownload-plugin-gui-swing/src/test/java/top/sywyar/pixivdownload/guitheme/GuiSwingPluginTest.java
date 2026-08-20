@@ -54,7 +54,8 @@ class GuiSwingPluginTest {
                 DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
                 DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
                 DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
-                DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK);
+                DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK,
+                DesktopUiNode.Kind.ICON);
         assertThat(plugin.supportedCapabilities()).containsExactlyInAnyOrder(
                 DesktopUiCapability.SPLIT_USER_RESIZABLE,
                 DesktopUiCapability.TREE_EXPAND_COLLAPSE,

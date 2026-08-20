@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.gui.render;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
 import javax.swing.JButton;
@@ -9,6 +11,7 @@ import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JList;
+import javax.swing.JLabel;
 import javax.swing.JPasswordField;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
@@ -46,10 +49,14 @@ class SwingDesktopUiNodeRendererTest {
 
         JComponent rendered = onEdt(() -> renderer.render(document));
 
-        assertThat(DesktopUiNode.validateTree(document)).containsExactlyInAnyOrderElementsOf(
-                EnumSet.allOf(DesktopUiNode.Kind.class));
+        EnumSet<DesktopUiNode.Kind> expectedKinds = EnumSet.allOf(DesktopUiNode.Kind.class);
+        expectedKinds.remove(DesktopUiNode.Kind.ADAPTIVE_GRID);
+        expectedKinds.remove(DesktopUiNode.Kind.PAGED_ROW);
         assertThat(SwingDesktopUiNodeRenderer.supportedKinds()).containsExactlyInAnyOrderElementsOf(
-                EnumSet.allOf(DesktopUiNode.Kind.class));
+                expectedKinds);
+        assertThat(DesktopUiNode.validateTree(document)).containsExactlyInAnyOrderElementsOf(expectedKinds);
+        assertThat(((JLabel) node(rendered, "icon")).getAccessibleContext().getAccessibleName())
+                .isEqualTo("Home");
         assertThat(onEdt(() -> descendants(rendered, JList.class))).hasSize(1);
         assertThat(onEdt(() -> descendants(rendered, JTable.class))).hasSize(1);
         assertThat(onEdt(() -> descendants(rendered, JTree.class))).hasSize(1);
@@ -197,6 +204,7 @@ class SwingDesktopUiNodeRendererTest {
                         new DesktopUiNode.Scroll("scroll", text("scroll.text", "Scrollable")),
                         new DesktopUiNode.Split("split", DesktopUiNode.Axis.HORIZONTAL, 0.5,
                                 text("split.first", "First"), text("split.second", "Second")),
+                        new DesktopUiNode.Icon("icon", DesktopUiIcon.HOME, DesktopUiTone.INFO, raw("Home")),
                         new DesktopUiNode.Image("image",
                                 new DesktopUiNode.ImageData("image/gif",
                                         "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="),
