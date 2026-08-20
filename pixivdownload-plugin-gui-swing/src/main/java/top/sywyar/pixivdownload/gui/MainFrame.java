@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
@@ -75,7 +76,7 @@ public final class MainFrame extends JFrame {
         refreshDocument();
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(shortcutDispatcher);
         documentTimer = new Timer(250, event -> {
-            if (renderedRevision != context.currentDocumentRevision()) refreshDocument();
+            if (renderedRevision != context.currentSnapshot().revision()) refreshDocument();
         });
         documentTimer.start();
     }
@@ -83,8 +84,9 @@ public final class MainFrame extends JFrame {
     private void refreshDocument() {
         String selected = selectedPage();
         Map<String, ComponentState> state = captureState(tabs);
-        long targetRevision = context.currentDocumentRevision();
-        DesktopUiDocument document = context.currentDocument();
+        DesktopUiSnapshot snapshot = context.currentSnapshot();
+        long targetRevision = snapshot.revision();
+        DesktopUiDocument document = snapshot.document();
         boolean forceRender = targetRevision != renderedRevision;
         Function<DesktopUiNode.TextToken, String> textResolver = context::resolveText;
         SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
@@ -289,11 +291,12 @@ public final class MainFrame extends JFrame {
         DesktopUiDocument.KeyStroke pressed = new DesktopUiDocument.KeyStroke(
                 key, event.isAltDown(), event.isControlDown(), event.isShiftDown(), event.isMetaDown());
         boolean consume = false;
-        for (DesktopUiDocument.KeyboardShortcut shortcut : context.currentDocument().shortcuts()) {
+        DesktopUiSnapshot snapshot = context.currentSnapshot();
+        for (DesktopUiDocument.KeyboardShortcut shortcut : snapshot.document().shortcuts()) {
             DesktopUiDocument.MatchResult match = shortcut.advance(
                     shortcutIndexes.getOrDefault(shortcut.id(), 0), pressed);
             if (match.completed()) {
-                context.dispatchEvent(context.currentDocumentRevision(), new DesktopUiNode.Event(
+                context.dispatchEvent(snapshot.revision(), new DesktopUiNode.Event(
                         DesktopUiNode.EventType.ACTIVATE, shortcut.id(), DesktopUiNode.Value.empty()));
                 consume |= shortcut.consume();
             }

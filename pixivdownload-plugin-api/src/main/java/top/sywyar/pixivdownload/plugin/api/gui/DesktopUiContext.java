@@ -53,7 +53,7 @@ public final class DesktopUiContext {
         this.supportedKinds = Set.copyOf(Objects.requireNonNull(supportedKinds, "supportedKinds"));
         this.supportedCapabilities = Set.copyOf(Objects.requireNonNull(
                 supportedCapabilities, "supportedCapabilities"));
-        validate(Objects.requireNonNull(model.document(), "model returned null document"));
+        currentSnapshot();
     }
 
     /** @return whether startup was initiated by an operating-system startup entry */
@@ -62,15 +62,12 @@ public final class DesktopUiContext {
     /** @return application title used by native desktop chrome */
     public String applicationName() { return applicationName; }
 
-    /** @return current immutable document after provider compatibility validation */
-    public DesktopUiDocument currentDocument() {
-        DesktopUiDocument document = Objects.requireNonNull(model.document(), "model returned null document");
-        validate(document);
-        return document;
+    /** @return 通过 provider 兼容性校验的当前原子快照 */
+    public DesktopUiSnapshot currentSnapshot() {
+        DesktopUiSnapshot snapshot = Objects.requireNonNull(model.snapshot(), "model returned null snapshot");
+        validate(snapshot.document());
+        return snapshot;
     }
-
-    /** @return current monotonic document revision */
-    public long currentDocumentRevision() { return model.revision(); }
 
     /**
      * Resolves one host- or plugin-owned text token through the host's unified resolver.
