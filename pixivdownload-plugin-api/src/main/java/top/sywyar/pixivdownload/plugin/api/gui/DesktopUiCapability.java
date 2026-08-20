@@ -21,5 +21,9 @@ public enum DesktopUiCapability {
     /** Directory inputs provide a native directory picker. */
     INPUT_PATH_DIRECTORY,
     /** Selection controls preserve every selected id. */
-    SELECTION_MULTIPLE
+    SELECTION_MULTIPLE,
+    /** 布局可按当前可用宽度自适应列数。 */
+    LAYOUT_ADAPTIVE_GRID,
+    /** 横向内容按固定页容量吸附并提供键盘与无障碍翻页。 */
+    PAGED_ROW_SNAP_NAVIGATION
 }

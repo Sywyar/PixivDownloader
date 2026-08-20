@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.plugin.api.gui.document;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -15,9 +17,10 @@ import java.util.Set;
  * Pure-JDK declarative UI node vocabulary shared by desktop renderers.
  * Nodes carry bounded values and stable ids only; they never carry toolkit components or executable callbacks.
  */
-public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUiNode.Dock,
+public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUiNode.AdaptiveGrid,
+        DesktopUiNode.PagedRow, DesktopUiNode.Dock,
         DesktopUiNode.Surface, DesktopUiNode.Group, DesktopUiNode.Form, DesktopUiNode.Tabs, DesktopUiNode.Scroll,
-        DesktopUiNode.Split, DesktopUiNode.Text,
+        DesktopUiNode.Split, DesktopUiNode.Text, DesktopUiNode.Icon,
         DesktopUiNode.Image, DesktopUiNode.Separator, DesktopUiNode.Spacer, DesktopUiNode.Progress,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
@@ -109,6 +112,41 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return children; }
     }
 
+    /** 按当前可用宽度调整列数的通用网格。 */
+    record AdaptiveGrid(String id, int minimumColumnWidth, int maximumColumns,
+                        int horizontalGap, int verticalGap,
+                        List<DesktopUiNode> children) implements DesktopUiNode {
+        public AdaptiveGrid {
+            id = requireId(id, "id");
+            requireRange(minimumColumnWidth, 80, 2048, "minimumColumnWidth");
+            requireRange(maximumColumns, 1, 12, "maximumColumns");
+            requireRange(horizontalGap, 0, 128, "horizontalGap");
+            requireRange(verticalGap, 0, 128, "verticalGap");
+            children = copyBounded(children, "children");
+        }
+
+        @Override public Kind kind() { return Kind.ADAPTIVE_GRID; }
+        @Override public List<DesktopUiNode> childNodes() { return children; }
+    }
+
+    /** 每页固定显示四项并支持吸附翻页的横向区域。 */
+    record PagedRow(String id, int itemsPerPage, int gap,
+                    List<DesktopUiNode> children) implements DesktopUiNode {
+        public static final int FIXED_ITEMS_PER_PAGE = 4;
+
+        public PagedRow {
+            id = requireId(id, "id");
+            if (itemsPerPage != FIXED_ITEMS_PER_PAGE) {
+                throw new IllegalArgumentException("itemsPerPage must be 4");
+            }
+            requireRange(gap, 0, 128, "gap");
+            children = copyBounded(children, "children");
+        }
+
+        @Override public Kind kind() { return Kind.PAGED_ROW; }
+        @Override public List<DesktopUiNode> childNodes() { return children; }
+    }
+
     /** Border-layout style container with fixed edges and a growing center. */
     record Dock(String id, int gap, DesktopUiNode top, DesktopUiNode center,
                 DesktopUiNode bottom, DesktopUiNode start, DesktopUiNode end) implements DesktopUiNode {
@@ -134,6 +172,19 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             return java.util.stream.Stream.of(top, center, bottom, start, end)
                     .filter(Objects::nonNull).toList();
         }
+    }
+
+    /** 受控词表中的主题感知图标。 */
+    record Icon(String id, DesktopUiIcon icon, DesktopUiTone tone,
+                TextToken accessibleLabel) implements DesktopUiNode {
+        public Icon {
+            id = requireId(id, "id");
+            icon = Objects.requireNonNull(icon, "icon");
+            tone = Objects.requireNonNull(tone, "tone");
+            accessibleLabel = Objects.requireNonNull(accessibleLabel, "accessibleLabel");
+        }
+
+        @Override public Kind kind() { return Kind.ICON; }
     }
 
     /** Semantic visual surface with toolkit-neutral logical padding. */
@@ -942,6 +993,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** Supported node kinds. */
     enum Kind {
         /** General container. */ CONTAINER,
+        /** 可按宽度自适应列数的网格。 */ ADAPTIVE_GRID,
+        /** 固定页容量的吸附横向区域。 */ PAGED_ROW,
         /** Edge-and-center container. */ DOCK,
         /** Semantic visual surface. */ SURFACE,
         /** Titled group. */ GROUP,
@@ -950,6 +1003,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         /** Scrollable container. */ SCROLL,
         /** Two-pane split. */ SPLIT,
         /** Localized text. */ TEXT,
+        /** 受控语义图标。 */ ICON,
         /** Materialized image. */ IMAGE,
         /** Separator. */ SEPARATOR,
         /** Fixed spacer. */ SPACER,
@@ -1142,6 +1196,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     private static void collectDirectCapabilities(DesktopUiNode node,
                                                   Set<DesktopUiCapability> capabilities) {
         if (node instanceof Split) capabilities.add(DesktopUiCapability.SPLIT_USER_RESIZABLE);
+        if (node instanceof AdaptiveGrid) capabilities.add(DesktopUiCapability.LAYOUT_ADAPTIVE_GRID);
+        if (node instanceof PagedRow) capabilities.add(DesktopUiCapability.PAGED_ROW_SNAP_NAVIGATION);
         if (node instanceof Tree tree) {
             capabilities.add(DesktopUiCapability.TREE_EXPAND_COLLAPSE);
             if (tree.selectionMode() == SelectionMode.MULTIPLE) {

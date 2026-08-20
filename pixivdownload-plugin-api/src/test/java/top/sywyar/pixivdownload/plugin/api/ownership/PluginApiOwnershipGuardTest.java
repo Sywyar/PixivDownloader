@@ -145,8 +145,9 @@ class PluginApiOwnershipGuardTest {
                     "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
             Map.entry("GUI contribution 与桌面宿主契约", union(
                     types(API_PREFIX + "gui",
-                    "DesktopUiCapability", "DesktopUiContext", "DesktopUiExperienceProfile", "DesktopUiModel",
+                    "DesktopUiCapability", "DesktopUiContext", "DesktopUiExperienceProfile", "DesktopUiIcon", "DesktopUiModel",
                     "DesktopUiPageContribution", "DesktopUiProvider", "DesktopUiSession", "DesktopUiSnapshot",
+                    "DesktopUiTone",
                     "GuiActionInvocationHeaders",
                     "GuiConfigActionContribution", "GuiConfigActionPayloadField", "GuiConfigActionPayloadType",
                     "GuiConfigActionResultArgument", "GuiConfigActionResultCondition",
@@ -245,7 +246,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 44),
+            Map.entry("GUI contribution 与桌面宿主契约", 46),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -272,6 +273,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.document.DesktopUiDocument$Tray",
             API_PREFIX + "gui.document.DesktopUiDocument$TrayItem",
             API_PREFIX + "gui.document.DesktopUiDocument$TrayItemRole",
+            API_PREFIX + "gui.document.DesktopUiNode$AdaptiveGrid",
             API_PREFIX + "gui.document.DesktopUiNode$Alignment",
             API_PREFIX + "gui.document.DesktopUiNode$Axis",
             API_PREFIX + "gui.document.DesktopUiNode$Button",
@@ -287,6 +289,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.document.DesktopUiNode$FormRow",
             API_PREFIX + "gui.document.DesktopUiNode$FormStyle",
             API_PREFIX + "gui.document.DesktopUiNode$Group",
+            API_PREFIX + "gui.document.DesktopUiNode$Icon",
             API_PREFIX + "gui.document.DesktopUiNode$Image",
             API_PREFIX + "gui.document.DesktopUiNode$ImageData",
             API_PREFIX + "gui.document.DesktopUiNode$InputKind",
@@ -296,6 +299,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.document.DesktopUiNode$NumberInput",
             API_PREFIX + "gui.document.DesktopUiNode$NumberStyle",
             API_PREFIX + "gui.document.DesktopUiNode$Option",
+            API_PREFIX + "gui.document.DesktopUiNode$PagedRow",
             API_PREFIX + "gui.document.DesktopUiNode$Progress",
             API_PREFIX + "gui.document.DesktopUiNode$ScaleMode",
             API_PREFIX + "gui.document.DesktopUiNode$Scroll",

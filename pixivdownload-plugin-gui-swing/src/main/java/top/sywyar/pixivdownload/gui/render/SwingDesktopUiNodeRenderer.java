@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.gui.render;
 
 import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Alignment;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.Axis;
@@ -96,7 +98,7 @@ public final class SwingDesktopUiNodeRenderer {
     /** Returns the complete node-kind set implemented by this renderer. */
     public static Set<Kind> supportedKinds() {
         return Set.of(Kind.CONTAINER, Kind.DOCK, Kind.SURFACE, Kind.GROUP, Kind.FORM, Kind.TABS,
-                Kind.SCROLL, Kind.SPLIT, Kind.TEXT, Kind.IMAGE, Kind.SEPARATOR, Kind.SPACER,
+                Kind.SCROLL, Kind.SPLIT, Kind.TEXT, Kind.ICON, Kind.IMAGE, Kind.SEPARATOR, Kind.SPACER,
                 Kind.PROGRESS, Kind.TEXT_INPUT, Kind.TOGGLE, Kind.CHOICE, Kind.NUMBER_INPUT,
                 Kind.TABLE, Kind.TREE, Kind.BUTTON, Kind.LINK);
     }
@@ -129,6 +131,7 @@ public final class SwingDesktopUiNodeRenderer {
         else if (node instanceof DesktopUiNode.Scroll value) component = scrollContent(renderNode(value.content()));
         else if (node instanceof DesktopUiNode.Split value) component = renderSplit(value);
         else if (node instanceof DesktopUiNode.Text value) component = renderText(value);
+        else if (node instanceof DesktopUiNode.Icon value) component = renderIcon(value);
         else if (node instanceof DesktopUiNode.Image value) component = renderImage(value);
         else if (node instanceof DesktopUiNode.Separator value) component = new JSeparator(
                 value.axis() == Axis.HORIZONTAL ? SwingConstants.HORIZONTAL : SwingConstants.VERTICAL);
@@ -372,6 +375,49 @@ public final class SwingDesktopUiNodeRenderer {
         }
         applyTextStyle(component, node.style());
         return component;
+    }
+
+    private JComponent renderIcon(DesktopUiNode.Icon node) {
+        String accessibleLabel = text(node.accessibleLabel());
+        JLabel label = new JLabel(iconGlyph(node.icon()));
+        label.setForeground(toneColor(node.tone()));
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 18f));
+        label.setToolTipText(accessibleLabel);
+        label.getAccessibleContext().setAccessibleName(accessibleLabel);
+        return label;
+    }
+
+    private static String iconGlyph(DesktopUiIcon icon) {
+        return switch (icon) {
+            case HOME -> "⌂";
+            case AUTOMATION -> "◷";
+            case PLUGIN -> "⧉";
+            case TOOLS -> "⚒";
+            case SECURITY -> "◆";
+            case SETTINGS -> "⚙";
+            case ABOUT, INFO -> "i";
+            case DOWNLOAD -> "↓";
+            case QUEUE -> "≡";
+            case STORAGE -> "▣";
+            case STATISTICS -> "▥";
+            case TASK -> "•";
+            case SUCCESS -> "✓";
+            case WARNING -> "!";
+            case ERROR -> "×";
+            case OPEN -> "↗";
+        };
+    }
+
+    private static Color toneColor(DesktopUiTone tone) {
+        String key = switch (tone) {
+            case DEFAULT -> "Label.foreground";
+            case SUCCESS -> "Actions.Green";
+            case INFO -> "Actions.Blue";
+            case WARNING -> "Actions.Yellow";
+            case ERROR -> "Actions.Red";
+        };
+        Color color = UIManager.getColor(key);
+        return color == null ? UIManager.getColor("Label.foreground") : color;
     }
 
     private static int swingAlignment(DesktopUiNode.TextAlignment alignment) {
