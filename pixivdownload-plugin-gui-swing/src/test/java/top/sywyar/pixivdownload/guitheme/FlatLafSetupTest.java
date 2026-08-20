@@ -32,6 +32,16 @@ class FlatLafSetupTest {
     }
 
     @Test
+    @DisplayName("优先字体缺少导航符号时回退到兼容字体")
+    void skipsPreferredFontWithoutNavigationGlyphs() {
+        String selected = FlatLafSetup.selectFontFamily(Locale.SIMPLIFIED_CHINESE,
+                Set.of("Microsoft YaHei UI", "Dialog"),
+                (name, sample) -> !name.equals("Microsoft YaHei UI") && sample.contains("◀▶"));
+
+        assertThat(selected).isEqualTo("Dialog");
+    }
+
+    @Test
     @DisplayName("没有兼容字体时交回系统默认字体")
     void returnsNullWithoutCompatibleFont() {
         String selected = FlatLafSetup.selectFontFamily(Locale.KOREAN,
