@@ -48,6 +48,20 @@ class DesktopUiContextTest {
     }
 
     @Test
+    @DisplayName("值事件同时携带观察到的文档与交互修订号")
+    void stampsValueEventWithSnapshotRevisions() {
+        MutableModel model = new MutableModel(document(text("initial")));
+        model.snapshot = new DesktopUiSnapshot(4L, model.snapshot.document(), Map.of("input", 9L));
+        DesktopUiContext context = context(model, Set.of(DesktopUiNode.Kind.TEXT), Set.of());
+
+        context.dispatchEvent(model.snapshot, new DesktopUiNode.Event(
+                DesktopUiNode.EventType.CHANGE, "input", DesktopUiNode.Value.text("value")));
+
+        assertThat(model.dispatched.documentRevision()).isEqualTo(4L);
+        assertThat(model.dispatched.interactionRevision()).isEqualTo(9L);
+    }
+
+    @Test
     @DisplayName("初始文档缺少语义能力时立即拒绝启动")
     void rejectsUnsupportedInitialDocument() {
         MutableModel model = new MutableModel(document(new DesktopUiNode.Split(
@@ -78,6 +92,7 @@ class DesktopUiContextTest {
     private static final class MutableModel implements DesktopUiModel {
         private DesktopUiSnapshot snapshot;
         private int reads;
+        private DesktopUiNode.Event dispatched;
 
         private MutableModel(DesktopUiDocument document) {
             snapshot = new DesktopUiSnapshot(0L, document, Map.of());
@@ -91,6 +106,6 @@ class DesktopUiContextTest {
             reads++;
             return snapshot;
         }
-        @Override public void dispatch(DesktopUiNode.Event event) { }
+        @Override public void dispatch(DesktopUiNode.Event event) { dispatched = event; }
     }
 }

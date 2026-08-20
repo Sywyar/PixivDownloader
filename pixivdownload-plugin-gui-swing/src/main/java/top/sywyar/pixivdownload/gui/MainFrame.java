@@ -90,7 +90,7 @@ public final class MainFrame extends JFrame {
         boolean forceRender = targetRevision != renderedRevision;
         Function<DesktopUiNode.TextToken, String> textResolver = context::resolveText;
         SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
-                textResolver, event -> context.dispatchEvent(targetRevision, event));
+                textResolver, event -> context.dispatchEvent(snapshot, event));
         Map<String, Integer> nextIndexes = new LinkedHashMap<>();
         Map<String, DesktopUiDocument.Page> nextDescriptors = new LinkedHashMap<>();
         for (int index = 0; index < document.pages().size(); index++) {

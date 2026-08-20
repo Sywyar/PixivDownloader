@@ -90,17 +90,48 @@ public final class DesktopUiContext {
         if (value.documentRevision() < 0) {
             throw new IllegalArgumentException("renderer event must carry a document revision");
         }
+        if (value.type() == DesktopUiNode.EventType.ACTIVATE) {
+            if (value.interactionRevision() >= 0L) {
+                throw new IllegalArgumentException("activation event must not carry an interaction revision");
+            }
+        } else if (value.interactionRevision() < 0L) {
+            throw new IllegalArgumentException("value event must carry an interaction revision");
+        }
         model.dispatch(value);
     }
 
     /**
-     * Stamps an event intent with the exact revision from which its control was rendered.
+     * 使用产生控件的同一份快照给事件意图盖章。
      *
-     * @param documentRevision revision from which the control was rendered
-     * @param event renderer event intent
+     * @param snapshot 产生控件的原子快照
+     * @param event renderer 事件意图
+     */
+    public void dispatchEvent(DesktopUiSnapshot snapshot, DesktopUiNode.Event event) {
+        DesktopUiSnapshot observed = Objects.requireNonNull(snapshot, "snapshot");
+        DesktopUiNode.Event value = Objects.requireNonNull(event, "event");
+        if (value.type() == DesktopUiNode.EventType.ACTIVATE) {
+            dispatchEvent(value.atRevision(observed.revision()));
+            return;
+        }
+        Long interactionRevision = observed.interactionRevisions().get(value.nodeId());
+        if (interactionRevision == null) {
+            throw new IllegalArgumentException("snapshot has no interaction revision for node " + value.nodeId());
+        }
+        dispatchEvent(value.atRevisions(observed.revision(), interactionRevision));
+    }
+
+    /**
+     * 给动作事件意图盖上产生控件时观察到的精确文档修订号。
+     *
+     * @param documentRevision 产生控件时观察到的文档修订号
+     * @param event renderer 动作事件意图
      */
     public void dispatchEvent(long documentRevision, DesktopUiNode.Event event) {
-        dispatchEvent(Objects.requireNonNull(event, "event").atRevision(documentRevision));
+        DesktopUiNode.Event value = Objects.requireNonNull(event, "event");
+        if (value.type() != DesktopUiNode.EventType.ACTIVATE) {
+            throw new IllegalArgumentException("value event must be stamped from a desktop UI snapshot");
+        }
+        dispatchEvent(value.atRevision(documentRevision));
     }
 
     /** Requests the host-owned process exit path. */
