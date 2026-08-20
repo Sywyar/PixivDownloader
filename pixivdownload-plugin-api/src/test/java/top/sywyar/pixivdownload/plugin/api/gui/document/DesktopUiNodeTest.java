@@ -68,13 +68,17 @@ class DesktopUiNodeTest {
     }
 
     @Test
-    @DisplayName("事件意图必须由渲染文档版本盖章")
-    void stampsEventIntentWithDocumentRevision() {
+    @DisplayName("事件意图由文档与交互版本分别盖章")
+    void stampsEventIntentWithObservedRevisions() {
         DesktopUiNode.Event intent = new DesktopUiNode.Event(
                 DesktopUiNode.EventType.ACTIVATE, "button", DesktopUiNode.Value.empty());
+        DesktopUiNode.Event change = new DesktopUiNode.Event(
+                DesktopUiNode.EventType.CHANGE, "input", DesktopUiNode.Value.text("value"));
 
         assertThat(intent.documentRevision()).isEqualTo(-1);
+        assertThat(intent.interactionRevision()).isEqualTo(-1);
         assertThat(intent.atRevision(7).documentRevision()).isEqualTo(7);
+        assertThat(change.atRevisions(7, 3).interactionRevision()).isEqualTo(3);
     }
 
     private static DesktopUiNode.Text text(String id) {

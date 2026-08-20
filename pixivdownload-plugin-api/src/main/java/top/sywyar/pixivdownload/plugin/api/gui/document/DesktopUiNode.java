@@ -860,29 +860,34 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /**
-     * Renderer-to-host event containing no executable plugin callback.
-     * Hosts must not log or persist values emitted by {@link InputKind#PASSWORD} nodes.
+     * Renderer 发往宿主且不含可执行插件回调的事件。
+     * 宿主不得记录或持久化 {@link InputKind#PASSWORD} 节点产生的值。
      */
-    record Event(long documentRevision, EventType type, String nodeId, Value value) {
+    record Event(long documentRevision, long interactionRevision,
+                 EventType type, String nodeId, Value value) {
         /**
-         * Creates an event intent that must be stamped by {@code DesktopUiContext} before dispatch.
+         * 创建必须由 {@code DesktopUiContext} 盖章后才能派发的事件意图。
          *
-         * @param type renderer event type
-         * @param nodeId emitting node id
-         * @param value typed event value
+         * @param type renderer 事件类型
+         * @param nodeId 产生事件的节点 id
+         * @param value 类型化事件值
          */
         public Event(EventType type, String nodeId, Value value) {
-            this(-1L, type, nodeId, value);
+            this(-1L, -1L, type, nodeId, value);
         }
 
         /**
-         * @param documentRevision revision from which the emitting control was rendered
-         * @param type renderer event type
-         * @param nodeId emitting node id
-         * @param value typed event value
+         * @param documentRevision 产生控件时观察到的文档修订号
+         * @param interactionRevision 产生值控件时观察到的交互契约修订号
+         * @param type renderer 事件类型
+         * @param nodeId 产生事件的节点 id
+         * @param value 类型化事件值
          */
         public Event {
             if (documentRevision < -1L) throw new IllegalArgumentException("documentRevision must be -1 or greater");
+            if (interactionRevision < -1L) {
+                throw new IllegalArgumentException("interactionRevision must be -1 or greater");
+            }
             type = Objects.requireNonNull(type, "type");
             nodeId = requireId(nodeId, "nodeId");
             value = value == null ? Value.empty() : value;
@@ -901,12 +906,23 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
 
         /**
-         * @param revision rendered document revision
-         * @return this event intent stamped with the rendered document revision
+         * @param revision 渲染时观察到的文档修订号
+         * @return 盖上文档修订号的事件意图
          */
         public Event atRevision(long revision) {
             if (revision < 0) throw new IllegalArgumentException("revision must not be negative");
-            return new Event(revision, type, nodeId, value);
+            return new Event(revision, -1L, type, nodeId, value);
+        }
+
+        /**
+         * @param documentRevision 渲染时观察到的文档修订号
+         * @param interactionRevision 渲染时观察到的交互契约修订号
+         * @return 盖上两个观察修订号的事件意图
+         */
+        public Event atRevisions(long documentRevision, long interactionRevision) {
+            if (documentRevision < 0L) throw new IllegalArgumentException("documentRevision must not be negative");
+            if (interactionRevision < 0L) throw new IllegalArgumentException("interactionRevision must not be negative");
+            return new Event(documentRevision, interactionRevision, type, nodeId, value);
         }
     }
 

@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
@@ -357,19 +358,68 @@ class AppDesktopUiHostDocumentTest {
     }
 
     @Test
+    @DisplayName("连续输入沿用交互修订号且拒绝伪造代际")
+    void continuousInputUsesInteractionRevisionInsteadOfDocumentRevision() {
+        AppDesktopUiModel model = model();
+        DesktopUiSnapshot observed = model.snapshot();
+        DesktopUiNode.TextInput root = configTextInput(observed.document(), "download.root-folder");
+        long interactionRevision = observed.interactionRevisions().get(root.id());
+
+        model.dispatch(new DesktopUiNode.Event(observed.revision(), interactionRevision,
+                DesktopUiNode.EventType.CHANGE, root.id(), DesktopUiNode.Value.text("first-root")));
+        DesktopUiSnapshot afterFirst = model.snapshot();
+        assertThat(afterFirst.revision()).isGreaterThan(observed.revision());
+        assertThat(afterFirst.interactionRevisions().get(root.id())).isEqualTo(interactionRevision);
+
+        model.dispatch(new DesktopUiNode.Event(observed.revision(), interactionRevision,
+                DesktopUiNode.EventType.CHANGE, root.id(), DesktopUiNode.Value.text("second-root")));
+        assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value())
+                .isEqualTo("second-root");
+
+        model.dispatch(new DesktopUiNode.Event(model.snapshot().revision(), interactionRevision + 1L,
+                DesktopUiNode.EventType.CHANGE, root.id(), DesktopUiNode.Value.text("forged-root")));
+        assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value())
+                .isEqualTo("second-root");
+    }
+
+    @Test
+    @DisplayName("插件代际变化提升其值控件的交互修订号")
+    void pluginGenerationChangesInteractionRevision() {
+        PixivFeaturePlugin plugin = richConfigPlugin();
+        AtomicReference<List<DesktopUiPluginSource>> sources = new AtomicReference<>(List.of(
+                new DesktopUiPluginSource(plugin.id(), false, plugin,
+                        plugin.getClass().getClassLoader(), "schema-test-package", 1L)));
+        Path config = tempDir.resolve("generation-config.yaml");
+        AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
+                config, new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), sources::get));
+        DesktopUiSnapshot observed = model.snapshot();
+        DesktopUiNode.Choice mode = nodes(observed.document()).stream()
+                .filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
+                .filter(choice -> choice.bindingId().endsWith("schema-test.mode")).findFirst().orElseThrow();
+
+        sources.set(List.of(new DesktopUiPluginSource(plugin.id(), false, plugin,
+                plugin.getClass().getClassLoader(), "schema-test-package", 2L)));
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "debug.unlock.shortcut", DesktopUiNode.Value.empty());
+
+        assertThat(model.snapshot().interactionRevisions().get(mode.id()))
+                .isGreaterThan(observed.interactionRevisions().get(mode.id()));
+    }
+
+    @Test
     @DisplayName("过期事件和已关闭对话框事件不会执行")
     void staleAndClosedDialogEventsAreIgnored() throws Exception {
         AppDesktopUiModel model = model();
         awaitButtonEnabled(model, "config.reset");
         long pageRevision = model.snapshot().revision();
-        model.dispatch(new DesktopUiNode.Event(pageRevision, DesktopUiNode.EventType.ACTIVATE,
+        model.dispatch(new DesktopUiNode.Event(pageRevision, -1L, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset", DesktopUiNode.Value.empty()));
         long dialogRevision = model.snapshot().revision();
         DesktopUiNode.Event confirm = new DesktopUiNode.Event(
-                dialogRevision, DesktopUiNode.EventType.ACTIVATE,
+                dialogRevision, -1L, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset.confirm", DesktopUiNode.Value.empty());
 
-        model.dispatch(new DesktopUiNode.Event(pageRevision, DesktopUiNode.EventType.ACTIVATE,
+        model.dispatch(new DesktopUiNode.Event(pageRevision, -1L, DesktopUiNode.EventType.ACTIVATE,
                 "config.reset.confirm", DesktopUiNode.Value.empty()));
         assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
                 .containsExactly("config.reset.dialog");
@@ -394,7 +444,7 @@ class AppDesktopUiHostDocumentTest {
         DesktopUiDocument before = model.snapshot().document();
         long revision = model.snapshot().revision();
         DesktopUiNode.Event click = new DesktopUiNode.Event(
-                revision, DesktopUiNode.EventType.ACTIVATE, disabled.id(), DesktopUiNode.Value.empty());
+                revision, -1L, DesktopUiNode.EventType.ACTIVATE, disabled.id(), DesktopUiNode.Value.empty());
 
         model.dispatch(click);
         assertThat(model.snapshot().document()).isEqualTo(before);
@@ -417,7 +467,8 @@ class AppDesktopUiHostDocumentTest {
         List<String> selected = language.selectedIds();
         long optionRevision = model.snapshot().revision();
 
-        model.dispatch(new DesktopUiNode.Event(optionRevision, DesktopUiNode.EventType.SELECTION,
+        model.dispatch(new DesktopUiNode.Event(optionRevision,
+                model.snapshot().interactionRevisions().get(language.id()), DesktopUiNode.EventType.SELECTION,
                 language.id(), DesktopUiNode.Value.selection("forged-option")));
         DesktopUiNode.Choice afterForgedOption = nodes(model.snapshot().document()).stream()
                 .filter(DesktopUiNode.Choice.class::isInstance)
@@ -428,7 +479,8 @@ class AppDesktopUiHostDocumentTest {
 
         DesktopUiNode.TextInput root = configTextInput(model.snapshot().document(), "download.root-folder");
         long typeRevision = model.snapshot().revision();
-        model.dispatch(new DesktopUiNode.Event(typeRevision, DesktopUiNode.EventType.SELECTION,
+        model.dispatch(new DesktopUiNode.Event(typeRevision,
+                model.snapshot().interactionRevisions().get(root.id()), DesktopUiNode.EventType.SELECTION,
                 root.id(), DesktopUiNode.Value.selection("forged-value")));
         assertThat(configTextInput(model.snapshot().document(), "download.root-folder").value()).isEqualTo(root.value());
         assertThat(model.snapshot().revision()).isEqualTo(typeRevision);
@@ -460,19 +512,19 @@ class AppDesktopUiHostDocumentTest {
                 AppDesktopUiModel.indexEventEndpoints(document);
 
         assertThat(AppDesktopUiModel.validateEvent(endpoints.get(choice.id()), new DesktopUiNode.Event(
-                0, DesktopUiNode.EventType.SELECTION, choice.id(),
+                0, 0, DesktopUiNode.EventType.SELECTION, choice.id(),
                 DesktopUiNode.Value.selection("disabled-option")))).isEqualTo("choice option is disabled");
         assertThat(AppDesktopUiModel.validateEvent(endpoints.get(table.id()), new DesktopUiNode.Event(
-                0, DesktopUiNode.EventType.SELECTION, table.id(),
+                0, 0, DesktopUiNode.EventType.SELECTION, table.id(),
                 DesktopUiNode.Value.selection("forged-row")))).isEqualTo("unknown table row");
         assertThat(AppDesktopUiModel.validateEvent(endpoints.get(tree.id()), new DesktopUiNode.Event(
-                0, DesktopUiNode.EventType.SELECTION, tree.id(),
+                0, 0, DesktopUiNode.EventType.SELECTION, tree.id(),
                 DesktopUiNode.Value.selection("forged-item")))).isEqualTo("unknown tree item");
         assertThat(AppDesktopUiModel.validateEvent(endpoints.get(number.id()), new DesktopUiNode.Event(
-                0, DesktopUiNode.EventType.CHANGE, number.id(),
+                0, 0, DesktopUiNode.EventType.CHANGE, number.id(),
                 DesktopUiNode.Value.number(10)))).isEqualTo("number is outside bounds");
         assertThat(AppDesktopUiModel.validateEvent(endpoints.get(number.id()), new DesktopUiNode.Event(
-                0, DesktopUiNode.EventType.CHANGE, number.id(),
+                0, 0, DesktopUiNode.EventType.CHANGE, number.id(),
                 DesktopUiNode.Value.number(4)))).isEqualTo("number does not align with step");
     }
 
@@ -951,7 +1003,11 @@ class AppDesktopUiHostDocumentTest {
     private static void dispatch(AppDesktopUiModel model, DesktopUiNode.EventType type,
                                  String nodeId, DesktopUiNode.Value value) {
         synchronized (model) {
-            model.dispatch(new DesktopUiNode.Event(model.snapshot().revision(), type, nodeId, value));
+            DesktopUiSnapshot snapshot = model.snapshot();
+            long interactionRevision = type == DesktopUiNode.EventType.ACTIVATE ? -1L
+                    : snapshot.interactionRevisions().get(nodeId);
+            model.dispatch(new DesktopUiNode.Event(
+                    snapshot.revision(), interactionRevision, type, nodeId, value));
         }
     }
 

@@ -145,6 +145,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile Map<String, Consumer<List<String>>> selectionBindings = Map.of();
     private volatile Map<String, Runnable> actions = Map.of();
     private volatile Map<String, EventEndpoint> eventEndpoints = Map.of();
+    private Map<String, InteractionSignature> interactionSignatures = Map.of();
+    private long interactionRevisionSequence;
     private volatile DesktopUiSnapshot snapshot;
     private volatile DesktopUiHost.BackendSnapshot backend;
     private volatile String statusNotice = "";
@@ -258,13 +260,23 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     public synchronized void dispatch(DesktopUiNode.Event event) {
         Objects.requireNonNull(event, "event");
         if (closed) return;
-        long currentRevision = snapshot.revision();
-        if (event.documentRevision() != currentRevision) {
-            LOG.warn("Ignored stale desktop UI event (nodeId={}, type={}, eventRevision={}, currentRevision={})",
-                    event.nodeId(), event.type(), event.documentRevision(), currentRevision);
-            return;
-        }
+        DesktopUiSnapshot currentSnapshot = snapshot;
         EventEndpoint endpoint = eventEndpoints.get(event.nodeId());
+        if (event.type() == DesktopUiNode.EventType.ACTIVATE) {
+            if (event.documentRevision() != currentSnapshot.revision()) {
+                LOG.warn("Ignored stale desktop UI event (nodeId={}, type={}, reason=stale-document)",
+                        event.nodeId(), event.type());
+                return;
+            }
+        } else {
+            Long currentInteractionRevision = currentSnapshot.interactionRevisions().get(event.nodeId());
+            if (currentInteractionRevision == null
+                    || event.interactionRevision() != currentInteractionRevision) {
+                LOG.warn("Ignored stale desktop UI event (nodeId={}, type={}, reason=stale-interaction)",
+                        event.nodeId(), event.type());
+                return;
+            }
+        }
         String rejection = validateEvent(endpoint, event);
         if (rejection != null) {
             LOG.warn("Ignored invalid desktop UI event (nodeId={}, type={}, reason={})",
@@ -355,27 +367,75 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     "debug.unlock", false)), Optional.of(tray));
             Map<String, EventEndpoint> nextEventEndpoints = indexEventEndpoints(nextDocument);
             eventEndpoints = nextEventEndpoints;
+            Map<String, InteractionSignature> nextInteractionSignatures = interactionSignatures(
+                    nextEventEndpoints, sourceFingerprints);
+            Map<String, Long> nextInteractionRevisions = interactionRevisions(nextInteractionSignatures);
             if (sourcesChanged || localeChanged || snapshot == null || !nextDocument.equals(snapshot.document())) {
                 long nextRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
                 documentSourceFingerprints = sourceFingerprints;
                 documentLocale = currentLocale;
-                snapshot = new DesktopUiSnapshot(nextRevision, nextDocument,
-                        interactionRevisions(nextEventEndpoints, nextRevision));
+                snapshot = new DesktopUiSnapshot(nextRevision, nextDocument, nextInteractionRevisions);
             }
+            interactionSignatures = nextInteractionSignatures;
         } finally {
             rebuildSources = previousSources;
         }
     }
 
-    private static Map<String, Long> interactionRevisions(
-            Map<String, EventEndpoint> endpoints, long revision) {
+    private Map<String, Long> interactionRevisions(Map<String, InteractionSignature> signatures) {
         Map<String, Long> revisions = new LinkedHashMap<>();
-        endpoints.forEach((nodeId, endpoint) -> {
-            if (endpoint.eventType() != DesktopUiNode.EventType.ACTIVATE) {
-                revisions.put(nodeId, revision);
-            }
+        Map<String, Long> previous = snapshot == null ? Map.of() : snapshot.interactionRevisions();
+        signatures.forEach((nodeId, signature) -> {
+            Long revision = signature.equals(interactionSignatures.get(nodeId)) ? previous.get(nodeId) : null;
+            revisions.put(nodeId, revision == null ? nextInteractionRevision() : revision);
         });
         return Map.copyOf(revisions);
+    }
+
+    private long nextInteractionRevision() {
+        interactionRevisionSequence = Math.incrementExact(interactionRevisionSequence);
+        return interactionRevisionSequence;
+    }
+
+    private static Map<String, InteractionSignature> interactionSignatures(
+            Map<String, EventEndpoint> endpoints,
+            List<DesktopUiPluginSource.Fingerprint> sourceFingerprints) {
+        Map<String, InteractionSignature> signatures = new LinkedHashMap<>();
+        endpoints.forEach((nodeId, endpoint) -> {
+            if (endpoint.eventType() != DesktopUiNode.EventType.ACTIVATE) {
+                signatures.put(nodeId, interactionSignature(nodeId, endpoint, sourceFingerprints));
+            }
+        });
+        return Map.copyOf(signatures);
+    }
+
+    private static InteractionSignature interactionSignature(
+            String nodeId, EventEndpoint endpoint,
+            List<DesktopUiPluginSource.Fingerprint> sourceFingerprints) {
+        DesktopUiNode node = endpoint.node();
+        String inputKind = node instanceof DesktopUiNode.TextInput input ? input.inputKind().name() : "";
+        Integer minimum = node instanceof DesktopUiNode.NumberInput input ? input.minimum() : null;
+        Integer maximum = node instanceof DesktopUiNode.NumberInput input ? input.maximum() : null;
+        Integer step = node instanceof DesktopUiNode.NumberInput input ? input.step() : null;
+        SelectionMode selectionMode = null;
+        List<InteractionOption> options = List.of();
+        List<String> selectableIds = List.of();
+        if (node instanceof DesktopUiNode.Choice choice) {
+            selectionMode = choice.selectionMode();
+            options = choice.options().stream()
+                    .map(option -> new InteractionOption(option.id(), option.enabled())).toList();
+        } else if (node instanceof DesktopUiNode.Table table) {
+            selectionMode = table.selectionMode();
+            selectableIds = table.rows().stream().map(DesktopUiNode.TableRow::id).toList();
+        } else if (node instanceof DesktopUiNode.Tree tree) {
+            selectionMode = tree.selectionMode();
+            List<String> ids = new ArrayList<>();
+            collectTreeItemIds(tree.items(), ids);
+            selectableIds = List.copyOf(ids);
+        }
+        return new InteractionSignature(node.kind(), nodeId, endpoint.targetId(), endpoint.eventType(),
+                endpoint.enabled(), inputKind, minimum, maximum, step, selectionMode,
+                options, selectableIds, List.copyOf(sourceFingerprints));
     }
 
     static Map<String, EventEndpoint> indexEventEndpoints(DesktopUiDocument document) {
@@ -489,7 +549,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         return value.kind() == expected ? null : "selection kind does not match selection mode";
     }
 
-    private static void collectTreeItemIds(List<DesktopUiNode.TreeItem> items, Set<String> ids) {
+    private static void collectTreeItemIds(
+            List<DesktopUiNode.TreeItem> items, java.util.Collection<String> ids) {
         for (DesktopUiNode.TreeItem item : items) {
             ids.add(item.id());
             collectTreeItemIds(item.children(), ids);
@@ -502,6 +563,24 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     record EventEndpoint(String targetId, DesktopUiNode.EventType eventType,
                          boolean enabled, DesktopUiNode node) { }
+
+    private record InteractionOption(String id, boolean enabled) { }
+
+    private record InteractionSignature(
+            DesktopUiNode.Kind kind,
+            String nodeId,
+            String targetId,
+            DesktopUiNode.EventType eventType,
+            boolean enabled,
+            String inputKind,
+            Integer minimum,
+            Integer maximum,
+            Integer step,
+            SelectionMode selectionMode,
+            List<InteractionOption> options,
+            List<String> selectableIds,
+            List<DesktopUiPluginSource.Fingerprint> sourceFingerprints
+    ) { }
 
     private static DesktopUiDocument.KeyStroke keyStroke(String key) {
         return DesktopUiDocument.KeyStroke.key(key);

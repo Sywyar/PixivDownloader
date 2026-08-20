@@ -197,7 +197,7 @@ internal object ComposeDesktopUi {
                         }
                         PixivDownloaderTheme(context.themePreference()) {
                             Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
-                                ComposeDesktopRoot(context, document, observed.revision(), messages)
+                                ComposeDesktopRoot(context, observed, messages)
                                 message.value?.let { current ->
                                     AlertDialog(
                                         onDismissRequest = { message.value = null },
@@ -467,10 +467,11 @@ private class ComposeShortcutDispatcher(private val context: DesktopUiContext) :
 @Composable
 private fun ComposeDesktopRoot(
     context: DesktopUiContext,
-    document: DesktopUiDocument,
-    documentRevision: Long,
+    snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,
 ) {
+    val document = snapshot.document()
+    val documentRevision = snapshot.revision()
     val pageIds = document.pages().map { it.id() }
     var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
     val activePage = selectedIdOrFirst(selected, pageIds)
@@ -525,7 +526,7 @@ private fun ComposeDesktopRoot(
                         ComposeDesktopUiNodeRenderer.Render(
                             document.pages().first { it.id() == pageId }.content(),
                             messages::resolve,
-                            { event -> context.dispatchEvent(documentRevision, event) },
+                            { event -> context.dispatchEvent(snapshot, event) },
                             Modifier.fillMaxSize(),
                             documentRevision,
                         )
@@ -534,7 +535,7 @@ private fun ComposeDesktopRoot(
             }
         }
     }
-    document.dialogs().forEach { dialog -> DocumentDialog(dialog, documentRevision, messages, context) }
+    document.dialogs().forEach { dialog -> DocumentDialog(dialog, snapshot, messages, context) }
 }
 
 internal fun selectedIdOrFirst(selectedId: String, orderedIds: List<String>): String =
@@ -638,12 +639,12 @@ internal fun applicationInitials(name: String): String {
 @Composable
 private fun DocumentDialog(
     dialog: DesktopUiDocument.Dialog,
-    documentRevision: Long,
+    snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,
     context: DesktopUiContext,
 ) {
     Dialog(onDismissRequest = {
-        if (dialog.dismissible()) context.dispatchEvent(documentRevision, DesktopUiNode.Event(
+        if (dialog.dismissible()) context.dispatchEvent(snapshot, DesktopUiNode.Event(
             DesktopUiNode.EventType.ACTIVATE,
             dialog.id(),
             DesktopUiNode.Value.empty(),
@@ -657,8 +658,8 @@ private fun DocumentDialog(
                 Text(messages.resolve(dialog.title()), style = MaterialTheme.typography.titleLarge)
                 ComposeDesktopUiNodeRenderer.Render(
                     dialog.content(), messages::resolve,
-                    { event -> context.dispatchEvent(documentRevision, event) }, Modifier.fillMaxWidth(),
-                    documentRevision,
+                    { event -> context.dispatchEvent(snapshot, event) }, Modifier.fillMaxWidth(),
+                    snapshot.revision(),
                 )
             }
         }
