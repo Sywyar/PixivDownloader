@@ -297,7 +297,7 @@ final class FlatLafSetup {
             case "ja" -> "日本語 ひらがな カタカナ";
             case "zh" -> "简体中文 繁體中文";
             default -> "PixivDownloader";
-        };
+        } + " ◀▶";
         for (String name : priority) {
             if (available.contains(name) && canDisplay.test(name, sample)) {
                 return name;
