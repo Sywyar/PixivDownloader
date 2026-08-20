@@ -112,7 +112,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Compose Multiplatform renderer for the complete stable desktop node vocabulary. */
+/** 完整稳定桌面节点词汇的 Compose Multiplatform renderer。 */
 @OptIn(ExperimentalComposeUiApi::class)
 object ComposeDesktopUiNodeRenderer {
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }

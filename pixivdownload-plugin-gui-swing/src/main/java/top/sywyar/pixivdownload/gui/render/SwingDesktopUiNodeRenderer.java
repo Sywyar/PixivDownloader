@@ -79,9 +79,9 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-/** Swing adapter for every node in the stable declarative desktop UI vocabulary. */
+/** 稳定声明式桌面界面词汇中每种节点的 Swing 适配器。 */
 public final class SwingDesktopUiNodeRenderer {
-    /** Client property used to preserve toolkit state across immutable document revisions. */
+    /** 用于在不可变文档 revision 之间保留工具包状态的客户端属性。 */
     public static final String NODE_ID_PROPERTY = "pixivdownload.desktopUi.nodeId";
     /** 将密码短暂状态限制在宿主拥有的代际内。 */
     public static final String PASSWORD_STATE_KEY_PROPERTY = "pixivdownload.desktopUi.passwordStateKey";
@@ -95,7 +95,7 @@ public final class SwingDesktopUiNodeRenderer {
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
     }
 
-    /** Returns the complete node-kind set implemented by this renderer. */
+    /** 返回此 renderer 已实现的完整节点类型集合。 */
     public static Set<Kind> supportedKinds() {
         return Set.of(Kind.CONTAINER, Kind.DOCK, Kind.SURFACE, Kind.GROUP, Kind.FORM, Kind.TABS,
                 Kind.SCROLL, Kind.SPLIT, Kind.TEXT, Kind.ICON, Kind.IMAGE, Kind.SEPARATOR, Kind.SPACER,
@@ -103,7 +103,7 @@ public final class SwingDesktopUiNodeRenderer {
                 Kind.TABLE, Kind.TREE, Kind.BUTTON, Kind.LINK);
     }
 
-    /** Runs toolkit state restoration without projecting it as user input. */
+    /** 恢复工具包状态，且不将其投影为用户输入。 */
     public void withoutEvents(Runnable action) {
         boolean previous = eventsSuppressed;
         eventsSuppressed = true;
@@ -114,7 +114,7 @@ public final class SwingDesktopUiNodeRenderer {
         }
     }
 
-    /** Validates and renders one complete declarative subtree. */
+    /** 验证并渲染一棵完整的声明式子树。 */
     public JComponent render(DesktopUiNode root) {
         DesktopUiNode.validateTree(root);
         return renderNode(root);

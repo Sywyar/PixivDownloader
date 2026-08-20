@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.gui.entry;
 
 /**
- * Diagnostic emitted while aggregating plugin GUI web entry contributions.
+ * 聚合插件 GUI Web 入口贡献时产生的诊断。
  */
 public record GuiWebEntryContributionDiagnostic(
         String pluginId,

@@ -97,7 +97,7 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** App-owned complete desktop document and event dispatcher. */
+/** 应用拥有的完整桌面文档与事件分派器。 */
 final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(AppDesktopUiModel.class);
     private static final String APP_OWNER = "app";
@@ -1616,7 +1616,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     }
                 }
             } catch (RuntimeException ignored) {
-                // Optional plugin onboarding is isolated.
+                // 隔离可选插件的引导异常。
             }
         }
         return unique.values().stream()
@@ -3029,7 +3029,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                             source.plugin().displayName(), source.id()), true));
                 }
             } catch (RuntimeException ignored) {
-                // One invalid optional provider does not remove the settings page.
+                // 单个无效的可选 provider 不会移除设置页。
             }
         }
 
@@ -3351,7 +3351,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     }
                 }
             } catch (RuntimeException ignored) {
-                // Optional plugin entry is isolated.
+                // 隔离可选插件条目异常。
             }
         }
         entries.sort(Comparator.comparingInt(NavigationContribution::priority)
@@ -3374,7 +3374,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     }
                 }
             } catch (RuntimeException ignored) {
-                // Optional plugin entry is isolated.
+                // 隔离可选插件条目异常。
             }
         }
         entries.sort(Comparator.comparingInt((QuickStartEntry entry) -> entry.navigation().priority())
@@ -5751,7 +5751,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     List.of("app.language", "app.gui-provider", "app.theme", "app.config-menu-expand-all"));
             special.forEach((key, value) -> savedValues.put(new FieldKey(null, key), value));
         } catch (Exception ignored) {
-            // Defaults below remain active.
+            // 保持下方默认值继续生效。
         }
         Set<FieldKey> loadedKeys = Set.copyOf(loaded.keySet());
         values.keySet().removeIf(key -> key.key().startsWith("app.") || loadedKeys.contains(key));
@@ -6303,7 +6303,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             formValues.putIfAbsent("tools.backfill.limit", Integer.toString(defaults.limit()));
             formValues.putIfAbsent("tools.backfill.dry", Boolean.toString(defaults.dryRun()));
         } catch (RuntimeException ignored) {
-            // Page defaults remain usable.
+            // 保持页面默认值可用。
         }
         DesktopUiHost.ImageClassifierSettings settings = classifierSettings();
         formValues.putIfAbsent("classifier.default-folder", settings.defaultFolder());

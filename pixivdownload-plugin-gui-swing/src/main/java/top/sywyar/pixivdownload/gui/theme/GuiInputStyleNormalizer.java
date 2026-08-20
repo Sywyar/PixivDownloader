@@ -10,7 +10,7 @@ import java.text.Format;
 import java.text.NumberFormat;
 
 /**
- * Keeps Swing input widgets stable after LookAndFeel updates.
+ * 在 LookAndFeel 更新后保持 Swing 输入控件状态稳定。
  */
 public final class GuiInputStyleNormalizer {
 

@@ -4,7 +4,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 
 import java.util.Objects;
 
-/** Process-lifetime context installed before any Swing component is created. */
+/** 在创建任何 Swing 组件前安装的进程生命周期上下文。 */
 public final class SwingHost {
     private static volatile DesktopUiContext context;
 

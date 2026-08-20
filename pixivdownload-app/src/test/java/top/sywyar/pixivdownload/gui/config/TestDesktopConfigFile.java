@@ -7,7 +7,7 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
 
-/** Test-only adapter for GUI configuration codec tests. */
+/** GUI 配置编解码测试专用适配器。 */
 public final class TestDesktopConfigFile implements DesktopUiHost.ConfigFile {
     private final ConfigFileEditor editor;
 

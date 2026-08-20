@@ -4,7 +4,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import java.util.Objects;
 
-/** Short-lived app-internal view of one host-verified active plugin. */
+/** 一个经宿主验证的活动插件的短生命周期应用内部视图。 */
 public record DesktopUiPluginSource(String id, boolean builtIn,
                                     PixivFeaturePlugin plugin, ClassLoader classLoader,
                                     String packageId, long generation) {

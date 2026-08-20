@@ -5,7 +5,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
 import java.util.List;
 
-/** Test-only adapter from the app registry to the stable desktop UI contract. */
+/** 从应用注册中心适配到稳定桌面界面契约的测试专用适配器。 */
 public final class DesktopUiTestSources {
     private DesktopUiTestSources() {}
 

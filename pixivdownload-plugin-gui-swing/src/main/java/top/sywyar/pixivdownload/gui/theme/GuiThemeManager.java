@@ -22,8 +22,8 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Swing-only GUI theme manager. The core owns only theme id persistence, contribution selection, listener lifetime,
- * and system/JDK fallback. Concrete theme engines live in startup plugins.
+ * 仅供 Swing 使用的 GUI 主题管理器。核心只负责主题 id 持久化、贡献选择、listener 生命周期，
+ * 以及系统/JDK 回退；具体主题引擎由启动插件提供。
  */
 public final class GuiThemeManager {
 

@@ -42,7 +42,7 @@ class AppVersionTest {
     }
 
     @Test
-    @DisplayName("should expose the Maven-owned Kotlin version")
+    @DisplayName("应暴露 Maven 维护的 Kotlin 版本")
     void shouldReadKotlinVersionFromMavenFilteredResource() throws Exception {
         assertThat(AppVersion.getKotlinVersionOrDefault("missing"))
                 .isEqualTo(mavenFilteredProperty("kotlin.version"))

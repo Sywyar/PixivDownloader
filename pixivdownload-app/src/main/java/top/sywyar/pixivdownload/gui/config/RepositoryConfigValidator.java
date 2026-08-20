@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** Headless validation for the app-owned custom plugin repository editor. */
+/** 应用拥有的自定义插件仓库编辑器所用的无界面验证器。 */
 public final class RepositoryConfigValidator {
     static final long MAX_BYTES_LIMIT = 10L * 1024 * 1024 * 1024;
     static final long MAX_TIMEOUT_MS = 60L * 60 * 1000;
@@ -19,7 +19,7 @@ public final class RepositoryConfigValidator {
     private RepositoryConfigValidator() {
     }
 
-    /** Validates a repository id against host-reserved ids and the other configured repositories. */
+    /** 对照宿主保留 id 和其它已配置仓库验证仓库 id。 */
     public static String validateId(String id, List<RepositoryConfigEntry> others, Set<String> reservedIds) {
         String trimmed = id == null ? "" : id.trim();
         if (trimmed.isEmpty()) return "gui.config.market.repo.error.id-empty";
@@ -37,12 +37,12 @@ public final class RepositoryConfigValidator {
         return null;
     }
 
-    /** Validates a manifest URL using the default strict-HTTPS policy. */
+    /** 使用默认严格 HTTPS 策略验证清单 URL。 */
     public static String validateManifestUrl(String manifestUrl) {
         return validateManifestUrl(manifestUrl, true);
     }
 
-    /** Validates an absolute HTTP(S) manifest URL, optionally requiring HTTPS. */
+    /** 验证绝对 HTTP(S) 清单 URL，并可选择要求 HTTPS。 */
     public static String validateManifestUrl(String manifestUrl, boolean strictHttps) {
         String url = manifestUrl == null ? "" : manifestUrl.trim();
         if (url.isEmpty()) return "gui.config.market.repo.error.url-empty";
@@ -64,7 +64,7 @@ public final class RepositoryConfigValidator {
                 ? "gui.config.market.repo.error.url-no-host" : null;
     }
 
-    /** Validates a persisted proxy policy without silently downgrading unknown values. */
+    /** 验证已持久化的代理策略，不静默降级未知值。 */
     public static String validateProxyPolicy(String proxyPolicy) {
         String value = proxyPolicy == null ? "" : proxyPolicy.trim();
         if (value.isEmpty()) return null;
@@ -73,12 +73,12 @@ public final class RepositoryConfigValidator {
                 ? null : "gui.config.market.repo.error.proxy-policy-unknown";
     }
 
-    /** Validates an optional timeout override in milliseconds. */
+    /** 验证可选的超时毫秒覆盖值。 */
     public static String validateTimeoutOverride(String raw) {
         return validatePositiveOptional(raw, MAX_TIMEOUT_MS);
     }
 
-    /** Validates an optional byte-size override. */
+    /** 验证可选的字节大小覆盖值。 */
     public static String validateSizeOverride(String raw) {
         return validatePositiveOptional(raw, MAX_BYTES_LIMIT);
     }
@@ -96,7 +96,7 @@ public final class RepositoryConfigValidator {
         return value > upperBound ? "gui.config.market.repo.error.number-too-large" : null;
     }
 
-    /** Parses a validated optional numeric override; blank means inherit. */
+    /** 解析已验证的可选数值覆盖；空白表示继承。 */
     public static long parseOverride(String raw) {
         String text = raw == null ? "" : raw.trim();
         if (text.isEmpty()) return 0;
@@ -108,7 +108,7 @@ public final class RepositoryConfigValidator {
         }
     }
 
-    /** Validates one repository trust-key form. */
+    /** 验证一个仓库信任密钥表单。 */
     public static String validateTrustedKey(String keyId, String algorithm, String publicKey, String state,
                                             List<String> otherKeyIds) {
         String normalizedId = keyId == null ? "" : keyId.trim();

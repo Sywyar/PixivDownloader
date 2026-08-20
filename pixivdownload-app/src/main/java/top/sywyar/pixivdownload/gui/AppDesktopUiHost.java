@@ -26,7 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-/** App-owned implementation of the stable desktop UI host contract. */
+/** 应用拥有的稳定桌面界面宿主契约实现。 */
 final class AppDesktopUiHost implements DesktopUiHost {
     private final DesktopUiLocalApiClient localApiClient;
     private final ConfigFile applicationConfig;

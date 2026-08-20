@@ -15,7 +15,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 
-/** App-owned authenticated transport for local desktop UI requests. */
+/** 应用拥有的本地桌面界面请求认证传输层。 */
 @Slf4j
 final class DesktopUiLocalApiClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
