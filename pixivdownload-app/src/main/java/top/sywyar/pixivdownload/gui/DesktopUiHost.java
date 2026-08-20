@@ -578,6 +578,11 @@ public interface DesktopUiHost {
         return exchangeGui(GuiRequest.get(path, readTimeoutMillis));
     }
 
+    /** @return 当前受保护的本机控制中心快照响应 */
+    default GuiResponse controlCenterSnapshot() {
+        return guiGet("control-center", 2_000);
+    }
+
     /**
      * Posts a JSON-compatible JDK value to one local GUI endpoint.
      *

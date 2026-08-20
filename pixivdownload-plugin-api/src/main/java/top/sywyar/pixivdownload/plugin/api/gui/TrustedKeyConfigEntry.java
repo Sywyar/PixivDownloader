@@ -4,19 +4,19 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** Toolkit-neutral public trust-key configuration for one plugin repository. */
+/** 单个插件仓库的工具包无关公开信任密钥配置。 */
 public record TrustedKeyConfigEntry(String keyId, String algorithm, String publicKey, String state,
                                     String publisher, String trustLabel, Map<String, Object> extraFields) {
     /**
-     * Validates and defensively copies one public trust-key configuration.
+     * 校验并防御性复制一项公开信任密钥配置。
      *
-     * @param keyId stable key id
-     * @param algorithm signature algorithm
-     * @param publicKey encoded public key
-     * @param state trust-key state
-     * @param publisher publisher identity
-     * @param trustLabel user-visible trust label
-     * @param extraFields unknown fields preserved during round trips
+     * @param keyId 稳定密钥 id
+     * @param algorithm 签名算法
+     * @param publicKey 编码后的公钥
+     * @param state 信任密钥状态
+     * @param publisher 发布者身份
+     * @param trustLabel 用户可见的信任标签
+     * @param extraFields 往返时保留的未知字段
      */
     public TrustedKeyConfigEntry {
         keyId = keyId == null ? "" : keyId.trim();
@@ -29,15 +29,15 @@ public record TrustedKeyConfigEntry(String keyId, String algorithm, String publi
     }
 
     /**
-     * Creates a trust key without unknown fields.
+     * 创建不含未知字段的信任密钥配置。
      *
-     * @param keyId stable key id
-     * @param algorithm signature algorithm
-     * @param publicKey encoded public key
-     * @param state trust-key state
-     * @param publisher publisher identity
-     * @param trustLabel user-visible trust label
-     * @return trust-key configuration
+     * @param keyId 稳定密钥 id
+     * @param algorithm 签名算法
+     * @param publicKey 编码后的公钥
+     * @param state 信任密钥状态
+     * @param publisher 发布者身份
+     * @param trustLabel 用户可见的信任标签
+     * @return 信任密钥配置
      */
     public static TrustedKeyConfigEntry create(String keyId, String algorithm, String publicKey, String state,
                                                String publisher, String trustLabel) {

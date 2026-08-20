@@ -7,18 +7,18 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Path;
 
-/** Bounded image decoding and aspect-preserving high-quality thumbnail scaling. */
+/** 对图片执行有界解码，并按原始宽高比生成高质量缩略图。 */
 public final class ImageThumbnailScaler {
     private ImageThumbnailScaler() {}
 
     /**
-     * Decodes and scales an image without changing its aspect ratio.
+     * 解码图片并在不改变宽高比的前提下缩放。
      *
-     * @param source source image path
-     * @param maximumWidth maximum output width, or a negative value for one-third source width
-     * @param maximumHeight maximum output height, or a negative value for one-third source height
-     * @return opaque scaled thumbnail
-     * @throws IOException when the source cannot be decoded safely
+     * @param source 源图片路径
+     * @param maximumWidth 最大输出宽度；负数表示使用源宽度的三分之一
+     * @param maximumHeight 最大输出高度；负数表示使用源高度的三分之一
+     * @return 不透明的缩放缩略图
+     * @throws IOException 源图片无法安全解码时抛出
      */
     public static BufferedImage scale(Path source, int maximumWidth, int maximumHeight) throws IOException {
         BufferedImage image = BoundedImageDecoder.read(source);

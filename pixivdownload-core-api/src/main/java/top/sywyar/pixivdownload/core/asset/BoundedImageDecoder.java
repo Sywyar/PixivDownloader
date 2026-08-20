@@ -23,11 +23,11 @@ public final class BoundedImageDecoder {
     }
 
     /**
-     * Decodes a regular image file after enforcing source-byte and pixel-count limits.
+     * 在执行源字节数与像素数上限后解码普通图片文件。
      *
-     * @param path image file path
-     * @return decoded image, or {@code null} when the path is absent, empty, or unsupported
-     * @throws IOException when the source exceeds a limit or cannot be decoded safely
+     * @param path 图片文件路径
+     * @return 解码后的图片；路径不存在、文件为空或格式不受支持时返回 {@code null}
+     * @throws IOException 源文件超限或无法安全解码时抛出
      */
     public static BufferedImage read(Path path) throws IOException {
         if (path == null || !Files.isRegularFile(path)) {

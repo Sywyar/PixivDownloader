@@ -402,6 +402,21 @@ class ExternalCapabilityInvocationRegistryTest {
     }
 
     @Test
+    @DisplayName("精确 owner 只在已发布 admission 开放期间接受调用")
+    void exactOwnerAdmissionFollowsPublicationLifecycle() {
+        ExternalCapabilityInvocationRegistry registry = new ExternalCapabilityInvocationRegistry();
+        ExternalCapabilityPreparation preparation = prepareOwner(registry, "demo", "demo", 2L);
+
+        assertThat(registry.acceptsInvocations(preparation.owner())).isFalse();
+        ExternalCapabilityPublication publication = registry.publish(preparation);
+        assertThat(registry.acceptsInvocations(publication.owner())).isTrue();
+
+        ExternalCapabilityDrain drain = registry.withdraw(publication).orElseThrow();
+        assertThat(registry.acceptsInvocations(publication.owner())).isFalse();
+        registry.retireDrained(drain);
+    }
+
+    @Test
     @DisplayName("VM fatal 与 ThreadDeath 保持原对象身份且租约仍完成清理")
     void fatalIdentityIsPreservedAfterCleanup() {
         assertFatalIdentity(new OutOfMemoryError("fatal"));

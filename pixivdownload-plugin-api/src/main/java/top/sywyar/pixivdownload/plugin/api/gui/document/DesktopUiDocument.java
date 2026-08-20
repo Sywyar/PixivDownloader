@@ -9,41 +9,41 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Complete toolkit-neutral description of the desktop application's root pages.
- * Page order is the rendered navigation order; providers only render each page's node tree.
+ * 桌面应用根页面的完整工具包无关描述。页面顺序即渲染后的导航顺序，
+ * provider 只负责渲染各页面的节点树。
  *
- * @param pages ordered root pages
- * @param dialogs ordered open modal dialogs
- * @param shortcuts application keyboard shortcuts active for this document
- * @param tray optional system-tray structure
+ * @param pages 有序根页面
+ * @param dialogs 有序的已打开模态对话框
+ * @param shortcuts 当前文档启用的应用快捷键
+ * @param tray 可选系统托盘结构
  */
 public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
                                 List<KeyboardShortcut> shortcuts, Optional<Tray> tray) {
     /**
-     * Creates a document without open dialogs or keyboard shortcuts.
+     * 创建没有已打开对话框或快捷键的文档。
      *
-     * @param pages ordered root pages
+     * @param pages 有序根页面
      */
     public DesktopUiDocument(List<Page> pages) {
         this(pages, List.of(), List.of(), Optional.empty());
     }
 
     /**
-     * Creates a document without application keyboard shortcuts.
+     * 创建没有应用快捷键的文档。
      *
-     * @param pages ordered root pages
-     * @param dialogs ordered open modal dialogs
+     * @param pages 有序根页面
+     * @param dialogs 有序的已打开模态对话框
      */
     public DesktopUiDocument(List<Page> pages, List<Dialog> dialogs) {
         this(pages, dialogs, List.of(), Optional.empty());
     }
 
     /**
-     * Creates a document without a system tray.
+     * 创建没有系统托盘的文档。
      *
-     * @param pages ordered root pages
-     * @param dialogs ordered open modal dialogs
-     * @param shortcuts application keyboard shortcuts active for this document
+     * @param pages 有序根页面
+     * @param dialogs 有序的已打开模态对话框
+     * @param shortcuts 当前文档启用的应用快捷键
      */
     public DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
                              List<KeyboardShortcut> shortcuts) {
@@ -51,12 +51,12 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     /**
-     * Validates and defensively copies the page tree.
+     * 校验并防御性复制页面树。
      *
-     * @param pages ordered root pages
-     * @param dialogs ordered open modal dialogs
-     * @param shortcuts application keyboard shortcuts active for this document
-     * @param tray optional system-tray structure
+     * @param pages 有序根页面
+     * @param dialogs 有序的已打开模态对话框
+     * @param shortcuts 当前文档启用的应用快捷键
+     * @param tray 可选系统托盘结构
      */
     public DesktopUiDocument {
         pages = List.copyOf(Objects.requireNonNull(pages, "pages"));
@@ -83,9 +83,9 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     /**
-     * Returns every node kind required to render this document.
+     * 返回渲染当前文档所需的全部节点类型。
      *
-     * @return immutable required node-kind set
+     * @return 不可变的必需节点类型集合
      */
     public Set<DesktopUiNode.Kind> requiredNodeKinds() {
         var kinds = new HashSet<DesktopUiNode.Kind>();
@@ -95,9 +95,9 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     /**
-     * Returns every semantic capability required to render this document without silent degradation.
+     * 返回无静默降级地渲染当前文档所需的全部语义能力。
      *
-     * @return immutable required capability set
+     * @return 不可变的必需能力集合
      */
     public Set<DesktopUiCapability> requiredCapabilities() {
         var capabilities = new HashSet<DesktopUiCapability>();
@@ -107,18 +107,17 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     /**
-     * System-tray descriptor. Providers render the same menu order and dispatch ordinary
-     * actions through the document event channel.
+     * 系统托盘描述。provider 按同一顺序渲染菜单，并通过文档事件通道派发普通动作。
      *
-     * @param tooltip localized tray tooltip
-     * @param items ordered tray menu items
+     * @param tooltip 已本地化的托盘提示
+     * @param items 有序托盘菜单项
      */
     public record Tray(DesktopUiNode.TextToken tooltip, List<TrayItem> items) {
         /**
-         * Validates and defensively copies the tray menu.
+         * 校验并防御性复制托盘菜单。
          *
-         * @param tooltip localized tray tooltip
-         * @param items ordered tray menu items
+         * @param tooltip 已本地化的托盘提示
+         * @param items 有序托盘菜单项
          */
         public Tray {
             tooltip = Objects.requireNonNull(tooltip, "tooltip");
@@ -131,55 +130,55 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     /**
-     * One system-tray menu item.
+     * 一个系统托盘菜单项。
      *
-     * @param id stable item identity
-     * @param label localized label; separators carry an unused placeholder token
-     * @param role provider behavior for the item
-     * @param actionId action target for {@link TrayItemRole#DISPATCH}, otherwise empty
+     * @param id 稳定菜单项标识
+     * @param label 已本地化的标签；分隔符携带未使用的占位 token
+     * @param role provider 对该菜单项的处理方式
+     * @param actionId {@link TrayItemRole#DISPATCH} 的动作目标，其它角色为空
      */
     public record TrayItem(String id, DesktopUiNode.TextToken label,
                            TrayItemRole role, String actionId) {
         /**
-         * Creates an item that activates the provider's main window.
+         * 创建激活 provider 主窗口的菜单项。
          *
-         * @param id stable item identity
-         * @param label localized label
-         * @return activation menu item
+         * @param id 稳定菜单项标识
+         * @param label 已本地化的标签
+         * @return 窗口激活菜单项
          */
         public static TrayItem activate(String id, DesktopUiNode.TextToken label) {
             return new TrayItem(id, label, TrayItemRole.ACTIVATE_WINDOW, "");
         }
 
         /**
-         * Creates an item that dispatches an application action.
+         * 创建派发应用动作的菜单项。
          *
-         * @param id stable item identity
-         * @param label localized label
-         * @param actionId application action target
-         * @return dispatch menu item
+         * @param id 稳定菜单项标识
+         * @param label 已本地化的标签
+         * @param actionId 应用动作目标
+         * @return 动作派发菜单项
          */
         public static TrayItem dispatch(String id, DesktopUiNode.TextToken label, String actionId) {
             return new TrayItem(id, label, TrayItemRole.DISPATCH, actionId);
         }
 
         /**
-         * Creates a visual separator.
+         * 创建视觉分隔符。
          *
-         * @param id stable item identity
-         * @return separator menu item
+         * @param id 稳定菜单项标识
+         * @return 分隔符菜单项
          */
         public static TrayItem separator(String id) {
             return new TrayItem(id, DesktopUiNode.TextToken.raw("-"), TrayItemRole.SEPARATOR, "");
         }
 
         /**
-         * Validates the item behavior and action target.
+         * 校验菜单项行为与动作目标。
          *
-         * @param id stable item identity
-         * @param label localized label
-         * @param role provider behavior for the item
-         * @param actionId application action target when dispatching
+         * @param id 稳定菜单项标识
+         * @param label 已本地化的标签
+         * @param role provider 对该菜单项的处理方式
+         * @param actionId 派发时使用的应用动作目标
          */
         public TrayItem {
             requireStableId(id, "id");
@@ -191,31 +190,31 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         }
     }
 
-    /** Provider behavior for a system-tray menu item. */
+    /** provider 对系统托盘菜单项的处理方式。 */
     public enum TrayItemRole {
-        /** Restore and focus the provider's main window. */ ACTIVATE_WINDOW,
-        /** Emit the item's action through {@code DesktopUiContext.dispatchEvent}. */ DISPATCH,
-        /** Render a native menu separator. */ SEPARATOR
+        /** 恢复并聚焦 provider 主窗口。 */ ACTIVATE_WINDOW,
+        /** 通过 {@code DesktopUiContext.dispatchEvent} 发出菜单项动作。 */ DISPATCH,
+        /** 渲染原生菜单分隔符。 */ SEPARATOR
     }
 
     /**
-     * Open modal dialog descriptor. Buttons remain ordinary nodes inside {@code content}.
-     * Closing through the window decoration emits {@code dismissActionId} when dismissible.
+     * 已打开的模态对话框描述。按钮仍是 {@code content} 中的普通节点；允许关闭时，
+     * 通过窗口装饰关闭会发出 {@code dismissActionId}。
      */
     public record Dialog(String id, DesktopUiNode.TextToken title, DialogStyle style,
                          DesktopUiNode content, String dismissActionId, boolean dismissible,
                          int preferredWidth, int preferredHeight) {
         /**
-         * Validates one modal dialog descriptor.
+         * 校验一个模态对话框描述。
          *
-         * @param id stable dialog identity
-         * @param title localized dialog title
-         * @param style semantic dialog role
-         * @param content complete dialog content tree
-         * @param dismissActionId action emitted when the dialog is dismissed
-         * @param dismissible whether window-decoration dismissal is allowed
-         * @param preferredWidth preferred logical width, or zero for toolkit default
-         * @param preferredHeight preferred logical height, or zero for toolkit default
+         * @param id 稳定对话框标识
+         * @param title 已本地化的对话框标题
+         * @param style 对话框语义角色
+         * @param content 完整对话框内容树
+         * @param dismissActionId 对话框关闭时发出的动作
+         * @param dismissible 是否允许通过窗口装饰关闭
+         * @param preferredWidth 首选逻辑宽度，零表示使用工具包默认值
+         * @param preferredHeight 首选逻辑高度，零表示使用工具包默认值
          */
         public Dialog {
             if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
@@ -234,33 +233,33 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         }
     }
 
-    /** Semantic dialog role rendered with native toolkit affordances. */
+    /** 使用工具包原生表现渲染的对话框语义角色。 */
     public enum DialogStyle {
-        /** Informational dialog. */ INFO,
-        /** Successful-operation dialog. */ SUCCESS,
-        /** Warning dialog. */ WARNING,
-        /** Error dialog. */ ERROR,
-        /** Confirmation question dialog. */ QUESTION
+        /** 信息对话框。 */ INFO,
+        /** 操作成功对话框。 */ SUCCESS,
+        /** 警告对话框。 */ WARNING,
+        /** 错误对话框。 */ ERROR,
+        /** 确认问题对话框。 */ QUESTION
     }
 
     /**
-     * Document-wide keyboard sequence. Physical-key identifiers include {@code ArrowUp},
-     * {@code KeyA}, {@code Digit1}, {@code Enter}, or {@code F1}.
+     * 文档级键盘序列。物理键标识包括 {@code ArrowUp}、{@code KeyA}、
+     * {@code Digit1}、{@code Enter} 或 {@code F1}。
      *
-     * @param id stable shortcut identity
-     * @param sequence ordered non-empty key sequence
-     * @param actionId action target emitted after the complete sequence
-     * @param consume whether the final matching key should be consumed
+     * @param id 稳定快捷键标识
+     * @param sequence 有序且非空的按键序列
+     * @param actionId 完整序列匹配后发出的动作目标
+     * @param consume 是否消费最后一个匹配按键
      */
     public record KeyboardShortcut(String id, List<KeyStroke> sequence,
                                    String actionId, boolean consume) {
         /**
-         * Validates and defensively copies the shortcut.
+         * 校验并防御性复制快捷键。
          *
-         * @param id stable shortcut identity
-         * @param sequence ordered non-empty key sequence
-         * @param actionId action target emitted after the complete sequence
-         * @param consume whether the final matching key should be consumed
+         * @param id 稳定快捷键标识
+         * @param sequence 有序且非空的按键序列
+         * @param actionId 完整序列匹配后发出的动作目标
+         * @param consume 是否消费最后一个匹配按键
          */
         public KeyboardShortcut {
             requireStableId(id, "id");
@@ -272,11 +271,11 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         }
 
         /**
-         * Advances this sequence, restarting from its first key after a mismatch.
+         * 推进当前序列；不匹配时从首键重新开始。
          *
-         * @param currentIndex next sequence index expected before this key
-         * @param pressed physical key that was pressed
-         * @return next matching state
+         * @param currentIndex 当前按键前预期的下一个序列索引
+         * @param pressed 已按下的物理键
+         * @return 下一匹配状态
          */
         public MatchResult advance(int currentIndex, KeyStroke pressed) {
             Objects.requireNonNull(pressed, "pressed");
@@ -289,13 +288,13 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         }
     }
 
-    /** Result of advancing one keyboard shortcut sequence. */
+    /** 推进一次键盘快捷键序列后的结果。 */
     public record MatchResult(int nextIndex, boolean completed) {
         /**
-         * Validates the next sequence index.
+         * 校验下一个序列索引。
          *
-         * @param nextIndex next sequence index to match
-         * @param completed whether the sequence completed on this key
+         * @param nextIndex 下一个待匹配的序列索引
+         * @param completed 当前按键是否完成了序列
          */
         public MatchResult {
             if (nextIndex < 0) throw new IllegalArgumentException("nextIndex must not be negative");
@@ -303,31 +302,31 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     /**
-     * Toolkit-neutral physical key and modifier state.
+     * 工具包无关的物理键与修饰键状态。
      *
-     * @param key physical-key identifier
-     * @param alt whether Alt is pressed
-     * @param control whether Control is pressed
-     * @param shift whether Shift is pressed
-     * @param meta whether the platform Meta key is pressed
+     * @param key 物理键标识
+     * @param alt 是否按下 Alt
+     * @param control 是否按下 Control
+     * @param shift 是否按下 Shift
+     * @param meta 是否按下平台 Meta 键
      */
     public record KeyStroke(String key, boolean alt, boolean control, boolean shift, boolean meta) {
         /**
-         * Creates an unmodified physical key.
+         * 创建没有修饰键的物理键。
          *
-         * @param key physical-key identifier
-         * @return unmodified key stroke
+         * @param key 物理键标识
+         * @return 无修饰键的按键
          */
         public static KeyStroke key(String key) { return new KeyStroke(key, false, false, false, false); }
 
         /**
-         * Validates the physical-key identifier.
+         * 校验物理键标识。
          *
-         * @param key physical-key identifier
-         * @param alt whether Alt is pressed
-         * @param control whether Control is pressed
-         * @param shift whether Shift is pressed
-         * @param meta whether the platform Meta key is pressed
+         * @param key 物理键标识
+         * @param alt 是否按下 Alt
+         * @param control 是否按下 Control
+         * @param shift 是否按下 Shift
+         * @param meta 是否按下平台 Meta 键
          */
         public KeyStroke {
             if (key == null || !key.matches("[A-Za-z][A-Za-z0-9]{0,31}")) {
@@ -337,19 +336,19 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     /**
-     * Root page descriptor.
+     * 根页面描述。
      *
-     * @param id stable page identity used only for navigation state
-     * @param title localized title token
-     * @param content complete page content tree
+     * @param id 仅用于导航状态的稳定页面标识
+     * @param title 已本地化的标题 token
+     * @param content 完整页面内容树
      */
     public record Page(String id, DesktopUiNode.TextToken title, DesktopUiNode content) {
         /**
-         * Validates the page descriptor.
+         * 校验页面描述。
          *
-         * @param id stable page identity
-         * @param title localized title token
-         * @param content complete page content tree
+         * @param id 稳定页面标识
+         * @param title 已本地化的标题 token
+         * @param content 完整页面内容树
          */
         public Page {
             if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {

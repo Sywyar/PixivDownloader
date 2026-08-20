@@ -1,26 +1,26 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-/** Stable semantic desktop-renderer capabilities negotiated independently from node kinds. */
+/** 与节点种类分开协商的稳定桌面渲染语义能力。 */
 public enum DesktopUiCapability {
-    /** Split panes can be resized by the user. */
+    /** 用户可以调整分栏尺寸。 */
     SPLIT_USER_RESIZABLE,
-    /** Tree branches can be expanded and collapsed. */
+    /** 树分支可以展开和收起。 */
     TREE_EXPAND_COLLAPSE,
-    /** Tables provide bounded-height scrolling suitable for large row sets. */
+    /** 表格提供适合大量行的有界高度滚动。 */
     TABLE_LARGE_DATA_SCROLL,
-    /** Numeric input preserves numeric validation semantics. */
+    /** 数字输入保留数字校验语义。 */
     INPUT_NUMERIC,
-    /** Calendar-date input preserves date semantics. */
+    /** 日历日期输入保留日期语义。 */
     INPUT_TEMPORAL_DATE,
-    /** Time-of-day input preserves time semantics. */
+    /** 时刻输入保留时间语义。 */
     INPUT_TEMPORAL_TIME,
-    /** Date-time input preserves combined date and time semantics. */
+    /** 日期时间输入同时保留日期与时间语义。 */
     INPUT_TEMPORAL_DATE_TIME,
-    /** File inputs provide a native file picker. */
+    /** 文件输入提供原生文件选择器。 */
     INPUT_PATH_FILE,
-    /** Directory inputs provide a native directory picker. */
+    /** 目录输入提供原生目录选择器。 */
     INPUT_PATH_DIRECTORY,
-    /** Selection controls preserve every selected id. */
+    /** 选择控件保留全部已选 id。 */
     SELECTION_MULTIPLE,
     /** 布局可按当前可用宽度自适应列数。 */
     LAYOUT_ADAPTIVE_GRID,

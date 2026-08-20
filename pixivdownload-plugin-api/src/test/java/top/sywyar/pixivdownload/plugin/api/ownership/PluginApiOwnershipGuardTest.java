@@ -145,6 +145,9 @@ class PluginApiOwnershipGuardTest {
                     "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
             Map.entry("GUI contribution 与桌面宿主契约", union(
                     types(API_PREFIX + "gui",
+                    "DesktopAutomationSnapshot", "DesktopAutomationSource", "DesktopAutomationTaskContribution",
+                    "DesktopControlCenterAvailability", "DesktopDashboardCardContribution", "DesktopDashboardSnapshot",
+                    "DesktopDashboardSource", "DesktopRunningTaskContribution",
                     "DesktopUiCapability", "DesktopUiContext", "DesktopUiExperienceProfile", "DesktopUiIcon", "DesktopUiModel",
                     "DesktopUiPageContribution", "DesktopUiProvider", "DesktopUiSession", "DesktopUiSnapshot",
                     "DesktopUiTone",
@@ -246,7 +249,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 46),
+            Map.entry("GUI contribution 与桌面宿主契约", 54),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -273,6 +276,9 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.document.DesktopUiDocument$Tray",
             API_PREFIX + "gui.document.DesktopUiDocument$TrayItem",
             API_PREFIX + "gui.document.DesktopUiDocument$TrayItemRole",
+            API_PREFIX + "gui.DesktopAutomationTaskContribution$LastResult",
+            API_PREFIX + "gui.DesktopAutomationTaskContribution$Status",
+            API_PREFIX + "gui.DesktopRunningTaskContribution$Status",
             API_PREFIX + "gui.document.DesktopUiNode$AdaptiveGrid",
             API_PREFIX + "gui.document.DesktopUiNode$Alignment",
             API_PREFIX + "gui.document.DesktopUiNode$Axis",

@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Toolkit-neutral configuration for one custom plugin repository. */
+/** 单个自定义插件仓库的工具包无关配置。 */
 public record RepositoryConfigEntry(
         String id, String displayNameKey, String manifestUrl, boolean enabled, String proxyPolicy,
         boolean allowRedirects, boolean strictHttps, boolean allowNonPublicAddresses, boolean useProxy,
@@ -12,23 +12,23 @@ public record RepositoryConfigEntry(
         List<TrustedKeyConfigEntry> trustedKeys, Map<String, Object> extraFields) {
 
     /**
-     * Validates and defensively copies one repository configuration.
+     * 校验并防御性复制一项仓库配置。
      *
-     * @param id stable repository id
-     * @param displayNameKey localized display-name key
-     * @param manifestUrl repository manifest URL
-     * @param enabled whether the repository is enabled
-     * @param proxyPolicy persisted proxy policy id
-     * @param allowRedirects whether redirects are allowed
-     * @param strictHttps whether HTTPS is required
-     * @param allowNonPublicAddresses whether non-public addresses are allowed
-     * @param useProxy whether the configured proxy is used
-     * @param connectTimeoutMs connect timeout in milliseconds
-     * @param readTimeoutMs read timeout in milliseconds
-     * @param maxManifestBytes maximum manifest size
-     * @param maxPackageBytes maximum plugin package size
-     * @param trustedKeys repository trust roots
-     * @param extraFields unknown fields preserved during round trips
+     * @param id 稳定仓库 id
+     * @param displayNameKey 本地化展示名 key
+     * @param manifestUrl 仓库清单 URL
+     * @param enabled 是否启用仓库
+     * @param proxyPolicy 持久化的代理策略 id
+     * @param allowRedirects 是否允许重定向
+     * @param strictHttps 是否要求 HTTPS
+     * @param allowNonPublicAddresses 是否允许非公网地址
+     * @param useProxy 是否使用已配置代理
+     * @param connectTimeoutMs 连接超时毫秒数
+     * @param readTimeoutMs 读取超时毫秒数
+     * @param maxManifestBytes 清单最大字节数
+     * @param maxPackageBytes 插件包最大字节数
+     * @param trustedKeys 仓库信任根
+     * @param extraFields 往返时保留的未知字段
      */
     public RepositoryConfigEntry {
         id = id == null ? "" : id;
@@ -40,22 +40,22 @@ public record RepositoryConfigEntry(
     }
 
     /**
-     * Creates a repository configuration without explicit trusted keys.
+     * 创建不含显式信任根的仓库配置。
      *
-     * @param id stable repository id
-     * @param displayNameKey localized display-name key
-     * @param manifestUrl repository manifest URL
-     * @param enabled whether the repository is enabled
-     * @param proxyPolicy persisted proxy policy id
-     * @param allowRedirects whether redirects are allowed
-     * @param strictHttps whether HTTPS is required
-     * @param allowNonPublicAddresses whether non-public addresses are allowed
-     * @param useProxy whether the configured proxy is used
-     * @param connectTimeoutMs connect timeout in milliseconds
-     * @param readTimeoutMs read timeout in milliseconds
-     * @param maxManifestBytes maximum manifest size
-     * @param maxPackageBytes maximum plugin package size
-     * @param extraFields unknown fields preserved during round trips
+     * @param id 稳定仓库 id
+     * @param displayNameKey 本地化展示名 key
+     * @param manifestUrl 仓库清单 URL
+     * @param enabled 是否启用仓库
+     * @param proxyPolicy 持久化的代理策略 id
+     * @param allowRedirects 是否允许重定向
+     * @param strictHttps 是否要求 HTTPS
+     * @param allowNonPublicAddresses 是否允许非公网地址
+     * @param useProxy 是否使用已配置代理
+     * @param connectTimeoutMs 连接超时毫秒数
+     * @param readTimeoutMs 读取超时毫秒数
+     * @param maxManifestBytes 清单最大字节数
+     * @param maxPackageBytes 插件包最大字节数
+     * @param extraFields 往返时保留的未知字段
      */
     public RepositoryConfigEntry(String id, String displayNameKey, String manifestUrl, boolean enabled,
                                  String proxyPolicy, boolean allowRedirects, boolean strictHttps,
@@ -68,18 +68,18 @@ public record RepositoryConfigEntry(
     }
 
     /**
-     * Creates a repository with the standard network policy fields.
+     * 创建带标准网络策略字段的仓库配置。
      *
-     * @param id stable repository id
-     * @param displayNameKey localized display-name key
-     * @param manifestUrl repository manifest URL
-     * @param enabled whether the repository is enabled
-     * @param proxyPolicy persisted proxy policy id
-     * @param connectTimeoutMs connect timeout in milliseconds
-     * @param readTimeoutMs read timeout in milliseconds
-     * @param maxManifestBytes maximum manifest size
-     * @param maxPackageBytes maximum plugin package size
-     * @return repository configuration
+     * @param id 稳定仓库 id
+     * @param displayNameKey 本地化展示名 key
+     * @param manifestUrl 仓库清单 URL
+     * @param enabled 是否启用仓库
+     * @param proxyPolicy 持久化的代理策略 id
+     * @param connectTimeoutMs 连接超时毫秒数
+     * @param readTimeoutMs 读取超时毫秒数
+     * @param maxManifestBytes 清单最大字节数
+     * @param maxPackageBytes 插件包最大字节数
+     * @return 仓库配置
      */
     public static RepositoryConfigEntry create(String id, String displayNameKey, String manifestUrl, boolean enabled,
                                                String proxyPolicy, long connectTimeoutMs, long readTimeoutMs,
@@ -90,21 +90,21 @@ public record RepositoryConfigEntry(
     }
 
     /**
-     * Creates a repository with explicit custom network policy fields.
+     * 创建带显式自定义网络策略字段的仓库配置。
      *
-     * @param id stable repository id
-     * @param displayNameKey localized display-name key
-     * @param manifestUrl repository manifest URL
-     * @param enabled whether the repository is enabled
-     * @param allowRedirects whether redirects are allowed
-     * @param strictHttps whether HTTPS is required
-     * @param allowNonPublicAddresses whether non-public addresses are allowed
-     * @param useProxy whether the configured proxy is used
-     * @param connectTimeoutMs connect timeout in milliseconds
-     * @param readTimeoutMs read timeout in milliseconds
-     * @param maxManifestBytes maximum manifest size
-     * @param maxPackageBytes maximum plugin package size
-     * @return repository configuration
+     * @param id 稳定仓库 id
+     * @param displayNameKey 本地化展示名 key
+     * @param manifestUrl 仓库清单 URL
+     * @param enabled 是否启用仓库
+     * @param allowRedirects 是否允许重定向
+     * @param strictHttps 是否要求 HTTPS
+     * @param allowNonPublicAddresses 是否允许非公网地址
+     * @param useProxy 是否使用已配置代理
+     * @param connectTimeoutMs 连接超时毫秒数
+     * @param readTimeoutMs 读取超时毫秒数
+     * @param maxManifestBytes 清单最大字节数
+     * @param maxPackageBytes 插件包最大字节数
+     * @return 仓库配置
      */
     public static RepositoryConfigEntry createCustom(String id, String displayNameKey, String manifestUrl,
                                                      boolean enabled, boolean allowRedirects, boolean strictHttps,
