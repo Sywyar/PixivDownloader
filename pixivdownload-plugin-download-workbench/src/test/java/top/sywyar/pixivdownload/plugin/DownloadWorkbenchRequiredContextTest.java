@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
@@ -136,6 +137,7 @@ class DownloadWorkbenchRequiredContextTest {
                 .satisfies(nav -> {
                     assertThat(nav.id()).isEqualTo("download-workbench");
                     assertThat(nav.href()).isEqualTo("/pixiv-batch.html");
+                    assertThat(nav.placements()).contains(NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.markers()).containsExactly("preferred-download-workbench");
                 });
         assertThat(plugin.startupRoutes()).singleElement().satisfies(route -> {

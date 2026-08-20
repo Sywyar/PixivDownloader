@@ -4,11 +4,14 @@ import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -46,6 +49,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.ToggleStyle;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
@@ -61,9 +65,11 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -166,6 +172,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private volatile String statusMode = "--";
     private volatile String statusStartTime = "--";
     private volatile String statusProtocol = "--";
+    private volatile long statusLatencyMillis = -1L;
+    private volatile DesktopUiHost.GuiValue controlCenterSnapshot = DesktopUiHost.GuiValue.of(Map.of());
     private volatile String connectivityDetails = "";
     private volatile boolean statusConnected;
     private volatile boolean connectivityChecking;
@@ -428,7 +436,164 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                           Map<String, ConfigField> nextBindings,
                                           Map<String, Consumer<List<String>>> nextSelections,
                                           Map<String, Runnable> nextActions) {
-        appendClassicPages(pages, nextBindings, nextSelections, nextActions);
+        pages.add(page("home", homePage(nextActions)));
+        pages.add(page("automation", column("automation.placeholder",
+                text("automation.placeholder.title", "desktop.ui.automation.title", TextStyle.HEADING),
+                text("automation.placeholder.empty", "desktop.ui.automation.empty", TextStyle.CAPTION))));
+        pages.add(page("plugins", pluginsPage(nextActions)));
+        pages.add(page("tools", toolsPage(nextActions)));
+        pages.add(page("security", securityPage(nextActions)));
+        pages.add(page("settings", configPage(nextBindings, nextSelections, nextActions),
+                DesktopUiNode.Insets.NONE));
+        pages.add(page("about", aboutPage(nextActions)));
+    }
+
+    private DesktopUiNode homePage(Map<String, Runnable> nextActions) {
+        List<DesktopUiHost.GuiValue> runningTasks = values(controlCenterSnapshot.path("runningTasks"));
+        DesktopUiNode heroContent = runningTasks.isEmpty()
+                ? text("home.hero.empty", "desktop.ui.home.running.empty", TextStyle.CAPTION)
+                : runningTask("home.hero", runningTasks.get(0));
+        DesktopUiNode hero = new DesktopUiNode.Surface("home.hero", DesktopUiNode.SurfaceStyle.CARD,
+                new DesktopUiNode.Insets(18, 20, 18, 20), true,
+                column("home.hero.content",
+                        text("home.hero.title", "desktop.ui.home.hero.title", TextStyle.HEADING),
+                        heroContent));
+
+        long startedPlugins = pluginStatuses.stream()
+                .filter(plugin -> "STARTED".equals(plugin.statusCode())).count();
+        DesktopUiNode system = new DesktopUiNode.Surface("home.system", DesktopUiNode.SurfaceStyle.CARD,
+                new DesktopUiNode.Insets(18, 20, 18, 20), true,
+                column("home.system.content",
+                        text("home.system.title", "desktop.ui.home.system.title", TextStyle.HEADING),
+                        raw("home.system.backend", backendMessage(), backendTextStyle()),
+                        new DesktopUiNode.Text("home.system.latency",
+                                statusLatencyMillis < 0L ? key("desktop.ui.home.system.latency.unavailable")
+                                        : appToken("desktop.ui.home.system.latency", statusLatencyMillis),
+                                TextStyle.CAPTION, true, false),
+                        new DesktopUiNode.Text("home.system.plugins",
+                                appToken("desktop.ui.home.system.plugins", startedPlugins, pluginStatuses.size()),
+                                TextStyle.CAPTION, true, false)));
+
+        List<DesktopUiNode> metrics = new ArrayList<>();
+        for (DesktopUiHost.GuiValue owned : controlCenterSnapshot.path("cards")) {
+            DesktopUiHost.GuiValue card = owned.path("card");
+            String owner = safeId(owned.path("owner").path("pluginId").asText("unknown"));
+            String cardId = safeId(card.path("cardId").asText("unknown"));
+            metrics.add(dashboardCard("home.metrics." + owner + "." + cardId, card,
+                    icon(card.path("icon").asText("INFO")), tone(card.path("tone").asText("DEFAULT"))));
+        }
+        metrics.add(storageCard());
+
+        List<DesktopUiNode> quickStarts = new ArrayList<>();
+        for (QuickStartEntry entry : quickStartEntries()) {
+            NavigationContribution navigation = entry.navigation();
+            String base = "home.quick-start." + safeId(entry.owner()) + "." + safeId(navigation.id());
+            String action = base + ".open";
+            nextActions.put(action, () -> openWeb(navigation.href()));
+            quickStarts.add(new DesktopUiNode.Surface(base, DesktopUiNode.SurfaceStyle.CARD,
+                    new DesktopUiNode.Insets(10, 12, 10, 12), true,
+                    row(base + ".content",
+                            new DesktopUiNode.Icon(base + ".icon", quickStartIcon(navigation.icon()),
+                                    DesktopUiTone.INFO,
+                                    token(navigation.labelNamespace(), navigation.labelI18nKey(), navigation.id())),
+                            new DesktopUiNode.Button(base + ".button", action,
+                                    token(navigation.labelNamespace(), navigation.labelI18nKey(), navigation.id()),
+                                    null, ButtonStyle.NORMAL, true))));
+        }
+        DesktopUiNode quickStartContent = quickStarts.isEmpty()
+                ? text("home.quick-start.empty", "desktop.ui.home.quick-start.empty", TextStyle.CAPTION)
+                : new DesktopUiNode.AdaptiveGrid("home.quick-start.grid", 180, 2, 12, 12, quickStarts);
+
+        List<DesktopUiNode> taskNodes = new ArrayList<>();
+        for (DesktopUiHost.GuiValue task : runningTasks) taskNodes.add(runningTask("home.running", task));
+        DesktopUiNode runningContent = taskNodes.isEmpty()
+                ? text("home.running.empty", "desktop.ui.home.running.empty", TextStyle.CAPTION)
+                : column("home.running.list", taskNodes);
+
+        int hour = LocalTime.now().getHour();
+        String greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
+        return scroll("home.scroll", column("home.content",
+                text("home.greeting", "desktop.ui.home.greeting." + greeting, TextStyle.TITLE),
+                new DesktopUiNode.AdaptiveGrid("home.overview", 280, 2, 14, 14, List.of(hero, system)),
+                group("home.metrics-section", "desktop.ui.home.metrics.title",
+                        new DesktopUiNode.PagedRow("home.metrics",
+                                DesktopUiNode.PagedRow.FIXED_ITEMS_PER_PAGE, 12, metrics)),
+                new DesktopUiNode.AdaptiveGrid("home.activity", 300, 2, 14, 14, List.of(
+                        group("home.quick-start", "desktop.ui.home.quick-start.title", quickStartContent),
+                        group("home.running", "desktop.ui.home.running.title", runningContent)))));
+    }
+
+    private DesktopUiNode dashboardCard(String base, DesktopUiHost.GuiValue card,
+                                        DesktopUiIcon icon, DesktopUiTone tone) {
+        DesktopControlCenterAvailability availability = availability(
+                card.path("availability").asText("UNAVAILABLE"));
+        return dashboardCard(base, guiToken(card.path("title")), guiToken(card.path("primaryValue")),
+                guiToken(card.path("supportingText")), icon, tone, availability);
+    }
+
+    private DesktopUiNode dashboardCard(String base, TextToken title, TextToken primary,
+                                        TextToken supporting, DesktopUiIcon icon, DesktopUiTone tone,
+                                        DesktopControlCenterAvailability availability) {
+        DesktopUiNode.SurfaceStyle style = switch (availability) {
+            case UNAVAILABLE -> DesktopUiNode.SurfaceStyle.MUTED;
+            case STALE -> DesktopUiNode.SurfaceStyle.WARNING;
+            case AVAILABLE -> switch (tone) {
+                case SUCCESS -> DesktopUiNode.SurfaceStyle.SUCCESS;
+                case INFO -> DesktopUiNode.SurfaceStyle.INFO;
+                case WARNING -> DesktopUiNode.SurfaceStyle.WARNING;
+                case ERROR -> DesktopUiNode.SurfaceStyle.ERROR;
+                case DEFAULT -> DesktopUiNode.SurfaceStyle.CARD;
+            };
+        };
+        return new DesktopUiNode.Surface(base, style, new DesktopUiNode.Insets(18, 20, 18, 20), true,
+                column(base + ".content",
+                        new DesktopUiNode.Dock(base + ".header", 8, null, null, null,
+                                new DesktopUiNode.Text(base + ".title", title, TextStyle.CAPTION, true, false),
+                                new DesktopUiNode.Icon(base + ".icon", icon, tone, title)),
+                        new DesktopUiNode.Text(base + ".primary", primary, TextStyle.TITLE, true, false),
+                        new DesktopUiNode.Text(base + ".supporting", supporting,
+                                availability == DesktopControlCenterAvailability.AVAILABLE
+                                        ? TextStyle.CAPTION : TextStyle.WARNING, true, false)));
+    }
+
+    private DesktopUiNode storageCard() {
+        try {
+            Path path = Path.of(rootFolder).toAbsolutePath().normalize();
+            while (path != null && !Files.exists(path)) path = path.getParent();
+            if (path == null) throw new IOException("no existing ancestor");
+            FileStore store = Files.getFileStore(path);
+            long total = store.getTotalSpace();
+            long available = store.getUsableSpace();
+            if (total <= 0L || available < 0L || available > total) throw new IOException("invalid file store");
+            return dashboardCard("home.storage", key("desktop.ui.home.storage.title"),
+                    appToken("desktop.ui.home.storage.value", formatSize(total - available), formatSize(available)),
+                    key("desktop.ui.home.storage.supporting"), DesktopUiIcon.STORAGE, DesktopUiTone.INFO,
+                    DesktopControlCenterAvailability.AVAILABLE);
+        } catch (Exception ignored) {
+            return dashboardCard("home.storage", key("desktop.ui.home.storage.title"), TextToken.raw("—"),
+                    key("desktop.ui.home.storage.unavailable"), DesktopUiIcon.STORAGE, DesktopUiTone.DEFAULT,
+                    DesktopControlCenterAvailability.UNAVAILABLE);
+        }
+    }
+
+    private DesktopUiNode runningTask(String section, DesktopUiHost.GuiValue owned) {
+        DesktopUiHost.GuiValue task = owned.path("task");
+        String base = section + "." + safeId(owned.path("owner").path("pluginId").asText("unknown"))
+                + "." + safeId(task.path("taskId").asText("unknown"));
+        List<DesktopUiNode> content = new ArrayList<>();
+        content.add(new DesktopUiNode.Text(base + ".title", guiToken(task.path("title")),
+                TextStyle.EMPHASIS, true, false));
+        content.add(new DesktopUiNode.Text(base + ".supporting", guiToken(task.path("supportingText")),
+                TextStyle.CAPTION, true, false));
+        String status = task.path("status").asText("UNKNOWN").toLowerCase(Locale.ROOT);
+        content.add(text(base + ".status", "desktop.ui.home.task.status." + status, TextStyle.CAPTION));
+        double progress = parseDouble(task.path("progress").asText(""), -1d);
+        if (progress >= 0d && progress <= 1d) {
+            content.add(new DesktopUiNode.Progress(base + ".progress", progress, false,
+                    appToken("desktop.ui.home.task.progress", Math.round(progress * 100d))));
+        }
+        return new DesktopUiNode.Surface(base, DesktopUiNode.SurfaceStyle.CARD,
+                new DesktopUiNode.Insets(10, 12, 10, 12), true, column(base + ".content", content));
     }
 
     private void requireCompatibleCore(List<DesktopUiDocument.Page> pages,
@@ -2886,6 +3051,65 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         return entries;
     }
 
+    private List<QuickStartEntry> quickStartEntries() {
+        List<QuickStartEntry> entries = new ArrayList<>();
+        for (DesktopUiPluginSource source : currentSources()) {
+            try {
+                List<WebRouteContribution> routes = source.plugin().routes();
+                for (NavigationContribution navigation : source.plugin().navigation()) {
+                    if (navigation != null
+                            && navigation.placements().contains(NavigationPlacements.DESKTOP_QUICK_START)
+                            && navigation.visibleTo() != null
+                            && navigation.visibleTo().supportsUiVisibility()
+                            && validQuickStartRoute(navigation, routes)) {
+                        entries.add(new QuickStartEntry(source.id(), navigation));
+                    }
+                }
+            } catch (RuntimeException ignored) {
+                // Optional plugin entry is isolated.
+            }
+        }
+        entries.sort(Comparator.comparingInt((QuickStartEntry entry) -> entry.navigation().priority())
+                .thenComparing(QuickStartEntry::owner)
+                .thenComparing(entry -> entry.navigation().id()));
+        return entries;
+    }
+
+    private static boolean validQuickStartRoute(
+            NavigationContribution navigation, List<WebRouteContribution> routes) {
+        if (!safeHref(navigation.href())) return false;
+        URI target;
+        try {
+            target = URI.create(navigation.href());
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
+        if (target.isAbsolute() || target.getRawAuthority() != null
+                || target.getRawPath() == null || !target.getRawPath().startsWith("/")) return false;
+        String path = target.getRawPath();
+        return routes != null && routes.stream().filter(Objects::nonNull)
+                .anyMatch(route -> path.equals(route.pathPattern())
+                        && route.acceptsMethod(HttpMethod.GET)
+                        && route.accessPolicy() != null
+                        && route.accessPolicy().supportsUiVisibility()
+                        && navigationNotBroader(navigation.visibleTo(), route.accessPolicy()));
+    }
+
+    private static boolean navigationNotBroader(AccessPolicy navigation, AccessPolicy route) {
+        for (Audience audience : Audience.values()) {
+            if (navigation.isVisibleTo(audience) && !route.isVisibleTo(audience)) return false;
+        }
+        return true;
+    }
+
+    private static DesktopUiIcon quickStartIcon(String icon) {
+        return switch (nullToEmpty(icon)) {
+            case "download" -> DesktopUiIcon.DOWNLOAD;
+            case "chart-bar" -> DesktopUiIcon.STATISTICS;
+            default -> DesktopUiIcon.OPEN;
+        };
+    }
+
     private List<DesktopUiNode> webEntryButtons(String placement, String base,
                                                 Map<String, Runnable> nextActions) {
         List<DesktopUiNode> nodes = new ArrayList<>();
@@ -3034,7 +3258,11 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private void refreshStatusSnapshot() {
+        long startedAt = System.nanoTime();
         DesktopUiHost.GuiResponse response = host.guiGet("status", 2_000);
+        statusLatencyMillis = response.reachable()
+                ? Math.max(0L, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt))
+                : -1L;
         statusConnected = response.successful() && response.body() != null;
         if (statusConnected) {
             DesktopUiHost.GuiValue body = response.body();
@@ -3046,6 +3274,19 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         } else {
             statusPort = Integer.toString(serverPort);
             statusMode = statusStartTime = statusProtocol = "--";
+        }
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+            refreshControlCenterSnapshot();
+        }
+    }
+
+    private void refreshControlCenterSnapshot() {
+        try {
+            DesktopUiHost.GuiResponse response = host.controlCenterSnapshot();
+            controlCenterSnapshot = response.successful() && response.body() != null
+                    && response.body().isObject() ? response.body() : DesktopUiHost.GuiValue.of(Map.of());
+        } catch (RuntimeException ignored) {
+            controlCenterSnapshot = DesktopUiHost.GuiValue.of(Map.of());
         }
     }
 
@@ -6106,6 +6347,40 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         return key == null || key.isBlank() ? null : token(namespace, key, key);
     }
 
+    private static TextToken guiToken(DesktopUiHost.GuiValue value) {
+        if (value == null || !value.isObject()) return TextToken.raw("--");
+        List<String> arguments = new ArrayList<>();
+        for (DesktopUiHost.GuiValue argument : value.path("arguments")) {
+            if (argument != null && argument.isValueNode() && arguments.size() < 8) {
+                arguments.add(sanitizeActionText(argument.asText("")));
+            }
+        }
+        return token(nullableText(value, "namespace"), value.path("key").asText(""),
+                sanitizeActionText(value.path("fallback").asText("")), arguments);
+    }
+
+    private static List<DesktopUiHost.GuiValue> values(DesktopUiHost.GuiValue value) {
+        if (value == null || !value.isArray()) return List.of();
+        List<DesktopUiHost.GuiValue> values = new ArrayList<>();
+        for (DesktopUiHost.GuiValue item : value) values.add(item);
+        return List.copyOf(values);
+    }
+
+    private static DesktopUiIcon icon(String value) {
+        try { return DesktopUiIcon.valueOf(value); }
+        catch (IllegalArgumentException ignored) { return DesktopUiIcon.INFO; }
+    }
+
+    private static DesktopUiTone tone(String value) {
+        try { return DesktopUiTone.valueOf(value); }
+        catch (IllegalArgumentException ignored) { return DesktopUiTone.DEFAULT; }
+    }
+
+    private static DesktopControlCenterAvailability availability(String value) {
+        try { return DesktopControlCenterAvailability.valueOf(value); }
+        catch (IllegalArgumentException ignored) { return DesktopControlCenterAvailability.UNAVAILABLE; }
+    }
+
     private static String bindingId(FieldKey key) {
         return "config." + safeId(key.owner() == null ? APP_OWNER : key.owner()) + "." + safeId(key.key());
     }
@@ -6123,6 +6398,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
     private static int parseInt(String value, int fallback) {
         try { return value == null ? fallback : Integer.parseInt(value.trim()); }
+        catch (NumberFormatException ignored) { return fallback; }
+    }
+    private static double parseDouble(String value, double fallback) {
+        try { return value == null ? fallback : Double.parseDouble(value.trim()); }
         catch (NumberFormatException ignored) { return fallback; }
     }
     private static String trimTrailingSlashes(String value) {
@@ -6279,6 +6558,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private record PluginStatusRow(String id, String name, String source, String statusCode,
                                    String phaseCode, boolean managed, boolean required, String version,
                                    String verificationStatus) { }
+
+    private record QuickStartEntry(String owner, NavigationContribution navigation) { }
 
     private record LocalizedText(String namespace, String key, String fallback) {
         private TextToken token() { return AppDesktopUiModel.token(namespace, key, fallback); }

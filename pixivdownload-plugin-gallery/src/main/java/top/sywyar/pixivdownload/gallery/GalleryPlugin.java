@@ -114,7 +114,7 @@ public class GalleryPlugin implements PixivFeaturePlugin {
     @Override
     public List<NavigationContribution> navigation() {
         // 画廊主入口：顶部栏 + 画廊家族侧栏（画廊 / 系列页共用）+ 中立主侧栏 app.sidebar（统计等宿主页据此显示
-        // 画廊入口，禁用画廊后自然消失、宿主页不需要知道画廊），并兼任疑似重复页顶部的画廊图标
+        // 画廊入口，禁用画廊后自然消失、宿主页不需要知道画廊）与桌面快速开始，并兼任疑似重复页顶部的画廊图标
         //（duplicates.header-icons）。priority 30（功能区段首位）。href 由贡献方完整声明为 /pixiv-gallery.html?view=all
         //（与历史入口一致）——前端公共导航渲染器不再为内置插件 id 补默认 query。
         //
@@ -129,7 +129,8 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                 new NavigationContribution(
                         ID,
                         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
-                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS),
+                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS,
+                                NavigationPlacements.DESKTOP_QUICK_START),
                         "gallery", "nav.label", "/pixiv-gallery.html?view=all", "images",
                         AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT)),
                 new NavigationContribution(

@@ -7,12 +7,21 @@ import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class StatsServiceTest {
+
+    @Test
+    @DisplayName("统计页声明桌面快速开始入口")
+    void statsNavigationJoinsDesktopQuickStart() {
+        assertThat(new StatsPlugin().navigation()).singleElement()
+                .satisfies(navigation -> assertThat(navigation.placements())
+                        .contains(NavigationPlacements.DESKTOP_QUICK_START));
+    }
 
     @Test
     @DisplayName("桌面快照只复用现有统计总览")
