@@ -164,6 +164,86 @@ class AppDesktopUiHostDocumentTest {
     }
 
     @Test
+    @DisplayName("控制中心自动化与插件页面只读展示宿主快照")
+    void controlCenterAutomationAndPluginsAreReadOnlyFacts() throws Exception {
+        Path config = tempDir.resolve("control-center-read-only.yaml");
+        AppDesktopUiHost delegate = new AppDesktopUiHost(6999, new TestDesktopConfigFile(config));
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> {
+                    if ("controlCenterSnapshot".equals(method.getName())) {
+                        return response(Map.of(
+                                "cards", List.of(),
+                                "runningTasks", List.of(),
+                                "automations", List.of(Map.of(
+                                        "owner", Map.of("pluginId", "fixture"),
+                                        "snapshot", Map.of(
+                                                "availability", "AVAILABLE",
+                                                "observedAt", "2026-08-21T00:00:00Z",
+                                                "tasks", List.of(Map.of(
+                                                        "taskId", "nightly", "order", 10,
+                                                        "title", token("Nightly task"),
+                                                        "triggerSummary", token("Cron at midnight"),
+                                                        "status", "SUSPENDED", "lastResult", "ERROR",
+                                                        "nextRuns", List.of(
+                                                                "2026-08-21T02:00:00Z",
+                                                                "2026-08-21T01:00:00Z"),
+                                                        "observedAt", "2026-08-21T00:00:00Z")))))));
+                    }
+                    if ("guiGet".equals(method.getName()) && "plugins/status".equals(arguments[0])) {
+                        return response(Map.of(
+                                "recoveryMode", false,
+                                "observedAt", "2026-08-21T00:00:00Z",
+                                "plugins", List.of(Map.of(
+                                        "id", "fixture", "name", "Fixture", "source", "external",
+                                        "status", "FAILED", "runtimePhase", "STOPPED",
+                                        "managed", true, "required", false, "version", "1.0.0",
+                                        "verification", Map.of(
+                                                "status", "INVALID_SIGNATURE",
+                                                "diagnosticCode", "SIGNATURE_MISMATCH",
+                                                "lastVerifiedAt", "2026-08-20T23:59:00Z")))));
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        AppDesktopUiModel model = track(new AppDesktopUiModel(6999,
+                tempDir.resolve("downloads").toString(), config,
+                host, List::of, rendererContract(DesktopUiExperienceProfile.CONTROL_CENTER)));
+
+        await(() -> nodes(model.snapshot().document()).stream()
+                .anyMatch(node -> "automation.task.fixture.nightly".equals(node.id())));
+        await(() -> nodes(model.snapshot().document()).stream()
+                .anyMatch(node -> "plugins.card.fixture".equals(node.id())));
+
+        DesktopUiNode automationPage = model.snapshot().document().pages().stream()
+                .filter(page -> "automation".equals(page.id())).findFirst().orElseThrow().content();
+        List<DesktopUiNode> automationNodes = new ArrayList<>();
+        collectNodes(automationPage, automationNodes);
+        assertThat(automationNodes).extracting(DesktopUiNode::id)
+                .contains("automation.source.fixture", "automation.task.fixture.nightly")
+                .anyMatch(id -> id.startsWith("automation.timeline.fixture.nightly."));
+        assertThat(automationNodes).noneMatch(DesktopUiNode.Button.class::isInstance)
+                .noneMatch(DesktopUiNode.Link.class::isInstance);
+
+        DesktopUiNode pluginsPage = model.snapshot().document().pages().stream()
+                .filter(page -> "plugins".equals(page.id())).findFirst().orElseThrow().content();
+        List<DesktopUiNode> pluginNodes = new ArrayList<>();
+        collectNodes(pluginsPage, pluginNodes);
+        assertThat(pluginNodes).noneMatch(DesktopUiNode.Button.class::isInstance)
+                .noneMatch(DesktopUiNode.Link.class::isInstance);
+        assertThat(pluginNodes.stream()
+                .filter(DesktopUiNode.Text.class::isInstance)
+                .map(DesktopUiNode.Text.class::cast)
+                .map(DesktopUiNode.Text::text)
+                .flatMap(token -> java.util.stream.Stream.concat(
+                        java.util.stream.Stream.of(token.fallback()), token.arguments().stream())))
+                .anyMatch(value -> value.contains("SIGNATURE_MISMATCH"));
+    }
+
+    @Test
     @DisplayName("快速开始只接纳同 owner 精确 GET 路由且不放宽访问策略")
     void quickStartRequiresAnExactOwnerRouteWithNoBroaderAccess() {
         DesktopUiPluginSource validZ = quickStartSource(
