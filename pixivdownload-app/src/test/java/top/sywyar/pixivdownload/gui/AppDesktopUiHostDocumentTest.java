@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -680,6 +681,106 @@ class AppDesktopUiHostDocumentTest {
             assertThat(entry.toolId()).isEqualTo(DesktopToolHistory.ToolId.IMAGE_CLASSIFIER);
             assertThat(entry.outcome()).isEqualTo(DesktopToolHistory.Outcome.CLOSED);
         });
+    }
+
+    @Test
+    @DisplayName("控制中心安全页在可恢复错误后保留密码并允许显式清空")
+    void controlCenterSecurityKeepsRecoverableInputUntilExplicitClear() throws Exception {
+        Path config = tempDir.resolve("security.yaml");
+        AppDesktopUiHost delegate = new AppDesktopUiHost(6999, new TestDesktopConfigFile(config));
+        AtomicInteger requests = new AtomicInteger();
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> {
+                    if ("guiPostJson".equals(method.getName())
+                            && "change-password".equals(arguments[0])) {
+                        requests.incrementAndGet();
+                        return new DesktopUiHost.GuiResponse(true, 401,
+                                DesktopUiHost.GuiValue.of(Map.of("error", "invalid-current")), "", false);
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
+                config, host, List::of, rendererContract(DesktopUiExperienceProfile.CONTROL_CENTER)));
+        awaitButtonEnabled(model, "security.submit");
+        long formRevision = textInput(model.snapshot().document(), "security.current.input").stateRevision();
+
+        dispatch(model, DesktopUiNode.EventType.CHANGE,
+                "security.current.input", DesktopUiNode.Value.text("wrong-password"));
+        dispatch(model, DesktopUiNode.EventType.CHANGE,
+                "security.new.input", DesktopUiNode.Value.text("new-password-123"));
+        dispatch(model, DesktopUiNode.EventType.CHANGE,
+                "security.confirm.input", DesktopUiNode.Value.text("new-password-123"));
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "security.submit", DesktopUiNode.Value.empty());
+
+        await(() -> requests.get() == 1
+                && "gui.security.error.invalid-current".equals(
+                textNode(model.snapshot().document(), "security.notice").text().key()));
+        assertThat(textInput(model.snapshot().document(), "security.current.input").stateRevision())
+                .isEqualTo(formRevision);
+        awaitButtonEnabled(model, "security.submit");
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "security.submit", DesktopUiNode.Value.empty());
+        await(() -> requests.get() == 2);
+
+        awaitButtonEnabled(model, "security.clear");
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "security.clear", DesktopUiNode.Value.empty());
+
+        assertThat(textInput(model.snapshot().document(), "security.current.input").stateRevision())
+                .isEqualTo(formRevision + 1);
+        assertThat(textNode(model.snapshot().document(), "security.notice").text().key())
+                .isEqualTo("gui.security.status.idle");
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "security.submit", DesktopUiNode.Value.empty());
+        assertThat(textNode(model.snapshot().document(), "security.notice").text().key())
+                .isEqualTo("gui.security.validation.current-required");
+        assertThat(requests).hasValue(2);
+    }
+
+    @Test
+    @DisplayName("控制中心设置页从真实配置模型显示未保存、校验和重启状态")
+    void controlCenterSettingsProjectsUnsavedValidationAndRestartState() throws Exception {
+        Path config = tempDir.resolve("settings.yaml");
+        Files.writeString(config, """
+                app.language: follow-system
+                app.gui-provider: gui-swing
+                app.theme: system
+                app.config-menu-expand-all: false
+                """, StandardCharsets.UTF_8);
+        TestDesktopConfigFile configFile = new TestDesktopConfigFile(config);
+        AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
+                config, new AppDesktopUiHost(6999, configFile), List::of,
+                rendererContract(DesktopUiExperienceProfile.CONTROL_CENTER)));
+        awaitButtonEnabled(model, "config.save");
+        assertThat(settingsUnsavedCount(model.snapshot().document())).isEqualTo(0);
+
+        DesktopUiNode.TextInput root = configTextInput(model.snapshot().document(), "download.root-folder");
+        dispatch(model, DesktopUiNode.EventType.CHANGE, root.id(), DesktopUiNode.Value.text("\u0000"));
+        assertThat(settingsUnsavedCount(model.snapshot().document())).isEqualTo(1);
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE, "config.save", DesktopUiNode.Value.empty());
+
+        await(() -> nodes(model.snapshot().document()).stream()
+                .anyMatch(node -> "config.notice".equals(node.id())));
+        assertThat(settingsUnsavedCount(model.snapshot().document())).isEqualTo(1);
+
+        dispatch(model, DesktopUiNode.EventType.CHANGE, root.id(), DesktopUiNode.Value.text("pixiv-download"));
+        DesktopUiNode.TextInput concurrent = configTextInput(
+                model.snapshot().document(), "download.max-concurrent");
+        dispatch(model, DesktopUiNode.EventType.CHANGE, concurrent.id(), DesktopUiNode.Value.text("11"));
+        assertThat(settingsUnsavedCount(model.snapshot().document())).isEqualTo(1);
+        awaitButtonEnabled(model, "config.save");
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE, "config.save", DesktopUiNode.Value.empty());
+
+        await(() -> model.snapshot().document().dialogs().stream()
+                .anyMatch(dialog -> "config.restart".equals(dialog.id())));
+        assertThat(settingsUnsavedCount(model.snapshot().document())).isEqualTo(0);
+        assertThat(read(configFile, "download.max-concurrent")).isEqualTo("11");
     }
 
     @Test
@@ -1314,6 +1415,26 @@ class AppDesktopUiHostDocumentTest {
                 .map(DesktopUiNode.Choice.class::cast)
                 .filter(choice -> id.equals(choice.id()))
                 .findFirst().orElseThrow();
+    }
+
+    private static DesktopUiNode.TextInput textInput(DesktopUiDocument document, String id) {
+        return nodes(document).stream()
+                .filter(DesktopUiNode.TextInput.class::isInstance)
+                .map(DesktopUiNode.TextInput.class::cast)
+                .filter(input -> id.equals(input.id()))
+                .findFirst().orElseThrow();
+    }
+
+    private static DesktopUiNode.Text textNode(DesktopUiDocument document, String id) {
+        return nodes(document).stream()
+                .filter(DesktopUiNode.Text.class::isInstance)
+                .map(DesktopUiNode.Text.class::cast)
+                .filter(text -> id.equals(text.id()))
+                .findFirst().orElseThrow();
+    }
+
+    private static int settingsUnsavedCount(DesktopUiDocument document) {
+        return Integer.parseInt(textNode(document, "settings.unsaved-count").text().arguments().get(0));
     }
 
     private record ThemeProviderPlugin(String id, List<GuiThemeContribution> themes)
