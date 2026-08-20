@@ -147,6 +147,7 @@ dependencies {
     }
     testImplementation(platform("org.junit:junit-bom:5.13.4"))
     testImplementation(kotlin("test-junit5"))
+    testImplementation("org.jetbrains.compose.ui:ui-test:${providers.gradleProperty("composeVersion").get()}")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

@@ -655,9 +655,10 @@ public final class SwingDesktopUiNodeRenderer {
         tree.setSelectionPaths(node.selectedIds().stream().map(paths::get).filter(Objects::nonNull).toArray(TreePath[]::new));
         tree.addTreeSelectionListener(event -> {
             TreePath[] selected = tree.getSelectionPaths();
-            List<String> ids = selected == null ? List.of() : Arrays.stream(selected)
+            Set<String> selectedIds = selected == null ? Set.of() : Arrays.stream(selected)
                     .map(path -> ((TreeView) ((DefaultMutableTreeNode) path.getLastPathComponent()).getUserObject()).id())
-                    .toList();
+                    .collect(java.util.stream.Collectors.toSet());
+            List<String> ids = paths.keySet().stream().filter(selectedIds::contains).toList();
             emit(EventType.SELECTION, node.id(), node.bindingId(), selectionValue(node.selectionMode(), ids));
         });
         return scroll(tree);
