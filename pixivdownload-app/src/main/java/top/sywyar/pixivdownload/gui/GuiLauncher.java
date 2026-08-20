@@ -297,17 +297,20 @@ public class GuiLauncher {
                     () -> pluginSession.manager().discoverFeaturePlugins(),
                     discovery -> new WebI18nBundleRegistry(pluginRegistry(pluginSession, discovery)),
                     pluginSession.startupDiscovery(), startupDesktopBundles);
+            DesktopUiProvider selectedProvider = selection.provider();
+            AppDesktopUiModel.RendererContract rendererContract = new AppDesktopUiModel.RendererContract(
+                    selectedProvider.id(), selectedProvider.experienceProfile(),
+                    selectedProvider.supportedNodeKinds(), selectedProvider.supportedCapabilities());
             AppDesktopUiModel desktopUiModel = new AppDesktopUiModel(
-                    port, root, configPath, desktopUiHost, currentDesktopSources,
-                    selection.provider().experienceProfile());
+                    port, root, configPath, desktopUiHost, currentDesktopSources, rendererContract);
             ACTIVE_UI_MODEL.set(desktopUiModel);
             DesktopUiContext context = new DesktopUiContext(startupLaunch, desktopUiHost.applicationName(),
                     desktopUiModel, token -> resolveDesktopText(token, currentDesktopBundles),
                     desktopUiHost::requestApplicationExit,
                     () -> readConfigScalar(configPath, "app.theme"),
-                    selection.provider().id(), selection.provider().supportedNodeKinds(),
-                    selection.provider().supportedCapabilities());
-            DesktopUiSession ui = selection.provider().launch(context);
+                    rendererContract.providerId(), rendererContract.supportedKinds(),
+                    rendererContract.supportedCapabilities());
+            DesktopUiSession ui = selectedProvider.launch(context);
             ACTIVE_UI.set(ui);
             singleInstanceManager.setActivationHandler(ui::activate);
             if (selection.diagnostic() != null) {
