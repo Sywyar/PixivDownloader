@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
@@ -116,6 +117,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private final Path configPath;
     private final DesktopUiHost host;
     private final Supplier<List<DesktopUiPluginSource>> pluginSources;
+    private final DesktopUiExperienceProfile experienceProfile;
     private final Optional<DesktopUiNode.ImageData> applicationIcon;
     private final String licenseText;
     private final ExecutorService worker = Executors.newCachedThreadPool(runnable -> {
@@ -213,11 +215,18 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     AppDesktopUiModel(int serverPort, String rootFolder, Path configPath, DesktopUiHost host,
                       Supplier<List<DesktopUiPluginSource>> pluginSources) {
+        this(serverPort, rootFolder, configPath, host, pluginSources, DesktopUiExperienceProfile.CLASSIC);
+    }
+
+    AppDesktopUiModel(int serverPort, String rootFolder, Path configPath, DesktopUiHost host,
+                      Supplier<List<DesktopUiPluginSource>> pluginSources,
+                      DesktopUiExperienceProfile experienceProfile) {
         this.serverPort = serverPort;
         this.rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
         this.configPath = Objects.requireNonNull(configPath, "configPath");
         this.host = Objects.requireNonNull(host, "host");
         this.pluginSources = Objects.requireNonNull(pluginSources, "pluginSources");
+        this.experienceProfile = Objects.requireNonNull(experienceProfile, "experienceProfile");
         this.autoStartSupported = host.autoStartSupported();
         this.autoStartEnabled = autoStartSupported && host.autoStartEnabled();
         this.applicationIcon = loadApplicationIcon();
@@ -340,15 +349,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             Map<String, Consumer<List<String>>> nextSelections = new LinkedHashMap<>();
             Map<String, Runnable> nextActions = new LinkedHashMap<>();
             List<DesktopUiDocument.Page> pages = new ArrayList<>();
-            if (!host.onboardingState(rootFolder).complete()) pages.add(page("welcome", welcomePage(nextActions),
-                    new DesktopUiNode.Insets(24, 32, 24, 32)));
-            pages.add(page("status", statusPage(nextActions)));
-            pages.add(page("config", configPage(nextBindings, nextSelections, nextActions),
-                    DesktopUiNode.Insets.NONE));
-            pages.add(page("plugins", pluginsPage(nextActions)));
-            pages.add(page("tools", toolsPage(nextActions)));
-            pages.add(page("security", securityPage(nextActions)));
-            pages.add(page("about", aboutPage(nextActions)));
+            appendHostPages(pages, nextBindings, nextSelections, nextActions);
             fieldBindings = Map.copyOf(nextBindings);
             selectionBindings = Map.copyOf(nextSelections);
             List<DesktopUiDocument.Dialog> dialogs = new ArrayList<>();
@@ -380,6 +381,38 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         } finally {
             rebuildSources = previousSources;
         }
+    }
+
+    private void appendHostPages(List<DesktopUiDocument.Page> pages,
+                                 Map<String, ConfigField> nextBindings,
+                                 Map<String, Consumer<List<String>>> nextSelections,
+                                 Map<String, Runnable> nextActions) {
+        switch (experienceProfile) {
+            case CLASSIC -> appendClassicPages(pages, nextBindings, nextSelections, nextActions);
+            case CONTROL_CENTER -> appendControlCenterPages(pages, nextBindings, nextSelections, nextActions);
+        }
+    }
+
+    private void appendClassicPages(List<DesktopUiDocument.Page> pages,
+                                    Map<String, ConfigField> nextBindings,
+                                    Map<String, Consumer<List<String>>> nextSelections,
+                                    Map<String, Runnable> nextActions) {
+        if (!host.onboardingState(rootFolder).complete()) pages.add(page("welcome", welcomePage(nextActions),
+                new DesktopUiNode.Insets(24, 32, 24, 32)));
+        pages.add(page("status", statusPage(nextActions)));
+        pages.add(page("config", configPage(nextBindings, nextSelections, nextActions),
+                DesktopUiNode.Insets.NONE));
+        pages.add(page("plugins", pluginsPage(nextActions)));
+        pages.add(page("tools", toolsPage(nextActions)));
+        pages.add(page("security", securityPage(nextActions)));
+        pages.add(page("about", aboutPage(nextActions)));
+    }
+
+    private void appendControlCenterPages(List<DesktopUiDocument.Page> pages,
+                                          Map<String, ConfigField> nextBindings,
+                                          Map<String, Consumer<List<String>>> nextSelections,
+                                          Map<String, Runnable> nextActions) {
+        appendClassicPages(pages, nextBindings, nextSelections, nextActions);
     }
 
     private Map<String, Long> interactionRevisions(Map<String, InteractionSignature> signatures) {

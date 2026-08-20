@@ -145,8 +145,9 @@ class PluginApiOwnershipGuardTest {
                     "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
             Map.entry("GUI contribution 与桌面宿主契约", union(
                     types(API_PREFIX + "gui",
-                    "DesktopUiCapability", "DesktopUiContext", "DesktopUiModel", "DesktopUiPageContribution",
-                    "DesktopUiProvider", "DesktopUiSession", "DesktopUiSnapshot", "GuiActionInvocationHeaders",
+                    "DesktopUiCapability", "DesktopUiContext", "DesktopUiExperienceProfile", "DesktopUiModel",
+                    "DesktopUiPageContribution", "DesktopUiProvider", "DesktopUiSession", "DesktopUiSnapshot",
+                    "GuiActionInvocationHeaders",
                     "GuiConfigActionContribution", "GuiConfigActionPayloadField", "GuiConfigActionPayloadType",
                     "GuiConfigActionResultArgument", "GuiConfigActionResultCondition",
                     "GuiConfigActionResultOperator", "GuiConfigActionResultRule", "GuiConfigActionResultSource",
@@ -244,7 +245,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 43),
+            Map.entry("GUI contribution 与桌面宿主契约", 44),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),

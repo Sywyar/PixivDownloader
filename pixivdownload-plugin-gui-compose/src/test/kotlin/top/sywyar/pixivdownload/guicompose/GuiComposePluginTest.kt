@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.jetbrains.skia.Image
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
 import java.awt.Dimension
 import java.awt.Insets
@@ -25,6 +26,7 @@ class GuiComposePluginTest {
 
         assertEquals("gui-compose", plugin.id())
         assertFalse(plugin.defaultProvider())
+        assertEquals(DesktopUiExperienceProfile.CONTROL_CENTER, plugin.experienceProfile())
         assertEquals(setOf(
             DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
             DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,

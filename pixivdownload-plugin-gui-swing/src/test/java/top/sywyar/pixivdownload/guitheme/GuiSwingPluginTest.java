@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.guitheme;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
@@ -45,6 +46,7 @@ class GuiSwingPluginTest {
     void declaresStableDesktopUiCapabilities() {
         GuiSwingPlugin plugin = new GuiSwingPlugin();
 
+        assertThat(plugin.experienceProfile()).isEqualTo(DesktopUiExperienceProfile.CLASSIC);
         assertThat(plugin.supportedNodeKinds()).containsExactlyInAnyOrder(
                 DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
                 DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,

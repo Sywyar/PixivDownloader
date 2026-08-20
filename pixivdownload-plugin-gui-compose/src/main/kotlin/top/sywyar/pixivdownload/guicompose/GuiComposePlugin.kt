@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.guicompose
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
@@ -16,6 +17,7 @@ class GuiComposePlugin : PixivFeaturePlugin, DesktopUiProvider {
     override fun iconKey(): String = "palette"
     override fun colorToken(): String = "violet"
     override fun kind(): PluginKind = PluginKind.FEATURE
+    override fun experienceProfile(): DesktopUiExperienceProfile = DesktopUiExperienceProfile.CONTROL_CENTER
     override fun supportedNodeKinds(): Set<DesktopUiNode.Kind> =
         ComposeDesktopUiNodeRenderer.supportedKinds()
 

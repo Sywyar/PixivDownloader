@@ -21,6 +21,15 @@ public interface DesktopUiProvider {
     default boolean defaultProvider() { return false; }
 
     /**
+     * 返回宿主构造完整桌面文档时使用的体验档位。
+     *
+     * @return 桌面体验档位
+     */
+    default DesktopUiExperienceProfile experienceProfile() {
+        return DesktopUiExperienceProfile.CLASSIC;
+    }
+
+    /**
      * Returns the stable declarative node kinds this provider can render, including every semantic variant
      * defined by each advertised kind.
      * Providers must advertise every kind required by the host document before launch.

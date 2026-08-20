@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
@@ -19,6 +20,7 @@ class DesktopUiSelectorTest {
     void explicitProviderWinsOverDefault() {
         Provider swing = new Provider("gui-swing", true);
         Provider compose = new Provider("gui-compose", false);
+        assertThat(swing.experienceProfile()).isEqualTo(DesktopUiExperienceProfile.CLASSIC);
         assertThat(DesktopUiSelector.select("gui-compose", List.of(swing, compose)).provider()).isSameAs(compose);
     }
 
