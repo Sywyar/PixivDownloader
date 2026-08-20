@@ -66,6 +66,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AppDesktopUiHostDocumentTest {
 
+    private static final DesktopUiHost.OnboardingSnapshot COMPLETE_ONBOARDING =
+            new DesktopUiHost.OnboardingSnapshot(true, true, 4, true, true);
+
     @TempDir
     Path tempDir;
     private final List<AppDesktopUiModel> openModels = new ArrayList<>();
@@ -111,13 +114,36 @@ class AppDesktopUiHostDocumentTest {
     @Test
     @DisplayName("CONTROL_CENTER 档位通过独立入口生成完整文档")
     void controlCenterProfileHasACompleteDocumentEntry() {
-        DesktopUiDocument controlCenter = model(DesktopUiExperienceProfile.CONTROL_CENTER).snapshot().document();
+        DesktopUiDocument controlCenter = modelWithOnboarding(List.of(),
+                DesktopUiExperienceProfile.CONTROL_CENTER, COMPLETE_ONBOARDING).snapshot().document();
 
         assertThat(controlCenter.pages()).extracting(DesktopUiDocument.Page::id)
                 .containsExactly("home", "automation", "plugins", "tools", "security", "settings", "about");
         assertThat(nodes(controlCenter)).extracting(DesktopUiNode::id)
                 .contains("home.greeting", "home.hero", "home.system", "home.metrics",
-                        "home.quick-start", "home.running", "home.storage");
+                        "home.quick-start", "home.running", "home.storage",
+                        "about.name", "about.docs", "about.update.check");
+    }
+
+    @Test
+    @DisplayName("控制中心引导只保留宿主设置步骤且 CLASSIC 继续显示下载入口")
+    void controlCenterOnboardingKeepsOnlyHostSetupFacts() {
+        DesktopUiHost.OnboardingSnapshot readyForCompletion =
+                new DesktopUiHost.OnboardingSnapshot(false, true, 4, false, true);
+
+        DesktopUiDocument controlCenter = modelWithOnboarding(List.of(),
+                DesktopUiExperienceProfile.CONTROL_CENTER, readyForCompletion).snapshot().document();
+        DesktopUiDocument classic = modelWithOnboarding(List.of(),
+                DesktopUiExperienceProfile.CLASSIC, readyForCompletion).snapshot().document();
+
+        assertThat(nodes(controlCenter)).extracting(DesktopUiNode::id)
+                .contains("welcome.done.finish")
+                .doesNotContain("welcome.start.open", "welcome.ffmpeg.title", "welcome.scripts.title");
+        assertThat(nodes(controlCenter)).extracting(DesktopUiNode::id)
+                .noneMatch(id -> id.startsWith("welcome.plugin."));
+        assertThat(textNode(controlCenter, "welcome.done.body").text().key())
+                .isEqualTo("desktop.ui.onboarding.done.body");
+        assertThat(nodes(classic)).extracting(DesktopUiNode::id).contains("welcome.start.open");
     }
 
     @Test
@@ -128,6 +154,7 @@ class AppDesktopUiHostDocumentTest {
         DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
                 DesktopUiHost.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, arguments) -> {
+                    if ("onboardingState".equals(method.getName())) return COMPLETE_ONBOARDING;
                     if ("controlCenterSnapshot".equals(method.getName())) {
                         return response(Map.of(
                                 "cards", List.of(Map.of(
@@ -273,9 +300,9 @@ class AppDesktopUiHostDocumentTest {
                 List.of(new WebRouteContribution("/post-only.html", AccessPolicy.ADMIN,
                         Set.of(HttpMethod.POST), false)));
 
-        DesktopUiDocument document = model(List.of(validZ, crossOwner, routeOwner, broader,
-                        wildcard, postOnly, validA),
-                DesktopUiExperienceProfile.CONTROL_CENTER).snapshot().document();
+        DesktopUiDocument document = modelWithOnboarding(List.of(validZ, crossOwner, routeOwner, broader,
+                        wildcard, postOnly, validA), DesktopUiExperienceProfile.CONTROL_CENTER,
+                COMPLETE_ONBOARDING).snapshot().document();
 
         assertThat(nodes(document).stream()
                 .filter(DesktopUiNode.Button.class::isInstance)
@@ -1361,6 +1388,31 @@ class AppDesktopUiHostDocumentTest {
                 config,
                 new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> sources,
                 rendererContract(experienceProfile)));
+    }
+
+    private AppDesktopUiModel modelWithOnboarding(List<DesktopUiPluginSource> sources,
+                                                   DesktopUiExperienceProfile experienceProfile,
+                                                   DesktopUiHost.OnboardingSnapshot onboarding) {
+        Path config = tempDir.resolve("config.yaml");
+        AppDesktopUiHost delegate = new AppDesktopUiHost(6999, new TestDesktopConfigFile(config));
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> {
+                    if ("onboardingState".equals(method.getName())) return onboarding;
+                    if ("backendSnapshot".equals(method.getName())) {
+                        return new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
+                    }
+                    if ("subscribeBackend".equals(method.getName())) return (AutoCloseable) () -> { };
+                    if (method.getName().startsWith("markOnboarding")
+                            || "saveOnboardingProgress".equals(method.getName())) return true;
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        return track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
+                config, host, () -> sources, rendererContract(experienceProfile)));
     }
 
     private static Map<String, Object> token(String value) {

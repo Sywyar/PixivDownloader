@@ -2278,6 +2278,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "desktop.ui.about.documentation",
+      "acceptedSourceHash": "1c4b87b885285f50aff09f37007dcede14d5d1ba7222593873d88cc7fdaadeb1",
+      "acceptedTranslationHash": "c205924de0fe636ccdde4ed616fef66f75b78e98b03620637965c033fd161141"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "desktop.ui.about.icon-alt",
       "acceptedSourceHash": "260f9fae21620584ea075f023565276abe7459b80e19d5924ec3fa62d01c4ed4",
       "acceptedTranslationHash": "bba83b313fe4208e9bcc77ba925cc9c12c8ecd848a83b68b3967ce76b4b65e93"
@@ -2913,6 +2921,86 @@
       "key": "desktop.ui.home.task.status.unknown",
       "acceptedSourceHash": "93e474c68ed556478a63700b1a3f6b0e0a4246e3fe92af1ffe097640620e2413",
       "acceptedTranslationHash": "15eebb6f74cc8a5a2a3eb6897533ded3d7c3e52b32cf617087a4793fef134ba0"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.body",
+      "acceptedSourceHash": "cabeeddf714c820492d25e127fb975d42b6885b70a1f2ba5511508ad813b246d",
+      "acceptedTranslationHash": "68fc128b45c0e75f72408478317bb1a025b3154c20690d9787716f5cd98b6504"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.change",
+      "acceptedSourceHash": "76f7d946a9c222a7a3b0517ed23292c95de5e37c5d5af074576c35f7cfd134af",
+      "acceptedTranslationHash": "03df51531e2bbf305e31cceb43e72f7eba6c7a2c520ff26b07c4fbc2c8baa714"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.credentials",
+      "acceptedSourceHash": "1a37991e47f2d5343f868317cc43a8de38a1a9dcaef1399e204ac25000f2c1c1",
+      "acceptedTranslationHash": "b9c157cb1049e772e8d073db4cecf9ce4f6f591268de9a4be98102eb639d8aea"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.title",
+      "acceptedSourceHash": "c263ff9c514518f305a9077b83d32f5e0d273cb3ea270163d14009cc89057cf4",
+      "acceptedTranslationHash": "596d9e956d208e82aecc99331230197e56454b0f536ededffb166247e704a48c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.body",
+      "acceptedSourceHash": "bd8383868bd045b64fa660b971afc7e2087eac1c488b36583ead764d94a388e6",
+      "acceptedTranslationHash": "09a188a1ddc12d1bac91325343187f2468148d8f8ff29faf3036879c522f05c5"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.button",
+      "acceptedSourceHash": "9f45ef7fd93c7a41a354a986d4bb1b02afa04c71bc0599bb8e9017253c4c7777",
+      "acceptedTranslationHash": "8ec0dd1dd115f7d9b45a90a89abaf6d09622b9e0412870363a3bebf69ea69927"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.account",
+      "acceptedSourceHash": "31f8e34396276725c673cd669545275261cc0104052e413849a8742b66888d8e",
+      "acceptedTranslationHash": "47c75d09f12ed25b1ed3ea2d3054db86ac1d3decae717fb1e2fdda77743cd769"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.proxy",
+      "acceptedSourceHash": "9dade76f8aaf263857de8a28aec06241530a3fce0c3b6054d7bdc5e639cfc42a",
+      "acceptedTranslationHash": "067a745db397439725854f6b57f92884a7a92566ae0fbc35396ed54742f902a6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.body",
+      "acceptedSourceHash": "164cfe8729a6c48835e5a9b729c9b7b153c88631356299abeaca0a2c5515c574",
+      "acceptedTranslationHash": "36c6360ebe54b1dd99c74a2264e728281a725a89c9bf5e4b25013b97f543499a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.point.change",
+      "acceptedSourceHash": "c4bae595817a1345e515dcdb8621aa6f446e9ce9c8fbc9db5b3b4ce8dfa657cb",
+      "acceptedTranslationHash": "cfdb10d6b96c4f3175901e8211c33447ddc3f1e51d8c45f693f3b89161df332c"
     },
     {
       "locale": "en-US",
@@ -53918,6 +54006,14 @@
       "locale": "ja-JP",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "desktop.ui.about.documentation",
+      "acceptedSourceHash": "1c4b87b885285f50aff09f37007dcede14d5d1ba7222593873d88cc7fdaadeb1",
+      "acceptedTranslationHash": "a59285c4f03ab25c2676b940d4bf12854c79a1f457fe39fede0c6fca248a3861"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "desktop.ui.about.icon-alt",
       "acceptedSourceHash": "260f9fae21620584ea075f023565276abe7459b80e19d5924ec3fa62d01c4ed4",
       "acceptedTranslationHash": "5029cee39c23838c0af98346c2fbc90c5e511bdd901442a2a3e3d69cc49e8d3d"
@@ -54553,6 +54649,86 @@
       "key": "desktop.ui.home.task.status.unknown",
       "acceptedSourceHash": "93e474c68ed556478a63700b1a3f6b0e0a4246e3fe92af1ffe097640620e2413",
       "acceptedTranslationHash": "c13b09c7096d51bb56871bec3da135d37b455aef76df5ef1ed03e51af20c99a4"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.body",
+      "acceptedSourceHash": "cabeeddf714c820492d25e127fb975d42b6885b70a1f2ba5511508ad813b246d",
+      "acceptedTranslationHash": "3abfa64d90b76484141a01776dbedba7234faa8408170ab327605231b6ac1c3b"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.change",
+      "acceptedSourceHash": "76f7d946a9c222a7a3b0517ed23292c95de5e37c5d5af074576c35f7cfd134af",
+      "acceptedTranslationHash": "9fb4da22768d63de89ac55a0bec6803a5544d05363f797fb9a3a9d6971002876"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.credentials",
+      "acceptedSourceHash": "1a37991e47f2d5343f868317cc43a8de38a1a9dcaef1399e204ac25000f2c1c1",
+      "acceptedTranslationHash": "abeb671c9d152143856626f23eb03fed26386f152b832adcaf1f99489eb352c6"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.title",
+      "acceptedSourceHash": "c263ff9c514518f305a9077b83d32f5e0d273cb3ea270163d14009cc89057cf4",
+      "acceptedTranslationHash": "b89a4630ce8ea9643e64b099ee3a8be52c0adc294b8065bcf6305bb00dcef175"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.body",
+      "acceptedSourceHash": "bd8383868bd045b64fa660b971afc7e2087eac1c488b36583ead764d94a388e6",
+      "acceptedTranslationHash": "dc75a7f6d68831aea4fab82710d234a47d2bc7e1d0817d4f4339fd676445898e"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.button",
+      "acceptedSourceHash": "9f45ef7fd93c7a41a354a986d4bb1b02afa04c71bc0599bb8e9017253c4c7777",
+      "acceptedTranslationHash": "f6b8691aac331d0f180822111082511926b8080421b83488494c8f1ea0b5e54e"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.account",
+      "acceptedSourceHash": "31f8e34396276725c673cd669545275261cc0104052e413849a8742b66888d8e",
+      "acceptedTranslationHash": "b57f5ed88db92c086cff17a6d4d30a7514851bbd0a704652e3dbd4e65319b1b3"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.proxy",
+      "acceptedSourceHash": "9dade76f8aaf263857de8a28aec06241530a3fce0c3b6054d7bdc5e639cfc42a",
+      "acceptedTranslationHash": "56872537fe259a0d05260758352f8abcb8d369af3570d042b8d9fd089d0c3dc8"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.body",
+      "acceptedSourceHash": "164cfe8729a6c48835e5a9b729c9b7b153c88631356299abeaca0a2c5515c574",
+      "acceptedTranslationHash": "505716a1a37cdf5934a2b0438b8507da2ff71e70d395ece1d4a9b940d400de71"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.point.change",
+      "acceptedSourceHash": "c4bae595817a1345e515dcdb8621aa6f446e9ce9c8fbc9db5b3b4ce8dfa657cb",
+      "acceptedTranslationHash": "3fdba857bcd5d43e0e1ec2173c1d09eedbde953bb4de5142b45237da90f7ea83"
     },
     {
       "locale": "ja-JP",
@@ -105558,6 +105734,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "desktop.ui.about.documentation",
+      "acceptedSourceHash": "1c4b87b885285f50aff09f37007dcede14d5d1ba7222593873d88cc7fdaadeb1",
+      "acceptedTranslationHash": "50da0b175337961e3f8ec43c8287569fdc81409c27f6f0352a02a08e2904783f"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "desktop.ui.about.icon-alt",
       "acceptedSourceHash": "260f9fae21620584ea075f023565276abe7459b80e19d5924ec3fa62d01c4ed4",
       "acceptedTranslationHash": "6d77538b59a7fd3f80124cb80b1e18143395051e6b74751156ff048d1c9d770e"
@@ -106193,6 +106377,86 @@
       "key": "desktop.ui.home.task.status.unknown",
       "acceptedSourceHash": "93e474c68ed556478a63700b1a3f6b0e0a4246e3fe92af1ffe097640620e2413",
       "acceptedTranslationHash": "26d2170b6237c0dec8ae3f41482083de4030e1ec231610e170f61d1c6b8df8d4"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.body",
+      "acceptedSourceHash": "cabeeddf714c820492d25e127fb975d42b6885b70a1f2ba5511508ad813b246d",
+      "acceptedTranslationHash": "407435638ea6d7d2117ac8b77b5c417289803f54c37e945a13c34f47a7e78f60"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.change",
+      "acceptedSourceHash": "76f7d946a9c222a7a3b0517ed23292c95de5e37c5d5af074576c35f7cfd134af",
+      "acceptedTranslationHash": "9a0ab119c87b7086e6bf9ee8808244d54ae3798a7cf25f7c2f8899644bebd82e"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.credentials",
+      "acceptedSourceHash": "1a37991e47f2d5343f868317cc43a8de38a1a9dcaef1399e204ac25000f2c1c1",
+      "acceptedTranslationHash": "0619de5ed488eaa6c834d3144ec55d8c7c8b16a8809f4a54715194f9b9811bee"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.title",
+      "acceptedSourceHash": "c263ff9c514518f305a9077b83d32f5e0d273cb3ea270163d14009cc89057cf4",
+      "acceptedTranslationHash": "edd9c963ef63bd8fa6d0d174843a53b112b812cf1879e6032f1e2299416ce57f"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.body",
+      "acceptedSourceHash": "bd8383868bd045b64fa660b971afc7e2087eac1c488b36583ead764d94a388e6",
+      "acceptedTranslationHash": "266bb02bfb6aafac0511c1b84155b8d541a984edccc2f50318789ea52b392424"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.button",
+      "acceptedSourceHash": "9f45ef7fd93c7a41a354a986d4bb1b02afa04c71bc0599bb8e9017253c4c7777",
+      "acceptedTranslationHash": "a32c78bd49ae82f80ffb3be8c38845c8270ad43e33eada59f333632a140e7e6f"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.account",
+      "acceptedSourceHash": "31f8e34396276725c673cd669545275261cc0104052e413849a8742b66888d8e",
+      "acceptedTranslationHash": "527fae7c381cb28062366510d3074376ddbaa9598e737a6dbec91a8eb76ca9ad"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.proxy",
+      "acceptedSourceHash": "9dade76f8aaf263857de8a28aec06241530a3fce0c3b6054d7bdc5e639cfc42a",
+      "acceptedTranslationHash": "f27866494f7b6e66f46c8ce00a0979e0f54d2427da3afff2048823214b727023"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.body",
+      "acceptedSourceHash": "164cfe8729a6c48835e5a9b729c9b7b153c88631356299abeaca0a2c5515c574",
+      "acceptedTranslationHash": "5f0ce880d4fa39d0b0effcba1ec541f6272b5d2c2dc8773d5b3fe059ca3bbb62"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.point.change",
+      "acceptedSourceHash": "c4bae595817a1345e515dcdb8621aa6f446e9ce9c8fbc9db5b3b4ce8dfa657cb",
+      "acceptedTranslationHash": "45a5d86d21bb25dea47fe4aa185e9d814d7d00d5e63405568981b783fd5a59bd"
     },
     {
       "locale": "ko-KR",
@@ -157198,6 +157462,14 @@
       "locale": "zh-Hant",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "desktop.ui.about.documentation",
+      "acceptedSourceHash": "1c4b87b885285f50aff09f37007dcede14d5d1ba7222593873d88cc7fdaadeb1",
+      "acceptedTranslationHash": "e411644432b3fb47d6fc5e63b106923098432e8731d73ad56211c06f8bb19bb5"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "desktop.ui.about.icon-alt",
       "acceptedSourceHash": "260f9fae21620584ea075f023565276abe7459b80e19d5924ec3fa62d01c4ed4",
       "acceptedTranslationHash": "20af5fe27bd7e3654070a4015f39505e1f6f37dfdd13e1d6470b2f6774cf0646"
@@ -157833,6 +158105,86 @@
       "key": "desktop.ui.home.task.status.unknown",
       "acceptedSourceHash": "93e474c68ed556478a63700b1a3f6b0e0a4246e3fe92af1ffe097640620e2413",
       "acceptedTranslationHash": "d573858cac261cb640b12a627033871fe66219d8c0c879e88f48db708fccf7cb"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.body",
+      "acceptedSourceHash": "cabeeddf714c820492d25e127fb975d42b6885b70a1f2ba5511508ad813b246d",
+      "acceptedTranslationHash": "29f8e0f3dc8d78d4d4f771d339ac01ea7ea77953974faa06a8cb3f303443ec98"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.change",
+      "acceptedSourceHash": "76f7d946a9c222a7a3b0517ed23292c95de5e37c5d5af074576c35f7cfd134af",
+      "acceptedTranslationHash": "5ae1943f82ae82ca63f2888c23092ee42076070b83ceb18ab03cd24042e80f36"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.point.credentials",
+      "acceptedSourceHash": "1a37991e47f2d5343f868317cc43a8de38a1a9dcaef1399e204ac25000f2c1c1",
+      "acceptedTranslationHash": "f4b393db5f5feea1c4beede02f2ca1f958fc9f0c2397c6a68002175de854e22b"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.account.title",
+      "acceptedSourceHash": "c263ff9c514518f305a9077b83d32f5e0d273cb3ea270163d14009cc89057cf4",
+      "acceptedTranslationHash": "d6e2f3a7a215dc01f60c376eda2809f2dc57c45577523c39f669d9b558e635bb"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.body",
+      "acceptedSourceHash": "bd8383868bd045b64fa660b971afc7e2087eac1c488b36583ead764d94a388e6",
+      "acceptedTranslationHash": "859c81b1a107613c93887888ba64e4e4d6f9f3d16b893eba8b9ce65abb0e7e4b"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.button",
+      "acceptedSourceHash": "9f45ef7fd93c7a41a354a986d4bb1b02afa04c71bc0599bb8e9017253c4c7777",
+      "acceptedTranslationHash": "d1028bb688e94ac2b21fa1af8554dc06f88b37f4f7f666916328e3b9cc2bb380"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.account",
+      "acceptedSourceHash": "31f8e34396276725c673cd669545275261cc0104052e413849a8742b66888d8e",
+      "acceptedTranslationHash": "c6083094a8e9ee657d7c732d92b97a48b54130faaf5f4a9e8634fd4751ff7973"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.done.point.proxy",
+      "acceptedSourceHash": "9dade76f8aaf263857de8a28aec06241530a3fce0c3b6054d7bdc5e639cfc42a",
+      "acceptedTranslationHash": "c37f3d95573cbcfa16a5baefd79a4216142d44ebfb8326aeac1e84fa84922d89"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.body",
+      "acceptedSourceHash": "164cfe8729a6c48835e5a9b729c9b7b153c88631356299abeaca0a2c5515c574",
+      "acceptedTranslationHash": "de46e70c942c8c2807a4d588c4c58bdff945db2ad446a90b61b24c66244af7fe"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.onboarding.proxy.point.change",
+      "acceptedSourceHash": "c4bae595817a1345e515dcdb8621aa6f446e9ce9c8fbc9db5b3b4ce8dfa657cb",
+      "acceptedTranslationHash": "f2168fa578631749cb6bba75b38065263e04da45849376c4660f78e3094629a1"
     },
     {
       "locale": "zh-Hant",
