@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** App-owned persistence for desktop onboarding state. */
+/** 应用拥有的桌面引导状态持久化实现。 */
 @Slf4j
 final class DesktopUiOnboardingState {
     private static final ObjectMapper MAPPER = new ObjectMapper();

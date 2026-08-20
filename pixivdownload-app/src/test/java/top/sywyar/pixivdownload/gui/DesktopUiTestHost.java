@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Installs the real app desktop host for GUI tests migrated from the app module. */
+/** 为从应用模块迁移的 GUI 测试安装真实应用桌面宿主。 */
 public final class DesktopUiTestHost {
     private DesktopUiTestHost() {
     }

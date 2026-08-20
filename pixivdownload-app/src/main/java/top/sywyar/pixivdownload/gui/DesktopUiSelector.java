@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Deterministic desktop UI selection: explicit id, then one default, then the only provider. */
+/** 确定性桌面界面选择：依次采用显式 id、唯一默认项、唯一 provider。 */
 final class DesktopUiSelector {
     private DesktopUiSelector() {}
 

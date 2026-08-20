@@ -38,7 +38,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 
-/** Generic Swing renderer for the host-owned declarative desktop document. */
+/** 宿主拥有的声明式桌面文档的通用 Swing renderer。 */
 public final class MainFrame extends JFrame {
     private static final Dimension DEFAULT_SIZE = new Dimension(960, 720);
     private static final Dimension MINIMUM_SIZE = new Dimension(760, 560);
@@ -277,7 +277,7 @@ public final class MainFrame extends JFrame {
                 .map(Map.Entry::getKey).findFirst().orElse(null);
     }
 
-    /** Enables close-to-tray only after the provider installed a usable tray icon. */
+    /** 仅在 provider 安装可用托盘图标后启用关闭到托盘。 */
     public void setCloseToTray(boolean closeToTray) { this.closeToTray = closeToTray; }
 
     public void showWindow() {

@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * App-owned plugin-market schema text remains complete in every visible locale.
+ * 应用拥有的插件市场 Schema 文案在每个可见 locale 中保持完整。
  */
 @DisplayName("插件市场 / 仓库配置文案：全部可见语言键集合一致且非空")
 class PluginMarketConfigI18nTest {

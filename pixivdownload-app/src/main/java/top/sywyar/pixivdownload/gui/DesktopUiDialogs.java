@@ -4,7 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 
-/** Presentation bridge used by host-owned startup flows without depending on Swing. */
+/** 宿主启动流程使用且不依赖 Swing 的呈现桥。 */
 final class DesktopUiDialogs {
     static final int INFORMATION_MESSAGE = 1;
     static final int WARNING_MESSAGE = 2;
