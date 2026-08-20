@@ -4,19 +4,19 @@ import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
 import java.util.Set;
 
-/** Process-lifetime desktop UI supplied by an external plugin. */
+/** 由外置插件提供、在进程生命周期内存活的桌面界面。 */
 public interface DesktopUiProvider {
     /**
-     * Returns the stable provider id used by {@code app.gui-provider}.
+     * 返回 {@code app.gui-provider} 使用的稳定 provider id。
      *
-     * @return stable provider id
+     * @return 稳定 provider id
      */
     String id();
 
     /**
-     * Returns whether this provider is the default when no id is configured.
+     * 返回未配置 id 时此 provider 是否为默认项。
      *
-     * @return whether this is the default provider
+     * @return 是否为默认 provider
      */
     default boolean defaultProvider() { return false; }
 
@@ -30,28 +30,27 @@ public interface DesktopUiProvider {
     }
 
     /**
-     * Returns the stable declarative node kinds this provider can render, including every semantic variant
-     * defined by each advertised kind.
-     * Providers must advertise every kind required by the host document before launch.
+     * 返回此 provider 能渲染的稳定声明式节点种类，包括每个已声明种类定义的全部语义变体。
+     * provider 必须在启动前声明宿主文档需要的全部种类。
      *
-     * @return immutable supported node-kind set
+     * @return 不可变的受支持节点种类集合
      */
     Set<DesktopUiNode.Kind> supportedNodeKinds();
 
     /**
-     * Returns the stable semantic capabilities implemented by this provider.
-     * The set must be explicit so adding a future capability never expands an old provider implicitly.
+     * 返回此 provider 已实现的稳定语义能力。
+     * 集合必须显式列举，避免未来新增能力时旧 provider 被隐式扩展。
      *
-     * @return immutable supported semantic-capability set
+     * @return 不可变的受支持语义能力集合
      */
     Set<DesktopUiCapability> supportedCapabilities();
 
     /**
-     * Starts the process-lifetime desktop UI.
+     * 启动进程生命周期内的桌面界面。
      *
-     * @param context immutable host startup context
-     * @return the active UI session
-     * @throws Exception when the UI cannot be started
+     * @param context 不可变的宿主启动上下文
+     * @return 活动界面会话
+     * @throws Exception 界面无法启动时抛出
      */
     DesktopUiSession launch(DesktopUiContext context) throws Exception;
 }

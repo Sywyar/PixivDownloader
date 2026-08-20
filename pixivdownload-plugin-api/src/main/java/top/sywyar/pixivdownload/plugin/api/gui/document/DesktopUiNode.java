@@ -14,8 +14,8 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Pure-JDK declarative UI node vocabulary shared by desktop renderers.
- * Nodes carry bounded values and stable ids only; they never carry toolkit components or executable callbacks.
+ * 桌面 renderer 共享的纯 JDK 声明式 UI 节点词汇。
+ * 节点只携带有界纯值与稳定标识，绝不携带工具包组件或可执行回调。
  */
 public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUiNode.AdaptiveGrid,
         DesktopUiNode.PagedRow, DesktopUiNode.Dock,
@@ -26,22 +26,22 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link {
 
-    /** @return stable node identity within one document */
+    /** @return 单份文档内稳定的节点标识 */
     String id();
 
-    /** @return node kind used for renderer capability negotiation */
+    /** @return 用于 renderer 能力协商的节点类型 */
     Kind kind();
 
-    /** @return direct child nodes used by document validation and renderers */
+    /** @return 供文档校验与 renderer 使用的直接子节点 */
     default List<DesktopUiNode> childNodes() {
         return List.of();
     }
 
     /**
-     * Validates global node-id uniqueness and bounded tree depth/size, returning all required renderer kinds.
+     * 校验全局节点标识唯一性以及树深度和大小边界，并返回全部必需的 renderer 节点类型。
      *
-     * @param root declarative root node
-     * @return immutable required node-kind set
+     * @param root 声明式根节点
+     * @return 不可变的必需节点类型集合
      */
     static Set<Kind> validateTree(DesktopUiNode root) {
         Set<String> ids = new HashSet<>();
@@ -49,11 +49,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /**
-     * Validates one tree against document-wide ids and returns all required renderer kinds.
+     * 使用文档级标识集合校验一棵树，并返回全部必需的 renderer 节点类型。
      *
-     * @param root declarative root node
-     * @param documentIds mutable document-wide id set
-     * @return immutable required node-kind set
+     * @param root 声明式根节点
+     * @param documentIds 可变的文档级标识集合
+     * @return 不可变的必需节点类型集合
      */
     static Set<Kind> validateTree(DesktopUiNode root, Set<String> documentIds) {
         Objects.requireNonNull(root, "root");
@@ -64,8 +64,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /**
-     * @param root declarative root node
-     * @return semantic renderer capabilities required by this node tree
+     * @param root 声明式根节点
+     * @return 当前节点树要求的 renderer 语义能力
      */
     static Set<DesktopUiCapability> requiredCapabilities(DesktopUiNode root) {
         Objects.requireNonNull(root, "root");
@@ -87,16 +87,16 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         return Set.copyOf(capabilities);
     }
 
-    /** General column, row, flow, or grid container. */
+    /** 通用列、行、流式或网格容器。 */
     record Container(String id, ContainerLayout layout, int columns, int gap,
                      Alignment alignment, List<DesktopUiNode> children) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param layout container layout
-         * @param columns grid column count
-         * @param gap logical child gap
-         * @param alignment logical child alignment
-         * @param children ordered child nodes
+         * @param id 稳定节点标识
+         * @param layout 容器布局
+         * @param columns 网格列数
+         * @param gap 子节点逻辑间距
+         * @param alignment 子节点逻辑对齐方式
+         * @param children 有序子节点
          */
         public Container {
             id = requireId(id, "id");
@@ -116,6 +116,14 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     record AdaptiveGrid(String id, int minimumColumnWidth, int maximumColumns,
                         int horizontalGap, int verticalGap,
                         List<DesktopUiNode> children) implements DesktopUiNode {
+        /**
+         * @param id 稳定节点标识
+         * @param minimumColumnWidth 单列最小逻辑宽度
+         * @param maximumColumns 最大列数
+         * @param horizontalGap 水平逻辑间距
+         * @param verticalGap 垂直逻辑间距
+         * @param children 有序子节点
+         */
         public AdaptiveGrid {
             id = requireId(id, "id");
             requireRange(minimumColumnWidth, 80, 2048, "minimumColumnWidth");
@@ -132,8 +140,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** 每页固定显示四项并支持吸附翻页的横向区域。 */
     record PagedRow(String id, int itemsPerPage, int gap,
                     List<DesktopUiNode> children) implements DesktopUiNode {
+        /** 每页固定项数。 */
         public static final int FIXED_ITEMS_PER_PAGE = 4;
 
+        /**
+         * @param id 稳定节点标识
+         * @param itemsPerPage 每页项数，必须等于 {@link #FIXED_ITEMS_PER_PAGE}
+         * @param gap 子节点逻辑间距
+         * @param children 有序子节点
+         */
         public PagedRow {
             id = requireId(id, "id");
             if (itemsPerPage != FIXED_ITEMS_PER_PAGE) {
@@ -147,17 +162,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return children; }
     }
 
-    /** Border-layout style container with fixed edges and a growing center. */
+    /** 边缘固定、中心可扩展的边界布局容器。 */
     record Dock(String id, int gap, DesktopUiNode top, DesktopUiNode center,
                 DesktopUiNode bottom, DesktopUiNode start, DesktopUiNode end) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param gap logical child gap
-         * @param top optional top child
-         * @param center optional growing center child
-         * @param bottom optional bottom child
-         * @param start optional leading child
-         * @param end optional trailing child
+         * @param id 稳定节点标识
+         * @param gap 子节点逻辑间距
+         * @param top 可选顶部子节点
+         * @param center 可选的可扩展中心子节点
+         * @param bottom 可选底部子节点
+         * @param start 可选起始侧子节点
+         * @param end 可选结束侧子节点
          */
         public Dock {
             id = requireId(id, "id");
@@ -177,6 +192,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** 受控词表中的主题感知图标。 */
     record Icon(String id, DesktopUiIcon icon, DesktopUiTone tone,
                 TextToken accessibleLabel) implements DesktopUiNode {
+        /**
+         * @param id 稳定节点标识
+         * @param icon 受控图标
+         * @param tone 语义色调
+         * @param accessibleLabel 无障碍标签
+         */
         public Icon {
             id = requireId(id, "id");
             icon = Objects.requireNonNull(icon, "icon");
@@ -187,17 +208,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.ICON; }
     }
 
-    /** Semantic visual surface with toolkit-neutral logical padding. */
+    /** 带工具包无关逻辑内边距的语义视觉表面。 */
     record Surface(String id, SurfaceStyle style, Insets padding,
                    boolean fillWidth, boolean fillHeight, DesktopUiNode content) implements DesktopUiNode {
         /**
-         * Creates a width-aware surface that does not fill available height.
+         * 创建填充可用宽度但不填充可用高度的表面。
          *
-         * @param id stable node id
-         * @param style semantic surface style
-         * @param padding logical padding
-         * @param fillWidth whether to fill available width
-         * @param content surface content
+         * @param id 稳定节点标识
+         * @param style 语义表面样式
+         * @param padding 逻辑内边距
+         * @param fillWidth 是否填充可用宽度
+         * @param content 表面内容
          */
         public Surface(String id, SurfaceStyle style, Insets padding,
                        boolean fillWidth, DesktopUiNode content) {
@@ -205,12 +226,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
 
         /**
-         * @param id stable node id
-         * @param style semantic surface style
-         * @param padding logical padding
-         * @param fillWidth whether to fill available width
-         * @param fillHeight whether to fill available height
-         * @param content surface content
+         * @param id 稳定节点标识
+         * @param style 语义表面样式
+         * @param padding 逻辑内边距
+         * @param fillWidth 是否填充可用宽度
+         * @param fillHeight 是否填充可用高度
+         * @param content 表面内容
          */
         public Surface {
             id = requireId(id, "id");
@@ -223,12 +244,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return List.of(content); }
     }
 
-    /** Titled group container. */
+    /** 带标题的分组容器。 */
     record Group(String id, TextToken title, DesktopUiNode content) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param title localized group title
-         * @param content group content
+         * @param id 稳定节点标识
+         * @param title 已本地化的分组标题
+         * @param content 分组内容
          */
         public Group {
             id = requireId(id, "id");
@@ -241,16 +262,16 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /**
-     * Aligned form rows. The row owns the visible label and help text, so renderers render row content as the
-     * control itself rather than repeating the control node's own label.
+     * 对齐的表单行。行拥有可见标签与帮助文字，因此 renderer 将行内容作为控件本身渲染，
+     * 不重复控件节点自己的标签。
      */
     record Form(String id, FormStyle formStyle, TextToken labelSuffix,
                 List<FormRow> rows) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param formStyle label sizing and density policy
-         * @param labelSuffix optional localized label suffix
-         * @param rows ordered form rows
+         * @param id 稳定节点标识
+         * @param formStyle 标签尺寸与密度策略
+         * @param labelSuffix 可选的已本地化标签后缀
+         * @param rows 有序表单行
          */
         public Form {
             id = requireId(id, "id");
@@ -267,11 +288,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Tabbed container. */
+    /** 标签页容器。 */
     record Tabs(String id, List<Tab> tabs) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param tabs ordered tab descriptors
+         * @param id 稳定节点标识
+         * @param tabs 有序标签页描述
          */
         public Tabs {
             id = requireId(id, "id");
@@ -284,11 +305,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return tabs.stream().map(Tab::content).toList(); }
     }
 
-    /** Scrollable child container. */
+    /** 可滚动子节点容器。 */
     record Scroll(String id, DesktopUiNode content) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param content scrollable content
+         * @param id 稳定节点标识
+         * @param content 可滚动内容
          */
         public Scroll {
             id = requireId(id, "id");
@@ -299,15 +320,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return List.of(content); }
     }
 
-    /** Two-pane split container. */
+    /** 双区域分割容器。 */
     record Split(String id, Axis axis, double resizeWeight,
                  DesktopUiNode first, DesktopUiNode second) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param axis split orientation
-         * @param resizeWeight proportion of extra space assigned to the first child
-         * @param first first child
-         * @param second second child
+         * @param id 稳定节点标识
+         * @param axis 分割方向
+         * @param resizeWeight 分配给第一个子节点的额外空间比例
+         * @param first 第一个子节点
+         * @param second 第二个子节点
          */
         public Split {
             id = requireId(id, "id");
@@ -323,29 +344,29 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public List<DesktopUiNode> childNodes() { return List.of(first, second); }
     }
 
-    /** Plain localized text. Raw HTML is intentionally unsupported. */
+    /** 普通本地化文本；有意不支持原始 HTML。 */
     record Text(String id, TextToken text, TextStyle style,
                 boolean wrap, boolean selectable, TextAlignment textAlignment) implements DesktopUiNode {
         /**
-         * Creates start-aligned text.
+         * 创建沿逻辑起始边对齐的文本。
          *
-         * @param id stable node id
-         * @param text localized text
-         * @param style semantic text style
-         * @param wrap whether text may wrap
-         * @param selectable whether text may be selected
+         * @param id 稳定节点标识
+         * @param text 本地化文本
+         * @param style 语义文本样式
+         * @param wrap 是否允许换行
+         * @param selectable 是否允许选择文本
          */
         public Text(String id, TextToken text, TextStyle style, boolean wrap, boolean selectable) {
             this(id, text, style, wrap, selectable, TextAlignment.START);
         }
 
         /**
-         * @param id stable node id
-         * @param text localized text
-         * @param style semantic text style
-         * @param wrap whether text may wrap
-         * @param selectable whether text may be selected
-         * @param textAlignment logical text alignment
+         * @param id 稳定节点标识
+         * @param text 本地化文本
+         * @param style 语义文本样式
+         * @param wrap 是否允许换行
+         * @param selectable 是否允许选择文本
+         * @param textAlignment 逻辑文本对齐方式
          */
         public Text {
             id = requireId(id, "id");
@@ -357,16 +378,16 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.TEXT; }
     }
 
-    /** Bounded, materialized image with localized alternative text. */
+    /** 已物化且大小有界、带本地化替代文本的图像。 */
     record Image(String id, ImageData image, TextToken altText,
                  int preferredWidth, int preferredHeight, ScaleMode scaleMode) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param image materialized image data
-         * @param altText localized alternative text
-         * @param preferredWidth preferred logical width
-         * @param preferredHeight preferred logical height
-         * @param scaleMode image scaling policy
+         * @param id 稳定节点标识
+         * @param image 已物化的图像数据
+         * @param altText 本地化替代文本
+         * @param preferredWidth 首选逻辑宽度
+         * @param preferredHeight 首选逻辑高度
+         * @param scaleMode 图像缩放策略
          */
         public Image {
             id = requireId(id, "id");
@@ -380,11 +401,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.IMAGE; }
     }
 
-    /** Horizontal or vertical separator. */
+    /** 水平或垂直分隔线。 */
     record Separator(String id, Axis axis) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param axis separator orientation
+         * @param id 稳定节点标识
+         * @param axis 分隔线方向
          */
         public Separator {
             id = requireId(id, "id");
@@ -394,12 +415,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.SEPARATOR; }
     }
 
-    /** Fixed logical spacer. */
+    /** 固定逻辑尺寸的空白间隔。 */
     record Spacer(String id, int width, int height) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param width logical width
-         * @param height logical height
+         * @param id 稳定节点标识
+         * @param width 逻辑宽度
+         * @param height 逻辑高度
          */
         public Spacer {
             id = requireId(id, "id");
@@ -410,14 +431,14 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.SPACER; }
     }
 
-    /** Determinate or indeterminate progress display. */
+    /** 确定或不确定模式的进度显示。 */
     record Progress(String id, double progress, boolean indeterminate,
                     TextToken text) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param progress determinate progress from zero to one
-         * @param indeterminate whether progress is indeterminate
-         * @param text optional localized progress text
+         * @param id 稳定节点标识
+         * @param progress 从零到一的确定进度
+         * @param indeterminate 是否使用不确定进度
+         * @param text 可选的本地化进度文本
          */
         public Progress {
             id = requireId(id, "id");
@@ -429,22 +450,22 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.PROGRESS; }
     }
 
-    /** Text-like input including password, multiline, search, temporal, file, and directory variants. */
+    /** 文本型输入，包括密码、多行、搜索、时间、文件和目录变体。 */
     record TextInput(String id, String bindingId, TextToken label, TextToken help,
                      InputKind inputKind, String value, int columns, int rows,
                      boolean enabled, long stateRevision) implements DesktopUiNode {
         /**
-         * Creates a text-like input at the initial state revision.
+         * 创建处于初始状态修订代的文本型输入。
          *
-         * @param id stable node id
-         * @param bindingId stable change-event target
-         * @param label localized label
-         * @param help optional localized help text
-         * @param inputKind text input semantic type
-         * @param value initial non-password value
-         * @param columns preferred column count
-         * @param rows preferred row count
-         * @param enabled whether the control is enabled
+         * @param id 稳定节点标识
+         * @param bindingId 稳定的值变更事件目标
+         * @param label 本地化标签
+         * @param help 可选的本地化帮助文本
+         * @param inputKind 文本输入语义类型
+         * @param value 非密码输入的初始值
+         * @param columns 首选列数
+         * @param rows 首选行数
+         * @param enabled 控件是否启用
          */
         public TextInput(String id, String bindingId, TextToken label, TextToken help,
                          InputKind inputKind, String value, int columns, int rows,
@@ -453,16 +474,16 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
 
         /**
-         * @param id stable node id
-         * @param bindingId stable change-event target
-         * @param label localized label
-         * @param help optional localized help text
-         * @param inputKind text input semantic type
-         * @param value initial non-password value
-         * @param columns preferred column count
-         * @param rows preferred row count
-         * @param enabled whether the control is enabled
-         * @param stateRevision monotonic external state revision
+         * @param id 稳定节点标识
+         * @param bindingId 稳定的值变更事件目标
+         * @param label 本地化标签
+         * @param help 可选的本地化帮助文本
+         * @param inputKind 文本输入语义类型
+         * @param value 非密码输入的初始值
+         * @param columns 首选列数
+         * @param rows 首选行数
+         * @param enabled 控件是否启用
+         * @param stateRevision 单调递增的外部状态修订号
          */
         public TextInput {
             id = requireId(id, "id");
@@ -481,17 +502,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.TEXT_INPUT; }
     }
 
-    /** Boolean checkbox or switch-style toggle. */
+    /** 复选框或开关样式的布尔输入。 */
     record Toggle(String id, String bindingId, TextToken label, TextToken help,
                   ToggleStyle toggleStyle, boolean selected, boolean enabled) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param bindingId stable change-event target
-         * @param label localized label
-         * @param help optional localized help text
-         * @param toggleStyle toggle presentation
-         * @param selected current selected state
-         * @param enabled whether the control is enabled
+         * @param id 稳定节点标识
+         * @param bindingId 稳定的值变更事件目标
+         * @param label 本地化标签
+         * @param help 可选的本地化帮助文本
+         * @param toggleStyle 布尔输入呈现样式
+         * @param selected 当前选中状态
+         * @param enabled 控件是否启用
          */
         public Toggle {
             id = requireId(id, "id");
@@ -503,21 +524,21 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.TOGGLE; }
     }
 
-    /** Combo box, radio group, checkbox group, or list selection. */
+    /** 下拉框、单选组、复选组或列表选择控件。 */
     record Choice(String id, String bindingId, TextToken label, TextToken help,
                   ChoiceStyle choiceStyle, SelectionMode selectionMode,
                   List<Option> options, List<String> selectedIds,
                   boolean enabled) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param bindingId stable selection-event target
-         * @param label localized label
-         * @param help optional localized help text
-         * @param choiceStyle choice presentation
-         * @param selectionMode single or multiple selection
-         * @param options ordered selectable options
-         * @param selectedIds selected option ids
-         * @param enabled whether the control is enabled
+         * @param id 稳定节点标识
+         * @param bindingId 稳定的选择事件目标
+         * @param label 本地化标签
+         * @param help 可选的本地化帮助文本
+         * @param choiceStyle 选择控件呈现样式
+         * @param selectionMode 单选或多选模式
+         * @param options 有序可选项
+         * @param selectedIds 已选选项标识
+         * @param enabled 控件是否启用
          */
         public Choice {
             id = requireId(id, "id");
@@ -545,21 +566,21 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.CHOICE; }
     }
 
-    /** Integer spinner or slider input. */
+    /** 整数微调框或滑块输入。 */
     record NumberInput(String id, String bindingId, TextToken label, TextToken help,
                        NumberStyle numberStyle, int value, int minimum, int maximum,
                        int step, boolean enabled) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param bindingId stable change-event target
-         * @param label localized label
-         * @param help optional localized help text
-         * @param numberStyle numeric input presentation
-         * @param value current value
-         * @param minimum minimum accepted value
-         * @param maximum maximum accepted value
-         * @param step positive increment
-         * @param enabled whether the control is enabled
+         * @param id 稳定节点标识
+         * @param bindingId 稳定的值变更事件目标
+         * @param label 本地化标签
+         * @param help 可选的本地化帮助文本
+         * @param numberStyle 数值输入呈现样式
+         * @param value 当前值
+         * @param minimum 最小可接受值
+         * @param maximum 最大可接受值
+         * @param step 正数步长
+         * @param enabled 控件是否启用
          */
         public NumberInput {
             id = requireId(id, "id");
@@ -577,18 +598,18 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.NUMBER_INPUT; }
     }
 
-    /** Read-only tabular data with optional row selection. */
+    /** 可选行选择的只读表格数据。 */
     record Table(String id, String bindingId, List<TableColumn> columns,
                  List<TableRow> rows, SelectionMode selectionMode,
                  List<String> selectedRowIds, boolean enabled) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param bindingId stable selection-event target
-         * @param columns ordered table columns
-         * @param rows ordered table rows
-         * @param selectionMode single or multiple row selection
-         * @param selectedRowIds selected row ids
-         * @param enabled whether selection is enabled
+         * @param id 稳定节点标识
+         * @param bindingId 稳定的选择事件目标
+         * @param columns 有序表格列
+         * @param rows 有序表格行
+         * @param selectionMode 单行或多行选择模式
+         * @param selectedRowIds 已选行标识
+         * @param enabled 是否启用选择
          */
         public Table {
             id = requireId(id, "id");
@@ -617,17 +638,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.TABLE; }
     }
 
-    /** Hierarchical data tree with stable item ids. */
+    /** 节点标识稳定的层级数据树。 */
     record Tree(String id, String bindingId, List<TreeItem> items,
                 SelectionMode selectionMode, List<String> selectedIds,
                 boolean enabled) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param bindingId stable selection-event target
-         * @param items ordered root items
-         * @param selectionMode single or multiple item selection
-         * @param selectedIds selected item ids
-         * @param enabled whether selection is enabled
+         * @param id 稳定节点标识
+         * @param bindingId 稳定的选择事件目标
+         * @param items 有序根节点
+         * @param selectionMode 单节点或多节点选择模式
+         * @param selectedIds 已选节点标识
+         * @param enabled 是否启用选择
          */
         public Tree {
             id = requireId(id, "id");
@@ -649,16 +670,16 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.TREE; }
     }
 
-    /** Command button emitting an activation event. */
+    /** 触发激活事件的命令按钮。 */
     record Button(String id, String actionId, TextToken label, TextToken help,
                   ButtonStyle buttonStyle, boolean enabled) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param actionId stable activation-event target
-         * @param label localized button label
-         * @param help optional localized help text
-         * @param buttonStyle command emphasis
-         * @param enabled whether the button is enabled
+         * @param id 稳定节点标识
+         * @param actionId 稳定的激活事件目标
+         * @param label 本地化按钮标签
+         * @param help 可选的本地化帮助文本
+         * @param buttonStyle 命令强调样式
+         * @param enabled 按钮是否启用
          */
         public Button {
             id = requireId(id, "id");
@@ -670,15 +691,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.BUTTON; }
     }
 
-    /** Link-like command emitting an activation event without embedding an arbitrary URI. */
+    /** 不嵌入任意 URI、触发激活事件的链接式命令。 */
     record Link(String id, String actionId, TextToken label, TextToken help,
                 boolean enabled) implements DesktopUiNode {
         /**
-         * @param id stable node id
-         * @param actionId stable activation-event target
-         * @param label localized link label
-         * @param help optional localized help text
-         * @param enabled whether the link is enabled
+         * @param id 稳定节点标识
+         * @param actionId 稳定的激活事件目标
+         * @param label 本地化链接标签
+         * @param help 可选的本地化帮助文本
+         * @param enabled 链接是否启用
          */
         public Link {
             id = requireId(id, "id");
@@ -689,13 +710,13 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.LINK; }
     }
 
-    /** Localized text token; fallback is used when the namespace or key is unavailable. */
+    /** 本地化文本令牌；命名空间或键不可用时使用回退文本。 */
     record TextToken(String namespace, String key, String fallback, List<String> arguments) {
         /**
-         * @param namespace optional plugin i18n namespace
-         * @param key stable message key, or empty for raw fallback text
-         * @param fallback fallback text
-         * @param arguments message-format arguments
+         * @param namespace 可选的插件 i18n 命名空间
+         * @param key 稳定消息键；原始回退文本使用空值
+         * @param fallback 回退文本
+         * @param arguments 消息格式化参数
          */
         public TextToken {
             namespace = blankToNull(boundedText(namespace, "namespace"));
@@ -710,22 +731,22 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
 
         /**
-         * @param key stable host message key
-         * @return host message token using the key as fallback
+         * @param key 稳定宿主消息键
+         * @return 使用消息键作为回退文本的宿主消息令牌
          */
         public static TextToken key(String key) { return new TextToken(null, key, key, List.of()); }
         /**
-         * @param text raw fallback text
-         * @return text token without a message key
+         * @param text 原始回退文本
+         * @return 不带消息键的文本令牌
          */
         public static TextToken raw(String text) { return new TextToken(null, "", text, List.of()); }
     }
 
-    /** Immutable materialized image bytes encoded as Base64. */
+    /** 使用 Base64 编码的不可变已物化图像字节。 */
     record ImageData(String mediaType, String base64) {
         /**
-         * @param mediaType image media type
-         * @param base64 bounded Base64 image bytes
+         * @param mediaType 图像媒体类型
+         * @param base64 大小有界的 Base64 图像字节
          */
         public ImageData {
             mediaType = mediaType == null ? "" : mediaType.trim().toLowerCase();
@@ -746,16 +767,16 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             }
         }
 
-        /** @return decoded image bytes */
+        /** @return 解码后的图像字节 */
         public byte[] bytes() { return Base64.getDecoder().decode(base64); }
     }
 
-    /** Tab descriptor. */
+    /** 标签页描述。 */
     record Tab(String id, TextToken title, DesktopUiNode content) {
         /**
-         * @param id stable tab id
-         * @param title localized tab title
-         * @param content complete tab content
+         * @param id 稳定标签页标识
+         * @param title 本地化标签页标题
+         * @param content 完整标签页内容
          */
         public Tab {
             id = requireId(id, "id");
@@ -764,15 +785,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** One aligned form row; trailing content is typically an effect badge or secondary action. */
+    /** 一行对齐表单；尾随内容通常为生效方式标记或次要动作。 */
     record FormRow(String id, TextToken label, TextToken help,
                    DesktopUiNode content, DesktopUiNode trailing) {
         /**
-         * @param id stable row id
-         * @param label localized row label
-         * @param help optional localized help text
-         * @param content row control or value content
-         * @param trailing optional trailing content
+         * @param id 稳定行标识
+         * @param label 本地化行标签
+         * @param help 可选的本地化帮助文本
+         * @param content 行控件或值内容
+         * @param trailing 可选的尾随内容
          */
         public FormRow {
             id = requireId(id, "id");
@@ -781,12 +802,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Selectable option descriptor. */
+    /** 可选项描述。 */
     record Option(String id, TextToken label, boolean enabled) {
         /**
-         * @param id stable option id
-         * @param label localized option label
-         * @param enabled whether the option is enabled
+         * @param id 稳定选项标识
+         * @param label 本地化选项标签
+         * @param enabled 选项是否启用
          */
         public Option {
             id = requireId(id, "id");
@@ -794,12 +815,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Table column descriptor. */
+    /** 表格列描述。 */
     record TableColumn(String id, TextToken label, int preferredWidth) {
         /**
-         * @param id stable column id
-         * @param label localized column label
-         * @param preferredWidth preferred logical width, or zero for toolkit default
+         * @param id 稳定列标识
+         * @param label 本地化列标签
+         * @param preferredWidth 首选逻辑宽度；零表示使用工具包默认值
          */
         public TableColumn {
             id = requireId(id, "id");
@@ -808,11 +829,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Table row descriptor. */
+    /** 表格行描述。 */
     record TableRow(String id, List<String> cells) {
         /**
-         * @param id stable row id
-         * @param cells ordered plain-text cells
+         * @param id 稳定行标识
+         * @param cells 有序纯文本单元格
          */
         public TableRow {
             id = requireId(id, "id");
@@ -820,12 +841,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Recursive tree item descriptor. */
+    /** 递归树节点描述。 */
     record TreeItem(String id, TextToken label, List<TreeItem> children) {
         /**
-         * @param id stable item id
-         * @param label localized item label
-         * @param children ordered child items
+         * @param id 稳定节点标识
+         * @param label 本地化节点标签
+         * @param children 有序子节点
          */
         public TreeItem {
             id = requireId(id, "id");
@@ -834,16 +855,16 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Logical top/end/bottom/start padding shared by every renderer. */
+    /** 所有渲染器共享的逻辑上、尾、下、起始边距。 */
     record Insets(int top, int end, int bottom, int start) {
-        /** Zero padding. */
+        /** 零边距。 */
         public static final Insets NONE = new Insets(0, 0, 0, 0);
 
         /**
-         * @param top logical top padding
-         * @param end logical trailing padding
-         * @param bottom logical bottom padding
-         * @param start logical leading padding
+         * @param top 逻辑上边距
+         * @param end 逻辑尾边距
+         * @param bottom 逻辑下边距
+         * @param start 逻辑起始边距
          */
         public Insets {
             requireRange(top, 0, 512, "top");
@@ -853,17 +874,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
 
         /**
-         * @param value padding for every edge
-         * @return equal padding on every edge
+         * @param value 每条边的边距
+         * @return 四边相等的边距
          */
         public static Insets all(int value) { return new Insets(value, value, value, value); }
     }
 
-    /** Typed event value projected by a renderer. */
+    /** 渲染器投影的类型化事件值。 */
     record Value(ValueKind kind, List<String> values) {
         /**
-         * @param kind stable value kind
-         * @param values bounded serialized values
+         * @param kind 稳定值类型
+         * @param values 有界序列化值
          */
         public Value {
             kind = Objects.requireNonNull(kind, "kind");
@@ -889,36 +910,36 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             }
         }
 
-        /** @return empty event value */
+        /** @return 空事件值 */
         public static Value empty() { return new Value(ValueKind.NONE, List.of()); }
         /**
-         * @param value text value
-         * @return text event value
+         * @param value 文本值
+         * @return 文本事件值
          */
         public static Value text(String value) { return new Value(ValueKind.TEXT, List.of(value == null ? "" : value)); }
         /**
-         * @param value boolean value
-         * @return boolean event value
+         * @param value 布尔值
+         * @return 布尔事件值
          */
         public static Value bool(boolean value) { return new Value(ValueKind.BOOLEAN, List.of(Boolean.toString(value))); }
         /**
-         * @param value numeric value
-         * @return numeric event value
+         * @param value 数值
+         * @return 数值事件值
          */
         public static Value number(Number value) {
             return new Value(ValueKind.NUMBER, List.of(String.valueOf(Objects.requireNonNull(value, "value"))));
         }
         /**
-         * @param value selected id, or {@code null}
-         * @return single-selection event value
+         * @param value 已选标识，或 {@code null}
+         * @return 单选事件值
          */
         public static Value selection(String value) {
             return value == null ? new Value(ValueKind.SELECTION, List.of())
                     : new Value(ValueKind.SELECTION, List.of(value));
         }
         /**
-         * @param values selected ids
-         * @return multiple-selection event value
+         * @param values 已选标识
+         * @return 多选事件值
          */
         public static Value selections(List<String> values) { return new Value(ValueKind.MULTI_SELECTION, values); }
     }
@@ -990,149 +1011,149 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Supported node kinds. */
+    /** 支持的节点类型。 */
     enum Kind {
-        /** General container. */ CONTAINER,
+        /** 通用容器。 */ CONTAINER,
         /** 可按宽度自适应列数的网格。 */ ADAPTIVE_GRID,
         /** 固定页容量的吸附横向区域。 */ PAGED_ROW,
-        /** Edge-and-center container. */ DOCK,
-        /** Semantic visual surface. */ SURFACE,
-        /** Titled group. */ GROUP,
-        /** Aligned form. */ FORM,
-        /** Tabbed container. */ TABS,
-        /** Scrollable container. */ SCROLL,
-        /** Two-pane split. */ SPLIT,
-        /** Localized text. */ TEXT,
+        /** 边缘与中心区域容器。 */ DOCK,
+        /** 语义视觉表面。 */ SURFACE,
+        /** 带标题的分组。 */ GROUP,
+        /** 对齐表单。 */ FORM,
+        /** 标签页容器。 */ TABS,
+        /** 可滚动容器。 */ SCROLL,
+        /** 双区域分割容器。 */ SPLIT,
+        /** 本地化文本。 */ TEXT,
         /** 受控语义图标。 */ ICON,
-        /** Materialized image. */ IMAGE,
-        /** Separator. */ SEPARATOR,
-        /** Fixed spacer. */ SPACER,
-        /** Progress display. */ PROGRESS,
-        /** Text-like input. */ TEXT_INPUT,
-        /** Boolean input. */ TOGGLE,
-        /** Choice input. */ CHOICE,
-        /** Bounded numeric input. */ NUMBER_INPUT,
-        /** Read-only table. */ TABLE,
-        /** Hierarchical tree. */ TREE,
-        /** Command button. */ BUTTON,
-        /** Link-like command. */ LINK
+        /** 已物化图像。 */ IMAGE,
+        /** 分隔线。 */ SEPARATOR,
+        /** 固定间隔。 */ SPACER,
+        /** 进度显示。 */ PROGRESS,
+        /** 文本型输入。 */ TEXT_INPUT,
+        /** 布尔输入。 */ TOGGLE,
+        /** 选择输入。 */ CHOICE,
+        /** 有界数值输入。 */ NUMBER_INPUT,
+        /** 只读表格。 */ TABLE,
+        /** 层级树。 */ TREE,
+        /** 命令按钮。 */ BUTTON,
+        /** 链接式命令。 */ LINK
     }
-    /** General container layout. */
+    /** 通用容器布局。 */
     enum ContainerLayout {
-        /** Vertical column. */ COLUMN,
-        /** Horizontal row. */ ROW,
-        /** Wrapping flow. */ FLOW,
-        /** Fixed-column grid. */ GRID
+        /** 垂直列。 */ COLUMN,
+        /** 水平行。 */ ROW,
+        /** 自动换行流。 */ FLOW,
+        /** 固定列数网格。 */ GRID
     }
-    /** Logical child alignment. */
+    /** 子节点逻辑对齐方式。 */
     enum Alignment {
-        /** Leading edge. */ START,
-        /** Center. */ CENTER,
-        /** Trailing edge. */ END,
-        /** Fill the cross axis. */ STRETCH
+        /** 起始边。 */ START,
+        /** 居中。 */ CENTER,
+        /** 尾边。 */ END,
+        /** 填满交叉轴。 */ STRETCH
     }
-    /** Semantic surface role mapped to native toolkit colors and borders. */
+    /** 映射到原生工具包颜色和边框的语义表面角色。 */
     enum SurfaceStyle {
-        /** Unadorned surface. */ PLAIN,
-        /** Grouped card surface. */ CARD,
-        /** Informational surface. */ INFO,
-        /** Success surface. */ SUCCESS,
-        /** Warning surface. */ WARNING,
-        /** Error surface. */ ERROR,
-        /** De-emphasized surface. */ MUTED
+        /** 无装饰表面。 */ PLAIN,
+        /** 分组卡片表面。 */ CARD,
+        /** 信息表面。 */ INFO,
+        /** 成功表面。 */ SUCCESS,
+        /** 警告表面。 */ WARNING,
+        /** 错误表面。 */ ERROR,
+        /** 弱化表面。 */ MUTED
     }
-    /** Aligned-row density and label sizing policy. */
+    /** 对齐行密度与标签尺寸策略。 */
     enum FormStyle {
-        /** Compact labels and controls. */ COMPACT,
-        /** Responsive label width. */ RESPONSIVE,
-        /** Read-only key/value presentation. */ KEY_VALUE
+        /** 紧凑标签与控件。 */ COMPACT,
+        /** 响应式标签宽度。 */ RESPONSIVE,
+        /** 只读键值呈现。 */ KEY_VALUE
     }
-    /** Logical orientation. */
+    /** 逻辑方向。 */
     enum Axis {
-        /** Horizontal axis. */ HORIZONTAL,
-        /** Vertical axis. */ VERTICAL
+        /** 水平轴。 */ HORIZONTAL,
+        /** 垂直轴。 */ VERTICAL
     }
-    /** Semantic text style. */
+    /** 语义文本样式。 */
     enum TextStyle {
-        /** Regular body text. */ BODY,
-        /** Emphasized body text. */ EMPHASIS,
-        /** De-emphasized body text. */ SECONDARY,
-        /** Bulleted body text. */ BULLET,
-        /** Small caption text. */ CAPTION,
-        /** Page title text. */ TITLE,
-        /** Section heading text. */ HEADING,
-        /** Monospaced code text. */ CODE,
-        /** Success text. */ SUCCESS,
-        /** Warning text. */ WARNING,
-        /** Error text. */ ERROR
+        /** 普通正文。 */ BODY,
+        /** 强调正文。 */ EMPHASIS,
+        /** 弱化正文。 */ SECONDARY,
+        /** 项目符号正文。 */ BULLET,
+        /** 小号说明文本。 */ CAPTION,
+        /** 页面标题。 */ TITLE,
+        /** 区块标题。 */ HEADING,
+        /** 等宽代码文本。 */ CODE,
+        /** 成功文本。 */ SUCCESS,
+        /** 警告文本。 */ WARNING,
+        /** 错误文本。 */ ERROR
     }
-    /** Logical text alignment. */
+    /** 逻辑文本对齐方式。 */
     enum TextAlignment {
-        /** Leading-aligned text. */ START,
-        /** Centered text. */ CENTER,
-        /** Trailing-aligned text. */ END
+        /** 沿起始边对齐。 */ START,
+        /** 居中对齐。 */ CENTER,
+        /** 沿尾边对齐。 */ END
     }
-    /** Image scaling policy. */
+    /** 图像缩放策略。 */
     enum ScaleMode {
-        /** Preserve intrinsic dimensions. */ NONE,
-        /** Fit within preferred bounds. */ FIT,
-        /** Fill preferred bounds. */ FILL
+        /** 保留固有尺寸。 */ NONE,
+        /** 适配首选边界。 */ FIT,
+        /** 填满首选边界。 */ FILL
     }
-    /** Text input semantic type. */
+    /** 文本输入语义类型。 */
     enum InputKind {
-        /** Single-line text. */ TEXT,
-        /** Numeric text. */ NUMBER,
-        /** Secret text. */ PASSWORD,
-        /** Multiline text. */ MULTILINE,
-        /** Search text. */ SEARCH,
-        /** Calendar date. */ DATE,
-        /** Time of day. */ TIME,
-        /** Date and time. */ DATE_TIME,
-        /** File path. */ FILE,
-        /** Directory path. */ DIRECTORY
+        /** 单行文本。 */ TEXT,
+        /** 数值文本。 */ NUMBER,
+        /** 密文。 */ PASSWORD,
+        /** 多行文本。 */ MULTILINE,
+        /** 搜索文本。 */ SEARCH,
+        /** 日历日期。 */ DATE,
+        /** 一天内的时间。 */ TIME,
+        /** 日期与时间。 */ DATE_TIME,
+        /** 文件路径。 */ FILE,
+        /** 目录路径。 */ DIRECTORY
     }
-    /** Boolean input presentation. */
+    /** 布尔输入呈现样式。 */
     enum ToggleStyle {
-        /** Checkbox presentation. */ CHECKBOX,
-        /** Switch presentation. */ SWITCH
+        /** 复选框样式。 */ CHECKBOX,
+        /** 开关样式。 */ SWITCH
     }
-    /** Choice input presentation. */
+    /** 选择输入呈现样式。 */
     enum ChoiceStyle {
-        /** Drop-down combo box. */ COMBO_BOX,
-        /** Radio-button group. */ RADIO_BUTTONS,
-        /** Checkbox group. */ CHECK_BOXES,
-        /** Visible selection list. */ LIST
+        /** 下拉组合框。 */ COMBO_BOX,
+        /** 单选按钮组。 */ RADIO_BUTTONS,
+        /** 复选框组。 */ CHECK_BOXES,
+        /** 可见选择列表。 */ LIST
     }
-    /** Single or multiple selection. */
+    /** 单选或多选模式。 */
     enum SelectionMode {
-        /** At most one selected item. */ SINGLE,
-        /** Multiple selected items. */ MULTIPLE
+        /** 最多选择一项。 */ SINGLE,
+        /** 选择多项。 */ MULTIPLE
     }
-    /** Numeric input presentation. */
+    /** 数值输入呈现样式。 */
     enum NumberStyle {
-        /** Spinner control. */ SPINNER,
-        /** Slider control. */ SLIDER
+        /** 微调框控件。 */ SPINNER,
+        /** 滑块控件。 */ SLIDER
     }
-    /** Command emphasis. */
+    /** 命令强调样式。 */
     enum ButtonStyle {
-        /** Normal command. */ NORMAL,
-        /** Primary command. */ PRIMARY,
-        /** Destructive command. */ DANGER
+        /** 普通命令。 */ NORMAL,
+        /** 主要命令。 */ PRIMARY,
+        /** 破坏性命令。 */ DANGER
     }
-    /** Stable event value kind. */
+    /** 稳定事件值类型。 */
     enum ValueKind {
-        /** No value. */ NONE,
-        /** Text value. */ TEXT,
-        /** Boolean value. */ BOOLEAN,
-        /** Numeric value. */ NUMBER,
-        /** Single selection. */ SELECTION,
-        /** Multiple selection. */ MULTI_SELECTION
+        /** 无值。 */ NONE,
+        /** 文本值。 */ TEXT,
+        /** 布尔值。 */ BOOLEAN,
+        /** 数值。 */ NUMBER,
+        /** 单选值。 */ SELECTION,
+        /** 多选值。 */ MULTI_SELECTION
     }
-    /** Stable renderer event type. */
+    /** 稳定渲染器事件类型。 */
     enum EventType {
-        /** Input value changed. */ CHANGE,
-        /** Selection changed. */ SELECTION,
-        /** Command activated. */ ACTIVATE
+        /** 输入值已变更。 */ CHANGE,
+        /** 选择已变更。 */ SELECTION,
+        /** 命令已激活。 */ ACTIVATE
     }
 
     private static String requireId(String value, String name) {

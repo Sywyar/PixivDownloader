@@ -17,7 +17,13 @@ public record DesktopUiSnapshot(
         DesktopUiDocument document,
         Map<String, Long> interactionRevisions
 ) {
-    /** 校验修订号并防御性复制交互映射。 */
+    /**
+     * 校验修订号并防御性复制交互映射。
+     *
+     * @param revision 文档修订号
+     * @param document 与修订号同代的完整文档
+     * @param interactionRevisions 各交互节点当前的契约修订号
+     */
     public DesktopUiSnapshot {
         if (revision < 0L) throw new IllegalArgumentException("revision must not be negative");
         document = Objects.requireNonNull(document, "document");
