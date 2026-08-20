@@ -304,7 +304,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         }
         Consumer<List<String>> selection = selectionBindings.get(targetId);
         if (selection != null) {
-            acceptSelection(selection, event.value());
+            acceptSelection(selection, endpoint.node(), event.value());
             rebuild();
             return;
         }
@@ -328,8 +328,26 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         rebuild();
     }
 
-    static void acceptSelection(Consumer<List<String>> selection, DesktopUiNode.Value value) {
-        selection.accept(value.values());
+    static void acceptSelection(Consumer<List<String>> selection, DesktopUiNode node,
+                                DesktopUiNode.Value value) {
+        if (value.kind() != DesktopUiNode.ValueKind.MULTI_SELECTION) {
+            selection.accept(value.values());
+            return;
+        }
+        Set<String> selected = Set.copyOf(value.values());
+        if (node instanceof DesktopUiNode.Choice choice) {
+            selection.accept(choice.options().stream().map(DesktopUiNode.Option::id)
+                    .filter(selected::contains).toList());
+        } else if (node instanceof DesktopUiNode.Table table) {
+            selection.accept(table.rows().stream().map(DesktopUiNode.TableRow::id)
+                    .filter(selected::contains).toList());
+        } else if (node instanceof DesktopUiNode.Tree tree) {
+            List<String> ordered = new ArrayList<>();
+            collectTreeItemIds(tree.items(), ordered);
+            selection.accept(ordered.stream().filter(selected::contains).toList());
+        } else {
+            throw new IllegalArgumentException("selection binding requires a selectable node");
+        }
     }
 
     private synchronized void rebuild() {

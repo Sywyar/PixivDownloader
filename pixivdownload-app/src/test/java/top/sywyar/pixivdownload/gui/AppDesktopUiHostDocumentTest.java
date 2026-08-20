@@ -113,14 +113,39 @@ class AppDesktopUiHostDocumentTest {
     }
 
     @Test
-    @DisplayName("宿主选择绑定保留全部多选值")
-    void selectionBindingsReceiveEverySelectedId() {
+    @DisplayName("宿主按文档顺序交付三类多选值")
+    void selectionBindingsReceiveEverySelectedIdInDocumentOrder() {
+        DesktopUiNode.TextToken label = DesktopUiNode.TextToken.raw("Label");
+        DesktopUiNode.Choice choice = new DesktopUiNode.Choice(
+                "choice", "choice.value", label, null,
+                DesktopUiNode.ChoiceStyle.CHECK_BOXES, DesktopUiNode.SelectionMode.MULTIPLE,
+                List.of(new DesktopUiNode.Option("first", label, true),
+                        new DesktopUiNode.Option("second", label, true),
+                        new DesktopUiNode.Option("third", label, true)), List.of(), true);
+        DesktopUiNode.Table table = new DesktopUiNode.Table(
+                "table", "table.value", List.of(new DesktopUiNode.TableColumn("value", label, 0)),
+                List.of(new DesktopUiNode.TableRow("first", List.of("First")),
+                        new DesktopUiNode.TableRow("second", List.of("Second")),
+                        new DesktopUiNode.TableRow("third", List.of("Third"))),
+                DesktopUiNode.SelectionMode.MULTIPLE, List.of(), true);
+        DesktopUiNode.Tree tree = new DesktopUiNode.Tree(
+                "tree", "tree.value", List.of(
+                new DesktopUiNode.TreeItem("first", label, List.of(
+                        new DesktopUiNode.TreeItem("second", label, List.of()))),
+                new DesktopUiNode.TreeItem("third", label, List.of())),
+                DesktopUiNode.SelectionMode.MULTIPLE, List.of(), true);
         AtomicReference<List<String>> selected = new AtomicReference<>();
 
-        AppDesktopUiModel.acceptSelection(selected::set,
-                DesktopUiNode.Value.selections(List.of("first", "second")));
-
-        assertThat(selected).hasValue(List.of("first", "second"));
+        for (DesktopUiNode node : List.of(choice, table, tree)) {
+            AppDesktopUiModel.acceptSelection(selected::set, node,
+                    DesktopUiNode.Value.selections(List.of("third", "first", "second")));
+            assertThat(selected).hasValue(List.of("first", "second", "third"));
+            assertThatThrownBy(() -> selected.get().add("forged"))
+                    .isInstanceOf(UnsupportedOperationException.class);
+        }
+        assertThatThrownBy(() -> DesktopUiNode.Value.selections(List.of("first", "first")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("duplicate selection value");
     }
 
     @Test
