@@ -46,6 +46,7 @@ class GuiComposePluginTest {
             DesktopUiCapability.INPUT_PATH_FILE,
             DesktopUiCapability.INPUT_PATH_DIRECTORY,
             DesktopUiCapability.SELECTION_MULTIPLE,
+            DesktopUiCapability.TREE_EXPAND_COLLAPSE,
             DesktopUiCapability.LAYOUT_ADAPTIVE_GRID,
             DesktopUiCapability.PAGED_ROW_SNAP_NAVIGATION,
         ), plugin.supportedCapabilities())
@@ -110,6 +111,7 @@ class GuiComposePluginTest {
             listOf("root", "child", "last"),
             ComposeDesktopUiNodeRenderer.treeItemIds(items),
         )
+        assertEquals(listOf("root"), ComposeDesktopUiNodeRenderer.treeBranchIds(items))
         assertEquals(
             listOf("root", "last"),
             ComposeDesktopUiNodeRenderer.selectedIdsInDocumentOrder(

@@ -70,6 +70,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -210,7 +211,9 @@ object ComposeDesktopUiNodeRenderer {
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
     ) {
-        ScrollableContent(modifier) { Node(node.content(), text, emit, Modifier.fillMaxWidth()) }
+        key(node.id()) {
+            ScrollableContent(modifier) { Node(node.content(), text, emit, Modifier.fillMaxWidth()) }
+        }
     }
 
     @Composable
@@ -1172,9 +1175,14 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val documentRevision = LocalDocumentRevision.current
         val selected = remember(node.id()) { mutableStateListOf<String>().apply { addAll(node.selectedIds()) } }
+        val branchIds = remember(node.items()) { treeBranchIds(node.items()) }
+        var expandedIds by rememberSaveable(node.id()) { mutableStateOf(arrayListOf<String>()) }
         LaunchedEffect(documentRevision, node.selectedIds()) {
             selected.clear()
             selected.addAll(node.selectedIds())
+        }
+        LaunchedEffect(documentRevision, branchIds) {
+            expandedIds = ArrayList(expandedIds.filter(branchIds::contains))
         }
         fun choose(id: String) {
             if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE) { selected.clear(); selected.add(id) }
@@ -1182,8 +1190,11 @@ object ComposeDesktopUiNodeRenderer {
             val value = if (node.selectionMode() == DesktopUiNode.SelectionMode.SINGLE)
                 DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(
                     selectedIdsInDocumentOrder(treeItemIds(node.items()), selected),
-                )
+            )
             emit(selection(node.id(), node.bindingId(), value))
+        }
+        fun toggle(id: String) {
+            expandedIds = ArrayList(if (expandedIds.contains(id)) expandedIds - id else expandedIds + id)
         }
         Column(
             modifier = modifier.background(
@@ -1191,7 +1202,9 @@ object ComposeDesktopUiNodeRenderer {
                 MaterialTheme.shapes.medium,
             ).padding(4.dp),
         ) {
-            node.items().forEach { TreeItem(it, 0, selected, node.enabled(), text, ::choose) }
+            node.items().forEach {
+                TreeItem(it, 0, branchIds.isNotEmpty(), selected, expandedIds, node.enabled(), text, ::choose, ::toggle)
+            }
         }
     }
 
@@ -1199,22 +1212,50 @@ object ComposeDesktopUiNodeRenderer {
     private fun TreeItem(
         item: DesktopUiNode.TreeItem,
         depth: Int,
+        hasDisclosureColumn: Boolean,
         selected: List<String>,
+        expandedIds: List<String>,
         enabled: Boolean,
         text: (DesktopUiNode.TextToken) -> String,
         choose: (String) -> Unit,
+        toggle: (String) -> Unit,
     ) {
-        Text(
-            resolve(item.label(), text),
+        val label = resolve(item.label(), text)
+        val branch = item.children().isNotEmpty()
+        val expanded = expandedIds.contains(item.id())
+        Row(
             modifier = Modifier.fillMaxWidth().background(
                 if (selected.contains(item.id())) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                 MaterialTheme.shapes.small,
-            ).hand(enabled).clickable(enabled) { choose(item.id()) }
-                .padding(start = (depth * 18 + 10).dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected.contains(item.id())) FontWeight.SemiBold else FontWeight.Normal,
-        )
-        item.children().forEach { TreeItem(it, depth + 1, selected, enabled, text, choose) }
+            ).padding(start = (depth * 18 + 4).dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (hasDisclosureColumn) {
+                if (branch) {
+                    Text(
+                        if (expanded) "▾" else "▸",
+                        modifier = Modifier.width(28.dp).hand(enabled).clickable(enabled) { toggle(item.id()) }
+                            .semantics {
+                                contentDescription = label
+                                stateDescription = if (expanded) "−" else "+"
+                            }.padding(vertical = 7.dp),
+                        textAlign = TextAlign.Center,
+                    )
+                } else {
+                    Spacer(Modifier.width(28.dp))
+                }
+            }
+            Text(
+                label,
+                modifier = Modifier.weight(1f).hand(enabled).clickable(enabled) { choose(item.id()) }
+                    .padding(start = 6.dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected.contains(item.id())) FontWeight.SemiBold else FontWeight.Normal,
+            )
+        }
+        if (expanded) item.children().forEach {
+            TreeItem(it, depth + 1, hasDisclosureColumn, selected, expandedIds, enabled, text, choose, toggle)
+        }
     }
 
     internal fun selectedIdsInDocumentOrder(
@@ -1226,6 +1267,16 @@ object ComposeDesktopUiNodeRenderer {
         val ids = mutableListOf<String>()
         fun visit(item: DesktopUiNode.TreeItem) {
             ids += item.id()
+            item.children().forEach(::visit)
+        }
+        items.forEach(::visit)
+        return ids
+    }
+
+    internal fun treeBranchIds(items: List<DesktopUiNode.TreeItem>): List<String> {
+        val ids = mutableListOf<String>()
+        fun visit(item: DesktopUiNode.TreeItem) {
+            if (item.children().isNotEmpty()) ids += item.id()
             item.children().forEach(::visit)
         }
         items.forEach(::visit)
