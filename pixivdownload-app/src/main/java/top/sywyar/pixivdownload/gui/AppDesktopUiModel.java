@@ -4740,7 +4740,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                                Set<String> referencedActions) {
         if (!node.id().startsWith(pagePrefix)) return false;
         if (node instanceof DesktopUiNode.Image image
-                && "image/svg+xml".equals(image.image().mediaType())) return false;
+                && image.image().mediaType().startsWith("image/svg")) return false;
         if (node instanceof DesktopUiNode.Button button) {
             if (!button.actionId().startsWith(pagePrefix)) return false;
             referencedActions.add(button.actionId());
