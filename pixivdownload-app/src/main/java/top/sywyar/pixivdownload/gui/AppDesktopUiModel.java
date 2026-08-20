@@ -1737,6 +1737,11 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                     claimed, rendered, locked, nextBindings, nextSelections, nextActions);
         }
         List<DesktopUiNode> bottom = new ArrayList<>();
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+            bottom.add(new DesktopUiNode.Text("settings.unsaved-count",
+                    appToken("gui.config.notice.unsaved-count", pendingConfigurationChangeCount()),
+                    TextStyle.CAPTION, true, false));
+        }
         bottom.add(row("config.actions",
                 button("config.open", "config.open", "gui.button.open-config", !busy,
                         nextActions, this::openConfigFile),
@@ -2866,12 +2871,21 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 new DesktopUiNode.FormRow("security.confirm.row", key("gui.security.field.confirm-password"),
                         null, passwordInput("security.confirm.input", "security.confirm",
                         "gui.security.field.confirm-password", !busy), null)));
+        List<DesktopUiNode> actions = new ArrayList<>();
+        actions.add(button("security.submit", "security.submit", "gui.security.action.submit", !busy,
+                nextActions, this::changePassword));
+        if (rendererContract.experienceProfile() == DesktopUiExperienceProfile.CONTROL_CENTER) {
+            actions.add(button("security.clear", "security.clear", "gui.security.action.clear", !busy,
+                    nextActions, () -> {
+                        clearSecurityForm();
+                        securityNotice = key("gui.security.status.idle");
+                        rebuild();
+                    }));
+        }
         DesktopUiNode bottom = column("security.bottom",
                 text("security.description", "gui.security.card.change-password.description", TextStyle.CAPTION),
                 new DesktopUiNode.Text("security.notice", securityNotice, noticeStyle, true, false),
-                row("security.actions",
-                        button("security.submit", "security.submit", "gui.security.action.submit", !busy,
-                                nextActions, this::changePassword)));
+                row("security.actions", actions));
         return scroll("security.scroll", column("security.root",
                 group("security.card", "gui.security.card.change-password.title",
                         column("security.card.layout", form, bottom))));
@@ -4237,11 +4251,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     }
 
     private void saveConfiguration(boolean symbolicRootPinned) {
-        List<ConfigField> changed = configFields.stream()
-                .filter(field -> !field.spec().sensitive()
-                        ? !Objects.equals(values.get(field.key()), savedValues.get(field.key()))
-                        : !values.getOrDefault(field.key(), "").isBlank())
-                .toList();
+        List<ConfigField> changed = changedConfigurationFields();
         boolean repositoriesChanged = !pluginRepositories.equals(savedPluginRepositories);
         Map<String, String> interfaceValues = pendingInterfaceValues();
         boolean interfaceChanged = interfaceValues.entrySet().stream().anyMatch(entry -> !Objects.equals(
@@ -4306,6 +4316,23 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         } catch (Exception failure) {
             setConfigNotice(host.message("gui.config.dialog.save-failed.message", safeMessage(failure)));
         }
+    }
+
+    private List<ConfigField> changedConfigurationFields() {
+        return configFields.stream()
+                .filter(field -> !field.spec().sensitive()
+                        ? !Objects.equals(values.get(field.key()), savedValues.get(field.key()))
+                        : !values.getOrDefault(field.key(), "").isBlank())
+                .toList();
+    }
+
+    private int pendingConfigurationChangeCount() {
+        int count = changedConfigurationFields().size();
+        if (!pluginRepositories.equals(savedPluginRepositories)) count++;
+        for (Map.Entry<String, String> entry : pendingInterfaceValues().entrySet()) {
+            if (!Objects.equals(entry.getValue(), savedValues.get(new FieldKey(null, entry.getKey())))) count++;
+        }
+        return count;
     }
 
     private String symbolicRootPathToPin(String oldValue, String newValue) {
