@@ -137,8 +137,8 @@ class AppDesktopUiHostDocumentTest {
     }
 
     @Test
-    @DisplayName("活动插件页面按声明排序并随来源撤回")
-    void pluginDesktopPagesJoinAndLeaveTheHostDocument() {
+    @DisplayName("活动插件页面遵守只读动作边界并随来源撤回")
+    void pluginDesktopPagesJoinAndLeaveTheHostDocument() throws Exception {
         PixivFeaturePlugin plugin = new PixivFeaturePlugin() {
             @Override public String id() { return "page-fixture"; }
             @Override public String displayName() { return "plugin.name"; }
@@ -164,9 +164,21 @@ class AppDesktopUiHostDocumentTest {
                 DesktopUiNode.Button invalid = new DesktopUiNode.Button(
                         "page-fixture.invalid.run", "page-fixture.invalid.run.action",
                         DesktopUiNode.TextToken.raw("Invalid"), null, DesktopUiNode.ButtonStyle.NORMAL, true);
+                DesktopUiNode.TextInput readOnly = new DesktopUiNode.TextInput(
+                        "page-fixture.readonly.input", "page-fixture.readonly.value",
+                        DesktopUiNode.TextToken.raw("Read only"), null, DesktopUiNode.InputKind.TEXT,
+                        "value", 20, 1, false);
+                DesktopUiNode.TextInput enabled = new DesktopUiNode.TextInput(
+                        "page-fixture.enabled.input", "page-fixture.enabled.value",
+                        DesktopUiNode.TextToken.raw("Enabled"), null, DesktopUiNode.InputKind.TEXT,
+                        "value", 20, 1, true);
                 DesktopUiNode.Image svg = new DesktopUiNode.Image(
-                        "page-fixture.svg.image", new DesktopUiNode.ImageData("image/svg+xml", "PHN2Zy8+"),
+                        "page-fixture.svg.image",
+                        new DesktopUiNode.ImageData("image/svg+xml; charset=utf-8", "PHN2Zy8+"),
                         DesktopUiNode.TextToken.raw("SVG"), 16, 16, DesktopUiNode.ScaleMode.FIT);
+                DesktopUiNode.Button external = new DesktopUiNode.Button(
+                        "page-fixture.external.run", "page-fixture.external.run.action",
+                        DesktopUiNode.TextToken.raw("External"), null, DesktopUiNode.ButtonStyle.NORMAL, true);
                 return List.of(
                         new DesktopUiPageContribution("page-fixture.second", 20,
                                 DesktopUiNode.TextToken.raw("Second"), run,
@@ -175,25 +187,64 @@ class AppDesktopUiHostDocumentTest {
                                 List.of(dialog)),
                         new DesktopUiPageContribution("page-fixture.first", 10,
                                 DesktopUiNode.TextToken.raw("First"), first),
+                        new DesktopUiPageContribution("page-fixture.readonly", 15,
+                                DesktopUiNode.TextToken.raw("Read only"), readOnly),
                         new DesktopUiPageContribution("page-fixture.invalid", 30,
                                 DesktopUiNode.TextToken.raw("Invalid"), invalid,
                                 Map.of("page-fixture.invalid.run.action", "page-fixture/missing"), List.of()),
+                        new DesktopUiPageContribution("page-fixture.enabled", 40,
+                                DesktopUiNode.TextToken.raw("Enabled"), enabled),
                         new DesktopUiPageContribution("page-fixture.svg", 40,
-                                DesktopUiNode.TextToken.raw("SVG"), svg));
+                                DesktopUiNode.TextToken.raw("SVG"), svg),
+                        new DesktopUiPageContribution("page-fixture.external", 50,
+                                DesktopUiNode.TextToken.raw("External"), external,
+                                Map.of("page-fixture.external.run.action", "https://example.invalid/api"),
+                                List.of()));
             }
         };
         DesktopUiPluginSource source = new DesktopUiPluginSource(
                 plugin.id(), false, plugin, plugin.getClass().getClassLoader());
         AtomicReference<List<DesktopUiPluginSource>> sources = new AtomicReference<>(List.of(source));
+        AtomicReference<String> actionPath = new AtomicReference<>();
+        AtomicReference<Object> actionBody = new AtomicReference<>();
+        AtomicReference<String> actionOwner = new AtomicReference<>();
         Path config = tempDir.resolve("plugin-page.yaml");
+        AppDesktopUiHost delegate = new AppDesktopUiHost(6999, new TestDesktopConfigFile(config));
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> {
+                    if ("guiPostJson".equals(method.getName())) {
+                        actionPath.set((String) arguments[0]);
+                        actionBody.set(arguments[1]);
+                        if (arguments.length == 4) actionOwner.set((String) arguments[3]);
+                        return response(Map.of("private", "ignored"));
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
         AppDesktopUiModel model = track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
-                config, new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), sources::get));
+                config, host, sources::get));
 
         assertThat(model.snapshot().document().pages()).extracting(DesktopUiDocument.Page::id)
-                .endsWith("page-fixture.first", "page-fixture.second")
-                .doesNotContain("page-fixture.invalid", "page-fixture.svg");
+                .endsWith("page-fixture.first", "page-fixture.readonly", "page-fixture.second")
+                .doesNotContain("page-fixture.invalid", "page-fixture.enabled",
+                        "page-fixture.svg", "page-fixture.external");
         assertThat(model.snapshot().document().dialogs()).extracting(DesktopUiDocument.Dialog::id)
                 .contains("page-fixture.second.dialog");
+        awaitButtonEnabled(model, "page-fixture.second.run");
+        await(() -> {
+            if (actionBody.get() == null) {
+                dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                        "page-fixture.second.run", DesktopUiNode.Value.empty());
+            }
+            return actionBody.get() != null;
+        });
+        assertThat(actionPath).hasValue("page-fixture/run");
+        assertThat(actionBody).hasValue(Map.of());
+        assertThat(actionOwner).hasValue("page-fixture");
 
         long activeRevision = model.snapshot().revision();
         sources.set(List.of());

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
@@ -510,6 +511,7 @@ class PluginApiOwnershipGuardTest {
                 DrilldownContribution.class,
                 WebUiSlotContribution.class,
                 SurveyInboxMessage.class,
+                DesktopUiPageContribution.class,
                 GuiOnboardingStepContribution.class);
 
         ownerFreeContributions.forEach(type -> assertThat(Arrays.stream(type.getRecordComponents())

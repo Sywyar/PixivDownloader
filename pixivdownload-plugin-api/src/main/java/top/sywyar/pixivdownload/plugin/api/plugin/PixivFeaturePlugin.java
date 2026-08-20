@@ -233,12 +233,11 @@ public interface PixivFeaturePlugin {
     }
 
     /**
-     * Declares independent toolkit-neutral desktop pages owned by this plugin. The host validates owner-scoped ids,
-     * exact GUI POST routes and action references before merging each page into the complete desktop document.
-     * Returning an empty list or withdrawing a page removes its page, dialogs, actions and renderer state on the
-     * next document rebuild.
+     * 声明属于本插件的独立工具包中立桌面页面。页面仅承载只读节点、静态对话框和无参数动作；
+     * 宿主在合并前校验 owner 命名空间、精确 GUI POST 路由与动作引用。
+     * 返回空列表或撤回页面会在下一次文档重建时一并移除页面、对话框、动作和渲染器状态。
      *
-     * @return independent desktop page declarations
+     * @return 独立桌面页面声明
      */
     default List<DesktopUiPageContribution> desktopPages() {
         return List.of();
