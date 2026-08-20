@@ -103,13 +103,99 @@ class AppDesktopUiHostDocumentTest {
     @Test
     @DisplayName("CONTROL_CENTER 档位通过独立入口生成完整文档")
     void controlCenterProfileHasACompleteDocumentEntry() {
-        DesktopUiDocument classic = model(DesktopUiExperienceProfile.CLASSIC).snapshot().document();
         DesktopUiDocument controlCenter = model(DesktopUiExperienceProfile.CONTROL_CENTER).snapshot().document();
 
         assertThat(controlCenter.pages()).extracting(DesktopUiDocument.Page::id)
-                .containsExactlyElementsOf(classic.pages().stream().map(DesktopUiDocument.Page::id).toList());
+                .containsExactly("home", "automation", "plugins", "tools", "security", "settings", "about");
         assertThat(nodes(controlCenter)).extracting(DesktopUiNode::id)
-                .containsExactlyElementsOf(nodes(classic).stream().map(DesktopUiNode::id).toList());
+                .contains("home.greeting", "home.hero", "home.system", "home.metrics",
+                        "home.quick-start", "home.running", "home.storage");
+    }
+
+    @Test
+    @DisplayName("控制中心首页读取真实快照并用最近现存目录计算存储")
+    void controlCenterHomeUsesMaterializedFactsAndFileStore() throws Exception {
+        Path config = tempDir.resolve("control-center.yaml");
+        AppDesktopUiHost delegate = new AppDesktopUiHost(6999, new TestDesktopConfigFile(config));
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> {
+                    if ("controlCenterSnapshot".equals(method.getName())) {
+                        return response(Map.of(
+                                "cards", List.of(Map.of(
+                                        "owner", Map.of("pluginId", "fixture"),
+                                        "card", Map.of(
+                                                "cardId", "completed", "order", 10,
+                                                "title", token("Completed"),
+                                                "primaryValue", token("12"),
+                                                "supportingText", token("Observed"),
+                                                "tone", "SUCCESS", "icon", "DOWNLOAD",
+                                                "availability", "AVAILABLE"))),
+                                "runningTasks", List.of(Map.of(
+                                        "owner", Map.of("pluginId", "fixture"),
+                                        "task", Map.of(
+                                                "taskId", "running", "order", 10,
+                                                "title", token("Running task"),
+                                                "supportingText", token("Downloading"),
+                                                "status", "RUNNING", "progress", 0.5,
+                                                "availability", "AVAILABLE"))),
+                                "automations", List.of()));
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        AppDesktopUiModel model = track(new AppDesktopUiModel(6999,
+                tempDir.resolve("missing").resolve("downloads").toString(), config,
+                host, List::of, rendererContract(DesktopUiExperienceProfile.CONTROL_CENTER)));
+
+        await(() -> nodes(model.snapshot().document()).stream()
+                .anyMatch(node -> "home.metrics.fixture.completed".equals(node.id())));
+        assertThat(nodes(model.snapshot().document())).extracting(DesktopUiNode::id)
+                .contains("home.metrics.fixture.completed", "home.hero.fixture.running",
+                        "home.running.fixture.running", "home.storage");
+        assertThat(nodes(model.snapshot().document()).stream()
+                .filter(DesktopUiNode.Text.class::isInstance)
+                .map(DesktopUiNode.Text.class::cast)
+                .filter(node -> "home.storage.primary".equals(node.id()))
+                .findFirst().orElseThrow().text().arguments()).doesNotContain("--");
+    }
+
+    @Test
+    @DisplayName("快速开始只接纳同 owner 精确 GET 路由且不放宽访问策略")
+    void quickStartRequiresAnExactOwnerRouteWithNoBroaderAccess() {
+        DesktopUiPluginSource validZ = quickStartSource(
+                "z-valid", "/z-valid.html", AccessPolicy.ADMIN, AccessPolicy.ADMIN, true);
+        DesktopUiPluginSource validA = quickStartSource(
+                "a-valid", "/a-valid.html", AccessPolicy.ADMIN, AccessPolicy.ADMIN, true);
+        DesktopUiPluginSource crossOwner = quickStartSource(
+                "cross-owner", "/shared.html", AccessPolicy.ADMIN, AccessPolicy.ADMIN, false);
+        DesktopUiPluginSource routeOwner = quickStartSource(
+                "route-owner", "/unused.html", AccessPolicy.ADMIN, AccessPolicy.ADMIN, false,
+                List.of(WebRouteContribution.admin("/shared.html")));
+        DesktopUiPluginSource broader = quickStartSource(
+                "broader", "/broader.html", AccessPolicy.PUBLIC, AccessPolicy.ADMIN, true);
+        DesktopUiPluginSource wildcard = quickStartSource(
+                "wildcard", "/wildcard/page.html", AccessPolicy.ADMIN, AccessPolicy.ADMIN, false,
+                List.of(WebRouteContribution.admin("/wildcard/**")));
+        DesktopUiPluginSource postOnly = quickStartSource(
+                "post-only", "/post-only.html", AccessPolicy.ADMIN, AccessPolicy.ADMIN, false,
+                List.of(new WebRouteContribution("/post-only.html", AccessPolicy.ADMIN,
+                        Set.of(HttpMethod.POST), false)));
+
+        DesktopUiDocument document = model(List.of(validZ, crossOwner, routeOwner, broader,
+                        wildcard, postOnly, validA),
+                DesktopUiExperienceProfile.CONTROL_CENTER).snapshot().document();
+
+        assertThat(nodes(document).stream()
+                .filter(DesktopUiNode.Button.class::isInstance)
+                .map(DesktopUiNode.Button.class::cast)
+                .filter(button -> button.id().startsWith("home.quick-start.")))
+                .extracting(DesktopUiNode.Button::label)
+                .extracting(DesktopUiNode.TextToken::fallback)
+                .containsExactly("a-valid", "z-valid");
     }
 
     @Test
@@ -1057,6 +1143,41 @@ class AppDesktopUiHostDocumentTest {
                 config,
                 new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> sources,
                 rendererContract(experienceProfile)));
+    }
+
+    private static Map<String, Object> token(String value) {
+        return Map.of("key", "", "fallback", value, "arguments", List.of());
+    }
+
+    private static DesktopUiPluginSource quickStartSource(
+            String id, String href, AccessPolicy navigationPolicy,
+            AccessPolicy routePolicy, boolean ownsTarget) {
+        return quickStartSource(id, href, navigationPolicy, routePolicy, ownsTarget, List.of());
+    }
+
+    private static DesktopUiPluginSource quickStartSource(
+            String id, String href, AccessPolicy navigationPolicy,
+            AccessPolicy routePolicy, boolean ownsTarget,
+            List<WebRouteContribution> additionalRoutes) {
+        PixivFeaturePlugin plugin = new PixivFeaturePlugin() {
+            @Override public String id() { return id; }
+            @Override public String displayName() { return id; }
+            @Override public String description() { return id; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public List<WebRouteContribution> routes() {
+                List<WebRouteContribution> routes = new ArrayList<>(additionalRoutes);
+                if (ownsTarget) {
+                    routes.add(new WebRouteContribution(href, routePolicy, Set.of(HttpMethod.GET), false));
+                }
+                return List.copyOf(routes);
+            }
+            @Override public List<NavigationContribution> navigation() {
+                return List.of(new NavigationContribution(id,
+                        NavigationPlacements.DESKTOP_QUICK_START, id, "label", href,
+                        "open", navigationPolicy, 10));
+            }
+        };
+        return new DesktopUiPluginSource(id, false, plugin, plugin.getClass().getClassLoader());
     }
 
     private static AppDesktopUiModel.RendererContract rendererContract(

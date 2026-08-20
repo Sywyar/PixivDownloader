@@ -58,6 +58,9 @@ public final class NavigationPlacements {
     /** 桌面 GUI 托盘菜单的 Web 快捷操作入口。 */
     public static final String GUI_TRAY_ACTIONS = "gui.tray.actions";
 
+    /** 桌面控制中心首页的快速开始入口。 */
+    public static final String DESKTOP_QUICK_START = "desktop.quick-start";
+
     /** 邀请管理页的返回入口 slot。 */
     public static final String INVITE_MANAGE_BACK = "invite.manage.back";
 

@@ -169,12 +169,13 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     public List<NavigationContribution> navigation() {
         // 下载工作台跨页入口。VISITOR：multi 匿名访客与管理员在 /api/navigation 可见、受邀访客看不到
         //（下载页对受邀访客 403，故不进其导航栏）。宿主发行策略将本插件列为必选，配置写 false 也仍贡献导航。
-        // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）；priority 10 让该官方基础页面按既定顺序
-        // 在每个 slot 内靠前展示。标签走本插件自有 namespace batch 的 nav.label。
+        // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）+ 桌面快速开始；priority 10 让该官方基础页面
+        // 按既定顺序靠前展示。标签走本插件自有 namespace batch 的 nav.label。
         return List.of(new NavigationContribution(
                 ID,
                 Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
-                        NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
+                        NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
+                        NavigationPlacements.DESKTOP_QUICK_START),
                 "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
                 Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER)));
     }

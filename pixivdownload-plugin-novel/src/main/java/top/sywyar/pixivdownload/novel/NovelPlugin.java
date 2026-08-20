@@ -216,7 +216,8 @@ public class NovelPlugin implements PixivFeaturePlugin {
         return List.of(
                 new NavigationContribution(
                         "novel-gallery",
-                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.NOVEL_SIDEBAR),
+                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.NOVEL_SIDEBAR,
+                                NavigationPlacements.DESKTOP_QUICK_START),
                         "novel-gallery", "nav.label", "/pixiv-novel-gallery.html?view=all", "book",
                         AccessPolicy.INVITED_GUEST, 40),
                 new NavigationContribution(

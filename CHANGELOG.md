@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 桌面 GUI 新增插件状态页与插件市场 / 仓库配置入口，可查看已发现插件，并配置官方仓库、自定义仓库、代理策略、大小 / 超时上限和仓库签名密钥。
 - 桌面 GUI 配置页新增界面偏好，可集中切换语言与主题，并可将任意多级配置菜单的末级页面直接展开为一级标签。
 - 桌面 GUI 可在已安装的界面渲染插件之间切换，官方新增 Compose Multiplatform 渲染器；各渲染器共享同一套页面与交互定义，Swing 继续作为必装回退。
+- Compose 桌面界面新增七页控制中心外壳与首页，可查看真实服务状态、插件指标、运行任务和下载目录所在磁盘的存储空间，并从活动插件显式贡献且经同 owner 路由校验的快捷入口打开本地 Web 页面。
 - Pixiv 体验增强工具箱可选择为已删除作品显示边框，默认继承已下载作品样式，也可单独调整宽度、颜色与线型。
 - 新增显式插件开发模式：设置 `-Dpixivdownload.plugin-dev.enabled=true` 后会忽略 `plugins/` 目录，自动从仓库插件模块的 `target/classes` 加载已编译代码，并在控制台显示开发模式诊断。
 - `config.yaml` 新增 `plugins.<插件 id>.enabled` 开关，可按插件关闭可选功能；关闭后对应页面、API、导航和后台任务不注册，重新启用后继续使用既有数据。

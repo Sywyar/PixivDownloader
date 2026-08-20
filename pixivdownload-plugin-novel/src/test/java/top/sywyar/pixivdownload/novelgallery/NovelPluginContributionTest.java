@@ -212,7 +212,8 @@ class NovelPluginContributionTest {
                 .satisfies(nav -> {
                     assertThat(nav.placements()).containsExactlyInAnyOrder(
                             NavigationPlacements.APP_TOP,
-                            NavigationPlacements.NOVEL_SIDEBAR);
+                            NavigationPlacements.NOVEL_SIDEBAR,
+                            NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.labelNamespace()).isEqualTo("novel-gallery");
                     assertThat(nav.href()).isEqualTo("/pixiv-novel-gallery.html?view=all");
                 });

@@ -82,13 +82,15 @@ public class StatsPlugin implements PixivFeaturePlugin {
     @Override
     public List<NavigationContribution> navigation() {
         // 统计入口：管理员可见（ADMIN）。placement——顶部栏 + 各侧栏主导航（含中立主侧栏 app.sidebar，即统计页
-        // 自己的侧栏所用 slot），并兼任疑似重复页顶部的统计图标（duplicates.header-icons，与画廊图标并列；该 slot 的
-        // 链接样式由页面 slot 的 link-class 决定，无需另立贡献）。priority 50：位于功能页面区段（画廊 30 < 统计 50 < 疑似重复 60）。
+        // 自己的侧栏所用 slot）与桌面快速开始，并兼任疑似重复页顶部的统计图标（duplicates.header-icons，与画廊图标
+        // 并列；该 slot 的链接样式由页面 slot 的 link-class 决定，无需另立贡献）。priority 50：位于功能页面区段
+        //（画廊 30 < 统计 50 < 疑似重复 60）。
         return List.of(new NavigationContribution(
                 ID,
                 Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                         NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
-                        NavigationPlacements.DUPLICATES_HEADER_ICONS),
+                        NavigationPlacements.DUPLICATES_HEADER_ICONS,
+                        NavigationPlacements.DESKTOP_QUICK_START),
                 "stats", "nav.label", "/pixiv-stats.html", "chart-bar", AccessPolicy.ADMIN, 50));
     }
 }

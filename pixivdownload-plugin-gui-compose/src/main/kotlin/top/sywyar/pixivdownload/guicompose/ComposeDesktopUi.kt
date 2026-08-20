@@ -492,9 +492,9 @@ private fun ComposeDesktopRoot(
             )),
         ),
     ) {
-        val compact = maxWidth < 760.dp
-        val navigationWidth = if (compact) 128.dp else 196.dp
-        Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val compact = maxWidth < 960.dp
+        val navigationWidth = if (compact) 128.dp else 220.dp
+        Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             NavigationPanel(
                 applicationName = context.applicationName(),
                 document = document,
@@ -506,36 +506,62 @@ private fun ComposeDesktopRoot(
             )
             Surface(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 2.dp,
-                shadowElevation = 3.dp,
+                shadowElevation = 1.dp,
             ) {
-                AnimatedContent(
-                    targetState = activePage,
-                    modifier = Modifier.fillMaxSize(),
-                    transitionSpec = {
-                        val direction = if (pageIds.indexOf(targetState) >= pageIds.indexOf(initialState)) 1 else -1
-                        (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { direction * it / 18 })
-                            .togetherWith(fadeOut(tween(140)) +
-                                    slideOutHorizontally(tween(200)) { -direction * it / 24 })
-                    },
-                    contentKey = { it },
-                ) { pageId ->
-                    pageStates.SaveableStateProvider(pageId) {
-                        ComposeDesktopUiNodeRenderer.Render(
-                            document.pages().first { it.id() == pageId }.content(),
-                            messages::resolve,
-                            { event -> context.dispatchEvent(snapshot, event) },
-                            Modifier.fillMaxSize(),
-                            documentRevision,
-                        )
+                Column(Modifier.fillMaxSize()) {
+                    ControlCenterTopBar(
+                        title = messages.resolve(document.pages().first { it.id() == activePage }.title()),
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    AnimatedContent(
+                        targetState = activePage,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        transitionSpec = {
+                            val direction = if (pageIds.indexOf(targetState) >= pageIds.indexOf(initialState)) 1 else -1
+                            (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { direction * it / 18 })
+                                .togetherWith(fadeOut(tween(140)) +
+                                        slideOutHorizontally(tween(200)) { -direction * it / 24 })
+                        },
+                        contentKey = { it },
+                    ) { pageId ->
+                        pageStates.SaveableStateProvider(pageId) {
+                            ComposeDesktopUiNodeRenderer.Render(
+                                document.pages().first { it.id() == pageId }.content(),
+                                messages::resolve,
+                                { event -> context.dispatchEvent(snapshot, event) },
+                                Modifier.fillMaxSize(),
+                                documentRevision,
+                            )
+                        }
                     }
                 }
             }
         }
     }
     document.dialogs().forEach { dialog -> DocumentDialog(dialog, snapshot, messages, context) }
+}
+
+@Composable
+private fun ControlCenterTopBar(
+    title: String,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            title,
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 internal fun selectedIdOrFirst(selectedId: String, orderedIds: List<String>): String =
