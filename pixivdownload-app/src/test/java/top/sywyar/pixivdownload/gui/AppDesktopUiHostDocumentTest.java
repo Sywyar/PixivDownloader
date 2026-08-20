@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
@@ -73,9 +74,9 @@ class AppDesktopUiHostDocumentTest {
     }
 
     @Test
-    @DisplayName("宿主模型提供全部桌面根页面")
+    @DisplayName("CLASSIC 档位保留全部既有桌面根页面")
     void hostModelProvidesCompleteDesktopDocument() {
-        DesktopUiDocument document = model().snapshot().document();
+        DesktopUiDocument document = model(DesktopUiExperienceProfile.CLASSIC).snapshot().document();
 
         assertThat(document.pages()).extracting(DesktopUiDocument.Page::id)
                 .containsExactly("welcome", "status", "config", "plugins", "tools", "security", "about");
@@ -96,6 +97,18 @@ class AppDesktopUiHostDocumentTest {
                         DesktopUiDocument.TrayItemRole.DISPATCH);
         assertThat(tray.items()).extracting(DesktopUiDocument.TrayItem::actionId)
                 .contains("tray.batch.open", "tray.download-folder.open", "tray.exit");
+    }
+
+    @Test
+    @DisplayName("CONTROL_CENTER 档位通过独立入口生成完整文档")
+    void controlCenterProfileHasACompleteDocumentEntry() {
+        DesktopUiDocument classic = model(DesktopUiExperienceProfile.CLASSIC).snapshot().document();
+        DesktopUiDocument controlCenter = model(DesktopUiExperienceProfile.CONTROL_CENTER).snapshot().document();
+
+        assertThat(controlCenter.pages()).extracting(DesktopUiDocument.Page::id)
+                .containsExactlyElementsOf(classic.pages().stream().map(DesktopUiDocument.Page::id).toList());
+        assertThat(nodes(controlCenter)).extracting(DesktopUiNode::id)
+                .containsExactlyElementsOf(nodes(classic).stream().map(DesktopUiNode::id).toList());
     }
 
     @Test
@@ -890,11 +903,21 @@ class AppDesktopUiHostDocumentTest {
         return model(List.of());
     }
 
+    private AppDesktopUiModel model(DesktopUiExperienceProfile experienceProfile) {
+        return model(List.of(), experienceProfile);
+    }
+
     private AppDesktopUiModel model(List<DesktopUiPluginSource> sources) {
+        return model(sources, DesktopUiExperienceProfile.CLASSIC);
+    }
+
+    private AppDesktopUiModel model(List<DesktopUiPluginSource> sources,
+                                    DesktopUiExperienceProfile experienceProfile) {
         Path config = tempDir.resolve("config.yaml");
         return track(new AppDesktopUiModel(6999, tempDir.resolve("downloads").toString(),
                 config,
-                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> sources));
+                new AppDesktopUiHost(6999, new TestDesktopConfigFile(config)), () -> sources,
+                experienceProfile));
     }
 
     private static DesktopUiPluginSource source(ThemeProviderPlugin plugin) {

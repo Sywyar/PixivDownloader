@@ -298,7 +298,8 @@ public class GuiLauncher {
                     discovery -> new WebI18nBundleRegistry(pluginRegistry(pluginSession, discovery)),
                     pluginSession.startupDiscovery(), startupDesktopBundles);
             AppDesktopUiModel desktopUiModel = new AppDesktopUiModel(
-                    port, root, configPath, desktopUiHost, currentDesktopSources);
+                    port, root, configPath, desktopUiHost, currentDesktopSources,
+                    selection.provider().experienceProfile());
             ACTIVE_UI_MODEL.set(desktopUiModel);
             DesktopUiContext context = new DesktopUiContext(startupLaunch, desktopUiHost.applicationName(),
                     desktopUiModel, token -> resolveDesktopText(token, currentDesktopBundles),

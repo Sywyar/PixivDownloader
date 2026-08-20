@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.guitheme;
 import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
@@ -56,6 +57,11 @@ public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
     @Override
     public boolean defaultProvider() {
         return true;
+    }
+
+    @Override
+    public DesktopUiExperienceProfile experienceProfile() {
+        return DesktopUiExperienceProfile.CLASSIC;
     }
 
     @Override
