@@ -132,6 +132,37 @@ public final class QueueTaskTracker {
     }
 
     /**
+     * 返回当前队列的只读计数快照。该快照不暴露任务、delegate 或取消 callback。
+     *
+     * @return 当前接收状态及排队、运行任务数
+     */
+    public Snapshot snapshot() {
+        return state.snapshot();
+    }
+
+    /**
+     * 下载队列的不可变计数快照。
+     *
+     * @param accepting 是否仍接受新任务
+     * @param queued 等待执行的任务数
+     * @param running 正在执行的任务数
+     */
+    public record Snapshot(boolean accepting, int queued, int running) {
+        /**
+         * 校验队列计数。
+         *
+         * @param accepting 是否仍接受新任务
+         * @param queued 等待执行的任务数
+         * @param running 正在执行的任务数
+         */
+        public Snapshot {
+            if (queued < 0 || running < 0) {
+                throw new IllegalArgumentException("queue counts must not be negative");
+            }
+        }
+    }
+
+    /**
      * 可提交到父执行器的宿主包装器。终态后只保留 owner 字符串和宿主计数状态，不保留插件 delegate / callback。
      */
     public static final class Task implements Runnable {
@@ -143,7 +174,7 @@ public final class QueueTaskTracker {
         private final State tracker;
         private final String ownerKey;
 
-        private int phase;
+        private volatile int phase;
         private boolean cancellationRequested;
         private boolean cancellationDelivered;
         private Runnable cancellationAction;
@@ -456,6 +487,25 @@ public final class QueueTaskTracker {
 
         synchronized int activeTaskCount() {
             return active.size();
+        }
+
+        Snapshot snapshot() {
+            List<Task> tasks;
+            boolean currentAccepting;
+            synchronized (this) {
+                tasks = List.copyOf(active);
+                currentAccepting = accepting;
+            }
+            int queued = 0;
+            int running = 0;
+            for (Task task : tasks) {
+                if (task.phase == Task.QUEUED) {
+                    queued++;
+                } else if (task.phase == Task.RUNNING) {
+                    running++;
+                }
+            }
+            return new Snapshot(currentAccepting, queued, running);
         }
 
         synchronized boolean awaitDrained(long deadlineNanos) {

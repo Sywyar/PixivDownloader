@@ -332,6 +332,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.document.DesktopUiNode$Value",
             API_PREFIX + "gui.document.DesktopUiNode$ValueKind",
             API_PREFIX + "gui.DesktopUiSession$MessageLevel",
+            API_PREFIX + "download.queue.QueueTaskTracker$Snapshot",
             API_PREFIX + "download.queue.QueueTaskTracker$Task",
             API_PREFIX + "web.ApiErrorResponse$Basic",
             API_PREFIX + "schedule.credential.ScheduledCredentialContext$Purpose",
