@@ -59,7 +59,7 @@ class MainFrameRegressionTest {
 
             JTextField text = marked(new JTextField("abcdef"), "text");
             text.setCaretPosition(4);
-            JPasswordField password = marked(new JPasswordField("secret"), "password");
+            JPasswordField password = password(new JPasswordField("secret"), "password", 4);
             panel.add(tabs);
             panel.add(scroll);
             panel.add(split);
@@ -89,8 +89,34 @@ class MainFrameRegressionTest {
                 .isEqualTo("secret");
     }
 
+    @Test
+    @DisplayName("密码只在相同状态代际恢复并清零捕获缓冲区")
+    void scopesPasswordStateToItsGenerationAndWipesCapturedBuffer() throws Exception {
+        JPanel previous = onEdt(() -> {
+            JPanel panel = new JPanel();
+            panel.add(password(new JPasswordField("secret"), "password", 4));
+            return panel;
+        });
+        Map<String, MainFrame.ComponentState> state = onEdt(() -> MainFrame.captureState(previous));
+        JPanel next = onEdt(() -> {
+            JPanel panel = new JPanel();
+            panel.add(password(new JPasswordField(), "password", 5));
+            MainFrame.restoreState(panel, state);
+            return panel;
+        });
+
+        assertThat(onEdt(() -> component(next, "password", JPasswordField.class).getPassword())).isEmpty();
+        assertThat(state.values()).allSatisfy(saved -> assertThat(saved.password()).containsOnly('\0'));
+    }
+
     private static <T extends javax.swing.JComponent> T marked(T component, String id) {
         component.putClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY, id);
+        return component;
+    }
+
+    private static JPasswordField password(JPasswordField component, String id, long stateRevision) {
+        marked(component, id).putClientProperty(SwingDesktopUiNodeRenderer.PASSWORD_STATE_KEY_PROPERTY,
+                id + "@" + stateRevision);
         return component;
     }
 

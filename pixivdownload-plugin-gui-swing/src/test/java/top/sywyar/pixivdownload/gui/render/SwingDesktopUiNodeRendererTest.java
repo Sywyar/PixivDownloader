@@ -125,6 +125,10 @@ class SwingDesktopUiNodeRendererTest {
         JPasswordField password = onEdt(() -> descendants(renderer.render(
                 input("password", DesktopUiNode.InputKind.PASSWORD, "")), JPasswordField.class).get(0));
 
+        assertThat(password.getClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY)).isEqualTo("password");
+        assertThat(password.getClientProperty(SwingDesktopUiNodeRenderer.PASSWORD_STATE_KEY_PROPERTY))
+                .isEqualTo("password@0");
+
         onEdt(() -> {
             renderer.withoutEvents(() -> password.setText("restored"));
             return null;

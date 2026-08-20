@@ -132,6 +132,23 @@ class GuiComposePluginTest {
     }
 
     @Test
+    @DisplayName("密码短暂状态只随宿主状态代际换代")
+    fun scopesPasswordStateToHostGeneration() {
+        val first = input("password", DesktopUiNode.InputKind.PASSWORD, 4)
+        val refreshed = input("password", DesktopUiNode.InputKind.PASSWORD, 4)
+        val cleared = input("password", DesktopUiNode.InputKind.PASSWORD, 5)
+
+        assertEquals(
+            ComposeDesktopUiNodeRenderer.textInputStateKey(first),
+            ComposeDesktopUiNodeRenderer.textInputStateKey(refreshed),
+        )
+        assertFalse(
+            ComposeDesktopUiNodeRenderer.textInputStateKey(first) ==
+                ComposeDesktopUiNodeRenderer.textInputStateKey(cleared),
+        )
+    }
+
+    @Test
     @DisplayName("动态重排按稳定标识保持选择并在删除后回退")
     fun preservesStableSelectionAcrossReordering() {
         assertEquals("details", selectedIdOrFirst("details", listOf("details", "overview")))
@@ -188,6 +205,10 @@ class GuiComposePluginTest {
 
     private fun input(id: String, kind: DesktopUiNode.InputKind) = DesktopUiNode.TextInput(
         id, "$id.value", raw(id), null, kind, "", 20, 1, true,
+    )
+
+    private fun input(id: String, kind: DesktopUiNode.InputKind, stateRevision: Long) = DesktopUiNode.TextInput(
+        id, "$id.value", raw(id), null, kind, "", 20, 1, true, stateRevision,
     )
 
     private fun text(id: String) = DesktopUiNode.Text(id, raw(id), DesktopUiNode.TextStyle.BODY, true, false)

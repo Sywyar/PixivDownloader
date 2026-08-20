@@ -190,13 +190,21 @@ public final class MainFrame extends JFrame {
         Map<String, ComponentState> state = new LinkedHashMap<>();
         visit(root, component -> {
             if (!(component instanceof JComponent value)) return;
-            Object property = value.getClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY);
+            Object property = stateKey(value);
             if (!(property instanceof String id)) return;
             Integer tab = value instanceof JTabbedPane tabs ? tabs.getSelectedIndex() : null;
             Point scroll = value instanceof JScrollPane pane ? pane.getViewport().getViewPosition() : null;
             Integer divider = value instanceof JSplitPane split ? split.getDividerLocation() : null;
             Integer caret = value instanceof JTextComponent text ? text.getCaretPosition() : null;
-            char[] password = value instanceof JPasswordField field ? field.getPassword() : null;
+            char[] password = null;
+            if (value instanceof JPasswordField field) {
+                char[] read = field.getPassword();
+                try {
+                    password = java.util.Arrays.copyOf(read, read.length);
+                } finally {
+                    java.util.Arrays.fill(read, '\0');
+                }
+            }
             state.put(id, new ComponentState(tab, scroll, divider, caret, value.isFocusOwner(), password));
         });
         return state;
@@ -206,7 +214,7 @@ public final class MainFrame extends JFrame {
         try {
             visit(root, component -> {
                 if (!(component instanceof JComponent value)) return;
-                Object property = value.getClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY);
+                Object property = stateKey(value);
                 ComponentState saved = property instanceof String id ? state.get(id) : null;
                 if (saved == null) return;
                 if (value instanceof JTabbedPane tabs && saved.tab() != null
@@ -227,6 +235,13 @@ public final class MainFrame extends JFrame {
             state.values().stream().map(ComponentState::password).filter(Objects::nonNull)
                     .forEach(password -> java.util.Arrays.fill(password, '\0'));
         }
+    }
+
+    private static Object stateKey(JComponent component) {
+        if (component instanceof JPasswordField) {
+            return component.getClientProperty(SwingDesktopUiNodeRenderer.PASSWORD_STATE_KEY_PROPERTY);
+        }
+        return component.getClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY);
     }
 
     private static void visit(Component root, java.util.function.Consumer<Component> consumer) {
