@@ -23,6 +23,8 @@ import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
@@ -162,6 +164,54 @@ class ArtworkDownloadExecutorTest {
     @Nested
     @DisplayName("队列生命周期")
     class QueueLifecycleTests {
+
+        @Test
+        @DisplayName("桌面快照只投影真实排队计数与尚未终结的下载状态")
+        void desktopSnapshotProjectsOnlyActiveRuntimeFacts() throws Exception {
+            AtomicReference<Runnable> submitted = new AtomicReference<>();
+            ArtworkDownloadExecutor executor = newExecutor(submitted::set);
+            String imageUrl = "https://i.pximg.net/img-original/img/2024/01/01/00/00/00/1000_p0.jpg";
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            when(pixivImageDownloader.downloadImage(
+                    eq(URI.create(imageUrl)), any(URI.class), any(Path.class), nullable(String.class), any()))
+                    .thenAnswer(invocation -> {
+                        entered.countDown();
+                        assertThat(release.await(2, TimeUnit.SECONDS)).isTrue();
+                        return "jpg";
+                    });
+
+            executor.downloadImages(1000L, "runtime title", List.of(imageUrl),
+                    "https://www.pixiv.net/artworks/1000", new DownloadRequest.Other(), null, "owner-a");
+
+            assertThat(executor.snapshot().cards())
+                    .filteredOn(card -> card.cardId().equals("waiting-queue"))
+                    .singleElement()
+                    .satisfies(card -> {
+                        assertThat(card.primaryValue().fallback()).isEqualTo("1");
+                        assertThat(card.availability()).isEqualTo(DesktopControlCenterAvailability.AVAILABLE);
+                    });
+            assertThat(executor.snapshot().runningTasks()).isEmpty();
+
+            Thread worker = new Thread(submitted.get(), "desktop-download-snapshot-test");
+            worker.start();
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(executor.snapshot().runningTasks()).singleElement().satisfies(task -> {
+                assertThat(task.taskId()).startsWith("illust:").doesNotContain("owner-a");
+                assertThat(task.title().fallback()).isEqualTo("runtime title");
+                assertThat(task.status()).isEqualTo(DesktopRunningTaskContribution.Status.RUNNING);
+                assertThat(task.progress()).isZero();
+            });
+
+            release.countDown();
+            worker.join(2_000);
+            assertThat(worker.isAlive()).isFalse();
+            assertThat(executor.getDownloadStatus(1000L)).isNotNull().satisfies(status ->
+                    assertThat(status.isCompleted()).isTrue());
+            assertThat(executor.snapshot().runningTasks()).isEmpty();
+        }
 
         @Test
         @SuppressWarnings("unchecked")

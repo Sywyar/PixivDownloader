@@ -22,6 +22,8 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationTaskContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
@@ -45,6 +47,7 @@ import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialBindingLeas
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -250,6 +253,102 @@ class ScheduleServiceTest {
                 effectivePolicyState,
                 credentialBound ? "scheduled-task:" + id + ":credential" : null,
                 0L);
+    }
+
+    private static ScheduledTask automationTask(
+            long id,
+            String name,
+            boolean enabled,
+            String triggerKind,
+            Integer intervalMinutes,
+            String cronExpr,
+            Long nextRunTime,
+            top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState runState,
+            ScheduleLastOutcome lastOutcome,
+            ScheduleSuspendReason suspendReason) {
+        return new ScheduledTask(
+                id,
+                name,
+                enabled,
+                SOURCE_TYPE,
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.DEFINITION_SCHEMA,
+                PixivSchedulePersistenceCodec.DEFINITION_VERSION,
+                "{\"definitionSecret\":\"must-not-leak\"}",
+                "{}",
+                triggerKind,
+                intervalMinutes,
+                cronExpr,
+                "proxy-secret",
+                nextRunTime,
+                null,
+                null,
+                null,
+                null,
+                ScheduledTask.CURRENT_STORAGE_VERSION,
+                runState,
+                runState == null ? null : "run-claim-" + id,
+                lastOutcome,
+                null,
+                null,
+                suspendReason,
+                null,
+                null,
+                STATE_VERSION,
+                "policy-owner",
+                "policy-id",
+                "account-secret",
+                "policy-state-secret",
+                "credential-secret",
+                0L);
+    }
+
+    @Test
+    @DisplayName("桌面自动化快照只投影 24 小时内已证明的运行点与安全状态")
+    void desktopAutomationSnapshotProjectsSafeTwentyFourHourTimeline() {
+        Instant observedAt = Instant.parse("2026-08-20T01:00:00Z");
+        ScheduledTask queued = automationTask(
+                1L, "queued task", true, ScheduledTask.TRIGGER_INTERVAL, 60, null,
+                observedAt.plusSeconds(3_600).toEpochMilli(), null,
+                ScheduleLastOutcome.OK, null);
+        ScheduledTask disabled = automationTask(
+                2L, "disabled task", false, ScheduledTask.TRIGGER_CRON, null, "0 0 * * * *",
+                observedAt.plusSeconds(7_200).toEpochMilli(), null,
+                ScheduleLastOutcome.ERROR, null);
+        ScheduledTask suspended = automationTask(
+                3L, "suspended task", true, ScheduledTask.TRIGGER_INTERVAL, 30, null,
+                observedAt.plusSeconds(10_800).toEpochMilli(), null,
+                ScheduleLastOutcome.CANCELLED, ScheduleSuspendReason.POLICY);
+        ScheduledTask outsideWindow = automationTask(
+                4L, "later task", true, ScheduledTask.TRIGGER_INTERVAL, 15, null,
+                observedAt.plusSeconds(25L * 60L * 60L).toEpochMilli(), null,
+                ScheduleLastOutcome.NEVER, null);
+        when(store.findAll()).thenReturn(List.of(queued, disabled, suspended, outsideWindow));
+        ScheduleRunState liveState = new ScheduleRunState();
+        assertThat(liveState.tryMarkQueued(1L)).isNotNull();
+        ScheduleService service = newService(liveState, emptyCapabilityRegistry());
+
+        var snapshot = service.snapshot(observedAt);
+
+        assertThat(snapshot.availability()).isEqualTo(DesktopControlCenterAvailability.AVAILABLE);
+        assertThat(snapshot.observedAt()).isEqualTo(observedAt);
+        assertThat(snapshot.tasks()).extracting(DesktopAutomationTaskContribution::taskId)
+                .containsExactly("schedule:1", "schedule:2", "schedule:3", "schedule:4");
+        assertThat(snapshot.tasks().get(0)).satisfies(task -> {
+            assertThat(task.status()).isEqualTo(DesktopAutomationTaskContribution.Status.QUEUED);
+            assertThat(task.lastResult()).isEqualTo(DesktopAutomationTaskContribution.LastResult.OK);
+            assertThat(task.nextRuns()).containsExactly(observedAt.plusSeconds(3_600));
+            assertThat(task.triggerSummary().arguments()).containsExactly("60");
+        });
+        assertThat(snapshot.tasks().get(1).status())
+                .isEqualTo(DesktopAutomationTaskContribution.Status.DISABLED);
+        assertThat(snapshot.tasks().get(1).nextRuns()).isEmpty();
+        assertThat(snapshot.tasks().get(2).status())
+                .isEqualTo(DesktopAutomationTaskContribution.Status.SUSPENDED);
+        assertThat(snapshot.tasks().get(2).nextRuns()).isEmpty();
+        assertThat(snapshot.tasks().get(3).nextRuns()).isEmpty();
+        assertThat(snapshot.toString()).doesNotContain(
+                "must-not-leak", "proxy-secret", "account-secret", "credential-secret");
     }
 
     @Test
