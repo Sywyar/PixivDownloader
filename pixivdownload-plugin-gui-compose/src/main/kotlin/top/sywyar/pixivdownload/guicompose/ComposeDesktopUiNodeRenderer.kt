@@ -95,6 +95,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -102,6 +103,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.jetbrains.skia.Image as SkiaImage
@@ -196,11 +198,18 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Table -> Table(node, text, emit, modifier)
             is DesktopUiNode.Tree -> Tree(node, text, emit, modifier)
             is DesktopUiNode.Button -> ActionButton(node, text, emit, modifier)
-            is DesktopUiNode.Link -> TextButton(
-                modifier = modifier.hand(node.enabled()),
-                enabled = node.enabled(),
-                onClick = { emit(activate(node.id(), node.actionId())) },
-            ) { Text(resolve(node.label(), text), style = MaterialTheme.typography.labelLarge) }
+            is DesktopUiNode.Link -> Text(
+                resolve(node.label(), text),
+                modifier = modifier.hand(node.enabled()).clickable(
+                    enabled = node.enabled(),
+                    role = Role.Button,
+                    onClick = { emit(activate(node.id(), node.actionId())) },
+                ),
+                color = if (node.enabled()) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f),
+                style = MaterialTheme.typography.bodyMedium,
+                textDecoration = TextDecoration.Underline,
+            )
         }
     }
 
@@ -615,38 +624,45 @@ object ComposeDesktopUiNodeRenderer {
         val activeTabId = selectedIdOrFirst(selectedId, tabIds)
         val selectedIndex = tabIds.indexOf(activeTabId)
         LaunchedEffect(activeTabId) { selectedId = activeTabId }
-        Column(modifier) {
-            PrimaryScrollableTabRow(
-                selectedTabIndex = selectedIndex,
-                edgePadding = 4.dp,
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .36f),
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                divider = {},
-            ) {
-                node.tabs().forEach { tab ->
-                    Tab(activeTabId == tab.id(), onClick = { selectedId = tab.id() }, text = {
-                        Text(
-                            resolve(tab.title(), text),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (activeTabId == tab.id()) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    })
+        BoxWithConstraints(modifier) {
+            val boundedHeight = constraints.hasBoundedHeight
+            Column(if (boundedHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
+                PrimaryScrollableTabRow(
+                    selectedTabIndex = selectedIndex,
+                    edgePadding = 4.dp,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .36f),
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    divider = {},
+                ) {
+                    node.tabs().forEach { tab ->
+                        Tab(activeTabId == tab.id(), onClick = { selectedId = tab.id() }, text = {
+                            Text(
+                                resolve(tab.title(), text),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (activeTabId == tab.id()) FontWeight.SemiBold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        })
+                    }
                 }
-            }
-            AnimatedContent(
-                targetState = activeTabId,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp),
-                transitionSpec = {
-                    val direction = if (tabIds.indexOf(targetState) >= tabIds.indexOf(initialState)) 1 else -1
-                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 24 })
-                        .togetherWith(fadeOut(tween(120)) +
-                                slideOutHorizontally(tween(180)) { -direction * it / 30 })
-                },
-                contentKey = { it },
-            ) { tabId ->
-                Node(node.tabs().first { it.id() == tabId }.content(), text, emit, Modifier.fillMaxSize())
+                AnimatedContent(
+                    targetState = activeTabId,
+                    modifier = (if (boundedHeight) Modifier.weight(1f) else Modifier)
+                        .fillMaxWidth().padding(top = 12.dp),
+                    transitionSpec = {
+                        val direction = if (tabIds.indexOf(targetState) >= tabIds.indexOf(initialState)) 1 else -1
+                        (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 24 })
+                            .togetherWith(fadeOut(tween(120)) +
+                                    slideOutHorizontally(tween(180)) { -direction * it / 30 })
+                    },
+                    contentKey = { it },
+                ) { tabId ->
+                    Node(
+                        node.tabs().first { it.id() == tabId }.content(), text, emit,
+                        if (boundedHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

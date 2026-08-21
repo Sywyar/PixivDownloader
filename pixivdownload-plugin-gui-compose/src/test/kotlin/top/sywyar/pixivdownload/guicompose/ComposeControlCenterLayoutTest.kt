@@ -112,6 +112,44 @@ class ComposeControlCenterLayoutTest {
         onNodeWithContentDescription("Home").assertExists()
     }
 
+    @Test
+    @DisplayName("无界高度中的标签页仍显示内容")
+    fun rendersTabContentWithoutBoundedHeight() = runComposeUiTest {
+        val tabs = DesktopUiNode.Tabs(
+            "tabs", listOf(DesktopUiNode.Tab("details", DesktopUiNode.TextToken.raw("Details"),
+                text("content", "Visible content"))),
+        )
+        setContent {
+            MaterialTheme {
+                ComposeDesktopUiNodeRenderer.Render(tabs, { it.fallback() }, {})
+            }
+        }
+
+        assertTrue(onNodeWithText("Visible content").fetchSemanticsNode().boundsInRoot.height > 0f)
+    }
+
+    @Test
+    @DisplayName("文本链接不引入按钮容器高度")
+    fun keepsTextLinkAtTextHeight() = runComposeUiTest {
+        val content = DesktopUiNode.Container(
+            "links", DesktopUiNode.ContainerLayout.COLUMN, 1, 0, DesktopUiNode.Alignment.START,
+            listOf(
+                text("plain", "Plain text"),
+                DesktopUiNode.Link("link", "open", DesktopUiNode.TextToken.raw("Text link"), null, true),
+            ),
+        )
+        setContent {
+            MaterialTheme {
+                ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {})
+            }
+        }
+
+        assertEquals(
+            onNodeWithText("Plain text").fetchSemanticsNode().boundsInRoot.height,
+            onNodeWithText("Text link").fetchSemanticsNode().boundsInRoot.height,
+        )
+    }
+
     private fun androidx.compose.ui.test.ComposeUiTest.top(label: String): Float =
         onNodeWithText(label).fetchSemanticsNode().boundsInRoot.top
 
