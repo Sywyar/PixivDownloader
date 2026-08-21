@@ -511,7 +511,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         }
         DesktopUiNode quickStartContent = quickStarts.isEmpty()
                 ? text("home.quick-start.empty", "desktop.ui.home.quick-start.empty", TextStyle.CAPTION)
-                : new DesktopUiNode.AdaptiveGrid("home.quick-start.grid", 180, 2, 12, 12, quickStarts);
+                : new DesktopUiNode.Container("home.quick-start.grid", ContainerLayout.GRID,
+                        2, 12, Alignment.STRETCH, quickStarts);
 
         List<DesktopUiNode> taskNodes = new ArrayList<>();
         for (DesktopUiHost.GuiValue task : runningTasks) taskNodes.add(runningTask("home.running", task));
@@ -1768,8 +1769,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(14), true,
                 column("settings.summary.content", configFooterNodes(true, nextActions)));
         return scroll("settings.scroll", column("settings.root",
-                new DesktopUiNode.AdaptiveGrid("settings.layout", 280, 3, 16, 16,
-                        List.of(categories, content, summary))));
+                new DesktopUiNode.AdaptiveGrid("settings.layout", 280, 2, 16, 16,
+                        List.of(column("settings.sidebar", categories, summary), content))));
     }
 
     private List<DesktopUiNode.Tab> configTabs(Map<String, ConfigField> nextBindings,

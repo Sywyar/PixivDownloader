@@ -142,6 +142,13 @@ class AppDesktopUiHostDocumentTest {
                 .findFirst().orElseThrow()).isInstanceOf(DesktopUiNode.AdaptiveGrid.class);
         assertThat(nodes(controlCenter).stream().filter(node -> "settings.categories".equals(node.id()))
                 .findFirst().orElseThrow()).isInstanceOf(DesktopUiNode.Tree.class);
+        DesktopUiNode.AdaptiveGrid settings = (DesktopUiNode.AdaptiveGrid) nodes(controlCenter).stream()
+                .filter(node -> "settings.layout".equals(node.id())).findFirst().orElseThrow();
+        assertThat(settings.children()).extracting(DesktopUiNode::id)
+                .containsExactly("settings.sidebar", "settings.content");
+        assertThat(((DesktopUiNode.Container) settings.children().get(0)).children())
+                .extracting(DesktopUiNode::id)
+                .containsExactly("settings.categories.surface", "settings.summary");
         assertThat(nodes(controlCenter).stream().filter(node -> "config.save".equals(node.id()))).hasSize(1);
         assertThat(nodes(classic)).extracting(DesktopUiNode::id)
                 .doesNotContain("plugins.layout", "tools.layout", "settings.layout", "settings.categories");
@@ -334,6 +341,10 @@ class AppDesktopUiHostDocumentTest {
                 .extracting(DesktopUiNode.Button::label)
                 .extracting(DesktopUiNode.TextToken::fallback)
                 .containsExactly("a-valid", "z-valid");
+        DesktopUiNode.Container quickStart = (DesktopUiNode.Container) nodes(document).stream()
+                .filter(node -> "home.quick-start.grid".equals(node.id())).findFirst().orElseThrow();
+        assertThat(quickStart.layout()).isEqualTo(DesktopUiNode.ContainerLayout.GRID);
+        assertThat(quickStart.columns()).isEqualTo(2);
     }
 
     @Test
