@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -44,6 +45,23 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Queue
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -51,14 +69,20 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -82,6 +106,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -95,6 +120,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -105,6 +132,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.jetbrains.skia.Image as SkiaImage
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
@@ -116,7 +144,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** 完整稳定桌面节点词汇的 Compose Multiplatform renderer。 */
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)
 object ComposeDesktopUiNodeRenderer {
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
 
@@ -159,14 +187,12 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.PagedRow -> PagedRow(node, text, emit, modifier)
             is DesktopUiNode.Dock -> Dock(node, text, emit, modifier)
             is DesktopUiNode.Surface -> SurfaceNode(node, text, emit, modifier)
-            is DesktopUiNode.Group -> Card(
+            is DesktopUiNode.Group -> OutlinedCard(
                 modifier = modifier.animateContentSize(tween(180)),
                 shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .42f),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .7f)),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -182,7 +208,7 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Scroll -> ScrollNode(node, text, emit, modifier)
             is DesktopUiNode.Split -> Split(node, text, emit, modifier)
             is DesktopUiNode.Text -> StyledText(node, text, modifier)
-            is DesktopUiNode.Icon -> Icon(node, text, modifier)
+            is DesktopUiNode.Icon -> IconNode(node, text, modifier)
             is DesktopUiNode.Image -> ImageNode(node, text, modifier)
             is DesktopUiNode.Separator -> if (node.axis() == DesktopUiNode.Axis.HORIZONTAL) {
                 HorizontalDivider(modifier.fillMaxWidth())
@@ -376,19 +402,32 @@ object ComposeDesktopUiNodeRenderer {
             DesktopUiNode.SurfaceStyle.MUTED -> MaterialTheme.colorScheme.onSurfaceVariant
             else -> MaterialTheme.colorScheme.outlineVariant
         }
-        val background = when (node.style()) {
-            DesktopUiNode.SurfaceStyle.CARD -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .34f)
-            DesktopUiNode.SurfaceStyle.MUTED -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f)
-            else -> accent.copy(alpha = .09f)
+        val cardModifier = sized.animateContentSize(tween(180))
+        val content: @Composable () -> Unit = { Node(node.content(), text, emit, contentModifier) }
+        when (node.style()) {
+            DesktopUiNode.SurfaceStyle.CARD -> ElevatedCard(
+                modifier = cardModifier,
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+                content = { content() },
+            )
+            DesktopUiNode.SurfaceStyle.MUTED -> Card(
+                modifier = cardModifier,
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ),
+                content = { content() },
+            )
+            else -> Card(
+                modifier = cardModifier,
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = .11f)),
+                content = { content() },
+            )
         }
-        androidx.compose.material3.Surface(
-            modifier = sized.animateContentSize(tween(180)),
-            color = background,
-            shape = MaterialTheme.shapes.large,
-            tonalElevation = if (node.style() == DesktopUiNode.SurfaceStyle.CARD) 1.dp else 0.dp,
-            border = BorderStroke(1.dp, accent.copy(alpha = if (
-                node.style() == DesktopUiNode.SurfaceStyle.CARD) .42f else .58f)),
-        ) { Node(node.content(), text, emit, contentModifier) }
     }
 
     @Composable
@@ -421,11 +460,14 @@ object ComposeDesktopUiNodeRenderer {
                 verticalArrangement = Arrangement.spacedBy(gap),
                 itemVerticalAlignment = vertical(node.alignment()),
             ) { node.children().forEach { child(it) } }
-            DesktopUiNode.ContainerLayout.GRID -> Column(modifier, verticalArrangement = Arrangement.spacedBy(gap)) {
+            DesktopUiNode.ContainerLayout.GRID -> Column(
+                modifier,
+                verticalArrangement = Arrangement.spacedBy(gap),
+            ) {
                 node.children().chunked(node.columns()).forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        row.forEach { value -> Box(Modifier.weight(1f)) { child(value, Modifier.fillMaxWidth()) } }
-                        repeat(node.columns() - row.size) { Spacer(Modifier.weight(1f)) }
+                    EqualHeightRow(node.columns(), gap, Modifier.fillMaxWidth()) { index, childModifier ->
+                        if (index < row.size) child(row[index], childModifier)
+                        else Spacer(childModifier)
                     }
                 }
             }
@@ -449,11 +491,36 @@ object ComposeDesktopUiNodeRenderer {
             )
             Column(verticalArrangement = Arrangement.spacedBy(node.verticalGap().dp)) {
                 node.children().chunked(columns).forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(node.horizontalGap().dp)) {
-                        row.forEach { child ->
-                            Box(Modifier.weight(1f)) { Node(child, text, emit, Modifier.fillMaxWidth()) }
-                        }
-                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                    EqualHeightRow(columns, node.horizontalGap().dp, Modifier.fillMaxWidth()) {
+                            index, childModifier ->
+                        if (index < row.size) Node(row[index], text, emit, childModifier)
+                        else Spacer(childModifier)
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun EqualHeightRow(
+        count: Int,
+        gap: Dp,
+        modifier: Modifier,
+        content: @Composable (Int, Modifier) -> Unit,
+    ) {
+        BoxWithConstraints(modifier) {
+            val density = LocalDensity.current
+            val revision = LocalDocumentRevision.current
+            var minimumHeight by remember(count, maxWidth, revision) { mutableStateOf(0) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                repeat(count) { index ->
+                    Box(
+                        Modifier.weight(1f)
+                            .heightIn(min = with(density) { minimumHeight.toDp() })
+                            .onSizeChanged { if (it.height > minimumHeight) minimumHeight = it.height },
+                        propagateMinConstraints = true,
+                    ) {
+                        content(index, Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -499,11 +566,10 @@ object ComposeDesktopUiNodeRenderer {
                 },
         ) { page ->
             val children = node.children().drop(page * node.itemsPerPage()).take(node.itemsPerPage())
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(node.gap().dp)) {
-                children.forEach { child ->
-                    Box(Modifier.weight(1f)) { Node(child, text, emit, Modifier.fillMaxWidth()) }
-                }
-                repeat(node.itemsPerPage() - children.size) { Spacer(Modifier.weight(1f)) }
+            EqualHeightRow(node.itemsPerPage(), node.gap().dp, Modifier.fillMaxWidth()) {
+                    index, childModifier ->
+                if (index < children.size) Node(children[index], text, emit, childModifier)
+                else Spacer(childModifier)
             }
         }
     }
@@ -627,10 +693,10 @@ object ComposeDesktopUiNodeRenderer {
         BoxWithConstraints(modifier) {
             val boundedHeight = constraints.hasBoundedHeight
             Column(if (boundedHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
-                PrimaryScrollableTabRow(
+                SecondaryScrollableTabRow(
                     selectedTabIndex = selectedIndex,
                     edgePadding = 4.dp,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .36f),
+                    containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     divider = {},
                 ) {
@@ -758,37 +824,17 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     @Composable
-    private fun Icon(
+    private fun IconNode(
         node: DesktopUiNode.Icon,
         text: (DesktopUiNode.TextToken) -> String,
         modifier: Modifier,
     ) {
-        Text(
-            iconGlyph(node.icon()),
-            modifier.semantics { contentDescription = resolve(node.accessibleLabel(), text) },
-            color = toneColor(node.tone()),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+        Icon(
+            desktopIcon(node.icon()),
+            contentDescription = resolve(node.accessibleLabel(), text),
+            modifier = modifier,
+            tint = toneColor(node.tone()),
         )
-    }
-
-    private fun iconGlyph(icon: DesktopUiIcon): String = when (icon) {
-        DesktopUiIcon.HOME -> "⌂"
-        DesktopUiIcon.AUTOMATION -> "◷"
-        DesktopUiIcon.PLUGIN -> "⧉"
-        DesktopUiIcon.TOOLS -> "⚒"
-        DesktopUiIcon.SECURITY -> "◆"
-        DesktopUiIcon.SETTINGS -> "⚙"
-        DesktopUiIcon.ABOUT, DesktopUiIcon.INFO -> "i"
-        DesktopUiIcon.DOWNLOAD -> "↓"
-        DesktopUiIcon.QUEUE -> "≡"
-        DesktopUiIcon.STORAGE -> "▣"
-        DesktopUiIcon.STATISTICS -> "▥"
-        DesktopUiIcon.TASK -> "•"
-        DesktopUiIcon.SUCCESS -> "✓"
-        DesktopUiIcon.WARNING -> "!"
-        DesktopUiIcon.ERROR -> "×"
-        DesktopUiIcon.OPEN -> "↗"
     }
 
     @Composable
@@ -874,7 +920,6 @@ object ComposeDesktopUiNodeRenderer {
                     visualTransformation = if (node.inputKind() == DesktopUiNode.InputKind.PASSWORD)
                         PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                     textStyle = MaterialTheme.typography.bodyMedium,
-                    shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.weight(1f)
                         .widthIn(min = (node.columns() * 8).coerceAtMost(320).dp)
                         .then(if (node.inputKind() == DesktopUiNode.InputKind.MULTILINE)
@@ -885,7 +930,6 @@ object ComposeDesktopUiNodeRenderer {
                     OutlinedButton(
                         onClick = { choosePath(node.inputKind(), value)?.let(::update) },
                         enabled = node.enabled(),
-                        shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.padding(start = 8.dp).hand(node.enabled()),
                     ) { Text(text(DesktopUiNode.TextToken(
                         GuiComposePlugin.ID, "gui.compose.browse", "Browse...", emptyList(),
@@ -983,21 +1027,22 @@ object ComposeDesktopUiNodeRenderer {
                 DesktopUiNode.ChoiceStyle.LIST -> Column {
                     node.options().forEach { option ->
                         val active = selected.contains(option.id())
-                        androidx.compose.material3.Surface(
-                            color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Text(
-                                resolve(option.label(), text),
-                                modifier = Modifier.fillMaxWidth().hand(node.enabled() && option.enabled())
-                                    .clickable(enabled = node.enabled() && option.enabled()) { choose(option.id()) }
-                                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (option.enabled()) Color.Unspecified
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = .4f),
-                            )
-                        }
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    resolve(option.label(), text),
+                                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (option.enabled()) Color.Unspecified
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f),
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().hand(node.enabled() && option.enabled())
+                                .clickable(enabled = node.enabled() && option.enabled()) { choose(option.id()) },
+                            colors = ListItemDefaults.colors(
+                                containerColor = if (active) MaterialTheme.colorScheme.primaryContainer
+                                    else Color.Transparent,
+                            ),
+                        )
                     }
                 }
             }
@@ -1019,7 +1064,6 @@ object ComposeDesktopUiNodeRenderer {
             OutlinedButton(
                 onClick = { expanded = true },
                 enabled = node.enabled(),
-                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.widthIn(min = 180.dp, max = 360.dp).hand(node.enabled()),
             ) {
                 Text(
@@ -1084,7 +1128,6 @@ object ComposeDesktopUiNodeRenderer {
                     OutlinedButton(
                         { update(value.toLong() - node.step()) },
                         enabled = canDecrease,
-                        shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.hand(canDecrease),
                     ) { Text("−") }
                     Text(
@@ -1096,7 +1139,6 @@ object ComposeDesktopUiNodeRenderer {
                     OutlinedButton(
                         { update(value.toLong() + node.step()) },
                         enabled = canIncrease,
-                        shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.hand(canIncrease),
                     ) { Text("+") }
                 }
@@ -1138,10 +1180,10 @@ object ComposeDesktopUiNodeRenderer {
             modifier = modifier,
             shape = MaterialTheme.shapes.medium,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
         ) {
             Column(Modifier.horizontalScroll(rememberScrollState()).width(tableWidth)) {
-                Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f))) {
+                Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
                     node.columns().forEach { column ->
                         Text(
                             resolve(column.label(), text),
@@ -1214,7 +1256,7 @@ object ComposeDesktopUiNodeRenderer {
         }
         Column(
             modifier = modifier.background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .24f),
+                MaterialTheme.colorScheme.surfaceContainerLow,
                 MaterialTheme.shapes.medium,
             ).padding(4.dp),
         ) {
@@ -1239,36 +1281,35 @@ object ComposeDesktopUiNodeRenderer {
         val label = resolve(item.label(), text)
         val branch = item.children().isNotEmpty()
         val expanded = expandedIds.contains(item.id())
-        Row(
-            modifier = Modifier.fillMaxWidth().background(
-                if (selected.contains(item.id())) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                MaterialTheme.shapes.small,
-            ).padding(start = (depth * 18 + 4).dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (hasDisclosureColumn) {
-                if (branch) {
-                    Text(
-                        if (expanded) "▾" else "▸",
-                        modifier = Modifier.width(28.dp).hand(enabled).clickable(enabled) { toggle(item.id()) }
-                            .semantics {
-                                contentDescription = label
-                                stateDescription = if (expanded) "−" else "+"
-                            }.padding(vertical = 7.dp),
-                        textAlign = TextAlign.Center,
-                    )
-                } else {
-                    Spacer(Modifier.width(28.dp))
-                }
+        val leading: (@Composable () -> Unit)? = if (!hasDisclosureColumn) null else ({
+            if (branch) {
+                IconButton(
+                    onClick = { toggle(item.id()) },
+                    enabled = enabled,
+                    modifier = Modifier.size(36.dp).semantics {
+                        contentDescription = label
+                        stateDescription = if (expanded) "−" else "+"
+                    },
+                ) { Text(if (expanded) "▾" else "▸", textAlign = TextAlign.Center) }
+            } else {
+                Spacer(Modifier.size(36.dp))
             }
-            Text(
-                label,
-                modifier = Modifier.weight(1f).hand(enabled).clickable(enabled) { choose(item.id()) }
-                    .padding(start = 6.dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected.contains(item.id())) FontWeight.SemiBold else FontWeight.Normal,
-            )
-        }
+        })
+        ListItem(
+            headlineContent = {
+                Text(
+                    label,
+                    fontWeight = if (selected.contains(item.id())) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            },
+            modifier = Modifier.fillMaxWidth().padding(start = (depth * 18).dp)
+                .hand(enabled).clickable(enabled) { choose(item.id()) },
+            leadingContent = leading,
+            colors = ListItemDefaults.colors(
+                containerColor = if (selected.contains(item.id())) MaterialTheme.colorScheme.primaryContainer
+                    else Color.Transparent,
+            ),
+        )
         if (expanded) item.children().forEach {
             TreeItem(it, depth + 1, hasDisclosureColumn, selected, expandedIds, enabled, text, choose, toggle)
         }
@@ -1328,21 +1369,18 @@ object ComposeDesktopUiNodeRenderer {
             DesktopUiNode.ButtonStyle.NORMAL -> FilledTonalButton(
                 modifier = modifier.heightIn(min = 40.dp).hand(node.enabled()),
                 enabled = node.enabled(),
-                shape = MaterialTheme.shapes.medium,
                 onClick = click,
                 content = content,
             )
             DesktopUiNode.ButtonStyle.PRIMARY -> Button(
                 modifier = modifier.heightIn(min = 40.dp).hand(node.enabled()),
                 enabled = node.enabled(),
-                shape = MaterialTheme.shapes.medium,
                 onClick = click,
                 content = content,
             )
             DesktopUiNode.ButtonStyle.DANGER -> Button(
                 modifier = modifier.heightIn(min = 40.dp).hand(node.enabled()),
                 enabled = node.enabled(),
-                shape = MaterialTheme.shapes.medium,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 onClick = click,
                 content = content,
@@ -1409,4 +1447,23 @@ object ComposeDesktopUiNodeRenderer {
     private fun selection(nodeId: String, bindingId: String, value: DesktopUiNode.Value) = DesktopUiNode.Event(
         DesktopUiNode.EventType.SELECTION, nodeId, value,
     )
+}
+
+internal fun desktopIcon(icon: DesktopUiIcon): ImageVector = when (icon) {
+    DesktopUiIcon.HOME -> Icons.Default.Home
+    DesktopUiIcon.AUTOMATION -> Icons.Default.Schedule
+    DesktopUiIcon.PLUGIN -> Icons.Default.Extension
+    DesktopUiIcon.TOOLS -> Icons.Default.Build
+    DesktopUiIcon.SECURITY -> Icons.Default.Security
+    DesktopUiIcon.SETTINGS -> Icons.Default.Settings
+    DesktopUiIcon.ABOUT, DesktopUiIcon.INFO -> Icons.Default.Info
+    DesktopUiIcon.DOWNLOAD -> Icons.Default.Download
+    DesktopUiIcon.QUEUE -> Icons.Default.Queue
+    DesktopUiIcon.STORAGE -> Icons.Default.Storage
+    DesktopUiIcon.STATISTICS -> Icons.Default.BarChart
+    DesktopUiIcon.TASK -> Icons.AutoMirrored.Filled.Assignment
+    DesktopUiIcon.SUCCESS -> Icons.Default.CheckCircle
+    DesktopUiIcon.WARNING -> Icons.Default.Warning
+    DesktopUiIcon.ERROR -> Icons.Default.Error
+    DesktopUiIcon.OPEN -> Icons.AutoMirrored.Filled.OpenInNew
 }

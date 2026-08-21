@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui.document;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 
 import java.util.HashSet;
 import java.util.List;
@@ -69,6 +70,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         for (Page page : pages) {
             if (!ids.add(page.id())) throw new IllegalArgumentException("duplicate page id: " + page.id());
             DesktopUiNode.validateTree(page.content(), nodeIds);
+            page.floatingAction().ifPresent(node -> DesktopUiNode.validateTree(node, nodeIds));
         }
         for (Dialog dialog : dialogs) {
             if (!ids.add(dialog.id())) throw new IllegalArgumentException("duplicate document id: " + dialog.id());
@@ -89,7 +91,10 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
      */
     public Set<DesktopUiNode.Kind> requiredNodeKinds() {
         var kinds = new HashSet<DesktopUiNode.Kind>();
-        for (Page page : pages) kinds.addAll(DesktopUiNode.validateTree(page.content()));
+        for (Page page : pages) {
+            kinds.addAll(DesktopUiNode.validateTree(page.content()));
+            page.floatingAction().ifPresent(node -> kinds.addAll(DesktopUiNode.validateTree(node)));
+        }
         for (Dialog dialog : dialogs) kinds.addAll(DesktopUiNode.validateTree(dialog.content()));
         return Set.copyOf(kinds);
     }
@@ -101,7 +106,10 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
      */
     public Set<DesktopUiCapability> requiredCapabilities() {
         var capabilities = new HashSet<DesktopUiCapability>();
-        for (Page page : pages) capabilities.addAll(DesktopUiNode.requiredCapabilities(page.content()));
+        for (Page page : pages) {
+            capabilities.addAll(DesktopUiNode.requiredCapabilities(page.content()));
+            page.floatingAction().ifPresent(node -> capabilities.addAll(DesktopUiNode.requiredCapabilities(node)));
+        }
         for (Dialog dialog : dialogs) capabilities.addAll(DesktopUiNode.requiredCapabilities(dialog.content()));
         return Set.copyOf(capabilities);
     }
@@ -340,22 +348,53 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
      *
      * @param id 仅用于导航状态的稳定页面标识
      * @param title 已本地化的标题 token
+     * @param icon 导航使用的受控图标
      * @param content 完整页面内容树
+     * @param floatingAction 可选的页面浮动操作树
      */
-    public record Page(String id, DesktopUiNode.TextToken title, DesktopUiNode content) {
+    public record Page(String id, DesktopUiNode.TextToken title, DesktopUiIcon icon,
+                       DesktopUiNode content, Optional<DesktopUiNode> floatingAction) {
+        /**
+         * 创建使用通用信息图标且没有浮动操作的页面。
+         *
+         * @param id 稳定页面标识
+         * @param title 已本地化的标题 token
+         * @param content 完整页面内容树
+         */
+        public Page(String id, DesktopUiNode.TextToken title, DesktopUiNode content) {
+            this(id, title, DesktopUiIcon.INFO, content, Optional.empty());
+        }
+
+        /**
+         * 创建没有浮动操作的页面。
+         *
+         * @param id 稳定页面标识
+         * @param title 已本地化的标题 token
+         * @param icon 导航使用的受控图标
+         * @param content 完整页面内容树
+         */
+        public Page(String id, DesktopUiNode.TextToken title, DesktopUiIcon icon,
+                    DesktopUiNode content) {
+            this(id, title, icon, content, Optional.empty());
+        }
+
         /**
          * 校验页面描述。
          *
          * @param id 稳定页面标识
          * @param title 已本地化的标题 token
+         * @param icon 导航使用的受控图标
          * @param content 完整页面内容树
+         * @param floatingAction 可选的页面浮动操作树
          */
         public Page {
             if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
                 throw new IllegalArgumentException("id must be a stable id");
             }
             title = Objects.requireNonNull(title, "title");
+            icon = Objects.requireNonNull(icon, "icon");
             content = Objects.requireNonNull(content, "content");
+            floatingAction = Objects.requireNonNull(floatingAction, "floatingAction");
         }
     }
 

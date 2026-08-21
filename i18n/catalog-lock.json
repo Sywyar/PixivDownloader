@@ -2270,6 +2270,22 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "desktop.ui.about.contributors.placeholder",
+      "acceptedSourceHash": "9221f1f7c3c5aa459fa845979e957e9d45f98d3f04896213d5d9e84a6a41918f",
+      "acceptedTranslationHash": "4eb9f909fbf17052c972f360c24abea80e4244f9cc178cbbea0f2c0899e61483"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.contributors.title",
+      "acceptedSourceHash": "ba492da845261c396cdb8ba5d39ce4acbf4b7c78d3570236838dba89ffb103e3",
+      "acceptedTranslationHash": "350ad433c42fe8cecdb38439f33947ea04c43fe819455772fd3c03b85c389f16"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "desktop.ui.about.description",
       "acceptedSourceHash": "3d9dcfa14458ea77b6e65739a9d21433abe8ce23130c297b7771e81f86ccf9f3",
       "acceptedTranslationHash": "0e6c624d69935e8ec47e76376b97c0196030c35ae355ff8636ffa5718ef611b7"
@@ -42038,6 +42054,38 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-gui-compose",
       "baseName": "web/gui-compose",
+      "key": "gui.compose.window.close",
+      "acceptedSourceHash": "3fd47edce45b3603d4192f61dbf3e51162589b0951042a18d244132ac92e7bb7",
+      "acceptedTranslationHash": "7d9eb7acb13e24625c404401d8e88b2350e32162455885f18276cf802f7701ed"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.maximize",
+      "acceptedSourceHash": "82c4aa13b7ca109ec1e86b407fee10a0e96141847bca69a7cc1c09b7620580ce",
+      "acceptedTranslationHash": "fba6c2c5d9468e741725c7dfa1ac14fb59523c74fa86744027ec0a175e6cae3f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.minimize",
+      "acceptedSourceHash": "ac29e57a46f41c301a4770f04eef7eecd856aa65eca549e7e419bb5add77787e",
+      "acceptedTranslationHash": "d72e311c4ddaf4ac6f39136038420b3b01a9eefc09790efa74616ad8a65478d5"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.restore",
+      "acceptedSourceHash": "ddde08946298195d6468e4bdbac940e38aacc5a0523885e0ed13a13ae64d8b35",
+      "acceptedTranslationHash": "a76e13b9839270eb73ed11417f7d8acca55df0ad52065799361631d0fff74f27"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
       "key": "plugin.name",
       "acceptedSourceHash": "af5df5d892029d66b17114ef823e0ef78c46bdb81d4e1ccec59c6bddcf32c3f1",
       "acceptedTranslationHash": "956e7e07831375da4f8e2760c37533f9a58e2d6a4a6927a62704c6d42b41167d"
@@ -54017,6 +54065,22 @@
       "key": "core.hash.log.source-missing",
       "acceptedSourceHash": "28c92d3be11578b209e0373980e1b571fa427c2be3c1756f69b19cb5902e5ea6",
       "acceptedTranslationHash": "28d6e5f46f81b225a0f551e64cc3844c959028c28b4c09199e1cf2551ca0f831"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.contributors.placeholder",
+      "acceptedSourceHash": "9221f1f7c3c5aa459fa845979e957e9d45f98d3f04896213d5d9e84a6a41918f",
+      "acceptedTranslationHash": "7cc8e95ee8fae3d4a3d61e41f5c8af0922ff8cbee89df7105e3f6bc871ba03a5"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.contributors.title",
+      "acceptedSourceHash": "ba492da845261c396cdb8ba5d39ce4acbf4b7c78d3570236838dba89ffb103e3",
+      "acceptedTranslationHash": "d9a8861e57bf024d35b214d0e39ac9ab173f7d65dddcb9aa67e73a3316bb1161"
     },
     {
       "locale": "ja-JP",
@@ -93790,6 +93854,38 @@
       "locale": "ja-JP",
       "module": "pixivdownload-plugin-gui-compose",
       "baseName": "web/gui-compose",
+      "key": "gui.compose.window.close",
+      "acceptedSourceHash": "3fd47edce45b3603d4192f61dbf3e51162589b0951042a18d244132ac92e7bb7",
+      "acceptedTranslationHash": "f6c244f98893cd951392f88864ef16a239999b2e95a6cebf5f6aa8d670460637"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.maximize",
+      "acceptedSourceHash": "82c4aa13b7ca109ec1e86b407fee10a0e96141847bca69a7cc1c09b7620580ce",
+      "acceptedTranslationHash": "82c4aa13b7ca109ec1e86b407fee10a0e96141847bca69a7cc1c09b7620580ce"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.minimize",
+      "acceptedSourceHash": "ac29e57a46f41c301a4770f04eef7eecd856aa65eca549e7e419bb5add77787e",
+      "acceptedTranslationHash": "ac29e57a46f41c301a4770f04eef7eecd856aa65eca549e7e419bb5add77787e"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.restore",
+      "acceptedSourceHash": "ddde08946298195d6468e4bdbac940e38aacc5a0523885e0ed13a13ae64d8b35",
+      "acceptedTranslationHash": "dc65bd3603e8227e890ea9df05fcbbf5a53b955359dfc244bab3b49b72e8075c"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
       "key": "plugin.name",
       "acceptedSourceHash": "af5df5d892029d66b17114ef823e0ef78c46bdb81d4e1ccec59c6bddcf32c3f1",
       "acceptedTranslationHash": "956e7e07831375da4f8e2760c37533f9a58e2d6a4a6927a62704c6d42b41167d"
@@ -105769,6 +105865,22 @@
       "key": "core.hash.log.source-missing",
       "acceptedSourceHash": "28c92d3be11578b209e0373980e1b571fa427c2be3c1756f69b19cb5902e5ea6",
       "acceptedTranslationHash": "d9e2ae5ef7c89496cc672a5e4bf81e97ae630c416f69edbb1a09cf72e50fe698"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.contributors.placeholder",
+      "acceptedSourceHash": "9221f1f7c3c5aa459fa845979e957e9d45f98d3f04896213d5d9e84a6a41918f",
+      "acceptedTranslationHash": "544f488faa7c37423103453a81a69ee9cfc04da7ba640fea6960a41700e8632a"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.contributors.title",
+      "acceptedSourceHash": "ba492da845261c396cdb8ba5d39ce4acbf4b7c78d3570236838dba89ffb103e3",
+      "acceptedTranslationHash": "4ac4851992d739c602b894cc1190a2631012e842de47f66ba475d2bf240ae086"
     },
     {
       "locale": "ko-KR",
@@ -145542,6 +145654,38 @@
       "locale": "ko-KR",
       "module": "pixivdownload-plugin-gui-compose",
       "baseName": "web/gui-compose",
+      "key": "gui.compose.window.close",
+      "acceptedSourceHash": "3fd47edce45b3603d4192f61dbf3e51162589b0951042a18d244132ac92e7bb7",
+      "acceptedTranslationHash": "1e8c10206f5b35bd96122e14038b5afd38e326a758874332b3931d6db9b25259"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.maximize",
+      "acceptedSourceHash": "82c4aa13b7ca109ec1e86b407fee10a0e96141847bca69a7cc1c09b7620580ce",
+      "acceptedTranslationHash": "b7b1c1530346fb1fdc7a3ccbcf2fa74ac4e3ec6fbe2c65e0271a9fca059fd8d8"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.minimize",
+      "acceptedSourceHash": "ac29e57a46f41c301a4770f04eef7eecd856aa65eca549e7e419bb5add77787e",
+      "acceptedTranslationHash": "d92ed316d7edf6861b688de3b4f0533b593dee15d8e73f128f84506ebf55a893"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.restore",
+      "acceptedSourceHash": "ddde08946298195d6468e4bdbac940e38aacc5a0523885e0ed13a13ae64d8b35",
+      "acceptedTranslationHash": "e7274914741b7904cae02ffecb20bb136efd2d01d011f838424ed34b52ae050a"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
       "key": "plugin.name",
       "acceptedSourceHash": "af5df5d892029d66b17114ef823e0ef78c46bdb81d4e1ccec59c6bddcf32c3f1",
       "acceptedTranslationHash": "956e7e07831375da4f8e2760c37533f9a58e2d6a4a6927a62704c6d42b41167d"
@@ -157521,6 +157665,22 @@
       "key": "core.hash.log.source-missing",
       "acceptedSourceHash": "28c92d3be11578b209e0373980e1b571fa427c2be3c1756f69b19cb5902e5ea6",
       "acceptedTranslationHash": "e09848fed01c8293e98d2b8494cf52de89abd89f27727bb148c43d0f01020833"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.contributors.placeholder",
+      "acceptedSourceHash": "9221f1f7c3c5aa459fa845979e957e9d45f98d3f04896213d5d9e84a6a41918f",
+      "acceptedTranslationHash": "0ad6b2ad18c52e9c5d38ef95e9c956dabf30ce544d2f8c26bbc6f9aae8ab77cf"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.contributors.title",
+      "acceptedSourceHash": "ba492da845261c396cdb8ba5d39ce4acbf4b7c78d3570236838dba89ffb103e3",
+      "acceptedTranslationHash": "7f69f6751a8a3fd3555a85e20ff4096fea92d7cdf7bc91796700c13297ded30f"
     },
     {
       "locale": "zh-Hant",
@@ -197289,6 +197449,38 @@
       "key": "gui.compose.ok",
       "acceptedSourceHash": "fac2a67ad87807c4112af2b9201ef929d8c1c80214a6ad5198423398369371a4",
       "acceptedTranslationHash": "20db9f87b8606c533dc8fd2599aff4ec2529fd3eeaa9b811c5892d1b44e6ef3e"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.close",
+      "acceptedSourceHash": "3fd47edce45b3603d4192f61dbf3e51162589b0951042a18d244132ac92e7bb7",
+      "acceptedTranslationHash": "c7fdddf79eaa8c4f71f4976d88201a632dad2c10b518207c8dac164252ff63ce"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.maximize",
+      "acceptedSourceHash": "82c4aa13b7ca109ec1e86b407fee10a0e96141847bca69a7cc1c09b7620580ce",
+      "acceptedTranslationHash": "82c4aa13b7ca109ec1e86b407fee10a0e96141847bca69a7cc1c09b7620580ce"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.minimize",
+      "acceptedSourceHash": "ac29e57a46f41c301a4770f04eef7eecd856aa65eca549e7e419bb5add77787e",
+      "acceptedTranslationHash": "ac29e57a46f41c301a4770f04eef7eecd856aa65eca549e7e419bb5add77787e"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-gui-compose",
+      "baseName": "web/gui-compose",
+      "key": "gui.compose.window.restore",
+      "acceptedSourceHash": "ddde08946298195d6468e4bdbac940e38aacc5a0523885e0ed13a13ae64d8b35",
+      "acceptedTranslationHash": "c07fb8c4d3e4af1d3a3388fbeaf4e5db2d4a3d153577ffd568862225e3b549f9"
     },
     {
       "locale": "zh-Hant",

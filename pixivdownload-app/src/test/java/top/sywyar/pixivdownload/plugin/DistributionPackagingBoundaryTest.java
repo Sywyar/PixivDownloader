@@ -56,8 +56,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>{@code gui-swing} 以 PF4J JAR-with-lib 打包</b>——根 {@code plugin.properties}、
  *       标准 JAR 类路径与 {@code lib/*.jar} 在位，FlatLaf / IntelliJ Themes / JNA 仅在 JAR 的 {@code lib/} 中，
  *       并通过模拟 runtime materialization 后的独立 classloader 真实加载。</li>
- *   <li><b>{@code gui-compose} 由 Gradle 生成 PF4J JAR-with-lib</b>——Compose / Kotlin / 全平台 Skiko
- *       运行库仅位于 {@code lib/}，并通过独立 classloader 真实初始化当前平台原生库。</li>
+ *   <li><b>{@code gui-compose} 由 Gradle 生成 PF4J JAR-with-lib</b>——Compose / Kotlin / JNA / 全平台 Skiko
+ *       运行库仅位于 {@code lib/}，Windows 自定义标题栏及许可证随插件交付，并通过独立 classloader
+ *       真实初始化当前平台原生库。</li>
  * </ol>
  *
  * <p>插件构建产物目录经 surefire 系统属性 {@code gallery.plugin.classes} / {@code novel.plugin.classes} / {@code stats.plugin.classes} /
@@ -657,9 +658,16 @@ class DistributionPackagingBoundaryTest {
         List<String> entries = jarEntryNames(jar);
         assertThat(entries).contains(
                 "plugin.properties",
-                "top/sywyar/pixivdownload/guicompose/GuiComposePf4jPlugin.class");
+                "top/sywyar/pixivdownload/guicompose/GuiComposePf4jPlugin.class",
+                "cn/longzhengyi/windowsdecoration/BorderlessTitleBarScaffoldKt.class",
+                "META-INF/licenses/ComposeWindowsDecoration-LICENSE.txt",
+                "META-INF/ComposeWindowsDecoration-NOTICE.txt");
         assertThat(entries).anyMatch(name -> name.matches("lib/ui-desktop-[0-9][^/]*\\.jar"));
+        assertThat(entries).anyMatch(name -> name.matches(
+                "lib/material-icons-extended-desktop-[0-9][^/]*\\.jar"));
         assertThat(entries).anyMatch(name -> name.matches("lib/kotlin-stdlib-[0-9][^/]*\\.jar"));
+        assertThat(entries).anyMatch(name -> name.matches("lib/jna-[0-9][^/]*\\.jar"));
+        assertThat(entries).anyMatch(name -> name.matches("lib/jna-platform-[0-9][^/]*\\.jar"));
         for (String target : List.of(
                 "windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-arm64")) {
             assertThat(entries).as("Compose 插件应包含 Skiko " + target + " 运行库")

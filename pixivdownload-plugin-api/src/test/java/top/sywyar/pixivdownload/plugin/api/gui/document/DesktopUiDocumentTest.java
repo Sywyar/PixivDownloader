@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.api.gui.document;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument.Page;
 
 import java.util.ArrayList;
@@ -27,6 +28,22 @@ class DesktopUiDocumentTest {
         assertThat(document.pages()).extracting(Page::id)
                 .containsExactly("status", "config");
         assertThat(document.requiredNodeKinds()).containsExactly(DesktopUiNode.Kind.TEXT);
+    }
+
+    @Test
+    @DisplayName("页面导航元数据与浮动操作进入完整文档契约")
+    void pageIncludesNavigationIconAndFloatingAction() {
+        Page page = new Page("home", DesktopUiNode.TextToken.raw("Home"), DesktopUiIcon.HOME,
+                text("home.content"), Optional.of(new DesktopUiNode.Button(
+                "home.action", "home.open", DesktopUiNode.TextToken.raw("Open"), null,
+                DesktopUiNode.ButtonStyle.NORMAL, true)));
+
+        DesktopUiDocument document = new DesktopUiDocument(List.of(page));
+
+        assertThat(page.icon()).isEqualTo(DesktopUiIcon.HOME);
+        assertThat(page.floatingAction()).isPresent();
+        assertThat(document.requiredNodeKinds()).containsExactlyInAnyOrder(
+                DesktopUiNode.Kind.TEXT, DesktopUiNode.Kind.BUTTON);
     }
 
     @Test
@@ -105,6 +122,17 @@ class DesktopUiDocumentTest {
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new DesktopUiDocument(List.of(first, second)))
+                .withMessageContaining("duplicate node id: shared");
+    }
+
+    @Test
+    @DisplayName("桌面 UI 文档拒绝页面正文与浮动操作重复的节点标识")
+    void documentRejectsNodeIdsDuplicatedAcrossPageContentAndFloatingAction() {
+        Page page = new Page("page", DesktopUiNode.TextToken.raw("Page"), DesktopUiIcon.HOME,
+                text("shared"), Optional.of(text("shared")));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new DesktopUiDocument(List.of(page)))
                 .withMessageContaining("duplicate node id: shared");
     }
 

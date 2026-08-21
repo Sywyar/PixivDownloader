@@ -1,22 +1,16 @@
 package top.sywyar.pixivdownload.guicompose
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,16 +20,31 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CropSquare
+import androidx.compose.material.icons.filled.FilterNone
+import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Typography
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -50,29 +59,34 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.FrameWindowScope
+import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import cn.longzhengyi.windowsdecoration.BorderlessTitleBarScaffold
+import cn.longzhengyi.windowsdecoration.windowhelper.windowCloseButton
+import cn.longzhengyi.windowsdecoration.windowhelper.windowDragArea
+import cn.longzhengyi.windowsdecoration.windowhelper.windowMaximizeButton
+import cn.longzhengyi.windowsdecoration.windowhelper.windowMinimizeButton
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot
@@ -173,11 +187,12 @@ internal object ComposeDesktopUi {
                         }
                     }
                     val mainWindowState = rememberWindowState(width = 1120.dp, height = 760.dp)
+                    val closeMainWindow = {
+                        if (trayAvailable) visible.value = false
+                        else context.requestApplicationExit()
+                    }
                     Window(
-                        onCloseRequest = {
-                            if (trayAvailable) visible.value = false
-                            else context.requestApplicationExit()
-                        },
+                        onCloseRequest = closeMainWindow,
                         state = mainWindowState,
                         visible = visible.value,
                         title = context.applicationName(),
@@ -196,19 +211,32 @@ internal object ComposeDesktopUi {
                             }
                         }
                         PixivDownloaderTheme(context.themePreference()) {
-                            Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
-                                ComposeDesktopRoot(context, observed, messages)
-                                message.value?.let { current ->
-                                    AlertDialog(
-                                        onDismissRequest = { message.value = null },
-                                        title = { Text(current.title) },
-                                        text = { Text(current.message) },
-                                        confirmButton = {
-                                            TextButton(onClick = { message.value = null }) {
-                                                Text(ComposeMessages(context).plugin("gui.compose.ok"))
-                                            }
-                                        },
+                            Column(Modifier.fillMaxSize()) {
+                                if (isWindows()) {
+                                    WindowsTitleBar(
+                                        title = context.applicationName(),
+                                        windowState = mainWindowState,
+                                        minimizeLabel = messages.plugin("gui.compose.window.minimize"),
+                                        maximizeLabel = messages.plugin("gui.compose.window.maximize"),
+                                        restoreLabel = messages.plugin("gui.compose.window.restore"),
+                                        closeLabel = messages.plugin("gui.compose.window.close"),
+                                        onClose = closeMainWindow,
                                     )
+                                }
+                                Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.Transparent) {
+                                    ComposeDesktopRoot(context, observed, messages)
+                                    message.value?.let { current ->
+                                        AlertDialog(
+                                            onDismissRequest = { message.value = null },
+                                            title = { Text(current.title) },
+                                            text = { Text(current.message) },
+                                            confirmButton = {
+                                                TextButton(onClick = { message.value = null }) {
+                                                    Text(ComposeMessages(context).plugin("gui.compose.ok"))
+                                                }
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -324,7 +352,7 @@ private fun TrayPopup(
     onSelect: (DesktopUiDocument.TrayItem) -> Unit,
 ) {
     val height = tray.items().sumOf {
-        if (it.role() == DesktopUiDocument.TrayItemRole.SEPARATOR) 9 else 44
+        if (it.role() == DesktopUiDocument.TrayItemRole.SEPARATOR) 9 else 48
     } + 24
     Window(
         onCloseRequest = onDismiss,
@@ -359,31 +387,26 @@ private fun TrayPopup(
             Box(Modifier.fillMaxSize().padding(8.dp)) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 10.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shadowElevation = 8.dp,
                 ) {
                     Column(Modifier.fillMaxSize().padding(vertical = 4.dp)) {
                         tray.items().forEach { item ->
                             if (item.role() == DesktopUiDocument.TrayItemRole.SEPARATOR) {
                                 HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                             } else {
-                                TextButton(
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            messages.resolve(item.label()),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
                                     onClick = { onSelect(item) },
-                                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp),
-                                ) {
-                                    Text(
-                                        messages.resolve(item.label()),
-                                        Modifier.fillMaxWidth(),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        textAlign = TextAlign.Start,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             }
                         }
                     }
@@ -464,6 +487,7 @@ private class ComposeShortcutDispatcher(private val context: DesktopUiContext) :
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun ComposeDesktopRoot(
     context: DesktopUiContext,
@@ -484,58 +508,92 @@ private fun ComposeDesktopRoot(
         retainedPageIds.addAll(pageIds)
     }
 
-    BoxWithConstraints(
-        Modifier.fillMaxSize().background(
-            Brush.linearGradient(listOf(
-                MaterialTheme.colorScheme.background,
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .72f),
-            )),
-        ),
-    ) {
-        val compact = maxWidth < 960.dp
-        val navigationWidth = if (compact) 128.dp else 220.dp
-        Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Row(Modifier.fillMaxSize()) {
             NavigationPanel(
                 applicationName = context.applicationName(),
                 document = document,
                 selected = activePage,
-                compact = compact,
                 messages = messages,
-                modifier = Modifier.width(navigationWidth).fillMaxHeight(),
+                modifier = Modifier.width(104.dp).fillMaxHeight(),
                 onSelect = { selected = it },
             )
-            Surface(
+            VerticalDivider(
+                modifier = Modifier.fillMaxHeight(),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+            val currentPage = document.pages().first { it.id() == activePage }
+            var floatingActionExpanded by remember(activePage) { mutableStateOf(false) }
+            Scaffold(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
-                shadowElevation = 1.dp,
-            ) {
-                Column(Modifier.fillMaxSize()) {
-                    ControlCenterTopBar(
-                        title = messages.resolve(document.pages().first { it.id() == activePage }.title()),
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    AnimatedContent(
-                        targetState = activePage,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        transitionSpec = {
-                            val direction = if (pageIds.indexOf(targetState) >= pageIds.indexOf(initialState)) 1 else -1
-                            (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { direction * it / 18 })
-                                .togetherWith(fadeOut(tween(140)) +
-                                        slideOutHorizontally(tween(200)) { -direction * it / 24 })
-                        },
-                        contentKey = { it },
-                    ) { pageId ->
-                        pageStates.SaveableStateProvider(pageId) {
-                            ComposeDesktopUiNodeRenderer.Render(
-                                document.pages().first { it.id() == pageId }.content(),
-                                messages::resolve,
-                                { event -> context.dispatchEvent(snapshot, event) },
-                                Modifier.fillMaxSize(),
-                                documentRevision,
-                            )
+                topBar = { ControlCenterTopBar(title = messages.resolve(currentPage.title())) },
+                floatingActionButton = {
+                    currentPage.floatingAction().orElse(null)?.let { action ->
+                        val label = (action as? DesktopUiNode.Container)?.children()
+                            ?.filterIsInstance<DesktopUiNode.Text>()?.firstOrNull()
+                            ?.let { messages.resolve(it.text()) }
+                            ?: messages.resolve(currentPage.title())
+                        Box(
+                            Modifier
+                                .onPointerEvent(PointerEventType.Enter) { floatingActionExpanded = true }
+                                .onPointerEvent(PointerEventType.Exit) { floatingActionExpanded = false },
+                            contentAlignment = Alignment.BottomEnd,
+                        ) {
+                            AnimatedContent(
+                                targetState = floatingActionExpanded,
+                                contentAlignment = Alignment.BottomEnd,
+                                transitionSpec = { fadeIn(tween(160)).togetherWith(fadeOut(tween(100))) },
+                                contentKey = { it },
+                            ) { expanded ->
+                                if (expanded) {
+                                    Surface(
+                                        modifier = Modifier.width(380.dp),
+                                        shape = MaterialTheme.shapes.extraLarge,
+                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        shadowElevation = 6.dp,
+                                    ) {
+                                        ComposeDesktopUiNodeRenderer.Render(
+                                            action,
+                                            messages::resolve,
+                                            { event -> context.dispatchEvent(snapshot, event) },
+                                            Modifier.padding(16.dp),
+                                            documentRevision,
+                                        )
+                                    }
+                                } else {
+                                    FloatingActionButton(
+                                        onClick = { floatingActionExpanded = true },
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    ) {
+                                        Icon(Icons.Default.Apps, contentDescription = label)
+                                    }
+                                }
+                            }
                         }
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.background,
+            ) { contentPadding ->
+                AnimatedContent(
+                    targetState = activePage,
+                    modifier = Modifier.fillMaxSize().padding(contentPadding),
+                    transitionSpec = {
+                        val direction = if (pageIds.indexOf(targetState) >= pageIds.indexOf(initialState)) 1 else -1
+                        (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { direction * it / 18 })
+                            .togetherWith(fadeOut(tween(140)) +
+                                    slideOutHorizontally(tween(200)) { -direction * it / 24 })
+                    },
+                    contentKey = { it },
+                ) { pageId ->
+                    pageStates.SaveableStateProvider(pageId) {
+                        ComposeDesktopUiNodeRenderer.Render(
+                            document.pages().first { it.id() == pageId }.content(),
+                            messages::resolve,
+                            { event -> context.dispatchEvent(snapshot, event) },
+                            Modifier.fillMaxSize(),
+                            documentRevision,
+                        )
                     }
                 }
             }
@@ -544,24 +602,25 @@ private fun ComposeDesktopRoot(
     document.dialogs().forEach { dialog -> DocumentDialog(dialog, snapshot, messages, context) }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ControlCenterTopBar(
     title: String,
 ) {
-    Row(
-        Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            title,
-            Modifier.weight(1f),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+    TopAppBar(
+        title = {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    )
 }
 
 internal fun selectedIdOrFirst(selectedId: String, orderedIds: List<String>): String =
@@ -575,87 +634,100 @@ private fun NavigationPanel(
     applicationName: String,
     document: DesktopUiDocument,
     selected: String,
-    compact: Boolean,
     messages: ComposeMessages,
     modifier: Modifier,
     onSelect: (String) -> Unit,
 ) {
-    Column(
-        modifier = modifier.selectableGroup().padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = RoundedCornerShape(13.dp),
-                color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 3.dp,
+    NavigationRail(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        header = {
+            FloatingActionButton(
+                onClick = { onSelect(document.pages().first().id()) },
+                modifier = Modifier.size(48.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        applicationInitials(applicationName),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                Text(
+                    applicationInitials(applicationName),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-            if (!compact) Text(
-                applicationName,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        Box(Modifier.height(4.dp))
+            Box(Modifier.height(12.dp))
+        },
+    ) {
         document.pages().forEach { page ->
             val title = messages.resolve(page.title())
-            val active = page.id() == selected
-            val container by androidx.compose.animation.animateColorAsState(
-                if (active) MaterialTheme.colorScheme.primaryContainer
-                else Color.Transparent,
-                tween(180),
-            )
-            val elevation by animateDpAsState(if (active) 1.dp else 0.dp, tween(180))
-            val indicatorAlpha by animateFloatAsState(if (active) 1f else 0f, tween(160))
-            Surface(
-                modifier = Modifier.fillMaxWidth().height(40.dp)
-                    .selectable(active, role = Role.Tab) { onSelect(page.id()) },
-                shape = RoundedCornerShape(14.dp),
-                color = container,
-                tonalElevation = elevation,
-            ) {
-                Row(
-                    Modifier.fillMaxSize().padding(end = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Box(
-                        Modifier.width(3.dp).height(22.dp).alpha(indicatorAlpha)
-                            .graphicsLayer { clip = true; shape = RoundedCornerShape(2.dp) }
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
+            NavigationRailItem(
+                selected = page.id() == selected,
+                onClick = { onSelect(page.id()) },
+                icon = {
+                    Icon(desktopIcon(page.icon()), contentDescription = title)
+                },
+                label = {
                     Text(
                         title,
-                        Modifier.weight(1f),
-                        color = if (active) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Start,
+                    )
+                },
+                alwaysShowLabel = true,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FrameWindowScope.WindowsTitleBar(
+    title: String,
+    windowState: WindowState,
+    minimizeLabel: String,
+    maximizeLabel: String,
+    restoreLabel: String,
+    closeLabel: String,
+    onClose: () -> Unit,
+) {
+    BorderlessTitleBarScaffold(windowState) {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ) {
+            Row(
+                Modifier.fillMaxWidth().height(40.dp)
+                    .windowDragArea(helper),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    title,
+                    Modifier.weight(1f).padding(start = 16.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                IconButton(
+                    onClick = { minimize() },
+                    modifier = Modifier.width(46.dp).fillMaxHeight().windowMinimizeButton(helper),
+                ) { Icon(Icons.Default.Minimize, contentDescription = minimizeLabel) }
+                IconButton(
+                    onClick = { toggleMaximize() },
+                    modifier = Modifier.width(46.dp).fillMaxHeight().windowMaximizeButton(helper),
+                ) {
+                    Icon(
+                        if (isMaximized) Icons.Default.FilterNone else Icons.Default.CropSquare,
+                        contentDescription = if (isMaximized) restoreLabel else maximizeLabel,
                     )
                 }
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.width(46.dp).fillMaxHeight().windowCloseButton(helper),
+                ) { Icon(Icons.Default.Close, contentDescription = closeLabel) }
             }
         }
     }
 }
+
+private fun isWindows(): Boolean = System.getProperty("os.name").contains("Windows", ignoreCase = true)
 
 internal fun applicationInitials(name: String): String {
     val capitals = name.filter(Char::isUpperCase).take(2)
@@ -701,6 +773,10 @@ private val LightColors = lightColorScheme(
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFD1EEF2),
     onSecondaryContainer = Color(0xFF123E45),
+    tertiary = Color(0xFF75546F),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFFFD7F5),
+    onTertiaryContainer = Color(0xFF2C122A),
     background = Color(0xFFF4F6FB),
     onBackground = Color(0xFF1A1C22),
     surface = Color(0xFFFDFBFF),
@@ -709,6 +785,11 @@ private val LightColors = lightColorScheme(
     onSurfaceVariant = Color(0xFF454750),
     outline = Color(0xFF757780),
     outlineVariant = Color(0xFFC6C9D2),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color(0xFFF7F8FD),
+    surfaceContainer = Color(0xFFF0F2F8),
+    surfaceContainerHigh = Color(0xFFEAEFF5),
+    surfaceContainerHighest = Color(0xFFE4E7ED),
     error = Color(0xFFBA1A1A),
 )
 
@@ -721,6 +802,10 @@ private val DarkColors = darkColorScheme(
     onSecondary = Color(0xFF00363D),
     secondaryContainer = Color(0xFF174E56),
     onSecondaryContainer = Color(0xFFB7EAF2),
+    tertiary = Color(0xFFE5BAD9),
+    onTertiary = Color(0xFF432740),
+    tertiaryContainer = Color(0xFF5C3D57),
+    onTertiaryContainer = Color(0xFFFFD7F5),
     background = Color(0xFF111318),
     onBackground = Color(0xFFE3E2E8),
     surface = Color(0xFF191B20),
@@ -729,6 +814,11 @@ private val DarkColors = darkColorScheme(
     onSurfaceVariant = Color(0xFFC6C6D0),
     outline = Color(0xFF90919B),
     outlineVariant = Color(0xFF44464F),
+    surfaceContainerLowest = Color(0xFF0C0E13),
+    surfaceContainerLow = Color(0xFF191B20),
+    surfaceContainer = Color(0xFF1D2025),
+    surfaceContainerHigh = Color(0xFF282A2F),
+    surfaceContainerHighest = Color(0xFF33353A),
     error = Color(0xFFFFB4AB),
 )
 
@@ -778,10 +868,11 @@ private val DesktopTypography = Typography(
 )
 
 private val DesktopShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
     small = RoundedCornerShape(8.dp),
     medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(24.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 @Composable
