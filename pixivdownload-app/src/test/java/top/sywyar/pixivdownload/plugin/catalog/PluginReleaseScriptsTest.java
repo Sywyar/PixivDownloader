@@ -144,6 +144,7 @@ class PluginReleaseScriptsTest {
                 "^flatlaf-[0-9].*\\.jar$",
                 "^jna-[0-9].*\\.jar$",
                 "^ui-desktop-[0-9].*\\.jar$",
+                "^material-icons-extended-desktop-[0-9].*\\.jar$",
                 "^skiko-awt-runtime-linux-arm64-[0-9].*\\.jar$",
                 "Plugin jar is not thin - found private lib/*.jar entries");
         assertThat(common).doesNotContain("Format = \"zip\"");

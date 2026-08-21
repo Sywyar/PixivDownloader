@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPageContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
@@ -119,13 +120,19 @@ class AppDesktopUiHostDocumentTest {
 
         assertThat(controlCenter.pages()).extracting(DesktopUiDocument.Page::id)
                 .containsExactly("home", "automation", "plugins", "tools", "security", "settings", "about");
+        assertThat(controlCenter.pages()).extracting(DesktopUiDocument.Page::icon)
+                .containsExactly(DesktopUiIcon.HOME, DesktopUiIcon.AUTOMATION, DesktopUiIcon.PLUGIN,
+                        DesktopUiIcon.TOOLS, DesktopUiIcon.SECURITY, DesktopUiIcon.SETTINGS,
+                        DesktopUiIcon.ABOUT);
         assertThat(nodes(controlCenter)).extracting(DesktopUiNode::id)
                 .contains("home.greeting", "home.hero", "home.system", "home.metrics",
                         "home.quick-start", "home.running", "home.storage",
                         "plugins.layout", "plugins.grid", "tools.layout", "tools.quick.grid",
                         "tools.maintenance.grid", "settings.layout", "settings.categories",
                         "settings.content", "settings.summary",
-                        "about.name", "about.docs", "about.update.check");
+                        "about.name", "about.links", "about.docs", "about.contributors",
+                        "about.update.check");
+        assertThat(controlCenter.pages().get(0).floatingAction()).isPresent();
     }
 
     @Test
@@ -345,6 +352,17 @@ class AppDesktopUiHostDocumentTest {
                 .filter(node -> "home.quick-start.grid".equals(node.id())).findFirst().orElseThrow();
         assertThat(quickStart.layout()).isEqualTo(DesktopUiNode.ContainerLayout.GRID);
         assertThat(quickStart.columns()).isEqualTo(2);
+        DesktopUiDocument.Page home = document.pages().stream()
+                .filter(page -> "home".equals(page.id())).findFirst().orElseThrow();
+        assertThat(home.floatingAction()).isPresent();
+        assertThat(nodes(document).stream()
+                .filter(DesktopUiNode.Surface.class::isInstance)
+                .map(DesktopUiNode.Surface.class::cast)
+                .filter(surface -> surface.id().startsWith("home.quick-start.")))
+                .isEmpty();
+        assertThat(AppDesktopUiModel.indexEventEndpoints(document).keySet())
+                .contains("home.quick-start.a-valid.a-valid.button",
+                        "home.quick-start.z-valid.z-valid.button");
     }
 
     @Test
@@ -725,6 +743,22 @@ class AppDesktopUiHostDocumentTest {
         AppDesktopUiModel controlCenter = model(DesktopUiExperienceProfile.CONTROL_CENTER);
         assertThat(nodes(controlCenter.snapshot().document())).extracting(DesktopUiNode::id)
                 .contains("tools.layout", "tools.quick.grid", "tools.maintenance.grid");
+        DesktopUiNode.Container layout = nodes(controlCenter.snapshot().document()).stream()
+                .filter(DesktopUiNode.Container.class::isInstance).map(DesktopUiNode.Container.class::cast)
+                .filter(node -> "tools.layout".equals(node.id())).findFirst().orElseThrow();
+        assertThat(layout.children()).extracting(DesktopUiNode::id)
+                .containsExactly("tools.quick.title", "tools.quick.row",
+                        "tools.maintenance.title", "tools.maintenance.row");
+        DesktopUiNode.AdaptiveGrid quickRow = nodes(controlCenter.snapshot().document()).stream()
+                .filter(DesktopUiNode.AdaptiveGrid.class::isInstance).map(DesktopUiNode.AdaptiveGrid.class::cast)
+                .filter(node -> "tools.quick.row".equals(node.id())).findFirst().orElseThrow();
+        assertThat(quickRow.children()).extracting(DesktopUiNode::id)
+                .containsExactly("tools.quick.grid", "tools.overview");
+        DesktopUiNode.AdaptiveGrid maintenanceRow = nodes(controlCenter.snapshot().document()).stream()
+                .filter(DesktopUiNode.AdaptiveGrid.class::isInstance).map(DesktopUiNode.AdaptiveGrid.class::cast)
+                .filter(node -> "tools.maintenance.row".equals(node.id())).findFirst().orElseThrow();
+        assertThat(maintenanceRow.children()).extracting(DesktopUiNode::id)
+                .containsExactly("tools.maintenance.grid", "tools.history");
         DesktopUiNode.Table table = nodes(controlCenter.snapshot().document()).stream()
                 .filter(DesktopUiNode.Table.class::isInstance).map(DesktopUiNode.Table.class::cast)
                 .filter(node -> "tools.history.table".equals(node.id())).findFirst().orElseThrow();
@@ -1282,6 +1316,10 @@ class AppDesktopUiHostDocumentTest {
         document.pages().forEach(page -> {
             collectIds(page.content(), ids);
             collectTokens(page.content(), tokens);
+            page.floatingAction().ifPresent(node -> {
+                collectIds(node, ids);
+                collectTokens(node, tokens);
+            });
         });
 
         assertThat(ids).contains(
@@ -1642,7 +1680,10 @@ class AppDesktopUiHostDocumentTest {
 
     private static List<DesktopUiNode> nodes(DesktopUiDocument document) {
         List<DesktopUiNode> nodes = new ArrayList<>();
-        document.pages().forEach(page -> collectNodes(page.content(), nodes));
+        document.pages().forEach(page -> {
+            collectNodes(page.content(), nodes);
+            page.floatingAction().ifPresent(node -> collectNodes(node, nodes));
+        });
         document.dialogs().forEach(dialog -> collectNodes(dialog.content(), nodes));
         return nodes;
     }
@@ -1727,6 +1768,7 @@ class AppDesktopUiHostDocumentTest {
         document.pages().forEach(page -> {
             tokens.add(page.title());
             collectTokens(page.content(), tokens);
+            page.floatingAction().ifPresent(node -> collectTokens(node, tokens));
         });
         document.dialogs().forEach(dialog -> {
             tokens.add(dialog.title());

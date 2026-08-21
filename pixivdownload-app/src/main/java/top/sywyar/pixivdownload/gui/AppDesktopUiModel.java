@@ -430,15 +430,16 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                     Map<String, ConfigField> nextBindings,
                                     Map<String, Consumer<List<String>>> nextSelections,
                                     Map<String, Runnable> nextActions) {
-        if (!host.onboardingState(rootFolder).complete()) pages.add(page("welcome", welcomePage(nextActions),
+        if (!host.onboardingState(rootFolder).complete()) pages.add(page("welcome", DesktopUiIcon.HOME,
+                welcomePage(nextActions),
                 new DesktopUiNode.Insets(24, 32, 24, 32)));
-        pages.add(page("status", statusPage(nextActions)));
-        pages.add(page("config", configPage(nextBindings, nextSelections, nextActions),
+        pages.add(page("status", DesktopUiIcon.INFO, statusPage(nextActions)));
+        pages.add(page("config", DesktopUiIcon.SETTINGS, configPage(nextBindings, nextSelections, nextActions),
                 DesktopUiNode.Insets.NONE));
-        pages.add(page("plugins", pluginsPage(nextActions)));
-        pages.add(page("tools", toolsPage(nextActions)));
-        pages.add(page("security", securityPage(nextActions)));
-        pages.add(page("about", aboutPage(nextActions)));
+        pages.add(page("plugins", DesktopUiIcon.PLUGIN, pluginsPage(nextActions)));
+        pages.add(page("tools", DesktopUiIcon.TOOLS, toolsPage(nextActions)));
+        pages.add(page("security", DesktopUiIcon.SECURITY, securityPage(nextActions)));
+        pages.add(page("about", DesktopUiIcon.ABOUT, aboutPage(nextActions)));
     }
 
     private void appendControlCenterPages(List<DesktopUiDocument.Page> pages,
@@ -446,18 +447,19 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                           Map<String, Consumer<List<String>>> nextSelections,
                                           Map<String, Runnable> nextActions) {
         DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
-        pages.add(page("home", onboarding.complete()
-                ? homePage(nextActions) : controlCenterWelcomePage(onboarding, nextActions)));
-        pages.add(page("automation", automationPage()));
-        pages.add(page("plugins", controlCenterPluginsPage()));
-        pages.add(page("tools", controlCenterToolsPage(nextActions)));
-        pages.add(page("security", securityPage(nextActions)));
-        pages.add(page("settings", controlCenterConfigPage(nextBindings, nextSelections, nextActions),
+        pages.add(onboarding.complete() ? homePage(nextActions)
+                : page("home", DesktopUiIcon.HOME, controlCenterWelcomePage(onboarding, nextActions)));
+        pages.add(page("automation", DesktopUiIcon.AUTOMATION, automationPage()));
+        pages.add(page("plugins", DesktopUiIcon.PLUGIN, controlCenterPluginsPage()));
+        pages.add(page("tools", DesktopUiIcon.TOOLS, controlCenterToolsPage(nextActions)));
+        pages.add(page("security", DesktopUiIcon.SECURITY, securityPage(nextActions)));
+        pages.add(page("settings", DesktopUiIcon.SETTINGS,
+                controlCenterConfigPage(nextBindings, nextSelections, nextActions),
                 DesktopUiNode.Insets.NONE));
-        pages.add(page("about", aboutPage(nextActions)));
+        pages.add(page("about", DesktopUiIcon.ABOUT, aboutPage(nextActions)));
     }
 
-    private DesktopUiNode homePage(Map<String, Runnable> nextActions) {
+    private DesktopUiDocument.Page homePage(Map<String, Runnable> nextActions) {
         List<DesktopUiHost.GuiValue> runningTasks = values(controlCenterSnapshot.path("runningTasks"));
         DesktopUiNode heroContent = runningTasks.isEmpty()
                 ? text("home.hero.empty", "desktop.ui.home.running.empty", TextStyle.CAPTION)
@@ -499,9 +501,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             String base = "home.quick-start." + safeId(entry.owner()) + "." + safeId(navigation.id());
             String action = base + ".open";
             nextActions.put(action, () -> openWeb(navigation.href()));
-            quickStarts.add(new DesktopUiNode.Surface(base, DesktopUiNode.SurfaceStyle.CARD,
-                    new DesktopUiNode.Insets(10, 12, 10, 12), true,
-                    row(base + ".content",
+            quickStarts.add(new DesktopUiNode.Container(base, ContainerLayout.ROW, 1, 8,
+                    Alignment.CENTER, List.of(
                             new DesktopUiNode.Icon(base + ".icon", quickStartIcon(navigation.icon()),
                                     DesktopUiTone.INFO,
                                     token(navigation.labelNamespace(), navigation.labelI18nKey(), navigation.id())),
@@ -522,15 +523,18 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
         int hour = LocalTime.now().getHour();
         String greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
-        return scroll("home.scroll", column("home.content",
+        DesktopUiNode content = scroll("home.scroll", column("home.content",
                 text("home.greeting", "desktop.ui.home.greeting." + greeting, TextStyle.TITLE),
                 new DesktopUiNode.AdaptiveGrid("home.overview", 280, 2, 14, 14, List.of(hero, system)),
                 group("home.metrics-section", "desktop.ui.home.metrics.title",
                         new DesktopUiNode.PagedRow("home.metrics",
                                 DesktopUiNode.PagedRow.FIXED_ITEMS_PER_PAGE, 12, metrics)),
-                new DesktopUiNode.AdaptiveGrid("home.activity", 300, 2, 14, 14, List.of(
-                        group("home.quick-start", "desktop.ui.home.quick-start.title", quickStartContent),
-                        group("home.running", "desktop.ui.home.running.title", runningContent)))));
+                group("home.running", "desktop.ui.home.running.title", runningContent)));
+        DesktopUiNode floatingAction = column("home.quick-start",
+                text("home.quick-start.title", "desktop.ui.home.quick-start.title", TextStyle.HEADING),
+                quickStartContent);
+        return page("home", DesktopUiIcon.HOME, content,
+                new DesktopUiNode.Insets(16, 24, 16, 24), floatingAction);
     }
 
     private DesktopUiNode dashboardCard(String base, DesktopUiHost.GuiValue card,
@@ -731,6 +735,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         for (DesktopUiDocument.Page page : pages) {
             diagnostics.addAll(compatibilityDiagnostics(null, "page", page.id(), page.content(),
                     candidateRevision, "desktop.ui.compatibility.core-unavailable"));
+            page.floatingAction().ifPresent(action -> diagnostics.addAll(compatibilityDiagnostics(
+                    null, "page-floating-action", page.id(), action,
+                    candidateRevision, "desktop.ui.compatibility.core-unavailable")));
         }
         for (DesktopUiDocument.Dialog dialog : dialogs) {
             diagnostics.addAll(compatibilityDiagnostics(null, "dialog", dialog.id(), dialog.content(),
@@ -864,7 +871,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     static Map<String, EventEndpoint> indexEventEndpoints(DesktopUiDocument document) {
         Map<String, EventEndpoint> endpoints = new LinkedHashMap<>();
-        document.pages().forEach(page -> indexNode(page.content(), endpoints));
+        document.pages().forEach(page -> {
+            indexNode(page.content(), endpoints);
+            page.floatingAction().ifPresent(node -> indexNode(node, endpoints));
+        });
         for (DesktopUiDocument.Dialog dialog : document.dialogs()) {
             indexNode(dialog.content(), endpoints);
             if (dialog.dismissible()) putEventEndpoint(endpoints, dialog.id(), new EventEndpoint(
@@ -1033,14 +1043,20 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         rebuild();
     }
 
-    private DesktopUiDocument.Page page(String id, DesktopUiNode content) {
-        return page(id, content, new DesktopUiNode.Insets(16, 24, 16, 24));
+    private DesktopUiDocument.Page page(String id, DesktopUiIcon icon, DesktopUiNode content) {
+        return page(id, icon, content, new DesktopUiNode.Insets(16, 24, 16, 24));
     }
 
-    private DesktopUiDocument.Page page(String id, DesktopUiNode content, DesktopUiNode.Insets padding) {
-        return new DesktopUiDocument.Page(id, key("desktop.ui.page." + id),
+    private DesktopUiDocument.Page page(String id, DesktopUiIcon icon, DesktopUiNode content,
+                                        DesktopUiNode.Insets padding) {
+        return page(id, icon, content, padding, null);
+    }
+
+    private DesktopUiDocument.Page page(String id, DesktopUiIcon icon, DesktopUiNode content,
+                                        DesktopUiNode.Insets padding, DesktopUiNode floatingAction) {
+        return new DesktopUiDocument.Page(id, key("desktop.ui.page." + id), icon,
                 new DesktopUiNode.Surface(id + ".page", DesktopUiNode.SurfaceStyle.PLAIN,
-                        padding, true, true, content));
+                        padding, true, true, content), Optional.ofNullable(floatingAction));
     }
 
     private DesktopUiDocument.Dialog dialog(DialogState state, Map<String, Runnable> nextActions) {
@@ -2811,16 +2827,21 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
 
     private DesktopUiNode controlCenterToolsPage(Map<String, Runnable> nextActions) {
         List<DesktopUiNode> cards = toolCards(nextActions, true);
-        DesktopUiNode main = column("tools.workbench",
+        DesktopUiNode quick = new DesktopUiNode.AdaptiveGrid("tools.quick.row", 360, 2, 16, 16,
+                List.of(
+                        new DesktopUiNode.AdaptiveGrid("tools.quick.grid", 260, 2, 12, 12,
+                                List.of(cards.get(2), cards.get(3))),
+                        cards.get(0)));
+        DesktopUiNode maintenance = new DesktopUiNode.AdaptiveGrid("tools.maintenance.row", 360, 2, 16, 16,
+                List.of(
+                        new DesktopUiNode.AdaptiveGrid("tools.maintenance.grid", 320, 2, 12, 12,
+                                List.of(cards.get(4), cards.get(5))),
+                        cards.get(1)));
+        return scroll("tools.scroll", column("tools.layout",
                 text("tools.quick.title", "desktop.ui.tools.quick.title", TextStyle.HEADING),
-                new DesktopUiNode.AdaptiveGrid("tools.quick.grid", 260, 2, 12, 12,
-                        List.of(cards.get(2), cards.get(3))),
+                quick,
                 text("tools.maintenance.title", "desktop.ui.tools.maintenance.title", TextStyle.HEADING),
-                new DesktopUiNode.AdaptiveGrid("tools.maintenance.grid", 320, 2, 12, 12,
-                        List.of(cards.get(4), cards.get(5))));
-        DesktopUiNode side = column("tools.interlock-history", cards.get(0), cards.get(1));
-        return scroll("tools.scroll", new DesktopUiNode.AdaptiveGrid(
-                "tools.layout", 360, 2, 16, 16, List.of(main, side)));
+                maintenance));
     }
 
     private List<DesktopUiNode> toolCards(Map<String, Runnable> nextActions, boolean includeHistory) {
@@ -3026,20 +3047,25 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         header.add(alignedText("about.description", controlCenter
                         ? "desktop.ui.about.description" : "gui.about.description", TextStyle.BODY,
                 DesktopUiNode.TextAlignment.CENTER));
+        List<DesktopUiNode> links = new ArrayList<>();
         String projectAction = "about.project.open";
         nextActions.put(projectAction, () -> openUri(host.projectUrl()));
-        header.add(new DesktopUiNode.Link("about.project", projectAction,
+        links.add(new DesktopUiNode.Link("about.project", projectAction,
                 controlCenter ? key("desktop.ui.about.project") : TextToken.raw(host.projectUrl()), null, true));
         if (controlCenter) {
             String releasesAction = "about.releases.open";
             nextActions.put(releasesAction, () -> openUri(AppInfo.RELEASES_URL));
-            header.add(new DesktopUiNode.Link("about.releases", releasesAction,
+            links.add(raw("about.links.project-separator", "·", TextStyle.CAPTION));
+            links.add(new DesktopUiNode.Link("about.releases", releasesAction,
                     key("desktop.ui.about.releases"), null, true));
             String docsAction = "about.docs.open";
             nextActions.put(docsAction, () -> openUri(AppInfo.DOCS_URL));
-            header.add(new DesktopUiNode.Link("about.docs", docsAction,
+            links.add(raw("about.links.releases-separator", "·", TextStyle.CAPTION));
+            links.add(new DesktopUiNode.Link("about.docs", docsAction,
                     key("desktop.ui.about.documentation"), null, true));
         }
+        header.add(new DesktopUiNode.Container("about.links", ContainerLayout.ROW, 1, 6,
+                Alignment.CENTER, links));
         header.add(new DesktopUiNode.Container("about.metadata", ContainerLayout.FLOW, 1, 12,
                 Alignment.CENTER, List.of(
                         new DesktopUiNode.Text("about.version", appToken("gui.about.version", version),
@@ -3051,10 +3077,25 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                                 TextStyle.CAPTION, false, false, DesktopUiNode.TextAlignment.CENTER))));
 
         List<DesktopUiNode> summaryContent = new ArrayList<>();
-        summaryContent.add(new DesktopUiNode.Surface("about.header", DesktopUiNode.SurfaceStyle.PLAIN,
-                        new DesktopUiNode.Insets(0, 0, 8, 0), true,
-                        new DesktopUiNode.Container("about.header.content", ContainerLayout.COLUMN,
-                                1, 6, Alignment.CENTER, header)));
+        DesktopUiNode applicationInfo = new DesktopUiNode.Surface("about.header",
+                controlCenter ? DesktopUiNode.SurfaceStyle.CARD : DesktopUiNode.SurfaceStyle.PLAIN,
+                controlCenter ? DesktopUiNode.Insets.all(18) : new DesktopUiNode.Insets(0, 0, 8, 0),
+                true,
+                new DesktopUiNode.Container("about.header.content", ContainerLayout.COLUMN,
+                        1, 6, Alignment.CENTER, header));
+        if (controlCenter) {
+            DesktopUiNode contributors = new DesktopUiNode.Surface("about.contributors",
+                    DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(18), true,
+                    column("about.contributors.content",
+                            text("about.contributors.title", "desktop.ui.about.contributors.title",
+                                    TextStyle.HEADING),
+                            text("about.contributors.placeholder", "desktop.ui.about.contributors.placeholder",
+                                    TextStyle.SECONDARY)));
+            summaryContent.add(new DesktopUiNode.AdaptiveGrid("about.overview", 280, 2, 16, 16,
+                    List.of(applicationInfo, contributors)));
+        } else {
+            summaryContent.add(applicationInfo);
+        }
         if (controlCenter) {
             List<DesktopUiNode> updates = new ArrayList<>();
             if (pendingOfficialUpdate != null) {
@@ -5516,7 +5557,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             pageDiagnostics.forEach(diagnostic -> logCompatibility(diagnostic, false));
             DesktopUiDocument.Page page = pageDiagnostics.isEmpty()
                     ? new DesktopUiDocument.Page(
-                            contribution.pageId(), contribution.title(), contribution.content())
+                            contribution.pageId(), contribution.title(), DesktopUiIcon.PLUGIN,
+                            contribution.content())
                     : incompatiblePluginPage(contribution);
             Set<String> acceptedActions = new LinkedHashSet<>();
             if (pageDiagnostics.isEmpty()) collectPluginActions(contribution.content(), acceptedActions);
@@ -5585,7 +5627,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                         new DesktopUiNode.Text(base + ".message",
                                 key("desktop.ui.compatibility.page-unavailable"),
                                 TextStyle.BODY, true, true)));
-        return new DesktopUiDocument.Page(contribution.pageId(), contribution.title(), content);
+        return new DesktopUiDocument.Page(
+                contribution.pageId(), contribution.title(), DesktopUiIcon.PLUGIN, content);
     }
 
     private CompatibilityNotice compatibilityNotice(PluginPageCandidate candidate,

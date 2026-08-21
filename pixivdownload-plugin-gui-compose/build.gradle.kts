@@ -25,6 +25,17 @@ abstract class VerifyPluginArtifact : DefaultTask() {
             }
             check(entries.any { it.startsWith("lib/ui-desktop-") }) { "Compose UI runtime is missing" }
             check(entries.any { it.startsWith("lib/material3-desktop-") }) { "Material 3 runtime is missing" }
+            check(entries.any { it.startsWith("lib/material-icons-extended-desktop-") }) {
+                "Material icon runtime is missing"
+            }
+            check(entries.any { it.startsWith("lib/jna-") }) { "JNA runtime is missing" }
+            check(entries.any { it.startsWith("lib/jna-platform-") }) { "JNA Platform runtime is missing" }
+            check("cn/longzhengyi/windowsdecoration/BorderlessTitleBarScaffoldKt.class" in entries) {
+                "Windows decoration implementation is missing"
+            }
+            check("META-INF/licenses/ComposeWindowsDecoration-LICENSE.txt" in entries) {
+                "Windows decoration license is missing"
+            }
             val classOwners = mutableMapOf<String, MutableList<String>>()
             zip.entries().asSequence().filter { it.name.startsWith("lib/") && it.name.endsWith(".jar") }
                 .forEach { library ->
@@ -132,8 +143,11 @@ dependencies {
         compileOnly("org.pf4j:pf4j:$version") { isTransitive = false }
     }
     implementation(compose.desktop.currentOs)
+    implementation(compose.materialIconsExtended)
     val material3Version = providers.gradleProperty("composeMaterial3Version").get()
     implementation("org.jetbrains.compose.material3:material3:$material3Version")
+    implementation("net.java.dev.jna:jna:5.17.0")
+    implementation("net.java.dev.jna:jna-platform:5.17.0")
     val skikoVersion = providers.gradleProperty("skikoVersion").get()
     runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-x64:$skikoVersion")
     runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-arm64:$skikoVersion")

@@ -97,6 +97,9 @@ function Get-OfficialOptionalPlugins {
             ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
             RequiredLibPatterns = @(
                 "^ui-desktop-[0-9].*\.jar$",
+                "^material-icons-extended-desktop-[0-9].*\.jar$",
+                "^jna-[0-9].*\.jar$",
+                "^jna-platform-[0-9].*\.jar$",
                 "^skiko-awt-[0-9].*\.jar$",
                 "^skiko-awt-runtime-windows-x64-[0-9].*\.jar$",
                 "^skiko-awt-runtime-windows-arm64-[0-9].*\.jar$",

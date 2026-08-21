@@ -1,0 +1,4 @@
+This product includes ComposeWindowsDecoration borderless-titlebar sources.
+Source: https://github.com/long-zhengyi/ComposeWindowsDecoration
+Revision: f1aa3691fec439cc373053a805cea3fd9ed1d9c1
+License: Apache License 2.0
