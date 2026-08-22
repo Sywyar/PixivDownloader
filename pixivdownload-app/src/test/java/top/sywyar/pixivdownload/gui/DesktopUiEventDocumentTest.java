@@ -239,8 +239,9 @@ class DesktopUiEventDocumentTest extends DesktopUiDocumentTestSupport {
 
     @Test
     @DisplayName("禁用节点的重复事件不会执行业务动作")
-    void disabledNodeEventsAreRejectedBeforeDispatch() {
+    void disabledNodeEventsAreRejectedBeforeDispatch() throws InterruptedException {
         AppDesktopUiModel model = model();
+        awaitButtonEnabled(model, "config.reset");
         DesktopUiNode.Button disabled = nodes(model.snapshot().document()).stream().filter(
                 DesktopUiNode.Button.class::isInstance).map(DesktopUiNode.Button.class::cast).filter(
                 button -> !button.enabled()).findFirst().orElseThrow();
