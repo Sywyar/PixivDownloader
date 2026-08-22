@@ -266,8 +266,9 @@ class DesktopUiEventDocumentTest extends DesktopUiDocumentTestSupport {
 
     @Test
     @DisplayName("当前文档拒绝伪造选项和值类型")
-    void currentDocumentRejectsForgedOptionsAndValueKinds() {
+    void currentDocumentRejectsForgedOptionsAndValueKinds() throws InterruptedException {
         AppDesktopUiModel model = model();
+        awaitButtonEnabled(model, "config.reset");
         DesktopUiNode.Choice language = nodes(model.snapshot().document()).stream().filter(
                 DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast).filter(
                 choice -> "interface.language.input".equals(choice.id())).findFirst().orElseThrow();
