@@ -160,8 +160,8 @@ class ConfigItemTemplateCoverageGuardTest {
     private static Set<String> guiFieldKeys() {
         try {
             String source = Files.readString(Path.of(
-                    "src/main/java/top/sywyar/pixivdownload/gui/AppDesktopUiModel.java"), StandardCharsets.UTF_8);
-            Matcher matcher = Pattern.compile("core\\(\"([^\"]+)\"").matcher(source);
+                    "src/main/java/top/sywyar/pixivdownload/gui/DesktopCoreConfigCatalog.java"), StandardCharsets.UTF_8);
+            Matcher matcher = Pattern.compile("core\\(\\s*\"([^\"]+)\"").matcher(source);
             Set<String> keys = new TreeSet<>();
             while (matcher.find()) keys.add(matcher.group(1));
             for (String day : Set.of("monday", "tuesday", "wednesday", "thursday",
@@ -171,7 +171,7 @@ class ConfigItemTemplateCoverageGuardTest {
             }
             return keys;
         } catch (java.io.IOException failure) {
-            throw new IllegalStateException("无法读取 AppDesktopUiModel Schema", failure);
+            throw new IllegalStateException("无法读取桌面核心配置目录", failure);
         }
     }
 
