@@ -31,6 +31,8 @@ class GuiComposePlugin : PixivFeaturePlugin, DesktopUiProvider {
         DesktopUiCapability.TREE_EXPAND_COLLAPSE,
         DesktopUiCapability.LAYOUT_ADAPTIVE_GRID,
         DesktopUiCapability.PAGED_ROW_SNAP_NAVIGATION,
+        DesktopUiCapability.SURFACE_ACTIVATION,
+        DesktopUiCapability.IMAGE_CIRCULAR_CLIP,
     )
 
     override fun launch(context: DesktopUiContext): DesktopUiSession = ComposeDesktopUi.launch(context)

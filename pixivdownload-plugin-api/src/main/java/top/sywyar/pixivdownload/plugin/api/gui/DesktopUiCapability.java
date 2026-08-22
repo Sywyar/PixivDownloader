@@ -25,5 +25,9 @@ public enum DesktopUiCapability {
     /** 布局可按当前可用宽度自适应列数。 */
     LAYOUT_ADAPTIVE_GRID,
     /** 横向内容按固定页容量吸附并提供键盘与无障碍翻页。 */
-    PAGED_ROW_SNAP_NAVIGATION
+    PAGED_ROW_SNAP_NAVIGATION,
+    /** 整张语义表面可以作为单一命令区域激活。 */
+    SURFACE_ACTIVATION,
+    /** 图像可以裁剪为圆形边界。 */
+    IMAGE_CIRCULAR_CLIP
 }

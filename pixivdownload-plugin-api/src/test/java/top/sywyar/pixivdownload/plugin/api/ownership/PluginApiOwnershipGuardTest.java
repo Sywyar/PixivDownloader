@@ -298,6 +298,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.document.DesktopUiNode$Icon",
             API_PREFIX + "gui.document.DesktopUiNode$Image",
             API_PREFIX + "gui.document.DesktopUiNode$ImageData",
+            API_PREFIX + "gui.document.DesktopUiNode$ImageShape",
             API_PREFIX + "gui.document.DesktopUiNode$InputKind",
             API_PREFIX + "gui.document.DesktopUiNode$Insets",
             API_PREFIX + "gui.document.DesktopUiNode$Kind",

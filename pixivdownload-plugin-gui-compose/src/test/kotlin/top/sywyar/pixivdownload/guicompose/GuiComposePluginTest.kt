@@ -49,6 +49,8 @@ class GuiComposePluginTest {
             DesktopUiCapability.TREE_EXPAND_COLLAPSE,
             DesktopUiCapability.LAYOUT_ADAPTIVE_GRID,
             DesktopUiCapability.PAGED_ROW_SNAP_NAVIGATION,
+            DesktopUiCapability.SURFACE_ACTIVATION,
+            DesktopUiCapability.IMAGE_CIRCULAR_CLIP,
         ), plugin.supportedCapabilities())
         assertEquals("Compose Multiplatform GUI",
             ResourceBundle.getBundle("i18n.web.gui-compose", Locale.US).getString("plugin.name"))
@@ -181,7 +183,7 @@ class GuiComposePluginTest {
             DesktopUiNode.AdaptiveGrid("adaptive", 160, 4, 8, 8, listOf(text("adaptive.text"))),
             DesktopUiNode.PagedRow("paged", 4, 8, listOf(text("paged.text"))),
             DesktopUiNode.Surface("surface", DesktopUiNode.SurfaceStyle.CARD,
-                DesktopUiNode.Insets.all(8), true, text("surface.text")),
+                DesktopUiNode.Insets.all(8), true, "surface.open", text("surface.text")),
             DesktopUiNode.Group("group", raw("Group"), text("group.text")),
             DesktopUiNode.Form("form", DesktopUiNode.FormStyle.RESPONSIVE, raw(":"), listOf(
                 DesktopUiNode.FormRow("form.row", raw("Field"), raw("Help"),
@@ -191,7 +193,8 @@ class GuiComposePluginTest {
             DesktopUiNode.Scroll("scroll", text("scroll.text")),
             DesktopUiNode.Split("split", DesktopUiNode.Axis.HORIZONTAL, .5, text("split.first"), text("split.second")),
             DesktopUiNode.Icon("icon", DesktopUiIcon.HOME, DesktopUiTone.INFO, raw("Home")),
-            DesktopUiNode.Image("image", DesktopUiNode.ImageData("image/gif", PIXEL_GIF), raw("Pixel"), 16, 16, DesktopUiNode.ScaleMode.FIT),
+            DesktopUiNode.Image("image", DesktopUiNode.ImageData("image/gif", PIXEL_GIF), raw("Pixel"),
+                16, 16, DesktopUiNode.ScaleMode.FILL, DesktopUiNode.ImageShape.CIRCLE),
             DesktopUiNode.Separator("separator", DesktopUiNode.Axis.HORIZONTAL),
             DesktopUiNode.Spacer("spacer", 4, 4),
             DesktopUiNode.Progress("progress", .5, false, raw("Half")),

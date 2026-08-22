@@ -42,6 +42,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -105,6 +106,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.luminance
@@ -389,8 +391,13 @@ object ComposeDesktopUiNodeRenderer {
             node.fillHeight() -> modifier.fillMaxHeight()
             else -> modifier
         }
+        val actionId = node.actionId()
+        val interactive = if (actionId == null) sized else sized.hand(true).clickable(
+            role = Role.Button,
+            onClick = { emit(activate(node.id(), actionId)) },
+        )
         if (node.style() == DesktopUiNode.SurfaceStyle.PLAIN) {
-            Box(sized) { Node(node.content(), text, emit, contentModifier) }
+            Box(interactive) { Node(node.content(), text, emit, contentModifier) }
             return
         }
         val dark = MaterialTheme.colorScheme.background.luminance() < .5f
@@ -402,7 +409,7 @@ object ComposeDesktopUiNodeRenderer {
             DesktopUiNode.SurfaceStyle.MUTED -> MaterialTheme.colorScheme.onSurfaceVariant
             else -> MaterialTheme.colorScheme.outlineVariant
         }
-        val cardModifier = sized.animateContentSize(tween(180))
+        val cardModifier = interactive.animateContentSize(tween(180))
         val content: @Composable () -> Unit = { Node(node.content(), text, emit, contentModifier) }
         when (node.style()) {
             DesktopUiNode.SurfaceStyle.CARD -> ElevatedCard(
@@ -865,12 +872,14 @@ object ComposeDesktopUiNodeRenderer {
             DesktopUiNode.ScaleMode.FILL -> ContentScale.FillBounds
             DesktopUiNode.ScaleMode.FIT -> ContentScale.Fit
         }
+        val imageModifier = modifier.size(node.preferredWidth().dp, node.preferredHeight().dp).let {
+            if (node.shape() == DesktopUiNode.ImageShape.CIRCLE) it.clip(CircleShape) else it
+        }
         Image(
             bitmap,
             contentDescription = description,
             contentScale = scale,
-            modifier = modifier.size(node.preferredWidth().dp, node.preferredHeight().dp)
-                .semantics { contentDescription = description },
+            modifier = imageModifier.semantics { contentDescription = description },
         )
     }
 
