@@ -990,7 +990,9 @@ class OfficialPluginHostBoundaryGuardTest {
                 Set<String> sourceTypes = topLevelTypeNames(sourceCode);
                 String primaryType = source.getFileName().toString()
                         .replaceFirst("\\.(?:java|kt)$", "");
-                if (packageName.isBlank() || !sourceTypes.contains(primaryType)) {
+                if (packageName.isBlank()
+                        || (source.getFileName().toString().endsWith(".java")
+                            && !sourceTypes.contains(primaryType))) {
                     throw new IllegalStateException(
                             "Cannot derive primary " + owner + " type from "
                                     + repositoryRoot.relativize(source));
