@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
@@ -100,11 +101,15 @@ import org.slf4j.LoggerFactory;
 /** 应用拥有的完整桌面文档与事件分派器。 */
 final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(AppDesktopUiModel.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String APP_OWNER = "app";
     static final int MAX_ACTION_TEXT_CODE_POINTS = 512;
     private static final int MAX_ACTION_SUMMARY_CODE_POINTS = 2_048;
     private static final int MAX_ACTION_SUMMARY_ITEMS = 20;
     private static final Pattern SAFE_JSON_SEGMENT = Pattern.compile("[A-Za-z0-9_-]{1,64}");
+    private static final Pattern MAINTAINER_LOGIN =
+            Pattern.compile("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?");
+    private static final Pattern MAINTAINER_ROLE = Pattern.compile("[a-z0-9]+(?:-[a-z0-9]+)*");
     private static final Set<String> SENSITIVE_RESULT_MARKERS = Set.of(
             "password", "passwd", "passphrase", "secret", "token", "cookie", "session", "sessid",
             "bearer", "authorization", "credential", "privatekey", "apikey", "accesskey", "authkey",
@@ -132,6 +137,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private final Supplier<List<DesktopUiPluginSource>> pluginSources;
     private final RendererContract rendererContract;
     private final Optional<DesktopUiNode.ImageData> applicationIcon;
+    private final List<Maintainer> maintainers;
     private final String licenseText;
     private final ExecutorService worker = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable, "desktop-ui-model");
@@ -244,6 +250,7 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         this.autoStartSupported = host.autoStartSupported();
         this.autoStartEnabled = autoStartSupported && host.autoStartEnabled();
         this.applicationIcon = loadApplicationIcon();
+        this.maintainers = loadMaintainers();
         this.licenseText = loadLicenseText();
         this.backend = host.backendSnapshot();
         this.welcomeStep = initialWelcomeStep();
@@ -907,6 +914,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 value.actionId(), DesktopUiNode.EventType.ACTIVATE, value.enabled(), value);
         else if (node instanceof DesktopUiNode.Link value) endpoint = new EventEndpoint(
                 value.actionId(), DesktopUiNode.EventType.ACTIVATE, value.enabled(), value);
+        else if (node instanceof DesktopUiNode.Surface value && value.actionId() != null) {
+            endpoint = new EventEndpoint(value.actionId(), DesktopUiNode.EventType.ACTIVATE, true, value);
+        }
         if (endpoint != null) putEventEndpoint(endpoints, node.id(), endpoint);
         node.childNodes().forEach(child -> indexNode(child, endpoints));
     }
@@ -923,7 +933,8 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         if (!endpoint.enabled()) return "node is disabled";
         if (endpoint.eventType() != event.type()) return "event type does not match node";
         DesktopUiNode node = endpoint.node();
-        if (node == null || node instanceof DesktopUiNode.Button || node instanceof DesktopUiNode.Link) {
+        if (node == null || node instanceof DesktopUiNode.Button || node instanceof DesktopUiNode.Link
+                || node instanceof DesktopUiNode.Surface) {
             return event.value().kind() == DesktopUiNode.ValueKind.NONE ? null : "action carries a value";
         }
         if (node instanceof DesktopUiNode.TextInput input) {
@@ -3084,13 +3095,31 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
                 new DesktopUiNode.Container("about.header.content", ContainerLayout.COLUMN,
                         1, 6, Alignment.CENTER, header));
         if (controlCenter) {
+            List<DesktopUiNode> maintainerContent = new ArrayList<>();
+            maintainerContent.add(text("about.contributors.title", "desktop.ui.about.contributors.title",
+                    TextStyle.HEADING));
+            List<DesktopUiNode> maintainerCards = new ArrayList<>();
+            for (Maintainer maintainer : maintainers) {
+                String base = "about.maintainer." + maintainer.id();
+                String action = base + ".open";
+                nextActions.put(action, () -> openUri(maintainer.profileUrl()));
+                maintainerCards.add(new DesktopUiNode.Surface(base, DesktopUiNode.SurfaceStyle.CARD,
+                        DesktopUiNode.Insets.all(12), false, action,
+                        new DesktopUiNode.Container(base + ".content", ContainerLayout.COLUMN,
+                                1, 8, Alignment.CENTER, List.of(
+                                new DesktopUiNode.Image(base + ".avatar", maintainer.avatar(),
+                                        appToken("desktop.ui.about.maintainer.avatar-alt", maintainer.login()),
+                                        72, 72, DesktopUiNode.ScaleMode.FILL,
+                                        DesktopUiNode.ImageShape.CIRCLE),
+                                new DesktopUiNode.Text(base + ".name", TextToken.raw(maintainer.login()),
+                                        TextStyle.EMPHASIS, false, false,
+                                        DesktopUiNode.TextAlignment.CENTER)))));
+            }
+            maintainerContent.add(new DesktopUiNode.Container("about.maintainers", ContainerLayout.FLOW,
+                    1, 12, Alignment.START, maintainerCards));
             DesktopUiNode contributors = new DesktopUiNode.Surface("about.contributors",
                     DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(18), true,
-                    column("about.contributors.content",
-                            text("about.contributors.title", "desktop.ui.about.contributors.title",
-                                    TextStyle.HEADING),
-                            text("about.contributors.placeholder", "desktop.ui.about.contributors.placeholder",
-                                    TextStyle.SECONDARY)));
+                    column("about.contributors.content", maintainerContent));
             summaryContent.add(new DesktopUiNode.AdaptiveGrid("about.overview", 280, 2, 16, 16,
                     List.of(applicationInfo, contributors)));
         } else {
@@ -5657,6 +5686,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
     private static void collectPluginActions(DesktopUiNode node, Set<String> actions) {
         if (node instanceof DesktopUiNode.Button button) actions.add(button.actionId());
         else if (node instanceof DesktopUiNode.Link link) actions.add(link.actionId());
+        else if (node instanceof DesktopUiNode.Surface surface && surface.actionId() != null) {
+            actions.add(surface.actionId());
+        }
         for (DesktopUiNode child : node.childNodes()) collectPluginActions(child, actions);
     }
 
@@ -5690,6 +5722,9 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         } else if (node instanceof DesktopUiNode.Link link) {
             if (!link.actionId().startsWith(pagePrefix)) return false;
             referencedActions.add(link.actionId());
+        } else if (node instanceof DesktopUiNode.Surface surface && surface.actionId() != null) {
+            if (!surface.actionId().startsWith(pagePrefix)) return false;
+            referencedActions.add(surface.actionId());
         } else {
             String bindingId = pluginBindingId(node);
             if (bindingId != null && (!bindingId.startsWith(pagePrefix) || pluginInputEnabled(node))) return false;
@@ -6967,6 +7002,26 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         }
     }
 
+    private static List<Maintainer> loadMaintainers() {
+        try (var stream = AppDesktopUiModel.class.getResourceAsStream(
+                "/pixivdownload/maintainers.json")) {
+            if (stream == null) throw new IllegalStateException("Bundled maintainer catalog is missing");
+            MaintainerCatalog catalog = OBJECT_MAPPER.readValue(stream, MaintainerCatalog.class);
+            if (catalog == null || catalog.maintainers() == null || catalog.maintainers().isEmpty()) {
+                throw new IllegalStateException("Bundled maintainer catalog is empty");
+            }
+            Map<Long, Maintainer> unique = new LinkedHashMap<>();
+            for (Maintainer maintainer : catalog.maintainers()) {
+                if (maintainer == null || unique.putIfAbsent(maintainer.id(), maintainer) != null) {
+                    throw new IllegalStateException("Bundled maintainer catalog contains duplicates");
+                }
+            }
+            return List.copyOf(unique.values());
+        } catch (Exception failure) {
+            throw new IllegalStateException("Unable to load the bundled maintainer catalog", failure);
+        }
+    }
+
     private static String loadLicenseText() {
         try (var stream = AppDesktopUiModel.class.getResourceAsStream("/LICENSE")) {
             return stream == null ? "GNU AGPL v3.0"
@@ -7012,6 +7067,32 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
             String remediationKey
     ) {}
     private record PluginOnboardingStep(GuiOnboardingStepContribution step) {}
+    private record MaintainerCatalog(List<Maintainer> maintainers) {}
+    private record Maintainer(long id, String login, String role, String avatarUrl, String profileUrl,
+                              String avatarMediaType, String avatarBase64) {
+        private Maintainer {
+            if (id <= 0L || !MAINTAINER_LOGIN.matcher(Objects.requireNonNull(login, "login")).matches()
+                    || !MAINTAINER_ROLE.matcher(Objects.requireNonNull(role, "role")).matches()) {
+                throw new IllegalArgumentException("Invalid maintainer identity");
+            }
+            validateHttpsUri(avatarUrl, "avatars.githubusercontent.com");
+            validateHttpsUri(profileUrl, "github.com");
+            new DesktopUiNode.ImageData(avatarMediaType, avatarBase64);
+        }
+
+        private DesktopUiNode.ImageData avatar() {
+            return new DesktopUiNode.ImageData(avatarMediaType, avatarBase64);
+        }
+    }
+
+    private static void validateHttpsUri(String value, String expectedHost) {
+        URI uri = URI.create(Objects.requireNonNull(value, "value"));
+        if (!"https".equalsIgnoreCase(uri.getScheme())
+                || !expectedHost.equalsIgnoreCase(uri.getHost())
+                || uri.getUserInfo() != null || uri.getPort() != -1) {
+            throw new IllegalArgumentException("Invalid maintainer URL");
+        }
+    }
 
     @FunctionalInterface
     private interface DialogContent {

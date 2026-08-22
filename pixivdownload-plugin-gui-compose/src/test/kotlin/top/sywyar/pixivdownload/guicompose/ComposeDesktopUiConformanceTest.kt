@@ -31,6 +31,49 @@ import kotlin.test.assertEquals
 @DisplayName("Compose 桌面真实渲染闭环")
 class ComposeDesktopUiConformanceTest {
     @Test
+    @DisplayName("可激活表面把头像与名称组成的卡片作为单一点击区域")
+    fun activatesCompactSurfaceCard() = runComposeUiTest {
+        val node = DesktopUiNode.Surface(
+            "maintainer", DesktopUiNode.SurfaceStyle.CARD, DesktopUiNode.Insets.all(8), false,
+            "maintainer.open", DesktopUiNode.Container(
+                "maintainer.content", DesktopUiNode.ContainerLayout.COLUMN, 1, 4,
+                DesktopUiNode.Alignment.CENTER, listOf(
+                    DesktopUiNode.Image(
+                        "maintainer.avatar",
+                        DesktopUiNode.ImageData(
+                            "image/gif",
+                            "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+                        ),
+                        raw("Avatar"), 24, 24, DesktopUiNode.ScaleMode.FILL,
+                        DesktopUiNode.ImageShape.CIRCLE,
+                    ),
+                    DesktopUiNode.Text(
+                        "maintainer.name", raw("Maintainer"), DesktopUiNode.TextStyle.EMPHASIS,
+                        false, false, DesktopUiNode.TextAlignment.CENTER,
+                    ),
+                ),
+            ),
+        )
+        val model = TestModel(node)
+        val context = context(model)
+        val observed = context.currentSnapshot()
+        setContent {
+            MaterialTheme {
+                ComposeDesktopUiNodeRenderer.Render(
+                    node,
+                    { it.fallback() },
+                    { context.dispatchEvent(observed, it) },
+                )
+            }
+        }
+
+        onNodeWithText("Maintainer").performClick()
+        waitForIdle()
+
+        assertEquals("activate", model.acceptedValues())
+    }
+
+    @Test
     @DisplayName("真实 Compose runtime 驱动共享场景且不重读最新修订号")
     fun drivesSharedScenariosOnComposeRuntime() {
         scenarios().forEach { scenario ->

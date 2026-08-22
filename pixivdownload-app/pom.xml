@@ -191,6 +191,34 @@
         </resources>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>generate-maintainer-catalog</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <exec executable="node" dir="${maven.multiModuleProjectDirectory}"
+                                      failonerror="true">
+                                    <arg value="${maven.multiModuleProjectDirectory}/scripts/generate-maintainers.mjs"/>
+                                    <arg value="--repo-root"/>
+                                    <arg value="${maven.multiModuleProjectDirectory}"/>
+                                    <arg value="--repository"/>
+                                    <arg value="Sywyar/PixivDownloader"/>
+                                    <arg value="--output"/>
+                                    <arg value="${project.build.outputDirectory}/pixivdownload/maintainers.json"/>
+                                </exec>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>

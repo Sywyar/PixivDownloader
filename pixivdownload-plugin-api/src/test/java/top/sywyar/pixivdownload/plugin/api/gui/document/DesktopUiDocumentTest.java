@@ -86,6 +86,12 @@ class DesktopUiDocumentTest {
                         List.of(text("adaptive.item"))),
                 new DesktopUiNode.PagedRow("paged", 4, 8,
                         List.of(text("paged.item"))),
+                new DesktopUiNode.Surface("action-surface", DesktopUiNode.SurfaceStyle.CARD,
+                        DesktopUiNode.Insets.all(4), false, "action.surface",
+                        new DesktopUiNode.Image("round-image",
+                                new DesktopUiNode.ImageData("image/png", "AA=="),
+                                DesktopUiNode.TextToken.raw("Avatar"), 16, 16,
+                                DesktopUiNode.ScaleMode.FILL, DesktopUiNode.ImageShape.CIRCLE)),
                 new DesktopUiNode.Tree("tree", "tree.value",
                         List.of(new DesktopUiNode.TreeItem("tree.item", DesktopUiNode.TextToken.raw("Item"), List.of())),
                         DesktopUiNode.SelectionMode.MULTIPLE, List.of(), true),
@@ -112,6 +118,11 @@ class DesktopUiDocumentTest {
         assertThat(DesktopUiNode.directRequiredCapabilities(content)).isEmpty();
         assertThat(DesktopUiNode.directRequiredCapabilities(content.childNodes().get(0)))
                 .containsExactly(DesktopUiCapability.SPLIT_USER_RESIZABLE);
+        assertThat(DesktopUiNode.directRequiredCapabilities(content.childNodes().get(3)))
+                .containsExactly(DesktopUiCapability.SURFACE_ACTIVATION);
+        assertThat(DesktopUiNode.directRequiredCapabilities(
+                content.childNodes().get(3).childNodes().get(0)))
+                .containsExactly(DesktopUiCapability.IMAGE_CIRCULAR_CLIP);
     }
 
     @Test

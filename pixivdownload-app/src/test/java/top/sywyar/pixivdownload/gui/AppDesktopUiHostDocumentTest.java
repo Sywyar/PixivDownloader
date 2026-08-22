@@ -130,9 +130,76 @@ class AppDesktopUiHostDocumentTest {
                         "plugins.layout", "plugins.grid", "tools.layout", "tools.quick.grid",
                         "tools.maintenance.grid", "settings.layout", "settings.categories",
                         "settings.content", "settings.summary",
-                        "about.name", "about.links", "about.docs", "about.contributors",
+                        "about.name", "about.links", "about.docs", "about.contributors", "about.maintainers",
+                        "about.maintainer.83223374", "about.maintainer.83223374.content",
+                        "about.maintainer.83223374.avatar", "about.maintainer.83223374.name",
+                        "about.maintainer.65430754", "about.maintainer.65430754.content",
+                        "about.maintainer.65430754.avatar", "about.maintainer.65430754.name",
                         "about.update.check");
+        List<DesktopUiNode.Image> maintainerImages = nodes(controlCenter).stream()
+                .filter(DesktopUiNode.Image.class::isInstance)
+                .map(DesktopUiNode.Image.class::cast)
+                .filter(image -> image.id().startsWith("about.maintainer."))
+                .toList();
+        assertThat(maintainerImages).extracting(image -> image.image().bytes().length)
+                .allMatch(size -> size > 0);
+        assertThat(maintainerImages).allSatisfy(image -> {
+            assertThat(image.preferredWidth()).isEqualTo(72);
+            assertThat(image.preferredHeight()).isEqualTo(72);
+            assertThat(image.scaleMode()).isEqualTo(DesktopUiNode.ScaleMode.FILL);
+            assertThat(image.shape()).isEqualTo(DesktopUiNode.ImageShape.CIRCLE);
+        });
+        assertThat(nodes(controlCenter).stream().filter(DesktopUiNode.Surface.class::isInstance)
+                .map(DesktopUiNode.Surface.class::cast)
+                .filter(surface -> surface.id().startsWith("about.maintainer.")))
+                .allSatisfy(surface -> {
+                    assertThat(surface.fillWidth()).isFalse();
+                    assertThat(surface.fillHeight()).isFalse();
+                    assertThat(surface.actionId()).isEqualTo(surface.id() + ".open");
+                });
+        assertThat(nodes(controlCenter).stream().filter(DesktopUiNode.Text.class::isInstance)
+                .map(DesktopUiNode.Text.class::cast)
+                .filter(text -> text.id().startsWith("about.maintainer.") && text.id().endsWith(".name")))
+                .extracting(text -> text.text().fallback())
+                .containsExactly("Sywyar", "gdrfgdrf");
+        assertThat(controlCenter.requiredCapabilities()).contains(
+                DesktopUiCapability.SURFACE_ACTIVATION, DesktopUiCapability.IMAGE_CIRCULAR_CLIP);
         assertThat(controlCenter.pages().get(0).floatingAction()).isPresent();
+    }
+
+    @Test
+    @DisplayName("维护者卡片激活后打开对应 GitHub 主页")
+    void maintainerCardActivationOpensProfile() throws Exception {
+        Path config = tempDir.resolve("maintainer-card.yaml");
+        AppDesktopUiHost delegate = new AppDesktopUiHost(6999, new TestDesktopConfigFile(config));
+        AtomicReference<String> openedUri = new AtomicReference<>();
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> {
+                    if ("onboardingState".equals(method.getName())) return COMPLETE_ONBOARDING;
+                    if ("backendSnapshot".equals(method.getName())) {
+                        return new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
+                    }
+                    if ("subscribeBackend".equals(method.getName())) return (AutoCloseable) () -> { };
+                    if ("openExternalUri".equals(method.getName())) {
+                        openedUri.set(arguments[0].toString());
+                        return null;
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        AppDesktopUiModel model = track(new AppDesktopUiModel(6999,
+                tempDir.resolve("downloads").toString(), config, host, List::of,
+                rendererContract(DesktopUiExperienceProfile.CONTROL_CENTER)));
+
+        awaitButtonEnabled(model, "about.update.check");
+        dispatch(model, DesktopUiNode.EventType.ACTIVATE,
+                "about.maintainer.83223374", DesktopUiNode.Value.empty());
+
+        await(() -> "https://github.com/Sywyar".equals(openedUri.get()));
     }
 
     @Test

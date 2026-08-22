@@ -208,9 +208,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         @Override public Kind kind() { return Kind.ICON; }
     }
 
-    /** 带工具包无关逻辑内边距的语义视觉表面。 */
+    /** 带工具包无关逻辑内边距、可选激活行为的语义视觉表面。 */
     record Surface(String id, SurfaceStyle style, Insets padding,
-                   boolean fillWidth, boolean fillHeight, DesktopUiNode content) implements DesktopUiNode {
+                   boolean fillWidth, boolean fillHeight, String actionId,
+                   DesktopUiNode content) implements DesktopUiNode {
         /**
          * 创建填充可用宽度但不填充可用高度的表面。
          *
@@ -222,7 +223,37 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
          */
         public Surface(String id, SurfaceStyle style, Insets padding,
                        boolean fillWidth, DesktopUiNode content) {
-            this(id, style, padding, fillWidth, false, content);
+            this(id, style, padding, fillWidth, false, null, content);
+        }
+
+        /**
+         * 创建可激活、填充可用宽度但不填充可用高度的表面。
+         *
+         * @param id 稳定节点标识
+         * @param style 语义表面样式
+         * @param padding 逻辑内边距
+         * @param fillWidth 是否填充可用宽度
+         * @param actionId 稳定的激活事件目标
+         * @param content 表面内容
+         */
+        public Surface(String id, SurfaceStyle style, Insets padding,
+                       boolean fillWidth, String actionId, DesktopUiNode content) {
+            this(id, style, padding, fillWidth, false, actionId, content);
+        }
+
+        /**
+         * 创建不触发激活事件的表面。
+         *
+         * @param id 稳定节点标识
+         * @param style 语义表面样式
+         * @param padding 逻辑内边距
+         * @param fillWidth 是否填充可用宽度
+         * @param fillHeight 是否填充可用高度
+         * @param content 表面内容
+         */
+        public Surface(String id, SurfaceStyle style, Insets padding,
+                       boolean fillWidth, boolean fillHeight, DesktopUiNode content) {
+            this(id, style, padding, fillWidth, fillHeight, null, content);
         }
 
         /**
@@ -231,12 +262,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
          * @param padding 逻辑内边距
          * @param fillWidth 是否填充可用宽度
          * @param fillHeight 是否填充可用高度
+         * @param actionId 可选的稳定激活事件目标；非空时整张表面为点击区域
          * @param content 表面内容
          */
         public Surface {
             id = requireId(id, "id");
             style = style == null ? SurfaceStyle.PLAIN : style;
             padding = padding == null ? Insets.NONE : padding;
+            actionId = blankToNull(actionId);
+            if (actionId != null) actionId = requireId(actionId, "actionId");
             content = Objects.requireNonNull(content, "content");
         }
 
@@ -380,7 +414,23 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 已物化且大小有界、带本地化替代文本的图像。 */
     record Image(String id, ImageData image, TextToken altText,
-                 int preferredWidth, int preferredHeight, ScaleMode scaleMode) implements DesktopUiNode {
+                 int preferredWidth, int preferredHeight, ScaleMode scaleMode,
+                 ImageShape shape) implements DesktopUiNode {
+        /**
+         * 创建矩形图像。
+         *
+         * @param id 稳定节点标识
+         * @param image 已物化的图像数据
+         * @param altText 本地化替代文本
+         * @param preferredWidth 首选逻辑宽度
+         * @param preferredHeight 首选逻辑高度
+         * @param scaleMode 图像缩放策略
+         */
+        public Image(String id, ImageData image, TextToken altText,
+                     int preferredWidth, int preferredHeight, ScaleMode scaleMode) {
+            this(id, image, altText, preferredWidth, preferredHeight, scaleMode, ImageShape.RECTANGLE);
+        }
+
         /**
          * @param id 稳定节点标识
          * @param image 已物化的图像数据
@@ -388,6 +438,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
          * @param preferredWidth 首选逻辑宽度
          * @param preferredHeight 首选逻辑高度
          * @param scaleMode 图像缩放策略
+         * @param shape 图像裁剪形状
          */
         public Image {
             id = requireId(id, "id");
@@ -396,6 +447,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             requireRange(preferredWidth, 1, 4096, "preferredWidth");
             requireRange(preferredHeight, 1, 4096, "preferredHeight");
             scaleMode = scaleMode == null ? ScaleMode.FIT : scaleMode;
+            shape = shape == null ? ImageShape.RECTANGLE : shape;
         }
 
         @Override public Kind kind() { return Kind.IMAGE; }
@@ -1099,6 +1151,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         /** 适配首选边界。 */ FIT,
         /** 填满首选边界。 */ FILL
     }
+    /** 图像裁剪形状。 */
+    enum ImageShape {
+        /** 保持矩形边界。 */ RECTANGLE,
+        /** 裁剪为圆形边界。 */ CIRCLE
+    }
     /** 文本输入语义类型。 */
     enum InputKind {
         /** 单行文本。 */ TEXT,
@@ -1219,6 +1276,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         if (node instanceof Split) capabilities.add(DesktopUiCapability.SPLIT_USER_RESIZABLE);
         if (node instanceof AdaptiveGrid) capabilities.add(DesktopUiCapability.LAYOUT_ADAPTIVE_GRID);
         if (node instanceof PagedRow) capabilities.add(DesktopUiCapability.PAGED_ROW_SNAP_NAVIGATION);
+        if (node instanceof Surface surface && surface.actionId() != null) {
+            capabilities.add(DesktopUiCapability.SURFACE_ACTIVATION);
+        }
+        if (node instanceof Image image && image.shape() == ImageShape.CIRCLE) {
+            capabilities.add(DesktopUiCapability.IMAGE_CIRCULAR_CLIP);
+        }
         if (node instanceof Tree tree) {
             capabilities.add(DesktopUiCapability.TREE_EXPAND_COLLAPSE);
             if (tree.selectionMode() == SelectionMode.MULTIPLE) {
