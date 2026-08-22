@@ -11,43 +11,40 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GuiConfigActionResultSafetyTest {
 
     @ParameterizedTest
-    @ValueSource(strings = {
-            "result.sessionId", "result.PHPSESSID", "auth.bearer", "credentials.access-key",
-            "credentials.access_key_id", "keys.signing-key", "keys.encryptionKey", "keys.decryption_key"
-    })
+    @ValueSource(strings = {"result.sessionId", "result.PHPSESSID", "auth.bearer", "credentials.access-key", "credentials.access_key_id", "keys.signing-key", "keys.encryptionKey", "keys.decryption_key"})
     @DisplayName("会话和通用密钥字段不得投影到界面")
     void genericCredentialPathsAreRejected(String path) {
-        assertThat(AppDesktopUiModel.safeJsonPath(path, false, true)).isFalse();
+        assertThat(GuiActionResponseSafety.safeJsonPath(path, false, true)).isFalse();
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {
-            "reply", "result.status", "results.channel", "diagnostics.reachable", "metrics.elapsed_ms"
-    })
+    @ValueSource(strings = {"reply", "result.status", "results.channel", "diagnostics.reachable", "metrics.elapsed_ms"})
     @DisplayName("普通结构化结果字段保持可投影")
     void ordinaryStructuredResultPathsRemainAllowed(String path) {
-        assertThat(AppDesktopUiModel.safeJsonPath(path, false, true)).isTrue();
+        assertThat(GuiActionResponseSafety.safeJsonPath(path, false, true)).isTrue();
     }
 
     @Test
     @DisplayName("显示文本移除控制字符并中和 HTML 角括号")
     void displayTextIsBoundedPlainText() {
-        String sanitized = AppDesktopUiModel.sanitizeActionText(
+        String sanitized = GuiActionResponseSafety.sanitizeActionText(
                 "  <html><script>alert\u0000(1)</script>  ");
 
-        assertThat(sanitized)
-                .isEqualTo("‹html›‹script›alert(1)‹/script›")
-                .doesNotContain("<", ">", "\u0000");
+        assertThat(sanitized).isEqualTo("‹html›‹script›alert(1)‹/script›").doesNotContain(
+                "<",
+                ">",
+                "\u0000"
+        );
     }
 
     @Test
     @DisplayName("超长显示文本按 Unicode 码点截断")
     void displayTextIsTruncatedByCodePoint() {
-        String sanitized = AppDesktopUiModel.sanitizeActionText(
-                "😀".repeat(AppDesktopUiModel.MAX_ACTION_TEXT_CODE_POINTS + 10));
+        String sanitized = GuiActionResponseSafety.sanitizeActionText("😀".repeat(
+                GuiActionResponseSafety.MAX_ACTION_TEXT_CODE_POINTS + 10));
 
-        assertThat(sanitized.codePointCount(0, sanitized.length()))
-                .isEqualTo(AppDesktopUiModel.MAX_ACTION_TEXT_CODE_POINTS + 1);
+        assertThat(sanitized.codePointCount(0, sanitized.length())).isEqualTo(
+                GuiActionResponseSafety.MAX_ACTION_TEXT_CODE_POINTS + 1);
         assertThat(sanitized).endsWith("…");
     }
 }
