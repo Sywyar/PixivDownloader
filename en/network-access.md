@@ -193,6 +193,7 @@ These destinations are not used during the standard runtime of an installed appl
 | GitHub Actions | GitHub Actions, Artifact, and Release services plus referenced `actions/*` and `softprops/action-gh-release` actions | CI, building, artifact upload, and publishing |
 | Maven / Maven Wrapper | `https://repo.maven.apache.org/maven2` | Downloads Maven 3.9.11, Java dependencies, and build plugins |
 | npm | `https://registry.npmmirror.com` in the current lockfile | Installs Node build/check dependencies |
+| Application maintainer-catalog generator | `https://api.github.com/repos/Sywyar/PixivDownloader`, `/contributors`, `/users/{login}`, and `https://avatars.githubusercontent.com` avatar URLs returned by the API | During every application resource build, reads the repository owner, contributors, and local commit authors/co-authors, intersects them with the maintained human allowlist, downloads approved avatars, and embeds the JSON and image bytes in the application. API requests may use the build environment's `GITHUB_TOKEN` / `GH_TOKEN`; avatar requests send no credential. The step has no independent disable switch, and the build fails if generation cannot complete. Installed applications do not automatically access these destinations. |
 | Docker | Configured OCI registry, normally resolving `eclipse-temurin:17-jre`, plus Debian package sources configured by the base image | Pulls the base image and installs FFmpeg, curl, and other system packages |
 | Windows CI | Configured Chocolatey sources | Installs packaging tools such as Inno Setup |
 
