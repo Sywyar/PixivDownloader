@@ -16,6 +16,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performSemanticsAction
@@ -130,6 +131,64 @@ class ComposeControlCenterLayoutTest {
         }
 
         onNodeWithContentDescription("Home").assertExists()
+    }
+
+    @Test
+    @DisplayName("可展开快捷入口解析文本令牌并派发声明式按钮事件")
+    fun resolvesAndActivatesExpandableFabItem() = runComposeUiTest {
+        val title = DesktopUiNode.TextToken.key("desktop.ui.home.quick-start.title")
+        val itemLabel = DesktopUiNode.TextToken(
+            "sample", "navigation.search", "Search", emptyList(),
+        )
+        val button = DesktopUiNode.Button(
+            "quick.search.button", "quick.search.open", itemLabel, null,
+            DesktopUiNode.ButtonStyle.NORMAL, true,
+        )
+        val action = DesktopUiNode.Container(
+            "quick", DesktopUiNode.ContainerLayout.COLUMN, 1, 8, DesktopUiNode.Alignment.START,
+            listOf(
+                DesktopUiNode.Text("quick.title", title, DesktopUiNode.TextStyle.HEADING, false, false),
+                DesktopUiNode.Container(
+                    "quick.grid", DesktopUiNode.ContainerLayout.GRID, 2, 8, DesktopUiNode.Alignment.STRETCH,
+                    listOf(
+                        DesktopUiNode.Container(
+                            "quick.search", DesktopUiNode.ContainerLayout.ROW, 1, 8,
+                            DesktopUiNode.Alignment.CENTER,
+                            listOf(
+                                DesktopUiNode.Icon(
+                                    "quick.search.icon", DesktopUiIcon.OPEN, DesktopUiTone.INFO, itemLabel,
+                                ),
+                                button,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val events = mutableListOf<DesktopUiNode.Event>()
+        val menu = checkNotNull(expandableFabMenu(action))
+        setContent {
+            MaterialTheme {
+                ExpandableFab(
+                    menu,
+                    { token ->
+                        when (token.key()) {
+                            "desktop.ui.home.quick-start.title" -> "Quick start"
+                            "navigation.search" -> "Search artworks"
+                            else -> token.fallback()
+                        }
+                    },
+                    events::add,
+                )
+            }
+        }
+
+        onNodeWithContentDescription("Quick start").performClick()
+        onNodeWithText("Search artworks").performClick()
+        waitForIdle()
+
+        assertEquals(DesktopUiNode.EventType.ACTIVATE, events.single().type())
+        assertEquals(button.id(), events.single().nodeId())
     }
 
     @Test

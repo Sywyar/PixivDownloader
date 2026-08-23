@@ -1,42 +1,86 @@
 package top.sywyar.pixivdownload.guicompose
 
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CropSquare
+import androidx.compose.material.icons.filled.FilterNone
+import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.FrameWindowScope
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowState
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import cn.longzhengyi.windowsdecoration.BorderlessTitleBarScaffold
 import cn.longzhengyi.windowsdecoration.windowhelper.windowCloseButton
 import cn.longzhengyi.windowsdecoration.windowhelper.windowDragArea
@@ -47,8 +91,24 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
-import java.awt.*
-import java.awt.event.*
+import java.awt.Dimension
+import java.awt.GraphicsEnvironment
+import java.awt.Insets
+import java.awt.KeyEventDispatcher
+import java.awt.KeyboardFocusManager
+import java.awt.MouseInfo
+import java.awt.Point
+import java.awt.Rectangle
+import java.awt.RenderingHints
+import java.awt.SystemTray
+import java.awt.Toolkit
+import java.awt.TrayIcon
+import java.awt.event.ActionListener
+import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import java.awt.image.BufferedImage
 import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.CountDownLatch
@@ -274,7 +334,7 @@ private fun createTrayIcon(): BufferedImage {
         graphics.color = java.awt.Color(63, 95, 208)
         graphics.fillOval(1, 1, size - 2, size - 2)
         graphics.color = java.awt.Color.WHITE
-        graphics.font = Font("Dialog", Font.BOLD, 20)
+        graphics.font = java.awt.Font("Dialog", java.awt.Font.BOLD, 20)
         val metrics = graphics.fontMetrics
         graphics.drawString("P", (size - metrics.stringWidth("P")) / 2, (size + metrics.ascent) / 2 - 2)
     } finally {
@@ -456,7 +516,6 @@ private fun ComposeDesktopRoot(
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxSize()) {
             NavigationPanel(
-                applicationName = context.applicationName(),
                 document = document,
                 selected = activePage,
                 messages = messages,
@@ -476,48 +535,45 @@ private fun ComposeDesktopRoot(
                             ?.filterIsInstance<DesktopUiNode.Text>()?.firstOrNull()
                             ?.let { messages.resolve(it.text()) }
                             ?: messages.resolve(currentPage.title())
-                        Box(
-                            Modifier
-                                .onPointerEvent(PointerEventType.Enter) { floatingActionExpanded = true }
-                                .onPointerEvent(PointerEventType.Exit) { floatingActionExpanded = false },
-                            contentAlignment = Alignment.BottomEnd,
-                        ) {
+                        val menu = expandableFabMenu(action)
+                        if (menu != null) {
                             ExpandableFab(
-                                icon = Icons.Default.Apps,
-                                items = listOf(
-                                    FabItem(icon = Icons.Default.Download, label = "Download"),
-                                    FabItem(icon = Icons.Default.BrowseGallery, label = "Gallery"),
-                                    FabItem(icon = Icons.Default.OpenInBrowser, label = "Novel"),
-                                    FabItem(icon = Icons.Default.BarChart, label = "Statistic"),
-                                )
+                                menu = menu,
+                                resolve = messages::resolve,
+                                emit = { event -> context.dispatchEvent(snapshot, event) },
                             )
-//                            AnimatedContent(
-//                                targetState = floatingActionExpanded,
-//                                contentAlignment = Alignment.BottomEnd,
-//                                transitionSpec = { fadeIn(tween(160)).togetherWith(fadeOut(tween(100))) },
-//                                contentKey = { it },
-//                            ) { expanded ->
-//                                if (expanded) {
-//                                    Surface(
-//                                        modifier = Modifier.width(380.dp),
-//                                        color = MaterialTheme.colorScheme.surface,
-//                                    ) {
-//                                        ComposeDesktopUiNodeRenderer.Render(
-//                                            action,
-//                                            messages::resolve,
-//                                            { event -> context.dispatchEvent(snapshot, event) },
-//                                            Modifier.padding(16.dp),
-//                                            documentRevision,
-//                                        )
-//                                    }
-//                                } else {
-//                                    FloatingActionButton(
-//                                        onClick = { floatingActionExpanded = true },
-//                                    ) {
-//                                        Icon(Icons.Default.Apps, contentDescription = label)
-//                                    }
-//                                }
-//                            }
+                        } else {
+                            AnimatedContent(
+                                targetState = floatingActionExpanded,
+                                contentAlignment = Alignment.BottomEnd,
+                                transitionSpec = { fadeIn(tween(160)).togetherWith(fadeOut(tween(100))) },
+                                contentKey = { it },
+                            ) { expanded ->
+                                if (expanded) {
+                                    Surface(
+                                        modifier = Modifier.width(380.dp),
+                                        shape = MaterialTheme.shapes.extraLarge,
+                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        shadowElevation = 6.dp,
+                                    ) {
+                                        ComposeDesktopUiNodeRenderer.Render(
+                                            action,
+                                            messages::resolve,
+                                            { event -> context.dispatchEvent(snapshot, event) },
+                                            Modifier.padding(16.dp),
+                                            documentRevision,
+                                        )
+                                    }
+                                } else {
+                                    FloatingActionButton(
+                                        onClick = { floatingActionExpanded = true },
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    ) {
+                                        Icon(Icons.Default.Apps, contentDescription = label)
+                                    }
+                                }
+                            }
                         }
                     }
                 },
@@ -551,25 +607,51 @@ private fun ComposeDesktopRoot(
     document.dialogs().forEach { dialog -> DocumentDialog(dialog, snapshot, messages, context) }
 }
 
-data class FabItem(
-    val icon: ImageVector,
-    val label: String,
-    val onClick: (() -> Unit)? = null
+internal data class ExpandableFabItem(
+    val icon: DesktopUiNode.Icon,
+    val button: DesktopUiNode.Button,
 )
 
+internal data class ExpandableFabMenu(
+    val label: DesktopUiNode.TextToken,
+    val items: List<ExpandableFabItem>,
+)
+
+internal fun expandableFabMenu(node: DesktopUiNode): ExpandableFabMenu? {
+    val root = node as? DesktopUiNode.Container ?: return null
+    val label = root.children().filterIsInstance<DesktopUiNode.Text>().firstOrNull()?.text() ?: return null
+    val items = root.children().flatMap(::expandableFabItems)
+    return items.takeIf { it.isNotEmpty() && it.all { item -> item.button.enabled() } }
+        ?.let { ExpandableFabMenu(label, it) }
+}
+
+private fun expandableFabItems(node: DesktopUiNode): List<ExpandableFabItem> {
+    val container = node as? DesktopUiNode.Container
+        ?: return node.childNodes().flatMap(::expandableFabItems)
+    val icon = container.children().filterIsInstance<DesktopUiNode.Icon>().singleOrNull()
+    val button = container.children().filterIsInstance<DesktopUiNode.Button>().singleOrNull()
+    if (container.layout() == DesktopUiNode.ContainerLayout.ROW
+        && container.children().size == 2 && icon != null && button != null) {
+        return listOf(ExpandableFabItem(icon, button))
+    }
+    return container.children().flatMap(::expandableFabItems)
+}
+
 @Composable
-fun ExpandableFab(
-    items: List<FabItem>,
-    icon: ImageVector
+internal fun ExpandableFab(
+    menu: ExpandableFabMenu,
+    resolve: (DesktopUiNode.TextToken) -> String,
+    emit: (DesktopUiNode.Event) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember(menu) { mutableStateOf(false) }
 
     Column(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        val size = items.size
-        items.forEachIndexed { index, item ->
+        val size = menu.items.size
+        menu.items.forEachIndexed { index, item ->
+            val label = resolve(item.button.label())
             AnimatedVisibility(
                 visible = expanded,
                 enter = fadeIn(tween(120, delayMillis = (size - index) * 30)) +
@@ -585,14 +667,18 @@ fun ExpandableFab(
             ) {
                 ExtendedFloatingActionButton(
                     onClick = {
-                        item.onClick?.invoke()
+                        emit(DesktopUiNode.Event(
+                            DesktopUiNode.EventType.ACTIVATE,
+                            item.button.id(),
+                            DesktopUiNode.Value.empty(),
+                        ))
                         expanded = false
                     },
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 ) {
-                    Icon(item.icon, contentDescription = item.label)
-                    Text(item.label, modifier = Modifier.padding(start = 4.dp))
+                    Icon(desktopIcon(item.icon.icon()), contentDescription = null)
+                    Text(label, modifier = Modifier.padding(start = 4.dp))
                 }
             }
         }
@@ -600,7 +686,7 @@ fun ExpandableFab(
         FloatingActionButton(
             onClick = { expanded = !expanded },
         ) {
-            Icon(icon, contentDescription = "")
+            Icon(Icons.Default.Apps, contentDescription = resolve(menu.label))
         }
     }
 }
@@ -613,7 +699,6 @@ internal fun removedPageIds(previousIds: Set<String>, currentIds: Collection<Str
 
 @Composable
 private fun NavigationPanel(
-    applicationName: String,
     document: DesktopUiDocument,
     selected: String,
     messages: ComposeMessages,
@@ -676,11 +761,11 @@ private fun FrameWindowScope.WindowsTitleBar(
                 )
                 IconButton(
                     onClick = { minimize() },
-                    modifier = Modifier.width(46.dp).windowMinimizeButton(helper),
+                    modifier = Modifier.width(46.dp).fillMaxHeight().windowMinimizeButton(helper),
                 ) { Icon(Icons.Default.Minimize, contentDescription = minimizeLabel) }
                 IconButton(
                     onClick = { toggleMaximize() },
-                    modifier = Modifier.width(46.dp).windowMaximizeButton(helper),
+                    modifier = Modifier.width(46.dp).fillMaxHeight().windowMaximizeButton(helper),
                 ) {
                     Icon(
                         if (isMaximized) Icons.Default.FilterNone else Icons.Default.CropSquare,
@@ -697,11 +782,6 @@ private fun FrameWindowScope.WindowsTitleBar(
 }
 
 private fun isWindows(): Boolean = System.getProperty("os.name").contains("Windows", ignoreCase = true)
-
-internal fun applicationInitials(name: String): String {
-    val capitals = name.filter(Char::isUpperCase).take(2)
-    return capitals.ifBlank { name.trim().take(2).uppercase() }.ifBlank { "UI" }
-}
 
 @Composable
 private fun DocumentDialog(
@@ -735,11 +815,9 @@ private fun DocumentDialog(
     }
 }
 
-private val LightColors = lightColorScheme(
-)
+private val LightColors = lightColorScheme()
 
-private val DarkColors = darkColorScheme(
-)
+private val DarkColors = darkColorScheme()
 
 private val DesktopTypography = Typography(
     headlineSmall = TextStyle(

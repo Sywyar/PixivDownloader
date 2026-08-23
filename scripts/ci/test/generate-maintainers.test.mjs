@@ -5,45 +5,46 @@ import { gitContributorIdentities, readBounded, selectMaintainers } from '../../
 
 test('维护者为仓库所有者和提交协作者与真人白名单的交集', async () => {
   const identities = gitContributorIdentities(
-    'Sywyar <83223374+Sywyar@users.noreply.github.com>\0'
-      + 'gdrfgdrf <gdrfgdrfgdrfgdrfgdrfgdrf@hotmail.com>\x1e',
+    'Repo Owner <101+repo-owner@users.noreply.github.com>\0'
+      + 'Commit Helper <102+commit-helper@users.noreply.github.com>\x1e',
   );
   const selected = await selectMaintainers({
-    owner: { id: 83223374, login: 'Sywyar', type: 'User' },
+    owner: { id: 101, login: 'repo-owner', type: 'User' },
     contributors: [
-      { id: 49699333, login: 'dependabot[bot]', type: 'Bot' },
-      { id: 7, login: 'not-approved', type: 'User' },
+      { id: 103, login: 'automation[bot]', type: 'Bot' },
+      { id: 104, login: 'not-approved', type: 'User' },
     ],
     identities,
     allowlist: [
-      { id: 83223374, login: 'Sywyar' },
-      { id: 65430754, login: 'gdrfgdrf' },
-      { id: 49699333, login: 'dependabot[bot]' },
+      { id: 101, login: 'repo-owner' },
+      { id: 102, login: 'commit-helper' },
+      { id: 103, login: 'automation[bot]' },
     ],
-    loadUser: async (login) => ({ id: 65430754, login, type: 'User' }),
+    loadUser: async (login) => ({ id: 102, login, type: 'User' }),
   });
 
   assert.deepEqual(selected.map(({ id, login, role }) => ({ id, login, role })), [
-    { id: 83223374, login: 'Sywyar', role: 'author-core' },
-    { id: 65430754, login: 'gdrfgdrf', role: 'commit-collaborator' },
+    { id: 101, login: 'repo-owner', role: 'author-core' },
+    { id: 102, login: 'commit-helper', role: 'commit-collaborator' },
   ]);
 });
 
 test('提交协作者产生独立提交后自动成为提交贡献者', async () => {
   const identities = gitContributorIdentities(
-    'gdrfgdrf <gdrfgdrfgdrfgdrfgdrfgdrf@hotmail.com>\0'
-      + 'gdrfgdrf <gdrfgdrfgdrfgdrfgdrfgdrf@hotmail.com>\x1e',
+    'Repo Owner <101+repo-owner@users.noreply.github.com>\0'
+      + 'Commit Helper <102+commit-helper@users.noreply.github.com>\x1e'
+      + 'Commit Helper <102+commit-helper@users.noreply.github.com>\x1e',
   );
   const selected = await selectMaintainers({
-    owner: { id: 83223374, login: 'Sywyar', type: 'User' },
-    contributors: [{ id: 65430754, login: 'gdrfgdrf', type: 'User' }],
+    owner: { id: 101, login: 'repo-owner', type: 'User' },
+    contributors: [{ id: 102, login: 'commit-helper', type: 'User' }],
     identities,
-    allowlist: [{ id: 65430754, login: 'gdrfgdrf' }],
+    allowlist: [{ id: 102, login: 'commit-helper' }],
     loadUser: async () => assert.fail('独立提交者不应再次查询用户'),
   });
 
   assert.deepEqual(selected.map(({ id, login, role }) => ({ id, login, role })), [
-    { id: 65430754, login: 'gdrfgdrf', role: 'commit-contributor' },
+    { id: 102, login: 'commit-helper', role: 'commit-contributor' },
   ]);
 });
 

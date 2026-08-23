@@ -72,14 +72,6 @@ class GuiComposePluginTest {
     }
 
     @Test
-    @DisplayName("桌面品牌缩写兼容 CamelCase 与本地化名称")
-    fun derivesCompactApplicationInitials() {
-        assertEquals("PD", applicationInitials("PixivDownloader"))
-        assertEquals("像素", applicationInitials("像素下载器"))
-        assertEquals("UI", applicationInitials("  "))
-    }
-
-    @Test
     @DisplayName("现代托盘菜单以图标为锚点并保持在可用屏幕内")
     fun anchorsTrayPopupInsideUsableScreen() {
         val anchor = Point(1209, 795)
