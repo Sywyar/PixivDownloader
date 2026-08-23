@@ -143,7 +143,7 @@ final class DesktopPluginStatusController {
                 "plugins.scroll",
                 column(
                         "plugins.read-only",
-                        text("plugins.title", "desktop.ui.plugins.title", TextStyle.TITLE),
+                        text("plugins.title", "desktop.ui.page.plugins", TextStyle.TITLE),
                         text("plugins.intro", "desktop.ui.plugins.intro", TextStyle.CAPTION),
                         new DesktopUiNode.AdaptiveGrid(
                                 "plugins.layout",

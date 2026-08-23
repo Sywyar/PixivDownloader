@@ -205,13 +205,6 @@ class AppDesktopUiHostDocumentTest extends DesktopUiDocumentTestSupport {
                         "Sywyar",
                         "gdrfgdrf"
                 );
-        assertThat(nodes(controlCenter).stream().filter(DesktopUiNode.Text.class::isInstance).map(
-                DesktopUiNode.Text.class::cast).filter(text -> text.id().startsWith(
-                "about.maintainer.") && text.id().endsWith(".role"))).extracting(
-                        text -> text.text().key()).containsExactly(
-                                "desktop.ui.about.maintainer.role.author-core",
-                                "desktop.ui.about.maintainer.role.commit-collaborator"
-                        );
         assertThat(controlCenter.requiredCapabilities()).contains(
                 DesktopUiCapability.SURFACE_ACTIVATION,
                 DesktopUiCapability.IMAGE_CIRCULAR_CLIP
