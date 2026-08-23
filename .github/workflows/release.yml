@@ -11,7 +11,29 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
+  validate-release-tag:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.vars.outputs.version }}
+    steps:
+      - name: Validate release tag
+        id: vars
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-beta\.[1-9][0-9]{0,8})?$ ]]; then
+            echo "unsupported release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
   trusted-base:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -30,9 +52,11 @@ jobs:
       - name: Resolve trusted base
         id: base
         shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          default_branch="${{ github.event.repository.default_branch }}"
+          default_branch="$DEFAULT_BRANCH"
           git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
           tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" || true)"
           if [ -z "$tip" ]; then
@@ -56,6 +80,7 @@ jobs:
       trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
 
   publish-plugins:
+    needs: validate-release-tag
     if: github.event_name == 'push'
     uses: ./.github/workflows/publish-plugins.yml
     with:
@@ -79,12 +104,14 @@ jobs:
           plugins_repo_token: ${{ secrets.PLUGINS_REPO_TOKEN }}
 
   build-jar:
-    needs: publish-plugin-artifacts
+    needs: [validate-release-tag, publish-plugin-artifacts]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ needs.validate-release-tag.outputs.version }}
+    env:
+      RELEASE_VERSION: ${{ needs.validate-release-tag.outputs.version }}
 
     steps:
       - name: Fix Git UTF-8 filenames
@@ -114,19 +141,9 @@ jobs:
             (New-Object System.Text.UTF8Encoding($false)))
           ./scripts/write-plugin-credential-key-filter.ps1 -OutputPath $filterPath
 
-      - name: Resolve version
-        id: vars
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [[ -z "$VERSION" || "$VERSION" == "$GITHUB_REF_NAME" ]]; then
-            VERSION="0.0.1"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Build JAR
         run: >
-          mvn package -Pofficial-surveys -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
+          mvn package -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
           "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
 
       - name: Verify packaged distribution boundaries
@@ -227,8 +244,8 @@ jobs:
     if: github.event_name == 'push'
     runs-on: windows-latest
     environment: release
-    permissions:
-      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.build-jar.outputs.version }}
 
     steps:
       - name: Fix Git UTF-8 filenames
@@ -249,16 +266,6 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      - name: Resolve version
-        id: vars
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [[ -z "$VERSION" || "$VERSION" == "$GITHUB_REF_NAME" ]]; then
-            VERSION="0.0.1"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Download internal app-shell JAR
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -278,7 +285,7 @@ jobs:
       - name: Package Windows setup
         shell: pwsh
         run: |
-          $version = '${{ steps.vars.outputs.version }}'
+          $version = $env:RELEASE_VERSION
           $jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)
           if ($jars.Count -ne 1) {
             throw "Expected exactly one executable JAR artifact under artifacts/app-shell-jar, found $($jars.Count)"
@@ -391,12 +398,12 @@ jobs:
           安装器中的插件选择页当前暂时跳过；Douyin 插件可在启动后从 Web 插件市场按需安装。
 
           ### Java 标准包（跨平台）
-          下载 `PixivDownload-${{ github.ref_name }}-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。需要自行安装 Java 17。
+          下载 `PixivDownload-*-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。需要自行安装 Java 17。
           Windows 上执行 `run.bat`；Linux / macOS 在解压目录内执行 `sh run.sh`。
           该包包含核心壳与除 Douyin 外的全部面向用户的签名官方插件，与 Windows 安装包默认插件集合一致；Douyin 可在启动后从 Web 插件市场按需安装。包内不包含 JRE，也不包含 FFmpeg。
 
           ### 离线全量包（跨平台）
-          下载 `PixivDownload-${{ github.ref_name }}-full-offline.zip` 并完整解压，Windows 上执行 `run.bat`，Linux / macOS 执行 `sh run.sh`。
+          下载 `PixivDownload-*-full-offline.zip` 并完整解压，Windows 上执行 `run.bat`，Linux / macOS 执行 `sh run.sh`。
           该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，适合离线部署或非 Windows 环境。需要自行安装 Java 17；包内不包含 JRE，也不包含 FFmpeg。
 
           ### 网页端一站式下载
@@ -557,6 +564,11 @@ jobs:
         env:
           DRAFT_TAG: ${{ inputs.tag_name }}
         run: |
+          set -euo pipefail
+          if [[ ! "$DRAFT_TAG" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-beta\.[1-9][0-9]{0,8})?$ ]]; then
+            echo "unsupported draft release tag: $DRAFT_TAG" >&2
+            exit 1
+          fi
           git check-ref-format "refs/tags/$DRAFT_TAG"
           if TAG_COMMIT=$(git rev-parse --verify "refs/tags/$DRAFT_TAG^{commit}" 2>/dev/null); then
             test "$TAG_COMMIT" = "$GITHUB_SHA"

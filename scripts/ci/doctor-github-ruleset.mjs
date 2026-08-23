@@ -27,7 +27,7 @@
  *   npm run doctor:github-gate
  *
  * 测试：runDoctor 接受注入的 fetchJson，单元测试不依赖真实 GitHub（见
- * scripts/i18n/test/doctor-github-ruleset.test.mjs）。
+ * scripts/ci/test/doctor-github-ruleset.test.mjs）。
  */
 import fs from 'fs';
 import path from 'path';

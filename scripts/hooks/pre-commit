@@ -37,7 +37,7 @@ fi
 gate_re="$(node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const esc=(p)=>p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");process.stdout.write((m.paths||[]).filter(p=>typeof p==="string").map(esc).map(p=>"^"+p+"(/|$)").join("|"))' scripts/ci/gate-surface.json)"
 if printf '%s\n' "$staged" | grep -Eq "$gate_re"; then
     echo "pre-commit: protected release surface staged, checking the index contract..."
-    run_without_local_git_env node scripts/i18n/gate-contract.mjs \
+    run_without_local_git_env node scripts/ci/gate-contract.mjs \
         --repo-root "$root" --report-root "$root" --candidate-snapshot index
 fi
 

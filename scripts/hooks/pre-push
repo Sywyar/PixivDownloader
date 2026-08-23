@@ -65,7 +65,7 @@ for sha in "${tips[@]}"; do
     if git diff-tree --root --no-commit-id --name-only -r -m "$sha" \
         | grep -Eq "$gate_re"; then
         echo "pre-push: protected release surface changed, checking the tip contract..."
-        run_without_local_git_env node scripts/i18n/gate-contract.mjs \
+        run_without_local_git_env node scripts/ci/gate-contract.mjs \
             --repo-root "$root" --report-root "$root" --candidate-ref "$sha"
     fi
 done

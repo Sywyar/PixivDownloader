@@ -27,8 +27,8 @@
 - [ ] `npm run i18n:check`
 - [ ] `npm run i18n:generate-static`
 - [ ] `git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static`
-- [ ] `npm run i18n:gate-parity`
-- [ ] `npm run i18n:gate-signature`
+- [ ] `npm run gate:parity`
+- [ ] `npm run gate:signature`
 - [ ] `pwsh -NoProfile -File ./scripts/sync-shared-snippets.ps1 -Check`
 
 ### 条件验证

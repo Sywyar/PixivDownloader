@@ -51,9 +51,11 @@ jobs:
       - name: Resolve trusted base
         id: base
         shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          default_branch="${{ github.event.repository.default_branch }}"
+          default_branch="$DEFAULT_BRANCH"
           git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
           tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" || true)"
           if [ -z "$tip" ]; then

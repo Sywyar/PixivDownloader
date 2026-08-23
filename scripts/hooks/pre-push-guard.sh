@@ -59,8 +59,8 @@ cd "$root"
 marker_re='DouyinXBogusSigner|DouyinABogusSigner|DouyinSm3|generateChromeFingerprint|Dkdpgh4ZKs|Dkdpgh2Zms|ckdp1h4ZKs'
 
 guard_rel="scripts/hooks/pre-push-guard.sh"
-# 守卫自身的回归测试必须引用标记字面量（验证守卫能检出），与守卫本体一样豁免。
-guard_test_rel="scripts/i18n/test/hooks.test.mjs"
+# 守卫回归测试在运行时拼接标记，仍保留精确路径豁免以避免夹具文本误报。
+guard_test_rel="scripts/ci/test/hooks.test.mjs"
 
 if [ -n "$ref" ]; then
     matches="$(git grep -nE "$marker_re" "$ref" -- . ":(exclude)$guard_rel" ":(exclude)$guard_test_rel" 2>/dev/null || true)"
