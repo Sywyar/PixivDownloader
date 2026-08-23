@@ -683,6 +683,10 @@ final class AppDesktopUiModel implements DesktopUiModel, AutoCloseable {
         configuration.load();
     }
 
+    String themePreference() {
+        return configuration.themePreference();
+    }
+
     DesktopUiHost.FfmpegProxy proxySettings() {
         return configuration.proxySettings();
     }

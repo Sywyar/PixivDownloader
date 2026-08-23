@@ -170,6 +170,16 @@ class AppDesktopUiHostDocumentTest extends DesktopUiDocumentTestSupport {
                 "about.maintainer.65430754.name",
                 "about.update.check"
         );
+        DesktopUiNode.Dock systemHeader = nodes(controlCenter).stream().filter(
+                DesktopUiNode.Dock.class::isInstance).map(DesktopUiNode.Dock.class::cast).filter(
+                dock -> "home.system.header".equals(dock.id())).findFirst().orElseThrow();
+        assertThat(systemHeader.start()).isInstanceOf(DesktopUiNode.Text.class);
+        assertThat(systemHeader.end()).isInstanceOf(DesktopUiNode.Text.class);
+        DesktopUiNode.Text systemVersion = (DesktopUiNode.Text) systemHeader.end();
+        assertThat(systemVersion.text().key()).isEqualTo("gui.about.version");
+        assertThat(systemVersion.text().arguments()).singleElement().satisfies(
+                value -> assertThat(value).isNotBlank());
+        assertThat(systemVersion.textAlignment()).isEqualTo(DesktopUiNode.TextAlignment.END);
         List<DesktopUiNode.Image> maintainerImages = nodes(controlCenter).stream().filter(
                 DesktopUiNode.Image.class::isInstance).map(DesktopUiNode.Image.class::cast).filter(
                 image -> image.id().startsWith("about.maintainer.")).toList();
@@ -198,6 +208,22 @@ class AppDesktopUiHostDocumentTest extends DesktopUiDocumentTestSupport {
                 DesktopUiCapability.IMAGE_CIRCULAR_CLIP
         );
         assertThat(controlCenter.pages().get(0).floatingAction()).isPresent();
+    }
+
+    @Test
+    @DisplayName("主题选择立即更新桌面渲染偏好")
+    void themeSelectionImmediatelyUpdatesDesktopPreference() {
+        AppDesktopUiModel model = model(DesktopUiExperienceProfile.CONTROL_CENTER);
+
+        assertThat(model.themePreference()).isEqualTo("system");
+        dispatch(
+                model,
+                DesktopUiNode.EventType.SELECTION,
+                "interface.theme.input",
+                DesktopUiNode.Value.selection("dark")
+        );
+
+        assertThat(model.themePreference()).isEqualTo("dark");
     }
 
     @Test

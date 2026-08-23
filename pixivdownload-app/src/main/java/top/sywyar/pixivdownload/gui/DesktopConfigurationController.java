@@ -885,6 +885,10 @@ final class DesktopConfigurationController {
         loader.load();
     }
 
+    String themePreference() {
+        return selected("app.theme", "system");
+    }
+
     DesktopUiHost.FfmpegProxy proxySettings() {
         try {
             Map<String, String> values = host.applicationConfig().readAll(List.of(

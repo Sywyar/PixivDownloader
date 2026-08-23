@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.guicompose
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -33,6 +35,24 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 @DisplayName("Compose 控制中心通用布局")
 class ComposeControlCenterLayoutTest {
+    @Test
+    @DisplayName("浅色与深色主题使用 Material 3 Baseline 配色")
+    fun usesMaterialBaselineColorSchemes() {
+        val lightColors = desktopColorScheme(false)
+        val darkColors = desktopColorScheme(true)
+        val baselineLight = lightColorScheme()
+        val baselineDark = darkColorScheme()
+
+        assertEquals(baselineLight.primary, lightColors.primary)
+        assertEquals(baselineLight.primaryContainer, lightColors.primaryContainer)
+        assertEquals(baselineLight.surface, lightColors.surface)
+        assertEquals(baselineLight.surfaceContainerHighest, lightColors.surfaceContainerHighest)
+        assertEquals(baselineDark.primary, darkColors.primary)
+        assertEquals(baselineDark.primaryContainer, darkColors.primaryContainer)
+        assertEquals(baselineDark.surface, darkColors.surface)
+        assertEquals(baselineDark.surfaceContainerHighest, darkColors.surfaceContainerHighest)
+    }
+
     @Test
     @DisplayName("自适应网格按可用宽度退化列数")
     fun adaptsGridColumnsToAvailableWidth() = runComposeUiTest {

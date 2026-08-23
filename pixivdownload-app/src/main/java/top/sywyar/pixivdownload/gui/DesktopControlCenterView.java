@@ -78,6 +78,10 @@ final class DesktopControlCenterView {
         );
 
         long startedPlugins = owner.startedPluginCount();
+        String applicationVersion = host.applicationVersion();
+        String version = applicationVersion.isBlank()
+                ? host.message("app.version.unknown")
+                : applicationVersion;
         DesktopUiNode system = new DesktopUiNode.Surface(
                 "home.system",
                 DesktopUiNode.SurfaceStyle.CARD,
@@ -90,10 +94,28 @@ final class DesktopControlCenterView {
                 true,
                 column(
                         "home.system.content",
-                        text(
-                                "home.system.title",
-                                "desktop.ui.home.system.title",
-                                TextStyle.HEADING
+                        new DesktopUiNode.Dock(
+                                "home.system.header",
+                                8,
+                                null,
+                                null,
+                                null,
+                                text(
+                                        "home.system.title",
+                                        "desktop.ui.home.system.title",
+                                        TextStyle.HEADING
+                                ),
+                                new DesktopUiNode.Text(
+                                        "home.system.version",
+                                        appToken(
+                                                "gui.about.version",
+                                                version
+                                        ),
+                                        TextStyle.CAPTION,
+                                        false,
+                                        false,
+                                        DesktopUiNode.TextAlignment.END
+                                )
                         ),
                         raw(
                                 "home.system.backend",
@@ -219,7 +241,7 @@ final class DesktopControlCenterView {
                                 2,
                                 14,
                                 14,
-                                List.of(hero, system)
+                                List.of(system, hero)
                         ),
                         group(
                                 "home.metrics-section",

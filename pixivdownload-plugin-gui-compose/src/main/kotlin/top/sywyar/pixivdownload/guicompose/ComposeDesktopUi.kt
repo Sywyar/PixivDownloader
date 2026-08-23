@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.FilterNone
 import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -765,61 +766,9 @@ private fun DocumentDialog(
 }
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF3F5FD0),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFE1E7FF),
-    onPrimaryContainer = Color(0xFF162B72),
-    secondary = Color(0xFF2F6D76),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD1EEF2),
-    onSecondaryContainer = Color(0xFF123E45),
-    tertiary = Color(0xFF75546F),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFD7F5),
-    onTertiaryContainer = Color(0xFF2C122A),
-    background = Color(0xFFF4F6FB),
-    onBackground = Color(0xFF1A1C22),
-    surface = Color(0xFFFDFBFF),
-    onSurface = Color(0xFF1A1C22),
-    surfaceVariant = Color(0xFFE9ECF4),
-    onSurfaceVariant = Color(0xFF454750),
-    outline = Color(0xFF757780),
-    outlineVariant = Color(0xFFC6C9D2),
-    surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFF7F8FD),
-    surfaceContainer = Color(0xFFF0F2F8),
-    surfaceContainerHigh = Color(0xFFEAEFF5),
-    surfaceContainerHighest = Color(0xFFE4E7ED),
-    error = Color(0xFFBA1A1A),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFB9C4FF),
-    onPrimary = Color(0xFF0B2A85),
-    primaryContainer = Color(0xFF2947B4),
-    onPrimaryContainer = Color(0xFFE1E7FF),
-    secondary = Color(0xFF9CD2DB),
-    onSecondary = Color(0xFF00363D),
-    secondaryContainer = Color(0xFF174E56),
-    onSecondaryContainer = Color(0xFFB7EAF2),
-    tertiary = Color(0xFFE5BAD9),
-    onTertiary = Color(0xFF432740),
-    tertiaryContainer = Color(0xFF5C3D57),
-    onTertiaryContainer = Color(0xFFFFD7F5),
-    background = Color(0xFF111318),
-    onBackground = Color(0xFFE3E2E8),
-    surface = Color(0xFF191B20),
-    onSurface = Color(0xFFE3E2E8),
-    surfaceVariant = Color(0xFF30323A),
-    onSurfaceVariant = Color(0xFFC6C6D0),
-    outline = Color(0xFF90919B),
-    outlineVariant = Color(0xFF44464F),
-    surfaceContainerLowest = Color(0xFF0C0E13),
-    surfaceContainerLow = Color(0xFF191B20),
-    surfaceContainer = Color(0xFF1D2025),
-    surfaceContainerHigh = Color(0xFF282A2F),
-    surfaceContainerHighest = Color(0xFF33353A),
-    error = Color(0xFFFFB4AB),
 )
 
 private val DesktopTypography = Typography(
@@ -879,12 +828,14 @@ private val DesktopShapes = Shapes(
 private fun PixivDownloaderTheme(themePreference: String, content: @Composable () -> Unit) {
     val dark = darkForThemePreference(themePreference, isSystemInDarkTheme())
     MaterialTheme(
-        colorScheme = if (dark) DarkColors else LightColors,
+        colorScheme = desktopColorScheme(dark),
         typography = DesktopTypography,
         shapes = DesktopShapes,
         content = content,
     )
 }
+
+internal fun desktopColorScheme(dark: Boolean): ColorScheme = if (dark) DarkColors else LightColors
 
 internal fun darkForThemePreference(themePreference: String, systemDark: Boolean): Boolean =
     when (themePreference) {
