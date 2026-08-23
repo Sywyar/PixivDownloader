@@ -400,38 +400,28 @@ object ComposeDesktopUiNodeRenderer {
             Box(interactive) { Node(node.content(), text, emit, contentModifier) }
             return
         }
-        val dark = MaterialTheme.colorScheme.background.luminance() < .5f
-        val accent = when (node.style()) {
-            DesktopUiNode.SurfaceStyle.INFO -> if (dark) Color(0xFFAEC6FF) else Color(0xFF3F67C6)
-            DesktopUiNode.SurfaceStyle.SUCCESS -> if (dark) Color(0xFF70D7B5) else Color(0xFF168262)
-            DesktopUiNode.SurfaceStyle.WARNING -> if (dark) Color(0xFFFFC56B) else Color(0xFF9A6500)
-            DesktopUiNode.SurfaceStyle.ERROR -> MaterialTheme.colorScheme.error
-            DesktopUiNode.SurfaceStyle.MUTED -> MaterialTheme.colorScheme.onSurfaceVariant
-            else -> MaterialTheme.colorScheme.outlineVariant
-        }
         val cardModifier = interactive.animateContentSize(tween(180))
         val content: @Composable () -> Unit = { Node(node.content(), text, emit, contentModifier) }
+        val containerColor = when (node.style()) {
+            DesktopUiNode.SurfaceStyle.CARD -> MaterialTheme.colorScheme.surfaceContainerLow
+            DesktopUiNode.SurfaceStyle.MUTED -> MaterialTheme.colorScheme.surfaceContainerHighest
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        }
+        val colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        )
         when (node.style()) {
             DesktopUiNode.SurfaceStyle.CARD -> ElevatedCard(
                 modifier = cardModifier,
                 shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-                content = { content() },
-            )
-            DesktopUiNode.SurfaceStyle.MUTED -> Card(
-                modifier = cardModifier,
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                ),
+                colors = colors,
                 content = { content() },
             )
             else -> Card(
                 modifier = cardModifier,
                 shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = .11f)),
+                colors = colors,
                 content = { content() },
             )
         }

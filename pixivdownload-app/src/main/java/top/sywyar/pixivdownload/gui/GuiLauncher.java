@@ -299,17 +299,31 @@ public class GuiLauncher {
                     pluginSession.startupDiscovery(), startupDesktopBundles);
             DesktopUiProvider selectedProvider = selection.provider();
             AppDesktopUiModel.RendererContract rendererContract = new AppDesktopUiModel.RendererContract(
-                    selectedProvider.id(), selectedProvider.experienceProfile(),
-                    selectedProvider.supportedNodeKinds(), selectedProvider.supportedCapabilities());
+                    selectedProvider.id(),
+                    selectedProvider.experienceProfile(),
+                    selectedProvider.supportedNodeKinds(),
+                    selectedProvider.supportedCapabilities()
+            );
             AppDesktopUiModel desktopUiModel = new AppDesktopUiModel(
-                    port, root, configPath, desktopUiHost, currentDesktopSources, rendererContract);
+                    port,
+                    root,
+                    configPath,
+                    desktopUiHost,
+                    currentDesktopSources,
+                    rendererContract
+            );
             ACTIVE_UI_MODEL.set(desktopUiModel);
-            DesktopUiContext context = new DesktopUiContext(startupLaunch, desktopUiHost.applicationName(),
-                    desktopUiModel, token -> resolveDesktopText(token, currentDesktopBundles),
+            DesktopUiContext context = new DesktopUiContext(
+                    startupLaunch,
+                    desktopUiHost.applicationName(),
+                    desktopUiModel,
+                    token -> resolveDesktopText(token, currentDesktopBundles),
                     desktopUiHost::requestApplicationExit,
-                    () -> readConfigScalar(configPath, "app.theme"),
-                    rendererContract.providerId(), rendererContract.supportedKinds(),
-                    rendererContract.supportedCapabilities());
+                    desktopUiModel::themePreference,
+                    rendererContract.providerId(),
+                    rendererContract.supportedKinds(),
+                    rendererContract.supportedCapabilities()
+            );
             DesktopUiSession ui = selectedProvider.launch(context);
             ACTIVE_UI.set(ui);
             singleInstanceManager.setActivationHandler(ui::activate);
