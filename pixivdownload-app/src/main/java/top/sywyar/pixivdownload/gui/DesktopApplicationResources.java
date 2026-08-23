@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -23,7 +25,11 @@ final class DesktopApplicationResources {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Pattern MAINTAINER_LOGIN = Pattern.compile(
             "[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?");
-    private static final Pattern MAINTAINER_ROLE = Pattern.compile("[a-z0-9]+(?:-[a-z0-9]+)*");
+    private static final Set<String> MAINTAINER_ROLES = Set.of(
+            "author-core",
+            "commit-contributor",
+            "commit-collaborator"
+    );
 
     private DesktopApplicationResources() {
     }
@@ -51,8 +57,12 @@ final class DesktopApplicationResources {
     }
 
     private static List<Maintainer> loadMaintainers() {
-        try (var stream = DesktopApplicationResources.class.getResourceAsStream(
-                "/pixivdownload/maintainers.json")) {
+        return loadMaintainers(DesktopApplicationResources.class.getResourceAsStream(
+                "/pixivdownload/maintainers.json"));
+    }
+
+    static List<Maintainer> loadMaintainers(InputStream stream) {
+        try (stream) {
             if (stream == null)
                 throw new IllegalStateException("Bundled maintainer catalog is missing");
             MaintainerCatalog catalog = OBJECT_MAPPER.readValue(
@@ -73,10 +83,8 @@ final class DesktopApplicationResources {
             }
             return List.copyOf(unique.values());
         } catch (Exception failure) {
-            throw new IllegalStateException(
-                    "Unable to load the bundled maintainer catalog",
-                    failure
-            );
+            LOG.warn("Unable to load the bundled maintainer catalog", failure);
+            return List.of();
         }
     }
 
@@ -122,10 +130,10 @@ final class DesktopApplicationResources {
             if (id <= 0L || !MAINTAINER_LOGIN.matcher(Objects.requireNonNull(
                     login,
                     "login"
-            )).matches() || !MAINTAINER_ROLE.matcher(Objects.requireNonNull(
+            )).matches() || !MAINTAINER_ROLES.contains(Objects.requireNonNull(
                     role,
                     "role"
-            )).matches()) {
+            ))) {
                 throw new IllegalArgumentException("Invalid maintainer identity");
             }
             validateHttpsUri(avatarUrl, "avatars.githubusercontent.com");

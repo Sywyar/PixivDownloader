@@ -169,56 +169,73 @@ final class DesktopAboutView {
                     "desktop.ui.about.contributors.title",
                     TextStyle.HEADING
             ));
-            List<DesktopUiNode> maintainerCards = new ArrayList<>();
-            for (Maintainer maintainer : maintainers) {
-                String base = "about.maintainer." + maintainer.id();
-                String action = base + ".open";
-                nextActions.put(action, () -> owner.openUri(maintainer.profileUrl()));
-                maintainerCards.add(new DesktopUiNode.Surface(
-                        base,
-                        DesktopUiNode.SurfaceStyle.CARD,
-                        DesktopUiNode.Insets.all(12),
-                        false,
-                        action,
-                        new DesktopUiNode.Container(
-                                base + ".content",
-                                ContainerLayout.COLUMN,
-                                1,
-                                8,
-                                Alignment.CENTER,
-                                List.of(
-                                        new DesktopUiNode.Image(
-                                                base + ".avatar",
-                                                maintainer.avatar(),
-                                                appToken(
-                                                        "desktop.ui.about.maintainer.avatar-alt",
-                                                        maintainer.login()
-                                                ),
-                                                72,
-                                                72,
-                                                DesktopUiNode.ScaleMode.FILL,
-                                                DesktopUiNode.ImageShape.CIRCLE
-                                        ),
-                                        new DesktopUiNode.Text(
-                                                base + ".name",
-                                                TextToken.raw(maintainer.login()),
-                                                TextStyle.EMPHASIS,
-                                                false,
-                                                false,
-                                                DesktopUiNode.TextAlignment.CENTER
-                                        )
-                                )
-                        )
+            if (maintainers.isEmpty()) {
+                maintainerContent.add(text(
+                        "about.maintainers.load-failed",
+                        "desktop.ui.about.maintainers.load-failed",
+                        TextStyle.ERROR
+                ));
+            } else {
+                List<DesktopUiNode> maintainerCards = new ArrayList<>();
+                for (Maintainer maintainer : maintainers) {
+                    String base = "about.maintainer." + maintainer.id();
+                    String action = base + ".open";
+                    nextActions.put(action, () -> owner.openUri(maintainer.profileUrl()));
+                    maintainerCards.add(new DesktopUiNode.Surface(
+                            base,
+                            DesktopUiNode.SurfaceStyle.CARD,
+                            DesktopUiNode.Insets.all(12),
+                            false,
+                            action,
+                            new DesktopUiNode.Container(
+                                    base + ".content",
+                                    ContainerLayout.COLUMN,
+                                    1,
+                                    8,
+                                    Alignment.CENTER,
+                                    List.of(
+                                            new DesktopUiNode.Image(
+                                                    base + ".avatar",
+                                                    maintainer.avatar(),
+                                                    appToken(
+                                                            "desktop.ui.about.maintainer.avatar-alt",
+                                                            maintainer.login()
+                                                    ),
+                                                    72,
+                                                    72,
+                                                    DesktopUiNode.ScaleMode.FILL,
+                                                    DesktopUiNode.ImageShape.CIRCLE
+                                            ),
+                                            new DesktopUiNode.Text(
+                                                    base + ".name",
+                                                    TextToken.raw(maintainer.login()),
+                                                    TextStyle.EMPHASIS,
+                                                    false,
+                                                    false,
+                                                    DesktopUiNode.TextAlignment.CENTER
+                                            ),
+                                            new DesktopUiNode.Text(
+                                                    base + ".role",
+                                                    key("desktop.ui.about.maintainer.role."
+                                                            + maintainer.role()),
+                                                    TextStyle.CAPTION,
+                                                    false,
+                                                    false,
+                                                    DesktopUiNode.TextAlignment.CENTER
+                                            )
+                                    )
+                            )
+                    ));
+                }
+                maintainerContent.add(new DesktopUiNode.Container(
+                        "about.maintainers",
+                        ContainerLayout.FLOW,
+                        1,
+                        12,
+                        Alignment.START,
+                        maintainerCards
                 ));
             }
-            maintainerContent.add(new DesktopUiNode.Container(
-                    "about.maintainers",
-                    ContainerLayout.FLOW,
-                    1,
-                    12,
-                    Alignment.START,
-                    maintainerCards
-            ));
             DesktopUiNode contributors = new DesktopUiNode.Surface(
                     "about.contributors",
                     DesktopUiNode.SurfaceStyle.CARD,
