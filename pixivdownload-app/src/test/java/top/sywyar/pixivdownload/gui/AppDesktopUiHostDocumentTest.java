@@ -164,10 +164,12 @@ class AppDesktopUiHostDocumentTest extends DesktopUiDocumentTestSupport {
                 "about.maintainer.83223374.content",
                 "about.maintainer.83223374.avatar",
                 "about.maintainer.83223374.name",
+                "about.maintainer.83223374.role",
                 "about.maintainer.65430754",
                 "about.maintainer.65430754.content",
                 "about.maintainer.65430754.avatar",
                 "about.maintainer.65430754.name",
+                "about.maintainer.65430754.role",
                 "about.update.check"
         );
         DesktopUiNode.Dock systemHeader = nodes(controlCenter).stream().filter(
@@ -203,6 +205,13 @@ class AppDesktopUiHostDocumentTest extends DesktopUiDocumentTestSupport {
                         "Sywyar",
                         "gdrfgdrf"
                 );
+        assertThat(nodes(controlCenter).stream().filter(DesktopUiNode.Text.class::isInstance).map(
+                DesktopUiNode.Text.class::cast).filter(text -> text.id().startsWith(
+                "about.maintainer.") && text.id().endsWith(".role"))).extracting(
+                        text -> text.text().key()).containsExactly(
+                                "desktop.ui.about.maintainer.role.author-core",
+                                "desktop.ui.about.maintainer.role.commit-collaborator"
+                        );
         assertThat(controlCenter.requiredCapabilities()).contains(
                 DesktopUiCapability.SURFACE_ACTIVATION,
                 DesktopUiCapability.IMAGE_CIRCULAR_CLIP

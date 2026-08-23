@@ -2,13 +2,11 @@
   "maintainers": [
     {
       "id": 83223374,
-      "login": "Sywyar",
-      "role": "author-core"
+      "login": "Sywyar"
     },
     {
       "id": 65430754,
-      "login": "gdrfgdrf",
-      "role": "commit-collaborator"
+      "login": "gdrfgdrf"
     }
   ]
 }

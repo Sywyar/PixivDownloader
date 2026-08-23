@@ -7,27 +7,45 @@ const API_BASE = 'https://api.github.com';
 const DEFAULT_REPOSITORY = 'Sywyar/PixivDownloader';
 const MAX_AVATAR_BYTES = 1024 * 1024;
 const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
-const ROLES = new Set(['author-core', 'commit-collaborator']);
 
 function isBot(user) {
   return user?.type === 'Bot' || /\[bot\]$/i.test(user?.login ?? '');
 }
 
+function addGitIdentity(identities, value) {
+  const match = value.trim().match(/^(.+?)\s*<([^>]+)>$/);
+  if (!match) return;
+  identities.add(match[1].trim().toLowerCase());
+  const noreply = match[2].match(/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i);
+  if (noreply) identities.add(noreply[1].toLowerCase());
+}
+
 export function gitContributorIdentities(log) {
-  const identities = new Set();
-  for (const line of log.split(/\r?\n/)) {
-    const match = line.trim().match(/^(.+?)\s*<([^>]+)>$/);
-    if (!match) continue;
-    identities.add(match[1].trim().toLowerCase());
-    const noreply = match[2].match(/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i);
-    if (noreply) identities.add(noreply[1].toLowerCase());
+  const authors = new Set();
+  const collaborators = new Set();
+  for (const record of log.split('\x1e')) {
+    const [author, ...coauthors] = record.trim().split('\0');
+    addGitIdentity(authors, author ?? '');
+    for (const coauthor of coauthors) addGitIdentity(collaborators, coauthor);
   }
-  return identities;
+  return { authors, collaborators };
+}
+
+function maintainerRole(user, owner, contributorIds, identities) {
+  const login = user.login.toLowerCase();
+  if (owner && user.id === owner.id) return 'author-core';
+  if (identities.authors.has(login)) return 'commit-contributor';
+  if (identities.collaborators.has(login)) return 'commit-collaborator';
+  return contributorIds.has(user.id) ? 'commit-contributor' : null;
 }
 
 export async function selectMaintainers({ owner, contributors, identities, allowlist, loadUser }) {
   const candidatesById = new Map();
   const candidatesByLogin = new Map();
+  const contributorIds = new Set();
+  for (const user of contributors) {
+    if (user && !isBot(user)) contributorIds.add(user.id);
+  }
   for (const user of [owner, ...contributors]) {
     if (!user || isBot(user)) continue;
     candidatesById.set(user.id, user);
@@ -36,11 +54,15 @@ export async function selectMaintainers({ owner, contributors, identities, allow
 
   const selected = [];
   for (const allowed of allowlist) {
+    const login = allowed.login.toLowerCase();
     let user = candidatesById.get(allowed.id) ?? candidatesByLogin.get(allowed.login.toLowerCase());
-    if (!user && identities.has(allowed.login.toLowerCase())) user = await loadUser(allowed.login);
+    if (!user && (identities.authors.has(login) || identities.collaborators.has(login))) {
+      user = await loadUser(allowed.login);
+    }
     if (!user || isBot(user) || user.id !== allowed.id
         || user.login.toLowerCase() !== allowed.login.toLowerCase()) continue;
-    selected.push({ ...user, role: allowed.role });
+    const role = maintainerRole(user, owner, contributorIds, identities);
+    if (role) selected.push({ ...user, role });
   }
   return selected;
 }
@@ -146,7 +168,7 @@ function validateAllowlist(allowlist) {
   for (const entry of allowlist) {
     const login = typeof entry?.login === 'string' ? entry.login.toLowerCase() : '';
     if (!Number.isSafeInteger(entry?.id) || entry.id <= 0 || !LOGIN_PATTERN.test(login)
-        || isBot(entry) || !ROLES.has(entry.role) || ids.has(entry.id) || logins.has(login)) {
+        || isBot(entry) || ids.has(entry.id) || logins.has(login)) {
       throw new Error('Maintainer allowlist is invalid');
     }
     ids.add(entry.id);
@@ -170,7 +192,7 @@ async function main() {
   const contributors = (await fetchContributors(repository)).map(githubUser);
   const log = execFileSync('git', [
     '-C', repoRoot,
-    'log', '--format=%aN <%aE>%n%(trailers:key=Co-authored-by,valueonly,separator=%x0a)',
+    'log', '--format=%aN <%aE>%x00%(trailers:key=Co-authored-by,valueonly,separator=%x00)%x1e',
   ], { encoding: 'utf8' });
   const selected = await selectMaintainers({
     owner: githubUser(repositoryData.owner),

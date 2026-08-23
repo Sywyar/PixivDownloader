@@ -2326,6 +2326,22 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "desktop.ui.about.maintainer.role.commit-contributor",
+      "acceptedSourceHash": "2717968fea87d13d27eebeb996890947778545fe80d3d61aec66487518fa6e5a",
+      "acceptedTranslationHash": "d49c5c219ef3c75f7bd2271c7fafabbb6f43a41ac5f804530d2c55868d2b8702"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.maintainers.load-failed",
+      "acceptedSourceHash": "160ed33d41f4357138f26aba1a5a126a26e2fe16beac8bece49412714d9a9716",
+      "acceptedTranslationHash": "58fed6a91af68a8f4679b6ac13cbff0551eb2cdebd186dd5eb6201beb737a2d0"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "desktop.ui.about.project",
       "acceptedSourceHash": "0cadb49096a382e0d51ccc384da6ff0efa0dddb3a39c767893270ebfbdc5a828",
       "acceptedTranslationHash": "89f2da07cebc5a257d7f6bdfa8a86a207adeaa57e7a86ef963d17e1a0b0c1554"
@@ -54129,6 +54145,22 @@
       "key": "desktop.ui.about.maintainer.role.commit-collaborator",
       "acceptedSourceHash": "2cf693f15652fae3c93da4ed768c14cae889c520cd8a34b388abeefd0bfa02e8",
       "acceptedTranslationHash": "e424fb9a33ba3c83358a7d47ea2e518d254a8b1090f92c30ab47c70af9cdd27f"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.maintainer.role.commit-contributor",
+      "acceptedSourceHash": "2717968fea87d13d27eebeb996890947778545fe80d3d61aec66487518fa6e5a",
+      "acceptedTranslationHash": "06005a27502b02401f76a342037fa22d077214694fe3241328c9652942105a04"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.maintainers.load-failed",
+      "acceptedSourceHash": "160ed33d41f4357138f26aba1a5a126a26e2fe16beac8bece49412714d9a9716",
+      "acceptedTranslationHash": "c28022667b41b06eca7b7e8d77c32910876193f07d56b9bb1da0334c123ad04b"
     },
     {
       "locale": "ja-JP",
@@ -105942,6 +105974,22 @@
       "locale": "ko-KR",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "desktop.ui.about.maintainer.role.commit-contributor",
+      "acceptedSourceHash": "2717968fea87d13d27eebeb996890947778545fe80d3d61aec66487518fa6e5a",
+      "acceptedTranslationHash": "7551ad6e8a9cfd82ef83b8a697c58d710b0eeca3bcf8ca9a81b1f847dc6c8b2e"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.maintainers.load-failed",
+      "acceptedSourceHash": "160ed33d41f4357138f26aba1a5a126a26e2fe16beac8bece49412714d9a9716",
+      "acceptedTranslationHash": "b99a49c4f5c93c32f8be142ae9c81a04ba17fc584564a030e7cf6c146e398258"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "desktop.ui.about.project",
       "acceptedSourceHash": "0cadb49096a382e0d51ccc384da6ff0efa0dddb3a39c767893270ebfbdc5a828",
       "acceptedTranslationHash": "f7db23e447543d75c13b1f24211ec84a4751969829f5f57fd37f56b0632f2e09"
@@ -157745,6 +157793,22 @@
       "key": "desktop.ui.about.maintainer.role.commit-collaborator",
       "acceptedSourceHash": "2cf693f15652fae3c93da4ed768c14cae889c520cd8a34b388abeefd0bfa02e8",
       "acceptedTranslationHash": "f963c285da6e8b8917e9c674a71c2cd1e8df17abf0b7c2b7e67d205dcc514eb8"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.maintainer.role.commit-contributor",
+      "acceptedSourceHash": "2717968fea87d13d27eebeb996890947778545fe80d3d61aec66487518fa6e5a",
+      "acceptedTranslationHash": "b730bcd46851a5d6a67bc78bdc5b0de5e6d0e140010e54aec84099e2f4e8f23a"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "desktop.ui.about.maintainers.load-failed",
+      "acceptedSourceHash": "160ed33d41f4357138f26aba1a5a126a26e2fe16beac8bece49412714d9a9716",
+      "acceptedTranslationHash": "1a150797915d955b94320b90266fe15f332ab9734f143f8c94c20497b2a9fbfc"
     },
     {
       "locale": "zh-Hant",
