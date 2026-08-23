@@ -10,7 +10,7 @@
       },
       "args": [
         "-pl",
-        "pixivdownload-official-plugins",
+        "pixivdownload-app,pixivdownload-official-plugins",
         "-am",
         "process-classes",
         "-Dexec.skip=true"
