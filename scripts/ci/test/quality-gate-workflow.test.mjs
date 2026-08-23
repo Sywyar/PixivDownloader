@@ -27,6 +27,7 @@ function secretNames(job) {
 test('Quality Gate：五个 required context 与完整触发面保持稳定', () => {
     const doc = load('.github/workflows/quality-gate.yml');
     assert.equal(doc.name, 'Quality Gate');
+    assert.deepEqual(doc.permissions, { contents: 'read' });
     assert.deepEqual(Object.keys(doc.jobs), [
         'java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract', 'i18n-check',
     ]);
@@ -35,7 +36,15 @@ test('Quality Gate：五个 required context 与完整触发面保持稳定', ()
     ]);
     assert.deepEqual(doc.on.push['branches-ignore'], ['gh-pages']);
     for (const id of ['signature-guard', 'trusted-gate-contract']) {
+        const resolve = doc.jobs[id].steps.find((step) => step.name === 'Resolve protected predecessor');
         const scripts = doc.jobs[id].steps.map((step) => step.run || '').join('\n');
+        assert.doesNotMatch(resolve.run, /\$\{\{/);
+        assert.equal(resolve.env.EVENT_PR_BASE_REF, '${{ github.event.pull_request.base.ref }}');
+        assert.equal(resolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
+        assert.match(resolve.run, /GITHUB_EVENT_NAME" = "workflow_dispatch"/);
+        assert.match(resolve.run, /EVENT_PR_BASE_REF" != "\$DEFAULT_BRANCH"/);
+        assert.match(resolve.run, /git merge-base "\$GITHUB_SHA" "\$PROTECTED_TIP"/);
+        assert.match(resolve.run, /--input-base "\$TRUSTED_BASE_SHA"/);
         assert.match(scripts, /resolve-trusted-base\.mjs/);
         assert.match(scripts, /git show "\$BASE_SHA:\$rel"/);
         assert.match(scripts, /gate-parity\.mjs/);
@@ -61,6 +70,11 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
 
     const release = load('.github/workflows/release.yml');
     const nightly = load('.github/workflows/nightly.yml');
+    const sharedSnippets = load('.github/workflows/shared-snippets-check.yml');
+    assert.deepEqual(publish.permissions, { contents: 'read' });
+    assert.deepEqual(release.permissions, { contents: 'read' });
+    assert.deepEqual(nightly.permissions, { contents: 'read' });
+    assert.deepEqual(sharedSnippets.permissions, { contents: 'read' });
     assert.equal(release.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');
     assert.equal(nightly.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');
     assert.equal(release.jobs['publish-plugins'].with.publish_in_caller, true);
@@ -78,6 +92,12 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
             }
         }
     }
+    const writeJobs = (doc) => Object.entries(doc.jobs)
+        .filter(([, job]) => job.permissions?.contents === 'write')
+        .map(([id]) => id);
+    assert.deepEqual(writeJobs(publish), []);
+    assert.deepEqual(writeJobs(release), ['release', 'create-draft-release']);
+    assert.deepEqual(writeJobs(nightly), ['release-nightly']);
 
     assert.deepEqual(secretNames(publish.jobs.publish).sort(), [
         'PLUGINS_REPO_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
@@ -91,7 +111,7 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         assert.equal(job.steps.find((step) => step.uses === './.github/actions/publish-official-plugins')
             ?.name, 'Publish official plugins');
     }
-    assert.equal(release.jobs['build-jar'].needs, 'publish-plugin-artifacts');
+    assert.deepEqual(release.jobs['build-jar'].needs, ['validate-release-tag', 'publish-plugin-artifacts']);
     assert.deepEqual(nightly.jobs['build-jar'].needs, ['resolve-version', 'publish-plugin-artifacts']);
     assert.ok(release.jobs.release.needs.includes('publish-plugin-artifacts'));
     assert.ok(nightly.jobs['release-nightly'].needs.includes('publish-plugin-artifacts'));
@@ -103,6 +123,59 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     }
     assert.deepEqual(secretNames(release.jobs.release), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
     assert.deepEqual(secretNames(nightly.jobs['release-nightly']), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
+});
+
+test('发布链：外部 ref 与输入先校验，再通过环境变量进入 shell', () => {
+    const release = load('.github/workflows/release.yml');
+    const nightly = load('.github/workflows/nightly.yml');
+    const publish = load('.github/workflows/publish-plugins.yml');
+    const releaseTagPattern = String.raw`^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-beta\.[1-9][0-9]{0,8})?$`;
+    const workflowDir = path.join(ROOT, '.github', 'workflows');
+    for (const file of fs.readdirSync(workflowDir).filter((name) => name.endsWith('.yml'))) {
+        const doc = load(`.github/workflows/${file}`);
+        for (const [jobId, job] of Object.entries(doc.jobs)) {
+            for (const step of job.steps || []) {
+                assert.doesNotMatch(step.run || '', /\$\{\{/, `${file}/${jobId}/${step.name}`);
+            }
+        }
+    }
+    const publishAction = load('.github/actions/publish-official-plugins/action.yml');
+    for (const step of publishAction.runs.steps) {
+        assert.doesNotMatch(step.run || '', /\$\{\{/, `publish action/${step.name}`);
+    }
+
+    const releaseValidation = release.jobs['validate-release-tag'];
+    const releaseVersion = releaseValidation.steps.find((step) => step.name === 'Validate release tag');
+    assert.ok(releaseVersion.run.includes(releaseTagPattern));
+    assert.match(releaseVersion.run, /unsupported release tag/);
+    assert.equal(releaseVersion.env.RELEASE_TAG, '${{ github.ref_name }}');
+    assert.equal(releaseValidation.outputs.version, '${{ steps.vars.outputs.version }}');
+    assert.equal(release.jobs['publish-plugins'].needs, 'validate-release-tag');
+    assert.equal(release.jobs['build-jar'].outputs.version,
+        '${{ needs.validate-release-tag.outputs.version }}');
+    assert.equal(release.jobs['build-jar'].env.RELEASE_VERSION,
+        '${{ needs.validate-release-tag.outputs.version }}');
+    assert.equal(release.jobs['build-jar'].steps
+        .find((step) => step.name === 'Resolve version'), undefined);
+    assert.equal(release.jobs['build-windows-installer'].env.RELEASE_VERSION,
+        '${{ needs.build-jar.outputs.version }}');
+    assert.equal(release.jobs['build-windows-installer'].steps
+        .find((step) => step.name === 'Resolve version'), undefined);
+    const draftTag = release.jobs['create-draft-release'].steps
+        .find((step) => step.name === 'Verify draft tag targets the tested commit');
+    assert.ok(draftTag.run.includes(releaseTagPattern));
+    assert.match(draftTag.run, /unsupported draft release tag/);
+
+    const nightlyVersion = nightly.jobs['resolve-version'].steps
+        .find((step) => step.name === 'Resolve next version');
+    assert.ok(nightlyVersion.run.includes(releaseTagPattern));
+    assert.match(nightlyVersion.run, /while IFS= read -r tag/);
+    assert.match(nightlyVersion.run, /LATEST_TAG="\$tag"/);
+    assert.doesNotMatch(nightlyVersion.run, /unsupported release tag/);
+    for (const id of ['build-jar', 'build-windows-installer', 'release-nightly']) {
+        assert.equal(nightly.jobs[id].env.RELEASE_VERSION,
+            '${{ needs.resolve-version.outputs.version }}');
+    }
 });
 
 test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {

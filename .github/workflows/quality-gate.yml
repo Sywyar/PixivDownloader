@@ -80,8 +80,30 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Resolve protected predecessor
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
+          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
         run: |
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "${{ github.event.before }}" --ref "$GITHUB_REF" --pr-head "${{ github.event.pull_request.head.sha }}" --pr-base "${{ github.event.pull_request.base.sha }}" --merge-group-base "${{ github.event.merge_group.base_sha }}" --input-base "${{ inputs.trusted_base_sha }}" --default-branch "${{ github.event.repository.default_branch }}" --root-admission "${{ inputs.root_admission }}" --root-candidate-sha "${{ inputs.root_candidate_sha }}" --mode > "$RUNNER_TEMP/gate-base.json"
+          TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
+          if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$EVENT_PR_BASE_REF" != "$DEFAULT_BRANCH" ]; }; then
+              git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+              PROTECTED_TIP="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+              if [ "$GITHUB_SHA" = "$PROTECTED_TIP" ]; then
+                TRUSTED_BASE_SHA="$(git rev-parse "$GITHUB_SHA^")"
+              else
+                TRUSTED_BASE_SHA="$(git merge-base "$GITHUB_SHA" "$PROTECTED_TIP")"
+              fi
+            fi
+          fi
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/gate-base.json"
           node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
       - name: Materialize protected verifier
         run: |
@@ -117,8 +139,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Resolve protected predecessor
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
+          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
         run: |
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "${{ github.event.before }}" --ref "$GITHUB_REF" --pr-head "${{ github.event.pull_request.head.sha }}" --pr-base "${{ github.event.pull_request.base.sha }}" --merge-group-base "${{ github.event.merge_group.base_sha }}" --input-base "${{ inputs.trusted_base_sha }}" --default-branch "${{ github.event.repository.default_branch }}" --root-admission "${{ inputs.root_admission }}" --root-candidate-sha "${{ inputs.root_candidate_sha }}" --mode > "$RUNNER_TEMP/gate-base.json"
+          TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
+          if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$EVENT_PR_BASE_REF" != "$DEFAULT_BRANCH" ]; }; then
+              git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+              PROTECTED_TIP="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+              if [ "$GITHUB_SHA" = "$PROTECTED_TIP" ]; then
+                TRUSTED_BASE_SHA="$(git rev-parse "$GITHUB_SHA^")"
+              else
+                TRUSTED_BASE_SHA="$(git merge-base "$GITHUB_SHA" "$PROTECTED_TIP")"
+              fi
+            fi
+          fi
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/gate-base.json"
           node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
       - name: Materialize protected verifier
         run: |

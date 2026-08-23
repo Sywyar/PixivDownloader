@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { runDoctor, loadInvariants } from '../../ci/doctor-github-ruleset.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CLI = path.join(SCRIPTS_DIR, '..', 'ci', 'doctor-github-ruleset.mjs');
+const CLI = path.join(SCRIPTS_DIR, 'doctor-github-ruleset.mjs');
 const REPO = 'test/repo';
 const invariants = loadInvariants();
 const REQUIRED = invariants.master.requiredChecks;
@@ -28,7 +28,7 @@ test('doctor：required contexts 与当前 trusted predecessor 声明一致', ()
         'signature-guard', 'trusted-gate-contract',
         'i18n-check', 'check-shared-snippets',
     ]);
-    const policy = JSON.parse(fs.readFileSync(path.join(SCRIPTS_DIR, 'gate-policy.json'), 'utf8'));
+    const policy = JSON.parse(fs.readFileSync(path.join(SCRIPTS_DIR, '..', 'i18n', 'gate-policy.json'), 'utf8'));
     assert.equal(policy.requiredExternalCheckDefinitions[0].requiredContext,
         'check-shared-snippets');
 });

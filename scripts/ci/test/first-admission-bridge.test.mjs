@@ -47,3 +47,14 @@ test('Epoch 4 root：受保护 CLI 报告当前版本', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /i18n-trust-gate 4/);
 });
+
+test('Gate 通用入口报告当前可信发布版本', () => {
+    const result = spawnSync(process.execPath, ['scripts/ci/trust-gate.mjs', '--version'], {
+        cwd: ROOT, encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /trusted-release-gate 4/);
+    const invalid = spawnSync(process.execPath,
+        ['scripts/ci/trust-gate.mjs', '--version', '--unknown'], { cwd: ROOT, encoding: 'utf8' });
+    assert.notEqual(invalid.status, 0);
+});

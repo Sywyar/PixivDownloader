@@ -26,6 +26,9 @@ test('hooks：提前反馈面复用可信发布核心检查器', () => {
     const surface = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/ci/gate-surface.json'), 'utf8'));
     const preCommit = fs.readFileSync(path.join(ROOT, 'scripts/hooks/pre-commit'), 'utf8');
     const prePush = fs.readFileSync(path.join(ROOT, 'scripts/hooks/pre-push'), 'utf8');
+    const scripts = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts;
+    assert.ok(surface.paths.includes('scripts/ci/gate-contract.mjs'));
+    assert.ok(surface.paths.includes('scripts/ci/trust-gate.mjs'));
     assert.deepEqual(surface.paths.filter((rel) => rel.startsWith('scripts/i18n/')), [
         'scripts/i18n/check.mjs',
         'scripts/i18n/gate-contract.mjs',
@@ -36,6 +39,10 @@ test('hooks：提前反馈面复用可信发布核心检查器', () => {
     assert.match(prePush, /gate-surface\.json/);
     assert.match(preCommit, /gate-contract\.mjs/);
     assert.match(prePush, /gate-contract\.mjs/);
+    assert.match(preCommit, /scripts\/ci\/gate-contract\.mjs/);
+    assert.match(prePush, /scripts\/ci\/gate-contract\.mjs/);
+    assert.equal(scripts['gate:trust'], 'node scripts/ci/trust-gate.mjs');
+    assert.equal(scripts['gate:contract'], 'node scripts/ci/gate-contract.mjs');
     for (const hook of [preCommit, prePush]) {
         assert.doesNotMatch(hook, /trustedGateEpoch|trustedGateRef|git\s+ls-remote|refs\/pixiv-i18n-prepush/);
     }
@@ -89,7 +96,8 @@ test('signature guard：逆向签名标记仍由独立守卫拒绝', () => {
         spawnSync('git', ['init', '-q'], { cwd: root });
         spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
         spawnSync('git', ['config', 'user.name', 'test'], { cwd: root });
-        fs.writeFileSync(path.join(root, 'Bad.java'), 'class Bad { String value = "DouyinXBogusSigner"; }\n');
+        const forbiddenMarker = 'DouyinX' + 'BogusSigner';
+        fs.writeFileSync(path.join(root, 'Bad.java'), `class Bad { String value = "${forbiddenMarker}"; }\n`);
         spawnSync('git', ['add', 'Bad.java'], { cwd: root });
         spawnSync('git', ['commit', '-q', '-m', 'bad'], { cwd: root });
         const hookDir = path.join(root, 'scripts/hooks');

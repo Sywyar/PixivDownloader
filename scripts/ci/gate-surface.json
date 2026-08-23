@@ -3,6 +3,7 @@
   "comment": "本地 hooks 的提前反馈面：复用可信发布核心检查器，不扩大远端受保护文件集合。",
   "paths": [
     "scripts/i18n/check.mjs",
+    "scripts/ci/gate-contract.mjs",
     "scripts/ci/gate-invariants.json",
     "scripts/ci/gate-parity.mjs",
     "scripts/ci/github-ruleset-invariants.json",
@@ -10,6 +11,7 @@
     "scripts/i18n/gate-contract.mjs",
     "scripts/i18n/gate-policy.json",
     "scripts/i18n/trust-gate.mjs",
+    "scripts/ci/trust-gate.mjs",
     ".github/workflows/quality-gate.yml",
     ".github/workflows/shared-snippets-check.yml",
     ".github/workflows/release.yml",

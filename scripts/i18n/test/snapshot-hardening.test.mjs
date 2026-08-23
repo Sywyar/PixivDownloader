@@ -149,7 +149,7 @@ test('snapshot：output 不存在 / 已存在 / 嵌套路径 → 物化成功且
 
         // output 已存在 → 再次物化（覆盖语义）仍成功
         snapshot.materializePathsTo(root, head, GATE_PATHS, fresh);
-        assert.ok(fs.existsSync(path.join(fresh, 'scripts', 'i18n', 'lib', 'trusted-gate.mjs')));
+        assert.ok(fs.existsSync(path.join(fresh, 'scripts', 'i18n', 'gate-policy.json')));
 
         // 精确验证：blob hash / executable bit（非 Windows）
         const checkFile = path.join(fresh, 'scripts', 'hooks', 'pre-commit');

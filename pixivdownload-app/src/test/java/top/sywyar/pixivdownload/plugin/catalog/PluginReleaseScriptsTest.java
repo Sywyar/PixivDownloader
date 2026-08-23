@@ -1389,7 +1389,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Nightly 版本解析同时考虑正式版与 Beta 标签")
+    @DisplayName("Nightly 版本解析考虑正式版与 Beta 标签并忽略无效标签")
     void nightlyVersionResolutionHandlesStableAndBetaTags() throws Exception {
         String nightly = workflow("nightly.yml");
         assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
@@ -1397,7 +1397,9 @@ class PluginReleaseScriptsTest {
 
         assertThat(nightly).contains(
                 "set -euo pipefail",
-                "LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)",
+                "while IFS= read -r tag",
+                "LATEST_TAG=\"$tag\"",
+                "done < <(git tag --sort=-v:refname --list 'v*')",
                 "PATCH=\"${PATCH%%-*}\"",
                 "git rev-parse --verify --quiet \"refs/tags/v${MAJOR}.${MINOR}.${PATCH}\"",
                 "NEXT_PATCH=$((PATCH + 1))",
@@ -1423,6 +1425,9 @@ class PluginReleaseScriptsTest {
             runGit(repo, "tag", "v1.14.0");
             assertThat(runBash(repo, script)).isEqualTo("1.14.1");
             runGit(repo, "tag", "v1.15.0-beta.2");
+            assertThat(runBash(repo, script)).isEqualTo("1.15.0");
+            runGit(repo, "tag", "v999999999.0.0-beta.0");
+            runGit(repo, "tag", "v9999999999.0.0");
             assertThat(runBash(repo, script)).isEqualTo("1.15.0");
         } finally {
             deleteRecursively(repo);
