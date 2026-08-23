@@ -133,6 +133,7 @@ final class DesktopSecurityController {
                 "security.scroll",
                 column(
                         "security.root",
+                        text("security.title", "desktop.ui.security.title", TextStyle.TITLE),
                         group(
                                 "security.card",
                                 "gui.security.card.change-password.title",
