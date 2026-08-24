@@ -137,7 +137,7 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 | --- | --- | --- | --- |
 | 应用宿主的插件市场 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`；包地址通常为 GitHub Release，并可能重定向到 `*.githubusercontent.com` | 获取官方插件清单、下载用户选择的插件包并做签名、SHA-256 和大小校验 | `plugin-catalog.enabled` 与内嵌官方仓库默认启用；管理员打开或刷新市场时拉取清单，明确安装插件时下载包；应用启动本身不访问仓库；最多跟随五跳重定向且每一跳都重新校验，关闭主开关可完全停用该链路 |
 | 应用宿主的插件市场 | 管理员配置的自定义 HTTPS manifest 和其中声明的包 URL | 使用第三方/自建插件仓库 | 只有配置并启用对应仓库后触发；直连严格策略可能明确不使用全局代理；最多跟随五跳重定向且每一跳都重新校验，具体以仓库策略为准 |
-| 应用宿主 FFmpeg 安装器 | `https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip`，以及其 Release CDN 重定向 | 下载 Windows FFmpeg LGPL 构建 | 仅在 GUI 中明确选择自动安装 FFmpeg 时触发；应用启动本身不会下载 |
+| 应用宿主 FFmpeg 安装器 | `https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-{windows-x64,linux-x64,linux-arm64,macos-x64,macos-arm64}.zip`，以及其 Release CDN 重定向 | 下载按当前系统和架构选择的 FFmpeg 官方稳定源码构建 | 仅在 GUI 中明确选择自动安装 FFmpeg 时触发；应用启动本身不会下载；不支持的系统继续使用手动安装；请求沿用宿主代理设置 |
 | 油猴脚本管理器，不属于插件 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 检查和下载六个独立油猴脚本更新 | 由 Tampermonkey 等脚本管理器按其更新策略触发；禁用脚本自动更新或卸载脚本即可停止 |
 | All-in-One 油猴脚本管理器，不属于插件 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 检查或下载构建生成的合并脚本 | 仅安装该发行脚本后由脚本管理器触发 |
 
@@ -191,6 +191,7 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 | --- | --- | --- |
 | Git 和发布脚本 | 当前 `origin`、`https://api.github.com`（或 `GITHUB_API_URL`）、GitHub Release | `fetch`、远端引用检查、质量门禁审计、插件和应用发布 |
 | GitHub Actions | GitHub Actions、Artifact、Release 服务以及 workflow 引用的 `actions/*`、`softprops/action-gh-release` | CI、构建、上传产物和发布 |
+| 手动 FFmpeg 稳定版构建 workflow | `https://ffmpeg.org/download.html`、`https://ffmpeg.org/releases/`、`https://ffmpeg.org/ffmpeg-devel.asc`、`https://chromium.googlesource.com/webm/libwebp`、Linux runner 配置的软件源，以及 GitHub Actions / Artifact / API / Release | 仅由维护者在主分支手动触发：解析并验证 FFmpeg 官方最新稳定源码及签名，取得固定提交的 libwebp，构建五个平台资产，再使用 `release` Environment 中的跨仓库令牌更新 Remote Content 的 `ffmpeg-stable` Release；已安装应用不会访问这些源码与构建依赖地址 |
 | Maven / Maven Wrapper | `https://repo.maven.apache.org/maven2` | 下载 Maven 3.9.11、Java 依赖和构建插件 |
 | npm | 当前锁文件中的 `https://registry.npmmirror.com` | 安装 Node 构建/检查依赖 |
 | 应用维护者目录生成器 | `https://api.github.com/repos/Sywyar/PixivDownloader`、`/contributors`、`/users/{login}`，以及 API 返回的 `https://avatars.githubusercontent.com` 头像地址 | 每次构建应用资源时读取仓库所有者、贡献者及本地提交作者/共同作者，与人工维护的真人白名单求交后下载获准头像，并把 JSON 与图片字节打包进程序；API 请求可使用构建环境的 `GITHUB_TOKEN` / `GH_TOKEN`，头像请求不携带凭据；该步骤没有独立关闭开关，生成无法完成时构建失败；已安装应用不会自动访问这些地址 |
