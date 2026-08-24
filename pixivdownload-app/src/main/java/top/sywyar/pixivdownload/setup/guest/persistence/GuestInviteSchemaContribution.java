@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.setup.guest;
+package top.sywyar.pixivdownload.setup.guest.persistence;
 
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;

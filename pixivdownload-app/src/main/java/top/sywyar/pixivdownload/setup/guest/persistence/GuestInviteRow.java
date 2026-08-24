@@ -1,8 +1,9 @@
-package top.sywyar.pixivdownload.setup.guest;
+package top.sywyar.pixivdownload.setup.guest.persistence;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 
 /**
  * MyBatis 与 guest_invites 表对应的可变行对象。{@code Boolean} 字段允许 SQLite 0/1 自动映射。

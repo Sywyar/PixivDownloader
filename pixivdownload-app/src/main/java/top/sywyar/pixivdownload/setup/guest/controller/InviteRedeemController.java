@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.setup.guest;
+package top.sywyar.pixivdownload.setup.guest.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +16,8 @@ import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.setup.AuthFilter;
 import top.sywyar.pixivdownload.setup.LoginRateLimitService;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Optional;
 

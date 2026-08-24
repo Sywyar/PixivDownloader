@@ -15,6 +15,8 @@ import top.sywyar.pixivdownload.setup.guest.dto.HourlyBucket;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteCreateRequest;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteDetail;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteSummary;
+import top.sywyar.pixivdownload.setup.guest.persistence.GuestInviteMapper;
+import top.sywyar.pixivdownload.setup.guest.persistence.GuestInviteRow;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;

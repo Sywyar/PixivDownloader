@@ -5,8 +5,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.collection.CollectionController;
 import top.sywyar.pixivdownload.maintenance.MaintenanceController;
-import top.sywyar.pixivdownload.setup.guest.AdminInviteController;
-import top.sywyar.pixivdownload.setup.guest.InviteRedeemController;
+import top.sywyar.pixivdownload.setup.guest.controller.AdminInviteController;
+import top.sywyar.pixivdownload.setup.guest.controller.InviteRedeemController;
 
 import java.util.ArrayList;
 import java.util.List;

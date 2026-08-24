@@ -25,7 +25,7 @@ import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
+import top.sywyar.pixivdownload.setup.guest.config.GuestInviteConfig;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.setup.guest;
+package top.sywyar.pixivdownload.setup.guest.persistence;
 
 import org.apache.ibatis.annotations.*;
 

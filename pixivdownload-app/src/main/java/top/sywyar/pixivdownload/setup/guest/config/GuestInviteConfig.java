@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.setup.guest;
+package top.sywyar.pixivdownload.setup.guest.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

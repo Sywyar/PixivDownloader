@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.core.schedule.db.ScheduleSchemaContribution;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
+import top.sywyar.pixivdownload.setup.guest.persistence.GuestInviteSchemaContribution;
 
 import java.util.List;
 import java.util.Set;

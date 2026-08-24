@@ -1,7 +1,8 @@
-package top.sywyar.pixivdownload.setup.guest;
+package top.sywyar.pixivdownload.setup.guest.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 import top.sywyar.pixivdownload.setup.guest.dto.HourlyBucket;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteCreateRequest;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteCreateResponse;
