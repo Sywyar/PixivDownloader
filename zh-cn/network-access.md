@@ -135,7 +135,7 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 
 | 请求所有者 | 目标地址 | 用途 | 触发场景与默认状态 |
 | --- | --- | --- | --- |
-| 应用宿主的插件市场 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`；包地址通常为 GitHub Release，并可能重定向到 `*.githubusercontent.com` | 获取官方插件清单、下载用户选择的插件包并做签名、SHA-256 和大小校验 | `plugin-catalog.enabled` 与内嵌官方仓库默认启用；管理员打开或刷新市场时拉取清单，明确安装插件时下载包；应用启动本身不访问仓库；最多跟随五跳重定向且每一跳都重新校验，关闭主开关可完全停用该链路 |
+| 应用宿主的插件市场 | 正式版使用 `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`，每夜构建版使用同仓库的 `nightly-manifest.json`；包地址通常为 GitHub Release，并可能重定向到 `*.githubusercontent.com` | 获取与当前应用发布通道匹配的官方插件清单、下载用户选择的插件包并做签名、SHA-256 和大小校验 | 清单由打包进应用的版本自动选择；`plugin-catalog.enabled` 与内嵌官方仓库默认启用，管理员打开或刷新市场时拉取清单，明确安装插件时下载包；应用启动本身不访问仓库；最多跟随五跳重定向且每一跳都重新校验，关闭主开关可完全停用该链路 |
 | 应用宿主的插件市场 | 管理员配置的自定义 HTTPS manifest 和其中声明的包 URL | 使用第三方/自建插件仓库 | 只有配置并启用对应仓库后触发；直连严格策略可能明确不使用全局代理；最多跟随五跳重定向且每一跳都重新校验，具体以仓库策略为准 |
 | 应用宿主 FFmpeg 安装器 | `https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-{windows-x64,linux-x64,linux-arm64,macos-x64,macos-arm64}.zip`，以及其 Release CDN 重定向 | 下载按当前系统和架构选择的 FFmpeg 官方稳定源码构建 | 仅在 GUI 中明确选择自动安装 FFmpeg 时触发；应用启动本身不会下载；不支持的系统继续使用手动安装；请求沿用宿主代理设置 |
 | 油猴脚本管理器，不属于插件 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 检查和下载六个独立油猴脚本更新 | 由 Tampermonkey 等脚本管理器按其更新策略触发；禁用脚本自动更新或卸载脚本即可停止 |
