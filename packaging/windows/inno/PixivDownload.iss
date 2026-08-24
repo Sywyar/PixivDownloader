@@ -1,7 +1,7 @@
 #define AppName "PixivDownload"
 #define AppPublisher "sywyar"
 #define AppExeName "PixivDownload.exe"
-#define FfmpegArchiveUrl "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
+#define FfmpegArchiveUrl "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-windows-x64.zip"
 #ifndef SdkVersion
 #error SdkVersion must be supplied from pixivdownload-sdk-info metadata.
 #endif
@@ -360,7 +360,9 @@ const
   PM_REMOVE = 1;
   TH32CS_SNAPPROCESS = $00000002;
   FfmpegArchiveName = 'ffmpeg.zip';
-  FfmpegLicenseName = 'ffmpeg-LGPL.txt';
+  FfmpegLicenseName = 'ffmpeg-LGPLv2.1.txt';
+  LibwebpLicenseName = 'libwebp-COPYING.txt';
+  LibwebpPatentsName = 'libwebp-PATENTS.txt';
   AppRegistryKey = 'Software\sywyar\PixivDownload';
   UninstallRegistryKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
   InnoUninstallRegistryKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{4D4F3566-C6C0-4D24-9242-86059B2A84A5}_is1';
@@ -370,11 +372,6 @@ const
   MaintenanceUninstallMode = 'uninstall';
   PluginInstallScriptName = 'installer-plugin-install.ps1';
   PluginSignatureToolName = 'pixivdownload-plugin-signature-tool.jar';
-  FfmpegLicenseNotice =
-    'FFmpeg is licensed under the LGPL v2.1.'#13#10 +
-    'Source code: https://ffmpeg.org'#13#10 +
-    'Build: BtbN FFmpeg Builds (https://github.com/BtbN/FFmpeg-Builds)'#13#10 +
-    'LGPL License: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html'#13#10;
 
 function PeekMessage(var Msg: TMsg; Hwnd: Longword; MsgFilterMin, MsgFilterMax, RemoveMsg: Longword): Boolean;
 external 'PeekMessageW@user32.dll stdcall';
@@ -1774,13 +1771,22 @@ procedure InstallFfmpegFiles(const ExtractDir: String);
 var
   SourceFfmpeg: String;
   SourceFfprobe: String;
+  SourceFfmpegLicense: String;
+  SourceLibwebpLicense: String;
+  SourceLibwebpPatents: String;
   TargetDir: String;
   LicenseDir: String;
 begin
   SourceFfmpeg := '';
   SourceFfprobe := '';
+  SourceFfmpegLicense := '';
+  SourceLibwebpLicense := '';
+  SourceLibwebpPatents := '';
   if (not FindFileRecursive(ExtractDir, 'ffmpeg.exe', SourceFfmpeg)) or
-     (not FindFileRecursive(ExtractDir, 'ffprobe.exe', SourceFfprobe)) then
+     (not FindFileRecursive(ExtractDir, 'ffprobe.exe', SourceFfprobe)) or
+     (not FindFileRecursive(ExtractDir, FfmpegLicenseName, SourceFfmpegLicense)) or
+     (not FindFileRecursive(ExtractDir, LibwebpLicenseName, SourceLibwebpLicense)) or
+     (not FindFileRecursive(ExtractDir, LibwebpPatentsName, SourceLibwebpPatents)) then
     RaiseException(CustomMessage('FfmpegArchiveInvalid'));
 
   SetFfmpegProgress(CustomMessage('FfmpegInstallingFiles'), '', 100);
@@ -1794,7 +1800,9 @@ begin
      (not CopyFile(SourceFfprobe, TargetDir + '\ffprobe.exe', False)) then
     RaiseException(CustomMessage('FfmpegCopyFailed'));
 
-  if not SaveStringToFile(LicenseDir + '\' + FfmpegLicenseName, FfmpegLicenseNotice, False) then
+  if (not CopyFile(SourceFfmpegLicense, LicenseDir + '\' + FfmpegLicenseName, False)) or
+     (not CopyFile(SourceLibwebpLicense, LicenseDir + '\' + LibwebpLicenseName, False)) or
+     (not CopyFile(SourceLibwebpPatents, LicenseDir + '\' + LibwebpPatentsName, False)) then
     RaiseException(CustomMessage('FfmpegLicenseWriteFailed'));
 end;
 

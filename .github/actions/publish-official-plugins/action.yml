@@ -1,15 +1,24 @@
 name: Publish official plugins
 description: Build, sign and publish official plugins and refresh the plugin market manifest
 
+outputs:
+  manifest_commit:
+    description: Commit containing the generated plugin market manifest
+    value: ${{ steps.commit-manifest.outputs.manifest_commit }}
+
 inputs:
   plugin_signing_private_key_pem_base64:
     description: Base64-encoded PKCS#8 PEM private key for official plugin signatures
     required: true
-  plugins_repo_token:
-    description: Token with write access to Sywyar/PixivDownloader-plugins
+  cross_repo_release_token:
+    description: Token with write access to PixivDownloader release repositories
     required: true
   publish_args:
     description: Optional plugin publication arguments; only -f is supported
+    required: false
+    default: ''
+  nightly_build_version:
+    description: Optional Nightly application build version used to derive per-plugin prerelease versions
     required: false
     default: ''
 
@@ -59,8 +68,9 @@ runs:
     - name: Build and publish updated plugins
       shell: powershell
       env:
-        GH_TOKEN: ${{ inputs.plugins_repo_token }}
+        GH_TOKEN: ${{ inputs.cross_repo_release_token }}
         PUBLISH_PLUGIN_ARGS: ${{ inputs.publish_args }}
+        NIGHTLY_BUILD_VERSION: ${{ inputs.nightly_build_version }}
         PLUGINS_REPO: Sywyar/PixivDownloader-plugins
         PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07
       run: |
@@ -81,26 +91,35 @@ runs:
           if (@($inputTokens | Where-Object { $_ -in @("-f", "-Force") }).Count -gt 0) {
             $publishArgs["Force"] = $true
           }
+          if (-not [string]::IsNullOrWhiteSpace($env:NIGHTLY_BUILD_VERSION)) {
+            $publishArgs["NightlyBuildVersion"] = $env:NIGHTLY_BUILD_VERSION
+          }
           .\scripts\publish-plugin-releases.ps1 @publishArgs
         } catch {
           Remove-Item -LiteralPath $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE -Force -ErrorAction SilentlyContinue
           throw
         }
 
-    - name: Generate market manifest.json
+    - name: Generate plugin market manifest
       shell: pwsh
       env:
-        GH_TOKEN: ${{ inputs.plugins_repo_token }}
+        GH_TOKEN: ${{ inputs.cross_repo_release_token }}
+        NIGHTLY_BUILD_VERSION: ${{ inputs.nightly_build_version }}
         PLUGINS_REPO: Sywyar/PixivDownloader-plugins
         PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07
       run: |
         try {
-          .\scripts\generate-market-manifest.ps1 `
-            -Repo $env:PLUGINS_REPO `
-            -CurationFile scripts/market-curation.json `
-            -OutputFile build/manifest.json `
-            -OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID `
-            -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
+          $manifestArgs = @{
+            Repo = $env:PLUGINS_REPO
+            CurationFile = "scripts/market-curation.json"
+            OutputFile = "build/manifest.json"
+            OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID
+            PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:NIGHTLY_BUILD_VERSION)) {
+            $manifestArgs["NightlyBuildVersion"] = $env:NIGHTLY_BUILD_VERSION
+          }
+          .\scripts\generate-market-manifest.ps1 @manifestArgs
         } finally {
           Remove-Item -LiteralPath $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE -Force -ErrorAction SilentlyContinue
         }
@@ -109,22 +128,45 @@ runs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         repository: Sywyar/PixivDownloader-plugins
-        token: ${{ inputs.plugins_repo_token }}
+        token: ${{ inputs.cross_repo_release_token }}
         path: plugins-repo
 
-    - name: Commit manifest.json to plugins repo
+    - name: Commit plugin market manifest to plugins repo
+      id: commit-manifest
       shell: powershell
+      env:
+        NIGHTLY_BUILD_VERSION: ${{ inputs.nightly_build_version }}
       run: |
-        Copy-Item build/manifest.json plugins-repo/manifest.json -Force
-        Copy-Item build/manifest.json.sig plugins-repo/manifest.json.sig -Force
+        $manifestName = if ([string]::IsNullOrWhiteSpace($env:NIGHTLY_BUILD_VERSION)) {
+          "manifest.json"
+        } else {
+          "nightly-manifest.json"
+        }
+        Copy-Item build/manifest.json "plugins-repo/$manifestName" -Force
+        Copy-Item build/manifest.json.sig "plugins-repo/$manifestName.sig" -Force
         Set-Location plugins-repo
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add manifest.json manifest.json.sig
+        git add $manifestName "$manifestName.sig"
         $changed = git status --porcelain
         if ($changed) {
-          git commit -m "chore: refresh plugin market manifest"
+          $commitMessage = if ($manifestName -eq "manifest.json") {
+            "chore: refresh plugin market manifest"
+          } else {
+            "chore: refresh nightly plugin market manifest"
+          }
+          git commit -m $commitMessage
+          if ($LASTEXITCODE -ne 0) { throw "Failed to commit $manifestName in the plugins repository." }
           git push
+          if ($LASTEXITCODE -ne 0) { throw "Failed to push $manifestName to the plugins repository." }
         } else {
-          Write-Host "manifest.json unchanged; nothing to commit"
+          Write-Host "$manifestName unchanged; nothing to commit"
         }
+        $manifestCommit = (git rev-parse HEAD).Trim()
+        if ($manifestCommit -notmatch '^[0-9a-f]{40}$') {
+          throw "Invalid plugin manifest commit: $manifestCommit"
+        }
+        [System.IO.File]::AppendAllText(
+          $env:GITHUB_OUTPUT,
+          "manifest_commit=$manifestCommit`n",
+          (New-Object System.Text.UTF8Encoding($false)))

@@ -5,6 +5,9 @@ import { execFileSync } from 'node:child_process';
 
 if (process.argv.length === 3 && process.argv[2] === '--version') {
     console.log('trusted-release-gate 5');
+} else if (process.argv.includes('--version')) {
+    console.error('Usage: trust-gate.mjs --version');
+    process.exitCode = 2;
 } else if (process.argv.includes('--adopt-root') || configuredEpoch() === '5') {
     await import('./release-gate-trust.mjs');
 } else {

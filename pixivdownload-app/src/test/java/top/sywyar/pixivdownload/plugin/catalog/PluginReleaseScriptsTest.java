@@ -114,6 +114,33 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("Nightly 插件按各自版本发布 prerelease、改写包版本并生成独立清单")
+    void nightlyPublicationUsesMatchingPluginVersionsAndManifest() throws Exception {
+        String common = script("plugin-distribution-common.ps1");
+        String publisher = script("publish-plugin-releases.ps1");
+        String generator = script("generate-market-manifest.ps1");
+
+        assertThat(common).contains(
+                "function Get-NightlyPluginVersion",
+                "return \"$SourceVersion-$NightlySuffix\"");
+        assertThat(publisher).contains(
+                "[string]$NightlyBuildVersion",
+                "$version = Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
+                "$tag = \"$($plugin.Id)-v$version\"",
+                "Set-StagedPluginVersion -StagedArtifact $stagedArtifact -Plugin $Plugin -Version $Version",
+                "\"--update\" \"--file\" $StagedArtifact \"plugin.properties\"",
+                "--title \"Nightly Build $version ($($plugin.Id))\"",
+                "--prerelease");
+        assertThat(generator).contains(
+                "$manifestName = if ($isNightly) { \"nightly-manifest.json\" } else { \"manifest.json\" }",
+                "$version = if ($isNightly) {",
+                "Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
+                "$tag = \"$id-v$version\"",
+                "$channel = if ($isNightly) { \"nightly\" } else { \"stable\" }",
+                "channel           = $channel");
+    }
+
+    @Test
     @DisplayName("共享分发脚本提供官方插件 jar 产物名解析和私有 lib 形态断言")
     void commonDistributionScriptResolvesOfficialArtifactNames() throws Exception {
         String common = script("plugin-distribution-common.ps1");

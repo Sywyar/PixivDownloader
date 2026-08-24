@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Generate the plugin-market manifest.json (consumer-facing strict catalog) from the ALREADY-PUBLISHED
-    GitHub Releases of the distribution repo + a curation source.
+    Generate the stable or Nightly plugin-market manifest (consumer-facing strict catalog) from the
+    ALREADY-PUBLISHED GitHub Releases of the distribution repo + a curation source.
 
 .DESCRIPTION
     The manifest is derived from the published release assets, NOT from a local build - so it is correct
@@ -9,7 +9,8 @@
     untouched, and a rebuilt artifact of the same version can differ byte-wise). For each official required
     or optional plugin:
 
-      - id / version / requires      : read from the module's source plugin.properties (literal, no build).
+      - id / requires                : read from the module's source plugin.properties (literal, no build).
+      - version                      : source plugin.version for stable, or that version plus the Nightly build suffix.
       - sha256 / expectedSizeBytes   : computed from the DOWNLOADED published plugin artifact (the real bytes).
       - downloadCount / releasedTime : read from the GitHub Releases API (asset download_count / publishedAt).
       - packageUrl                   : the GitHub Release asset link (github.com/.../releases/download/...).
@@ -32,6 +33,9 @@
 
 .PARAMETER ProjectRoot
     Repo root (to locate plugin modules' source plugin.properties). Default = parent of this script's dir.
+
+.PARAMETER NightlyBuildVersion
+    Nightly application build version. Its nightly.date.run.attempt suffix is appended to each source plugin.version.
 #>
 [CmdletBinding()]
 param(
@@ -41,7 +45,8 @@ param(
     [string]$ProjectRoot,
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
-    [string]$SignatureToolJar
+    [string]$SignatureToolJar,
+    [string]$NightlyBuildVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,6 +61,14 @@ if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is requ
 if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
     throw "PrivateKeyFile is required and must point to an Ed25519 PKCS#8 PEM file."
 }
+if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and
+    $NightlyBuildVersion -notmatch '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})-nightly\.[0-9]{8}\.[1-9][0-9]{0,8}\.[1-9][0-9]{0,8}$') {
+    throw "NightlyBuildVersion must match major.minor.patch-nightly.yyyymmdd.run.attempt."
+}
+$isNightly = -not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)
+$nightlySuffix = if ($isNightly) { ($NightlyBuildVersion -split '-', 2)[1] } else { $null }
+$manifestName = if ($isNightly) { "nightly-manifest.json" } else { "manifest.json" }
+$channel = if ($isNightly) { "nightly" } else { "stable" }
 $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
 function Read-Json([string]$path) {
@@ -147,11 +160,11 @@ $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 $defaultInstalledPluginIds = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Id })
 
 # Fetch the previously published manifest to preserve cumulative download counts.
-$existingManifestUrl = "https://raw.githubusercontent.com/$Repo/master/manifest.json"
+$existingManifestUrl = "https://raw.githubusercontent.com/$Repo/master/$manifestName"
 $prevByPlugin = @{}
 try {
     Write-Host "Fetching existing manifest from $existingManifestUrl ..."
-    $existingJson = & gh api "repos/$Repo/contents/manifest.json" --jq ".content" 2>$null
+    $existingJson = & gh api "repos/$Repo/contents/$manifestName" --jq ".content" 2>$null
     if ($LASTEXITCODE -eq 0 -and $existingJson) {
         $existingBytes = [System.Convert]::FromBase64String(($existingJson -replace '\s',''))
         $existingStr = [System.Text.Encoding]::UTF8.GetString($existingBytes)
@@ -180,7 +193,12 @@ try {
     foreach ($plugin in $plugins) {
         $d = Read-SourceDescriptor $plugin.Module
         $id = $d["plugin.id"]
-        $version = $d["plugin.version"]
+        $sourceVersion = $d["plugin.version"]
+        $version = if ($isNightly) {
+            Get-NightlyPluginVersion $sourceVersion $nightlySuffix
+        } else {
+            $sourceVersion
+        }
         $requires = $d["plugin.requires"]
         $dependencies = @(Get-PluginDependencies $d["plugin.dependencies"])
         if ($id -ne $plugin.Id) {
@@ -288,7 +306,7 @@ try {
             dependencies      = @($dependencies)
             releasedTime      = $releasedTime
             changeNotes       = $changeNotes
-            channel           = "stable"
+            channel           = $channel
             deprecated        = $false
         }
 

@@ -36,6 +36,7 @@ class PluginPackageVersionTest {
         assertThat(cmp("1.0.0-alpha.beta", "1.0.0-beta")).isNegative();
         assertThat(cmp("1.0.0-1", "1.0.0-2")).isNegative();
         assertThat(cmp("1.0.0-rc.2", "1.0.0-rc.1")).isPositive();
+        assertThat(cmp("0.0.0-nightly.19700102.2.1", "0.0.0-nightly.19700101.1.1")).isPositive();
     }
 
     @Test

@@ -2,7 +2,8 @@
 .SYNOPSIS
     Per-plugin, version-gated build + publish / repair: for each official required or optional plugin, create the
     GitHub Release when missing, supplement missing checksum/signature companions from immutable artifact bytes, or
-    force rebuild and replace release assets.
+    force rebuild and replace release assets. With -NightlyBuildVersion, publish an immutable prerelease for each
+    official plugin using that plugin's own source version plus the current Nightly build suffix.
 
 .DESCRIPTION
     Version is the immutability key. For each plugin:
@@ -32,6 +33,10 @@
 
 .PARAMETER Force
     Rebuild every official plugin and replace existing expected release assets for the current plugin.version.
+
+.PARAMETER NightlyBuildVersion
+    Nightly application build version. Only its nightly.date.run.attempt suffix is appended to each plugin's own
+    source version.
 #>
 [CmdletBinding()]
 param(
@@ -40,6 +45,7 @@ param(
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
     [string]$SignatureToolJar,
+    [string]$NightlyBuildVersion,
     [Alias("f")]
     [switch]$Force
 )
@@ -54,6 +60,18 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
 if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
     throw "PrivateKeyFile is required and must point to an Ed25519 PKCS#8 PEM file."
+}
+if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and
+    $NightlyBuildVersion -notmatch '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})-nightly\.[0-9]{8}\.[1-9][0-9]{0,8}\.[1-9][0-9]{0,8}$') {
+    throw "NightlyBuildVersion must match major.minor.patch-nightly.yyyymmdd.run.attempt."
+}
+if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and $Force) {
+    throw "Force is not supported for immutable Nightly plugin releases."
+}
+$nightlySuffix = if ([string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
+    $null
+} else {
+    ($NightlyBuildVersion -split '-', 2)[1]
 }
 $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
@@ -136,6 +154,63 @@ function Build-StagedPluginArtifact {
     return $stagedArtifact
 }
 
+function Set-StagedPluginVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$StagedArtifact,
+        [Parameter(Mandatory = $true)]$Plugin,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    $jarCommand = Get-Command "jar" -ErrorAction SilentlyContinue
+    if (-not $jarCommand) { throw "Missing jar command from the configured JDK." }
+    $rewriteDir = Join-Path ([System.IO.Path]::GetTempPath()) ("nightly-plugin-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $rewriteDir | Out-Null
+    Push-Location $rewriteDir
+    try {
+        & $jarCommand.Source "--extract" "--file" $StagedArtifact "plugin.properties"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to extract plugin.properties from $StagedArtifact." }
+        $descriptorPath = Join-Path $rewriteDir "plugin.properties"
+        if (-not (Test-Path -LiteralPath $descriptorPath -PathType Leaf)) {
+            throw "Root plugin.properties not found in $StagedArtifact."
+        }
+        $lines = @(Get-Content -LiteralPath $descriptorPath -Encoding UTF8)
+        $versionLines = @($lines | Where-Object { $_ -match '^\s*plugin\.version\s*=' })
+        if ($versionLines.Count -ne 1) {
+            throw "Expected exactly one plugin.version in $StagedArtifact; found $($versionLines.Count)."
+        }
+        $rewritten = @($lines | ForEach-Object {
+            if ($_ -match '^\s*plugin\.version\s*=') { "plugin.version=$Version" } else { $_ }
+        })
+        [System.IO.File]::WriteAllText($descriptorPath, (($rewritten -join "`n") + "`n"), $Utf8NoBom)
+        & $jarCommand.Source "--update" "--file" $StagedArtifact "plugin.properties"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to update plugin.properties in $StagedArtifact." }
+    } finally {
+        Pop-Location
+        Remove-Item -Recurse -Force -LiteralPath $rewriteDir -ErrorAction SilentlyContinue
+    }
+
+    $descriptor = Assert-OfficialPluginArtifact $StagedArtifact $Plugin
+    if ($descriptor["plugin.version"] -ne $Version) {
+        throw "Staged plugin.version '$($descriptor["plugin.version"])' != Nightly version '$Version' for $($Plugin.Id)."
+    }
+}
+
+function Build-StagedNightlyPluginArtifact {
+    param(
+        [Parameter(Mandatory = $true)]$Plugin,
+        [Parameter(Mandatory = $true)][string]$SourceVersion,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string]$AssetName
+    )
+
+    $sourceAssetName = Get-OfficialPluginArtifactName $Plugin $SourceVersion
+    $sourceArtifact = Build-StagedPluginArtifact -Plugin $Plugin -Version $SourceVersion -AssetName $sourceAssetName
+    $stagedArtifact = Join-Path $stageDir $AssetName
+    Move-Item -LiteralPath $sourceArtifact -Destination $stagedArtifact -Force
+    Set-StagedPluginVersion -StagedArtifact $stagedArtifact -Plugin $Plugin -Version $Version
+    return $stagedArtifact
+}
+
 function Download-ReleaseAsset {
     param(
         [Parameter(Mandatory = $true)][string]$Tag,
@@ -214,6 +289,33 @@ $stageDir = Join-Path $ProjectRoot "build/release-plugins"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 $published = @()
+
+if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
+    foreach ($plugin in $plugins) {
+        $sourceVersion = Read-SourceVersion $plugin.Module
+        $version = Get-NightlyPluginVersion $sourceVersion $nightlySuffix
+        $tag = "$($plugin.Id)-v$version"
+        $release = Get-ReleaseAssetState $tag
+        if ($release.Exists) {
+            throw "Nightly release $tag already exists. Rerun the workflow so GITHUB_RUN_ATTEMPT produces a new version."
+        }
+        $assetName = Get-OfficialPluginArtifactName $plugin $version
+        $stagedArtifact = Build-StagedNightlyPluginArtifact -Plugin $plugin -SourceVersion $sourceVersion `
+            -Version $version -AssetName $assetName
+        $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName `
+            -Plugin $plugin -Version $version
+
+        $uploadPaths = @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
+        gh release create $tag $uploadPaths --repo $Repo `
+            --title "Nightly Build $version ($($plugin.Id))" `
+            --notes "Plugin $($plugin.Id) Nightly $version." --prerelease
+        if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
+        $published += $tag
+    }
+
+    Write-Host "Published Nightly plugin releases: $($published -join ', ')"
+    return
+}
 
 foreach ($plugin in $plugins) {
     $version = Read-SourceVersion $plugin.Module

@@ -52,6 +52,7 @@ test('Epoch 5 adoption accepts the required Merge commit and verifies both Epoch
         copy(root, 'scripts/ci/release-gate-policy.json');
         const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/ci/release-gate-policy.json'), 'utf8'));
         for (const rel of policy.protectedCore) copy(root, rel);
+        for (const rel of Object.keys(policy.workflows)) copy(root, rel);
         commit(root, 'Epoch 5 candidate');
         git(root, ['switch', '-q', 'master']);
         git(root, ['merge', '--no-ff', '-q', '-m', 'Epoch 5 root', 'epoch-5']);

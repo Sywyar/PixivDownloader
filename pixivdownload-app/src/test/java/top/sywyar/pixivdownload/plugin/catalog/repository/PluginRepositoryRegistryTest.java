@@ -16,6 +16,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PluginRepositoryRegistryTest {
 
     @Test
+    @DisplayName("内嵌官方仓库按构建版本选择稳定版或 Nightly 清单")
+    void officialManifestFollowsBuildChannel() {
+        assertThat(PluginRepository.officialManifestUrl("0.0.0"))
+                .isEqualTo(PluginRepository.OFFICIAL_MANIFEST_URL);
+        assertThat(PluginRepository.officialManifestUrl("0.0.0-nightly.19700101.1.1"))
+                .isEqualTo(PluginRepository.OFFICIAL_NIGHTLY_MANIFEST_URL);
+    }
+
+    @Test
     @DisplayName("默认配置：主开关与内嵌官方仓库均启用、默认仓库为官方")
     void defaultsEmbedEnabledOfficial() {
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(new PluginCatalogProperties());
