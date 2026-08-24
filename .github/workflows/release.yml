@@ -380,9 +380,8 @@ jobs:
           fi
 
           cat > RELEASE_BODY.md <<'EOF'
-          > [!NOTE]
-          > 自 v1.8.0 版本更新中，我大量优化了网页的布局和功能统一性，希望可以让使用变得更方便和直观，如果有任何优化建议和问题欢迎提出issue
-          > 发布附件提供 Windows 安装包、与安装包默认插件集合一致的跨平台 Java 标准包，以及额外包含 Douyin 的离线全量包；核心壳 JAR 仅作为内部构建输入，不再单独提供。
+          > [!IMPORTANT]
+          > 我们正在收集多人模式的实际使用情况，用于决定后续维护方向。如果您正在使用或计划使用多人模式，请在「下载页」打开「站内信」，进入「多人模式去留调查」填写问卷。您的反馈将帮助我们了解真实需求。
 
           EOF
           cat CHANGELOG_EXCERPT.md >> RELEASE_BODY.md
@@ -392,26 +391,27 @@ jobs:
           ## 使用说明
 
           ### Windows 安装包
-          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装包支持语言选择，并在“附加功能”页提供“下载并安装 FFmpeg”选项；除 Douyin 外的面向用户的官方插件已在构建期预置。
+          下载并运行 `PixivDownload-*-win-x64-setup.exe`。安装时可以选择界面语言；「附加功能」页还提供「下载并安装 FFmpeg」选项。安装包已预置默认安装的签名官方插件，Douyin 插件可在启动后通过 Web 插件市场按需安装。
 
-          FFmpeg 不再内置到安装包中；勾选该选项后，安装器会在主程序安装完成后联网下载 FFmpeg，并显示独立下载/解压进度。未勾选或下载失败时，普通图片下载不受影响，后续也可以在 GUI 的“状态”页点击“下载 FFmpeg”重试。
-          安装器中的插件选择页当前暂时跳过；Douyin 插件可在启动后从 Web 插件市场按需安装。
+          FFmpeg 不包含在安装包内。勾选该选项后，安装器会在主程序安装完成后下载 Windows x64 版 FFmpeg，该文件由项目基于官方稳定源码构建。安装器会单独显示下载和解压进度。跳过该选项或下载失败不会影响普通图片下载，之后仍可在 GUI 的「状态」页点击「下载 FFmpeg」重试。安装器中的插件选择页当前不显示。
 
           ### Java 标准包（跨平台）
-          下载 `PixivDownload-*-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。需要自行安装 Java 17。
-          Windows 上执行 `run.bat`；Linux / macOS 在解压目录内执行 `sh run.sh`。
-          该包包含核心壳与除 Douyin 外的全部面向用户的签名官方插件，与 Windows 安装包默认插件集合一致；Douyin 可在启动后从 Web 插件市场按需安装。包内不包含 JRE，也不包含 FFmpeg。
+          下载 `PixivDownload-*-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。运行前需要安装 Java 17。Windows 使用 `run.bat`，Linux 和 macOS 在解压目录中执行 `sh run.sh`。
+
+          该包包含核心壳和默认安装的签名官方插件，与 Windows 安装包的默认插件集合一致。Douyin 插件可在启动后通过 Web 插件市场按需安装。包内不含 JRE 或 FFmpeg。在 Windows x64、Linux x64/arm64 与 macOS x64/arm64 系统上，可以在 GUI 的「状态」页下载 FFmpeg；其它系统需要手动安装。
 
           ### 离线全量包（跨平台）
-          下载 `PixivDownload-*-full-offline.zip` 并完整解压，Windows 上执行 `run.bat`，Linux / macOS 执行 `sh run.sh`。
-          该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，适合离线部署或非 Windows 环境。需要自行安装 Java 17；包内不包含 JRE，也不包含 FFmpeg。
+          下载 `PixivDownload-*-full-offline.zip` 并完整解压。Windows 使用 `run.bat`，Linux 和 macOS 在解压目录中执行 `sh run.sh`。
+
+          该包包含核心壳、全部面向用户的签名官方插件（包括 Douyin），以及对应的 `.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`。所有插件文件均已随包提供，无需再从插件市场下载。包内不含 JRE 或 FFmpeg。运行前需要自行安装 Java 17；如需使用依赖 FFmpeg 的功能，还应提前安装系统 FFmpeg。
 
           ### 网页端一站式下载
 
-          确认 `plugins/` 下已有 `download-workbench` 插件后，启动并访问 `http://localhost:6999/pixiv-batch.html`，无需安装油猴脚本即可完成大部分批量下载操作。
-          访问 `http://localhost:6999/monitor.html` 查看下载进度和历史记录。
+          正常发行包已包含必需的 `download-workbench` 插件。启动程序后即可打开下载页，默认地址为 `http://localhost:6999/pixiv-batch.html`；无需安装油猴脚本即可完成大部分批量下载操作。下载进度和历史记录位于 `http://localhost:6999/monitor.html`。如果修改了端口、域名或 HTTPS 设置，请使用实际配置的地址。
 
-          ## 详细说明请查看 README
+          ## 详细说明
+
+          完整安装、配置和插件说明请查看仓库 README。
           EOF
 
       - name: Generate update manifest
