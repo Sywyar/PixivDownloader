@@ -24,13 +24,9 @@ const REQUIRED = invariants.master.requiredChecks;
 
 test('doctor：required contexts 与当前 trusted predecessor 声明一致', () => {
     assert.deepEqual(REQUIRED, [
-        'java-tests', 'javascript-tests',
-        'signature-guard', 'trusted-gate-contract',
+        'java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract',
         'i18n-check', 'check-shared-snippets',
     ]);
-    const policy = JSON.parse(fs.readFileSync(path.join(SCRIPTS_DIR, '..', 'i18n', 'gate-policy.json'), 'utf8'));
-    assert.equal(policy.requiredExternalCheckDefinitions[0].requiredContext,
-        'check-shared-snippets');
 });
 
 function validMasterDetail() {
@@ -59,13 +55,13 @@ function validMasterDetail() {
     };
 }
 
-function validTagDetail(epoch = 3) {
+function validTagDetail(ref = 'refs/tags/i18n-gate-epoch-3-root', id = 203) {
     return {
-        id: 200 + epoch,
-        name: `epoch${epoch}-root-protection`,
+        id,
+        name: `${ref.split('/').at(-1)}-protection`,
         enforcement: 'active',
         target: 'tag',
-        conditions: { ref_name: { include: [`refs/tags/i18n-gate-epoch-${epoch}-root`] } },
+        conditions: { ref_name: { include: [ref] } },
         rules: [
             { type: 'deletion', parameters: {} },
             { type: 'non_fast_forward', parameters: {} },
@@ -75,7 +71,9 @@ function validTagDetail(epoch = 3) {
 }
 
 function validTagDetails(epoch3 = validTagDetail()) {
-    return [validTagDetail(2), epoch3, validTagDetail(4)];
+    return [validTagDetail('refs/tags/i18n-gate-epoch-2-root', 202), epoch3,
+        validTagDetail('refs/tags/i18n-gate-epoch-4-root', 204),
+        validTagDetail('refs/tags/release-gate-epoch-5-root', 205)];
 }
 
 /** 摘要只含 id / name / target / enforcement；真实 API 的摘要 conditions 为 null（必须用 detail 分类）。 */
@@ -150,7 +148,8 @@ test('doctor：list endpoint 摘要 → 必须 follow detail endpoint（摘要�
     assert.ok(calls.some((u) => /\/rulesets\/202$/.test(u)), '必须请求 tag detail endpoint');
     assert.ok(calls.some((u) => /\/rulesets\/203$/.test(u)), '必须请求全部 tag detail endpoint');
     assert.ok(calls.some((u) => /\/rulesets\/204$/.test(u)), '必须请求当前 root detail endpoint');
-    assert.ok(calls.filter((u) => /\/rulesets\/\d+$/.test(u)).length >= 4,
+    assert.ok(calls.some((u) => /\/rulesets\/205$/.test(u)), '必须请求 Epoch 5 root detail endpoint');
+    assert.ok(calls.filter((u) => /\/rulesets\/\d+$/.test(u)).length >= 5,
         'list 之后必须逐个 follow detail（用 detail 的 conditions 分类）');
 });
 
@@ -159,20 +158,48 @@ test('doctor：master + root tag detail 完全正确 → success (exit 0)', asyn
     assert.equal(result.exitCode, 0, JSON.stringify(result.problems));
 });
 
+test('doctor：多个 master Ruleset 的有效保护按 GitHub 叠加语义聚合', async () => {
+    const first = validMasterDetail();
+    first.id = 101;
+    first.name = 'checks-a';
+    const second = validMasterDetail();
+    second.id = 102;
+    second.name = 'checks-b';
+    const checks = first.rules[0].parameters.required_status_checks;
+    first.rules = [
+        { ...first.rules[0], parameters: { ...first.rules[0].parameters,
+            required_status_checks: checks.slice(0, 3) } },
+        first.rules[1],
+    ];
+    second.rules = [
+        { ...second.rules[0], parameters: { ...second.rules[0].parameters,
+            strict_required_status_checks_policy: false,
+            required_status_checks: checks.slice(3) } },
+        second.rules[2], second.rules[3],
+    ];
+    const tags = validTagDetails();
+    const all = [first, second, ...tags];
+    const { fetchJson } = makeFetch(all.map(summaryOf),
+        Object.fromEntries(all.map((detail) => [detail.id, detail])));
+    const result = await runDoctor({ fetchJson, token: 't', repo: REPO, invariants });
+    assert.equal(result.exitCode, 0, JSON.stringify(result.problems));
+});
+
 test('doctor：声明多个 Epoch root 时逐个要求受保护 ruleset', async () => {
     const master = validMasterDetail();
-    const [epoch2, epoch3, epoch4] = validTagDetails();
+    const [epoch2, epoch3, epoch4, epoch5] = validTagDetails();
     const completeFetch = makeFetch(
-        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3), summaryOf(epoch4)],
-        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3, [epoch4.id]: epoch4 });
+        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3), summaryOf(epoch4), summaryOf(epoch5)],
+        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3,
+            [epoch4.id]: epoch4, [epoch5.id]: epoch5 });
     const complete = await runDoctor({
         fetchJson: completeFetch.fetchJson, token: 't', repo: REPO, invariants,
     });
     assert.equal(complete.exitCode, 0, JSON.stringify(complete.problems));
 
     const missingFetch = makeFetch(
-        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3)],
-        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3 });
+        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3), summaryOf(epoch5)],
+        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3, [epoch5.id]: epoch5 });
     const missing = await runDoctor({
         fetchJson: missingFetch.fetchJson, token: 't', repo: REPO, invariants,
     });
@@ -216,7 +243,7 @@ test('doctor：root tag 的 pull_request bypass 同样拒绝', async () => {
     ];
     const { result } = await doctorWith(validMasterDetail(), tag);
     assert.equal(result.exitCode, 1);
-    assert.ok(result.problems.some((p) => /root tag.*allowBypass=false/.test(p)));
+    assert.ok(result.problems.some((p) => /root tag Rulesets.*allowBypass=false/.test(p)));
 });
 
 test('doctor：required check 缺失 → violation (exit 1)', async () => {
@@ -225,7 +252,7 @@ test('doctor：required check 缺失 → violation (exit 1)', async () => {
         .filter((c) => c.context !== REQUIRED[0]);
     const { result } = await doctorWith(master, validTagDetail());
     assert.equal(result.exitCode, 1);
-    assert.ok(result.problems.some((p) => /misses required check/.test(p)));
+    assert.ok(result.problems.some((p) => /miss required check/.test(p)));
 });
 
 test('doctor：tag deletion 未保护 → violation (exit 1)', async () => {
@@ -233,7 +260,7 @@ test('doctor：tag deletion 未保护 → violation (exit 1)', async () => {
     tag.rules = tag.rules.filter((r) => r.type !== 'deletion');
     const { result } = await doctorWith(validMasterDetail(), tag);
     assert.equal(result.exitCode, 1);
-    assert.ok(result.problems.some((p) => /does not block deletion/.test(p)));
+    assert.ok(result.problems.some((p) => /do not block deletion/.test(p)));
 });
 
 test('doctor：tag non-fast-forward 未保护 → violation (exit 1)', async () => {
@@ -241,7 +268,7 @@ test('doctor：tag non-fast-forward 未保护 → violation (exit 1)', async () 
     tag.rules = tag.rules.filter((r) => r.type !== 'non_fast_forward');
     const { result } = await doctorWith(validMasterDetail(), tag);
     assert.equal(result.exitCode, 1);
-    assert.ok(result.problems.some((p) => /does not block non-fast-forward/.test(p)));
+    assert.ok(result.problems.some((p) => /do not block non-fast-forward/.test(p)));
 });
 
 test('doctor：无 token → CANNOT VERIFY (exit 2)，不是 pass', () => {

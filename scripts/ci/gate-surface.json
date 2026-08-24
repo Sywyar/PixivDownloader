@@ -4,18 +4,18 @@
   "paths": [
     "scripts/i18n/check.mjs",
     "scripts/ci/gate-contract.mjs",
+    "scripts/ci/gate-surface.json",
     "scripts/ci/gate-invariants.json",
     "scripts/ci/gate-parity.mjs",
     "scripts/ci/github-ruleset-invariants.json",
+    "scripts/ci/release-gate-policy.json",
+    "scripts/ci/release-gate-trust.mjs",
+    "scripts/ci/release-gate-verifier.mjs",
     "scripts/ci/resolve-trusted-base.mjs",
     "scripts/i18n/gate-contract.mjs",
     "scripts/i18n/gate-policy.json",
     "scripts/i18n/trust-gate.mjs",
     "scripts/ci/trust-gate.mjs",
-    ".github/workflows/quality-gate.yml",
-    ".github/workflows/shared-snippets-check.yml",
-    ".github/workflows/release.yml",
-    ".github/workflows/nightly.yml",
-    ".github/workflows/publish-plugins.yml"
+    ".github/workflows"
   ]
 }

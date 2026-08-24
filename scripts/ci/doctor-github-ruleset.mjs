@@ -16,7 +16,7 @@
  * 摘要列表对象不含 conditions 之外的 rules / bypass_actors 完整语义，
  * 因此必须逐个 follow detail endpoint 后再检查（doctor 的退出码以此为准）。
  *
- * 期望不变量声明：scripts/ci/github-ruleset-invariants.json（仓库内愿望清单，不是远端事实）。
+ * 期望不变量声明：scripts/ci/release-gate-policy.json（仓库内愿望清单，不是远端事实）。
  *
  * 凭据：GITHUB_TOKEN 或 GH_TOKEN（需要 repo metadata + rulesets read 权限）。
  * 无 token / API 不可用时明确输出 CANNOT VERIFY 并以退出码 2 结束——绝不静默 pass。
@@ -34,14 +34,28 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const OWN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const INVARIANTS_REL = path.posix.join('github-ruleset-invariants.json');
+const POLICY_REL = path.posix.join('release-gate-policy.json');
 
 export function loadInvariants() {
-    const file = path.join(OWN_DIR, INVARIANTS_REL);
+    const file = path.join(OWN_DIR, POLICY_REL);
     if (!fs.existsSync(file)) {
-        throw new Error('missing scripts/ci/github-ruleset-invariants.json');
+        throw new Error('missing scripts/ci/release-gate-policy.json');
     }
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const policy = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const rules = policy.ruleset;
+    return {
+        branch: policy.protectedBranch,
+        master: {
+            requiredChecks: rules.requiredChecks,
+            requireStrict: rules.requireStrict,
+            requirePullRequest: rules.requirePullRequest,
+            requiredApprovals: rules.minimumApprovals,
+            allowBypass: rules.allowBypass,
+            allowDeletion: rules.allowDeletion,
+            allowNonFastForward: rules.allowNonFastForward,
+        },
+        roots: rules.roots,
+    };
 }
 
 function parseArgs(argv) {
@@ -89,85 +103,67 @@ function isTagRulesetFor(rs, ref) {
         && rs.conditions.ref_name.include.includes(ref);
 }
 
-/**
- * 审核单个 master ruleset detail（detail 才含 rules / bypass_actors 完整语义）。
- */
-function auditMasterDetail(detail, invariants, problems, report) {
-    const name = detail.name;
-    report.push('master ruleset: ' + name + ' (enforcement: ' + detail.enforcement + ')');
-    if (detail.enforcement !== 'active') {
-        problems.push('master ruleset ' + name + ' is not active (enforcement: ' + detail.enforcement + ')');
+function active(details, label, problems, report) {
+    for (const detail of details) {
+        report.push(label + ': ' + detail.name + ' (enforcement: ' + detail.enforcement + ')');
     }
-    const rules = Array.isArray(detail.rules) ? detail.rules : [];
-    const statusRule = rules.find((r) => r && r.type === 'required_status_checks');
-    if (statusRule) {
-        const parameters = statusRule.parameters && typeof statusRule.parameters === 'object'
-            ? statusRule.parameters : {};
-        // detail 字段：rules[].parameters.required_status_checks[]（每项有 context）；
-        // 不存在 required_checks 之类旧字段，不要读错键
-        const checks = Array.isArray(parameters.required_status_checks)
-            ? parameters.required_status_checks : [];
-        const checkNames = checks.map((c) => (c && typeof c.context === 'string' ? c.context : ''));
-        for (const expected of invariants.requiredChecks) {
-            if (!checkNames.includes(expected)) {
-                problems.push('master ruleset ' + name + ' misses required check "' + expected
-                    + '" (found: ' + (checkNames.join(', ') || 'none') + ')');
-            }
-        }
-        if (parameters.strict_required_status_checks_policy !== true) {
-            problems.push('master ruleset ' + name + ' has strict_required_status_checks_policy disabled'
-                + ' (Require branches to be up to date before merging must be on)');
-        }
-    } else {
-        problems.push('master ruleset ' + name + ' has no required_status_checks rule');
-    }
-    const pullRequestRule = rules.find((r) => r && r.type === 'pull_request');
-    if (invariants.requirePullRequest) {
-        if (!pullRequestRule) {
-            problems.push('master ruleset ' + name + ' has no pull_request rule');
-        } else {
-            const approvals = pullRequestRule.parameters?.required_approving_review_count;
-            if (approvals !== invariants.requiredApprovals) {
-                problems.push('master ruleset ' + name + ' requires ' + approvals
-                    + ' approvals instead of ' + invariants.requiredApprovals);
-            }
+    const enabled = details.filter((detail) => detail.enforcement === 'active');
+    if (enabled.length === 0) problems.push(`no active ${label}`);
+    return enabled;
+}
+
+/** GitHub layers all active matching Rulesets, so audit their combined protection. */
+function auditMaster(details, invariants, problems, report) {
+    const enabled = active(details, 'master ruleset', problems, report);
+    const rules = enabled.flatMap((detail) => Array.isArray(detail.rules) ? detail.rules : []);
+    const statusRules = rules.filter((rule) => rule?.type === 'required_status_checks');
+    const checks = statusRules.flatMap((rule) => Array.isArray(rule.parameters?.required_status_checks)
+        ? rule.parameters.required_status_checks : []);
+    for (const expected of invariants.requiredChecks) {
+        const found = checks.filter((check) => check?.context === expected);
+        if (found.length === 0) {
+            problems.push(`master Rulesets miss required check "${expected}"`);
         }
     }
-    for (const expectedRule of ['deletion', 'non_fast_forward']) {
-        const present = rules.some((r) => r && r.type === expectedRule);
-        const shouldDisable = expectedRule === 'deletion'
-            ? !invariants.allowDeletion : !invariants.allowNonFastForward;
-        if (shouldDisable && !present) {
-            problems.push('master ruleset ' + name + ' does not block ' + expectedRule);
+    if (invariants.requireStrict && !statusRules.some((rule) =>
+        rule.parameters?.strict_required_status_checks_policy === true)) {
+        problems.push('master Rulesets have strict_required_status_checks_policy disabled');
+    }
+    const pullRules = rules.filter((rule) => rule?.type === 'pull_request');
+    if (invariants.requirePullRequest && pullRules.length === 0) {
+        problems.push('master Rulesets have no pull_request rule');
+    } else if (invariants.requirePullRequest) {
+        const approvals = Math.max(...pullRules.map((rule) =>
+            Number(rule.parameters?.required_approving_review_count) || 0));
+        if (approvals < invariants.requiredApprovals) {
+            problems.push(`master Rulesets require ${approvals} approvals instead of at least ${invariants.requiredApprovals}`);
         }
     }
-    const bypassActors = Array.isArray(detail.bypass_actors) ? detail.bypass_actors : [];
-    if (bypassActors.length > 0 && !invariants.allowBypass) {
-        problems.push('master ruleset ' + name + ' has bypass actors while allowBypass=false: '
-            + bypassActors.map((a) => (a.actor_type + ':' + (a.actor_id || '?')
-                + ':' + (a.bypass_mode || '?'))).join(', '));
+    for (const [type, allowed] of [['deletion', invariants.allowDeletion],
+        ['non_fast_forward', invariants.allowNonFastForward]]) {
+        if (!allowed && !rules.some((rule) => rule?.type === type)) {
+            problems.push(`master Rulesets do not block ${type}`);
+        }
+    }
+    const bypass = enabled.flatMap((detail) => Array.isArray(detail.bypass_actors)
+        ? detail.bypass_actors.map((actor) => ({ detail, actor })) : []);
+    if (!invariants.allowBypass && bypass.length > 0) {
+        problems.push('master Rulesets have bypass actors while allowBypass=false: '
+            + bypass.map(({ detail, actor }) => `${detail.name}:${actor.actor_type}:${actor.actor_id || '?'}:${actor.bypass_mode || '?'}`).join(', '));
     }
 }
 
-/**
- * 审核单个 root tag ruleset detail。
- */
-function auditTagDetail(detail, invariants, problems, report) {
-    const name = detail.name;
-    report.push('root tag ruleset: ' + name + ' (enforcement: ' + detail.enforcement + ')');
-    if (detail.enforcement !== 'active') {
-        problems.push('root tag ruleset ' + name + ' is not active');
+function auditTag(details, invariants, problems, report) {
+    const enabled = active(details, 'root tag ruleset', problems, report);
+    const rules = enabled.flatMap((detail) => Array.isArray(detail.rules) ? detail.rules : []);
+    if (!invariants.allowDeletion && !rules.some((rule) => rule?.type === 'deletion')) {
+        problems.push('root tag Rulesets do not block deletion');
     }
-    const rules = Array.isArray(detail.rules) ? detail.rules : [];
-    if (!rules.some((r) => r && r.type === 'deletion') && !invariants.allowDeletion) {
-        problems.push('root tag ruleset ' + name + ' does not block deletion');
+    if (!invariants.allowNonFastForward && !rules.some((rule) => rule?.type === 'non_fast_forward')) {
+        problems.push('root tag Rulesets do not block non-fast-forward updates');
     }
-    if (!rules.some((r) => r && r.type === 'non_fast_forward') && !invariants.allowNonFastForward) {
-        problems.push('root tag ruleset ' + name + ' does not block non-fast-forward updates');
-    }
-    const bypassActors = Array.isArray(detail.bypass_actors) ? detail.bypass_actors : [];
-    if (bypassActors.length > 0 && !invariants.allowBypass) {
-        problems.push('root tag ruleset ' + name + ' has bypass actors while allowBypass=false');
+    if (!invariants.allowBypass && enabled.some((detail) => detail.bypass_actors?.length > 0)) {
+        problems.push('root tag Rulesets have bypass actors while allowBypass=false');
     }
 }
 
@@ -186,9 +182,8 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
     const report = [];
     const base = baseUrl || process.env.GITHUB_API_URL || 'https://api.github.com';
     const masterInvariants = invariants.master;
-    const tagInvariants = Object.entries(invariants)
-        .filter(([name, value]) => /^i18n-gate-epoch-[2-9][0-9]*-root$/.test(name)
-            && value && typeof value === 'object');
+    const branchRef = invariants.branch || 'refs/heads/master';
+    const tagInvariants = Object.entries(invariants.roots || {});
 
     // 1. list endpoint：只提供摘要（id / name / target / conditions / enforcement）
     let list;
@@ -241,32 +236,28 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
         if (fetched.error) {
             return { exitCode: 2, problems, report, cannotVerify: fetched.error };
         }
-        if (isBranchRulesetFor(fetched.detail, 'refs/heads/master')) {
+        if (isBranchRulesetFor(fetched.detail, branchRef)) {
             masterMatches.push(fetched.detail);
         }
-        for (const [name] of tagInvariants) {
-            if (isTagRulesetFor(fetched.detail, 'refs/tags/' + name)) {
-                tagMatches.get(name).push(fetched.detail);
+        for (const [ref] of tagInvariants) {
+            if (isTagRulesetFor(fetched.detail, ref)) {
+                tagMatches.get(ref).push(fetched.detail);
             }
         }
     }
 
     if (masterMatches.length === 0) {
-        problems.push('no branch ruleset covers refs/heads/master');
+        problems.push('no branch ruleset covers ' + branchRef);
     } else {
-        for (const detail of masterMatches) {
-            auditMasterDetail(detail, masterInvariants, problems, report);
-        }
+        auditMaster(masterMatches, masterInvariants, problems, report);
     }
 
-    for (const [name, expected] of tagInvariants) {
-        const matches = tagMatches.get(name);
+    for (const [ref, expected] of tagInvariants) {
+        const matches = tagMatches.get(ref);
         if (matches.length === 0) {
-            problems.push('no tag ruleset covers refs/tags/' + name);
+            problems.push('no tag ruleset covers ' + ref);
         } else {
-            for (const detail of matches) {
-                auditTagDetail(detail, expected, problems, report);
-            }
+            auditTag(matches, expected, problems, report);
         }
     }
 
@@ -336,8 +327,8 @@ async function main() {
         process.exitCode = 1;
         return;
     }
-    console.log('doctor-github-ruleset: VERIFIED — master and all declared root-tag rulesets match'
-        + ' scripts/ci/github-ruleset-invariants.json.');
+    console.log('doctor-github-ruleset: VERIFIED — master and all declared root-tag Rulesets match'
+        + ' scripts/ci/release-gate-policy.json.');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

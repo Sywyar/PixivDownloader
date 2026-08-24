@@ -109,14 +109,26 @@ jobs:
         run: |
           GATE_DIR="$RUNNER_TEMP/trusted-gate"
           mkdir -p "$GATE_DIR"
+          if git cat-file -e "$BASE_SHA:scripts/ci/release-gate-policy.json" 2>/dev/null; then
+            GATE_EPOCH=5
+            git show "$BASE_SHA:scripts/ci/release-gate-policy.json" > "$RUNNER_TEMP/gate-policy.json"
+            node -e 'const p=require(process.argv[1]); console.log(p.protectedCore.join("\n"))' "$RUNNER_TEMP/gate-policy.json" > "$RUNNER_TEMP/gate-files.txt"
+          else
+            GATE_EPOCH=4
+            git show "$BASE_SHA:scripts/i18n/gate-policy.json" > "$RUNNER_TEMP/gate-policy.json"
+            node -e 'const p=require(process.argv[1]); console.log(p.minimumTrustedVerifier.requiredFiles.join("\n"))' "$RUNNER_TEMP/gate-policy.json" > "$RUNNER_TEMP/gate-files.txt"
+          fi
           while IFS= read -r rel; do
             mkdir -p "$GATE_DIR/$(dirname "$rel")"
             git show "$BASE_SHA:$rel" > "$GATE_DIR/$rel"
-          done < <(node -e 'const p=require("./scripts/i18n/gate-policy.json"); console.log(p.minimumTrustedVerifier.requiredFiles.join("\n"))')
+          done < "$RUNNER_TEMP/gate-files.txt"
+          echo "GATE_EPOCH=$GATE_EPOCH" >> "$GITHUB_ENV"
           echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
       - name: Run trusted signature guard
         run: |
-          if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
+          if [ "$GATE_EPOCH" = "5" ]; then
+            node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs" --repo-root . --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA" --signature
+          elif [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
             node scripts/ci/gate-parity.mjs --repo-root . --candidate-ref "$CANDIDATE_SHA" --invariants --signature
           else
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root . --trusted-dir "$GATE_DIR" --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA" --signature
@@ -168,14 +180,26 @@ jobs:
         run: |
           GATE_DIR="$RUNNER_TEMP/trusted-gate"
           mkdir -p "$GATE_DIR"
+          if git cat-file -e "$BASE_SHA:scripts/ci/release-gate-policy.json" 2>/dev/null; then
+            GATE_EPOCH=5
+            git show "$BASE_SHA:scripts/ci/release-gate-policy.json" > "$RUNNER_TEMP/gate-policy.json"
+            node -e 'const p=require(process.argv[1]); console.log(p.protectedCore.join("\n"))' "$RUNNER_TEMP/gate-policy.json" > "$RUNNER_TEMP/gate-files.txt"
+          else
+            GATE_EPOCH=4
+            git show "$BASE_SHA:scripts/i18n/gate-policy.json" > "$RUNNER_TEMP/gate-policy.json"
+            node -e 'const p=require(process.argv[1]); console.log(p.minimumTrustedVerifier.requiredFiles.join("\n"))' "$RUNNER_TEMP/gate-policy.json" > "$RUNNER_TEMP/gate-files.txt"
+          fi
           while IFS= read -r rel; do
             mkdir -p "$GATE_DIR/$(dirname "$rel")"
             git show "$BASE_SHA:$rel" > "$GATE_DIR/$rel"
-          done < <(node -e 'const p=require("./scripts/i18n/gate-policy.json"); console.log(p.minimumTrustedVerifier.requiredFiles.join("\n"))')
+          done < "$RUNNER_TEMP/gate-files.txt"
+          echo "GATE_EPOCH=$GATE_EPOCH" >> "$GITHUB_ENV"
           echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
       - name: Verify trusted release contract
         run: |
-          if [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
+          if [ "$GATE_EPOCH" = "5" ]; then
+            node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs" --repo-root . --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA"
+          elif [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
             node scripts/ci/gate-parity.mjs --repo-root . --candidate-ref "$CANDIDATE_SHA" --invariants
           else
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root . --trusted-dir "$GATE_DIR" --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA"
