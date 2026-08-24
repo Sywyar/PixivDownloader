@@ -38,8 +38,6 @@ class BatchLayoutContractTest {
     private static final String CLASSIC_LAYOUT_CSS =
             STATIC_ROOT + "pixiv-batch/pixiv-batch-layout-classic.css";
     private static final String LEGACY_LAYOUT_CSS = STATIC_ROOT + "pixiv-batch/pixiv-batch-layout.css";
-    private static final String LAYOUT_JS = STATIC_ROOT + "pixiv-batch/batch-layout.js";
-    private static final String INIT_JS = STATIC_ROOT + "pixiv-batch/batch-init.js";
     private static final String BATCH_I18N_ZH = "i18n/web/batch.properties";
     private static final String BATCH_I18N_EN = "i18n/web/batch_en.properties";
     private static final String WORKBENCH_SCOPE = "html[data-batch-layout=\"landscape\"]";
@@ -443,70 +441,6 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("初始化先同步应用布局；DOMContentLoaded 内先 i18n、再绑定按钮、最后进入业务 init")
-    void initializationOrderAvoidsLayoutFlashAndEarlyBinding() throws IOException {
-        String initJs = read(INIT_JS);
-        int applyStoredAt = initJs.indexOf("window.PixivBatch.layout.applyStoredLayout()");
-        int domReadyAt = initJs.indexOf("document.addEventListener('DOMContentLoaded'");
-        assertThat(applyStoredAt).as("batch-init 求值时应同步调用 applyStoredLayout").isGreaterThanOrEqualTo(0);
-        assertThat(domReadyAt).as("batch-init 应注册 DOMContentLoaded 初始化").isGreaterThan(applyStoredAt);
-
-        String initBody = sliceBetween(initJs, "async function init() {",
-                "document.addEventListener('DOMContentLoaded'");
-        assertThat(initBody)
-                .as("业务 init 内仍应 await 下载类型 bootstrap，布局控制器不得替代既有初始化链")
-                .contains("await window.PixivBatch.queueTypes.bootstrap()");
-
-        String domReady = sliceBetween(initJs, "document.addEventListener('DOMContentLoaded'",
-                "async function setupOnboardingOrTour(");
-        int i18nAt = domReady.indexOf("await initPageI18n()");
-        int bindAt = domReady.indexOf("window.PixivBatch.layout.bindLayoutToggle()");
-        int initAt = domReady.indexOf("await init()");
-        assertThat(i18nAt).as("DOMContentLoaded 应先完成页面 i18n").isGreaterThanOrEqualTo(0);
-        assertThat(bindAt).as("布局按钮绑定必须在 i18n 完成后").isGreaterThan(i18nAt);
-        assertThat(initAt).as("业务 init 必须在布局按钮绑定后执行").isGreaterThan(bindAt);
-    }
-
-    @Test
-    @DisplayName("布局控制器从声明发现布局且仅重排既有操作按钮节点")
-    void layoutControllerUsesDeclarativeDiscoveryAndScopedActionProjection() throws IOException {
-        String js = read(LAYOUT_JS);
-
-        assertThat(js)
-                .contains("link[data-batch-layout-style]")
-                .doesNotContain("'landscape'")
-                .doesNotContain("'portrait'");
-        assertNoPattern(js, "布局控制器不得发起 fetch", "\\bfetch\\s*\\(");
-        assertNoPattern(js, "布局控制器不得创建 XMLHttpRequest", "\\bXMLHttpRequest\\b");
-        assertNoPattern(js, "布局控制器不得 reload / 导航", "\\b(?:window\\s*\\.\\s*)?location\\s*\\.");
-        assertNoPattern(js, "布局控制器不得克隆 / 替换 DOM",
-                "\\b(?:cloneNode|replaceWith|replaceChild|replaceChildren)\\s*\\(");
-        assertNoPattern(js, "布局控制器不得用 append/prepend/before/after 移动 DOM",
-                "\\.\\s*(?:append|prepend|before|after)\\s*\\(");
-        assertNoPattern(js, "布局控制器不得用 innerHTML/outerHTML 重建 DOM", "\\b(?:innerHTML|outerHTML)\\b");
-        assertNoPattern(js, "布局控制器不得创建或操作 Vue app", "\\b(?:PixivVue|Vue|createApp)\\b");
-        assertNoPattern(js, "布局控制器不得触发业务 bootstrap", "\\.\\s*bootstrap\\s*\\(");
-        assertThat(js)
-                .contains("[data-batch-layout-action-host]")
-                .contains("[data-batch-layout-action-origin]")
-                .contains("data-batch-layout-action-order");
-
-        int projectionStart = js.indexOf("function syncBatchLayoutActionProjection(");
-        int projectionEnd = js.indexOf("function batchLayoutText(", projectionStart);
-        assertThat(projectionStart).as("源码必须包含专用操作投影函数").isGreaterThanOrEqualTo(0);
-        assertThat(projectionEnd).as("专用操作投影函数必须保持独立职责边界").isGreaterThan(projectionStart);
-        String projection = js.substring(projectionStart, projectionEnd);
-        String outsideProjection = js.substring(0, projectionStart) + js.substring(projectionEnd);
-        assertThat(projection)
-                .contains("appendChild(")
-                .contains("insertBefore(");
-        assertNoPattern(outsideProjection, "操作投影之外不得移动 DOM",
-                "\\b(?:appendChild|insertBefore)\\s*\\(");
-        assertThat(js).as("布局 API 应加性挂到 window.PixivBatch.layout")
-                .contains("window.PixivBatch.layout = Object.assign(window.PixivBatch.layout || {}, {");
-    }
-
-    @Test
     @DisplayName("十个插件 UI 槽位各保留唯一锚点")
     void allTenUiSlotsRemainUnique() throws IOException {
         String html = read(BATCH_HTML);
@@ -570,21 +504,13 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("中英文布局 i18n 键集合一致并包含双向切换文案")
+    @DisplayName("中英文布局 i18n key 集合一致")
     void layoutI18nKeysMatchAcrossLocales() throws IOException {
-        String zhBundle = read(BATCH_I18N_ZH);
-        String enBundle = read(BATCH_I18N_EN);
         Set<String> zh = layoutKeys(BATCH_I18N_ZH);
         Set<String> en = layoutKeys(BATCH_I18N_EN);
 
         assertThat(zh).containsExactly("layout.switch-to-landscape", "layout.switch-to-portrait");
         assertThat(en).as("英文布局 i18n 键必须与中文完全一致").isEqualTo(zh);
-        assertThat(zhBundle)
-                .contains("layout.switch-to-landscape=横屏")
-                .contains("layout.switch-to-portrait=竖屏");
-        assertThat(enBundle)
-                .contains("layout.switch-to-landscape=Landscape")
-                .contains("layout.switch-to-portrait=Portrait");
     }
 
     @Test

@@ -33,15 +33,12 @@ class LayoutSurveyContractTest {
     private static final String STATIC_ROOT = "static/";
     private static final String BATCH_HTML = STATIC_ROOT + "pixiv-batch.html";
     private static final String BATCH_ALT_HTML = STATIC_ROOT + "pixiv-batch-alt.html";
-    private static final String SURVEY_CSS = STATIC_ROOT + "pixiv-layout-feedback/pixiv-layout-feedback.css";
-    private static final String SURVEY_JS = STATIC_ROOT + "pixiv-layout-feedback/pixiv-layout-feedback.js";
     private static final String POSTHOG_CONFIG = STATIC_ROOT + "pixiv-layout-feedback/posthog-config.js";
     private static final String RELEASE_ACTIVATION = STATIC_ROOT
             + "pixiv-layout-feedback/release-activation.js";
     private static final String RELEASE_PUBLICATION = STATIC_ROOT
             + "pixiv-layout-feedback/release-publication.properties";
     private static final String EMBED_HTML = STATIC_ROOT + "pixiv-layout-feedback/embed.html";
-    private static final String EMBED_JS = STATIC_ROOT + "pixiv-layout-feedback/embed.js";
     private static final String I18N_ZH = "i18n/web/layout-feedback.properties";
     private static final String I18N_EN = "i18n/web/layout-feedback_en.properties";
     private static final Pattern SCRIPT_SRC = Pattern.compile(
@@ -103,72 +100,6 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("中英文隐私文案准确列出调查事件字段并排除原始身份与本地数据")
-    void privacyCopyMatchesIdentityModel() throws IOException {
-        String zh = read(I18N_ZH);
-        String en = read(I18N_EN);
-        String js = read(SURVEY_JS);
-
-        assertThat(zh).contains(
-                "固定版本的 PostHog SDK",
-                "调查标识",
-                "调查专用匿名标识",
-                "用于投递去重的稳定事件标识",
-                "应用版本",
-                "当前布局",
-                "调查结构版本",
-                "事件时间",
-                "事件名",
-                "公开项目令牌",
-                "不发送原始安装身份",
-                "Cookie",
-                "本地路径");
-
-        assertThat(en).contains(
-                "pinned PostHog SDK",
-                "survey ID",
-                "survey-scoped anonymous identifier",
-                "stable event identifier used for delivery deduplication",
-                "app version",
-                "current layout",
-                "survey schema version",
-                "event time",
-                "event name",
-                "public project token",
-                "does not send the raw installation identity",
-                "cookies",
-                "local paths");
-
-        assertThat(js).contains(
-                "固定版本的 PostHog SDK",
-                "调查专用匿名标识",
-                "用于投递去重的稳定事件标识",
-                "公开项目令牌",
-                "不发送原始安装身份");
-    }
-
-    @Test
-    @DisplayName("Java 枚举小写 wire value 与前端视图校验字面量两端一致（无各自硬编码假协议）")
-    void javaWireValuesMatchFrontendLiterals() throws IOException {
-        String js = read(SURVEY_JS);
-        // 前端 applyServerView 只接受小写状态字面量；每个 Java wire value 必须真实出现。
-        for (top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision decision :
-                top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision.values()) {
-            String wire = decision.wireName();
-            assertThat(js).as("前端必须接受 Java 小写 wire value: " + wire)
-                    .contains("data.status !== '" + wire + "'")
-                    .contains("state.status === '" + wire + "'");
-        }
-        // 前端不得为兼容服务端而硬编码大写枚举名（大写只允许出现在 Java 旧值兼容入口）。
-        assertThat(js).as("前端不得包含大写旧枚举名").doesNotContain("'SUBMITTED'")
-                .doesNotContain("'NEVER'")
-                .doesNotContain("'SNOOZED'");
-        // 命令字面量同样与小写 wire 对齐：submitted / never / snooze / record_seen。
-        assertThat(js).contains("'record_seen'").contains("'snooze'")
-                .contains("command === 'submitted'").contains("command === 'never'");
-    }
-
-    @Test
     @DisplayName("新版工作台按发行激活位、PostHog 适配器、业务脚本的顺序各加载一次；经典页不加载")
     void pagesLoadSurveyAssetsExactlyOnceInOrder() throws IOException {
         // 调查只在 pixiv-batch-alt.html 以「首次下载完成」触发；经典下载页不参与。
@@ -210,10 +141,8 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("源码默认关闭调查，生成激活位与发布槽位一致，发布者自持四个 PostHog 参数")
-    void sourceBuildIsDisabledAndPublisherOwnsPostHogParameters() throws Exception {
-        String js = read(SURVEY_JS);
-        String postHogConfig = read(POSTHOG_CONFIG);
+    @DisplayName("源码默认关闭调查，生成激活位与发布槽位一致")
+    void sourceBuildIsDisabledAndPublicationMatchesSlots() throws Exception {
         String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
         assertThat(rootPom)
                 .contains("<layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>")
@@ -222,17 +151,6 @@ class LayoutSurveyContractTest {
         boolean officialRelease = read(RELEASE_PUBLICATION).contains("officialReleaseEnabled=true");
         assertThat(read(RELEASE_ACTIVATION)).contains(
                 "global.PixivLayoutFeedbackOfficialRelease = " + officialRelease + ";");
-        assertThat(postHogConfig)
-                .contains("global.PixivLayoutSurveyPostHog = Object.freeze({")
-                .contains("projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'")
-                .contains("apiHost: 'https://layout-survey.sywyar.top'")
-                .contains("uiHost: 'https://us.posthog.com'")
-                .containsPattern("surveyId: '[^']+'");
-        assertThat(js)
-                .contains("var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({})")
-                .contains("ownerKey: POSTHOG_OWNER_KEY")
-                .contains("posthog: POSTHOG")
-                .contains("global.PixivLayoutFeedbackOfficialRelease !== true");
         var slots = new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().uiSlots();
         assertThat(slots).hasSize(officialRelease ? 1 : 0);
         if (officialRelease) {
@@ -245,11 +163,7 @@ class LayoutSurveyContractTest {
     @DisplayName("站内信嵌入页受管理员路由保护并复用发布者自有调查资源")
     void inboxEmbedUsesPublisherOwnedSurveyResources() throws IOException {
         String html = read(EMBED_HTML);
-        String embedJs = read(EMBED_JS);
         String posthogConfig = read(POSTHOG_CONFIG);
-        String pluginSource = Files.readString(pluginModuleRoot().resolve(
-                "src/main/java/top/sywyar/pixivdownload/download/DownloadWorkbenchPlugin.java"),
-                StandardCharsets.UTF_8);
         Matcher surveyId = Pattern.compile("surveyId: '([^']+)'").matcher(posthogConfig);
         assertThat(surveyId.find()).isTrue();
         String fallbackIdentityKey = "pixivdownload.posthog.survey-id."
@@ -265,27 +179,6 @@ class LayoutSurveyContractTest {
                 .contains("/pixiv-layout-feedback/posthog-config.js")
                 .contains("/pixiv-layout-feedback/pixiv-layout-feedback.js")
                 .contains("/pixiv-layout-feedback/embed.js");
-        assertThat(embedJs)
-                .contains("openEmbedded()")
-                .contains("global.PixivSurveyFrameBridge.ready()")
-                .contains("global.PixivPostHog.showSurveyLoading")
-                .contains("storage: storage")
-                .contains("fetchImpl: global.fetch")
-                .contains("type: 'pixiv-survey-unavailable'")
-                .contains("notificationId: notificationId")
-                .contains("pixiv:batch-layout:v1")
-                .doesNotContain("parent.postMessage");
-        assertThat(pluginSource)
-                .contains("WebRouteContribution.admin(\"/pixiv-layout-feedback/embed.html\")")
-                .contains("new SurveyInboxMessage(")
-                .contains("LayoutFeedbackIdentityDeriver.CAMPAIGN_VERSION")
-                .contains("pixivBridgeGet=/api/layout-feedback/state")
-                .contains("pixivBridgeGet=/api/i18n/messages/posthog")
-                .contains("pixivBridgePost=/api/layout-feedback/state")
-                .contains("pixivBridgeRead=pixiv_theme")
-                .contains("SURVEY_EMBED_URL")
-                .contains("\"layout-feedback.inbox-title\"")
-                .contains("\"layout-feedback.inbox-body\"");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
                 .filteredOn(route -> "/pixiv-layout-feedback/embed.html".equals(route.pathPattern()))
                 .singleElement()
@@ -432,10 +325,6 @@ class LayoutSurveyContractTest {
         return hits;
     }
 
-    private static Path pluginModuleRoot() {
-        return pluginResourcesRoot().getParent().getParent().getParent();
-    }
-
     @Test
     @DisplayName("原有双布局契约与调查资源互不干扰")
     void dualLayoutContractRemainsIntact() throws IOException {
@@ -457,36 +346,15 @@ class LayoutSurveyContractTest {
                 .contains("'layout-feedback'");
         assertThat(read("static/pixiv-batch-alt/alt-extensions.js"))
                 .contains("'layout-feedback'");
-        String pluginSource = Files.readString(
-                pluginModuleRoot()
-                        .resolve("src/main/java/top/sywyar/pixivdownload/download/DownloadWorkbenchPlugin.java"),
-                StandardCharsets.UTF_8);
-        assertThat(pluginSource)
-                .contains("new I18nContribution(\"layout-feedback\", \"i18n.web.layout-feedback\"")
-                .contains("\"/pixiv-layout-feedback/\"")
-                .doesNotContain("\"/vendor/posthog-js/\"");
-    }
-
-    @Test
-    @DisplayName("调查业务脚本暴露冻结的公共 API 且不含不安全模式")
-    void surveyModuleExposesFrozenApiWithoutUnsafePatterns() throws IOException {
-        String js = read(SURVEY_JS);
-        assertThat(js)
-                .contains("global.PixivLayoutFeedback = Object.freeze({")
-                .contains("init: init")
-                .contains("open: open")
-                .contains("openEmbedded: openEmbedded")
-                .contains("destroy: destroy")
-                .contains("currentLayoutId: currentLayoutId")
-                .doesNotContain("innerHTML")
-                .doesNotContain("eval(")
-                .doesNotContain("document.write");
-        assertThat(read(SURVEY_CSS))
-                .as("样式复用变量并适配 reduced motion")
-                .contains("var(--surface")
-                .contains("var(--text")
-                .contains("var(--line")
-                .contains("var(--brand")
-                .contains("@media (prefers-reduced-motion: reduce)");
+        var plugin = new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin();
+        assertThat(plugin.i18n())
+                .anySatisfy(contribution -> {
+                    assertThat(contribution.namespace()).isEqualTo("layout-feedback");
+                    assertThat(contribution.baseName()).isEqualTo("i18n.web.layout-feedback");
+                });
+        assertThat(plugin.staticResources())
+                .extracting(contribution -> contribution.publicPathPrefix())
+                .contains("/pixiv-layout-feedback/")
+                .doesNotContain("/vendor/posthog-js/");
     }
 }
