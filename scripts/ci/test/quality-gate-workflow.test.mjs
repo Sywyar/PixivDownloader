@@ -61,6 +61,9 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     assert.equal(publishAction.runs.using, 'composite');
     assert.equal(publishAction.inputs.plugin_signing_private_key_pem_base64.required, true);
     assert.equal(publishAction.inputs.cross_repo_release_token.required, true);
+    assert.equal(publishAction.inputs.nightly_build_version.default, '');
+    assert.equal(publishAction.outputs.manifest_commit.value,
+        '${{ steps.commit-manifest.outputs.manifest_commit }}');
     assert.equal(publishAction.inputs.plugins_repo_token, undefined);
     assert.deepEqual(secretNames(publishAction), []);
     const directPublish = publish.jobs.publish.steps
@@ -124,6 +127,22 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     }
     assert.deepEqual(secretNames(release.jobs.release), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
     assert.deepEqual(secretNames(nightly.jobs['release-nightly']), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
+
+    const releasePluginPublication = release.jobs['publish-plugin-artifacts'].steps
+        .find((step) => step.uses === './.github/actions/publish-official-plugins');
+    const nightlyPluginPublication = nightly.jobs['publish-plugin-artifacts'].steps
+        .find((step) => step.uses === './.github/actions/publish-official-plugins');
+    assert.equal(releasePluginPublication.with.nightly_build_version, undefined);
+    assert.equal(nightlyPluginPublication.with.nightly_build_version,
+        '${{ needs.resolve-version.outputs.version }}');
+    assert.equal(nightly.jobs['publish-plugin-artifacts'].outputs.manifest_commit,
+        '${{ steps.publish.outputs.manifest_commit }}');
+    assert.doesNotMatch(release.jobs['build-jar'].steps
+        .find((step) => step.name === 'Stage official plugin inputs from signed catalog').run,
+        /nightly-manifest\.json/);
+    assert.match(nightly.jobs['build-jar'].steps
+        .find((step) => step.name === 'Stage official plugin inputs from signed catalog').run,
+        /PLUGIN_MANIFEST_COMMIT\/nightly-manifest\.json/);
 });
 
 test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五个平台资产', () => {

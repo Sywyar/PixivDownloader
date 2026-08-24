@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.catalog.repository;
 
+import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
@@ -60,6 +61,10 @@ public record PluginRepository(
     public static final String OFFICIAL_MANIFEST_URL =
             "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json";
 
+    /** Nightly 构建使用的官方插件清单；正式版继续使用 {@link #OFFICIAL_MANIFEST_URL}。 */
+    public static final String OFFICIAL_NIGHTLY_MANIFEST_URL =
+            "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/nightly-manifest.json";
+
     /** 官方仓库展示名 i18n key。 */
     public static final String OFFICIAL_DISPLAY_NAME_KEY = "plugin.market.repository.official.name";
 
@@ -78,11 +83,18 @@ public record PluginRepository(
     public static PluginRepository official(boolean enabled,
                                             long connectTimeoutMs, long readTimeoutMs,
                                             long maxManifestBytes, long maxPackageBytes) {
-        return new PluginRepository(OFFICIAL_ID, OFFICIAL_DISPLAY_NAME_KEY, OFFICIAL_MANIFEST_URL,
+        return new PluginRepository(OFFICIAL_ID, OFFICIAL_DISPLAY_NAME_KEY,
+                officialManifestUrl(AppVersion.getDisplayVersionOrNull()),
                 enabled, true, true, RepositoryProxyPolicy.PROXY_TRUSTED, RepositoryProxyPolicy.PROXY_TRUSTED.configId(),
                 false, true, false, false,
                 connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes,
                 List.of(PluginTrustStores.builtInOfficialRoot()));
+    }
+
+    static String officialManifestUrl(String appVersion) {
+        return appVersion != null && appVersion.contains("-nightly.")
+                ? OFFICIAL_NIGHTLY_MANIFEST_URL
+                : OFFICIAL_MANIFEST_URL;
     }
 
     /**

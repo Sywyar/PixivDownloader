@@ -100,6 +100,8 @@ jobs:
     if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: windows-latest
     environment: release
+    outputs:
+      manifest_commit: ${{ steps.publish.outputs.manifest_commit }}
     steps:
       - name: Checkout main repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -107,10 +109,12 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Publish official plugins
+        id: publish
         uses: ./.github/actions/publish-official-plugins
         with:
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
+          nightly_build_version: ${{ needs.resolve-version.outputs.version }}
 
   build-jar:
     needs: [resolve-version, publish-plugin-artifacts]
@@ -195,7 +199,12 @@ jobs:
 
       - name: Stage official plugin inputs from signed catalog
         shell: pwsh
+        env:
+          PLUGIN_MANIFEST_COMMIT: ${{ needs.publish-plugin-artifacts.outputs.manifest_commit }}
         run: |
+          if ($env:PLUGIN_MANIFEST_COMMIT -notmatch '^[0-9a-f]{40}$') {
+            throw "Invalid plugin manifest commit: $env:PLUGIN_MANIFEST_COMMIT"
+          }
           $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
             Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
             Sort-Object LastWriteTime -Descending)
@@ -203,9 +212,11 @@ jobs:
             throw "Could not find pixivdownload-plugin-signature tool jar."
           }
           $signatureTool = $signatureTools[0]
+          $manifestUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/$env:PLUGIN_MANIFEST_COMMIT/nightly-manifest.json"
           ./scripts/stage-official-plugin-inputs-from-catalog.ps1 `
             -OutputDir build/plugin-inputs `
             -SignatureToolJar $signatureTool.FullName `
+            -ManifestUrl $manifestUrl `
             -IncludeOptional
 
       - name: Assemble Java distributions

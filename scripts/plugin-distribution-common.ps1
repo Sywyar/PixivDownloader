@@ -132,6 +132,20 @@ function Get-OfficialPluginArtifactName {
     return "$($Plugin.Module)-$Version.$extension"
 }
 
+function Get-NightlyPluginVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceVersion,
+        [Parameter(Mandatory = $true)][string]$NightlySuffix
+    )
+    if ($SourceVersion -notmatch '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$') {
+        throw "Nightly publication requires a plain major.minor.patch source plugin.version; got '$SourceVersion'."
+    }
+    if ($NightlySuffix -notmatch '^nightly\.[0-9]{8}\.[1-9][0-9]{0,8}\.[1-9][0-9]{0,8}$') {
+        throw "NightlySuffix must match nightly.yyyymmdd.run.attempt."
+    }
+    return "$SourceVersion-$NightlySuffix"
+}
+
 function Get-Sha256Hex {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
