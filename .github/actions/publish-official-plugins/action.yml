@@ -5,8 +5,8 @@ inputs:
   plugin_signing_private_key_pem_base64:
     description: Base64-encoded PKCS#8 PEM private key for official plugin signatures
     required: true
-  plugins_repo_token:
-    description: Token with write access to Sywyar/PixivDownloader-plugins
+  cross_repo_release_token:
+    description: Token with write access to PixivDownloader release repositories
     required: true
   publish_args:
     description: Optional plugin publication arguments; only -f is supported
@@ -59,7 +59,7 @@ runs:
     - name: Build and publish updated plugins
       shell: powershell
       env:
-        GH_TOKEN: ${{ inputs.plugins_repo_token }}
+        GH_TOKEN: ${{ inputs.cross_repo_release_token }}
         PUBLISH_PLUGIN_ARGS: ${{ inputs.publish_args }}
         PLUGINS_REPO: Sywyar/PixivDownloader-plugins
         PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07
@@ -90,7 +90,7 @@ runs:
     - name: Generate market manifest.json
       shell: pwsh
       env:
-        GH_TOKEN: ${{ inputs.plugins_repo_token }}
+        GH_TOKEN: ${{ inputs.cross_repo_release_token }}
         PLUGINS_REPO: Sywyar/PixivDownloader-plugins
         PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07
       run: |
@@ -109,7 +109,7 @@ runs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         repository: Sywyar/PixivDownloader-plugins
-        token: ${{ inputs.plugins_repo_token }}
+        token: ${{ inputs.cross_repo_release_token }}
         path: plugins-repo
 
     - name: Commit manifest.json to plugins repo

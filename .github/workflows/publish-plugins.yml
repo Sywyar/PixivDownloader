@@ -2,7 +2,7 @@ name: Publish plugins
 
 # 构建官方外置插件 → 发布到独立分发仓库的 Release，并生成 / 提交插件市场 manifest.json。
 # 触发：由 release/nightly 复用调用（串行阻塞主产物打包）/ 手动。
-# 跨仓库写入用细粒度 PAT（secrets.PLUGINS_REPO_TOKEN，目标仓库 Contents: 读写 + Metadata: 读），
+# 跨仓库写入用细粒度 PAT（secrets.CROSS_REPO_RELEASE_TOKEN，目标仓库 Contents: 读写 + Metadata: 读），
 # 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
 on:
   workflow_call:
@@ -96,7 +96,7 @@ jobs:
         uses: ./.github/actions/publish-official-plugins
         with:
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
-          plugins_repo_token: ${{ secrets.PLUGINS_REPO_TOKEN }}
+          cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
           publish_args: ${{ inputs.publish_args || '' }}
 
       - name: Complete delegated publication gate

@@ -80,6 +80,10 @@ The Java standard package and the full-offline package must be **fully extracted
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
 
+GUI-managed FFmpeg installation downloads a project-maintained `ffmpeg-stable` Release built from the latest official
+stable FFmpeg source for Windows x64, Linux x64/arm64, or macOS x64/arm64. Other platforms can still use a manually
+installed system FFmpeg.
+
 ### Run
 
 ```bash

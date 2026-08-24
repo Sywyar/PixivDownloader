@@ -101,7 +101,7 @@ jobs:
         uses: ./.github/actions/publish-official-plugins
         with:
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
-          plugins_repo_token: ${{ secrets.PLUGINS_REPO_TOKEN }}
+          cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
 
   build-jar:
     needs: [validate-release-tag, publish-plugin-artifacts]

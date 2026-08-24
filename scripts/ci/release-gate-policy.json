@@ -84,6 +84,19 @@
         "workflow_call",
         "workflow_dispatch"
       ]
+    },
+    ".github/workflows/build-stable-ffmpeg.yml": {
+      "workflowName": "Build stable FFmpeg",
+      "requiredJobs": [
+        "trusted-base",
+        "quality-gate",
+        "resolve-source",
+        "build",
+        "publish"
+      ],
+      "requiredTriggers": [
+        "workflow_dispatch"
+      ]
     }
   },
   "releaseEnvironment": "release",

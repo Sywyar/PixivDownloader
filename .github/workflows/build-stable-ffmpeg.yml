@@ -1,0 +1,340 @@
+name: Build stable FFmpeg
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FFMPEG_RELEASES_URL: https://ffmpeg.org/releases/
+  FFMPEG_DOWNLOAD_URL: https://ffmpeg.org/download.html
+  FFMPEG_SIGNING_KEY_URL: https://ffmpeg.org/ffmpeg-devel.asc
+  FFMPEG_SIGNING_KEY_FINGERPRINT: FCF986EA15E6E293A5644F10B4322F04D67658D8
+  LIBWEBP_REPOSITORY: https://chromium.googlesource.com/webm/libwebp
+  LIBWEBP_VERSION: 1.6.0
+  LIBWEBP_COMMIT: 4fa21912338357f89e4fd51cf2368325b59e9bd9
+  REMOTE_CONTENT_REPO: Sywyar/PixivDownloader-Remote-Content
+  RELEASE_TAG: ffmpeg-stable
+
+jobs:
+  trusted-base:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve trusted base
+        id: base
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch -q origin "refs/heads/$DEFAULT_BRANCH" 2>/dev/null || true
+          tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$DEFAULT_BRANCH" || true)"
+          if [ -z "$tip" ]; then
+            echo "cannot resolve the protected default branch remote ref; fail closed" >&2
+            exit 1
+          fi
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            tip="$(git rev-parse --verify --quiet "$tip^{commit}^" || true)"
+          fi
+          if ! [[ "$tip" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "cannot resolve a trusted base for $GITHUB_SHA; fail closed" >&2
+            exit 1
+          fi
+          echo "sha=$tip" >> "$GITHUB_OUTPUT"
+
+  quality-gate:
+    needs: trusted-base
+    if: github.ref == 'refs/heads/master'
+    uses: ./.github/workflows/quality-gate.yml
+    with:
+      trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
+
+  resolve-source:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - name: Resolve and verify official stable source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          page="$(curl --proto '=https' --tlsv1.2 -fsSL "$FFMPEG_DOWNLOAD_URL")"
+          if [[ "$page" =~ ffmpeg-([0-9]+\.[0-9]+(\.[0-9]+)?)\.tar\.xz ]]; then
+            version="${BASH_REMATCH[1]}"
+          else
+            echo "cannot resolve the latest stable FFmpeg source" >&2
+            exit 1
+          fi
+          source_name="ffmpeg-$version.tar.xz"
+          curl --proto '=https' --tlsv1.2 -fSLO "$FFMPEG_RELEASES_URL$source_name"
+          curl --proto '=https' --tlsv1.2 -fSLO "$FFMPEG_RELEASES_URL$source_name.asc"
+          curl --proto '=https' --tlsv1.2 -fsSLo ffmpeg-devel.asc "$FFMPEG_SIGNING_KEY_URL"
+          actual_fingerprint="$(gpg --batch --with-colons --import-options show-only \
+            --import ffmpeg-devel.asc | awk -F: '$1 == "fpr" { print $10; exit }')"
+          if [ "$actual_fingerprint" != "$FFMPEG_SIGNING_KEY_FINGERPRINT" ]; then
+            echo "unexpected FFmpeg release signing key fingerprint: $actual_fingerprint" >&2
+            exit 1
+          fi
+          gpg --batch --import ffmpeg-devel.asc
+          gpg --batch --verify "$source_name.asc" "$source_name"
+          printf '%s\n' "$version" > ffmpeg-version.txt
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize pinned libwebp source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q libwebp
+          git -C libwebp remote add origin "$LIBWEBP_REPOSITORY"
+          git -C libwebp fetch -q --depth=1 origin "refs/tags/v$LIBWEBP_VERSION"
+          git -C libwebp checkout -q --detach FETCH_HEAD
+          test "$(git -C libwebp rev-parse HEAD)" = "$LIBWEBP_COMMIT"
+          git -C libwebp archive --format=tar.gz \
+            --output="../libwebp-$LIBWEBP_VERSION.tar.gz" HEAD
+
+      - name: Upload verified source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ffmpeg-source
+          path: |
+            ffmpeg-*.tar.xz
+            ffmpeg-*.tar.xz.asc
+            ffmpeg-devel.asc
+            ffmpeg-version.txt
+            libwebp-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    needs: resolve-source
+    if: github.ref == 'refs/heads/master'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - asset: windows-x64
+            runner: ubuntu-24.04
+          - asset: linux-x64
+            runner: ubuntu-24.04
+          - asset: linux-arm64
+            runner: ubuntu-24.04-arm
+          - asset: macos-x64
+            runner: macos-15-intel
+          - asset: macos-arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    env:
+      ASSET_ID: ${{ matrix.asset }}
+    steps:
+      - name: Download verified source
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ffmpeg-source
+          path: source
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" != "Linux" ]]; then
+            exit 0
+          fi
+          sudo apt-get update
+          packages=(cmake make nasm pkg-config zip zlib1g-dev)
+          if [[ "$ASSET_ID" == "windows-x64" ]]; then
+            packages+=(mingw-w64 libz-mingw-w64-dev)
+          fi
+          sudo apt-get install -y "${packages[@]}"
+
+      - name: Build FFmpeg and libwebp
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(< source/ffmpeg-version.txt)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          tar -xf "source/ffmpeg-$version.tar.xz"
+          mkdir libwebp
+          tar -xf "source/libwebp-$LIBWEBP_VERSION.tar.gz" -C libwebp
+
+          prefix="$PWD/deps"
+          cmake_args=(
+            -S libwebp
+            -B libwebp-build
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_INSTALL_PREFIX="$prefix"
+            -DBUILD_SHARED_LIBS=OFF
+            -DWEBP_BUILD_ANIM_UTILS=OFF
+            -DWEBP_BUILD_CWEBP=OFF
+            -DWEBP_BUILD_DWEBP=OFF
+            -DWEBP_BUILD_EXTRAS=OFF
+            -DWEBP_BUILD_GIF2WEBP=OFF
+            -DWEBP_BUILD_IMG2WEBP=OFF
+            -DWEBP_BUILD_VWEBP=OFF
+            -DWEBP_BUILD_WEBPINFO=OFF
+            -DWEBP_BUILD_WEBPMUX=OFF
+          )
+          if [[ "$ASSET_ID" == "windows-x64" ]]; then
+            cmake_args+=(
+              -DCMAKE_SYSTEM_NAME=Windows
+              -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
+              -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres
+            )
+          fi
+          cmake "${cmake_args[@]}"
+          cmake --build libwebp-build --config Release --parallel 3
+          cmake --install libwebp-build --config Release
+
+          export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:$prefix/share/pkgconfig"
+          extra_ldflags="-L$prefix/lib"
+          if [[ "$ASSET_ID" == "windows-x64" ]]; then
+            extra_ldflags+=" -static"
+          fi
+          configure_args=(
+            --prefix="$PWD/stage"
+            --disable-autodetect
+            --disable-debug
+            --disable-doc
+            --disable-ffplay
+            --disable-shared
+            --enable-static
+            --enable-libwebp
+            --enable-zlib
+            --pkg-config-flags=--static
+            "--extra-cflags=-I$prefix/include"
+            "--extra-ldflags=$extra_ldflags"
+          )
+          if [[ "$ASSET_ID" == "windows-x64" ]]; then
+            configure_args+=(
+              --target-os=mingw32
+              --arch=x86_64
+              --cross-prefix=x86_64-w64-mingw32-
+            )
+          fi
+          cd "ffmpeg-$version"
+          ./configure "${configure_args[@]}"
+          make -j3
+          make install
+          grep -Eq '^#define CONFIG_LIBWEBP_ENCODER 1$' config.h
+
+      - name: Verify and package binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(< source/ffmpeg-version.txt)"
+          extension=""
+          if [[ "$ASSET_ID" == "windows-x64" ]]; then
+            extension=".exe"
+          fi
+          ffmpeg="stage/bin/ffmpeg$extension"
+          ffprobe="stage/bin/ffprobe$extension"
+          test -s "$ffmpeg"
+          test -s "$ffprobe"
+          if [[ "$ASSET_ID" == "windows-x64" ]]; then
+            file "$ffmpeg" | grep -q 'PE32+'
+          else
+            "$ffmpeg" -hide_banner -version
+            "$ffmpeg" -hide_banner -v error -f lavfi -i color=c=red:s=16x16:d=0.1 \
+              -frames:v 1 -c:v libwebp smoke.webp
+            test -s smoke.webp
+          fi
+
+          root="ffmpeg-$ASSET_ID"
+          mkdir -p "package/$root/bin" "package/$root/licenses"
+          cp "$ffmpeg" "$ffprobe" "package/$root/bin/"
+          cp "ffmpeg-$version/COPYING.LGPLv2.1" \
+            "package/$root/licenses/ffmpeg-LGPLv2.1.txt"
+          cp libwebp/COPYING "package/$root/licenses/libwebp-COPYING.txt"
+          cp libwebp/PATENTS "package/$root/licenses/libwebp-PATENTS.txt"
+          printf 'FFmpeg %s\nlibwebp %s (%s)\nBuild commit %s\n' \
+            "$version" "$LIBWEBP_VERSION" "$LIBWEBP_COMMIT" "$GITHUB_SHA" \
+            > "package/$root/BUILD-INFO.txt"
+          (cd package && zip -9 -r "../ffmpeg-$ASSET_ID.zip" "$root")
+
+      - name: Upload platform archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ffmpeg-${{ matrix.asset }}
+          path: ffmpeg-${{ matrix.asset }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [quality-gate, resolve-source, build]
+    if: github.repository == 'Sywyar/PixivDownloader' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      GH_TOKEN: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
+      FFMPEG_VERSION: ${{ needs.resolve-source.outputs.version }}
+    steps:
+      - name: Download platform archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ffmpeg-*-*
+          path: assets
+          merge-multiple: true
+
+      - name: Generate checksums and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd assets
+          mapfile -t archives < <(printf '%s\n' ffmpeg-*.zip | sort)
+          test "${#archives[@]}" -eq 5
+          sha256sum "${archives[@]}" > SHA256SUMS
+          node - "$FFMPEG_VERSION" "$FFMPEG_RELEASES_URL" \
+            "$FFMPEG_SIGNING_KEY_FINGERPRINT" "$GITHUB_SHA" <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const [version, releasesUrl, fingerprint, commit] = process.argv.slice(2);
+          const files = fs.readdirSync('.').filter((file) => /^ffmpeg-.+\.zip$/.test(file)).sort();
+          const assets = Object.fromEntries(files.map((file) => [file, {
+            sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+          }]));
+          fs.writeFileSync('ffmpeg-release.json', JSON.stringify({
+            schemaVersion: 1,
+            ffmpegVersion: version,
+            sourceUrl: `${releasesUrl}ffmpeg-${version}.tar.xz`,
+            sourceSigningKeyFingerprint: fingerprint,
+            buildCommit: commit,
+            assets,
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Publish Remote Content release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "missing release Environment secret CROSS_REPO_RELEASE_TOKEN" >&2
+            exit 1
+          fi
+          source_url="${FFMPEG_RELEASES_URL}ffmpeg-$FFMPEG_VERSION.tar.xz"
+          printf '%s\n' \
+            "Stable FFmpeg $FFMPEG_VERSION builds for PixivDownloader." \
+            "" \
+            "Source: $source_url" \
+            "Verified signing key: $FFMPEG_SIGNING_KEY_FINGERPRINT" \
+            "Build commit: $GITHUB_SHA" \
+            > release-notes.md
+          if gh release view "$RELEASE_TAG" --repo "$REMOTE_CONTENT_REPO" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$REMOTE_CONTENT_REPO" \
+              --title "FFmpeg stable $FFMPEG_VERSION" --notes-file release-notes.md
+          else
+            gh release create "$RELEASE_TAG" --repo "$REMOTE_CONTENT_REPO" --target master \
+              --title "FFmpeg stable $FFMPEG_VERSION" --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$REMOTE_CONTENT_REPO" --clobber \
+            assets/ffmpeg-*.zip assets/SHA256SUMS assets/ffmpeg-release.json

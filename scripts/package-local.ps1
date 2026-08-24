@@ -43,11 +43,12 @@ $OutDir = if ($AllowUnsignedLocalPlugins) {
 $WixDir = Join-Path $BuildRoot "wix"
 $FfmpegDir = Join-Path $BuildRoot "ffmpeg"
 $FfmpegUnpackDir = Join-Path $FfmpegDir "unpack"
+$FfmpegLicenseDir = Join-Path $FfmpegDir "licenses"
 $AppName = "PixivDownload"
 $AppVendor = "sywyar"
 $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
-$FfmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
+$FfmpegZipUrl = "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-windows-x64.zip"
 $OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
 $InstallerSdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot
 $EnableInstallerPluginSelection = $false
@@ -55,7 +56,7 @@ $InstallerCatalogDirName = "installer-catalog"
 $InstallerCatalogIncludePath = Join-Path $BuildRoot "installer-plugin-catalog-items.iss.inc"
 $FfmpegExe = Join-Path $FfmpegDir "ffmpeg.exe"
 $FfprobeExe = Join-Path $FfmpegDir "ffprobe.exe"
-$FfmpegLicense = Join-Path $FfmpegDir "ffmpeg-LGPL.txt"
+$FfmpegLicenseFiles = @("ffmpeg-LGPLv2.1.txt", "libwebp-COPYING.txt", "libwebp-PATENTS.txt")
 $OnlineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-online-portable.zip"
 $OfflineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-portable.zip"
 $SetupPath = Join-Path $OutDir "$AppName-$Version-win-x64-setup.exe"
@@ -586,10 +587,10 @@ function Get-InstallerVersion {
 }
 
 function Ensure-FfmpegPayload {
-    $hasPayload =
-        (Test-Path $FfmpegExe) -and
-        (Test-Path $FfprobeExe) -and
-        (Test-Path $FfmpegLicense)
+    $hasPayload = (Test-Path $FfmpegExe) -and (Test-Path $FfprobeExe)
+    foreach ($licenseName in $FfmpegLicenseFiles) {
+        $hasPayload = $hasPayload -and (Test-Path (Join-Path $FfmpegLicenseDir $licenseName))
+    }
 
     if ($hasPayload -and -not $RedownloadFfmpeg) {
         Write-Step "Reusing existing FFmpeg payload from build/ffmpeg"
@@ -609,7 +610,7 @@ function Ensure-FfmpegPayload {
     Expand-Archive -Path $zipPath -DestinationPath $FfmpegUnpackDir -Force
 
     $payloadRoot = Get-ChildItem $FfmpegUnpackDir -Directory |
-        Where-Object { $_.Name -like "ffmpeg-*-win64-lgpl" } |
+        Where-Object { $_.Name -eq "ffmpeg-windows-x64" } |
         Select-Object -First 1
 
     if (-not $payloadRoot) {
@@ -618,12 +619,13 @@ function Ensure-FfmpegPayload {
 
     Copy-Item (Join-Path $payloadRoot.FullName "bin\ffmpeg.exe") $FfmpegExe -Force
     Copy-Item (Join-Path $payloadRoot.FullName "bin\ffprobe.exe") $FfprobeExe -Force
-    @"
-FFmpeg is licensed under the LGPL v2.1.
-Source code: https://ffmpeg.org
-Build: BtbN FFmpeg Builds (https://github.com/BtbN/FFmpeg-Builds)
-LGPL License: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
-"@ | Set-Content -Path $FfmpegLicense -Encoding UTF8
+    Remove-PathIfExists $FfmpegLicenseDir
+    Copy-Item (Join-Path $payloadRoot.FullName "licenses") $FfmpegDir -Recurse -Force
+    foreach ($licenseName in $FfmpegLicenseFiles) {
+        if (-not (Test-Path (Join-Path $FfmpegLicenseDir $licenseName) -PathType Leaf)) {
+            throw "FFmpeg payload is missing required license file: $licenseName"
+        }
+    }
 }
 
 if ($AllowUnsignedLocalPlugins) {
@@ -773,11 +775,9 @@ try {
             Write-Host ("    {0} official plugin(s) staged under plugins/ (full-offline)." -f $fullOfflineCount) -ForegroundColor Green
         }
         $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
-        $offlineFfmpegLicenseDir = Join-Path $offlineFfmpegDir "licenses"
-        Ensure-Directory $offlineFfmpegLicenseDir
         Copy-Item $FfmpegExe $offlineFfmpegDir -Force
         Copy-Item $FfprobeExe $offlineFfmpegDir -Force
-        Copy-Item $FfmpegLicense $offlineFfmpegLicenseDir -Force
+        Copy-Item $FfmpegLicenseDir $offlineFfmpegDir -Recurse -Force
 
         Write-Step "Packaging offline portable zip"
         Compress-Archive -Path $OfflineAppDir -DestinationPath $OfflineZipPath -Force

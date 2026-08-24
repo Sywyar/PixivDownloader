@@ -60,7 +60,8 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     assert.equal(publish.on.workflow_call.inputs.publish_in_caller.required, true);
     assert.equal(publishAction.runs.using, 'composite');
     assert.equal(publishAction.inputs.plugin_signing_private_key_pem_base64.required, true);
-    assert.equal(publishAction.inputs.plugins_repo_token.required, true);
+    assert.equal(publishAction.inputs.cross_repo_release_token.required, true);
+    assert.equal(publishAction.inputs.plugins_repo_token, undefined);
     assert.deepEqual(secretNames(publishAction), []);
     const directPublish = publish.jobs.publish.steps
         .find((step) => step.uses === './.github/actions/publish-official-plugins');
@@ -100,13 +101,13 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     assert.deepEqual(writeJobs(nightly), ['release-nightly']);
 
     assert.deepEqual(secretNames(publish.jobs.publish).sort(), [
-        'PLUGINS_REPO_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
+        'CROSS_REPO_RELEASE_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
     ]);
     for (const doc of [release, nightly]) {
         const job = doc.jobs['publish-plugin-artifacts'];
         assert.ok((Array.isArray(job.needs) ? job.needs : [job.needs]).includes('publish-plugins'));
         assert.deepEqual(secretNames(job).sort(), [
-            'PLUGINS_REPO_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
+            'CROSS_REPO_RELEASE_TOKEN', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
         ]);
         assert.equal(job.steps.find((step) => step.uses === './.github/actions/publish-official-plugins')
             ?.name, 'Publish official plugins');
@@ -123,6 +124,36 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     }
     assert.deepEqual(secretNames(release.jobs.release), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
     assert.deepEqual(secretNames(nightly.jobs['release-nightly']), ['UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64']);
+});
+
+test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五个平台资产', () => {
+    const ffmpeg = load('.github/workflows/build-stable-ffmpeg.yml');
+    const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'ci', 'release-gate-policy.json'), 'utf8'));
+    assert.equal(ffmpeg.name, 'Build stable FFmpeg');
+    assert.deepEqual(triggers(ffmpeg), ['workflow_dispatch']);
+    assert.deepEqual(ffmpeg.permissions, { contents: 'read' });
+    assert.deepEqual(ffmpeg.jobs.build.strategy.matrix.include.map((item) => item.asset), [
+        'windows-x64', 'linux-x64', 'linux-arm64', 'macos-x64', 'macos-arm64',
+    ]);
+    assert.equal(ffmpeg.jobs.publish.environment, 'release');
+    assert.ok(ffmpeg.jobs.publish.needs.includes('quality-gate'));
+    assert.equal(ffmpeg.jobs.publish.env.GH_TOKEN, '${{ secrets.CROSS_REPO_RELEASE_TOKEN }}');
+    assert.equal(ffmpeg.jobs.publish.steps.find((step) => step.name === 'Download platform archives')
+        .with.pattern, 'ffmpeg-*-*');
+    assert.equal(ffmpeg.env.REMOTE_CONTENT_REPO, 'Sywyar/PixivDownloader-Remote-Content');
+    assert.equal(ffmpeg.env.RELEASE_TAG, 'ffmpeg-stable');
+    assert.equal(ffmpeg.env.FFMPEG_SIGNING_KEY_FINGERPRINT,
+        'FCF986EA15E6E293A5644F10B4322F04D67658D8');
+    assert.equal(ffmpeg.env.LIBWEBP_COMMIT, '4fa21912338357f89e4fd51cf2368325b59e9bd9');
+    assert.deepEqual(policy.workflows['.github/workflows/build-stable-ffmpeg.yml'].requiredTriggers,
+        ['workflow_dispatch']);
+    const text = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'build-stable-ffmpeg.yml'), 'utf8');
+    assert.match(text, /gpg --batch --verify/);
+    assert.match(text, /CONFIG_LIBWEBP_ENCODER 1/);
+    assert.match(text, /ffmpeg-LGPLv2\.1\.txt/);
+    assert.match(text, /libwebp-COPYING\.txt/);
+    assert.match(text, /libwebp-PATENTS\.txt/);
+    assert.doesNotMatch(text, /BtbN|ffmpeg-master-latest/);
 });
 
 test('发布链：外部 ref 与输入先校验，再通过环境变量进入 shell', () => {
@@ -180,10 +211,12 @@ test('发布链：外部 ref 与输入先校验，再通过环境变量进入 sh
 
 test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
     for (const rel of ['.github/workflows/release.yml', '.github/workflows/nightly.yml',
-        '.github/workflows/publish-plugins.yml', '.github/actions/publish-official-plugins/action.yml']) {
+        '.github/workflows/publish-plugins.yml', '.github/workflows/build-stable-ffmpeg.yml',
+        '.github/actions/publish-official-plugins/action.yml']) {
         const text = fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8');
         assert.doesNotMatch(text, /always\(\)|!cancelled\(\)|continue-on-error/);
         assert.doesNotMatch(text, /PLUGIN_SIGNING_PRIVATE_KEY_PEM(?:\s|:|\})/);
+        assert.doesNotMatch(text, /PLUGINS_REPO_TOKEN|plugins_repo_token/);
     }
     for (const rel of ['.github/workflows/release.yml', '.github/workflows/nightly.yml']) {
         const text = fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8');

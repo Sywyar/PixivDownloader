@@ -73,6 +73,9 @@
 Java 标准包和离线全量包必须**完整解压**后使用，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录
 缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
 
+GUI 自动安装 FFmpeg 时，会从项目维护的 `ffmpeg-stable` Release 下载由 FFmpeg 官方最新稳定源码构建的
+Windows x64、Linux x64/arm64 或 macOS x64/arm64 资产；其它平台仍可手动安装系统 FFmpeg。
+
 ### 启动
 
 ```bash

@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -24,19 +25,15 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
- * 下载并安装 Windows 版 FFmpeg。
+ * 下载并安装适配当前系统的稳定版 FFmpeg。
  */
 public final class FfmpegInstaller {
 
-    public static final String WINDOWS_ARCHIVE_URL =
-            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip";
-
-    public static final String LGPL_NOTICE = """
-            FFmpeg is licensed under the LGPL v2.1.
-            Source code: https://ffmpeg.org
-            Build: BtbN FFmpeg Builds (https://github.com/BtbN/FFmpeg-Builds)
-            LGPL License: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
-            """;
+    public static final String RELEASE_BASE_URL = "https://github.com/Sywyar/"
+            + "PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/";
+    private static final String FFMPEG_LICENSE = "ffmpeg-LGPLv2.1.txt";
+    private static final String LIBWEBP_LICENSE = "libwebp-COPYING.txt";
+    private static final String LIBWEBP_PATENTS = "libwebp-PATENTS.txt";
 
     private FfmpegInstaller() {}
 
@@ -45,15 +42,40 @@ public final class FfmpegInstaller {
     }
 
     public static boolean supportsManagedDownload() {
-        return FfmpegLocator.isWindows();
+        return archiveUri(System.getProperty("os.name", ""), System.getProperty("os.arch", "")).isPresent();
+    }
+
+    static Optional<URI> archiveUri(String osName, String osArch) {
+        String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
+        String arch = osArch == null ? "" : osArch.toLowerCase(Locale.ROOT);
+        String normalizedArch = switch (arch) {
+            case "amd64", "x86_64", "x64" -> "x64";
+            case "aarch64", "arm64" -> "arm64";
+            default -> "";
+        };
+        boolean windows = os.startsWith("windows");
+        boolean linux = os.contains("linux");
+        boolean macos = os.startsWith("mac") || os.startsWith("darwin");
+        String asset = "";
+        if (windows && normalizedArch.equals("x64")) {
+            asset = "ffmpeg-windows-x64.zip";
+        } else if (linux && normalizedArch.equals("x64")) {
+            asset = "ffmpeg-linux-x64.zip";
+        } else if (linux && normalizedArch.equals("arm64")) {
+            asset = "ffmpeg-linux-arm64.zip";
+        } else if (macos && normalizedArch.equals("x64")) {
+            asset = "ffmpeg-macos-x64.zip";
+        } else if (macos && normalizedArch.equals("arm64")) {
+            asset = "ffmpeg-macos-arm64.zip";
+        }
+        return asset.isEmpty() ? Optional.empty() : Optional.of(URI.create(RELEASE_BASE_URL + asset));
     }
 
     public static FfmpegInstallation installManaged(ProxySettings proxySettings,
                                                     ProgressListener listener)
             throws IOException, InterruptedException {
-        if (!supportsManagedDownload()) {
-            throw new IOException(message("gui.ffmpeg.install.unsupported"));
-        }
+        URI archiveUri = archiveUri(System.getProperty("os.name", ""), System.getProperty("os.arch", ""))
+                .orElseThrow(() -> new IOException(message("gui.ffmpeg.install.unsupported")));
 
         ProxySettings settings = proxySettings == null ? ProxySettings.disabled() : proxySettings;
         ProgressListener progress = listener == null ? ProgressListener.NO_OP : listener;
@@ -63,7 +85,7 @@ public final class FfmpegInstaller {
         Path extracted = tempDir.resolve("extract");
         try {
             progress.onProgress(message("gui.ffmpeg.install.stage.connecting"), 0L, -1L);
-            downloadArchive(settings, archive, progress);
+            downloadArchive(archiveUri, settings, archive, progress);
 
             progress.onProgress(message("gui.ffmpeg.install.stage.extracting"), -1L, -1L);
             ExtractedFiles extractedFiles = extractRequiredFiles(archive, extracted);
@@ -74,10 +96,17 @@ public final class FfmpegInstaller {
                     StandardCopyOption.REPLACE_EXISTING);
             Files.copy(extractedFiles.ffprobe(), toolsDir.resolve(FfmpegLocator.probeExecutableName()),
                     StandardCopyOption.REPLACE_EXISTING);
+            makeExecutable(toolsDir.resolve(FfmpegLocator.executableName()));
+            makeExecutable(toolsDir.resolve(FfmpegLocator.probeExecutableName()));
 
             Path licenseDir = FfmpegLocator.managedLicenseDir();
             Files.createDirectories(licenseDir);
-            Files.writeString(licenseDir.resolve("ffmpeg-LGPL.txt"), LGPL_NOTICE);
+            Files.copy(extractedFiles.ffmpegLicense(), licenseDir.resolve(FFMPEG_LICENSE),
+                    StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(extractedFiles.libwebpLicense(), licenseDir.resolve(LIBWEBP_LICENSE),
+                    StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(extractedFiles.libwebpPatents(), licenseDir.resolve(LIBWEBP_PATENTS),
+                    StandardCopyOption.REPLACE_EXISTING);
 
             progress.onProgress(message("gui.ffmpeg.install.completed"), 1L, 1L);
             return FfmpegLocator.managedInstallation()
@@ -87,7 +116,7 @@ public final class FfmpegInstaller {
         }
     }
 
-    private static void downloadArchive(ProxySettings proxySettings, Path target,
+    private static void downloadArchive(URI source, ProxySettings proxySettings, Path target,
                                         ProgressListener listener)
             throws IOException, InterruptedException {
         HttpClient.Builder builder = HttpClient.newBuilder()
@@ -95,7 +124,7 @@ public final class FfmpegInstaller {
                 .followRedirects(HttpClient.Redirect.NORMAL);
         proxySettings.toProxySelector().ifPresent(builder::proxy);
 
-        HttpRequest request = HttpRequest.newBuilder(URI.create(WINDOWS_ARCHIVE_URL))
+        HttpRequest request = HttpRequest.newBuilder(source)
                 .timeout(Duration.ofMinutes(10))
                 .header("User-Agent", AppInfo.userAgent("ffmpeg-installer"))
                 .GET()
@@ -126,10 +155,13 @@ public final class FfmpegInstaller {
         return contentLength.isPresent() ? contentLength.getAsLong() : -1L;
     }
 
-    private static ExtractedFiles extractRequiredFiles(Path archive, Path extractDir) throws IOException {
+    static ExtractedFiles extractRequiredFiles(Path archive, Path extractDir) throws IOException {
         Files.createDirectories(extractDir);
         Path ffmpegPath = null;
         Path ffprobePath = null;
+        Path ffmpegLicense = null;
+        Path libwebpLicense = null;
+        Path libwebpPatents = null;
 
         try (ZipInputStream zipInputStream = new ZipInputStream(Files.newInputStream(archive))) {
             ZipEntry entry;
@@ -140,8 +172,13 @@ public final class FfmpegInstaller {
                 }
 
                 String normalizedName = entry.getName().replace('\\', '/');
-                if (!normalizedName.endsWith("/bin/" + FfmpegLocator.executableName())
-                        && !normalizedName.endsWith("/bin/" + FfmpegLocator.probeExecutableName())) {
+                boolean ffmpeg = normalizedName.endsWith("/bin/" + FfmpegLocator.executableName());
+                boolean ffprobe = normalizedName.endsWith("/bin/" + FfmpegLocator.probeExecutableName());
+                boolean ffmpegLicenseEntry = normalizedName.endsWith("/licenses/" + FFMPEG_LICENSE);
+                boolean libwebpLicenseEntry = normalizedName.endsWith("/licenses/" + LIBWEBP_LICENSE);
+                boolean libwebpPatentsEntry = normalizedName.endsWith("/licenses/" + LIBWEBP_PATENTS);
+                if (!ffmpeg && !ffprobe && !ffmpegLicenseEntry
+                        && !libwebpLicenseEntry && !libwebpPatentsEntry) {
                     zipInputStream.closeEntry();
                     continue;
                 }
@@ -158,10 +195,16 @@ public final class FfmpegInstaller {
                 }
 
                 Files.copy(zipInputStream, target, StandardCopyOption.REPLACE_EXISTING);
-                if (fileName.toString().equalsIgnoreCase(FfmpegLocator.executableName())) {
+                if (ffmpeg) {
                     ffmpegPath = target;
-                } else if (fileName.toString().equalsIgnoreCase(FfmpegLocator.probeExecutableName())) {
+                } else if (ffprobe) {
                     ffprobePath = target;
+                } else if (ffmpegLicenseEntry) {
+                    ffmpegLicense = target;
+                } else if (libwebpLicenseEntry) {
+                    libwebpLicense = target;
+                } else if (libwebpPatentsEntry) {
+                    libwebpPatents = target;
                 }
                 zipInputStream.closeEntry();
             }
@@ -171,8 +214,20 @@ public final class FfmpegInstaller {
             throw new IOException(message("gui.ffmpeg.install.archive.invalid-structure",
                     FfmpegLocator.executableName(), FfmpegLocator.probeExecutableName()));
         }
+        if (ffmpegLicense == null || libwebpLicense == null || libwebpPatents == null) {
+            throw new IOException(message("gui.ffmpeg.install.result-missing"));
+        }
 
-        return new ExtractedFiles(ffmpegPath, ffprobePath);
+        return new ExtractedFiles(ffmpegPath, ffprobePath, ffmpegLicense, libwebpLicense, libwebpPatents);
+    }
+
+    private static void makeExecutable(Path path) throws IOException {
+        if (FfmpegLocator.isWindows()) {
+            return;
+        }
+        if (!path.toFile().setExecutable(true, false)) {
+            throw new IOException(message("gui.ffmpeg.install.result-missing"));
+        }
     }
 
     private static void deleteRecursively(Path dir) {
@@ -217,10 +272,14 @@ public final class FfmpegInstaller {
         }
     }
 
-    private record ExtractedFiles(Path ffmpeg, Path ffprobe) {
-        private ExtractedFiles {
+    record ExtractedFiles(Path ffmpeg, Path ffprobe, Path ffmpegLicense,
+                          Path libwebpLicense, Path libwebpPatents) {
+        ExtractedFiles {
             Objects.requireNonNull(ffmpeg, "ffmpeg");
             Objects.requireNonNull(ffprobe, "ffprobe");
+            Objects.requireNonNull(ffmpegLicense, "ffmpegLicense");
+            Objects.requireNonNull(libwebpLicense, "libwebpLicense");
+            Objects.requireNonNull(libwebpPatents, "libwebpPatents");
         }
     }
 }
