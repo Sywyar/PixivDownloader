@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,10 +60,11 @@ class CollectionControllerTest {
         MockHttpServletRequest request = guestRequest();
         when(collectionService.collectionsOf(123L)).thenReturn(List.of(1L, 2L));
 
-        ResponseEntity<Map<String, Object>> response = controller.collectionsOf(123L, request);
+        ResponseEntity<CollectionController.CollectionIdsResponse> response =
+                controller.collectionsOf(123L, request);
 
         verify(guestAccessGuard).requireVisible(request, 123L);
-        assertThat(response.getBody()).containsEntry("collectionIds", List.of(1L, 2L));
+        assertThat(response.getBody().collectionIds()).containsExactly(1L, 2L);
     }
 
     @Test
@@ -90,10 +90,11 @@ class CollectionControllerTest {
         MockHttpServletRequest request = guestRequest();
         when(collectionService.novelCollectionsOf(456L)).thenReturn(List.of(3L));
 
-        ResponseEntity<Map<String, Object>> response = controller.novelCollectionsOf(456L, request);
+        ResponseEntity<CollectionController.CollectionIdsResponse> response =
+                controller.novelCollectionsOf(456L, request);
 
         verify(guestAccessGuard).requireNovelVisible(request, 456L);
-        assertThat(response.getBody()).containsEntry("collectionIds", List.of(3L));
+        assertThat(response.getBody().collectionIds()).containsExactly(3L);
     }
 
     @Test

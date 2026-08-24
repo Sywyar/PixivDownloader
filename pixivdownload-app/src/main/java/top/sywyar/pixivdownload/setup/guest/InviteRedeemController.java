@@ -17,7 +17,6 @@ import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.setup.AuthFilter;
 import top.sywyar.pixivdownload.setup.LoginRateLimitService;
 
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -39,8 +38,9 @@ public class InviteRedeemController {
     private boolean sslEnabled;
 
     @PostMapping("/api/auth/invite-redeem")
-    public ResponseEntity<Map<String, Object>> redeem(@RequestBody RedeemRequest body,
-                                                     HttpServletRequest request) {
+    public ResponseEntity<RedeemResponse> redeem(
+            @RequestBody RedeemRequest body,
+            HttpServletRequest request) {
         String ip = clientIp(request);
         if (!loginRateLimitService.isAllowed(ip)) {
             throw new LocalizedException(HttpStatus.TOO_MANY_REQUESTS,
@@ -65,7 +65,7 @@ public class InviteRedeemController {
                 .orElse("/login.html?inviteError=1");
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(Map.of("success", true, "redirect", redirect));
+                .body(new RedeemResponse(true, redirect));
     }
 
     private String clientIp(HttpServletRequest request) {
@@ -73,4 +73,6 @@ public class InviteRedeemController {
     }
 
     public record RedeemRequest(String code) {}
+
+    public record RedeemResponse(boolean success, String redirect) {}
 }

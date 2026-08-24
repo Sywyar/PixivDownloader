@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.setup.guest.dto.InviteDetail;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteSummary;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * 管理员后台 CRUD：创建/列表/详情/编辑/暂停/恢复/删除/访问统计。
@@ -24,8 +23,8 @@ public class AdminInviteController {
     private final GuestInviteService guestInviteService;
 
     @GetMapping("/access-check")
-    public Map<String, Boolean> accessCheck() {
-        return Map.of("admin", true);
+    public AccessCheckResponse accessCheck() {
+        return new AccessCheckResponse(true);
     }
 
     @PostMapping
@@ -36,9 +35,9 @@ public class AdminInviteController {
     }
 
     @GetMapping
-    public Map<String, Object> list() {
+    public InviteListResponse list() {
         List<InviteSummary> items = guestInviteService.list();
-        return Map.of("invites", items);
+        return new InviteListResponse(items);
     }
 
     @GetMapping("/{id}")
@@ -53,38 +52,49 @@ public class AdminInviteController {
     }
 
     @PostMapping("/{id}/pause")
-    public Map<String, Boolean> pause(@PathVariable long id) {
+    public SuccessResponse pause(@PathVariable long id) {
         guestInviteService.pause(id);
-        return Map.of("success", true);
+        return new SuccessResponse(true);
     }
 
     @PostMapping("/{id}/resume")
-    public Map<String, Boolean> resume(@PathVariable long id) {
+    public SuccessResponse resume(@PathVariable long id) {
         guestInviteService.resume(id);
-        return Map.of("success", true);
+        return new SuccessResponse(true);
     }
 
     @DeleteMapping("/expired")
-    public Map<String, Object> deleteExpired() {
+    public DeleteExpiredResponse deleteExpired() {
         int deleted = guestInviteService.deleteExpired(System.currentTimeMillis());
-        return Map.of("success", true, "deleted", deleted);
+        return new DeleteExpiredResponse(true, deleted);
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Boolean> delete(@PathVariable long id) {
+    public SuccessResponse delete(@PathVariable long id) {
         guestInviteService.delete(id);
-        return Map.of("success", true);
+        return new SuccessResponse(true);
     }
 
     @GetMapping("/{id}/stats")
-    public Map<String, Object> stats(@PathVariable long id,
-                                     @RequestParam(defaultValue = "7") int days) {
+    public InviteStatsResponse stats(
+            @PathVariable long id,
+            @RequestParam(defaultValue = "7") int days) {
         List<HourlyBucket> buckets = guestInviteService.getAccessStats(id, days);
         int normalized = switch (days) {
             case 1 -> 1;
             case 30 -> 30;
             default -> 7;
         };
-        return Map.of("days", normalized, "buckets", buckets);
+        return new InviteStatsResponse(normalized, buckets);
     }
+
+    public record AccessCheckResponse(boolean admin) {}
+
+    public record InviteListResponse(List<InviteSummary> invites) {}
+
+    public record SuccessResponse(boolean success) {}
+
+    public record DeleteExpiredResponse(boolean success, int deleted) {}
+
+    public record InviteStatsResponse(int days, List<HourlyBucket> buckets) {}
 }

@@ -84,13 +84,13 @@ public class GalleryController {
     }
 
     @GetMapping("/tags")
-    public Map<String, Object> listTags(
+    public TagListResponse listTags(
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "500") int limit,
             WorkVisibilityScope visibilityScope) {
         WorkRestriction restriction = visibilityScope.restrictionFor(WorkType.ARTWORK);
         List<GalleryTagOptionResponse> tags = galleryService.listTags(search, limit, restriction);
-        return Map.of("tags", tags);
+        return new TagListResponse(tags);
     }
 
     @GetMapping("/tags/lookup")
@@ -227,6 +227,8 @@ public class GalleryController {
     }
 
     public record DeleteResponse(int deleted) {}
+
+    public record TagListResponse(List<GalleryTagOptionResponse> tags) {}
 
     public record BatchCollectResponse(int count, int changed) {}
 

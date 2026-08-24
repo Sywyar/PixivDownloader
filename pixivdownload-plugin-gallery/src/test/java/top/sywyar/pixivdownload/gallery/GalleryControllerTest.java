@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.gallery;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,6 +17,7 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.gallery.web.GalleryPageResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryTagOptionResponse;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
@@ -82,6 +85,25 @@ class GalleryControllerTest {
         assertThat(query.excludedAuthorIds()).containsExactly(31L);
         assertThat(query.optionalAuthorIds()).containsExactly(41L, 42L);
         assertThat(query.restriction()).isSameAs(RESTRICTION);
+    }
+
+    @Test
+    @DisplayName("标签目录响应保留 tags 字段与标签投影")
+    void tagListKeepsResponseShape() throws Exception {
+        when(galleryService.listTags(null, 500, RESTRICTION)).thenReturn(List.of(
+                new GalleryTagOptionResponse(11L, "tag", "translated", 3)));
+
+        String responseBody = mockMvc.perform(get("/api/gallery/tags"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode tag = new ObjectMapper().readTree(responseBody).path("tags").path(0);
+        assertThat(tag.path("tagId").longValue()).isEqualTo(11L);
+        assertThat(tag.path("name").textValue()).isEqualTo("tag");
+        assertThat(tag.path("translatedName").textValue()).isEqualTo("translated");
+        assertThat(tag.path("artworkCount").intValue()).isEqualTo(3);
     }
 
     private static final class FixedVisibilityScopeResolver implements HandlerMethodArgumentResolver {
