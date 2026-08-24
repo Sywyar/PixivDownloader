@@ -1,6 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog;
-
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogMarketMeta;
+package top.sywyar.pixivdownload.plugin.catalog.model;
 
 import java.util.List;
 import java.util.Optional;

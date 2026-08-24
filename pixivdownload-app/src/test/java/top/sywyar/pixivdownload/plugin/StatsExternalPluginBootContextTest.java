@@ -46,8 +46,8 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
 
 /**
  * 外置 stats 插件经<b>真实 Spring 上下文</b>的端到端接线验证：用真实 stats 插件 jar（由本模块 reactor 兄弟模块

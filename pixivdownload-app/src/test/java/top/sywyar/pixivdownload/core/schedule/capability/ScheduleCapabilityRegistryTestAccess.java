@@ -4,7 +4,7 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigra
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import java.util.Optional;
 import java.util.function.Predicate;

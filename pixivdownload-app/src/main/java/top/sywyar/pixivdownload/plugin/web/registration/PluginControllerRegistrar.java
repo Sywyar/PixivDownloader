@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.registration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.support.AopUtils;
@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+import top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.plugin.web.mapping.PluginMvcRegistrations;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;

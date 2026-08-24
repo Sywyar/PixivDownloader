@@ -40,7 +40,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 

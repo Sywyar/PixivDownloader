@@ -36,9 +36,9 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionHandle;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionHandle;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 

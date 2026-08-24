@@ -75,12 +75,12 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
-import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar.PreparedWebContribution;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionHandle;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar.PreparedWebContribution;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionHandle;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 

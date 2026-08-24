@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.mapping;
 
 import org.springframework.lang.Nullable;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
@@ -6,6 +6,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 
 import java.lang.reflect.Method;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
 
 /**
  * 核心壳的 {@link RequestMappingHandlerMapping}：在标准行为之外，把两个 {@code protected} 钩子方法以 public 桥接

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.resource;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.BeanInitializationException;

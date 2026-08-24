@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
-import top.sywyar.pixivdownload.plugin.web.WebUiSlotController;
+import top.sywyar.pixivdownload.plugin.web.controller.WebUiSlotController;
 
 import java.util.List;
 import java.util.Map;

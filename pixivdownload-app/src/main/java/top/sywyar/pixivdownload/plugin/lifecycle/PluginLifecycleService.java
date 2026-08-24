@@ -29,10 +29,10 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionHandle;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar.PreparedWebContribution;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionHandle;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar.PreparedWebContribution;
 
 import java.nio.file.Path;
 import java.util.ArrayList;

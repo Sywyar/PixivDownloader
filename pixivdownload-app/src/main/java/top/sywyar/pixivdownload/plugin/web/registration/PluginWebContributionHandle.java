@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.registration;
 
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;

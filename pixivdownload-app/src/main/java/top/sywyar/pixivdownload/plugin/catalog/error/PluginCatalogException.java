@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog;
+package top.sywyar.pixivdownload.plugin.catalog.error;
 
 import org.springframework.http.HttpStatus;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;

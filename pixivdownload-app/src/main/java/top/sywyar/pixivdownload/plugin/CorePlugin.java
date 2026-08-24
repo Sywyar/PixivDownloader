@@ -29,9 +29,9 @@ import top.sywyar.pixivdownload.plugin.registry.DrilldownRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.web.DrilldownController;
-import top.sywyar.pixivdownload.plugin.web.NavigationController;
-import top.sywyar.pixivdownload.plugin.web.PageSectionController;
+import top.sywyar.pixivdownload.plugin.web.controller.DrilldownController;
+import top.sywyar.pixivdownload.plugin.web.controller.NavigationController;
+import top.sywyar.pixivdownload.plugin.web.controller.PageSectionController;
 
 /**
  * 核心插件：承载核心层（schema、公共静态资源、基础路由等）的 contribution 声明。

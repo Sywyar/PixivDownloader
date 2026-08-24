@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthority;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import java.util.LinkedHashMap;
 import java.util.List;

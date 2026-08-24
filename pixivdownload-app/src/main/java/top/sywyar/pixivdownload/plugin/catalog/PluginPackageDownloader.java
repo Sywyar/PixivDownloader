@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogPackage;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;

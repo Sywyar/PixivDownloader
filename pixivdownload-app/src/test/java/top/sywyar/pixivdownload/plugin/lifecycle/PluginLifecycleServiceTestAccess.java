@@ -6,8 +6,8 @@ import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiesc
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
 
 /** Package bridge for deterministic fatal handoff probes in lifecycle integration tests. */
 public final class PluginLifecycleServiceTestAccess {

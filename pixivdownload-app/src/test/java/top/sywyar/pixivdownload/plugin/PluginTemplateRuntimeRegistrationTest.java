@@ -24,7 +24,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;

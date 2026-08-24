@@ -3,9 +3,9 @@ package top.sywyar.pixivdownload.plugin.catalog.repository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.ProxyConfig;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorCode;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 
 import java.util.List;
 

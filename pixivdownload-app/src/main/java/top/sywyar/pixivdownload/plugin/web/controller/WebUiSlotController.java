@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

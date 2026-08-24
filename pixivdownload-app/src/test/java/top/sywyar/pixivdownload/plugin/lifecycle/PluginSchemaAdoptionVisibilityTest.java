@@ -16,8 +16,8 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.schema.PluginSchemaLifecycle;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;

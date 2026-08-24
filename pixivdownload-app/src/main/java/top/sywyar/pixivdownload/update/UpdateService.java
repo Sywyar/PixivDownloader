@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;

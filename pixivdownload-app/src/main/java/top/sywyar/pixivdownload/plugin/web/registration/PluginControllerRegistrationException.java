@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.registration;
 
 /**
  * 外置插件 controller 动态注册被拒绝 / 失败时抛出。典型原因有二：① 某个 controller 映射（path + HTTP 方法）

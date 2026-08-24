@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.resource;
 
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Bean;

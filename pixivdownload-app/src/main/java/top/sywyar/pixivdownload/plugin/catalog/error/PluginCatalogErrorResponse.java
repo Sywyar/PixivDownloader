@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog;
+package top.sywyar.pixivdownload.plugin.catalog.error;
 
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;

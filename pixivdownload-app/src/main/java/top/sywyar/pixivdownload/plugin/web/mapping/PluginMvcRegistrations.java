@@ -1,8 +1,9 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.mapping;
 
 import org.springframework.boot.autoconfigure.web.servlet.WebMvcRegistrations;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
 
 /**
  * 经 Spring Boot 的 {@link WebMvcRegistrations} 扩展点，把核心壳的 {@link RequestMappingHandlerMapping} 替换为

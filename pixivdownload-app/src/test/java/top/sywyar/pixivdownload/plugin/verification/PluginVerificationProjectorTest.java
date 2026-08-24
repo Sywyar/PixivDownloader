@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.verification;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.registration;
 
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
@@ -46,6 +46,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
+import top.sywyar.pixivdownload.plugin.web.resource.StaticResourceConfig;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;

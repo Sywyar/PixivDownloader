@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.plugin.web.resource;
 
 import org.springframework.aop.framework.AopProxyUtils;
 import org.springframework.core.io.Resource;
