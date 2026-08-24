@@ -53,7 +53,7 @@ test('Gate 通用入口报告当前可信发布版本', () => {
         cwd: ROOT, encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /trusted-release-gate 4/);
+    assert.match(result.stdout, /trusted-release-gate 5/);
     const invalid = spawnSync(process.execPath,
         ['scripts/ci/trust-gate.mjs', '--version', '--unknown'], { cwd: ROOT, encoding: 'utf8' });
     assert.notEqual(invalid.status, 0);

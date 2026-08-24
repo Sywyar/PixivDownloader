@@ -21,7 +21,7 @@ test('gate-contract：Epoch 4 兼容实现只委托共享检查器', () => {
 test('gate-contract：版本与缺参均 fail closed', () => {
     const version = spawnSync(process.execPath, [CONTRACT, '--version'], { cwd: ROOT, encoding: 'utf8' });
     assert.equal(version.status, 0, version.stderr);
-    assert.match(version.stdout, /gate-contract 5/);
+    assert.match(version.stdout, /gate-contract 6/);
     const invalidVersion = spawnSync(process.execPath, [CONTRACT, '--version', '--unknown'], {
         cwd: ROOT, encoding: 'utf8',
     });

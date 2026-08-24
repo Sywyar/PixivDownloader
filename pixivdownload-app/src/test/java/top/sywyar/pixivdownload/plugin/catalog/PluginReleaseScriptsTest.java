@@ -666,31 +666,32 @@ class PluginReleaseScriptsTest {
 
         Pattern usesPattern = Pattern.compile(
                 "(?m)^\\s*uses:\\s*([^\\s#]+)(?:\\s+#\\s*(\\S+))?\\s*$");
-        for (String name : List.of(
-                "quality-gate.yml",
-                "shared-snippets-check.yml",
-                "release.yml",
-                "nightly.yml",
-                "publish-plugins.yml")) {
-            Matcher matcher = usesPattern.matcher(workflow(name));
-            int externalActions = 0;
-            while (matcher.find()) {
-                String target = matcher.group(1);
-                if (target.startsWith("./")) {
-                    continue;
+        int externalActions = 0;
+        try (var workflowFiles = Files.list(repoRoot().resolve(".github").resolve("workflows"))) {
+            for (Path file : workflowFiles
+                    .filter(path -> path.getFileName().toString().matches(".*\\.ya?ml"))
+                    .sorted()
+                    .toList()) {
+                String name = file.getFileName().toString();
+                Matcher matcher = usesPattern.matcher(Files.readString(file, StandardCharsets.UTF_8));
+                while (matcher.find()) {
+                    String target = matcher.group(1);
+                    if (target.startsWith("./")) {
+                        continue;
+                    }
+                    externalActions++;
+                    int separator = target.lastIndexOf('@');
+                    assertThat(separator).as("%s external action %s", name, target).isGreaterThan(0);
+                    assertThat(target.substring(separator + 1))
+                            .as("%s external action %s must use a full commit SHA", name, target)
+                            .matches("[0-9a-f]{40}");
+                    assertThat(matcher.group(2))
+                            .as("%s external action %s must keep a readable version comment", name, target)
+                            .matches(ACTION_VERSION_COMMENT_PATTERN);
                 }
-                externalActions++;
-                int separator = target.lastIndexOf('@');
-                assertThat(separator).as("%s external action %s", name, target).isGreaterThan(0);
-                assertThat(target.substring(separator + 1))
-                        .as("%s external action %s must use a full commit SHA", name, target)
-                        .matches("[0-9a-f]{40}");
-                assertThat(matcher.group(2))
-                        .as("%s external action %s must keep a readable version comment", name, target)
-                        .matches(ACTION_VERSION_COMMENT_PATTERN);
             }
-            assertThat(externalActions).as("%s external actions", name).isPositive();
         }
+        assertThat(externalActions).as("external actions across all workflows").isPositive();
 
         String dependabot = Files.readString(repoRoot().resolve(".github/dependabot.yml"), StandardCharsets.UTF_8);
         assertThat(dependabot).contains(

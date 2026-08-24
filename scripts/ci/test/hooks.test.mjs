@@ -29,6 +29,9 @@ test('hooks：提前反馈面复用可信发布核心检查器', () => {
     const scripts = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts;
     assert.ok(surface.paths.includes('scripts/ci/gate-contract.mjs'));
     assert.ok(surface.paths.includes('scripts/ci/trust-gate.mjs'));
+    assert.ok(surface.paths.includes('scripts/ci/release-gate-verifier.mjs'));
+    assert.ok(surface.paths.includes('.github/workflows'));
+    assert.equal(surface.paths.some((rel) => /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(rel)), false);
     assert.deepEqual(surface.paths.filter((rel) => rel.startsWith('scripts/i18n/')), [
         'scripts/i18n/check.mjs',
         'scripts/i18n/gate-contract.mjs',
