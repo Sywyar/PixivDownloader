@@ -204,6 +204,7 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            "top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics$DailyOutcomes",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$Overview",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$AuthorStat",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$TagStat",
@@ -615,7 +616,10 @@ class CoreApiOwnershipGuardTest {
         assertThat(publicDeclaredMethodSignatures(ArtworkDownloadLookup.class))
                 .containsExactly("public abstract isDownloaded(long,boolean):boolean");
         assertThat(publicDeclaredMethodSignatures(ArtworkDownloadStatistics.class))
-                .containsExactly("public abstract recordCompleted(int):void");
+                .containsExactlyInAnyOrder(
+                        "public abstract recordCompleted(int):void",
+                        "public abstract recordFailed():void",
+                        "public abstract today():top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics$DailyOutcomes");
         assertThat(publicDeclaredMethodSignatures(ArtworkSeriesObserver.class))
                 .containsExactly("public abstract observe(top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation,java.lang.String):void");
         assertThat(publicDeclaredMethodSignatures(DownloadPathGuard.class))

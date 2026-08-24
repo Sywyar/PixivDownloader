@@ -43,7 +43,17 @@ public final class QueueTaskTracker {
      * @return 方法返回的 {@code Task} 实例
      */
     public Task prepareQueued(String ownerKey) {
-        return state.acquire(ownerKey, Task.QUEUED);
+        return state.acquire(ownerKey, Task.QUEUED, true);
+    }
+
+    /**
+     * 取得延迟清理任务包装器。任务仍参与 quiesce、取消与 drain，但不计入面向用户的排队/运行快照。
+     *
+     * @param ownerKey 所有者键
+     * @return 方法返回的 {@code Task} 实例
+     */
+    public Task prepareDeferredCleanup(String ownerKey) {
+        return state.acquire(ownerKey, Task.QUEUED, false);
     }
 
     /**
@@ -53,7 +63,7 @@ public final class QueueTaskTracker {
      * @return 方法返回的 {@code Task} 实例
      */
     public Task beginRunning(String ownerKey) {
-        return state.acquire(ownerKey, Task.RUNNING);
+        return state.acquire(ownerKey, Task.RUNNING, true);
     }
 
     /**
@@ -132,7 +142,7 @@ public final class QueueTaskTracker {
     }
 
     /**
-     * 返回当前队列的只读计数快照。该快照不暴露任务、delegate 或取消 callback。
+     * 返回当前队列的只读工作负载快照。该快照不暴露任务、delegate 或取消 callback，也不计入延迟清理任务。
      *
      * @return 当前接收状态及排队、运行任务数
      */
@@ -173,6 +183,7 @@ public final class QueueTaskTracker {
 
         private final State tracker;
         private final String ownerKey;
+        private final boolean visibleInSnapshot;
 
         private volatile int phase;
         private boolean cancellationRequested;
@@ -180,10 +191,11 @@ public final class QueueTaskTracker {
         private Runnable cancellationAction;
         private Runnable delegate;
 
-        private Task(State tracker, String ownerKey, int phase) {
+        private Task(State tracker, String ownerKey, int phase, boolean visibleInSnapshot) {
             this.tracker = tracker;
             this.ownerKey = ownerKey;
             this.phase = phase;
+            this.visibleInSnapshot = visibleInSnapshot;
         }
 
         /**
@@ -392,11 +404,11 @@ public final class QueueTaskTracker {
             return queueType;
         }
 
-        synchronized Task acquire(String ownerKey, int phase) {
+        synchronized Task acquire(String ownerKey, int phase, boolean visibleInSnapshot) {
             if (!accepting) {
                 throw new QueueNotAcceptingException(queueType);
             }
-            Task task = new Task(this, ownerKey, phase);
+            Task task = new Task(this, ownerKey, phase, visibleInSnapshot);
             active.add(task);
             return task;
         }
@@ -499,6 +511,9 @@ public final class QueueTaskTracker {
             int queued = 0;
             int running = 0;
             for (Task task : tasks) {
+                if (!task.visibleInSnapshot) {
+                    continue;
+                }
                 if (task.phase == Task.QUEUED) {
                     queued++;
                 } else if (task.phase == Task.RUNNING) {

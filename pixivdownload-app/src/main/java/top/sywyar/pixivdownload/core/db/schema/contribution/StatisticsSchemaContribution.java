@@ -25,7 +25,10 @@ public final class StatisticsSchemaContribution {
                                 column("id", "INTEGER", false, null, 1),
                                 column("total_artworks", "INTEGER", false, "0", 0),
                                 column("total_images", "INTEGER", false, "0", 0),
-                                column("total_moved", "INTEGER", false, "0", 0)
+                                column("total_moved", "INTEGER", false, "0", 0),
+                                column("daily_date", "TEXT", false, null, 0),
+                                column("daily_completed", "INTEGER", false, "0", 0),
+                                column("daily_failed", "INTEGER", false, "0", 0)
                         ),
                         List.of(),
                         // 单行表守卫：id 恒为 1（与历史 DDL 的列内 CHECK 等价，表级表达）

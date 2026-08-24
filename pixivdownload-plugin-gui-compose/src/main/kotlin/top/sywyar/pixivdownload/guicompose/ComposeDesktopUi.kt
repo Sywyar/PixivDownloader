@@ -118,7 +118,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.SwingUtilities
-import javax.swing.Timer
 import kotlin.concurrent.thread
 
 internal object ComposeDesktopUi {
@@ -329,16 +328,16 @@ internal object ComposeDesktopUi {
 
 @Composable
 private fun rememberDesktopDocument(model: ComposeDesktopUiModel): DesktopUiSnapshot {
-    var observed by remember {
+    var observed by remember(model) {
         mutableStateOf(model.snapshot())
     }
     DisposableEffect(model) {
-        val timer = Timer(250) {
-            val snapshot = model.snapshot()
-            if (snapshot.revision() != observed.revision()) observed = snapshot
+        val subscription = model.subscribeSnapshots { snapshot ->
+            SwingUtilities.invokeLater {
+                if (snapshot.revision() > observed.revision()) observed = snapshot
+            }
         }
-        timer.start()
-        onDispose(timer::stop)
+        onDispose(subscription::close)
     }
     return observed
 }

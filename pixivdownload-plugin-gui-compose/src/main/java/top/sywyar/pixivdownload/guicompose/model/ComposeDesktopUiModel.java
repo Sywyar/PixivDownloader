@@ -25,6 +25,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -63,6 +64,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         return thread;
     });
     private final Map<String, String> formValues = new ConcurrentHashMap<>();
+    private final List<Consumer<DesktopUiSnapshot>> snapshotListeners = new CopyOnWriteArrayList<>();
     private volatile Map<String, Consumer<List<String>>> selectionBindings = Map.of();
     private volatile Map<String, Runnable> actions = Map.of();
     private volatile Map<String, EventEndpoint> eventEndpoints = Map.of();
@@ -170,6 +172,20 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     @Override
     public DesktopUiSnapshot snapshot() {
         return snapshot;
+    }
+
+    /**
+     * 订阅实际发布的桌面快照；注册后立即投递当前值，回调应快速返回。
+     *
+     * @param listener 快照监听器
+     * @return 用于取消订阅的句柄
+     */
+    public synchronized AutoCloseable subscribeSnapshots(Consumer<DesktopUiSnapshot> listener) {
+        Consumer<DesktopUiSnapshot> value = Objects.requireNonNull(listener, "listener");
+        if (closed) return () -> {};
+        snapshotListeners.add(value);
+        notifySnapshotListener(value, snapshot);
+        return () -> snapshotListeners.remove(value);
     }
 
     public void dispatch(DesktopUiSnapshot observed, DesktopUiNode.Event event) {
@@ -288,6 +304,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
 
     synchronized void rebuild() {
         if (closed) return;
+        DesktopUiSnapshot published = null;
         List<DesktopUiPluginSnapshot> previousSources = rebuildSources;
         rebuildSources = loadCurrentSources();
         List<DesktopUiPluginSnapshot.Fingerprint> sourceFingerprints = rebuildSources.stream().map(
@@ -349,10 +366,26 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                         nextDocument,
                         nextInteractionRevisions
                 );
+                published = snapshot;
             }
             interactionSignatures = nextInteractionSignatures;
         } finally {
             rebuildSources = previousSources;
+        }
+        if (published != null) {
+            for (Consumer<DesktopUiSnapshot> listener : snapshotListeners) {
+                notifySnapshotListener(listener, published);
+            }
+        }
+    }
+
+    private static void notifySnapshotListener(
+            Consumer<DesktopUiSnapshot> listener,
+            DesktopUiSnapshot value) {
+        try {
+            listener.accept(value);
+        } catch (RuntimeException failure) {
+            LOG.warn("Desktop snapshot listener failed", failure);
         }
     }
 
@@ -690,6 +723,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     public synchronized void close() throws Exception {
         if (closed) return;
         closed = true;
+        snapshotListeners.clear();
         worker.shutdownNow();
         AutoCloseable subscription = backendSubscription;
         backendSubscription = null;

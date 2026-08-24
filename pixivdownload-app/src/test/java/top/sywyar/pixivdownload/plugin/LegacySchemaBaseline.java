@@ -92,7 +92,10 @@ final class LegacySchemaBaseline {
                         column("id", "INTEGER", false, null, 1),
                         column("total_artworks", "INTEGER", false, "0", 0),
                         column("total_images", "INTEGER", false, "0", 0),
-                        column("total_moved", "INTEGER", false, "0", 0)
+                        column("total_moved", "INTEGER", false, "0", 0),
+                        column("daily_date", "TEXT", false, null, 0),
+                        column("daily_completed", "INTEGER", false, "0", 0),
+                        column("daily_failed", "INTEGER", false, "0", 0)
                 ),
                 List.of()
         ));

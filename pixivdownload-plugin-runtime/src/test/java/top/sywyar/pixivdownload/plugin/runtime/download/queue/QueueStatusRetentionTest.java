@@ -47,6 +47,8 @@ class QueueStatusRetentionTest {
         QueueStatusRetention.schedule(tracker, "owner-a", scheduler,
                 Instant.now().plusSeconds(300), () -> cleanupRan.set(true));
         assertThat(scheduler.getScheduledThreadPoolExecutor().getQueue()).hasSize(1);
+        assertThat(tracker.activeTaskCount()).isEqualTo(1);
+        assertThat(tracker.snapshot()).isEqualTo(new QueueTaskTracker.Snapshot(true, 0, 0));
 
         QueueGenerationDrain drain = tracker.prepareQuiesce();
         tracker.cancelQuiescedTasks();

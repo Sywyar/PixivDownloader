@@ -13,6 +13,7 @@ import java.awt.Insets
 import java.awt.Point
 import java.awt.Rectangle
 import java.lang.reflect.Proxy
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import java.util.Locale
@@ -32,6 +33,17 @@ class GuiComposePluginTest {
         assertFalse(plugin.defaultProvider())
         assertEquals("Compose Multiplatform GUI",
             ResourceBundle.getBundle("i18n.web.gui-compose", Locale.US).getString("plugin.name"))
+    }
+
+    @Test
+    @DisplayName("桌面文档刷新订阅模型快照且不使用固定频率 Timer")
+    fun subscribesToPublishedSnapshots() {
+        val source = Files.readString(Path.of(
+            "src/main/kotlin/top/sywyar/pixivdownload/guicompose/ComposeDesktopUi.kt",
+        ))
+
+        assertTrue("model.subscribeSnapshots" in source)
+        assertFalse("Timer(" in source)
     }
 
     @Test

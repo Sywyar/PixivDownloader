@@ -582,14 +582,21 @@ class PixivDatabaseTest {
         }
 
         @Test
-        @DisplayName("incrementStats 应递增统计")
-        void shouldIncrementStats() {
-            pixivDatabase.incrementStats(5);
-            pixivDatabase.incrementStats(3);
+        @DisplayName("下载终态应原子累计并在日期变化时重置当日计数")
+        void shouldRecordDailyDownloadOutcomes() {
+            pixivDatabase.recordCompletedDownload(5, "2026-08-23");
+            pixivDatabase.recordFailedDownload("2026-08-23");
+            pixivDatabase.recordCompletedDownload(3, "2026-08-24");
+            pixivDatabase.recordFailedDownload("2026-08-24");
 
             int[] stats = pixivDatabase.getStats();
             assertThat(stats[0]).isEqualTo(2);  // total_artworks
             assertThat(stats[1]).isEqualTo(8);  // total_images
+            assertThat(pixivDatabase.getStatisticsData()).satisfies(data -> {
+                assertThat(data.dailyDate()).isEqualTo("2026-08-24");
+                assertThat(data.dailyCompleted()).isEqualTo(1);
+                assertThat(data.dailyFailed()).isEqualTo(1);
+            });
         }
 
         @Test

@@ -35,6 +35,7 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics.DailyOutcomes;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -120,6 +121,7 @@ class ArtworkDownloadExecutorTest {
                 .thenReturn(mock(ScheduledFuture.class));
         lenient().when(downloadPathGuard.requireSafeDirectoryName(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(artworkDownloadStatistics.today()).thenReturn(new DailyOutcomes(0, 0));
         artworkDownloadExecutor = newExecutor(downloadTaskExecutor);
     }
 
@@ -211,6 +213,35 @@ class ArtworkDownloadExecutorTest {
             assertThat(executor.getDownloadStatus(1000L)).isNotNull().satisfies(status ->
                     assertThat(status.isCompleted()).isTrue());
             assertThat(executor.snapshot().runningTasks()).isEmpty();
+            assertThat(executor.snapshot().cards())
+                    .filteredOn(card -> card.cardId().equals("waiting-queue"))
+                    .singleElement()
+                    .satisfies(card -> assertThat(card.primaryValue().fallback()).isEqualTo("0"));
+        }
+
+        @Test
+        @DisplayName("桌面快照应投影持久化的今日下载数与成功率")
+        void desktopSnapshotProjectsDailyOutcomes() {
+            when(artworkDownloadStatistics.today()).thenReturn(new DailyOutcomes(3, 1));
+
+            assertThat(artworkDownloadExecutor.snapshot().cards())
+                    .filteredOn(card -> card.cardId().equals("today-downloads"))
+                    .singleElement()
+                    .satisfies(card -> {
+                        assertThat(card.primaryValue().fallback()).isEqualTo("3");
+                        assertThat(card.supportingText().fallback())
+                                .isEqualTo("{0} completed, {1} failed today");
+                        assertThat(card.availability())
+                                .isEqualTo(DesktopControlCenterAvailability.AVAILABLE);
+                    });
+            assertThat(artworkDownloadExecutor.snapshot().cards())
+                    .filteredOn(card -> card.cardId().equals("success-rate"))
+                    .singleElement()
+                    .satisfies(card -> {
+                        assertThat(card.primaryValue().fallback()).isEqualTo("75%");
+                        assertThat(card.availability())
+                                .isEqualTo(DesktopControlCenterAvailability.AVAILABLE);
+                    });
         }
 
         @Test
@@ -1164,6 +1195,7 @@ class ArtworkDownloadExecutorTest {
             assertThat(status.isFailed()).isTrue();
             assertThat(status.getErrorMessage()).isEqualTo("history failed");
             verify(artworkDownloadStatistics, never()).recordCompleted(anyInt());
+            verify(artworkDownloadStatistics).recordFailed();
         }
 
         @Test
@@ -1213,6 +1245,8 @@ class ArtworkDownloadExecutorTest {
             DownloadStatus status = artworkDownloadExecutor.getDownloadStatus(artworkId);
             assertThat(status.isCompleted()).isTrue();
             assertThat(status.isFailed()).isFalse();
+            verify(artworkDownloadStatistics).recordCompleted(1);
+            verify(artworkDownloadStatistics, never()).recordFailed();
         }
     }
 
@@ -1261,6 +1295,7 @@ class ArtworkDownloadExecutorTest {
             assertThat(status.getErrorMessage()).contains("1/2");
             verify(artworkDownloadHistory, never()).record(any());
             verify(artworkDownloadStatistics, never()).recordCompleted(anyInt());
+            verify(artworkDownloadStatistics).recordFailed();
         }
     }
     private static final class ProbeVmError extends VirtualMachineError {

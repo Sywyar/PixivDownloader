@@ -25478,6 +25478,14 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "web/batch",
+      "key": "desktop.control-center.card.today-summary",
+      "acceptedSourceHash": "d05353c79f574ae7469c0abf67769a6ef50a32118cccc5eb5bb802900ce9f3cc",
+      "acceptedTranslationHash": "64c05381f36c2c38b56bce40ae7aa8c445a63204038a6360ab87b910ab221c0c"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "web/batch",
       "key": "desktop.control-center.card.unavailable",
       "acceptedSourceHash": "2443df2d0eba0bf1110d070ab8a30cc57e6f310a0ace180262a8d49b79b2fec5",
       "acceptedTranslationHash": "328e213bad90d816bb309a6ab0574f02e2fb4d26e1cdd420c36a1a7f83c739d3"
@@ -84233,6 +84241,14 @@
       "key": "desktop.control-center.card.today-downloads",
       "acceptedSourceHash": "8dae47eddad2fa0db5954883b64f4f63630a5e358f8bdedd14e9d1283b21d650",
       "acceptedTranslationHash": "5985fb7db718b39cbee832be99dea924449424d6b6e2e074a0e1fd507778b052"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "web/batch",
+      "key": "desktop.control-center.card.today-summary",
+      "acceptedSourceHash": "d05353c79f574ae7469c0abf67769a6ef50a32118cccc5eb5bb802900ce9f3cc",
+      "acceptedTranslationHash": "8d5afc4adb0e2ba5d2af3f28376e363a439ae761189a4c47c2274b248d34cb25"
     },
     {
       "locale": "ja-JP",
@@ -142998,6 +143014,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "web/batch",
+      "key": "desktop.control-center.card.today-summary",
+      "acceptedSourceHash": "d05353c79f574ae7469c0abf67769a6ef50a32118cccc5eb5bb802900ce9f3cc",
+      "acceptedTranslationHash": "bb1e4a9a595a866dc03cd1e5f42725e116be623f23f291fe92d457c3cfd1b2f9"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "web/batch",
       "key": "desktop.control-center.card.unavailable",
       "acceptedSourceHash": "2443df2d0eba0bf1110d070ab8a30cc57e6f310a0ace180262a8d49b79b2fec5",
       "acceptedTranslationHash": "9aa721ea1cab0add1aea18c69d7e1b010e7122d150612249ade298a005971886"
@@ -201753,6 +201777,14 @@
       "key": "desktop.control-center.card.today-downloads",
       "acceptedSourceHash": "8dae47eddad2fa0db5954883b64f4f63630a5e358f8bdedd14e9d1283b21d650",
       "acceptedTranslationHash": "e1d32c8dbb63807094c1bfcb84fdced8fa8afe679d7b904449d83ed7e974e6af"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "web/batch",
+      "key": "desktop.control-center.card.today-summary",
+      "acceptedSourceHash": "d05353c79f574ae7469c0abf67769a6ef50a32118cccc5eb5bb802900ce9f3cc",
+      "acceptedTranslationHash": "dbca244c1db2a679f10d419328044e60fac4a7db2b08ee92b3176951068b113d"
     },
     {
       "locale": "zh-Hant",

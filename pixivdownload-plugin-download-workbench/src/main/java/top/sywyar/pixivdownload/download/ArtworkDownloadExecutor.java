@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics.DailyOutcomes;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
@@ -309,7 +310,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
                     other.getSeriesId(), other.getSeriesOrder());
 
-            recordDownloadStatistics(successCount.get());
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
 
@@ -351,6 +351,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
             succeeded = true;
+            recordDownloadStatistics(successCount.get());
 
             // 前端转发的原始 meta（若有）：下载成功、作品行已落库后旁路归一化为 sidecar + 列投影。
             // 零额外请求、best-effort，绝不反报已成功的下载。
@@ -371,6 +372,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             status.setEndTime(java.time.LocalDateTime.now());
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } finally {
+            if (!succeeded && status.isCompleted() && status.isFailed() && !status.isCancelled()) {
+                recordDownloadFailureStatistics();
+            }
             // 下载完成后保留状态 5 分钟；清理句柄也属于本 queue generation，热停时会被取消并移除。
             if (downloadStatusMap.get(statusKey) == status) {
                 QueueStatusRetention.schedule(taskTracker, userUuid, taskScheduler,
@@ -651,10 +655,18 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     public DesktopDashboardSnapshot snapshot() {
         Instant observedAt = Instant.now();
         QueueTaskTracker.Snapshot queue = taskTracker.snapshot();
+        DailyOutcomes today = null;
+        try {
+            today = artworkDownloadStatistics.today();
+        } catch (RuntimeException failure) {
+            log.warn(logMessage("download.log.statistics.failed", failure.getMessage()), failure);
+        }
         List<DesktopDashboardCardContribution> cards = List.of(
-                unavailableCard("today-downloads", 10,
+                today == null
+                        ? unavailableCard("today-downloads", 10,
                         text("desktop.control-center.card.today-downloads", "Today's downloads"),
-                        DesktopUiIcon.DOWNLOAD, observedAt),
+                        DesktopUiIcon.DOWNLOAD, observedAt)
+                        : todayDownloadsCard(today, observedAt),
                 new DesktopDashboardCardContribution(
                         "waiting-queue",
                         20,
@@ -671,9 +683,11 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         DesktopUiIcon.QUEUE,
                         DesktopControlCenterAvailability.AVAILABLE,
                         observedAt),
-                unavailableCard("success-rate", 30,
+                today == null
+                        ? unavailableCard("success-rate", 30,
                         text("desktop.control-center.card.success-rate", "Success rate"),
-                        DesktopUiIcon.SUCCESS, observedAt));
+                        DesktopUiIcon.SUCCESS, observedAt)
+                        : successRateCard(today, observedAt));
 
         List<DesktopRunningTaskContribution> runningTasks = new ArrayList<>();
         for (Map.Entry<String, DownloadStatus> entry : List.copyOf(downloadStatusMap.entrySet())) {
@@ -683,6 +697,48 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             }
         }
         return new DesktopDashboardSnapshot(cards, runningTasks, observedAt);
+    }
+
+    private static DesktopDashboardCardContribution todayDownloadsCard(
+            DailyOutcomes today,
+            Instant observedAt) {
+        return new DesktopDashboardCardContribution(
+                "today-downloads",
+                10,
+                text("desktop.control-center.card.today-downloads", "Today's downloads"),
+                DesktopUiText.raw(Integer.toString(today.completed())),
+                outcomeSummary(today),
+                DesktopUiTone.INFO,
+                DesktopUiIcon.DOWNLOAD,
+                DesktopControlCenterAvailability.AVAILABLE,
+                observedAt);
+    }
+
+    private static DesktopDashboardCardContribution successRateCard(
+            DailyOutcomes today,
+            Instant observedAt) {
+        long attempted = (long) today.completed() + today.failed();
+        String percentage = attempted == 0
+                ? "—"
+                : Math.round(today.completed() * 100.0d / attempted) + "%";
+        return new DesktopDashboardCardContribution(
+                "success-rate",
+                30,
+                text("desktop.control-center.card.success-rate", "Success rate"),
+                DesktopUiText.raw(percentage),
+                outcomeSummary(today),
+                DesktopUiTone.SUCCESS,
+                DesktopUiIcon.SUCCESS,
+                DesktopControlCenterAvailability.AVAILABLE,
+                observedAt);
+    }
+
+    private static DesktopUiText outcomeSummary(DailyOutcomes today) {
+        return text(
+                "desktop.control-center.card.today-summary",
+                "{0} completed, {1} failed today",
+                Integer.toString(today.completed()),
+                Integer.toString(today.failed()));
     }
 
     private static DesktopDashboardCardContribution unavailableCard(
@@ -991,6 +1047,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private void recordDownloadStatistics(int imageCount) {
         try {
             artworkDownloadStatistics.recordCompleted(imageCount);
+        } catch (Exception e) {
+            log.warn(logMessage("download.log.statistics.failed", e.getMessage()), e);
+        }
+    }
+
+    private void recordDownloadFailureStatistics() {
+        try {
+            artworkDownloadStatistics.recordFailed();
         } catch (Exception e) {
             log.warn(logMessage("download.log.statistics.failed", e.getMessage()), e);
         }
