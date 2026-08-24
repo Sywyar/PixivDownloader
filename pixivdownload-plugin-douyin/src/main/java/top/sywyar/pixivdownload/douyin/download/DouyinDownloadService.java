@@ -7,32 +7,29 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
-import top.sywyar.pixivdownload.douyin.client.DouyinCookieValidator;
+import top.sywyar.pixivdownload.douyin.client.request.DouyinCookieValidator;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
-import top.sywyar.pixivdownload.douyin.db.history.DouyinSourceRelation;
 import top.sywyar.pixivdownload.douyin.download.work.DouyinWorkDownloadExecutor;
-import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalDownload;
-import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
-import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
-import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
-import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
-import top.sywyar.pixivdownload.douyin.model.DouyinCollectionSummary;
-import top.sywyar.pixivdownload.douyin.model.DouyinDownloadPhase;
-import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
-import top.sywyar.pixivdownload.douyin.model.DouyinDownloadSnapshot;
-import top.sywyar.pixivdownload.douyin.model.DouyinListing;
-import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
-import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
-import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinCanonicalDownload;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinCanonicalKind;
+import top.sywyar.pixivdownload.douyin.model.account.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.account.DouyinAccountSource;
+import top.sywyar.pixivdownload.douyin.model.listing.DouyinCollectionListing;
+import top.sywyar.pixivdownload.douyin.model.listing.DouyinCollectionSummary;
+import top.sywyar.pixivdownload.douyin.model.download.DouyinDownloadPhase;
+import top.sywyar.pixivdownload.douyin.model.download.DouyinDownloadRequest;
+import top.sywyar.pixivdownload.douyin.model.download.DouyinDownloadSnapshot;
+import top.sywyar.pixivdownload.douyin.model.listing.DouyinListing;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinParsedInput;
+import top.sywyar.pixivdownload.douyin.model.download.DouyinStartResponse;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 import top.sywyar.pixivdownload.douyin.settings.DouyinRuntimeSettings;
-import top.sywyar.pixivdownload.douyin.source.DouyinSourceRequest;
-import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -54,16 +51,16 @@ public class DouyinDownloadService {
     private static final int DEFAULT_PAGE_SIZE = 24;
 
     private final DouyinUrlParser parser;
-    private final RuntimePair inheritRuntime;
-    private final RuntimePair proxyRuntime;
-    private final RuntimePair customRuntime;
-    private final RuntimePair directRuntime;
+    private final DouyinDownloadTask.Runtime inheritRuntime;
+    private final DouyinDownloadTask.Runtime proxyRuntime;
+    private final DouyinDownloadTask.Runtime customRuntime;
+    private final DouyinDownloadTask.Runtime directRuntime;
     private final InteractiveDownloadExecutionLane interactiveDownloadExecutionLane;
     private final DouyinPluginSettingsService settingsService;
     private final DouyinHistoryService historyService;
     private final DouyinWorkDownloadExecutor workDownloadExecutor;
-    private final ConcurrentMap<String, MutableStatus> statuses = new ConcurrentHashMap<>();
-    private final ConcurrentMap<TaskIdentity, String> runningStatusIds = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, DouyinDownloadTask> statuses = new ConcurrentHashMap<>();
+    private final ConcurrentMap<DouyinDownloadTask.Identity, String> runningStatusIds = new ConcurrentHashMap<>();
     private final Object runningLock = new Object();
     private final QueueTaskTracker taskTracker = new QueueTaskTracker(QUEUE_TYPE);
 
@@ -109,10 +106,10 @@ public class DouyinDownloadService {
                                  DouyinPluginSettingsService settingsService,
                                  DouyinHistoryService historyService) {
         this.parser = parser;
-        this.inheritRuntime = new RuntimePair(inheritClient, inheritMediaDownloader);
-        this.proxyRuntime = new RuntimePair(proxyClient, proxyMediaDownloader);
-        this.customRuntime = new RuntimePair(customClient, customMediaDownloader);
-        this.directRuntime = new RuntimePair(directClient, directMediaDownloader);
+        this.inheritRuntime = new DouyinDownloadTask.Runtime(inheritClient, inheritMediaDownloader);
+        this.proxyRuntime = new DouyinDownloadTask.Runtime(proxyClient, proxyMediaDownloader);
+        this.customRuntime = new DouyinDownloadTask.Runtime(customClient, customMediaDownloader);
+        this.directRuntime = new DouyinDownloadTask.Runtime(directClient, directMediaDownloader);
         this.interactiveDownloadExecutionLane = interactiveDownloadExecutionLane;
         this.settingsService = settingsService;
         this.historyService = historyService;
@@ -143,14 +140,15 @@ public class DouyinDownloadService {
             String cookie = request == null ? null : request.cookie();
             DouyinCookieValidator.ensureUsable(cookie);
             DouyinRuntimeSettings runtimeSettings = settingsService.runtimeSettings();
-            RuntimePair runtime = runtimeFor(runtimeSettings.proxyMode());
+            DouyinDownloadTask.Runtime runtime = runtimeFor(runtimeSettings.proxyMode());
             DouyinCanonicalDownload canonical = runtime.client().resolveDownload(input, cookie);
-            TaskIdentity identity = new TaskIdentity(ownerScope, canonical.stableKey());
-            List<SourceContext> sourceContexts = sourceContexts(request, canonical, input);
-            MutableStatus status;
+            DouyinDownloadTask.Identity identity = new DouyinDownloadTask.Identity(ownerScope, canonical.stableKey());
+            List<DouyinDownloadTask.SourceContext> sourceContexts =
+                    DouyinDownloadTask.sourceContexts(request, canonical, input);
+            DouyinDownloadTask status;
             synchronized (runningLock) {
                 String runningStatusId = runningStatusIds.get(identity);
-                MutableStatus running = runningStatusId == null ? null : statuses.get(runningStatusId);
+                DouyinDownloadTask running = runningStatusId == null ? null : statuses.get(runningStatusId);
                 if (running != null && task.isCancellationRequested()) {
                     throw new QueueNotAcceptingException(QUEUE_TYPE);
                 }
@@ -161,8 +159,9 @@ public class DouyinDownloadService {
                     runningStatusIds.remove(identity, runningStatusId);
                 }
                 String statusId = UUID.randomUUID().toString();
-                status = new MutableStatus(statusId, identity, canonical.kind(), canonical.stableId());
-                status.title = safeTitle(request == null ? null : request.title(), canonical.stableId());
+                status = new DouyinDownloadTask(statusId, identity, canonical.kind(), canonical.stableId());
+                status.title = DouyinDownloadTask.safeTitle(
+                        request == null ? null : request.title(), canonical.stableId());
                 status.originalInput = input;
                 status.canonicalUrl = canonical.canonicalUrl();
                 status.cookie = cookie;
@@ -206,7 +205,7 @@ public class DouyinDownloadService {
     }
 
     public Optional<DouyinDownloadSnapshot> status(String id, String ownerUuid, boolean admin) {
-        MutableStatus status = statuses.get(id);
+        DouyinDownloadTask status = statuses.get(id);
         return status == null || (!admin && !status.ownedBy(normalizeOwnerScope(ownerUuid)))
                 ? Optional.empty()
                 : Optional.of(status.snapshot());
@@ -214,9 +213,9 @@ public class DouyinDownloadService {
 
     public List<DouyinDownloadSnapshot> active(String ownerUuid, boolean admin) {
         return statuses.values().stream()
-                .filter(MutableStatus::isRunning)
+                .filter(DouyinDownloadTask::isRunning)
                 .filter(status -> admin || status.ownedBy(normalizeOwnerScope(ownerUuid)))
-                .map(MutableStatus::snapshot)
+                .map(DouyinDownloadTask::snapshot)
                 .toList();
     }
 
@@ -503,7 +502,7 @@ public class DouyinDownloadService {
         } catch (Throwable error) {
             failure = error;
         }
-        for (MutableStatus status : List.copyOf(statuses.values())) {
+        for (DouyinDownloadTask status : List.copyOf(statuses.values())) {
             if (!status.ownedBy(ownerScope)) {
                 continue;
             }
@@ -546,7 +545,7 @@ public class DouyinDownloadService {
 
     private void cancelAndClearStatuses() {
         Throwable failure = null;
-        for (MutableStatus status : List.copyOf(statuses.values())) {
+        for (DouyinDownloadTask status : List.copyOf(statuses.values())) {
             try {
                 status.cancel();
             } catch (Throwable error) {
@@ -574,7 +573,7 @@ public class DouyinDownloadService {
                 });
     }
 
-    private void run(MutableStatus status) {
+    private void run(DouyinDownloadTask status) {
         try {
             failIfCancelled(status);
             List<DouyinDownloadedFile> files = status.kind == DouyinCanonicalKind.SINGLE_WORK
@@ -604,7 +603,7 @@ public class DouyinDownloadService {
             status.errorCode = DouyinClientErrorCode.NETWORK_ERROR.name();
             status.messageKey = messageKey(DouyinClientErrorCode.NETWORK_ERROR);
             log.warn("Douyin media download failed: statusId={}", status.id, e);
-        } catch (Cancelled ignored) {
+        } catch (DouyinDownloadTask.Cancelled ignored) {
             status.phase = DouyinDownloadPhase.CANCELLED;
             status.messageKey = "douyin.status.cancelled";
         } catch (RuntimeException e) {
@@ -617,22 +616,23 @@ public class DouyinDownloadService {
         }
     }
 
-    private List<DouyinDownloadedFile> downloadSingleWork(MutableStatus status) throws IOException, DouyinClientException {
+    private List<DouyinDownloadedFile> downloadSingleWork(DouyinDownloadTask status)
+            throws IOException, DouyinClientException {
         status.phase = DouyinDownloadPhase.RESOLVING;
         status.messageKey = "douyin.status.resolving";
         DouyinWork work = status.preResolvedWork == null
                 ? status.runtime.client().resolvePublicWork(status.canonicalUrl, status.cookie)
                 : status.preResolvedWork;
-        status.title = safeTitle(work.title(), status.workId);
+        status.title = DouyinDownloadTask.safeTitle(work.title(), status.workId);
         failIfCancelled(status);
         status.phase = DouyinDownloadPhase.DOWNLOADING;
         status.messageKey = "douyin.status.downloading";
         DouyinWorkDownloadExecutor.Result result = executeWork(status, work, null);
-        status.title = safeTitle(result.work().title(), status.workId);
+        status.title = DouyinDownloadTask.safeTitle(result.work().title(), status.workId);
         return result.files();
     }
 
-    private List<DouyinDownloadedFile> downloadSource(MutableStatus status)
+    private List<DouyinDownloadedFile> downloadSource(DouyinDownloadTask status)
             throws IOException, DouyinClientException {
         status.phase = DouyinDownloadPhase.RESOLVING;
         status.messageKey = "douyin.status.resolving";
@@ -692,7 +692,7 @@ public class DouyinDownloadService {
         return all;
     }
 
-    private DouyinWorkDownloadExecutor.Result executeWork(MutableStatus status,
+    private DouyinWorkDownloadExecutor.Result executeWork(DouyinDownloadTask status,
                                                           DouyinWork work,
                                                           Integer sourceOrder)
             throws IOException, DouyinClientException {
@@ -715,116 +715,23 @@ public class DouyinDownloadService {
         return result;
     }
 
-    private static List<SourceContext> sourceContexts(DouyinDownloadRequest request,
-                                                      DouyinCanonicalDownload canonical,
-                                                      String input) {
-        LinkedHashMap<String, SourceContext> contexts = new LinkedHashMap<>();
-        if (request != null) {
-            for (DouyinSourceRequest relation : request.sourceRelations()) {
-                if (relation != null) {
-                    addSourceContext(contexts, new SourceContext(
-                            relation.sourceType(), relation.sourceId(), relation.sourceTitle(),
-                            relation.sourceUrl(), relation.sourceOrder()));
-                }
-            }
-            if (firstNonBlank(request.sourceType(), request.sourceId(), request.sourceTitle(),
-                    request.sourceUrl()) != null || request.sourceOrder() != null) {
-                addSourceContext(contexts, new SourceContext(
-                        firstNonBlank(request.sourceType(), inferredSourceType(canonical.kind())),
-                        firstNonBlank(request.sourceId(), canonical.stableId()),
-                        firstNonBlank(request.sourceTitle(), request.title()),
-                        firstNonBlank(request.sourceUrl(), canonical.canonicalUrl(), input),
-                        request.sourceOrder()));
-            }
-        }
-        if (contexts.isEmpty()) {
-            addSourceContext(contexts, new SourceContext(
-                    inferredSourceType(canonical.kind()),
-                    canonical.stableId(),
-                    request == null ? null : request.title(),
-                    firstNonBlank(canonical.canonicalUrl(), input),
-                    null));
-        }
-        return List.copyOf(contexts.values());
-    }
-
-    private static void addSourceContext(LinkedHashMap<String, SourceContext> contexts,
-                                         SourceContext candidate) {
-        String sourceType = limitedText(candidate.sourceType(), 80);
-        String sourceId = limitedText(candidate.sourceId(), 512);
-        if (sourceType == null || sourceId == null) {
-            return;
-        }
-        SourceContext normalized = new SourceContext(
-                sourceType,
-                sourceId,
-                limitedText(candidate.sourceTitle(), 500),
-                limitedText(candidate.sourceUrl(), 2_048),
-                candidate.sourceOrder());
-        String key = normalized.identityKey();
-        SourceContext existing = contexts.get(key);
-        if (existing != null) {
-            contexts.put(key, existing.merge(normalized));
-        } else if (contexts.size() < DouyinDownloadRequest.MAX_SOURCE_RELATIONS) {
-            contexts.put(key, normalized);
-        }
-    }
-
-    private static String limitedText(String value, int maxLength) {
-        String normalized = firstNonBlank(value);
-        if (normalized == null) {
-            return null;
-        }
-        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength);
-    }
-
-    private static String inferredSourceType(DouyinCanonicalKind kind) {
-        return switch (kind) {
-            case SINGLE_WORK -> DouyinSourceTypes.SINGLE;
-            case COLLECTION -> DouyinSourceTypes.COLLECTION;
-            case USER_SOURCE -> DouyinSourceTypes.USER;
-            case MUSIC_SOURCE -> DouyinSourceTypes.MUSIC;
-        };
-    }
-
-    private static void failIfCancelled(MutableStatus status) {
-        if (status.cancelled) {
-            throw new Cancelled();
-        }
+    private static void failIfCancelled(DouyinDownloadTask status) {
+        status.failIfCancelled();
     }
 
     private static int positiveLimit(int limit) {
         return limit > 0 ? Math.min(limit, 100) : DEFAULT_PAGE_SIZE;
     }
 
-    private static String safeTitle(String title, String fallbackId) {
-        if (title == null || title.isBlank()) {
-            return fallbackId;
-        }
-        return title.trim();
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
-
     private static String messageKey(DouyinClientErrorCode code) {
         return "douyin.error." + code.name().toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
-    private RuntimePair currentRuntime() {
+    private DouyinDownloadTask.Runtime currentRuntime() {
         return runtimeFor(settingsService.runtimeSettings().proxyMode());
     }
 
-    private RuntimePair runtimeFor(DouyinProxyMode proxyMode) {
+    private DouyinDownloadTask.Runtime runtimeFor(DouyinProxyMode proxyMode) {
         return switch (proxyMode == null ? DouyinProxyMode.INHERIT : proxyMode) {
             case DIRECT -> directRuntime;
             case PROXY -> proxyRuntime;
@@ -833,12 +740,12 @@ public class DouyinDownloadService {
         };
     }
 
-    private void removeStatus(MutableStatus status) {
+    private void removeStatus(DouyinDownloadTask status) {
         statuses.remove(status.id, status);
         runningStatusIds.remove(status.identity, status.id);
     }
 
-    private void cancelTrackedStatus(MutableStatus status) {
+    private void cancelTrackedStatus(DouyinDownloadTask status) {
         status.cancel();
         removeStatus(status);
     }
@@ -886,175 +793,4 @@ public class DouyinDownloadService {
         return ownerUuid == null || ownerUuid.isBlank() ? "admin" : ownerUuid.trim();
     }
 
-    private record TaskIdentity(String ownerScope, String stableKey) {
-    }
-
-    private record RuntimePair(DouyinClient client, DouyinMediaDownloader mediaDownloader) {
-
-        private RuntimePair {
-            if (client == null || mediaDownloader == null) {
-                throw new IllegalArgumentException("Douyin runtime pair must be complete");
-            }
-        }
-    }
-
-    private record SourceContext(String sourceType,
-                                 String sourceId,
-                                 String sourceTitle,
-                                 String sourceUrl,
-                                 Integer sourceOrder) {
-
-        private String identityKey() {
-            return sourceType + '\u0000' + sourceId;
-        }
-
-        private SourceContext merge(SourceContext other) {
-            return new SourceContext(
-                    sourceType,
-                    sourceId,
-                    firstNonBlank(sourceTitle, other.sourceTitle),
-                    firstNonBlank(sourceUrl, other.sourceUrl),
-                    sourceOrder == null ? other.sourceOrder : sourceOrder);
-        }
-    }
-
-    private record RecordedWork(String workId, String pageUrl, Integer sourceOrder) {
-    }
-
-    private static final class MutableStatus {
-        private final String id;
-        private final TaskIdentity identity;
-        private final DouyinCanonicalKind kind;
-        private final String workId;
-        private volatile String originalInput;
-        private volatile String canonicalUrl;
-        private volatile String cookie;
-        private volatile DouyinDownloadPhase phase = DouyinDownloadPhase.QUEUED;
-        private volatile String messageKey = "douyin.status.queued";
-        private volatile String errorCode;
-        private volatile String title;
-        private volatile String fileName;
-        private volatile String collectionId;
-        private volatile String collectionTitle;
-        private volatile RuntimePair runtime;
-        private volatile Path downloadDirectory;
-        private volatile boolean includeCover;
-        private volatile DouyinWork preResolvedWork;
-        private volatile boolean cancelled;
-        private final LinkedHashMap<String, SourceContext> sources = new LinkedHashMap<>();
-        private final LinkedHashMap<String, RecordedWork> recordedWorks = new LinkedHashMap<>();
-
-        private MutableStatus(String id,
-                              TaskIdentity identity,
-                              DouyinCanonicalKind kind,
-                              String workId) {
-            this.id = id;
-            this.identity = identity;
-            this.kind = kind;
-            this.workId = workId;
-        }
-
-        private synchronized void addSources(List<SourceContext> sourceContexts) {
-            for (SourceContext sourceContext : sourceContexts) {
-                addSourceContext(sources, sourceContext);
-            }
-        }
-
-        private synchronized boolean absorbSourcesIfRunning(List<SourceContext> sourceContexts) {
-            if (!isRunning()) {
-                return false;
-            }
-            addSources(sourceContexts);
-            return true;
-        }
-
-        private synchronized List<DouyinSourceRelation> sourceRelations(DouyinWork work,
-                                                                        Integer generatedOrder) {
-            if (work == null) {
-                return List.of();
-            }
-            return sourceRelations(work.id(), work.pageUrl(), generatedOrder);
-        }
-
-        private List<DouyinSourceRelation> sourceRelations(String currentWorkId,
-                                                           String pageUrl,
-                                                           Integer generatedOrder) {
-            long discoveredAt = System.currentTimeMillis();
-            return sources.values().stream()
-                    .map(source -> new DouyinSourceRelation(
-                            currentWorkId,
-                            firstNonBlank(source.sourceType(), DouyinSourceTypes.SINGLE),
-                            firstNonBlank(source.sourceId(), currentWorkId),
-                            firstNonBlank(source.sourceTitle(), collectionTitle),
-                            firstNonBlank(source.sourceUrl(), originalInput, pageUrl),
-                            source.sourceOrder() == null ? generatedOrder : source.sourceOrder(),
-                            discoveredAt))
-                    .toList();
-        }
-
-        private synchronized void registerRecordedWork(DouyinWork work, Integer sourceOrder) {
-            recordedWorks.put(work.id(), new RecordedWork(work.id(), work.pageUrl(), sourceOrder));
-        }
-
-        private synchronized void complete(DouyinHistoryService historyService) {
-            if (cancelled) {
-                throw new Cancelled();
-            }
-            if (historyService != null) {
-                for (RecordedWork work : recordedWorks.values()) {
-                    if (!historyService.recordRelations(work.workId(),
-                            sourceRelations(work.workId(), work.pageUrl(), work.sourceOrder()))) {
-                        throw new IllegalStateException(
-                                "Douyin relations could not be finalized for active work " + work.workId());
-                    }
-                }
-            }
-            if (cancelled) {
-                throw new Cancelled();
-            }
-            phase = DouyinDownloadPhase.COMPLETED;
-            messageKey = "douyin.status.completed";
-        }
-
-        private synchronized void cancel() {
-            cancelled = true;
-            if (phase != DouyinDownloadPhase.COMPLETED && phase != DouyinDownloadPhase.FAILED) {
-                phase = DouyinDownloadPhase.CANCELLED;
-                messageKey = "douyin.status.cancelled";
-            }
-        }
-
-        private boolean ownedBy(String ownerScope) {
-            return identity.ownerScope().equals(ownerScope);
-        }
-
-        private boolean isRunning() {
-            return phase != DouyinDownloadPhase.COMPLETED
-                    && phase != DouyinDownloadPhase.FAILED
-                    && phase != DouyinDownloadPhase.CANCELLED;
-        }
-
-        private boolean isCancelled() {
-            return cancelled;
-        }
-
-        private DouyinDownloadSnapshot snapshot() {
-            return new DouyinDownloadSnapshot(
-                    id,
-                    workId,
-                    phase,
-                    phase == DouyinDownloadPhase.COMPLETED
-                            || phase == DouyinDownloadPhase.FAILED
-                            || phase == DouyinDownloadPhase.CANCELLED,
-                    phase == DouyinDownloadPhase.FAILED,
-                    phase == DouyinDownloadPhase.CANCELLED,
-                    messageKey,
-                    errorCode,
-                    title,
-                    fileName);
-        }
-    }
-
-    private static final class Cancelled extends RuntimeException {
-    }
 }

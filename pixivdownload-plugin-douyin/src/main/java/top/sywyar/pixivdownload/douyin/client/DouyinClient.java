@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.douyin.client;
 
-import top.sywyar.pixivdownload.douyin.model.DouyinListing;
-import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalDownload;
-import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
-import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
-import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
-import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
-import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.listing.DouyinListing;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinCanonicalDownload;
+import top.sywyar.pixivdownload.douyin.model.account.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.account.DouyinAccountSource;
+import top.sywyar.pixivdownload.douyin.model.listing.DouyinCollectionListing;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinParsedInput;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
 
 public interface DouyinClient {

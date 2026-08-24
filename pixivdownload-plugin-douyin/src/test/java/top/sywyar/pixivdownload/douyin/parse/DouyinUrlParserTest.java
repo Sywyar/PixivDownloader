@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.douyin.parse;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinParsedKind;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
