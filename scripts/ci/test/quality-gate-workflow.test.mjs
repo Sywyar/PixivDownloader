@@ -168,7 +168,10 @@ test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五�
         ['workflow_dispatch']);
     const text = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'build-stable-ffmpeg.yml'), 'utf8');
     assert.match(text, /gpg --batch --verify/);
-    assert.match(text, /CONFIG_LIBWEBP_ENCODER 1/);
+    assert.match(text, /if \[\[ "\$ASSET_ID" == "macos-x64" \]\]; then\s+brew install nasm/);
+    assert.match(text, /--pkg-config=pkg-config/);
+    assert.match(text, /tail -n 200 ffbuild\/config\.log/);
+    assert.match(text, /CONFIG_LIBWEBP_ENCODER 1\$' config_components\.h/);
     assert.match(text, /ffmpeg-LGPLv2\.1\.txt/);
     assert.match(text, /libwebp-COPYING\.txt/);
     assert.match(text, /libwebp-PATENTS\.txt/);

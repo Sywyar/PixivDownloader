@@ -148,6 +148,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$ASSET_ID" == "macos-x64" ]]; then
+            brew install nasm
+            exit 0
+          fi
           if [[ "$RUNNER_OS" != "Linux" ]]; then
             exit 0
           fi
@@ -220,13 +224,17 @@ jobs:
               --target-os=mingw32
               --arch=x86_64
               --cross-prefix=x86_64-w64-mingw32-
+              --pkg-config=pkg-config
             )
           fi
           cd "ffmpeg-$version"
-          ./configure "${configure_args[@]}"
+          if ! ./configure "${configure_args[@]}"; then
+            test ! -f ffbuild/config.log || tail -n 200 ffbuild/config.log
+            exit 1
+          fi
           make -j3
           make install
-          grep -Eq '^#define CONFIG_LIBWEBP_ENCODER 1$' config.h
+          grep -Eq '^#define CONFIG_LIBWEBP_ENCODER 1$' config_components.h
 
       - name: Verify and package binaries
         shell: bash
