@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
 import top.sywyar.pixivdownload.download.schedule.credential.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.download.schedule.credential.dto.CookieAuthorizeRequest;
 import top.sywyar.pixivdownload.download.web.LocalizedException;

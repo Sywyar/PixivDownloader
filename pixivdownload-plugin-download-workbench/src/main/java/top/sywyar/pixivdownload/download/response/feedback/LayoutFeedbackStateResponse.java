@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.response;
+package top.sywyar.pixivdownload.download.response.feedback;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackDecision;

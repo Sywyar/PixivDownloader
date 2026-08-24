@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.response;
+package top.sywyar.pixivdownload.download.response.status;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

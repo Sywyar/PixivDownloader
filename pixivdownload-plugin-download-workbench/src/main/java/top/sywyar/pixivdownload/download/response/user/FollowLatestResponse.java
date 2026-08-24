@@ -1,4 +1,6 @@
-package top.sywyar.pixivdownload.download.response;
+package top.sywyar.pixivdownload.download.response.user;
+
+import top.sywyar.pixivdownload.download.response.search.SearchResponse;
 
 import java.util.List;
 

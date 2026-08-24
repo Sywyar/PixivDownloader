@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.response;
+package top.sywyar.pixivdownload.download.response.user;
 
 /**
  * 当前 cookie 主人的 Pixiv userId（从 PHPSESSID 前缀解析）。

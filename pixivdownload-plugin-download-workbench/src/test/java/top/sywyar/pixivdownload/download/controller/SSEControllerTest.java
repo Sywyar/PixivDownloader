@@ -15,8 +15,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
-import top.sywyar.pixivdownload.download.response.DownloadResponse;
-import top.sywyar.pixivdownload.download.response.SseStatusData;
+import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.status.SseStatusData;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
@@ -70,6 +70,7 @@ class SSEControllerTest {
     private ScheduledFuture<?> heartbeatFuture;
 
     private SSEController controller;
+    private AggregatedSseCloseTokenCodec closeTokenCodec;
     private FakePluginStreamRegistrar pluginStreamRegistrar;
     private FakePluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar;
 
@@ -77,8 +78,9 @@ class SSEControllerTest {
     void setUp() {
         pluginStreamRegistrar = new FakePluginStreamRegistrar();
         pluginRuntimeTaskRegistrar = new FakePluginRuntimeTaskRegistrar();
+        closeTokenCodec = new AggregatedSseCloseTokenCodec();
         controller = new SSEController(taskScheduler, requestOwnerIdentityResolver, WorkbenchTestMessages.messages(),
-                pluginStreamRegistrar, pluginRuntimeTaskRegistrar);
+                pluginStreamRegistrar, pluginRuntimeTaskRegistrar, closeTokenCodec);
         lenient().when(requestOwnerIdentityResolver.resolve(any()))
                 .thenReturn(RequestOwnerIdentity.adminScope());
         lenient().when(taskScheduler.scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30))))
@@ -673,12 +675,7 @@ class SSEControllerTest {
     }
 
     private String createAggregatedCloseToken(String connectionId, String ownerUuid, boolean admin) {
-        return ReflectionTestUtils.invokeMethod(controller,
-                "createAggregatedCloseToken",
-                connectionId,
-                ownerUuid,
-                admin,
-                System.currentTimeMillis());
+        return closeTokenCodec.create(connectionId, ownerUuid, admin, System.currentTimeMillis());
     }
 
     private static final class FakePluginRuntimeTaskRegistrar implements PluginRuntimeTaskRegistrar {

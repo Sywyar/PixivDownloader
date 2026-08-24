@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.download.response.SearchResponse;
+import top.sywyar.pixivdownload.download.response.search.SearchResponse;
 
 import java.util.List;
 
@@ -30,7 +30,7 @@ class PixivUserCardsParseTest {
     @DisplayName("插画卡片：按请求 ids 顺序保序，与 Pixiv 返回对象的键序无关")
     void illustPreservesRequestedOrder() {
         JsonNode b = body("{\"222\":{\"id\":\"222\",\"title\":\"b\"},\"111\":{\"id\":\"111\",\"title\":\"a\"}}");
-        List<SearchResponse.SearchItem> items = PixivProxyController.parseUserIllustCards(b, List.of("111", "222"));
+        List<SearchResponse.SearchItem> items = PixivProxyResponseMapper.parseUserIllustCards(b, List.of("111", "222"));
         assertThat(items).extracting(SearchResponse.SearchItem::id).containsExactly("111", "222");
     }
 
@@ -38,7 +38,7 @@ class PixivUserCardsParseTest {
     @DisplayName("插画卡片：跳过 null / 缺失的已删除作品")
     void illustSkipsDeleted() {
         JsonNode b = body("{\"111\":{\"id\":\"111\"},\"222\":null}");
-        List<SearchResponse.SearchItem> items = PixivProxyController.parseUserIllustCards(b, List.of("111", "222", "333"));
+        List<SearchResponse.SearchItem> items = PixivProxyResponseMapper.parseUserIllustCards(b, List.of("111", "222", "333"));
         assertThat(items).extracting(SearchResponse.SearchItem::id).containsExactly("111");
     }
 
@@ -48,7 +48,7 @@ class PixivUserCardsParseTest {
         JsonNode b = body("{\"111\":{\"id\":\"111\",\"title\":\"t\",\"illustType\":1,\"xRestrict\":1,"
                 + "\"aiType\":2,\"url\":\"https://i.pximg.net/x.jpg\",\"pageCount\":5,"
                 + "\"userId\":\"9\",\"userName\":\"u\",\"tags\":[\"a\",\"b\",\"a\"]}}");
-        SearchResponse.SearchItem item = PixivProxyController.parseUserIllustCards(b, List.of("111")).get(0);
+        SearchResponse.SearchItem item = PixivProxyResponseMapper.parseUserIllustCards(b, List.of("111")).get(0);
         assertThat(item.title()).isEqualTo("t");
         assertThat(item.illustType()).isEqualTo(1);
         assertThat(item.xRestrict()).isEqualTo(1);
@@ -63,8 +63,8 @@ class PixivUserCardsParseTest {
     @Test
     @DisplayName("插画卡片：body 或 ids 为 null 时返回空列表，不抛异常")
     void illustHandlesNull() {
-        assertThat(PixivProxyController.parseUserIllustCards(null, List.of("1"))).isEmpty();
-        assertThat(PixivProxyController.parseUserIllustCards(body("{}"), null)).isEmpty();
+        assertThat(PixivProxyResponseMapper.parseUserIllustCards(null, List.of("1"))).isEmpty();
+        assertThat(PixivProxyResponseMapper.parseUserIllustCards(body("{}"), null)).isEmpty();
     }
 
 }

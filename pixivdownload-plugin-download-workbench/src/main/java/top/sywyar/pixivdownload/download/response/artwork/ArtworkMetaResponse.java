@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.response;
+package top.sywyar.pixivdownload.download.response.artwork;
 
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.response;
+package top.sywyar.pixivdownload.download.response.error;
 
 import lombok.Getter;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.response;
+package top.sywyar.pixivdownload.download.response.status;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
