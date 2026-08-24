@@ -29,7 +29,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
@@ -659,7 +659,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         "waiting-queue",
                         20,
                         text("desktop.control-center.card.waiting-queue", "Waiting queue"),
-                        TextToken.raw(Integer.toString(queue.queued())),
+                        DesktopUiText.raw(Integer.toString(queue.queued())),
                         queue.accepting()
                                 ? text("desktop.control-center.card.queue.accepting",
                                 "{0} queued, {1} running",
@@ -688,14 +688,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private static DesktopDashboardCardContribution unavailableCard(
             String cardId,
             int order,
-            TextToken title,
+            DesktopUiText title,
             DesktopUiIcon icon,
             Instant observedAt) {
         return new DesktopDashboardCardContribution(
                 cardId,
                 order,
                 title,
-                TextToken.raw("—"),
+                DesktopUiText.raw("—"),
                 text("desktop.control-center.card.unavailable", "Reliable statistics unavailable"),
                 DesktopUiTone.DEFAULT,
                 icon,
@@ -718,17 +718,17 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 : total > 0 && downloaded >= total
                 ? DesktopRunningTaskContribution.Status.FINALIZING
                 : DesktopRunningTaskContribution.Status.RUNNING;
-        TextToken supportingText = !started
+        DesktopUiText supportingText = !started
                 ? text("desktop.control-center.task.preparing", "Preparing download")
                 : total > 0
                 ? text("desktop.control-center.task.progress", "{0} of {1} images downloaded",
                 Integer.toString(downloaded), Integer.toString(total))
                 : text("desktop.control-center.task.downloading", "Downloading");
         String title = boundedDashboardText(status.getTitle());
-        TextToken titleToken = title.isBlank()
+        DesktopUiText titleToken = title.isBlank()
                 ? text("desktop.control-center.task.artwork", "Artwork {0}",
                 String.valueOf(status.getArtworkId()))
-                : TextToken.raw(title);
+                : DesktopUiText.raw(title);
         return new DesktopRunningTaskContribution(
                 "illust:" + UUID.nameUUIDFromBytes(statusKey.getBytes(StandardCharsets.UTF_8)),
                 0,
@@ -740,8 +740,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 observedAt);
     }
 
-    private static TextToken text(String key, String fallback, String... arguments) {
-        return new TextToken(DASHBOARD_NAMESPACE, key, fallback, List.of(arguments));
+    private static DesktopUiText text(String key, String fallback, String... arguments) {
+        return new DesktopUiText(DASHBOARD_NAMESPACE, key, fallback, List.of(arguments));
     }
 
     private static String boundedDashboardText(String value) {

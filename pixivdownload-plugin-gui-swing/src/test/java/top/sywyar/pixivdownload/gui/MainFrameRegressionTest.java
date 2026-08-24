@@ -2,8 +2,6 @@ package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
-
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
@@ -23,14 +21,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MainFrameRegressionTest {
 
     @Test
-    @DisplayName("固定窗口、对话框尺寸与关闭策略")
+    @DisplayName("固定窗口尺寸与关闭策略")
     void keepsWindowMetricsAndClosePolicy() {
         assertThat(MainFrame.defaultWindowSize()).isEqualTo(new Dimension(960, 720));
         assertThat(MainFrame.minimumWindowSize()).isEqualTo(new Dimension(760, 560));
-        assertThat(MainFrame.dialogSize(new Dimension(480, 320), 0, 0))
-                .isEqualTo(new Dimension(480, 320));
-        assertThat(MainFrame.dialogSize(new Dimension(480, 320), 640, 0))
-                .isEqualTo(new Dimension(640, 320));
         assertThat(MainFrame.closeBehavior(true)).isEqualTo(MainFrame.CloseBehavior.HIDE);
         assertThat(MainFrame.closeBehavior(false)).isEqualTo(MainFrame.CloseBehavior.EXIT);
     }
@@ -110,12 +104,12 @@ class MainFrameRegressionTest {
     }
 
     private static <T extends javax.swing.JComponent> T marked(T component, String id) {
-        component.putClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY, id);
+        component.putClientProperty(MainFrame.STATE_KEY_PROPERTY, id);
         return component;
     }
 
     private static JPasswordField password(JPasswordField component, String id, long stateRevision) {
-        marked(component, id).putClientProperty(SwingDesktopUiNodeRenderer.PASSWORD_STATE_KEY_PROPERTY,
+        marked(component, id).putClientProperty(MainFrame.PASSWORD_STATE_KEY_PROPERTY,
                 id + "@" + stateRevision);
         return component;
     }
@@ -123,7 +117,7 @@ class MainFrameRegressionTest {
     private static <T extends javax.swing.JComponent> T component(JPanel root, String id, Class<T> type) {
         for (java.awt.Component child : root.getComponents()) {
             if (child instanceof javax.swing.JComponent component
-                    && id.equals(component.getClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY))) {
+                    && id.equals(component.getClientProperty(MainFrame.STATE_KEY_PROPERTY))) {
                 return type.cast(component);
             }
         }

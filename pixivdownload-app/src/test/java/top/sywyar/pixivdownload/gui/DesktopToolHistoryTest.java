@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.gui;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolHistoryEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolId;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolOutcome;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -25,8 +28,8 @@ class DesktopToolHistoryTest {
         Path privateLog = tempDir.resolve("private").resolve("credential")
                 .resolve("artworks-backfill_2026-08-21_120000.html");
 
-        history.record(DesktopToolHistory.ToolId.ARTWORKS_BACKFILL,
-                DesktopToolHistory.Outcome.SUCCEEDED, 1L, 12, null, null, privateLog);
+        history.record(ToolId.ARTWORKS_BACKFILL,
+                ToolOutcome.SUCCEEDED, 1L, 12, null, null, privateLog);
 
         String json = Files.readString(tempDir.resolve("tool-history.json"), StandardCharsets.UTF_8);
         assertThat(json).contains("\"toolId\" : \"ARTWORKS_BACKFILL\"",
@@ -34,8 +37,8 @@ class DesktopToolHistoryTest {
                         "\"logFileName\" : \"artworks-backfill_2026-08-21_120000.html\"")
                 .doesNotContain(tempDir.toString(), "private", "credential", "changedCount", "failedCount");
         assertThat(new DesktopToolHistory(tempDir).entries()).singleElement().satisfies(entry -> {
-            assertThat(entry.toolId()).isEqualTo(DesktopToolHistory.ToolId.ARTWORKS_BACKFILL);
-            assertThat(entry.outcome()).isEqualTo(DesktopToolHistory.Outcome.SUCCEEDED);
+            assertThat(entry.toolId()).isEqualTo(ToolId.ARTWORKS_BACKFILL);
+            assertThat(entry.outcome()).isEqualTo(ToolOutcome.SUCCEEDED);
             assertThat(entry.processedCount()).isEqualTo(12);
             assertThat(entry.changedCount()).isNull();
             assertThat(entry.logFileName()).isEqualTo("artworks-backfill_2026-08-21_120000.html");
@@ -68,8 +71,8 @@ class DesktopToolHistoryTest {
                 executor.execute(() -> {
                     try {
                         start.await();
-                        history.record(DesktopToolHistory.ToolId.FOLDER_CHECKER,
-                                DesktopToolHistory.Outcome.SUCCEEDED, processed + 1L,
+                        history.record(ToolId.FOLDER_CHECKER,
+                                ToolOutcome.SUCCEEDED, processed + 1L,
                                 processed, null, null, null);
                     } catch (InterruptedException interrupted) {
                         Thread.currentThread().interrupt();
@@ -85,9 +88,9 @@ class DesktopToolHistoryTest {
         }
 
         Path file = tempDir.resolve("tool-history.json");
-        List<DesktopToolHistory.Entry> reloaded = new DesktopToolHistory(tempDir).entries();
+        List<ToolHistoryEntry> reloaded = new DesktopToolHistory(tempDir).entries();
         assertThat(reloaded).hasSize(DesktopToolHistory.MAX_ENTRIES);
-        assertThat(reloaded).extracting(DesktopToolHistory.Entry::processedCount)
+        assertThat(reloaded).extracting(ToolHistoryEntry::processedCount)
                 .doesNotHaveDuplicates();
         assertThat(Files.size(file)).isLessThanOrEqualTo(DesktopToolHistory.MAX_FILE_BYTES);
     }

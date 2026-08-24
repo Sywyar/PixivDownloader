@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner;
 
@@ -293,7 +293,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
                 && validObservedAt(task.observedAt(), now);
     }
 
-    private static boolean validToken(TextToken token) {
+    private static boolean validToken(DesktopUiText token) {
         if (token == null || token.arguments().size() > MAX_TOKEN_ARGUMENTS) return false;
         if (tooLong(token.namespace()) || tooLong(token.key()) || tooLong(token.fallback())) return false;
         return token.arguments().stream().noneMatch(DesktopControlCenterRegistry::tooLong);

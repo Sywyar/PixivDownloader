@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.guiswing;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import java.util.Objects;
 
-/** 在创建任何 Swing 组件前安装的进程生命周期上下文。 */
+/** Process-lifetime context installed before any Swing component is created. */
 public final class SwingHost {
     private static volatile DesktopUiContext context;
 
@@ -18,14 +19,13 @@ public final class SwingHost {
         return context != null;
     }
 
-    public static void uninstall() {
-        context = null;
-    }
-
     public static DesktopUiContext context() {
         DesktopUiContext value = context;
         if (value == null) throw new IllegalStateException("Swing desktop UI host is not installed");
         return value;
     }
 
+    public static DesktopUiHost host() {
+        return context().host();
+    }
 }

@@ -48,7 +48,8 @@ class MaintenanceTaskPublicationBoundaryTest {
     void hostGuiDoesNotKnowExternalMaintenanceTaskIds() throws IOException {
         Path guiRoot = appRoot();
         List<Path> hostFiles = List.of(
-                guiRoot.resolve("src/main/java/top/sywyar/pixivdownload/gui/AppDesktopUiModel.java"),
+                guiRoot.resolve("src/main/java/top/sywyar/pixivdownload/gui/AppDesktopUiHost.java"),
+                guiRoot.resolve("src/main/java/top/sywyar/pixivdownload/gui/DesktopCoreConfigCatalog.java"),
                 guiRoot.resolve("src/main/resources/i18n/messages.properties"),
                 guiRoot.resolve("src/main/resources/i18n/messages_en.properties"));
 

@@ -139,28 +139,16 @@ import androidx.compose.ui.unit.dp
 import org.jetbrains.skia.Image as SkiaImage
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import javax.swing.JFileChooser
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** 完整稳定桌面节点词汇的 Compose Multiplatform renderer。 */
+/** Compose 插件私有页面节点的 Compose Multiplatform renderer。 */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)
 object ComposeDesktopUiNodeRenderer {
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
-
-    fun supportedKinds(): Set<DesktopUiNode.Kind> =
-        setOf(
-            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.ADAPTIVE_GRID, DesktopUiNode.Kind.PAGED_ROW,
-            DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
-            DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,
-            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT, DesktopUiNode.Kind.ICON,
-            DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
-            DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
-            DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
-            DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK,
-        )
 
     @Composable
     fun Render(

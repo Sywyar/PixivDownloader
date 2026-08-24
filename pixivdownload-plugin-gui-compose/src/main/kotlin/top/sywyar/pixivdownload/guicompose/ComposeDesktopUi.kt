@@ -86,11 +86,14 @@ import cn.longzhengyi.windowsdecoration.windowhelper.windowCloseButton
 import cn.longzhengyi.windowsdecoration.windowhelper.windowDragArea
 import cn.longzhengyi.windowsdecoration.windowhelper.windowMaximizeButton
 import cn.longzhengyi.windowsdecoration.windowhelper.windowMinimizeButton
+import org.slf4j.LoggerFactory
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.DesktopUiSnapshot
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.ComposeDesktopUiModel
+import java.awt.AWTException
 import java.awt.Dimension
 import java.awt.GraphicsEnvironment
 import java.awt.Insets
@@ -119,9 +122,18 @@ import javax.swing.Timer
 import kotlin.concurrent.thread
 
 internal object ComposeDesktopUi {
+    private val log = LoggerFactory.getLogger(ComposeDesktopUi::class.java)
+
     fun launch(context: DesktopUiContext): DesktopUiSession {
-        val trayAtLaunch = context.currentSnapshot().document().tray().isPresent && SystemTray.isSupported()
-        val visible = mutableStateOf(!context.startupLaunch() || !trayAtLaunch)
+        val model = ComposeDesktopUiModel(
+            context.serverPort(),
+            context.rootFolder(),
+            context.configPath(),
+            context.host(),
+            context::currentPluginSnapshots,
+        )
+        val trayExpectedAtLaunch = model.snapshot().document().tray().isPresent && SystemTray.isSupported()
+        val visible = mutableStateOf(windowVisibleForTrayState(context.startupLaunch(), trayExpectedAtLaunch))
         val message = mutableStateOf<UiMessage?>(null)
         val windowRef = AtomicReference<ComposeWindow>()
         val exit = AtomicReference<() -> Unit>()
@@ -132,13 +144,14 @@ internal object ComposeDesktopUi {
             try {
                 application(exitProcessOnExit = false) {
                     exit.set { exitApplication() }
-                    val observed = rememberDesktopDocument(context)
+                    val observed = rememberDesktopDocument(model)
                     val document = observed.document()
                     val messages = remember(context, observed.revision()) { ComposeMessages(context) }
                     val tray = document.tray().orElse(null)
-                    val trayAvailable = tray != null && SystemTray.isSupported()
+                    val traySupported = tray != null && SystemTray.isSupported()
+                    val trayInstalled = remember { mutableStateOf(false) }
                     val trayPopup = remember { mutableStateOf<TrayPopupRequest?>(null) }
-                    if (tray != null && trayAvailable) {
+                    if (tray != null && traySupported) {
                         val trayIcon = remember { TrayIcon(createTrayIcon()).apply { isImageAutoSize = true } }
                         SideEffect { trayIcon.toolTip = messages.resolve(tray.tooltip()) }
                         DisposableEffect(trayIcon) {
@@ -154,9 +167,21 @@ internal object ComposeDesktopUi {
                             }
                             trayIcon.addActionListener(activateListener)
                             trayIcon.addMouseListener(popupListener)
-                            SystemTray.getSystemTray().add(trayIcon)
+                            val systemTray = SystemTray.getSystemTray()
+                            var installed = false
+                            try {
+                                systemTray.add(trayIcon)
+                                installed = true
+                                trayInstalled.value = true
+                            } catch (failure: AWTException) {
+                                visible.value = windowVisibleForTrayState(context.startupLaunch(), false)
+                                log.warn(context.host().message(
+                                    "gui.tray.log.install-failed", failure.message ?: failure.javaClass.simpleName,
+                                ))
+                            }
                             onDispose {
-                                SystemTray.getSystemTray().remove(trayIcon)
+                                if (installed) systemTray.remove(trayIcon)
+                                trayInstalled.value = false
                                 trayIcon.removeActionListener(activateListener)
                                 trayIcon.removeMouseListener(popupListener)
                             }
@@ -175,7 +200,7 @@ internal object ComposeDesktopUi {
                                             activateWindow(visible, windowRef)
 
                                         DesktopUiDocument.TrayItemRole.DISPATCH ->
-                                            context.dispatchEvent(
+                                            model.dispatch(
                                                 observed.revision(), DesktopUiNode.Event(
                                                     DesktopUiNode.EventType.ACTIVATE,
                                                     item.id(),
@@ -191,17 +216,17 @@ internal object ComposeDesktopUi {
                     }
                     val mainWindowState = rememberWindowState(width = 1120.dp, height = 760.dp)
                     val closeMainWindow = {
-                        if (trayAvailable) visible.value = false
+                        if (trayInstalled.value) visible.value = false
                         else context.requestApplicationExit()
                     }
                     Window(
                         onCloseRequest = closeMainWindow,
                         state = mainWindowState,
                         visible = visible.value,
-                        title = context.applicationName(),
+                        title = context.host().applicationName(),
                     ) {
                         val composeWindow = window
-                        val shortcutDispatcher = remember(context) { ComposeShortcutDispatcher(context) }
+                        val shortcutDispatcher = remember(model) { ComposeShortcutDispatcher(model) }
                         DisposableEffect(composeWindow) {
                             windowRef.set(composeWindow)
                             KeyboardFocusManager.getCurrentKeyboardFocusManager()
@@ -217,7 +242,7 @@ internal object ComposeDesktopUi {
                             Column(Modifier.fillMaxSize()) {
                                 if (isWindows()) {
                                     WindowsTitleBar(
-                                        title = context.applicationName(),
+                                        title = context.host().applicationName(),
                                         windowState = mainWindowState,
                                         minimizeLabel = messages.plugin("gui.compose.window.minimize"),
                                         maximizeLabel = messages.plugin("gui.compose.window.maximize"),
@@ -227,7 +252,7 @@ internal object ComposeDesktopUi {
                                     )
                                 }
                                 Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.Transparent) {
-                                    ComposeDesktopRoot(context, observed, messages)
+                                    ComposeDesktopRoot(context, model, observed, messages)
                                     message.value?.let { current ->
                                         AlertDialog(
                                             onDismissRequest = { message.value = null },
@@ -256,7 +281,7 @@ internal object ComposeDesktopUi {
             throw IllegalStateException("Timed out while starting the Compose desktop UI")
         }
         failure.get()?.let { throw unwrap(it) }
-        return Session(visible, message, windowRef, exit, uiThread)
+        return Session(visible, message, windowRef, exit, uiThread, model)
     }
 
     private fun unwrap(problem: Throwable): RuntimeException {
@@ -272,6 +297,7 @@ internal object ComposeDesktopUi {
         private val window: AtomicReference<ComposeWindow>,
         private val exit: AtomicReference<() -> Unit>,
         private val uiThread: Thread,
+        private val model: ComposeDesktopUiModel,
     ) : DesktopUiSession {
         override fun activate() = onUiThread {
             activateWindow(visible, window)
@@ -283,6 +309,7 @@ internal object ComposeDesktopUi {
         }
 
         override fun close() {
+            model.close()
             onUiThreadAndWait { exit.getAndSet(null)?.invoke() }
             if (Thread.currentThread() !== uiThread) {
                 uiThread.join(TimeUnit.SECONDS.toMillis(30))
@@ -301,13 +328,13 @@ internal object ComposeDesktopUi {
 }
 
 @Composable
-private fun rememberDesktopDocument(context: DesktopUiContext): DesktopUiSnapshot {
+private fun rememberDesktopDocument(model: ComposeDesktopUiModel): DesktopUiSnapshot {
     var observed by remember {
-        mutableStateOf(context.currentSnapshot())
+        mutableStateOf(model.snapshot())
     }
-    DisposableEffect(context) {
+    DisposableEffect(model) {
         val timer = Timer(250) {
-            val snapshot = context.currentSnapshot()
+            val snapshot = model.snapshot()
             if (snapshot.revision() != observed.revision()) observed = snapshot
         }
         timer.start()
@@ -439,7 +466,12 @@ internal fun trayPopupOrigin(anchor: Point, popup: Dimension, screen: Rectangle,
     )
 }
 
-private class ComposeShortcutDispatcher(private val context: DesktopUiContext) : KeyEventDispatcher {
+internal fun windowVisibleForTrayState(startupLaunch: Boolean, trayInstalled: Boolean): Boolean =
+    !startupLaunch || !trayInstalled
+
+private class ComposeShortcutDispatcher(
+    private val model: ComposeDesktopUiModel,
+) : KeyEventDispatcher {
     private val indexes = mutableMapOf<String, Int>()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -449,11 +481,11 @@ private class ComposeShortcutDispatcher(private val context: DesktopUiContext) :
             key, event.isAltDown, event.isControlDown, event.isShiftDown, event.isMetaDown,
         )
         var consume = false
-        val snapshot = context.currentSnapshot()
+        val snapshot = model.snapshot()
         snapshot.document().shortcuts().forEach { shortcut ->
             val match = shortcut.advance(indexes[shortcut.id()] ?: 0, pressed)
             if (match.completed()) {
-                context.dispatchEvent(
+                model.dispatch(
                     snapshot.revision(), DesktopUiNode.Event(
                         DesktopUiNode.EventType.ACTIVATE,
                         shortcut.id(),
@@ -496,6 +528,7 @@ private class ComposeShortcutDispatcher(private val context: DesktopUiContext) :
 @Composable
 private fun ComposeDesktopRoot(
     context: DesktopUiContext,
+    model: ComposeDesktopUiModel,
     snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,
 ) {
@@ -540,7 +573,7 @@ private fun ComposeDesktopRoot(
                             ExpandableFab(
                                 menu = menu,
                                 resolve = messages::resolve,
-                                emit = { event -> context.dispatchEvent(snapshot, event) },
+                                emit = { event -> model.dispatch(snapshot, event) },
                             )
                         } else {
                             AnimatedContent(
@@ -559,7 +592,7 @@ private fun ComposeDesktopRoot(
                                         ComposeDesktopUiNodeRenderer.Render(
                                             action,
                                             messages::resolve,
-                                            { event -> context.dispatchEvent(snapshot, event) },
+                                            { event -> model.dispatch(snapshot, event) },
                                             Modifier.padding(16.dp),
                                             documentRevision,
                                         )
@@ -595,7 +628,7 @@ private fun ComposeDesktopRoot(
                         ComposeDesktopUiNodeRenderer.Render(
                             document.pages().first { it.id() == pageId }.content(),
                             messages::resolve,
-                            { event -> context.dispatchEvent(snapshot, event) },
+                            { event -> model.dispatch(snapshot, event) },
                             Modifier.fillMaxSize(),
                             documentRevision,
                         )
@@ -604,7 +637,9 @@ private fun ComposeDesktopRoot(
             }
         }
     }
-    document.dialogs().forEach { dialog -> DocumentDialog(dialog, snapshot, messages, context) }
+    document.dialogs().forEach { dialog ->
+        DocumentDialog(dialog, snapshot, messages, model)
+    }
 }
 
 internal data class ExpandableFabItem(
@@ -788,10 +823,10 @@ private fun DocumentDialog(
     dialog: DesktopUiDocument.Dialog,
     snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,
-    context: DesktopUiContext,
+    model: ComposeDesktopUiModel,
 ) {
     Dialog(onDismissRequest = {
-        if (dialog.dismissible()) context.dispatchEvent(
+        if (dialog.dismissible()) model.dispatch(
             snapshot, DesktopUiNode.Event(
                 DesktopUiNode.EventType.ACTIVATE,
                 dialog.id(),
@@ -807,7 +842,7 @@ private fun DocumentDialog(
                 Text(messages.resolve(dialog.title()), style = MaterialTheme.typography.titleLarge)
                 ComposeDesktopUiNodeRenderer.Render(
                     dialog.content(), messages::resolve,
-                    { event -> context.dispatchEvent(snapshot, event) }, Modifier.fillMaxWidth(),
+                    { event -> model.dispatch(snapshot, event) }, Modifier.fillMaxWidth(),
                     snapshot.revision(),
                 )
             }

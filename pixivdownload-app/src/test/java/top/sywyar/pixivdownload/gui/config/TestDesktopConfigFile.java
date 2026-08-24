@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gui.config;
 
-import top.sywyar.pixivdownload.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import java.io.IOException;
 import java.nio.file.Path;

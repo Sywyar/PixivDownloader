@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.time.Instant;
@@ -57,7 +57,7 @@ public class StatsService implements DesktopDashboardSource {
                 "total-artworks",
                 40,
                 text("overview.artworks", "Total artworks"),
-                TextToken.raw(Long.toString(overview.totalArtworks())),
+                DesktopUiText.raw(Long.toString(overview.totalArtworks())),
                 text("plugin.summary",
                         "Dashboard of download statistics such as artwork and image counts (admin only)."),
                 DesktopUiTone.INFO,
@@ -104,7 +104,7 @@ public class StatsService implements DesktopDashboardSource {
         return Math.min(requested, MAX_TOP);
     }
 
-    private static TextToken text(String key, String fallback) {
-        return new TextToken(DASHBOARD_NAMESPACE, key, fallback, List.of());
+    private static DesktopUiText text(String key, String fallback) {
+        return new DesktopUiText(DASHBOARD_NAMESPACE, key, fallback, List.of());
     }
 }

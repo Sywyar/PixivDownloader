@@ -1,16 +1,17 @@
 package top.sywyar.pixivdownload.gui;
 
+import top.sywyar.pixivdownload.guiswing.SwingHost;
+
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
+import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.net.URI;
 
 /**
  * 系统托盘图标管理器。
@@ -23,28 +24,24 @@ public final class SystemTrayManager {
 
     /** 已安装的托盘图标，供热重载语言时刷新文案。 */
     private static volatile TrayIcon installedTrayIcon;
-    private static volatile MainFrame installedFrame;
-    private static volatile DesktopUiContext installedContext;
 
     private SystemTrayManager() {}
 
     /**
      * 在系统托盘中安装图标和菜单。
      *
-     * @param frame 主窗口（托盘操作会控制其可见性）
-     * @param context 工具包中性的桌面 UI 上下文
+     * @param frame      主窗口（托盘操作会控制其可见性，URL 从此处动态获取）
+     * @param rootFolder 用于"打开下载目录"操作
      * @return 安装是否成功（某些 Linux 桌面环境不支持系统托盘）
      */
-    public static boolean install(MainFrame frame, DesktopUiContext context) {
-        DesktopUiDocument.Tray tray = context.currentSnapshot().document().tray().orElse(null);
-        if (tray == null) return false;
+    public static boolean install(MainFrame frame, String rootFolder) {
         if (!SystemTray.isSupported()) {
-            log.warn(logMessage(context, "gui.tray.log.unsupported"));
+            log.warn(logMessage("gui.tray.log.unsupported"));
             return false;
         }
 
-        Image icon = loadIcon(context);
-        TrayIcon trayIcon = new TrayIcon(icon, frame.resolveText(tray.tooltip()));
+        Image icon = loadIcon();
+        TrayIcon trayIcon = new TrayIcon(icon, message("app.name"));
         trayIcon.setImageAutoSize(true);
 
         // 左键双击 = 显示主窗口
@@ -62,7 +59,7 @@ public final class SystemTrayManager {
             private void maybeShow(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     Point p = MouseInfo.getPointerInfo().getLocation();
-                    showAt(buildPopupMenu(frame, context), p.x, p.y);
+                    showAt(buildPopupMenu(frame, rootFolder, trayIcon), p.x, p.y);
                 }
             }
         });
@@ -70,12 +67,10 @@ public final class SystemTrayManager {
         try {
             SystemTray.getSystemTray().add(trayIcon);
             installedTrayIcon = trayIcon;
-            installedFrame = frame;
-            installedContext = context;
-            log.debug(logMessage(context, "gui.tray.log.installed"));
+            log.debug(logMessage("gui.tray.log.installed"));
             return true;
         } catch (AWTException e) {
-            log.warn(logMessage(context, "gui.tray.log.install-failed", e.getMessage()));
+            log.warn(logMessage("gui.tray.log.install-failed", e.getMessage()));
             return false;
         }
     }
@@ -86,40 +81,46 @@ public final class SystemTrayManager {
      */
     public static void refreshLocale() {
         TrayIcon trayIcon = installedTrayIcon;
-        MainFrame frame = installedFrame;
-        DesktopUiContext context = installedContext;
-        if (trayIcon == null || frame == null || context == null) return;
-        DesktopUiDocument.Tray tray = context.currentSnapshot().document().tray().orElse(null);
-        if (tray == null) {
-            uninstall();
+        if (trayIcon == null) {
             return;
         }
         // 菜单已在每次右键时按当前 locale 重建，这里只需刷新 tooltip 文案。
-        trayIcon.setToolTip(frame.resolveText(tray.tooltip()));
+        trayIcon.setToolTip(message("app.name"));
     }
 
-    private static JPopupMenu buildPopupMenu(MainFrame frame, DesktopUiContext context) {
+    private static JPopupMenu buildPopupMenu(MainFrame frame,
+                                             String rootFolder, TrayIcon trayIcon) {
         JPopupMenu menu = new JPopupMenu();
-        DesktopUiSnapshot snapshot = context.currentSnapshot();
-        long documentRevision = snapshot.revision();
-        DesktopUiDocument.Tray tray = snapshot.document().tray().orElse(null);
-        if (tray == null) return menu;
-        for (DesktopUiDocument.TrayItem descriptor : tray.items()) {
-            if (descriptor.role() == DesktopUiDocument.TrayItemRole.SEPARATOR) {
-                menu.addSeparator();
-                continue;
-            }
-            JMenuItem item = new JMenuItem(frame.resolveText(descriptor.label()));
-            item.addActionListener(event -> {
-                if (descriptor.role() == DesktopUiDocument.TrayItemRole.ACTIVATE_WINDOW) {
-                    showFrame(frame);
-                } else {
-                    context.dispatchEvent(documentRevision, new DesktopUiNode.Event(
-                            DesktopUiNode.EventType.ACTIVATE, descriptor.id(), DesktopUiNode.Value.empty()));
-                }
-            });
+
+        JMenuItem showItem = new JMenuItem(message("gui.tray.menu.show-main-window"));
+        showItem.addActionListener(e -> showFrame(frame));
+        menu.add(showItem);
+
+        menu.addSeparator();
+
+        JMenuItem batchItem = new JMenuItem(message("gui.action.open-batch"));
+        batchItem.addActionListener(e -> openBrowser(frame.getBatchUrl()));
+        menu.add(batchItem);
+
+        for (GuiWebEntrySpec action : frame.getTrayWebActions()) {
+            JMenuItem item = new JMenuItem(action.label());
+            item.addActionListener(e -> openBrowser(frame.getWebUrl(action.href())));
             menu.add(item);
         }
+
+        JMenuItem folderItem = new JMenuItem(message("gui.action.open-download-directory"));
+        folderItem.addActionListener(e -> openFolder(rootFolder));
+        menu.add(folderItem);
+
+        menu.addSeparator();
+
+        JMenuItem exitItem = new JMenuItem(message("gui.action.exit"));
+        exitItem.addActionListener(e -> {
+            SystemTray.getSystemTray().remove(trayIcon);
+            System.exit(0);
+        });
+        menu.add(exitItem);
+
         return menu;
     }
 
@@ -165,21 +166,27 @@ public final class SystemTrayManager {
         frame.showWindow();
     }
 
-    public static void uninstall() {
-        TrayIcon trayIcon = installedTrayIcon;
-        MainFrame frame = installedFrame;
-        installedTrayIcon = null;
-        installedFrame = null;
-        installedContext = null;
-        if (frame != null) frame.setCloseToTray(false);
-        if (trayIcon != null && SystemTray.isSupported()) SystemTray.getSystemTray().remove(trayIcon);
+    private static void openBrowser(String url) {
+        try {
+            Desktop.getDesktop().browse(new URI(url));
+        } catch (Exception e) {
+            log.warn(logMessage("gui.tray.log.open-browser.failed", e.getMessage()));
+        }
+    }
+
+    private static void openFolder(String rootFolder) {
+        try {
+            Desktop.getDesktop().open(new java.io.File(rootFolder));
+        } catch (Exception e) {
+            log.warn(logMessage("gui.tray.log.open-folder.failed", e.getMessage()));
+        }
     }
 
     /**
      * 从 classpath 加载 favicon.ico 作为托盘图标。
      * 使用 MediaTracker 确保图片完全解码后再返回，避免出现空白图标。
      */
-    private static Image loadIcon(DesktopUiContext context) {
+    private static Image loadIcon() {
         try {
             var stream = SystemTrayManager.class.getResourceAsStream("/static/favicon.ico");
             if (stream != null) {
@@ -191,10 +198,10 @@ public final class SystemTrayManager {
                 if (!tracker.isErrorAny()) {
                     return img;
                 }
-                log.warn(logMessage(context, "gui.tray.log.favicon-fallback"));
+                log.warn(logMessage("gui.tray.log.favicon-fallback"));
             }
         } catch (Exception e) {
-            log.warn(logMessage(context, "gui.tray.log.icon-load.failed", e.getMessage()));
+            log.warn(logMessage("gui.tray.log.icon-load.failed", e.getMessage()));
         }
         return createFallbackIcon();
     }
@@ -214,8 +221,11 @@ public final class SystemTrayManager {
         return img;
     }
 
-    private static String logMessage(DesktopUiContext context, String code, Object... args) {
-        return context.resolveText(new DesktopUiNode.TextToken(null, code, code,
-                java.util.Arrays.stream(args).map(String::valueOf).toList()));
+    private static String message(String code, Object... args) {
+        return GuiMessages.get(code, args);
+    }
+
+    private static String logMessage(String code, Object... args) {
+        return SwingHost.host().message(code, args);
     }
 }

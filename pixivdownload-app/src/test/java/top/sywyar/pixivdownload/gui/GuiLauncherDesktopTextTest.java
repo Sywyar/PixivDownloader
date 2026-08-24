@@ -4,7 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
@@ -68,6 +68,15 @@ class GuiLauncherDesktopTextTest {
         assertThat(resolve(registry, "value", "fallback")).isEqualTo("繁體");
     }
 
+    @Test
+    void keepsLiteralNamedPlaceholderExamplesWhenNoArgumentsWereSupplied() throws Exception {
+        WebI18nBundleRegistry registry = registry(Map.of(
+                "fixture.properties", "literal=JSON {title} and {voice_id}\n"));
+
+        assertThat(resolve(registry, "literal", "fallback"))
+                .isEqualTo("JSON {title} and {voice_id}");
+    }
+
     private WebI18nBundleRegistry registry(Map<String, String> resources) throws Exception {
         Path directory = tempDir.resolve("i18n/web");
         Files.createDirectories(directory);
@@ -85,7 +94,7 @@ class GuiLauncherDesktopTextTest {
 
     private static String resolve(WebI18nBundleRegistry registry, String key,
                                   String fallback, String... arguments) {
-        return GuiLauncher.resolveDesktopText(new DesktopUiNode.TextToken(
+        return GuiLauncher.resolveDesktopText(new DesktopUiText(
                 "fixture", key, fallback, List.of(arguments)), () -> registry);
     }
 }

@@ -1,16 +1,11 @@
 package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,7 +15,6 @@ class DesktopUiSelectorTest {
     void explicitProviderWinsOverDefault() {
         Provider swing = new Provider("gui-swing", true);
         Provider compose = new Provider("gui-compose", false);
-        assertThat(swing.experienceProfile()).isEqualTo(DesktopUiExperienceProfile.CLASSIC);
         assertThat(DesktopUiSelector.select("gui-compose", List.of(swing, compose)).provider()).isSameAs(compose);
     }
 
@@ -40,12 +34,6 @@ class DesktopUiSelectorTest {
     }
 
     private record Provider(String id, boolean defaultProvider) implements DesktopUiProvider {
-        @Override public Set<DesktopUiNode.Kind> supportedNodeKinds() {
-            return EnumSet.allOf(DesktopUiNode.Kind.class);
-        }
-        @Override public Set<DesktopUiCapability> supportedCapabilities() {
-            return EnumSet.allOf(DesktopUiCapability.class);
-        }
         @Override public DesktopUiSession launch(DesktopUiContext context) { throw new UnsupportedOperationException(); }
     }
 }

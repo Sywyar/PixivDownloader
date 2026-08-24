@@ -29,7 +29,7 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 

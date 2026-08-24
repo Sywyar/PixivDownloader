@@ -2,110 +2,126 @@ package top.sywyar.pixivdownload.plugin.api.gui;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 
+import java.lang.reflect.Proxy;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DisplayName("桌面渲染上下文能力协商")
+@DisplayName("桌面业务上下文")
 class DesktopUiContextTest {
 
     @Test
-    @DisplayName("每次读取新文档版本都会重新校验提供者能力")
-    void validatesProviderCapabilitiesForEveryDocumentRead() {
-        MutableModel model = new MutableModel(document(text("initial")));
-        DesktopUiContext context = context(model, Set.of(DesktopUiNode.Kind.TEXT), Set.of());
+    @DisplayName("启动与当前插件快照均不泄漏可变集合")
+    void copiesPluginSnapshots() {
+        DesktopUiPluginSnapshot plugin = plugin("fixture");
+        List<DesktopUiPluginSnapshot> startup = new ArrayList<>(List.of(plugin));
+        List<DesktopUiPluginSnapshot> current = new ArrayList<>(List.of(plugin));
+        DesktopUiContext context = context(stubHost(new AtomicBoolean()), startup, () -> current, () -> "system");
 
-        assertThat(context.currentSnapshot()).isSameAs(model.snapshot);
+        startup.clear();
+        List<DesktopUiPluginSnapshot> observed = context.currentPluginSnapshots();
+        current.clear();
 
-        model.publish(document(new DesktopUiNode.Split(
-                "split", DesktopUiNode.Axis.HORIZONTAL, .5, text("first"), text("second"))));
-
-        assertThatThrownBy(context::currentSnapshot)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("test-provider")
-                .hasMessageContaining("SPLIT")
-                .hasMessageContaining("SPLIT_USER_RESIZABLE");
+        assertThat(context.startupPluginSnapshots()).containsExactly(plugin);
+        assertThat(observed).containsExactly(plugin);
+        assertThatThrownBy(observed::clear).isInstanceOf(UnsupportedOperationException.class);
+        assertThat(context.currentPluginSnapshots()).isEmpty();
     }
 
     @Test
-    @DisplayName("每次观察只读取一个原子快照")
-    void readsOneAtomicSnapshotPerObservation() {
-        MutableModel model = new MutableModel(document(text("initial")));
-        DesktopUiContext context = context(model, Set.of(DesktopUiNode.Kind.TEXT), Set.of());
-        model.reads = 0;
+    @DisplayName("主题偏好规范化且退出请求委托宿主")
+    void normalizesThemeAndDelegatesExit() {
+        AtomicBoolean exitRequested = new AtomicBoolean();
+        DesktopUiContext context = context(
+                stubHost(exitRequested),
+                List.of(),
+                List::of,
+                () -> "  DARK  "
+        );
 
-        DesktopUiSnapshot observed = context.currentSnapshot();
+        context.requestApplicationExit();
 
-        assertThat(model.reads).isOne();
-        assertThat(observed.document()).isSameAs(model.snapshot.document());
-        assertThat(observed.revision()).isEqualTo(model.snapshot.revision());
+        assertThat(context.themePreference()).isEqualTo("dark");
+        assertThat(context.resolveText(DesktopUiText.key("desktop.test"))).isEqualTo("desktop.test");
+        assertThat(exitRequested).isTrue();
     }
 
     @Test
-    @DisplayName("值事件同时携带观察到的文档与交互修订号")
-    void stampsValueEventWithSnapshotRevisions() {
-        MutableModel model = new MutableModel(document(text("initial")));
-        model.snapshot = new DesktopUiSnapshot(4L, model.snapshot.document(), Map.of("input", 9L));
-        DesktopUiContext context = context(model, Set.of(DesktopUiNode.Kind.TEXT), Set.of());
-
-        context.dispatchEvent(model.snapshot, new DesktopUiNode.Event(
-                DesktopUiNode.EventType.CHANGE, "input", DesktopUiNode.Value.text("value")));
-
-        assertThat(model.dispatched.documentRevision()).isEqualTo(4L);
-        assertThat(model.dispatched.interactionRevision()).isEqualTo(9L);
+    @DisplayName("端口越界与空的当前快照都会失败关闭")
+    void rejectsInvalidBusinessContext() {
+        DesktopUiHost host = stubHost(new AtomicBoolean());
+        assertThatThrownBy(() -> new DesktopUiContext(
+                false,
+                0,
+                ".",
+                Path.of("config.yaml"),
+                host,
+                List.of(),
+                List::of,
+                DesktopUiText::fallback,
+                () -> "system"
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> context(host, List.of(), () -> null, () -> "system"))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("currentPlugins returned null");
     }
 
-    @Test
-    @DisplayName("初始文档缺少语义能力时立即拒绝启动")
-    void rejectsUnsupportedInitialDocument() {
-        MutableModel model = new MutableModel(document(new DesktopUiNode.Split(
-                "split", DesktopUiNode.Axis.HORIZONTAL, .5, text("first"), text("second"))));
-
-        assertThatThrownBy(() -> context(model,
-                Set.of(DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT), Set.of()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("SPLIT_USER_RESIZABLE");
+    private static DesktopUiContext context(
+            DesktopUiHost host,
+            List<DesktopUiPluginSnapshot> startup,
+            java.util.function.Supplier<List<DesktopUiPluginSnapshot>> current,
+            java.util.function.Supplier<String> theme
+    ) {
+        return new DesktopUiContext(
+                false,
+                6999,
+                ".",
+                Path.of("config.yaml"),
+                host,
+                startup,
+                current,
+                text -> text.key().isBlank() ? text.fallback() : text.key(),
+                theme
+        );
     }
 
-    private static DesktopUiContext context(MutableModel model, Set<DesktopUiNode.Kind> kinds,
-                                            Set<DesktopUiCapability> capabilities) {
-        return new DesktopUiContext(false, "Test", model, DesktopUiNode.TextToken::fallback,
-                () -> { }, () -> "system", "test-provider", kinds, capabilities);
+    private static DesktopUiPluginSnapshot plugin(String id) {
+        return new DesktopUiPluginSnapshot(
+                id,
+                false,
+                id,
+                1L,
+                false,
+                null,
+                "",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
     }
 
-    private static DesktopUiDocument document(DesktopUiNode content) {
-        return new DesktopUiDocument(List.of(new DesktopUiDocument.Page(
-                "page", DesktopUiNode.TextToken.raw("Page"), content)));
-    }
-
-    private static DesktopUiNode.Text text(String id) {
-        return new DesktopUiNode.Text(id, DesktopUiNode.TextToken.raw(id),
-                DesktopUiNode.TextStyle.BODY, true, false);
-    }
-
-    private static final class MutableModel implements DesktopUiModel {
-        private DesktopUiSnapshot snapshot;
-        private int reads;
-        private DesktopUiNode.Event dispatched;
-
-        private MutableModel(DesktopUiDocument document) {
-            snapshot = new DesktopUiSnapshot(0L, document, Map.of());
-        }
-
-        private void publish(DesktopUiDocument document) {
-            snapshot = new DesktopUiSnapshot(snapshot.revision() + 1L, document, Map.of());
-        }
-
-        @Override public DesktopUiSnapshot snapshot() {
-            reads++;
-            return snapshot;
-        }
-        @Override public void dispatch(DesktopUiNode.Event event) { dispatched = event; }
+    private static DesktopUiHost stubHost(AtomicBoolean exitRequested) {
+        return (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(),
+                new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("requestApplicationExit")) {
+                        exitRequested.set(true);
+                        return null;
+                    }
+                    Class<?> type = method.getReturnType();
+                    if (!type.isPrimitive()) return null;
+                    if (type == boolean.class) return false;
+                    if (type == char.class) return '\0';
+                    return 0;
+                }
+        );
     }
 }

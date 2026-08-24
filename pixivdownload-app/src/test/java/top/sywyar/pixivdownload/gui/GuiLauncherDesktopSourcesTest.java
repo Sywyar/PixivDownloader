@@ -10,8 +10,6 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -43,14 +41,19 @@ class GuiLauncherDesktopSourcesTest {
     }
 
     @Test
-    void documentSnapshotRetainsOnlyPluginGenerationValues() throws Exception {
-        Field field = AppDesktopUiModel.class.getDeclaredField("documentSourceFingerprints");
+    void providerSnapshotRetainsOnlyMaterializedPluginValues() {
+        PixivFeaturePlugin plugin = new TestPlugin();
+        ClassLoader classLoader = new ClassLoader(getClass().getClassLoader()) { };
 
-        assertThat(field.getGenericType().getTypeName())
-                .contains("DesktopUiPluginSource$Fingerprint")
-                .doesNotContain("PixivFeaturePlugin", "ClassLoader");
-        assertThat(Arrays.stream(AppDesktopUiModel.class.getDeclaredFields()).map(Field::getName))
-                .doesNotContain("documentSources");
+        var snapshot = GuiLauncher.buildDesktopUiPluginSnapshots(List.of(new DesktopUiPluginSource(
+                plugin.id(), false, plugin, classLoader, "fixture-package", 7L))).get(0);
+
+        assertThat(snapshot.id()).isEqualTo("fixture");
+        assertThat(snapshot.packageId()).isEqualTo("fixture-package");
+        assertThat(snapshot.generation()).isEqualTo(7L);
+        assertThat(snapshot.getClass().getDeclaredFields())
+                .extracting(field -> field.getType().getName())
+                .noneMatch(name -> name.contains("PixivFeaturePlugin") || name.contains("ClassLoader"));
     }
 
     @Test

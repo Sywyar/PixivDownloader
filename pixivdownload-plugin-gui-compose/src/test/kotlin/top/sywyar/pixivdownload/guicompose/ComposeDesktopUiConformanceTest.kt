@@ -17,11 +17,10 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiModel
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.DesktopUiModel
+import top.sywyar.pixivdownload.guicompose.model.DesktopUiSnapshot
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -55,14 +54,13 @@ class ComposeDesktopUiConformanceTest {
             ),
         )
         val model = TestModel(node)
-        val context = context(model)
-        val observed = context.currentSnapshot()
+        val observed = model.snapshot()
         setContent {
             MaterialTheme {
                 ComposeDesktopUiNodeRenderer.Render(
                     node,
                     { it.fallback() },
-                    { context.dispatchEvent(observed, it) },
+                    { model.dispatch(stamp(observed, it)) },
                 )
             }
         }
@@ -74,8 +72,8 @@ class ComposeDesktopUiConformanceTest {
     }
 
     @Test
-    @DisplayName("真实 Compose runtime 驱动共享场景且不重读最新修订号")
-    fun drivesSharedScenariosOnComposeRuntime() {
+    @DisplayName("真实 Compose runtime 驱动私有交互场景且不重读最新修订号")
+    fun drivesPrivateScenariosOnComposeRuntime() {
         scenarios().forEach { scenario ->
             if (scenario.id == "password-generation") runPasswordScenario(scenario)
             else runScenario(scenario)
@@ -85,9 +83,8 @@ class ComposeDesktopUiConformanceTest {
     private fun runScenario(scenario: Scenario) = runComposeUiTest {
         val node = node(scenario.id, 1)
         val model = TestModel(node)
-        val context = context(model)
-        val observed = context.currentSnapshot()
-        val dispatch: (DesktopUiNode.Event) -> Unit = { context.dispatchEvent(observed, it) }
+        val observed = model.snapshot()
+        val dispatch: (DesktopUiNode.Event) -> Unit = { model.dispatch(stamp(observed, it)) }
         setContent {
             MaterialTheme {
                 ComposeDesktopUiNodeRenderer.Render(
@@ -141,8 +138,7 @@ class ComposeDesktopUiConformanceTest {
     private fun runPasswordScenario(scenario: Scenario) = runComposeUiTest {
         val firstNode = node(scenario.id, 1)
         val model = TestModel(firstNode)
-        val context = context(model)
-        val observed = context.currentSnapshot()
+        val observed = model.snapshot()
         var renderedNode by mutableStateOf(firstNode)
         var documentRevision by mutableStateOf(observed.revision())
         setContent {
@@ -150,7 +146,7 @@ class ComposeDesktopUiConformanceTest {
                 ComposeDesktopUiNodeRenderer.Render(
                     renderedNode,
                     { it.fallback() },
-                    { context.dispatchEvent(observed, it) },
+                    { model.dispatch(stamp(observed, it)) },
                     documentRevision = documentRevision,
                 )
             }
@@ -173,21 +169,6 @@ class ComposeDesktopUiConformanceTest {
 
         waitForIdle()
         assertEquals(scenario.expected, model.acceptedValues(), scenario.id)
-    }
-
-    private fun context(model: TestModel): DesktopUiContext {
-        val provider = GuiComposePlugin()
-        return DesktopUiContext(
-            false,
-            "Conformance",
-            model,
-            { it.fallback() },
-            {},
-            { "system" },
-            provider.id(),
-            provider.supportedNodeKinds(),
-            provider.supportedCapabilities(),
-        )
     }
 
     private fun stamp(

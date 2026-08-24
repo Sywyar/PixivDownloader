@@ -8,8 +8,8 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.DesktopControlCenterCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityDrain;
@@ -44,7 +44,7 @@ class DesktopControlCenterCapabilityAdapterTest {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.registerBean(DesktopDashboardSource.class, () -> () -> new DesktopDashboardSnapshot(
                 List.of(new DesktopDashboardCardContribution(
-                        "works", 0, TextToken.raw("Works"), TextToken.raw("42"), TextToken.raw("Total"),
+                        "works", 0, DesktopUiText.raw("Works"), DesktopUiText.raw("42"), DesktopUiText.raw("Total"),
                         DesktopUiTone.SUCCESS, DesktopUiIcon.STATISTICS,
                         DesktopControlCenterAvailability.AVAILABLE, now)),
                 List.of(), now));

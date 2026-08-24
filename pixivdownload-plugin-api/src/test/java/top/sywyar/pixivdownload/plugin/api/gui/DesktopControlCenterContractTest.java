@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin.api.gui;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -26,7 +25,7 @@ class DesktopControlCenterContractTest {
 
         List<Instant> nextRuns = new ArrayList<>(List.of(NOW.plusSeconds(60)));
         DesktopAutomationTaskContribution task = new DesktopAutomationTaskContribution(
-                "schedule", 0, TextToken.raw("Schedule"), TextToken.raw("Hourly"),
+                "schedule", 0, DesktopUiText.raw("Schedule"), DesktopUiText.raw("Hourly"),
                 DesktopAutomationTaskContribution.Status.IDLE,
                 DesktopAutomationTaskContribution.LastResult.NEVER, nextRuns, NOW);
         nextRuns.clear();
@@ -55,14 +54,14 @@ class DesktopControlCenterContractTest {
 
     private static DesktopDashboardCardContribution card(String id) {
         return new DesktopDashboardCardContribution(
-                id, 0, TextToken.raw("Title"), TextToken.raw("1"), TextToken.raw("Detail"),
+                id, 0, DesktopUiText.raw("Title"), DesktopUiText.raw("1"), DesktopUiText.raw("Detail"),
                 DesktopUiTone.DEFAULT, DesktopUiIcon.INFO,
                 DesktopControlCenterAvailability.AVAILABLE, NOW);
     }
 
     private static DesktopRunningTaskContribution runningTask(Double progress) {
         return new DesktopRunningTaskContribution(
-                "running", 0, TextToken.raw("Running"), TextToken.raw("Detail"),
+                "running", 0, DesktopUiText.raw("Running"), DesktopUiText.raw("Detail"),
                 DesktopRunningTaskContribution.Status.RUNNING, progress,
                 DesktopControlCenterAvailability.AVAILABLE, NOW);
     }

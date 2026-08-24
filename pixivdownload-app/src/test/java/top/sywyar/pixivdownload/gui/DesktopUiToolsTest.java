@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,9 +32,9 @@ class DesktopUiToolsTest {
         }
 
         DesktopUiTools tools = new DesktopUiTools();
-        DesktopUiHost.FolderCheckResult before = tools.checkArtworkFolders(database);
+        DesktopUiToolHost.FolderCheckResult before = tools.checkArtworkFolders(database);
         assertThat(before.total()).isEqualTo(3);
-        assertThat(before.inaccessible()).extracting(DesktopUiHost.FolderArtwork::artworkId).containsExactly(2L);
+        assertThat(before.inaccessible()).extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(2L);
 
         tools.updateArtworkFolder(database, 2, false, existing.toString());
         assertThat(tools.checkArtworkFolders(database).inaccessible()).isEmpty();
@@ -49,7 +50,7 @@ class DesktopUiToolsTest {
 
         Path destination = tools.classifyImageFolder(
                 source, List.of(image), 123L, target,
-                new DesktopUiHost.ImageClassifierServer(false, "http://localhost:6999"),
+                new DesktopUiToolHost.ImageClassifierServer(false, "http://localhost:6999"),
                 (detail, folder) -> {
                     throw new AssertionError("Deletion should not fail: " + detail);
                 });

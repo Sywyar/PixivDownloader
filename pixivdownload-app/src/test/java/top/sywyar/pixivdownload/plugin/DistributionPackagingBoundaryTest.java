@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
@@ -1031,7 +1030,7 @@ class DistributionPackagingBoundaryTest {
                     assertThat(feature).isInstanceOf(DesktopUiProvider.class);
                     DesktopUiProvider provider = (DesktopUiProvider) feature;
                     assertThat(provider.id()).isEqualTo("gui-compose");
-                    assertThat(provider.supportedNodeKinds()).containsExactlyInAnyOrder(DesktopUiNode.Kind.values());
+                    assertThat(provider.defaultProvider()).isFalse();
                     Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
                     Object companion = imageType.getField("Companion").get(null);
                     byte[] pixel = Base64.getDecoder().decode(

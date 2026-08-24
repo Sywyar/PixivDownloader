@@ -1,363 +1,441 @@
 package top.sywyar.pixivdownload.gui;
 
-import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
-import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSnapshot;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiDocument;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
+import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
+import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot;
+import top.sywyar.pixivdownload.gui.panel.AboutPanel;
+import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
+import top.sywyar.pixivdownload.gui.panel.PluginsPanel;
+import top.sywyar.pixivdownload.gui.panel.SecurityPanel;
+import top.sywyar.pixivdownload.gui.panel.StatusPanel;
+import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
+import top.sywyar.pixivdownload.gui.panel.WelcomePanel;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
 
-import javax.swing.JFrame;
-import javax.swing.JComponent;
-import javax.swing.JDialog;
-import javax.swing.JPasswordField;
-import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
-import javax.swing.JTabbedPane;
-import javax.swing.Timer;
-import javax.swing.text.JTextComponent;
-import java.awt.BorderLayout;
-import java.awt.Canvas;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Dimension;
-import java.awt.Frame;
-import java.awt.Image;
-import java.awt.KeyEventDispatcher;
-import java.awt.KeyboardFocusManager;
-import java.awt.MediaTracker;
-import java.awt.Point;
-import java.awt.Toolkit;
+import javax.swing.*;
+import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.awt.event.KeyEvent;
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
+import java.util.function.Supplier;
 
-/** 宿主拥有的声明式桌面文档的通用 Swing renderer。 */
-public final class MainFrame extends JFrame {
+/**
+ * GUI 主窗口（960x720，可调整大小）。
+ * 包含六个标签页：首页（引导未完成时）、状态、配置、工具、安全、关于。引导完成后首页标签页不显示，共五个标签页。
+ * 关闭窗口时缩回系统托盘，不退出进程。
+ */
+public class MainFrame extends JFrame {
+
     private static final Dimension DEFAULT_SIZE = new Dimension(960, 720);
     private static final Dimension MINIMUM_SIZE = new Dimension(760, 560);
+    static final String STATE_KEY_PROPERTY = "pixivdownload.swing.stateKey";
+    static final String PASSWORD_STATE_KEY_PROPERTY = "pixivdownload.swing.passwordStateKey";
+    private volatile boolean trayAvailable;
 
-    enum CloseBehavior { HIDE, EXIT }
+    private final int serverPort;
+    private final String rootFolder;
+    private final Path configPath;
+    private final Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier;
+    private final Supplier<GuiWebEntrySnapshot> guiWebEntrySupplier;
+    private final GuiOnboardingSnapshot guiOnboarding;
+    private final Map<String, String> interfacePreferenceDraft = new LinkedHashMap<>();
 
-    private final DesktopUiContext context;
-    private final Timer documentTimer;
-    private final KeyEventDispatcher shortcutDispatcher = this::dispatchShortcut;
-    private final Map<String, Integer> shortcutIndexes = new HashMap<>();
+    private static final int STATUS_TAB_INDEX = 1;
+
     private JTabbedPane tabs;
-    private Map<String, Integer> pageIndexes = Map.of();
-    private Map<String, DesktopUiDocument.Page> pageDescriptors = Map.of();
-    private final Map<String, JDialog> dialogs = new LinkedHashMap<>();
-    private Map<String, DesktopUiDocument.Dialog> dialogDescriptors = Map.of();
-    private long renderedRevision = Long.MIN_VALUE;
-    private volatile boolean closeToTray;
+    private WelcomePanel welcomePanel;
+    private StatusPanel statusPanel;
+    private ToolsPanel toolsPanel;
+    private ConfigPanel configPanel;
+    private PluginsPanel pluginsPanel;
 
-    public MainFrame(DesktopUiContext context) {
-        super(context.applicationName());
-        this.context = Objects.requireNonNull(context, "context");
-        setSize(defaultWindowSize());
-        setMinimumSize(minimumWindowSize());
-        setLocationRelativeTo(null);
-        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        addWindowListener(new WindowAdapter() {
-            @Override public void windowClosing(WindowEvent event) {
-                if (closeBehavior(closeToTray) == CloseBehavior.HIDE) setVisible(false);
-                else context.requestApplicationExit();
-            }
-        });
-        Image icon = loadAppIcon();
-        if (icon != null) setIconImages(List.of(scaled(icon, 16), scaled(icon, 24), scaled(icon, 32),
-                scaled(icon, 48), scaled(icon, 64)));
-        refreshDocument();
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(shortcutDispatcher);
-        documentTimer = new Timer(250, event -> {
-            if (renderedRevision != context.currentSnapshot().revision()) refreshDocument();
-        });
-        documentTimer.start();
+    public MainFrame(int serverPort, String rootFolder, Path configPath) {
+        this(serverPort, rootFolder, configPath,
+                GuiConfigContributionSnapshot.empty(), GuiWebEntrySnapshot.empty(), GuiOnboardingSnapshot.empty());
     }
 
-    private void refreshDocument() {
-        String selected = selectedPage();
-        Map<String, ComponentState> state = captureState(tabs);
-        DesktopUiSnapshot snapshot = context.currentSnapshot();
-        long targetRevision = snapshot.revision();
-        DesktopUiDocument document = snapshot.document();
-        boolean forceRender = targetRevision != renderedRevision;
-        Function<DesktopUiNode.TextToken, String> textResolver = context::resolveText;
-        SwingDesktopUiNodeRenderer renderer = new SwingDesktopUiNodeRenderer(
-                textResolver, event -> context.dispatchEvent(snapshot, event));
-        Map<String, Integer> nextIndexes = new LinkedHashMap<>();
-        Map<String, DesktopUiDocument.Page> nextDescriptors = new LinkedHashMap<>();
-        for (int index = 0; index < document.pages().size(); index++) {
-            DesktopUiDocument.Page page = document.pages().get(index);
-            nextIndexes.put(page.id(), index);
-            nextDescriptors.put(page.id(), page);
-        }
-        boolean navigationChanged = tabs == null || tabs.getTabCount() != document.pages().size()
-                || nextIndexes.entrySet().stream().anyMatch(entry ->
-                !Objects.equals(pageIndexes.get(entry.getKey()), entry.getValue()));
-        if (navigationChanged) {
-            JTabbedPane nextTabs = new JTabbedPane();
-            for (DesktopUiDocument.Page page : document.pages()) {
-                nextTabs.addTab(textResolver.apply(page.title()), renderer.render(page.content()));
-            }
-            tabs = nextTabs;
-            setContentPane(nextTabs);
-            renderer.withoutEvents(() -> restoreState(nextTabs, state));
-        } else {
-            for (int index = 0; index < document.pages().size(); index++) {
-                DesktopUiDocument.Page page = document.pages().get(index);
-                tabs.setTitleAt(index, textResolver.apply(page.title()));
-                if (forceRender || !page.equals(pageDescriptors.get(page.id()))) {
-                    JComponent replacement = renderer.render(page.content());
-                    tabs.setComponentAt(index, replacement);
-                    renderer.withoutEvents(() -> restoreState(replacement, state));
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     GuiConfigContributionSnapshot guiConfigContributions) {
+        this(serverPort, rootFolder, configPath, guiConfigContributions,
+                GuiWebEntrySnapshot.empty(), GuiOnboardingSnapshot.empty());
+    }
+
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     GuiConfigContributionSnapshot guiConfigContributions,
+                     GuiWebEntrySnapshot guiWebEntries,
+                     GuiOnboardingSnapshot guiOnboarding) {
+        this(serverPort, rootFolder, configPath, fixedConfigSnapshot(guiConfigContributions),
+                fixedWebEntrySnapshot(guiWebEntries), guiOnboarding);
+    }
+
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier,
+                     GuiWebEntrySnapshot guiWebEntries,
+                     GuiOnboardingSnapshot guiOnboarding) {
+        this(serverPort, rootFolder, configPath, guiConfigContributionSupplier,
+                fixedWebEntrySnapshot(guiWebEntries), guiOnboarding);
+    }
+
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier,
+                     Supplier<GuiWebEntrySnapshot> guiWebEntrySupplier,
+                     GuiOnboardingSnapshot guiOnboarding) {
+        super(GuiMessages.get("app.name"));
+        this.serverPort = serverPort;
+        this.rootFolder = rootFolder;
+        this.configPath = configPath;
+        this.guiConfigContributionSupplier = guiConfigContributionSupplier == null
+                ? GuiConfigContributionSnapshot::empty
+                : guiConfigContributionSupplier;
+        this.guiWebEntrySupplier = guiWebEntrySupplier == null
+                ? GuiWebEntrySnapshot::empty
+                : guiWebEntrySupplier;
+        this.guiOnboarding = guiOnboarding == null ? GuiOnboardingSnapshot.empty() : guiOnboarding;
+        setSize(DEFAULT_SIZE);
+        setMinimumSize(MINIMUM_SIZE);
+        setLocationRelativeTo(null);
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                if (closeBehavior(trayAvailable) == CloseBehavior.HIDE) {
+                    setVisible(false);
+                } else {
+                    SwingHost.context().requestApplicationExit();
                 }
             }
+        });
+
+        Image appIcon = loadAppIcon();
+        if (appIcon != null) {
+            setIconImages(List.of(
+                    scaled(appIcon, 16),
+                    scaled(appIcon, 24),
+                    scaled(appIcon, 32),
+                    scaled(appIcon, 48),
+                    scaled(appIcon, 64)
+            ));
         }
-        pageIndexes = Map.copyOf(nextIndexes);
-        pageDescriptors = Map.copyOf(nextDescriptors);
-        setTitle(context.applicationName());
-        if (selected != null && pageIndexes.containsKey(selected)) tabs.setSelectedIndex(pageIndexes.get(selected));
-        syncDialogs(document, renderer, textResolver, forceRender);
-        renderedRevision = targetRevision;
-        String persistedTheme = context.themePreference();
-        if (!persistedTheme.equals(GuiThemeManager.configuredThemeId())) GuiThemeManager.applyThemeId(persistedTheme);
+
+        setContentPane(buildTabs());
+
+        // 彩蛋：任意界面连续按出「上上下下左右左右 BABA」即解锁「配置 → 服务器」下的调试模式复选框。
+        KonamiCodeListener.install(DebugUnlockState::unlock);
+
+        // 引导未完成前每次启动都停留在引导首页（含未完成配置的情况）；
+        // “完成” = 首次安装已完成 且 整套引导已走到最后一页。任一不满足都还要展示引导。
+        // setup 未完成却存在残留的旧标记 → 复位，避免未配置用户被错误地带过引导。
+        // 整套引导已完成时 buildTabs() 不会再添加欢迎 tab，状态页位于第 0 个标签。
+        var onboardingState = SwingHost.host().onboardingState(rootFolder);
+        if (!onboardingState.complete() && !onboardingState.setupComplete()) {
+            SwingHost.host().clearOnboardingState();
+            onboardingState = SwingHost.host().onboardingState(rootFolder);
+        }
+        tabs.setSelectedIndex(0);
+    }
+
+    private JTabbedPane buildTabs() {
+        tabs = new JTabbedPane();
+        // 迁移下载目录同步了 download.root-folder 后，刷新配置页让其立即显示新值。
+        Runnable onConfigChanged = () -> {
+            if (configPanel != null) {
+                configPanel.reloadFromDisk();
+            }
+        };
+        GuiWebEntrySnapshot currentWebEntries = guiWebEntries();
+        statusPanel = new StatusPanel(serverPort, rootFolder, configPath,
+                this::reloadLocale, onConfigChanged, currentWebEntries);
+
+        // 整套引导已走完后不再添加欢迎 tab，避免重复展示并消除针对后端的轮询请求。
+        var onboardingState = SwingHost.host().onboardingState(rootFolder);
+        if (!onboardingState.complete()) {
+            welcomePanel = new WelcomePanel(statusPanel, serverPort, guiOnboarding,
+                    () -> {
+                        showWindow();
+                        if (tabs != null) {
+                            tabs.setSelectedIndex(0);
+                        }
+                    },
+                    () -> { if (tabs != null) tabs.setSelectedIndex(STATUS_TAB_INDEX); });
+            tabs.addTab(GuiMessages.get("gui.tab.welcome"), welcomePanel);
+        } else {
+            welcomePanel = null;
+        }
+
+        toolsPanel = new ToolsPanel(configPath);
+        // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件市场 / 管理页」。
+        configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
+                ConfigFieldRegistry.snapshot(guiConfigContributions()),
+                this::reloadLocale, statusPanel::isUpdateInstalling, interfacePreferenceDraft);
+        pluginsPanel = new PluginsPanel(serverPort, statusPanel::getWebUrl);
+        tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
+        tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);
+        tabs.addTab(GuiMessages.get("gui.tab.plugins"), pluginsPanel);
+        tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
+        tabs.addTab(GuiMessages.get("gui.tab.security"), new SecurityPanel(serverPort));
+        tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
+        return tabs;
+    }
+
+    private JScrollPane scrollableStatusPanel(StatusPanel panel) {
+        JScrollPane scroll = new JScrollPane(panel);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        scroll.getHorizontalScrollBar().setUnitIncrement(16);
+        return scroll;
+    }
+
+    /**
+     * 在 GUI 语言切换后重建所有面板与标签页文案，使新 locale 立即生效，
+     * 无需重启 JVM。同时刷新 JFrame 标题和系统托盘菜单。
+     * 必须在 EDT 上调用。
+     */
+    public void reloadLocale() {
+        int previousTab = tabs == null ? 0 : tabs.getSelectedIndex();
+        Map<String, ComponentState> componentState = captureState(tabs);
+
+        if (welcomePanel != null) {
+            welcomePanel.dispose();
+        }
+        if (statusPanel != null) {
+            statusPanel.dispose();
+        }
+        if (toolsPanel != null) {
+            toolsPanel.dispose();
+        }
+        if (pluginsPanel != null) {
+            pluginsPanel.dispose();
+        }
+
+        setTitle(GuiMessages.get("app.name"));
+        setContentPane(buildTabs());
+        restoreState(tabs, componentState);
+
+        if (previousTab >= 0 && previousTab < tabs.getTabCount()) {
+            tabs.setSelectedIndex(previousTab);
+        }
+
         SystemTrayManager.refreshLocale();
+
         revalidate();
         repaint();
     }
 
-    private void syncDialogs(DesktopUiDocument document, SwingDesktopUiNodeRenderer renderer,
-                             Function<DesktopUiNode.TextToken, String> textResolver,
-                             boolean forceTextRefresh) {
-        Map<String, DesktopUiDocument.Dialog> previous = dialogDescriptors;
-        Map<String, DesktopUiDocument.Dialog> next = new LinkedHashMap<>();
-        for (DesktopUiDocument.Dialog descriptor : document.dialogs()) next.put(descriptor.id(), descriptor);
-        dialogDescriptors = Map.copyOf(next);
-        dialogs.entrySet().removeIf(entry -> {
-            if (next.containsKey(entry.getKey())) return false;
-            entry.getValue().dispose();
-            return true;
-        });
-        for (DesktopUiDocument.Dialog descriptor : document.dialogs()) {
-            JDialog dialog = dialogs.get(descriptor.id());
-            if (dialog != null && !forceTextRefresh && descriptor.equals(previous.get(descriptor.id()))) continue;
-            Map<String, ComponentState> state = captureState(dialog == null ? null : dialog.getContentPane());
-            Point location = dialog != null && dialog.isShowing() ? dialog.getLocation() : null;
-            if (dialog == null) {
-                dialog = createDialog(descriptor.id());
-                dialogs.put(descriptor.id(), dialog);
-            }
-            dialog.setTitle(textResolver.apply(descriptor.title()));
-            dialog.setContentPane(renderer.render(descriptor.content()));
-            dialog.pack();
-            Dimension preferred = dialog.getSize();
-            dialog.setSize(dialogSize(preferred, descriptor.preferredWidth(), descriptor.preferredHeight()));
-            Container dialogContent = dialog.getContentPane();
-            renderer.withoutEvents(() -> restoreState(dialogContent, state));
-            if (location == null) dialog.setLocationRelativeTo(this);
-            else dialog.setLocation(location);
-            dialog.revalidate();
-            dialog.repaint();
-            JDialog rendered = dialog;
-            if (!rendered.isShowing()) javax.swing.SwingUtilities.invokeLater(() -> {
-                if (dialogs.get(descriptor.id()) == rendered) rendered.setVisible(true);
-            });
-        }
+    public String getBatchUrl() {
+        return statusPanel.getBatchUrl();
     }
 
-    private JDialog createDialog(String id) {
-        JDialog dialog = new JDialog(this, java.awt.Dialog.ModalityType.DOCUMENT_MODAL);
-        dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-        dialog.addWindowListener(new WindowAdapter() {
-            @Override public void windowClosing(WindowEvent event) {
-                DesktopUiDocument.Dialog descriptor = dialogDescriptors.get(id);
-                if (descriptor != null && descriptor.dismissible()) context.dispatchEvent(renderedRevision,
-                        new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE, id,
-                                DesktopUiNode.Value.empty()));
-            }
-        });
-        return dialog;
+    public String getWebUrl(String path) {
+        return statusPanel.getWebUrl(path);
     }
 
-    static Map<String, ComponentState> captureState(Component root) {
-        Map<String, ComponentState> state = new LinkedHashMap<>();
-        visit(root, component -> {
-            if (!(component instanceof JComponent value)) return;
-            Object property = stateKey(value);
-            if (!(property instanceof String id)) return;
-            Integer tab = value instanceof JTabbedPane tabs ? tabs.getSelectedIndex() : null;
-            Point scroll = value instanceof JScrollPane pane ? pane.getViewport().getViewPosition() : null;
-            Integer divider = value instanceof JSplitPane split ? split.getDividerLocation() : null;
-            Integer caret = value instanceof JTextComponent text ? text.getCaretPosition() : null;
-            char[] password = null;
-            if (value instanceof JPasswordField field) {
-                char[] read = field.getPassword();
-                try {
-                    password = java.util.Arrays.copyOf(read, read.length);
-                } finally {
-                    java.util.Arrays.fill(read, '\0');
-                }
-            }
-            state.put(id, new ComponentState(tab, scroll, divider, caret, value.isFocusOwner(), password));
-        });
-        return state;
+    public List<GuiWebEntrySpec> getTrayWebActions() {
+        return guiWebEntries().trayActions();
     }
 
-    static void restoreState(Component root, Map<String, ComponentState> state) {
-        try {
-            visit(root, component -> {
-                if (!(component instanceof JComponent value)) return;
-                Object property = stateKey(value);
-                ComponentState saved = property instanceof String id ? state.get(id) : null;
-                if (saved == null) return;
-                if (value instanceof JTabbedPane tabs && saved.tab() != null
-                        && saved.tab() >= 0 && saved.tab() < tabs.getTabCount()) tabs.setSelectedIndex(saved.tab());
-                if (value instanceof JScrollPane pane && saved.scroll() != null) {
-                    javax.swing.SwingUtilities.invokeLater(() -> pane.getViewport().setViewPosition(saved.scroll()));
-                }
-                if (value instanceof JSplitPane split && saved.divider() != null) split.setDividerLocation(saved.divider());
-                if (value instanceof JPasswordField password && saved.password() != null) {
-                    password.setText(new String(saved.password()));
-                }
-                if (value instanceof JTextComponent text && saved.caret() != null) {
-                    text.setCaretPosition(Math.min(saved.caret(), text.getDocument().getLength()));
-                }
-                if (saved.focused()) javax.swing.SwingUtilities.invokeLater(value::requestFocusInWindow);
-            });
-        } finally {
-            state.values().stream().map(ComponentState::password).filter(Objects::nonNull)
-                    .forEach(password -> java.util.Arrays.fill(password, '\0'));
-        }
+    private GuiConfigContributionSnapshot guiConfigContributions() {
+        GuiConfigContributionSnapshot snapshot = guiConfigContributionSupplier.get();
+        return snapshot == null ? GuiConfigContributionSnapshot.empty() : snapshot;
     }
 
-    private static Object stateKey(JComponent component) {
-        if (component instanceof JPasswordField) {
-            return component.getClientProperty(SwingDesktopUiNodeRenderer.PASSWORD_STATE_KEY_PROPERTY);
-        }
-        return component.getClientProperty(SwingDesktopUiNodeRenderer.NODE_ID_PROPERTY);
+    private GuiWebEntrySnapshot guiWebEntries() {
+        GuiWebEntrySnapshot snapshot = guiWebEntrySupplier.get();
+        return snapshot == null ? GuiWebEntrySnapshot.empty() : snapshot;
     }
 
-    private static void visit(Component root, java.util.function.Consumer<Component> consumer) {
-        if (root == null) return;
-        consumer.accept(root);
-        if (root instanceof Container container) {
-            for (Component child : container.getComponents()) visit(child, consumer);
-        }
+    private static Supplier<GuiConfigContributionSnapshot> fixedConfigSnapshot(
+            GuiConfigContributionSnapshot guiConfigContributions) {
+        GuiConfigContributionSnapshot fixed = guiConfigContributions == null
+                ? GuiConfigContributionSnapshot.empty()
+                : guiConfigContributions;
+        return () -> fixed;
     }
 
-    String resolveText(DesktopUiNode.TextToken token) {
-        return context.resolveText(token);
+    private static Supplier<GuiWebEntrySnapshot> fixedWebEntrySnapshot(GuiWebEntrySnapshot guiWebEntries) {
+        GuiWebEntrySnapshot fixed = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
+        return () -> fixed;
     }
-
-    static Dimension defaultWindowSize() { return new Dimension(DEFAULT_SIZE); }
-
-    static Dimension minimumWindowSize() { return new Dimension(MINIMUM_SIZE); }
-
-    static Dimension dialogSize(Dimension preferred, int preferredWidth, int preferredHeight) {
-        Objects.requireNonNull(preferred, "preferred");
-        return new Dimension(preferredWidth > 0 ? preferredWidth : preferred.width,
-                preferredHeight > 0 ? preferredHeight : preferred.height);
-    }
-
-    static CloseBehavior closeBehavior(boolean closeToTray) {
-        return closeToTray ? CloseBehavior.HIDE : CloseBehavior.EXIT;
-    }
-
-    private String selectedPage() {
-        if (tabs == null || tabs.getSelectedIndex() < 0) return null;
-        int selected = tabs.getSelectedIndex();
-        return pageIndexes.entrySet().stream().filter(entry -> entry.getValue() == selected)
-                .map(Map.Entry::getKey).findFirst().orElse(null);
-    }
-
-    /** 仅在 provider 安装可用托盘图标后启用关闭到托盘。 */
-    public void setCloseToTray(boolean closeToTray) { this.closeToTray = closeToTray; }
 
     public void showWindow() {
-        if (!isVisible()) setVisible(true);
+        if (!isVisible()) {
+            setVisible(true);
+        }
+
         int state = getExtendedState();
-        if ((state & Frame.ICONIFIED) != 0) setExtendedState(state & ~Frame.ICONIFIED);
+        if ((state & Frame.ICONIFIED) != 0) {
+            setExtendedState(state & ~Frame.ICONIFIED);
+        }
+
         toFront();
         requestFocus();
     }
 
-    @Override public void dispose() {
-        documentTimer.stop();
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(shortcutDispatcher);
-        dialogs.values().forEach(JDialog::dispose);
-        dialogs.clear();
+    public void setTrayAvailable(boolean available) {
+        trayAvailable = available;
+    }
+
+    static Dimension defaultWindowSize() {
+        return new Dimension(DEFAULT_SIZE);
+    }
+
+    static Dimension minimumWindowSize() {
+        return new Dimension(MINIMUM_SIZE);
+    }
+
+    static CloseBehavior closeBehavior(boolean trayAvailable) {
+        return trayAvailable ? CloseBehavior.HIDE : CloseBehavior.EXIT;
+    }
+
+    static Map<String, ComponentState> captureState(Component root) {
+        Map<String, ComponentState> state = new LinkedHashMap<>();
+        captureState(root, "root", state);
+        return state;
+    }
+
+    private static void captureState(Component component, String path, Map<String, ComponentState> state) {
+        if (component == null) {
+            return;
+        }
+        if (component instanceof JComponent value) {
+            String key = stateKey(value, path);
+            Integer tab = value instanceof JTabbedPane pane ? pane.getSelectedIndex() : null;
+            Point scroll = value instanceof JScrollPane pane ? pane.getViewport().getViewPosition() : null;
+            Integer divider = value instanceof JSplitPane pane ? pane.getDividerLocation() : null;
+            Integer caret = value instanceof javax.swing.text.JTextComponent text ? text.getCaretPosition() : null;
+            char[] password = null;
+            if (value instanceof JPasswordField field) {
+                char[] current = field.getPassword();
+                try {
+                    password = Arrays.copyOf(current, current.length);
+                } finally {
+                    Arrays.fill(current, '\0');
+                }
+            }
+            boolean focused = value.isFocusOwner();
+            if (tab != null || scroll != null || divider != null || caret != null || focused) {
+                state.put(key, new ComponentState(tab, scroll, divider, caret, focused, password));
+            }
+        }
+        if (component instanceof Container container) {
+            Component[] children = container.getComponents();
+            for (int index = 0; index < children.length; index++) {
+                Component child = children[index];
+                captureState(child, path + '/' + index + ':' + child.getClass().getName(), state);
+            }
+        }
+    }
+
+    static void restoreState(Component root, Map<String, ComponentState> state) {
+        Objects.requireNonNull(state, "state");
+        try {
+            restoreState(root, "root", state);
+        } finally {
+            state.values().stream()
+                    .map(ComponentState::password)
+                    .filter(Objects::nonNull)
+                    .forEach(password -> Arrays.fill(password, '\0'));
+        }
+    }
+
+    private static void restoreState(Component component, String path, Map<String, ComponentState> state) {
+        if (component == null) {
+            return;
+        }
+        if (component instanceof JComponent value) {
+            ComponentState saved = state.get(stateKey(value, path));
+            if (saved != null) {
+                if (value instanceof JTabbedPane pane && saved.tab() != null
+                        && saved.tab() >= 0 && saved.tab() < pane.getTabCount()) {
+                    pane.setSelectedIndex(saved.tab());
+                }
+                if (value instanceof JScrollPane pane && saved.scroll() != null) {
+                    SwingUtilities.invokeLater(() -> pane.getViewport().setViewPosition(saved.scroll()));
+                }
+                if (value instanceof JSplitPane pane && saved.divider() != null) {
+                    pane.setDividerLocation(saved.divider());
+                }
+                if (value instanceof JPasswordField field && saved.password() != null) {
+                    field.setText(new String(saved.password()));
+                }
+                if (value instanceof javax.swing.text.JTextComponent text && saved.caret() != null) {
+                    text.setCaretPosition(Math.min(saved.caret(), text.getDocument().getLength()));
+                }
+                if (saved.focused()) {
+                    SwingUtilities.invokeLater(value::requestFocusInWindow);
+                }
+            }
+        }
+        if (component instanceof Container container) {
+            Component[] children = container.getComponents();
+            for (int index = 0; index < children.length; index++) {
+                Component child = children[index];
+                restoreState(child, path + '/' + index + ':' + child.getClass().getName(), state);
+            }
+        }
+    }
+
+    private static String stateKey(JComponent component, String path) {
+        Object explicit = component instanceof JPasswordField
+                ? component.getClientProperty(PASSWORD_STATE_KEY_PROPERTY)
+                : component.getClientProperty(STATE_KEY_PROPERTY);
+        return explicit instanceof String key && !key.isBlank()
+                ? "explicit:" + key
+                : "path:" + path + ':' + component.getClass().getName();
+    }
+
+    record ComponentState(
+            Integer tab,
+            Point scroll,
+            Integer divider,
+            Integer caret,
+            boolean focused,
+            char[] password
+    ) {
+    }
+
+    enum CloseBehavior { HIDE, EXIT }
+
+    @Override
+    public void dispose() {
+        if (welcomePanel != null) {
+            welcomePanel.dispose();
+        }
+        statusPanel.dispose();
+        toolsPanel.dispose();
+        if (pluginsPanel != null) {
+            pluginsPanel.dispose();
+        }
         super.dispose();
     }
 
-    record ComponentState(Integer tab, Point scroll, Integer divider, Integer caret,
-                          boolean focused, char[] password) { }
-
-    private boolean dispatchShortcut(KeyEvent event) {
-        if (event.getID() != KeyEvent.KEY_PRESSED) return false;
-        String key = physicalKey(event.getKeyCode());
-        if (key == null) return false;
-        DesktopUiDocument.KeyStroke pressed = new DesktopUiDocument.KeyStroke(
-                key, event.isAltDown(), event.isControlDown(), event.isShiftDown(), event.isMetaDown());
-        boolean consume = false;
-        DesktopUiSnapshot snapshot = context.currentSnapshot();
-        for (DesktopUiDocument.KeyboardShortcut shortcut : snapshot.document().shortcuts()) {
-            DesktopUiDocument.MatchResult match = shortcut.advance(
-                    shortcutIndexes.getOrDefault(shortcut.id(), 0), pressed);
-            if (match.completed()) {
-                context.dispatchEvent(snapshot.revision(), new DesktopUiNode.Event(
-                        DesktopUiNode.EventType.ACTIVATE, shortcut.id(), DesktopUiNode.Value.empty()));
-                consume |= shortcut.consume();
-            }
-            shortcutIndexes.put(shortcut.id(), match.nextIndex());
-        }
-        return consume;
-    }
-
-    private static String physicalKey(int code) {
-        if (code >= KeyEvent.VK_A && code <= KeyEvent.VK_Z) return "Key" + (char) code;
-        if (code >= KeyEvent.VK_0 && code <= KeyEvent.VK_9) return "Digit" + (char) code;
-        if (code >= KeyEvent.VK_F1 && code <= KeyEvent.VK_F12) return "F" + (code - KeyEvent.VK_F1 + 1);
-        return switch (code) {
-            case KeyEvent.VK_UP -> "ArrowUp";
-            case KeyEvent.VK_DOWN -> "ArrowDown";
-            case KeyEvent.VK_LEFT -> "ArrowLeft";
-            case KeyEvent.VK_RIGHT -> "ArrowRight";
-            case KeyEvent.VK_ENTER -> "Enter";
-            case KeyEvent.VK_ESCAPE -> "Escape";
-            case KeyEvent.VK_SPACE -> "Space";
-            case KeyEvent.VK_TAB -> "Tab";
-            case KeyEvent.VK_BACK_SPACE -> "Backspace";
-            case KeyEvent.VK_DELETE -> "Delete";
-            case KeyEvent.VK_INSERT -> "Insert";
-            case KeyEvent.VK_HOME -> "Home";
-            case KeyEvent.VK_END -> "End";
-            case KeyEvent.VK_PAGE_UP -> "PageUp";
-            case KeyEvent.VK_PAGE_DOWN -> "PageDown";
-            default -> null;
-        };
-    }
-
     private static Image loadAppIcon() {
-        try (var stream = MainFrame.class.getResourceAsStream("/static/favicon.ico")) {
-            if (stream == null) return null;
-            Image image = Toolkit.getDefaultToolkit().createImage(stream.readAllBytes());
-            MediaTracker tracker = new MediaTracker(new Canvas());
-            tracker.addImage(image, 0);
-            tracker.waitForAll();
-            return tracker.isErrorAny() ? null : image;
+        try {
+            var stream = MainFrame.class.getResourceAsStream("/static/favicon.ico");
+            if (stream != null) {
+                byte[] bytes = stream.readAllBytes();
+                Image img = Toolkit.getDefaultToolkit().createImage(bytes);
+                MediaTracker tracker = new MediaTracker(new Canvas());
+                tracker.addImage(img, 0);
+                tracker.waitForAll();
+                if (!tracker.isErrorAny()) {
+                    return img;
+                }
+            }
         } catch (Exception ignored) {
-            return null;
         }
+        return null;
     }
 
-    private static Image scaled(Image source, int size) {
-        return source.getScaledInstance(size, size, Image.SCALE_SMOOTH);
+    private static Image scaled(Image src, int size) {
+        return src.getScaledInstance(size, size, Image.SCALE_SMOOTH);
     }
 }

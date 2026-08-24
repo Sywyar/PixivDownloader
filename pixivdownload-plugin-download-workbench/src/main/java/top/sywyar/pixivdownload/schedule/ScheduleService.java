@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSource;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationTaskContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -149,10 +149,10 @@ public class ScheduleService implements DesktopAutomationSource {
         DesktopAutomationTaskContribution.Status status = automationStatus(task, liveState);
         List<Instant> nextRuns = nextRuns(task, observedAt, horizon, status);
         String taskName = boundedAutomationText(task.name());
-        TextToken title = taskName.isBlank()
+        DesktopUiText title = taskName.isBlank()
                 ? text("desktop.control-center.automation.task", "Scheduled task {0}",
                 Long.toString(task.id()))
-                : TextToken.raw(taskName);
+                : DesktopUiText.raw(taskName);
         return new DesktopAutomationTaskContribution(
                 "schedule:" + task.id(),
                 task.id() > Integer.MAX_VALUE ? Integer.MAX_VALUE : task.id().intValue(),
@@ -218,7 +218,7 @@ public class ScheduleService implements DesktopAutomationSource {
         };
     }
 
-    private static TextToken triggerSummary(ScheduledTask task) {
+    private static DesktopUiText triggerSummary(ScheduledTask task) {
         if (ScheduledTask.TRIGGER_INTERVAL.equals(task.triggerKind())
                 && task.intervalMinutes() != null && task.intervalMinutes() > 0) {
             return text("desktop.control-center.automation.interval", "Every {0} minutes",
@@ -232,8 +232,8 @@ public class ScheduleService implements DesktopAutomationSource {
         return text("desktop.control-center.automation.unknown-trigger", "Unknown trigger");
     }
 
-    private static TextToken text(String key, String fallback, String... arguments) {
-        return new TextToken(AUTOMATION_NAMESPACE, key, fallback, List.of(arguments));
+    private static DesktopUiText text(String key, String fallback, String... arguments) {
+        return new DesktopUiText(AUTOMATION_NAMESPACE, key, fallback, List.of(arguments));
     }
 
     private static String boundedAutomationText(String value) {

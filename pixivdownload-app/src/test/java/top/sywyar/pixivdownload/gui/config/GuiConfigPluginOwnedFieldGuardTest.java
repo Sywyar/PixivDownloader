@@ -41,7 +41,7 @@ class GuiConfigPluginOwnedFieldGuardTest {
     @DisplayName("宿主 GUI 配置核心不硬编码插件 owned 字段或测试端点")
     void hostGuiConfigCoreDoesNotHardcodeNotificationPluginFields() throws IOException {
         List<Path> roots = List.of(
-                appRoot().resolve("src/main/java/top/sywyar/pixivdownload/gui/AppDesktopUiModel.java"));
+                appRoot().resolve("src/main/java/top/sywyar/pixivdownload/gui"));
         List<String> violations = new ArrayList<>();
         for (Path root : roots) {
             if (!Files.exists(root)) {

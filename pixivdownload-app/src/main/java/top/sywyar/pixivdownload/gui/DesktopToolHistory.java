@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolHistoryEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolId;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolOutcome;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +40,7 @@ final class DesktopToolHistory {
     private static final Logger LOG = LoggerFactory.getLogger(DesktopToolHistory.class);
 
     private final Path file;
-    private List<Entry> entries;
+    private List<ToolHistoryEntry> entries;
     private boolean writable = true;
 
     DesktopToolHistory(Path guiStateDirectory) {
@@ -45,11 +48,11 @@ final class DesktopToolHistory {
         entries = load();
     }
 
-    synchronized List<Entry> entries() {
+    synchronized List<ToolHistoryEntry> entries() {
         return List.copyOf(entries);
     }
 
-    synchronized void record(ToolId toolId, Outcome outcome, long startedAtEpochMs,
+    synchronized void record(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,
                              Integer processedCount, Integer changedCount, Integer failedCount,
                              Path logPath) {
         if (!writable) return;
@@ -58,16 +61,16 @@ final class DesktopToolHistory {
             return;
         }
         long finishedAtEpochMs = Math.max(startedAtEpochMs, System.currentTimeMillis());
-        Entry entry;
+        ToolHistoryEntry entry;
         try {
-            entry = new Entry(toolId, startedAtEpochMs, finishedAtEpochMs, outcome,
+            entry = new ToolHistoryEntry(toolId, startedAtEpochMs, finishedAtEpochMs, outcome,
                     checkedCount(processedCount), checkedCount(changedCount), checkedCount(failedCount),
                     safeLogFileName(toolId, logPath));
         } catch (IllegalArgumentException invalid) {
             LOG.warn("拒绝写入无效的桌面工具历史记录：toolId={}, outcome={}", toolId, outcome);
             return;
         }
-        List<Entry> next = new ArrayList<>(Math.min(MAX_ENTRIES, entries.size() + 1));
+        List<ToolHistoryEntry> next = new ArrayList<>(Math.min(MAX_ENTRIES, entries.size() + 1));
         next.add(entry);
         next.addAll(entries.subList(0, Math.min(entries.size(), MAX_ENTRIES - 1)));
         try {
@@ -77,7 +80,7 @@ final class DesktopToolHistory {
         }
     }
 
-    private List<Entry> load() {
+    private List<ToolHistoryEntry> load() {
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
         try {
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
@@ -96,7 +99,7 @@ final class DesktopToolHistory {
             if (!values.isArray() || values.size() > MAX_ENTRIES) {
                 throw new IOException("invalid tool history entries");
             }
-            List<Entry> loaded = new ArrayList<>(values.size());
+            List<ToolHistoryEntry> loaded = new ArrayList<>(values.size());
             for (JsonNode value : values) loaded.add(readEntry(value));
             return List.copyOf(loaded);
         } catch (Exception failure) {
@@ -105,10 +108,10 @@ final class DesktopToolHistory {
         }
     }
 
-    private Entry readEntry(JsonNode value) throws IOException {
+    private ToolHistoryEntry readEntry(JsonNode value) throws IOException {
         requireObjectWithFields(value, ENTRY_FIELDS);
         ToolId toolId = enumValue(ToolId.class, requiredText(value, "toolId"));
-        Outcome outcome = enumValue(Outcome.class, requiredText(value, "outcome"));
+        ToolOutcome outcome = enumValue(ToolOutcome.class, requiredText(value, "outcome"));
         long started = requiredLong(value, "startedAtEpochMs");
         long finished = requiredLong(value, "finishedAtEpochMs");
         if (started < 0 || finished < started) throw new IOException("invalid tool history timestamps");
@@ -119,12 +122,12 @@ final class DesktopToolHistory {
         if (logFileName != null && !validLogFileName(toolId, logFileName)) {
             throw new IOException("invalid tool history log file name");
         }
-        return new Entry(toolId, started, finished, outcome, processed, changed, failed, logFileName);
+        return new ToolHistoryEntry(toolId, started, finished, outcome, processed, changed, failed, logFileName);
     }
 
-    private List<Entry> persist(List<Entry> values) throws IOException {
+    private List<ToolHistoryEntry> persist(List<ToolHistoryEntry> values) throws IOException {
         Files.createDirectories(file.getParent());
-        List<Entry> bounded = new ArrayList<>(values);
+        List<ToolHistoryEntry> bounded = new ArrayList<>(values);
         byte[] bytes = serialize(bounded);
         while (bytes.length > MAX_FILE_BYTES && bounded.size() > 1) {
             bounded.remove(bounded.size() - 1);
@@ -145,9 +148,9 @@ final class DesktopToolHistory {
         return List.copyOf(bounded);
     }
 
-    private static byte[] serialize(List<Entry> entries) throws IOException {
+    private static byte[] serialize(List<ToolHistoryEntry> entries) throws IOException {
         List<Map<String, Object>> values = new ArrayList<>(entries.size());
-        for (Entry entry : entries) {
+        for (ToolHistoryEntry entry : entries) {
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("toolId", entry.toolId().name());
             value.put("startedAtEpochMs", entry.startedAtEpochMs());
@@ -245,9 +248,4 @@ final class DesktopToolHistory {
         }
     }
 
-    enum ToolId { IMAGE_CLASSIFIER, FOLDER_CHECKER, ARTWORKS_BACKFILL, JSON_TO_SQLITE_MIGRATION }
-    enum Outcome { SUCCEEDED, FAILED, CANCELLED, CLOSED }
-
-    record Entry(ToolId toolId, long startedAtEpochMs, long finishedAtEpochMs, Outcome outcome,
-                 Integer processedCount, Integer changedCount, Integer failedCount, String logFileName) {}
 }

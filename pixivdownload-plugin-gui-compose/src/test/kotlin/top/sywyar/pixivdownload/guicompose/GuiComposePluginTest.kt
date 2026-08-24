@@ -3,15 +3,17 @@ package top.sywyar.pixivdownload.guicompose
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.jetbrains.skia.Image
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import java.awt.Dimension
 import java.awt.Insets
 import java.awt.Point
 import java.awt.Rectangle
+import java.lang.reflect.Proxy
+import java.nio.file.Path
 import java.util.Base64
 import java.util.Locale
 import java.util.ResourceBundle
@@ -22,44 +24,20 @@ import kotlin.test.assertTrue
 @DisplayName("Compose Multiplatform GUI 插件")
 class GuiComposePluginTest {
     @Test
-    @DisplayName("作为按需桌面提供者显式声明稳定节点与语义能力")
-    fun exposesOptionalCompleteRenderer() {
+    @DisplayName("作为按需提供者完整拥有 Compose 桌面界面")
+    fun exposesOptionalComposeProvider() {
         val plugin = GuiComposePlugin()
 
         assertEquals("gui-compose", plugin.id())
         assertFalse(plugin.defaultProvider())
-        assertEquals(DesktopUiExperienceProfile.CONTROL_CENTER, plugin.experienceProfile())
-        assertEquals(setOf(
-            DesktopUiNode.Kind.CONTAINER, DesktopUiNode.Kind.ADAPTIVE_GRID, DesktopUiNode.Kind.PAGED_ROW,
-            DesktopUiNode.Kind.DOCK, DesktopUiNode.Kind.SURFACE,
-            DesktopUiNode.Kind.GROUP, DesktopUiNode.Kind.FORM, DesktopUiNode.Kind.TABS,
-            DesktopUiNode.Kind.SCROLL, DesktopUiNode.Kind.SPLIT, DesktopUiNode.Kind.TEXT, DesktopUiNode.Kind.ICON,
-            DesktopUiNode.Kind.IMAGE, DesktopUiNode.Kind.SEPARATOR, DesktopUiNode.Kind.SPACER,
-            DesktopUiNode.Kind.PROGRESS, DesktopUiNode.Kind.TEXT_INPUT, DesktopUiNode.Kind.TOGGLE,
-            DesktopUiNode.Kind.CHOICE, DesktopUiNode.Kind.NUMBER_INPUT, DesktopUiNode.Kind.TABLE,
-            DesktopUiNode.Kind.TREE, DesktopUiNode.Kind.BUTTON, DesktopUiNode.Kind.LINK,
-        ), plugin.supportedNodeKinds())
-        assertEquals(setOf(
-            DesktopUiCapability.SPLIT_USER_RESIZABLE,
-            DesktopUiCapability.TABLE_LARGE_DATA_SCROLL,
-            DesktopUiCapability.INPUT_NUMERIC,
-            DesktopUiCapability.INPUT_PATH_FILE,
-            DesktopUiCapability.INPUT_PATH_DIRECTORY,
-            DesktopUiCapability.SELECTION_MULTIPLE,
-            DesktopUiCapability.TREE_EXPAND_COLLAPSE,
-            DesktopUiCapability.LAYOUT_ADAPTIVE_GRID,
-            DesktopUiCapability.PAGED_ROW_SNAP_NAVIGATION,
-            DesktopUiCapability.SURFACE_ACTIVATION,
-            DesktopUiCapability.IMAGE_CIRCULAR_CLIP,
-        ), plugin.supportedCapabilities())
         assertEquals("Compose Multiplatform GUI",
             ResourceBundle.getBundle("i18n.web.gui-compose", Locale.US).getString("plugin.name"))
     }
 
     @Test
-    @DisplayName("完整声明式节点树通过稳定契约校验")
-    fun validatesEverySupportedNodeKind() {
-        assertEquals(GuiComposePlugin().supportedNodeKinds(), DesktopUiNode.validateTree(completeTree()))
+    @DisplayName("私有页面节点树覆盖每一种 Compose 渲染分派")
+    fun validatesEveryPrivateNodeKind() {
+        assertEquals(DesktopUiNode.Kind.entries.toSet(), DesktopUiNode.validateTree(completeTree()))
     }
 
     @Test
@@ -69,6 +47,22 @@ class GuiComposePluginTest {
             assertEquals(1, image.width)
             assertEquals(1, image.height)
         }
+    }
+
+    @Test
+    @DisplayName("长原始文本留在 Compose 内且不进入宿主文本契约")
+    fun keepsLongRawTextInsideComposeProvider() {
+        val host = Proxy.newProxyInstance(
+            DesktopUiHost::class.java.classLoader,
+            arrayOf(DesktopUiHost::class.java),
+        ) { _, method, _ -> error("unexpected host call: ${method.name}") } as DesktopUiHost
+        val context = DesktopUiContext(
+            false, 6999, ".", Path.of("config.yaml"), host, emptyList(), { emptyList() },
+            { error("raw text must not reach the host resolver") }, { "system" },
+        )
+        val licenseText = "license text\n".repeat(2_000)
+
+        assertEquals(licenseText, ComposeMessages(context).resolve(raw(licenseText)))
     }
 
     @Test
@@ -89,6 +83,14 @@ class GuiComposePluginTest {
                 Insets(0, 0, 40, 0),
             ),
         )
+    }
+
+    @Test
+    @DisplayName("自启动仅在托盘实际安装成功后隐藏主窗口")
+    fun derivesStartupVisibilityFromInstalledTray() {
+        assertFalse(windowVisibleForTrayState(true, true))
+        assertTrue(windowVisibleForTrayState(true, false))
+        assertTrue(windowVisibleForTrayState(false, true))
     }
 
     @Test

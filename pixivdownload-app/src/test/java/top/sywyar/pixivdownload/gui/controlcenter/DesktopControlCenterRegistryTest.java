@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner;
 
 import java.time.Clock;
@@ -81,7 +81,7 @@ class DesktopControlCenterRegistryTest {
         cards.add(card("stale", 1, NOW));
         cards.add(card("future", 2, NOW.plusSeconds(2)));
         cards.add(new DesktopDashboardCardContribution(
-                "too-long", 3, TextToken.raw("x".repeat(513)), TextToken.raw("1"), TextToken.raw("Detail"),
+                "too-long", 3, DesktopUiText.raw("x".repeat(513)), DesktopUiText.raw("1"), DesktopUiText.raw("Detail"),
                 DesktopUiTone.DEFAULT, DesktopUiIcon.INFO,
                 DesktopControlCenterAvailability.AVAILABLE, NOW));
         for (int index = 0; index < 40; index++) {
@@ -197,7 +197,7 @@ class DesktopControlCenterRegistryTest {
 
     private static DesktopDashboardCardContribution card(String id, int order, Instant observedAt) {
         return new DesktopDashboardCardContribution(
-                id, order, TextToken.raw(id), TextToken.raw("1"), TextToken.raw("Detail"),
+                id, order, DesktopUiText.raw(id), DesktopUiText.raw("1"), DesktopUiText.raw("Detail"),
                 DesktopUiTone.DEFAULT, DesktopUiIcon.INFO,
                 DesktopControlCenterAvailability.AVAILABLE, observedAt);
     }
@@ -205,14 +205,14 @@ class DesktopControlCenterRegistryTest {
     private static DesktopRunningTaskContribution task(
             String id, int order, DesktopRunningTaskContribution.Status status, Instant observedAt) {
         return new DesktopRunningTaskContribution(
-                id, order, TextToken.raw(id), TextToken.raw("Detail"), status, null,
+                id, order, DesktopUiText.raw(id), DesktopUiText.raw("Detail"), status, null,
                 DesktopControlCenterAvailability.AVAILABLE, observedAt);
     }
 
     private static DesktopAutomationTaskContribution automationTask(
             String id, int order, List<Instant> nextRuns) {
         return new DesktopAutomationTaskContribution(
-                id, order, TextToken.raw(id), TextToken.raw("Hourly"),
+                id, order, DesktopUiText.raw(id), DesktopUiText.raw("Hourly"),
                 DesktopAutomationTaskContribution.Status.IDLE,
                 DesktopAutomationTaskContribution.LastResult.NEVER, nextRuns, NOW);
     }

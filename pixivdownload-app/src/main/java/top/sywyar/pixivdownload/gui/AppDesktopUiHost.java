@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
@@ -31,6 +32,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final DesktopUiLocalApiClient localApiClient;
     private final ConfigFile applicationConfig;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
+    private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
 
     AppDesktopUiHost(int serverPort) {
         this(serverPort, yamlConfig(RuntimeFiles.resolveConfigYamlPath()));
@@ -52,6 +54,12 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String defaultUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_MANIFEST_URL;}
     @Override public String defaultNightlyUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL;}
     @Override public ConfigFile applicationConfig(){return applicationConfig;}
+    @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution> coreConfigGroups() {
+        return DesktopCoreConfigCatalog.groups();
+    }
+    @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution> coreConfigFields() {
+        return DesktopCoreConfigCatalog.fields(this);
+    }
     @Override public List<RepositoryConfigEntry> readPluginRepositories(ConfigFile configFile) throws IOException {
         return new top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor(configFile).read();
     }
@@ -132,7 +140,11 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String guiToken() { return GuiTokenHolder.get(); }
     @Override public String guiTokenHeader() { return GuiTokenHolder.HEADER_NAME; }
     @Override public Path dataDirectory() { return RuntimeFiles.dataDirectory(); }
-    @Override public Path guiStateDirectory() { return RuntimeFiles.guiStateDirectory(); }
+    @Override public List<ToolHistoryEntry> toolHistory() { return toolHistory.entries(); }
+    @Override public void recordToolHistory(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,
+            Integer processedCount, Integer changedCount, Integer failedCount, Path logPath) {
+        toolHistory.record(toolId, outcome, startedAtEpochMs, processedCount, changedCount, failedCount, logPath);
+    }
     @Override public Path pluginsDirectory() { return RuntimeFiles.pluginsDirectory(); }
     @Override public Path resolvePluginConfigPath(String id, String extension) { return RuntimeFiles.resolvePluginConfigPath(id, extension); }
     @Override public Path resolveImageClassifierPath(String rootFolder) { return RuntimeFiles.resolveImageClassifierPath(rootFolder); }

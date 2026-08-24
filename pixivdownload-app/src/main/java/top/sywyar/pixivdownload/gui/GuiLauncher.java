@@ -15,9 +15,11 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.LocaleCatalog;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -105,7 +107,6 @@ public class GuiLauncher {
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
     private static final AtomicReference<DesktopUiSession> ACTIVE_UI = new AtomicReference<>();
-    private static final AtomicReference<AutoCloseable> ACTIVE_UI_MODEL = new AtomicReference<>();
     private static final AtomicBoolean EXIT_REQUESTED = new AtomicBoolean();
     /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
     private static final long BACKEND_CONTEXT_CLOSE_TIMEOUT_MS = 15_000L;
@@ -264,6 +265,8 @@ public class GuiLauncher {
         // 以便按当前 GUI locale 重新解析插件 i18n，同时不长期持有启动 discovery。
         final PluginRegistry startupPluginRegistry = pluginRegistry(pluginSession, pluginSession.startupDiscovery());
         final List<DesktopUiPluginSource> startupPluginSources = buildDesktopUiPluginSources(startupPluginRegistry);
+        final List<DesktopUiPluginSnapshot> startupDesktopSnapshots =
+                buildDesktopUiPluginSnapshots(startupPluginSources);
         final WebI18nBundleRegistry startupDesktopBundles = new WebI18nBundleRegistry(startupPluginRegistry);
         final ManagedDatabaseSchema.DatabaseSchema startupManagedSchema =
                 buildStartupManagedSchema(pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
@@ -293,36 +296,23 @@ public class GuiLauncher {
                     () -> pluginSession.manager().discoverFeaturePlugins(),
                     discovery -> buildDesktopUiPluginSources(pluginRegistry(pluginSession, discovery)),
                     pluginSession.startupDiscovery(), startupPluginSources);
+            Supplier<List<DesktopUiPluginSnapshot>> currentDesktopSnapshots =
+                    () -> buildDesktopUiPluginSnapshots(currentDesktopSources.get());
             Supplier<WebI18nBundleRegistry> currentDesktopBundles = memoizedDesktopUiBundles(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
                     discovery -> new WebI18nBundleRegistry(pluginRegistry(pluginSession, discovery)),
                     pluginSession.startupDiscovery(), startupDesktopBundles);
             DesktopUiProvider selectedProvider = selection.provider();
-            AppDesktopUiModel.RendererContract rendererContract = new AppDesktopUiModel.RendererContract(
-                    selectedProvider.id(),
-                    selectedProvider.experienceProfile(),
-                    selectedProvider.supportedNodeKinds(),
-                    selectedProvider.supportedCapabilities()
-            );
-            AppDesktopUiModel desktopUiModel = new AppDesktopUiModel(
+            DesktopUiContext context = new DesktopUiContext(
+                    startupLaunch,
                     port,
                     root,
                     configPath,
                     desktopUiHost,
-                    currentDesktopSources,
-                    rendererContract
-            );
-            ACTIVE_UI_MODEL.set(desktopUiModel);
-            DesktopUiContext context = new DesktopUiContext(
-                    startupLaunch,
-                    desktopUiHost.applicationName(),
-                    desktopUiModel,
+                    startupDesktopSnapshots,
+                    currentDesktopSnapshots,
                     token -> resolveDesktopText(token, currentDesktopBundles),
-                    desktopUiHost::requestApplicationExit,
-                    desktopUiModel::themePreference,
-                    rendererContract.providerId(),
-                    rendererContract.supportedKinds(),
-                    rendererContract.supportedCapabilities()
+                    () -> readThemePreference(desktopUiHost)
             );
             DesktopUiSession ui = selectedProvider.launch(context);
             ACTIVE_UI.set(ui);
@@ -872,6 +862,46 @@ public class GuiLauncher {
                 .toList();
     }
 
+    static List<DesktopUiPluginSnapshot> buildDesktopUiPluginSnapshots(
+            List<DesktopUiPluginSource> sources
+    ) {
+        if (sources == null || sources.isEmpty()) return List.of();
+        return sources.stream().map(source -> {
+            var plugin = source.plugin();
+            return new DesktopUiPluginSnapshot(
+                    source.id(),
+                    source.builtIn(),
+                    source.packageId(),
+                    source.generation(),
+                    plugin instanceof DesktopUiProvider,
+                    safeScalar(plugin::displayNamespace),
+                    safeScalar(plugin::displayName),
+                    safeList(plugin::guiThemes),
+                    safeList(plugin::guiConfigContributions),
+                    safeList(plugin::guiOnboardingSteps),
+                    safeList(plugin::routes),
+                    safeList(plugin::navigation)
+            );
+        }).toList();
+    }
+
+    private static String safeScalar(Supplier<String> supplier) {
+        try {
+            return supplier.get();
+        } catch (RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static <T> List<T> safeList(Supplier<List<T>> supplier) {
+        try {
+            List<T> values = supplier.get();
+            return values == null ? List.of() : List.copyOf(values);
+        } catch (RuntimeException failure) {
+            return List.of();
+        }
+    }
+
     static Supplier<List<DesktopUiPluginSource>> memoizedDesktopUiSources(
             Supplier<PluginDiscoveryResult> discoveries,
             Function<PluginDiscoveryResult, List<DesktopUiPluginSource>> sourceFactory,
@@ -914,11 +944,12 @@ public class GuiLauncher {
         };
     }
 
-    static String resolveDesktopText(DesktopUiNode.TextToken token,
+    static String resolveDesktopText(DesktopUiText token,
                                      Supplier<WebI18nBundleRegistry> bundles) {
         java.util.Locale locale = java.util.Locale.getDefault();
         Object[] arguments = token.arguments().toArray();
         if (token.key().isBlank()) {
+            if (arguments.length == 0) return token.fallback();
             return new MessageFormat(token.fallback(), LocaleCatalog.defaultCatalog().resolve(locale).toLocale())
                     .format(arguments);
         }
@@ -927,8 +958,18 @@ public class GuiLauncher {
         }
         String pattern = bundles.get().resolve(token.namespace(), locale, token.key())
                 .orElseGet(() -> token.fallback().isBlank() ? token.key() : token.fallback());
+        if (arguments.length == 0) return pattern;
         return new MessageFormat(pattern, LocaleCatalog.defaultCatalog().resolve(locale).toLocale())
                 .format(arguments);
+    }
+
+    private static String readThemePreference(DesktopUiHost host) {
+        try {
+            String value = host.applicationConfig().read("app.theme");
+            return value == null || value.isBlank() ? "system" : value;
+        } catch (IOException failure) {
+            return "system";
+        }
     }
     static ManagedDatabaseSchema.DatabaseSchema buildStartupManagedSchema(PluginEnabledSnapshot enabledSnapshot,
                                                                           PluginDiscoveryResult discovery) {
@@ -1145,17 +1186,6 @@ public class GuiLauncher {
                 ui.close();
             } catch (RuntimeException closeFailure) {
                 failure = closeFailure;
-            }
-        }
-        AutoCloseable model = ACTIVE_UI_MODEL.getAndSet(null);
-        if (model != null) {
-            try {
-                model.close();
-            } catch (Exception closeFailure) {
-                RuntimeException runtimeFailure = closeFailure instanceof RuntimeException runtime
-                        ? runtime : new IllegalStateException(closeFailure);
-                if (failure == null) failure = runtimeFailure;
-                else failure.addSuppressed(runtimeFailure);
             }
         }
         if (failure != null) throw failure;

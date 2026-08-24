@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
-
 import java.time.Instant;
 import java.util.Objects;
 
@@ -14,9 +12,9 @@ import java.util.Objects;
 public record DesktopDashboardCardContribution(
         String cardId,
         int order,
-        TextToken title,
-        TextToken primaryValue,
-        TextToken supportingText,
+        DesktopUiText title,
+        DesktopUiText primaryValue,
+        DesktopUiText supportingText,
         DesktopUiTone tone,
         DesktopUiIcon icon,
         DesktopControlCenterAvailability availability,

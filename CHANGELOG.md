@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Features
 - 新增繁體中文（zh-Hant）与日语（ja-JP）界面、在线文档与公告内容支持。
 - 新增韩语（ko-KR）界面、在线文档与公告内容支持。
-- 建立独立版本的第三方插件 SDK：`sdk-info` 提供统一版本信息，SDK BOM 对齐 `plugin-api` 与 `core-api` 构件，功能插件可贡献工具包无关的独立桌面页面，并支持生成源码包、模块 Javadoc 与完整聚合 Javadoc 站点；SDK 版本与应用发行版本保持独立。
+- 建立独立版本的第三方插件 SDK：`sdk-info` 提供统一版本信息，SDK BOM 对齐 `plugin-api` 与 `core-api` 构件，功能插件可贡献工具包无关的配置、状态、任务和引导语义，并支持生成源码包、模块 Javadoc 与完整聚合 Javadoc 站点；SDK 版本与应用发行版本保持独立。
 - 管理员站内信新增多人模式保留意愿调查；调查详情打开后自动标记已读，无需手动操作；该调查仅随官方发行启用，停用或移除对应插件后站内信会随之撤下，不改变多人模式现有功能或可达性。
 - 管理员站内信并入 `notification` 插件：计划任务通知会与邮件、推送并行保存到站内消息中心，本轮不会自动重试的维护任务失败会同时发送邮件、推送与系统站内信；下载通知与系统消息默认共用 500 封、90 天的可配置保留池，公告不自动清理，显式删除后也不会被重复同步恢复；调查发布插件可贡献长期存在、不可手动删除且能直接填写的内嵌站内信，首次启动时幂等写入，插件停止提供或确认远端调查已关闭 / 删除后自动撤下；下载工作台顶部提供最新消息入口，点击消息可进入分类筛选与详情页；站内信可保存分类无关的 HTML 正文快照，公告首次同步时会下载受控正文并保存到本地，此后离线显示且同一公告 ID 不覆盖首次内容；全站外部 HTTP(S) 链接会先展示目标地址并经确认后跳转，隔离正文内的链接也复用同一提示。
 - Java 标准包与离线全量包布局提供 `run.bat` / `run.sh` 启动脚本，需自行安装 Java 17；Java 标准包默认包含除 Douyin 外的全部官方插件，Douyin 可从插件市场按需安装。
@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 插件管理页会标明外置插件启停后是热重载、重启后端还是重启软件生效，并按策略即时应用或引导重启；桌面 GUI 配置字段也使用同一三级生效语义，保存后会按需热重载、重启后端或完整重启应用。
 - 桌面 GUI 新增插件状态页与插件市场 / 仓库配置入口，可查看已发现插件，并配置官方仓库、自定义仓库、代理策略、大小 / 超时上限和仓库签名密钥。
 - 桌面 GUI 配置页新增界面偏好，可集中切换语言与主题，并可将任意多级配置菜单的末级页面直接展开为一级标签。
-- 桌面 GUI 可在已安装的界面渲染插件之间切换，官方新增 Compose Multiplatform 渲染器；各渲染器共享同一套页面与交互定义，Swing 继续作为必装回退。
+- 桌面 GUI 可在已安装的界面提供者之间切换，官方新增 Compose Multiplatform 界面；Swing 与 Compose 分别完整拥有自己的页面和交互，并共享同一套业务数据与操作语义，Swing 继续作为必装回退。
 - Compose 桌面界面新增七页 Material 3 控制中心，可查看真实服务状态、插件指标、运行任务和下载目录所在磁盘的存储空间，从经同 owner 路由校验的快捷入口打开本地 Web 页面，并在响应式插件、工具、安全与设置页面中查看插件诊断、运行维护工具及编辑现有配置。
 - Pixiv 体验增强工具箱可选择为已删除作品显示边框，默认继承已下载作品样式，也可单独调整宽度、颜色与线型。
 - 新增显式插件开发模式：设置 `-Dpixivdownload.plugin-dev.enabled=true` 后会忽略 `plugins/` 目录，自动从仓库插件模块的 `target/classes` 加载已编译代码，并在控制台显示开发模式诊断。
@@ -35,7 +35,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Changed
 - FFmpeg 自动安装改用项目从官方最新稳定源码构建的固定 Release，并按 Windows x64、Linux x64/arm64 与 macOS x64/arm64 自动选择资产；不再依赖每日构建版。
 - 桌面 Swing 界面与主题实现已从主程序抽离并合并为官方外置 `gui-swing` 插件；宿主仅保留工具包无关的 `DesktopUiProvider` / `DesktopUiHost` 稳定契约与确定性选择流程，`app.gui-provider` 可显式选择界面提供者，显式提供者不可用时会给出诊断并退回唯一默认提供者，无法唯一选择时拒绝静默启动。
-- 新增可按需安装的 `gui-compose` Compose Multiplatform 桌面 UI 插件；Gradle 独占其编译、测试与 JAR-with-lib 产物生成，Maven reactor 与 Developer Mode 负责调用并暂存产物，渲染器覆盖稳定契约的全部节点种类及 Windows、Linux、macOS 桌面原生运行库；Swing「配置 → 界面」会从当前活动的 `DesktopUiProvider` 插件动态生成提供者下拉选项，保存后可在完整进程重启时切换。
+- 新增可按需安装的 `gui-compose` Compose Multiplatform 桌面 UI 插件；Gradle 独占其编译、测试与 JAR-with-lib 产物生成，Maven reactor 与 Developer Mode 负责调用并暂存产物，插件完整拥有 Material 3 页面、布局、交互及 Windows、Linux、macOS 桌面原生运行库；Swing「配置 → 界面」会从当前活动的 `DesktopUiProvider` 插件动态生成提供者下拉选项，保存后可在完整进程重启时切换。
 - 各 Web 页面统一使用随深浅主题切换的滚动条样式，插件页面与插件模板复用同一核心样式资源。
 - 插件管理页采用更紧凑的卡片布局，运行期操作集中到操作菜单；当前页面内的插件顺序在状态变化后保持稳定，刷新或重新打开页面后按最新状态重新排序。
 - 浏览器页面导航遇到常见 4xx / 5xx 错误时显示支持深浅主题与中英文切换的状态页，通用兜底页会显示实际 HTTP 状态码，插件开发模式还提供仅本机可访问的错误页触发入口；结构化 API 错误统一提供稳定的 `code` 与可读的 `error` 字段，并与 HTML 错误通道严格分离。

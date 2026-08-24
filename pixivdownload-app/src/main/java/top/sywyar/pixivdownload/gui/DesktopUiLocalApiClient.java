@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiActionInvocationHeaders;
 
 import javax.net.ssl.HttpsURLConnection;

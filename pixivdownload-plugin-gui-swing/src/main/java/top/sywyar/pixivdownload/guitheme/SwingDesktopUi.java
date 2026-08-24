@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.guitheme;
 
 import top.sywyar.pixivdownload.gui.MainFrame;
 import top.sywyar.pixivdownload.gui.SystemTrayManager;
+import top.sywyar.pixivdownload.gui.config.GuiConfigContributionAggregator;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntryContributionAggregator;
+import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingContributionAggregator;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
@@ -10,7 +14,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import java.lang.reflect.InvocationTargetException;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -21,13 +24,18 @@ final class SwingDesktopUi {
         SwingHost.install(context);
         AtomicReference<MainFrame> frameRef = new AtomicReference<>();
         Runnable create = () -> {
-            List<GuiThemeManager.ThemePluginSource> themes = List.of(
-                    new GuiThemeManager.ThemePluginSource(GuiSwingPlugin.ID, new GuiSwingPlugin()));
-            GuiThemeManager.applyBeforeFirstWindow(context.themePreference(), themes);
-            MainFrame frame = new MainFrame(context);
+            var startup = context.startupPluginSnapshots();
+            GuiThemeManager.applyBeforeFirstWindow(context.host().applicationConfig(),
+                    GuiThemeManager.readPersistedThemeId(context.host().applicationConfig()), startup);
+            MainFrame frame = new MainFrame(context.serverPort(), context.rootFolder(), context.configPath(),
+                    () -> GuiConfigContributionAggregator.fromRegisteredPlugins(
+                            context.currentPluginSnapshots()),
+                    () -> GuiWebEntryContributionAggregator.fromRegisteredPlugins(
+                            context.currentPluginSnapshots()),
+                    GuiOnboardingContributionAggregator.fromRegisteredPlugins(startup));
             frameRef.set(frame);
-            boolean trayInstalled = SystemTrayManager.install(frame, context);
-            frame.setCloseToTray(trayInstalled);
+            boolean trayInstalled = SystemTrayManager.install(frame, context.rootFolder());
+            frame.setTrayAvailable(trayInstalled);
             if (!context.startupLaunch() || !trayInstalled) frame.showWindow();
         };
         runAndWait(create);
@@ -59,18 +67,7 @@ final class SwingDesktopUi {
             };
             onEdt(() -> JOptionPane.showMessageDialog(frame, message, title, type));
         }
-        @Override public void close() {
-            try {
-                runAndWait(() -> {
-                    SystemTrayManager.uninstall();
-                    frame.dispose();
-                    GuiThemeManager.shutdown();
-                    SwingHost.uninstall();
-                });
-            } catch (Exception failure) {
-                throw new IllegalStateException(failure);
-            }
-        }
+        @Override public void close() { onEdt(frame::dispose); }
         private static void onEdt(Runnable action) {
             if (SwingUtilities.isEventDispatchThread()) action.run(); else SwingUtilities.invokeLater(action);
         }

@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode.TextToken;
-
 import java.time.Instant;
 import java.util.Objects;
 
@@ -14,8 +12,8 @@ import java.util.Objects;
 public record DesktopRunningTaskContribution(
         String taskId,
         int order,
-        TextToken title,
-        TextToken supportingText,
+        DesktopUiText title,
+        DesktopUiText supportingText,
         Status status,
         Double progress,
         DesktopControlCenterAvailability availability,

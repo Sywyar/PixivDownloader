@@ -1,14 +1,10 @@
 package top.sywyar.pixivdownload.guitheme;
 
-import top.sywyar.pixivdownload.gui.render.SwingDesktopUiNodeRenderer;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiCapability;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiExperienceProfile;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
-import top.sywyar.pixivdownload.plugin.api.gui.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -17,7 +13,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
-import java.util.Set;
 
 public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
 
@@ -57,27 +52,6 @@ public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
     @Override
     public boolean defaultProvider() {
         return true;
-    }
-
-    @Override
-    public DesktopUiExperienceProfile experienceProfile() {
-        return DesktopUiExperienceProfile.CLASSIC;
-    }
-
-    @Override
-    public Set<DesktopUiNode.Kind> supportedNodeKinds() {
-        return SwingDesktopUiNodeRenderer.supportedKinds();
-    }
-
-    @Override
-    public Set<DesktopUiCapability> supportedCapabilities() {
-        return Set.of(DesktopUiCapability.SPLIT_USER_RESIZABLE,
-                DesktopUiCapability.TREE_EXPAND_COLLAPSE,
-                DesktopUiCapability.TABLE_LARGE_DATA_SCROLL,
-                DesktopUiCapability.INPUT_NUMERIC,
-                DesktopUiCapability.INPUT_PATH_FILE,
-                DesktopUiCapability.INPUT_PATH_DIRECTORY,
-                DesktopUiCapability.SELECTION_MULTIPLE);
     }
 
     @Override

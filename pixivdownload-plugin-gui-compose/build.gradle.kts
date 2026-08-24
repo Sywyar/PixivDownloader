@@ -148,6 +148,7 @@ dependencies {
     implementation("org.jetbrains.compose.material3:material3:$material3Version")
     implementation("net.java.dev.jna:jna:5.17.0")
     implementation("net.java.dev.jna:jna-platform:5.17.0")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.19.2")
     val skikoVersion = providers.gradleProperty("skikoVersion").get()
     runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-x64:$skikoVersion")
     runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-arm64:$skikoVersion")

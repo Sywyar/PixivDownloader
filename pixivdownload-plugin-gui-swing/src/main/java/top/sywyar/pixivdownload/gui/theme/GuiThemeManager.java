@@ -5,12 +5,14 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import java.awt.Color;
 import java.awt.Window;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -22,8 +24,8 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * 仅供 Swing 使用的 GUI 主题管理器。核心只负责主题 id 持久化、贡献选择、listener 生命周期，
- * 以及系统/JDK 回退；具体主题引擎由启动插件提供。
+ * Swing-only GUI theme manager. The core owns only theme id persistence, contribution selection, listener lifetime,
+ * and system/JDK fallback. Concrete theme engines live in startup plugins.
  */
 public final class GuiThemeManager {
 
@@ -43,8 +45,18 @@ public final class GuiThemeManager {
     private GuiThemeManager() {
     }
 
-    public static void applyBeforeFirstWindow(String configuredThemeId,
-                                              Collection<ThemePluginSource> activePlugins) {
+    public static String readPersistedThemeId(DesktopUiHost.ConfigFile configFile) {
+        if (configFile == null) return DEFAULT_THEME_ID;
+        try {
+            return normalizeThemeId(configFile.read("app.theme"));
+        } catch (IOException e) {
+            log.warn("Failed to read app.theme: {}", e.toString());
+        }
+        return DEFAULT_THEME_ID;
+    }
+
+    public static void applyBeforeFirstWindow(DesktopUiHost.ConfigFile configFile, String configuredThemeId,
+                                              Collection<DesktopUiPluginSnapshot> activePlugins) {
         Runnable task = () -> {
             synchronized (LOCK) {
                 GuiThemeManager.configuredThemeId = normalizeThemeId(configuredThemeId);
@@ -95,6 +107,21 @@ public final class GuiThemeManager {
         return List.copyOf(result);
     }
 
+    public static boolean applyUserSelection(DesktopUiHost.ConfigFile configFile, String themeId) {
+        String normalized = normalizeThemeId(themeId);
+        boolean persisted = persistThemeId(configFile, normalized);
+        synchronized (LOCK) {
+            GuiThemeManager.configuredThemeId = normalized;
+        }
+        Runnable task = () -> applyConfiguredTheme(true);
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+        return persisted;
+    }
+
     public static void applyThemeId(String themeId) {
         String normalized = normalizeThemeId(themeId);
         synchronized (LOCK) {
@@ -105,6 +132,18 @@ public final class GuiThemeManager {
             task.run();
         } else {
             SwingUtilities.invokeLater(task);
+        }
+    }
+
+    public static boolean persistThemeId(DesktopUiHost.ConfigFile configFile, String themeId) {
+        if (configFile == null) return false;
+        String normalized = normalizeThemeId(themeId);
+        try {
+            configFile.write("app.theme", normalized);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            log.warn("Failed to write app.theme: {}", e.toString());
+            return false;
         }
     }
 
@@ -147,14 +186,6 @@ public final class GuiThemeManager {
             activeThemeId = DEFAULT_THEME_ID;
             currentAppearance = GuiThemeAppearance.UNKNOWN;
             currentDark = false;
-            themes = Map.of();
-            changeListeners.clear();
-        }
-    }
-
-    public static void shutdown() {
-        synchronized (LOCK) {
-            closeContributionListener();
             themes = Map.of();
             changeListeners.clear();
         }
@@ -233,34 +264,20 @@ public final class GuiThemeManager {
         notifyListeners();
     }
 
-    private static Map<String, RegisteredTheme> collectThemes(Collection<ThemePluginSource> plugins) {
+    private static Map<String, RegisteredTheme> collectThemes(
+            Collection<DesktopUiPluginSnapshot> plugins
+    ) {
         if (plugins == null || plugins.isEmpty()) {
             return Map.of();
         }
         Map<String, RegisteredTheme> collected = new LinkedHashMap<>();
         List<String> duplicates = new ArrayList<>();
-        for (ThemePluginSource source : plugins) {
+        for (DesktopUiPluginSnapshot source : plugins) {
             if (source == null) {
                 continue;
             }
-            String pluginId = source.pluginId();
-            PixivFeaturePlugin plugin = source.plugin();
-            List<GuiThemeContribution> contributions;
-            try {
-                contributions = plugin.guiThemes();
-                if (contributions != null) {
-                    contributions = new ArrayList<>(contributions);
-                }
-            } catch (Throwable failure) {
-                throwIfJvmFatal(failure);
-                log.warn("Plugin '{}' failed to expose GUI themes: {}",
-                        pluginId, failure.toString(), failure);
-                continue;
-            }
-            if (contributions == null) {
-                log.warn("Plugin '{}' returned null GUI themes; ignoring it", pluginId);
-                continue;
-            }
+            String pluginId = source.id();
+            List<GuiThemeContribution> contributions = source.themes();
             for (GuiThemeContribution contribution : contributions) {
                 if (contribution == null) {
                     continue;
@@ -280,16 +297,6 @@ public final class GuiThemeManager {
             }
         }
         return Collections.unmodifiableMap(new LinkedHashMap<>(collected));
-    }
-
-    /** 启动发现桥已校验并盖章的主题插件来源；主题聚合不得重新读取插件自报 id。 */
-    public record ThemePluginSource(String pluginId, PixivFeaturePlugin plugin) {
-        public ThemePluginSource {
-            if (pluginId == null || pluginId.isBlank()) {
-                throw new IllegalArgumentException("pluginId must not be blank");
-            }
-            Objects.requireNonNull(plugin, "plugin");
-        }
     }
 
     private static String safeDisplayName(GuiThemeContribution contribution, Locale locale) {
