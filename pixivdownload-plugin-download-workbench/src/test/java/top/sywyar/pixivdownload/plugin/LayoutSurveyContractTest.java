@@ -177,6 +177,11 @@ class LayoutSurveyContractTest {
                 .contains("/pixiv-layout-feedback/release-activation.js")
                 .contains("/pixiv-posthog/pixiv-posthog.js")
                 .contains("/pixiv-layout-feedback/posthog-config.js")
+                .contains("/pixiv-layout-feedback/pixiv-layout-feedback-core.js")
+                .contains("/pixiv-layout-feedback/pixiv-layout-feedback-server.js")
+                .contains("/pixiv-layout-feedback/pixiv-layout-feedback-state.js")
+                .contains("/pixiv-layout-feedback/pixiv-layout-feedback-survey.js")
+                .contains("/pixiv-layout-feedback/pixiv-layout-feedback-dialog.js")
                 .contains("/pixiv-layout-feedback/pixiv-layout-feedback.js")
                 .contains("/pixiv-layout-feedback/embed.js");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
@@ -192,6 +197,11 @@ class LayoutSurveyContractTest {
                         "/pixiv-layout-feedback/pixiv-layout-feedback.css",
                         "/pixiv-layout-feedback/release-activation.js",
                         "/pixiv-layout-feedback/posthog-config.js",
+                        "/pixiv-layout-feedback/pixiv-layout-feedback-core.js",
+                        "/pixiv-layout-feedback/pixiv-layout-feedback-server.js",
+                        "/pixiv-layout-feedback/pixiv-layout-feedback-state.js",
+                        "/pixiv-layout-feedback/pixiv-layout-feedback-survey.js",
+                        "/pixiv-layout-feedback/pixiv-layout-feedback-dialog.js",
                         "/pixiv-layout-feedback/pixiv-layout-feedback.js",
                         "/pixiv-layout-feedback/embed.js");
         assertThat(new top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin().routes())
