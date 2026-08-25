@@ -14,10 +14,10 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionOwner;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.RegisteredDownloadType;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.RegisteredUiSlot;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionOwner;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionRegistry.RegisteredDownloadType;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionRegistry.RegisteredUiSlot;
 
 import java.util.List;
 import java.util.Optional;

@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 @DisplayName("StaticResourceRegistry 静态资源注册中心")
 class StaticResourceRegistryTest {

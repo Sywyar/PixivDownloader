@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.plugin.web.resource;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.accept.ContentNegotiationManager;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 /**
  * 装配插件 / 核心静态资源的查询期 HandlerMapping。

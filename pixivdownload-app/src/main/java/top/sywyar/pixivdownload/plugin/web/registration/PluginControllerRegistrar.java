@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BiPredicate;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 /**
  * 把外置插件子 {@code ApplicationContext} 中的 controller 动态注册进核心壳（父 context）的请求分发表

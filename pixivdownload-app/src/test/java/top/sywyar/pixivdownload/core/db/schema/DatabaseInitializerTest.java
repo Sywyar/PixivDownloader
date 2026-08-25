@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;

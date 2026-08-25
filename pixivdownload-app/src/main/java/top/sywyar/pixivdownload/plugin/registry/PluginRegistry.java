@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
@@ -376,7 +377,7 @@ public class PluginRegistry implements SmartLifecycle {
     }
 
     /** 当前活动快照是否仍包含同一个注册对象身份。 */
-    boolean isActiveIdentity(RegisteredPlugin registered) {
+    public boolean isActiveIdentity(RegisteredPlugin registered) {
         Objects.requireNonNull(registered, "registered plugin");
         return state.active().stream().anyMatch(current -> current == registered);
     }
@@ -474,7 +475,7 @@ public class PluginRegistry implements SmartLifecycle {
         }
     }
 
-    void requireActiveIdentityCommit(ActiveIdentityCommit commit, RegisteredPlugin registered) {
+    public void requireActiveIdentityCommit(ActiveIdentityCommit commit, RegisteredPlugin registered) {
         if (commit == null || commit.authority != this || commit.registered != registered
                 || !commit.active || !Thread.holdsLock(lock)) {
             throw new IllegalStateException("invalid plugin active identity commit authority");

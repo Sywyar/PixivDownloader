@@ -14,7 +14,7 @@ import java.lang.ref.WeakReference;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 /**
  * 查询期静态资源映射。每次请求都与 {@link StaticResourceRegistry#resources()} 的当前不可变快照对账；

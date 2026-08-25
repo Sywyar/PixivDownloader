@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
 import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrationException;

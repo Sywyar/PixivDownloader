@@ -1,10 +1,13 @@
-package top.sywyar.pixivdownload.plugin.registry;
+package top.sywyar.pixivdownload.plugin.registry.download;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import java.util.ArrayList;

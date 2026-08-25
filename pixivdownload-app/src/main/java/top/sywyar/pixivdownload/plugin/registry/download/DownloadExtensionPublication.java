@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.registry;
+package top.sywyar.pixivdownload.plugin.registry.download;
 
 /**
  * 精确标识一次下载扩展 owner 全量发布。registry 按对象身份验证，观察字段不构成撤回授权。

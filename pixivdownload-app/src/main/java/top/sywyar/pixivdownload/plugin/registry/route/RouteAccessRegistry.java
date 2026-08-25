@@ -1,10 +1,12 @@
-package top.sywyar.pixivdownload.plugin.registry;
+package top.sywyar.pixivdownload.plugin.registry.route;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
 import java.util.ArrayList;
 import java.util.HashSet;

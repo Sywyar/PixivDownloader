@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.PageSectionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.web.controller.PageSectionController;
 

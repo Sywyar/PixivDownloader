@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.provenance.OwnerOnlyAssetPlugin;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import java.io.IOException;

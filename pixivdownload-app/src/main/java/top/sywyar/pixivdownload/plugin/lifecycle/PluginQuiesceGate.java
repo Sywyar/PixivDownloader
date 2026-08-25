@@ -22,7 +22,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeGate;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

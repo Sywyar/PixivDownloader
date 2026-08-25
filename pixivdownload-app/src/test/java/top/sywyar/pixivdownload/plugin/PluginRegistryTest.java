@@ -11,10 +11,10 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import java.util.ArrayList;

@@ -1,9 +1,10 @@
-package top.sywyar.pixivdownload.plugin.registry;
+package top.sywyar.pixivdownload.plugin.registry.web;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebResourceResolver;
 
 import java.util.ArrayList;

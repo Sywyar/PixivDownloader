@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;

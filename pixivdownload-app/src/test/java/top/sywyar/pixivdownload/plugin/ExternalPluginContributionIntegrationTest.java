@@ -20,10 +20,10 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
-import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 /**
  * 外置插件贡献接入与可逆性集成测试：验证外置插件经发现桥接进入 {@link PluginRegistry} 后，其

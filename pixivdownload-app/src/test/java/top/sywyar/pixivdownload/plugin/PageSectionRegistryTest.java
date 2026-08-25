@@ -10,7 +10,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.PageSectionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**

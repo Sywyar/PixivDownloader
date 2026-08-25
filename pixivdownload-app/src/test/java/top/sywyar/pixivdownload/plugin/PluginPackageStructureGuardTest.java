@@ -34,6 +34,11 @@ class PluginPackageStructureGuardTest {
             .importPackages("top.sywyar.pixivdownload");
 
     private static final String PLUGIN_ROOT = "top.sywyar.pixivdownload.plugin";
+    private static final String REGISTRY_ROOT = PLUGIN_ROOT + ".registry";
+    private static final String REGISTRY_DOWNLOAD_ROOT = REGISTRY_ROOT + ".download";
+    private static final String REGISTRY_ROUTE_ROOT = REGISTRY_ROOT + ".route";
+    private static final String REGISTRY_SCHEMA_ROOT = REGISTRY_ROOT + ".schema";
+    private static final String REGISTRY_WEB_ROOT = REGISTRY_ROOT + ".web";
     private static final String RUNTIME_ROOT = "top.sywyar.pixivdownload.plugin.runtime";
     private static final String RUNTIME_DISCOVERY_ROOT = "top.sywyar.pixivdownload.plugin.runtime.discovery";
     private static final String INSTALL_ROOT = "top.sywyar.pixivdownload.plugin.runtime.install";
@@ -53,6 +58,17 @@ class PluginPackageStructureGuardTest {
             "PluginRuntimeManager", "PluginRuntimeStatus");
     private static final java.util.Set<String> INSTALL_ROOT_ALLOWLIST = java.util.Set.of(
             "ExternalPluginInstaller");
+    private static final java.util.Set<String> REGISTRY_ROOT_ALLOWLIST = java.util.Set.of(
+            "PluginRegistry", "PluginSource");
+    private static final java.util.Set<String> REGISTRY_DOWNLOAD_ALLOWLIST = java.util.Set.of(
+            "DownloadExtensionOwner", "DownloadExtensionPublication", "DownloadExtensionRegistry");
+    private static final java.util.Set<String> REGISTRY_ROUTE_ALLOWLIST = java.util.Set.of(
+            "RouteAccessRegistry", "StartupRouteRegistry");
+    private static final java.util.Set<String> REGISTRY_SCHEMA_ALLOWLIST = java.util.Set.of(
+            "DatabaseSchemaRegistry");
+    private static final java.util.Set<String> REGISTRY_WEB_ALLOWLIST = java.util.Set.of(
+            "DrilldownRegistry", "LandingRegistry", "NavigationRegistry", "PageSectionRegistry",
+            "StaticResourceRegistry", "WebUiSlotRegistry");
 
     /**
      * {@code top.sywyar.pixivdownload.plugin} 是<b>拆分包</b>：app 的 4 个 plugin 根包入口类型 +
@@ -132,6 +148,21 @@ class PluginPackageStructureGuardTest {
         assertThat(directTypeNames(INSTALL_ROOT))
                 .as("plugin.runtime.install 根包只允许安装 facade")
                 .containsExactlyInAnyOrderElementsOf(INSTALL_ROOT_ALLOWLIST);
+    }
+
+    @Test
+    @DisplayName("宿主注册中心根包只保留组合入口，具体职责位于 download / route / schema / web 子包")
+    void hostRegistriesLiveInResponsibilityPackages() {
+        assertThat(directTypeNames(REGISTRY_ROOT))
+                .containsExactlyInAnyOrderElementsOf(REGISTRY_ROOT_ALLOWLIST);
+        assertThat(directTypeNames(REGISTRY_DOWNLOAD_ROOT))
+                .containsExactlyInAnyOrderElementsOf(REGISTRY_DOWNLOAD_ALLOWLIST);
+        assertThat(directTypeNames(REGISTRY_ROUTE_ROOT))
+                .containsExactlyInAnyOrderElementsOf(REGISTRY_ROUTE_ALLOWLIST);
+        assertThat(directTypeNames(REGISTRY_SCHEMA_ROOT))
+                .containsExactlyInAnyOrderElementsOf(REGISTRY_SCHEMA_ALLOWLIST);
+        assertThat(directTypeNames(REGISTRY_WEB_ROOT))
+                .containsExactlyInAnyOrderElementsOf(REGISTRY_WEB_ALLOWLIST);
     }
 
     @Test

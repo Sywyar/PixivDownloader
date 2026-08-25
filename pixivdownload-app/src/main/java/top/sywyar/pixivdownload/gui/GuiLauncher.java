@@ -21,7 +21,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;

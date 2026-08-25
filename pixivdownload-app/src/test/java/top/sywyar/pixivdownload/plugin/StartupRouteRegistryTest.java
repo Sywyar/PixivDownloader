@@ -10,7 +10,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
 
 @DisplayName("默认启动落点注册中心")
 class StartupRouteRegistryTest {

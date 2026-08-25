@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 /**
  * 全 URL 声明守卫：每个真实 controller 映射 / 静态资源目录 / 顶层 HTML 都必须落在某条

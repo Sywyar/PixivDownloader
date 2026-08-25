@@ -13,9 +13,9 @@ import top.sywyar.pixivdownload.plugin.api.download.control.DownloadQueueCancelR
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadTypePublication;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadUiSlotPublication;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionOwner;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.RegisteredDownloadType;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionOwner;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionRegistry.RegisteredDownloadType;
 
 import java.util.Objects;
 import java.util.Optional;

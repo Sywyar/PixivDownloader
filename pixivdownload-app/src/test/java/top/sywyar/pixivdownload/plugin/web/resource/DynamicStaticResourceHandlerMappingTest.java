@@ -8,7 +8,7 @@ import org.springframework.web.accept.ContentNegotiationManager;
 import org.springframework.web.context.support.StaticWebApplicationContext;
 import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 import java.lang.reflect.Method;
 import java.util.List;

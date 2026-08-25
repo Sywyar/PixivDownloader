@@ -27,7 +27,7 @@ import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.core.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.core.work.query.AuthorSummary;
 import top.sywyar.pixivdownload.core.work.model.PagedResult;

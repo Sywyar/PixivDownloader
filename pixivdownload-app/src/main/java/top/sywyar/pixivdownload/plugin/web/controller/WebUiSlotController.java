@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
-import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.WebUiSlotRegistry;
 
 import java.util.Comparator;
 import java.util.List;

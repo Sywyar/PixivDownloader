@@ -29,7 +29,7 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;

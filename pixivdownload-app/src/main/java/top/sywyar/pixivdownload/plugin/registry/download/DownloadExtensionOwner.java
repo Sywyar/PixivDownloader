@@ -1,4 +1,6 @@
-package top.sywyar.pixivdownload.plugin.registry;
+package top.sywyar.pixivdownload.plugin.registry.download;
+
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /** 下载工作台扩展贡献的权威 owner 身份。 */
 public record DownloadExtensionOwner(

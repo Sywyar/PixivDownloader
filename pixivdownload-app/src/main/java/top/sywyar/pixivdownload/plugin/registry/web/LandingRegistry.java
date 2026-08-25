@@ -1,9 +1,11 @@
-package top.sywyar.pixivdownload.plugin.registry;
+package top.sywyar.pixivdownload.plugin.registry.web;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
 
 import java.util.ArrayList;
 import java.util.Comparator;

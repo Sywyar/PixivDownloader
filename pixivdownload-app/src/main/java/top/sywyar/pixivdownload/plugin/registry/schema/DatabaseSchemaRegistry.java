@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.registry;
+package top.sywyar.pixivdownload.plugin.registry.schema;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.schema.IndexSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.util.ArrayList;
 import java.util.HashMap;

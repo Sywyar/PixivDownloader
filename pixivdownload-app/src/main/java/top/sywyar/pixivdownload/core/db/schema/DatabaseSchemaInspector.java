@@ -18,7 +18,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
 /**
  * 读取磁盘上的 SQLite schema，并与期望的 {@link ManagedDatabaseSchema.DatabaseSchema}

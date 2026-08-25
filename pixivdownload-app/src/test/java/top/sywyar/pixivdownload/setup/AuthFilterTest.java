@@ -30,10 +30,10 @@ import top.sywyar.pixivdownload.plugin.TestNovelGalleryPlugin;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
 
 import java.util.List;
 import java.util.Optional;

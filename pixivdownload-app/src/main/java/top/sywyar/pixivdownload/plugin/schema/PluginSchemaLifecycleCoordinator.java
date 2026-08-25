@@ -5,7 +5,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.util.List;

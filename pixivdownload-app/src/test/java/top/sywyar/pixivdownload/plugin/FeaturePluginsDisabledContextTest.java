@@ -13,10 +13,10 @@ import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 /**
  * 缺失 / 禁用语义（真实 Spring 上下文）：gallery / novel 已是外置插件，外置包缺失时即便写入禁用开关也不注册贡献；

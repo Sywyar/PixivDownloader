@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.push.PushFormatConverter;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 class RegisteredPluginsTest {
