@@ -54,6 +54,9 @@ test('Quality Gate：五个 required context 与完整触发面保持稳定', ()
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {
     const publish = load('.github/workflows/publish-plugins.yml');
     const publishAction = load('.github/actions/publish-official-plugins/action.yml');
+    const javaAction = load('.github/actions/package-release-java/action.yml');
+    const windowsAction = load('.github/actions/package-windows-installer/action.yml');
+    const updateSigningAction = load('.github/actions/sign-update-manifest/action.yml');
     assert.equal(publish.jobs['quality-gate'].uses, './.github/workflows/quality-gate.yml');
     assert.equal(publish.jobs.publish.environment, 'release');
     assert.deepEqual(publish.jobs.publish.needs, 'quality-gate');
@@ -66,6 +69,10 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         '${{ steps.commit-manifest.outputs.manifest_commit }}');
     assert.equal(publishAction.inputs.plugins_repo_token, undefined);
     assert.deepEqual(secretNames(publishAction), []);
+    for (const action of [javaAction, windowsAction, updateSigningAction]) {
+        assert.equal(action.runs.using, 'composite');
+        assert.deepEqual(secretNames(action), []);
+    }
     const directPublish = publish.jobs.publish.steps
         .find((step) => step.uses === './.github/actions/publish-official-plugins');
     assert.equal(directPublish.if, 'inputs.publish_in_caller != true');
@@ -137,12 +144,29 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         '${{ needs.resolve-version.outputs.version }}');
     assert.equal(nightly.jobs['publish-plugin-artifacts'].outputs.manifest_commit,
         '${{ steps.publish.outputs.manifest_commit }}');
-    assert.doesNotMatch(release.jobs['build-jar'].steps
-        .find((step) => step.name === 'Stage official plugin inputs from signed catalog').run,
-        /nightly-manifest\.json/);
-    assert.match(nightly.jobs['build-jar'].steps
+    const releaseJava = release.jobs['build-jar'].steps
+        .find((step) => step.uses === './.github/actions/package-release-java');
+    const nightlyJava = nightly.jobs['build-jar'].steps
+        .find((step) => step.uses === './.github/actions/package-release-java');
+    assert.equal(releaseJava.with.release_version, '${{ needs.validate-release-tag.outputs.version }}');
+    assert.equal(releaseJava.with.distribution_version, '${{ github.ref_name }}');
+    assert.equal(releaseJava.with.plugin_manifest_commit, undefined);
+    assert.equal(nightlyJava.with.release_version, '${{ needs.resolve-version.outputs.version }}');
+    assert.equal(nightlyJava.with.distribution_version, '${{ needs.resolve-version.outputs.version }}');
+    assert.equal(nightlyJava.with.plugin_manifest_commit,
+        '${{ needs.publish-plugin-artifacts.outputs.manifest_commit }}');
+    assert.match(javaAction.runs.steps
         .find((step) => step.name === 'Stage official plugin inputs from signed catalog').run,
         /PLUGIN_MANIFEST_COMMIT\/nightly-manifest\.json/);
+    for (const doc of [release, nightly]) {
+        assert.ok(doc.jobs['build-windows-installer'].steps
+            .some((step) => step.uses === './.github/actions/package-windows-installer'));
+        const sign = doc.jobs[doc === release ? 'release' : 'release-nightly'].steps
+            .find((step) => step.uses === './.github/actions/sign-update-manifest');
+        assert.equal(sign.with.trusted_base_sha, '${{ needs.publish-plugins.outputs.trusted_base_sha }}');
+        assert.equal(sign.with.update_signing_private_key_pem_base64,
+            '${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}');
+    }
 });
 
 test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五个平台资产', () => {
@@ -217,9 +241,12 @@ test('发布链：外部 ref 与输入先校验，再通过环境变量进入 sh
             }
         }
     }
-    const publishAction = load('.github/actions/publish-official-plugins/action.yml');
-    for (const step of publishAction.runs.steps) {
-        assert.doesNotMatch(step.run || '', /\$\{\{/, `publish action/${step.name}`);
+    const actionDir = path.join(ROOT, '.github', 'actions');
+    for (const name of fs.readdirSync(actionDir)) {
+        const action = load(`.github/actions/${name}/action.yml`);
+        for (const step of action.runs.steps) {
+            assert.doesNotMatch(step.run || '', /\$\{\{/, `${name} action/${step.name}`);
+        }
     }
 
     const releaseValidation = release.jobs['validate-release-tag'];
@@ -259,7 +286,10 @@ test('发布链：外部 ref 与输入先校验，再通过环境变量进入 sh
 test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
     for (const rel of ['.github/workflows/release.yml', '.github/workflows/nightly.yml',
         '.github/workflows/publish-plugins.yml', '.github/workflows/build-stable-ffmpeg.yml',
-        '.github/actions/publish-official-plugins/action.yml']) {
+        '.github/actions/publish-official-plugins/action.yml',
+        '.github/actions/package-release-java/action.yml',
+        '.github/actions/package-windows-installer/action.yml',
+        '.github/actions/sign-update-manifest/action.yml']) {
         const text = fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8');
         assert.doesNotMatch(text, /always\(\)|!cancelled\(\)|continue-on-error/);
         assert.doesNotMatch(text, /PLUGIN_SIGNING_PRIVATE_KEY_PEM(?:\s|:|\})/);
@@ -268,8 +298,9 @@ test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
     for (const rel of ['.github/workflows/release.yml', '.github/workflows/nightly.yml']) {
         const text = fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8');
         assert.match(text, /UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64/);
-        assert.match(text, /pixivdownloader-update-root-2026-08/);
     }
+    assert.match(fs.readFileSync(path.join(ROOT, '.github', 'actions', 'sign-update-manifest', 'action.yml'),
+        'utf8'), /pixivdownloader-update-root-2026-08/);
 });
 
 test('Nightly：共享变更门禁以语义输出控制全部昂贵任务', () => {

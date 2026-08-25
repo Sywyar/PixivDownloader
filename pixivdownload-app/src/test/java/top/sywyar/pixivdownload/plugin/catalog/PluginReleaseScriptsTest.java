@@ -703,6 +703,9 @@ class PluginReleaseScriptsTest {
         for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
             assertThat(workflow(name)).as(name).doesNotContain("AllowUnsignedLocalPlugins");
         }
+        for (String name : List.of("package-release-java", "package-windows-installer", "sign-update-manifest")) {
+            assertThat(action(name)).as(name).doesNotContain("AllowUnsignedLocalPlugins");
+        }
     }
 
     @Test
@@ -757,12 +760,16 @@ class PluginReleaseScriptsTest {
         Pattern usesPattern = Pattern.compile(
                 "(?m)^\\s*uses:\\s*([^\\s#]+)(?:\\s+#\\s*(\\S+))?\\s*$");
         int externalActions = 0;
-        try (var workflowFiles = Files.list(repoRoot().resolve(".github").resolve("workflows"))) {
-            for (Path file : workflowFiles
-                    .filter(path -> path.getFileName().toString().matches(".*\\.ya?ml"))
+        Path githubRoot = repoRoot().resolve(".github");
+        try (var yamlFiles = Files.walk(githubRoot)) {
+            for (Path file : yamlFiles
+                    .filter(Files::isRegularFile)
+                    .filter(path -> (path.getParent().equals(githubRoot.resolve("workflows"))
+                            && path.getFileName().toString().matches(".*\\.ya?ml"))
+                            || path.getFileName().toString().equals("action.yml"))
                     .sorted()
                     .toList()) {
-                String name = file.getFileName().toString();
+                String name = githubRoot.relativize(file).toString();
                 Matcher matcher = usesPattern.matcher(Files.readString(file, StandardCharsets.UTF_8));
                 while (matcher.find()) {
                     String target = matcher.group(1);
@@ -781,7 +788,7 @@ class PluginReleaseScriptsTest {
                 }
             }
         }
-        assertThat(externalActions).as("external actions across all workflows").isPositive();
+        assertThat(externalActions).as("external actions across workflows and composite actions").isPositive();
 
         String dependabot = Files.readString(repoRoot().resolve(".github/dependabot.yml"), StandardCharsets.UTF_8);
         assertThat(dependabot).contains(
@@ -953,33 +960,38 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("release/nightly 只上传恰好一个内部 app-shell JAR，安装器消费同一 artifact")
+    @DisplayName("release/nightly 通过共享动作只上传一个 app-shell JAR，安装器消费同一 artifact")
     void releaseWorkflowsUploadOnlyStagedAppShellJar() throws Exception {
+        String javaAction = action("package-release-java");
+        String windowsAction = action("package-windows-installer");
+
+        assertThat(javaAction).contains(
+                "Stage executable JAR",
+                "build/release-jars",
+                "jar tf \"$OUTPUT_JAR\" | grep -q '^BOOT-INF/'",
+                "test -s \"$OUTPUT_JAR\"",
+                "STAGED_COUNT",
+                "path: build/release-jars/*.jar",
+                "name: app-shell-jar",
+                "if-no-files-found: error",
+                "Upload internal app-shell JAR",
+                "Expected exactly one executable app jar",
+                "PixivDownload-*-boot.jar 2>/dev/null",
+                "-original\\.jar");
+        assertThat(windowsAction).contains(
+                "Download internal app-shell JAR",
+                "path: artifacts/app-shell-jar",
+                "$jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)",
+                "$jars.Count -ne 1");
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
 
             assertThat(workflow).as(name).contains(
-                    "Stage executable JAR",
-                    "build/release-jars",
-                    "jar tf \"$OUTPUT_JAR\" | grep -q '^BOOT-INF/'",
-                    "test -s \"$OUTPUT_JAR\"",
-                    "STAGED_COUNT",
-                    "path: build/release-jars/*.jar",
-                    "name: app-shell-jar",
-                    "if-no-files-found: error",
-                    "Upload internal app-shell JAR",
-                    "Download internal app-shell JAR",
-                    "path: artifacts/app-shell-jar",
-                    "$jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)",
-                    "$jars.Count -ne 1",
-                    "$jar = $jars[0]");
-            // 候选必须唯一：优先 boot jar，回退普通可执行 jar 时排除 sources/javadoc/original，
-            // 不得静默取第一个。
-            assertThat(workflow).as(name).contains(
-                    "Expected exactly one executable app jar",
-                    "PixivDownload-*-boot.jar 2>/dev/null",
-                    "-original\\.jar");
+                    "uses: ./.github/actions/package-release-java",
+                    "uses: ./.github/actions/package-windows-installer");
             assertThat(workflow).as(name).doesNotContain(
+                    "Stage executable JAR",
+                    "Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar",
                     "name: jar",
                     "artifacts/jar",
                     "path: artifacts/jar",
@@ -988,30 +1000,33 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("release/nightly 经共享脚本发布 java-standard 与 full-offline 签名分发布局")
+    @DisplayName("release/nightly 经共享动作发布 java-standard 与 full-offline 签名分发布局")
     void releaseWorkflowsPublishJavaDistributions() throws Exception {
+        String javaAction = action("package-release-java");
+        assertThat(javaAction).contains(
+                "Stage official plugin inputs from signed catalog",
+                "stage-official-plugin-inputs-from-catalog.ps1",
+                "IncludeOptional = $true",
+                "Assemble Java distributions",
+                "package-java-distributions.ps1",
+                "-PrebuiltJar $jars[0].FullName",
+                "-PrebuiltPluginsDir build/plugin-inputs",
+                "-SignatureToolJar $signatureTools[0].FullName",
+                "name: java-distributions",
+                "build/plugin-distributions/PixivDownload-*-java.zip",
+                "build/plugin-distributions/PixivDownload-*-full-offline.zip",
+                "if-no-files-found: error",
+                "name: plugin-inputs",
+                "path: build/plugin-inputs/*");
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
 
             assertThat(workflow).as(name).contains(
                     "publish-plugins:",
                     "uses: ./.github/workflows/publish-plugins.yml",
-                    "Stage official plugin inputs from signed catalog",
-                    "stage-official-plugin-inputs-from-catalog.ps1",
-                    "-IncludeOptional",
-                    "Assemble Java distributions",
-                    "package-java-distributions.ps1",
-                    "-PrebuiltJar $jars[0].FullName",
-                    "-PrebuiltPluginsDir build/plugin-inputs",
-                    "-SignatureToolJar $signatureTool.FullName",
-                    "name: java-distributions",
-                    "build/plugin-distributions/PixivDownload-*-java.zip",
-                    "build/plugin-distributions/PixivDownload-*-full-offline.zip",
-                    "if-no-files-found: error",
+                    "uses: ./.github/actions/package-release-java",
+                    "uses: ./.github/actions/package-windows-installer",
                     "path: artifacts/java-distributions",
-                    "name: plugin-inputs",
-                    "path: build/plugin-inputs/*",
-                    "path: artifacts/plugin-inputs",
                     "Generate update manifest",
                     "artifacts/update.json",
                     "artifacts/update.json.sig",
@@ -1240,6 +1255,34 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("Release 与 Nightly 为更新清单写入时效元数据并生成 detached 签名")
     void updateManifestsAreVersionedAndSigned() throws Exception {
+        String signingAction = action("sign-update-manifest");
+        assertThat(signingAction).contains(
+                "Checkout trusted update signature tool source",
+                "working-directory: trusted-update-signature-tool-source",
+                "test \"$(git rev-parse HEAD)\" = \"$TRUSTED_BASE_SHA\"",
+                "mvn -B -ntp -pl pixivdownload-plugin-signature -am package -DskipTests -Dexec.skip=true",
+                "TRUSTED_UPDATE_SIGNATURE_TOOL=$destination",
+                "TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256=$sha256",
+                "Trusted update signature tool checksum mismatch.",
+                "& java -cp $env:TRUSTED_UPDATE_SIGNATURE_TOOL",
+                "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ inputs.update_signing_private_key_pem_base64 }}",
+                "--repository-id pixivdownloader-update",
+                "--key-id pixivdownloader-update-root-2026-08",
+                "--out artifacts/update.json.sig",
+                "chmod 600 -- $privateKeyFile",
+                "} finally {",
+                "Remove-Item -LiteralPath $privateKeyFile",
+                "pixivdownloader-update-signing-key.pem")
+                .doesNotContain(
+                        "UPDATE_SIGNING_PRIVATE_KEY_PEM:",
+                        "Download update signature tool",
+                        "tools/update-signature",
+                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64",
+                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM",
+                        "--key-id pixivdownloader-official-root-2026-07");
+        assertThat(signingAction.indexOf("name: Build trusted update signature tool"))
+                .isGreaterThan(signingAction.indexOf("name: Checkout trusted update signature tool source"))
+                .isLessThan(signingAction.indexOf("- name: Sign update manifest"));
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
             String signingJob = workflowJob(workflow,
@@ -1249,30 +1292,16 @@ class PluginReleaseScriptsTest {
                     "sequence: $sequence",
                     "expiresAt: $expiresAt",
                     "Sign update manifest",
-                    "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                    "--repository-id pixivdownloader-update",
-                    "--key-id pixivdownloader-update-root-2026-08",
-                    "--out artifacts/update.json.sig",
-                    "chmod 600 -- $privateKeyFile",
-                    "} finally {",
-                    "Remove-Item -LiteralPath $privateKeyFile",
-                    "pixivdownloader-update-signing-key.pem",
+                    "update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                    "uses: ./.github/actions/sign-update-manifest",
                     "artifacts/update.json.sig");
             assertThat(workflowJob(workflow, "build-jar")).as(name + " candidate build job")
                     .doesNotContain("Upload update signature tool");
             assertThat(signingJob).as(name + " update signing job")
                     .contains(
                             "needs.publish-plugins.outputs.trusted_base_sha",
-                            "Checkout trusted update signature tool source",
-                            "working-directory: trusted-update-signature-tool-source",
-                            "test \"$(git rev-parse HEAD)\" = \"$TRUSTED_BASE_SHA\"",
-                            "mvn -B -ntp -pl pixivdownload-plugin-signature -am package -DskipTests -Dexec.skip=true",
-                            "TRUSTED_UPDATE_SIGNATURE_TOOL=$destination",
-                            "TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256=$sha256",
-                            "Trusted update signature tool checksum mismatch.",
-                            "& java -cp $env:TRUSTED_UPDATE_SIGNATURE_TOOL",
-                            "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                            "--key-id pixivdownloader-update-root-2026-08")
+                            "update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                            "uses: ./.github/actions/sign-update-manifest")
                     .doesNotContain(
                             "UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM }}",
                             "Download update signature tool",
@@ -1280,10 +1309,9 @@ class PluginReleaseScriptsTest {
                             "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64",
                             "PLUGIN_SIGNING_PRIVATE_KEY_PEM",
                             "--key-id pixivdownloader-official-root-2026-07");
-            assertThat(signingJob.indexOf("name: Build trusted update signature tool"))
-                    .as(name + " trusted tool build precedes secret injection")
-                    .isGreaterThan(signingJob.indexOf("name: Generate update manifest"))
-                    .isLessThan(signingJob.indexOf("name: Sign update manifest"));
+            assertThat(signingJob.indexOf("name: Sign update manifest"))
+                    .as(name + " signing action follows manifest generation")
+                    .isGreaterThan(signingJob.indexOf("name: Generate update manifest"));
         }
         assertThat(workflow("publish-plugins.yml")).contains(
                 "trusted_base_sha:",
@@ -1828,6 +1856,11 @@ class PluginReleaseScriptsTest {
 
     private static String workflow(String name) throws IOException {
         return Files.readString(repoRoot().resolve(".github").resolve("workflows").resolve(name),
+                StandardCharsets.UTF_8);
+    }
+
+    private static String action(String name) throws IOException {
+        return Files.readString(repoRoot().resolve(".github").resolve("actions").resolve(name).resolve("action.yml"),
                 StandardCharsets.UTF_8);
     }
 
