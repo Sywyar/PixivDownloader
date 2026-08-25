@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
 import top.sywyar.pixivdownload.download.schedule.credential.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.download.schedule.credential.dto.CookieAuthorizeRequest;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
@@ -56,7 +56,7 @@ public class PixivScheduleCredentialController {
     }
 
     @PostMapping("/account/{accountId}/resume")
-    public Map<String, Object> resumeAccount(
+    public ResumeAccountResponse resumeAccount(
             @PathVariable String accountId,
             @RequestBody AccountResumeRequest request) {
         scheduleService.applyCurrentCredentialPolicyAction(
@@ -67,8 +67,10 @@ public class PixivScheduleCredentialController {
                 request.getMinutes() == null
                         ? Map.of()
                         : Map.of("minutes", Integer.toString(request.getMinutes())));
-        return Map.of("success", true);
+        return new ResumeAccountResponse(true);
     }
+
+    public record ResumeAccountResponse(boolean success) {}
 
     @ExceptionHandler(LocalizedException.class)
     public ResponseEntity<ErrorResponse> handleLocalized(

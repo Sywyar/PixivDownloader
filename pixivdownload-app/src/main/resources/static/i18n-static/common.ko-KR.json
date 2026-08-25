@@ -11,6 +11,7 @@
     "button.done": "완료",
     "button.reset": "초기화",
     "button.save": "저장",
+    "error.feature-unavailable": "이 기능을 일시적으로 사용할 수 없습니다. 페이지를 새로고침한 후 다시 시도해 주세요.",
     "external-link.confirm.cancel": "취소",
     "external-link.confirm.message": "외부 링크를 열려고 합니다：\n{url}\n계속하시겠습니까?",
     "external-link.confirm.open": "계속",

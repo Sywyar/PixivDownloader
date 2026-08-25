@@ -5,12 +5,17 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
+const altStatic = path.join(__dirname, '..', '..', 'main', 'resources',
+    'static', 'pixiv-batch-alt');
+const readAltFiles = (...names) => names
+    .map(name => fs.readFileSync(path.join(altStatic, name), 'utf8'))
+    .join('\n');
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-extensions.js'), 'utf8');
-const scheduleSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch-alt', 'alt-schedule.js'), 'utf8');
-const modesSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch-alt', 'alt-modes.js'), 'utf8');
+const scheduleSource = readAltFiles(
+    'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js');
+const modesSource = readAltFiles(
+    'alt-modes.js', 'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js');
 const initSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-init.js'), 'utf8');
 const chromeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
@@ -19,8 +24,8 @@ const settingsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 
     'static', 'pixiv-batch-alt', 'alt-settings.js'), 'utf8');
 const queueSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-queue.js'), 'utf8');
-const engineSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch-alt', 'alt-engine.js'), 'utf8');
+const engineSource = readAltFiles(
+    'alt-engine.js', 'alt-engine-stream.js', 'alt-engine-workers.js');
 const filtersSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-filters.js'), 'utf8');
 const coreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
@@ -31,10 +36,15 @@ const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main
     'static', 'pixiv-batch.html'), 'utf8');
 const classicCoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch', 'batch-core.js'), 'utf8');
-const classicDownloadSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch', 'batch-download.js'), 'utf8');
-const cssSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch-alt', 'pixiv-batch-alt.css'), 'utf8');
+const classicDownloadSource = [
+    'batch-download-quota.js', 'batch-download-artwork.js',
+    'batch-download-workers.js', 'batch-download.js'
+].map(file => fs.readFileSync(path.join(
+    __dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch', file), 'utf8')).join('\n');
+const cssSource = readAltFiles(
+    'pixiv-batch-alt.css', 'pixiv-batch-alt-layout.css', 'pixiv-batch-alt-dock.css',
+    'pixiv-batch-alt-schedule.css', 'pixiv-batch-alt-overlays.css',
+    'pixiv-batch-alt-responsive.css', 'pixiv-batch-alt-extensions.css');
 
 const contributions = [
     {
@@ -173,6 +183,22 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
     assert(pageSource.includes('data-i18n-aria-label="page.switch-to-old-layout"'));
     assert(pageSource.includes('data-icon="grid"'));
     assert(!pageSource.includes('data-i18n="page.switch-to-old-layout"'));
+    const altStyleOrder = [
+        'pixiv-batch-alt.css', 'pixiv-batch-alt-layout.css', 'pixiv-batch-alt-dock.css',
+        'pixiv-batch-alt-schedule.css', 'pixiv-batch-alt-overlays.css',
+        'pixiv-batch-alt-responsive.css', 'pixiv-batch-alt-extensions.css',
+        'pixiv-batch-alt-motion.css'
+    ].map(name => pageSource.indexOf(`/pixiv-batch-alt/${name}`));
+    assert(altStyleOrder.every((position, index) => position >= 0
+        && (index === 0 || position > altStyleOrder[index - 1])));
+    const altScriptOrder = [
+        'alt-modes.js', 'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js',
+        'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js',
+        'alt-queue.js', 'alt-queue-vue.js',
+        'alt-engine.js', 'alt-engine-stream.js', 'alt-engine-workers.js'
+    ].map(name => pageSource.indexOf(`/pixiv-batch-alt/${name}`));
+    assert(altScriptOrder.every((position, index) => position >= 0
+        && (index === 0 || position > altScriptOrder[index - 1])));
     const topbarOrder = [
         'id="abCookieChip"', 'id="abLangAnchor"', 'id="abVersion"', 'id="abScriptsBtn"',
         'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'data-qt-slot="topbar-actions"',
@@ -245,8 +271,12 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
         && source.includes("runtime.acquisitionList('quick')")
         && filtersSource.includes('let extraFilters = defaultSearchFilters();'));
     assert(classicPageSource.includes('/js/pixiv-vue.js')
+        && classicPageSource.includes('/pixiv-batch/batch-queue-types-normalize.js')
+        && classicPageSource.includes('/pixiv-batch/batch-queue-types-runtime.js')
         && classicPageSource.includes('/pixiv-batch/batch-queue-types.js')
         && pageSource.includes('/js/pixiv-vue.js')
+        && pageSource.includes('/pixiv-batch/batch-queue-types-normalize.js')
+        && pageSource.includes('/pixiv-batch/batch-queue-types-runtime.js')
         && pageSource.includes('/pixiv-batch/batch-queue-types.js'));
     [
         ['quick-fetch', 'QUICK_FETCH_MODE'], ['single-import', 'SINGLE_IMPORT_MODE'],

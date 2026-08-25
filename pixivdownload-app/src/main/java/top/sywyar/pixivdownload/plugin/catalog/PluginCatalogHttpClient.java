@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;

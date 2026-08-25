@@ -11,8 +11,12 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactLoadPlan;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactMaterializer;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactWorkspaceOwner;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentDiagnostics;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginStartupResourceBudget;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PreparedPluginArtifact;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
@@ -34,9 +38,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -54,6 +56,8 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackageIndex;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackageIndex.Entry;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
@@ -67,16 +71,14 @@ public class PluginRuntimeManager {
     // 所有运行期包变更必须复用本类的单包原语，禁止在 app 侧直接操作 PF4J manager。
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
-    private static final String ANSI_RED_BOLD = "\u001B[1;31m";
-    private static final String ANSI_RESET = "\u001B[0m";
     private static final PluginPackageLimits PRODUCTION_PACKAGE_LIMITS = PluginPackageLimits.defaults();
     static final int MAX_STARTUP_VERIFICATION_ENTRIES = 32_000;
     static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
     static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
-    private static final int MAX_RUNTIME_VERIFICATION_SNAPSHOTS = MAX_STARTUP_VERIFICATION_ENTRIES;
 
     private final Path pluginsRoot;
     private final PluginRuntimeLayout layout;
+    private final PluginArtifactWorkspaceOwner workspaceOwner;
     private final PluginArtifactMaterializer materializer;
     private PluginArtifactVerificationService verificationService;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
@@ -84,16 +86,11 @@ public class PluginRuntimeManager {
     private final int maximumStartupVerificationEntries;
     private final long maximumStartupVerificationUncompressedBytes;
     private final long maximumStartupProvenanceBytes;
-    private final Map<String, RuntimeEntry> entries = new LinkedHashMap<>();
-    private final Map<String, Long> generations = new LinkedHashMap<>();
-    private final Set<PluginArtifactSnapshot> unconfirmedProductionSnapshots =
-            Collections.newSetFromMap(new IdentityHashMap<>());
+    private final PluginRuntimePackageIndex packageIndex = new PluginRuntimePackageIndex();
 
     private volatile PluginManager pluginManager;
     private volatile PluginRuntimeStatus status;
     private PluginDevelopmentArtifacts.DevelopmentCacheSession developmentCacheSession;
-    private boolean abandonedWorkspaceCleanupCompleted;
-    private boolean abandonedWorkspaceCleanupSafe = true;
 
     public PluginRuntimeManager(Path pluginsRoot) {
         this(pluginsRoot, new PluginSupplyChainVerifier());
@@ -148,6 +145,7 @@ public class PluginRuntimeManager {
         }
         this.pluginsRoot = pluginsRoot;
         this.layout = new PluginRuntimeLayout(pluginsRoot);
+        this.workspaceOwner = new PluginArtifactWorkspaceOwner(layout);
         this.materializer = new PluginArtifactMaterializer(layout);
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
@@ -200,7 +198,7 @@ public class PluginRuntimeManager {
                 throw new IOException("plugins root must be a plain directory: " + directory);
             }
             beforeProductionScan(directory);
-            cleanupAbandonedProductionWorkspaces();
+            workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
@@ -212,17 +210,17 @@ public class PluginRuntimeManager {
                     List.of(), List.of(), List.of()));
         }
 
-        List<PreparedProductionArtifact> preparedCandidates = new ArrayList<>(candidates.size());
+        List<PreparedPluginArtifact> preparedCandidates = new ArrayList<>(candidates.size());
         List<PluginLoadFailure> failures = new ArrayList<>();
         List<PluginRuntimeVerificationSnapshot> verifications = new ArrayList<>(candidates.size());
-        StartupVerificationBudget startupVerificationBudget = new StartupVerificationBudget(
-                maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes);
-        StartupProvenanceBudget startupProvenanceBudget = new StartupProvenanceBudget(
+        PluginStartupResourceBudget startupBudget = new PluginStartupResourceBudget(
+                maximumStartupVerificationEntries,
+                maximumStartupVerificationUncompressedBytes,
                 maximumStartupProvenanceBytes);
         try {
             for (Path candidate : candidates) {
                 try {
-                    if (startupVerificationBudget.exhausted()) {
+                    if (startupBudget.verificationExhausted()) {
                         PluginLoadFailure failure = new PluginLoadFailure(candidate.getFileName().toString(),
                                 "startup plugin verification cumulative resource budget exceeded");
                         failures.add(failure);
@@ -230,7 +228,7 @@ public class PluginRuntimeManager {
                                 candidate.getFileName(), failure.reason());
                         continue;
                     }
-                    if (startupProvenanceBudget.exhausted()) {
+                    if (startupBudget.provenanceExhausted()) {
                         PluginLoadFailure failure = new PluginLoadFailure(candidate.getFileName().toString(),
                                 "startup plugin provenance sidecar cumulative byte budget exceeded");
                         failures.add(failure);
@@ -241,15 +239,15 @@ public class PluginRuntimeManager {
                     Optional<PluginProvenanceStore.MeasuredProvenance> measuredProvenance;
                     try {
                         measuredProvenance = readMeasuredStartupProvenance(
-                                candidate, startupProvenanceBudget.remainingBytes());
+                                candidate, startupBudget.remainingProvenanceBytes());
                     } catch (PluginProvenanceStore.ReadBudgetExceededException failure) {
-                        startupProvenanceBudget.consumeFailure(failure.byteCount(), failure);
+                        startupBudget.consumeProvenanceFailure(failure.byteCount(), failure);
                         throw failure;
                     } catch (PluginProvenanceStore.InvalidProvenanceException failure) {
-                        startupProvenanceBudget.consumeFailure(failure.byteCount(), failure);
+                        startupBudget.consumeProvenanceFailure(failure.byteCount(), failure);
                         throw failure;
                     } catch (PluginProvenanceStore.ProvenanceReadException failure) {
-                        startupProvenanceBudget.consumeFailure(failure.byteCount(), failure);
+                        startupBudget.consumeProvenanceFailure(failure.byteCount(), failure);
                         throw failure;
                     } catch (IOException | RuntimeException failure) {
                         throw failure;
@@ -257,10 +255,10 @@ public class PluginRuntimeManager {
                     long candidateProvenanceBytes = measuredProvenance
                             .map(PluginProvenanceStore.MeasuredProvenance::byteCount)
                             .orElse(0L);
-                    startupProvenanceBudget.consume(candidateProvenanceBytes);
-                    PreparedProductionArtifact prepared = prepareProductionArtifact(candidate,
+                    startupBudget.consumeProvenance(candidateProvenanceBytes);
+                    PreparedPluginArtifact prepared = prepareProductionArtifact(candidate,
                             measuredProvenance.map(PluginProvenanceStore.MeasuredProvenance::record),
-                            startupVerificationBudget, verifications);
+                            startupBudget, verifications);
                     preparedCandidates.add(prepared);
                 } catch (IOException | RuntimeException e) {
                     PluginLoadFailure failure = new PluginLoadFailure(
@@ -270,14 +268,14 @@ public class PluginRuntimeManager {
                 }
             }
             PluginArtifactLoadPlan loadPlan = PluginArtifactLoadPlan.createInspected(preparedCandidates.stream()
-                    .map(PreparedProductionArtifact::loadPlanEntry)
+                    .map(PreparedPluginArtifact::loadPlanEntry)
                     .toList());
             failures.addAll(loadPlan.failures());
             for (PluginLoadFailure failure : loadPlan.failures()) {
                 log.error("Failed to prepare plugin package {}: {}", failure.source(), failure.reason());
             }
-            Map<Path, PreparedProductionArtifact> preparedByPath = new LinkedHashMap<>();
-            for (PreparedProductionArtifact prepared : preparedCandidates) {
+            Map<Path, PreparedPluginArtifact> preparedByPath = new LinkedHashMap<>();
+            for (PreparedPluginArtifact prepared : preparedCandidates) {
                 preparedByPath.put(prepared.originalArtifact(), prepared);
             }
             Set<String> failedPluginIds = new LinkedHashSet<>(loadPlan.skippedPluginIds());
@@ -291,7 +289,7 @@ public class PluginRuntimeManager {
                             blocked.get().source(), blocked.get().reason());
                     continue;
                 }
-                PreparedProductionArtifact prepared = preparedByPath.get(
+                PreparedPluginArtifact prepared = preparedByPath.get(
                         candidate.artifactPath().toAbsolutePath().normalize());
                 if (prepared == null) {
                     throw new IllegalStateException("prepared plugin artifact disappeared from load plan: "
@@ -308,9 +306,9 @@ public class PluginRuntimeManager {
                 }
             }
         } finally {
-            preparedCandidates.forEach(PreparedProductionArtifact::close);
+            preparedCandidates.forEach(PreparedPluginArtifact::close);
         }
-        for (String packageId : List.copyOf(entries.keySet())) {
+        for (String packageId : packageIndex.packageIds()) {
             try {
                 startPlugin(packageId);
             } catch (RuntimeException e) {
@@ -318,7 +316,7 @@ public class PluginRuntimeManager {
                 log.error("Failed to start plugin package {}: {}", packageId, describe(e));
             }
         }
-        return cache(buildStatus(directory, failures, verifications));
+        return cache(PluginRuntimeStatus.populated(directory, phaseSnapshot(), failures, verifications));
     }
 
     /** 从明确路径加载一个插件包并创建新 generation；不会启动插件入口。 */
@@ -333,12 +331,12 @@ public class PluginRuntimeManager {
             return loadDevelopmentPlugin(artifactPath);
         }
         try {
-            cleanupAbandonedProductionWorkspaces();
+            workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
         } catch (RuntimeException e) {
             throw new PluginRuntimeOperationException(
                     "plugin directory is not safe for a production artifact load", e);
         }
-        PreparedProductionArtifact prepared = prepareProductionArtifact(artifactPath);
+        PreparedPluginArtifact prepared = prepareProductionArtifact(artifactPath);
         try {
             return loadPreparedProductionArtifact(prepared);
         } finally {
@@ -356,7 +354,7 @@ public class PluginRuntimeManager {
                 .orElseThrow(() -> new PluginRuntimeOperationException(
                         "development plugin artifact not found: " + normalizedClasses));
         PluginDescriptor descriptor = PluginPackageReader.inspectDescriptor(artifact.descriptorPath());
-        if (entries.containsKey(descriptor.id())) {
+        if (packageIndex.contains(descriptor.id())) {
             throw new PluginRuntimeOperationException("plugin package already loaded: " + descriptor.id());
         }
         PluginDevelopmentArtifacts.DevelopmentCacheSession session =
@@ -376,13 +374,13 @@ public class PluginRuntimeManager {
                     List.of(), List.of(), List.of(new PluginLoadFailure(
                     PluginDevelopmentArtifacts.ROOT_PROPERTY, describe(e)))));
         }
-        printDevelopmentModeBanner(productionDirectory, discovery);
+        PluginDevelopmentDiagnostics.printBanner(productionDirectory, discovery);
         Path developmentRoot = discovery.developmentRoot();
         if (!Files.isDirectory(developmentRoot)) {
             return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.ABSENT,
                     List.of(), List.of(), List.of()));
         }
-        List<PluginLoadFailure> failures = new ArrayList<>(developmentSourceFailures(discovery));
+        List<PluginLoadFailure> failures = new ArrayList<>(PluginDevelopmentDiagnostics.sourceFailures(discovery));
         if (discovery.artifacts().isEmpty()) {
             return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.EMPTY,
                     List.of(), List.of(), failures));
@@ -394,7 +392,7 @@ public class PluginRuntimeManager {
         } catch (RuntimeException e) {
             failures.add(new PluginLoadFailure(discovery.cacheRoot().toString(), describe(e)));
             log.error("Failed to open plugin development cache session {}", discovery.cacheRoot(), e);
-            return cache(buildStatus(developmentRoot, failures));
+            return cache(PluginRuntimeStatus.populated(developmentRoot, phaseSnapshot(), failures));
         }
         List<PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> materializedPlugins = new ArrayList<>();
         for (PluginDevelopmentArtifacts.DevelopmentPluginArtifact artifact : discovery.artifacts()) {
@@ -417,7 +415,7 @@ public class PluginRuntimeManager {
                         materialized.moduleRoot().getFileName(), e);
             }
         }
-        for (String packageId : List.copyOf(entries.keySet())) {
+        for (String packageId : packageIndex.packageIds()) {
             try {
                 startPlugin(packageId);
             } catch (RuntimeException e) {
@@ -425,69 +423,27 @@ public class PluginRuntimeManager {
                 log.error("Failed to start plugin package {}", packageId, e);
             }
         }
-        return cache(buildStatus(developmentRoot, failures));
-    }
-
-    private static List<PluginLoadFailure> developmentSourceFailures(
-            PluginDevelopmentArtifacts.DevelopmentDiscovery discovery) {
-        if (discovery.sourceOnlyModules().isEmpty()) {
-            return List.of();
-        }
-        return discovery.sourceOnlyModules().stream()
-                .map(module -> new PluginLoadFailure(module.pluginId(),
-                        "development plugin module has plugin.properties in source resources but no compiled "
-                                + "target/classes/plugin.properties: " + module.moduleRoot()))
-                .toList();
-    }
-
-    private static void printDevelopmentModeBanner(Path productionDirectory,
-                                                   PluginDevelopmentArtifacts.DevelopmentDiscovery discovery) {
-        redLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        redLine("PIXIVDOWNLOAD PLUGIN DEVELOPMENT MODE ENABLED");
-        redLine("The plugins directory is ignored: " + productionDirectory);
-        redLine("Development root: " + discovery.developmentRoot());
-        redLine("Development cache: " + discovery.cacheRoot());
-        redLine("Compiled plugin modules: " + discovery.artifacts().size()
-                + displayModules(discovery.artifacts().stream()
-                .map(artifact -> artifact.moduleRoot().getFileName().toString()).toList()));
-        if (!discovery.sourceOnlyModules().isEmpty()) {
-            redLine("Source plugin modules without target/classes output: "
-                    + displayModules(discovery.sourceOnlyModules().stream()
-                    .map(module -> module.moduleRoot().getFileName().toString()).toList()));
-            redLine("Compile these modules before launching; otherwise required plugins may keep recovery mode active.");
-        }
-        redLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    }
-
-    private static String displayModules(List<String> modules) {
-        if (modules == null || modules.isEmpty()) {
-            return " (none)";
-        }
-        return " [" + String.join(", ", modules) + "]";
-    }
-
-    private static void redLine(String message) {
-        System.err.println(ANSI_RED_BOLD + message + ANSI_RESET);
+        return cache(PluginRuntimeStatus.populated(developmentRoot, phaseSnapshot(), failures));
     }
 
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
                                                     PluginDescriptor packageDescriptor,
                                                     PluginArtifactSnapshot productionSnapshot) {
-        if (entries.containsKey(packageDescriptor.id())) {
-            closeProductionSnapshot(productionSnapshot);
+        if (packageIndex.contains(packageDescriptor.id())) {
+            workspaceOwner.discard(productionSnapshot);
             throw new PluginRuntimeOperationException("plugin package already loaded: " + packageDescriptor.id());
         }
         try {
             ensureManager(pluginManagerRoot);
         } catch (Throwable failure) {
-            closeProductionSnapshot(productionSnapshot);
+            workspaceOwner.discard(productionSnapshot);
             throw operationFailure("failed to initialize plugin runtime before loading " + artifactPath, failure);
         }
         Set<String> wrappersBeforeLoad;
         try {
             wrappersBeforeLoad = loadedWrapperIds();
         } catch (Throwable failure) {
-            closeProductionSnapshot(productionSnapshot);
+            workspaceOwner.discard(productionSnapshot);
             throw operationFailure("failed to inspect plugin runtime before loading " + artifactPath, failure);
         }
         String packageId;
@@ -505,7 +461,7 @@ public class PluginRuntimeManager {
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw failure;
         }
-        if (entries.containsKey(packageId)) {
+        if (packageIndex.contains(packageId)) {
             // 不得在重复加载分支调用 unloadPlugin：PF4J 返回的 id 可能指向原有 wrapper，
             // 此时卸载会错误释放仍在服务的旧 generation。
             PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
@@ -537,15 +493,18 @@ public class PluginRuntimeManager {
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw operationFailure("failed to inspect loaded plugin descriptor " + packageId, failure);
         }
-        long generation = generations.merge(packageId, 1L, Long::sum);
-        RuntimeEntry entry = new RuntimeEntry(packageId,
-                artifactPath.toAbsolutePath().normalize(), pf4jLoadPath.toAbsolutePath().normalize(),
-                version, generation, PluginRuntimePackagePhase.LOADED,
-                packageDescriptor, productionSnapshot);
-        entries.put(packageId, entry);
+        Entry entry = packageIndex.add(
+                packageId,
+                artifactPath,
+                pf4jLoadPath,
+                version,
+                PluginRuntimePackagePhase.LOADED,
+                packageDescriptor,
+                productionSnapshot
+        );
         try {
             LoadedPluginPackage loaded = snapshot(entry, true);
-            entry.descriptor = validateReleaseShape(loaded);
+            entry.updateDescriptor(validateReleaseShape(loaded));
             refreshStatus();
             return loaded;
         } catch (Throwable failure) {
@@ -557,7 +516,7 @@ public class PluginRuntimeManager {
             }
             try {
                 if (pluginManager.getPlugin(packageId) == null) {
-                    RuntimeEntry removed = entries.remove(packageId);
+                    Entry removed = packageIndex.remove(packageId);
                     if (released) {
                         releaseProductionSnapshot(removed);
                     } else {
@@ -574,15 +533,15 @@ public class PluginRuntimeManager {
 
     /** 启动 PF4J 插件入口，并返回 load 准入时固化的本代功能插件与 Spring 模块快照。 */
     public synchronized LoadedPluginPackage startPlugin(String packageId) {
-        RuntimeEntry entry = requireEntry(packageId);
-        if (entry.phase == PluginRuntimePackagePhase.STARTED) {
+        Entry entry = requireEntry(packageId);
+        if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
             try {
                 return snapshot(entry, true);
             } catch (Throwable failure) {
                 throw operationFailure("failed to inspect started plugin package " + packageId, failure);
             }
         }
-        PluginRuntimePackagePhase previousPhase = entry.phase;
+        PluginRuntimePackagePhase previousPhase = entry.phase();
         PluginState result;
         try {
             result = pluginManager.startPlugin(packageId);
@@ -598,7 +557,7 @@ public class PluginRuntimeManager {
             refreshStatusSafely(failure);
             throw failure;
         }
-        entry.phase = PluginRuntimePackagePhase.STARTED;
+        entry.updatePhase(PluginRuntimePackagePhase.STARTED);
         refreshStatus();
         try {
             return snapshot(entry, true);
@@ -609,8 +568,8 @@ public class PluginRuntimeManager {
 
     /** 停止 PF4J 插件入口但保留 wrapper/classloader。 */
     public synchronized LoadedPluginPackage stopPlugin(String packageId) {
-        RuntimeEntry entry = requireEntry(packageId);
-        if (entry.phase != PluginRuntimePackagePhase.STARTED) {
+        Entry entry = requireEntry(packageId);
+        if (entry.phase() != PluginRuntimePackagePhase.STARTED) {
             try {
                 return snapshot(entry, false);
             } catch (Throwable failure) {
@@ -632,7 +591,7 @@ public class PluginRuntimeManager {
             refreshStatusSafely(failure);
             throw failure;
         }
-        entry.phase = PluginRuntimePackagePhase.STOPPED;
+        entry.updatePhase(PluginRuntimePackagePhase.STOPPED);
         refreshStatus();
         return snapshot(entry, false);
     }
@@ -641,13 +600,13 @@ public class PluginRuntimeManager {
      * 物理卸载并关闭 classloader。存在已加载的非可选反向依赖时拒绝，避免 PF4J 隐式级联卸载。
      */
     public synchronized UnloadedPluginPackage unloadPlugin(String packageId) {
-        RuntimeEntry entry = requireEntry(packageId);
+        Entry entry = requireEntry(packageId);
         List<String> dependents = activeDependents(packageId);
         if (!dependents.isEmpty()) {
             throw new PluginRuntimeOperationException("plugin package " + packageId
                     + " is required by loaded package(s): " + String.join(", ", dependents));
         }
-        if (entry.phase == PluginRuntimePackagePhase.STARTED) {
+        if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
             stopPlugin(packageId);
         }
         boolean unloaded;
@@ -675,46 +634,43 @@ public class PluginRuntimeManager {
             refreshStatusSafely(failure);
             throw failure;
         }
-        RuntimeEntry removed = entries.remove(packageId);
+        Entry removed = packageIndex.remove(packageId);
         releaseProductionSnapshot(removed);
         refreshStatus();
-        return new UnloadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation);
+        return new UnloadedPluginPackage(
+                entry.packageId(), entry.artifactPath(), entry.version(), entry.generation());
     }
 
     /** 当前已加载包的纯值阶段快照。 */
     public synchronized Map<String, PluginRuntimePackagePhase> packagePhases() {
-        Map<String, PluginRuntimePackagePhase> result = new LinkedHashMap<>();
-        entries.forEach((id, entry) -> result.put(id, entry.phase));
-        return Map.copyOf(result);
+        return packageIndex.packagePhases();
+    }
+
+    private Map<String, PluginRuntimePackagePhase> phaseSnapshot() {
+        return packageIndex.packagePhases();
     }
 
     public synchronized Optional<Long> generation(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry == null ? Optional.empty() : Optional.of(entry.generation);
+        return packageIndex.generation(packageId);
     }
 
     public synchronized Optional<Path> artifactPath(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry == null ? Optional.empty() : Optional.of(entry.artifactPath);
+        return packageIndex.artifactPath(packageId);
     }
 
     /** 当前已加载 generation 是否来自显式插件开发模式。 */
     public synchronized boolean isDevelopmentArtifact(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry != null && entry.productionSnapshot == null;
+        return packageIndex.isDevelopmentArtifact(packageId);
     }
 
     /** 当前已加载 generation 的纯值描述符；停止服务不移除，物理卸载时随 runtime entry 一并释放。 */
     public synchronized Optional<PluginDescriptor> loadedDescriptor(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry == null ? Optional.empty() : Optional.of(entry.descriptor);
+        return packageIndex.descriptor(packageId);
     }
 
     /** 全部已加载 generation 的纯值描述符快照，包含 LOADED / STARTED / STOPPED。 */
     public synchronized Map<String, PluginDescriptor> loadedDescriptors() {
-        Map<String, PluginDescriptor> result = new LinkedHashMap<>();
-        entries.forEach((id, entry) -> result.put(id, entry.descriptor));
-        return Map.copyOf(result);
+        return packageIndex.descriptors();
     }
 
     /** 当前已加载的非可选反向依赖包。 */
@@ -754,8 +710,8 @@ public class PluginRuntimeManager {
         List<PluginInstallation> installations = new ArrayList<>();
         List<PluginContextModule> contextModules = new ArrayList<>();
         List<PluginLoadFailure> failures = new ArrayList<>();
-        for (RuntimeEntry entry : entries.values()) {
-            if (entry.phase != PluginRuntimePackagePhase.STARTED) {
+        for (Entry entry : packageIndex.entries()) {
+            if (entry.phase() != PluginRuntimePackagePhase.STARTED) {
                 continue;
             }
             PluginInventory captured = contributionSnapshot(entry);
@@ -791,9 +747,9 @@ public class PluginRuntimeManager {
 
     /** 当前所有 STARTED 包的代际快照。 */
     public synchronized List<LoadedPluginPackage> startedPackages() {
-        return entries.values().stream()
-                .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
-                .sorted(Comparator.comparing(entry -> entry.packageId))
+        return packageIndex.entries().stream()
+                .filter(entry -> entry.phase() == PluginRuntimePackagePhase.STARTED)
+                .sorted(Comparator.comparing(Entry::packageId))
                 .map(entry -> snapshot(entry, true))
                 .toList();
     }
@@ -807,27 +763,19 @@ public class PluginRuntimeManager {
     public synchronized void shutdown() {
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
-        if (previous == null && entries.isEmpty() && previousDevelopmentSession == null
-                && unconfirmedProductionSnapshots.isEmpty()) {
+        if (previous == null && packageIndex.isEmpty() && previousDevelopmentSession == null
+                && !workspaceOwner.hasUnconfirmedSnapshots()) {
             // 已关闭（或从未扫描）：清空残余引用即返回，幂等。
-            generations.clear();
+            packageIndex.clearGenerations();
             status = null;
             return;
         }
-        List<RuntimeEntry> previousEntries = List.copyOf(entries.values());
-        List<PluginArtifactSnapshot> previousUnconfirmedSnapshots =
-                List.copyOf(unconfirmedProductionSnapshots);
-        boolean cleanupWasSafe = abandonedWorkspaceCleanupSafe;
+        List<Entry> previousEntries = packageIndex.clearAll();
         pluginManager = null;
         developmentCacheSession = null;
-        entries.clear();
-        generations.clear();
         status = null;
         boolean released = previous == null || bestEffortStopAndUnload(previous, "shutdown");
-        unconfirmedProductionSnapshots.clear();
-        abandonedWorkspaceCleanupCompleted = false;
-        abandonedWorkspaceCleanupSafe = cleanupWasSafe && released;
-        closeProductionSnapshots(previousEntries, previousUnconfirmedSnapshots, released, "shutdown");
+        workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "shutdown");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "shutdown");
     }
 
@@ -835,15 +783,16 @@ public class PluginRuntimeManager {
         return pluginsRoot;
     }
 
-    private LoadedPluginPackage snapshot(RuntimeEntry entry, boolean includeContributions) {
+    private LoadedPluginPackage snapshot(Entry entry, boolean includeContributions) {
         PluginInventory inventory = PluginInventory.empty();
         List<PluginContextModule> modules = List.of();
         if (includeContributions && pluginManager != null) {
             inventory = contributionSnapshot(entry);
             modules = inventory.contextModules();
         }
-        return new LoadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation,
-                entry.phase, inventory, modules);
+        return new LoadedPluginPackage(
+                entry.packageId(), entry.artifactPath(), entry.version(), entry.generation(),
+                entry.phase(), inventory, modules);
     }
 
     /** bootstrap 子类可在扫描或任意单包加载（含开发目录）触碰 entry 前取得并复核跨进程目录租约。 */
@@ -855,13 +804,13 @@ public class PluginRuntimeManager {
      * 每个物理 generation 恰好读取一次 provider 的 feature/configuration 声明并固化为宿主快照。
      * load、start、Spring 接入与状态查询只复用该快照，禁止状态化 getter 改变已验证身份或制造半份装配。
      */
-    private PluginInventory contributionSnapshot(RuntimeEntry entry) {
-        if (entry.contributionSnapshot == null) {
+    private PluginInventory contributionSnapshot(Entry entry) {
+        if (entry.contributionSnapshot() == null) {
             PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
-            entry.contributionSnapshot = attachPackageMetadata(
-                    bridge.inspectLoadedPackage(pluginManager, entry.packageId));
+            entry.updateContributionSnapshot(attachPackageMetadata(
+                    bridge.inspectLoadedPackage(pluginManager, entry.packageId())));
         }
-        return entry.contributionSnapshot;
+        return entry.contributionSnapshot();
     }
 
     /**
@@ -871,12 +820,12 @@ public class PluginRuntimeManager {
     private PluginInventory attachPackageMetadata(PluginInventory inventory) {
         List<PluginInstallation> installations = inventory.installations().stream()
                 .map(installation -> {
-                    RuntimeEntry entry = entries.get(installation.descriptor().sourcePluginId());
+                    Entry entry = packageIndex.get(installation.descriptor().sourcePluginId());
                     if (entry == null) {
                         return installation;
                     }
                     PluginDescriptor descriptor = installation.descriptor()
-                            .withPackageMetadataFrom(entry.descriptor);
+                            .withPackageMetadataFrom(entry.descriptor());
                     return new PluginInstallation(descriptor, installation.status(), installation.classLoader(),
                             installation.plugin());
                 })
@@ -920,7 +869,7 @@ public class PluginRuntimeManager {
         }
     }
 
-    private PreparedProductionArtifact prepareProductionArtifact(Path artifactPath) {
+    private PreparedPluginArtifact prepareProductionArtifact(Path artifactPath) {
         Path attemptedPath = Objects.requireNonNull(artifactPath, "artifactPath")
                 .toAbsolutePath().normalize();
         List<PluginRuntimeVerificationSnapshot> latestVerification = new ArrayList<>(1);
@@ -932,14 +881,14 @@ public class PluginRuntimeManager {
         }
     }
 
-    private PreparedProductionArtifact prepareProductionArtifact(
+    private PreparedPluginArtifact prepareProductionArtifact(
             Path artifactPath,
             Optional<PluginProvenanceRecord> preReadProvenance,
-            StartupVerificationBudget startupVerificationBudget,
+            PluginStartupResourceBudget startupBudget,
             List<PluginRuntimeVerificationSnapshot> startupVerifications) {
-        PluginPackageLimits verificationLimits = startupVerificationBudget == null
+        PluginPackageLimits verificationLimits = startupBudget == null
                 ? PRODUCTION_PACKAGE_LIMITS
-                : startupVerificationBudget.remainingLimits(PRODUCTION_PACKAGE_LIMITS);
+                : startupBudget.remainingVerificationLimits(PRODUCTION_PACKAGE_LIMITS);
         PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
                 layout, artifactPath, PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes());
         try {
@@ -948,13 +897,13 @@ public class PluginRuntimeManager {
             try {
                 verificationUsage = verifyAndMeasureProductionPackage(frozenArtifact, verificationLimits);
             } catch (PluginPackageException failure) {
-                if (startupVerificationBudget != null) {
-                    startupVerificationBudget.consumeFailure(failure);
+                if (startupBudget != null) {
+                    startupBudget.consumeVerificationFailure(failure);
                 }
                 throw failure;
             }
-            if (startupVerificationBudget != null) {
-                startupVerificationBudget.consume(verificationUsage);
+            if (startupBudget != null) {
+                startupBudget.consumeVerification(verificationUsage);
             }
             PluginPackageInspection inspection = PluginPackageReader.inspect(
                     frozenArtifact, PRODUCTION_PACKAGE_LIMITS);
@@ -990,7 +939,7 @@ public class PluginRuntimeManager {
                 throw new PluginRuntimeOperationException(
                         "plugin verification failed before load: " + result.status());
             }
-            return new PreparedProductionArtifact(snapshot, inspection, result.sha256());
+            return new PreparedPluginArtifact(snapshot, inspection, result.sha256());
         } catch (Throwable failure) {
             snapshot.close();
             rethrowFatal(failure);
@@ -1018,8 +967,8 @@ public class PluginRuntimeManager {
         return PluginPackageVerifier.verifyAndMeasure(frozenArtifact, limits);
     }
 
-    private LoadedPluginPackage loadPreparedProductionArtifact(PreparedProductionArtifact prepared) {
-        if (entries.containsKey(prepared.inspection().descriptor().id())) {
+    private LoadedPluginPackage loadPreparedProductionArtifact(PreparedPluginArtifact prepared) {
+        if (packageIndex.contains(prepared.inspection().descriptor().id())) {
             throw new PluginRuntimeOperationException(
                     "plugin package already loaded: " + prepared.inspection().descriptor().id());
         }
@@ -1030,28 +979,12 @@ public class PluginRuntimeManager {
                 prepared.inspection().descriptor(), ownedSnapshot);
     }
 
-    private RuntimeEntry requireEntry(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
+    private Entry requireEntry(String packageId) {
+        Entry entry = packageIndex.get(packageId);
         if (entry == null || pluginManager == null) {
             throw new PluginRuntimeOperationException("plugin package is not loaded: " + packageId);
         }
         return entry;
-    }
-
-    private PluginRuntimeStatus buildStatus(Path directory, List<PluginLoadFailure> failures) {
-        return buildStatus(directory, failures, List.of());
-    }
-
-    private PluginRuntimeStatus buildStatus(
-            Path directory,
-            List<PluginLoadFailure> failures,
-            List<PluginRuntimeVerificationSnapshot> verifications) {
-        List<String> loaded = List.copyOf(entries.keySet());
-        List<String> started = entries.values().stream()
-                .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
-                .map(entry -> entry.packageId).toList();
-        return new PluginRuntimeStatus(
-                directory, PluginDirectoryState.POPULATED, loaded, started, failures, verifications);
     }
 
     /**
@@ -1061,96 +994,43 @@ public class PluginRuntimeManager {
     private void retainLatestRuntimeVerifications(
             Path attemptedPath,
             List<PluginRuntimeVerificationSnapshot> latest) {
-        Set<Path> replacedPaths = new LinkedHashSet<>();
-        Set<String> replacedPluginIds = new LinkedHashSet<>();
-        if (attemptedPath != null) {
-            replacedPaths.add(attemptedPath.toAbsolutePath().normalize());
-        }
-        if (latest != null) {
-            replacedPaths.addAll(latest.stream()
-                .map(PluginRuntimeVerificationSnapshot::artifactPath)
-                .toList());
-            replacedPluginIds.addAll(latest.stream()
-                    .map(PluginRuntimeVerificationSnapshot::pluginId)
-                    .toList());
-        }
-        if (replacedPaths.isEmpty() && replacedPluginIds.isEmpty()) {
-            return;
-        }
         PluginRuntimeStatus current = status;
-        List<PluginRuntimeVerificationSnapshot> merged = new ArrayList<>();
-        if (current != null) {
-            current.verifications().stream()
-                    .filter(snapshot -> !replacedPaths.contains(snapshot.artifactPath())
-                            && !replacedPluginIds.contains(snapshot.pluginId()))
-                    .forEach(merged::add);
-        }
-        if (latest != null) {
-            merged.addAll(latest);
-        }
-        if (merged.size() > MAX_RUNTIME_VERIFICATION_SNAPSHOTS) {
-            merged.subList(0, merged.size() - MAX_RUNTIME_VERIFICATION_SNAPSHOTS).clear();
-        }
         if (current == null) {
-            if (merged.isEmpty()) {
+            if (latest == null || latest.isEmpty()) {
                 return;
             }
-            status = buildStatus(pluginsRoot.toAbsolutePath().normalize(), List.of(), merged);
-            return;
+            current = PluginRuntimeStatus.populated(
+                    pluginsRoot.toAbsolutePath().normalize(), phaseSnapshot(), List.of());
         }
-        status = new PluginRuntimeStatus(
-                current.directory(), current.state(), current.loadedPluginIds(), current.startedPluginIds(),
-                current.failures(), merged);
+        status = current.withLatestRuntimeVerifications(
+                attemptedPath, latest, MAX_STARTUP_VERIFICATION_ENTRIES);
     }
 
     private void refreshStatus() {
-        if (status == null && entries.isEmpty()) {
+        if (status == null && packageIndex.isEmpty()) {
             return;
         }
-        Path directory = status == null ? pluginsRoot.toAbsolutePath().normalize() : status.directory();
-        PluginDirectoryState state = Files.isDirectory(directory)
-                ? (entries.isEmpty() ? PluginDirectoryState.EMPTY : PluginDirectoryState.POPULATED)
-                : PluginDirectoryState.ABSENT;
-        this.status = new PluginRuntimeStatus(directory, state,
-                List.copyOf(entries.keySet()), entries.values().stream()
-                .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
-                .map(entry -> entry.packageId).toList(), List.of(),
-                status != null ? status.verifications() : List.of());
+        PluginRuntimeStatus current = status == null
+                ? PluginRuntimeStatus.populated(
+                        pluginsRoot.toAbsolutePath().normalize(), phaseSnapshot(), List.of())
+                : status;
+        status = current.refreshed(phaseSnapshot());
     }
 
     private synchronized void resetPluginManager() {
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
-        List<RuntimeEntry> previousEntries = List.copyOf(entries.values());
-        List<PluginArtifactSnapshot> previousUnconfirmedSnapshots =
-                List.copyOf(unconfirmedProductionSnapshots);
-        boolean cleanupWasSafe = abandonedWorkspaceCleanupSafe;
+        List<Entry> previousEntries = packageIndex.clearEntries();
         pluginManager = null;
         developmentCacheSession = null;
-        entries.clear();
         boolean released = previous == null || bestEffortStopAndUnload(previous, "reset");
-        unconfirmedProductionSnapshots.clear();
-        abandonedWorkspaceCleanupCompleted = false;
-        abandonedWorkspaceCleanupSafe = cleanupWasSafe && released;
-        closeProductionSnapshots(previousEntries, previousUnconfirmedSnapshots, released, "reset");
+        workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "reset");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "reset");
     }
 
     private PluginRuntimeStatus cache(PluginRuntimeStatus value) {
         this.status = value;
         return value;
-    }
-
-    private void cleanupAbandonedProductionWorkspaces() {
-        if (abandonedWorkspaceCleanupCompleted) {
-            return;
-        }
-        if (!abandonedWorkspaceCleanupSafe || !entries.isEmpty()) {
-            log.warn("Skipping abandoned plugin artifact workspace cleanup because wrapper release is unconfirmed");
-            return;
-        }
-        PluginArtifactSnapshot.cleanupAbandonedWorkspaces(layout);
-        abandonedWorkspaceCleanupCompleted = true;
     }
 
     private static boolean bestEffortStopAndUnload(PluginManager manager, String action) {
@@ -1235,67 +1115,27 @@ public class PluginRuntimeManager {
         }
     }
 
-    private static void closeProductionSnapshots(
-            List<RuntimeEntry> previousEntries,
-            List<PluginArtifactSnapshot> unconfirmedSnapshots,
-            boolean runtimeReleased,
-            String action) {
-        Set<PluginArtifactSnapshot> unconfirmed = Collections.newSetFromMap(new IdentityHashMap<>());
-        unconfirmed.addAll(unconfirmedSnapshots);
-        Set<PluginArtifactSnapshot> releasable = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (RuntimeEntry entry : previousEntries) {
-            if (entry.productionSnapshot != null && !unconfirmed.contains(entry.productionSnapshot)) {
-                releasable.add(entry.productionSnapshot);
-            }
-        }
-        if (!unconfirmed.isEmpty()) {
-            log.warn("Retaining {} plugin artifact workspace(s) because their classloader release is unconfirmed",
-                    unconfirmed.size());
-        }
-        if (releasable.isEmpty()) {
-            return;
-        }
-        if (!runtimeReleased) {
-            log.warn("Retaining {} plugin artifact workspace(s) because runtime {} did not release cleanly",
-                    releasable.size(), action);
-            return;
-        }
-        releasable.forEach(PluginRuntimeManager::closeProductionSnapshot);
-    }
-
-    private void releaseProductionSnapshot(RuntimeEntry removedEntry) {
-        if (removedEntry == null || removedEntry.productionSnapshot == null) {
-            return;
-        }
-        PluginArtifactSnapshot snapshot = removedEntry.productionSnapshot;
-        if (unconfirmedProductionSnapshots.contains(snapshot)) {
+    private void releaseProductionSnapshot(Entry removedEntry) {
+        if (removedEntry == null) {
             return;
         }
         // 一个失败 load 可能留下多个 wrapper；它们共享同一 snapshot，只有最后一个 entry 移除后才关闭。
-        boolean stillReferenced = entries.values().stream()
-                .anyMatch(entry -> entry.productionSnapshot == snapshot);
-        if (!stillReferenced) {
-            closeProductionSnapshot(snapshot);
-        }
+        workspaceOwner.release(
+                removedEntry.productionSnapshot(), packageIndex.productionSnapshots());
     }
 
-    private void retainUnconfirmedProductionSnapshot(RuntimeEntry removedEntry) {
+    private void retainUnconfirmedProductionSnapshot(Entry removedEntry) {
         if (removedEntry != null) {
-            retainUnconfirmedProductionSnapshot(removedEntry.productionSnapshot);
+            workspaceOwner.retainUnconfirmed(removedEntry.productionSnapshot());
         }
     }
 
     private void retainUnconfirmedProductionSnapshot(PluginArtifactSnapshot snapshot) {
-        if (snapshot != null) {
-            unconfirmedProductionSnapshots.add(snapshot);
-            abandonedWorkspaceCleanupSafe = false;
-        }
+        workspaceOwner.retainUnconfirmed(snapshot);
     }
 
-    private static void closeProductionSnapshot(PluginArtifactSnapshot snapshot) {
-        if (snapshot != null) {
-            snapshot.close();
-        }
+    private static List<PluginArtifactSnapshot> productionSnapshots(List<Entry> runtimeEntries) {
+        return runtimeEntries.stream().map(Entry::productionSnapshot).toList();
     }
 
     private Set<String> loadedWrapperIds() {
@@ -1358,7 +1198,7 @@ public class PluginRuntimeManager {
         }
         if (!workspaceMayStillBeReferenced) {
             if (observedNewWrapper) {
-                closeProductionSnapshot(productionSnapshot);
+                workspaceOwner.discard(productionSnapshot);
             } else {
                 // PF4J 可在创建 classloader 后、注册 wrapper 前抛错；看不到新增 wrapper 不能证明句柄已释放。
                 retainUnconfirmedProductionSnapshot(productionSnapshot);
@@ -1375,23 +1215,22 @@ public class PluginRuntimeManager {
             PluginDescriptor packageDescriptor,
             PluginArtifactSnapshot productionSnapshot,
             Throwable primaryFailure) {
-        if (entries.containsKey(pluginId)) {
+        if (packageIndex.contains(pluginId)) {
             retainUnconfirmedProductionSnapshot(productionSnapshot);
             return;
         }
         try {
-            long generation = generations.merge(pluginId, 1L, Long::sum);
             PluginRuntimePackagePhase phase = wrapper.getPluginState() == PluginState.STARTED
                     ? PluginRuntimePackagePhase.STARTED : PluginRuntimePackagePhase.LOADED;
-            entries.put(pluginId, new RuntimeEntry(
+            packageIndex.add(
                     pluginId,
-                    artifactPath.toAbsolutePath().normalize(),
-                    pf4jLoadPath.toAbsolutePath().normalize(),
+                    artifactPath,
+                    pf4jLoadPath,
                     wrapper.getDescriptor().getVersion(),
-                    generation,
                     phase,
                     packageDescriptor,
-                    productionSnapshot));
+                    productionSnapshot
+            );
         } catch (Throwable retentionFailure) {
             addSuppressedSafely(primaryFailure, retentionFailure);
             retainUnconfirmedProductionSnapshot(productionSnapshot);
@@ -1400,17 +1239,17 @@ public class PluginRuntimeManager {
 
     /** PF4J 可能先改变 wrapper 状态再抛错；错误边界前把本地 entry 对齐到可观测事实。 */
     private void reconcileEntryWithWrapper(
-            RuntimeEntry entry, PluginRuntimePackagePhase nonStartedPhase, Throwable primaryFailure) {
+            Entry entry, PluginRuntimePackagePhase nonStartedPhase, Throwable primaryFailure) {
         try {
-            PluginWrapper wrapper = pluginManager.getPlugin(entry.packageId);
+            PluginWrapper wrapper = pluginManager.getPlugin(entry.packageId());
             if (wrapper == null) {
-                RuntimeEntry removed = entries.remove(entry.packageId);
+                Entry removed = packageIndex.remove(entry.packageId());
                 // 本方法只在 PF4J 原语抛错或返回异常状态时调用；wrapper 消失不等于 classloader 已释放。
                 retainUnconfirmedProductionSnapshot(removed);
                 return;
             }
-            entry.phase = wrapper.getPluginState() == PluginState.STARTED
-                    ? PluginRuntimePackagePhase.STARTED : nonStartedPhase;
+            entry.updatePhase(wrapper.getPluginState() == PluginState.STARTED
+                    ? PluginRuntimePackagePhase.STARTED : nonStartedPhase);
         } catch (Throwable inspectionFailure) {
             addSuppressedSafely(primaryFailure, inspectionFailure);
         }
@@ -1475,190 +1314,4 @@ public class PluginRuntimeManager {
         return origin -> fixed;
     }
 
-    private static boolean wouldExceed(long consumed, long additional, long maximum) {
-        return additional < 0L || consumed < 0L || consumed > maximum || additional > maximum - consumed;
-    }
-
-    private static final class PreparedProductionArtifact implements AutoCloseable {
-        private PluginArtifactSnapshot snapshot;
-        private final PluginPackageInspection inspection;
-        private final String verifiedSha256;
-
-        private PreparedProductionArtifact(PluginArtifactSnapshot snapshot,
-                                           PluginPackageInspection inspection,
-                                           String verifiedSha256) {
-            this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
-            this.inspection = Objects.requireNonNull(inspection, "inspection");
-            this.verifiedSha256 = Objects.requireNonNull(verifiedSha256, "verifiedSha256");
-        }
-
-        private Path originalArtifact() {
-            return snapshot().originalArtifact();
-        }
-
-        private PluginPackageInspection inspection() {
-            return inspection;
-        }
-
-        private String verifiedSha256() {
-            return verifiedSha256;
-        }
-
-        private PluginArtifactSnapshot snapshot() {
-            if (snapshot == null) {
-                throw new IllegalStateException("prepared plugin artifact ownership was already transferred");
-            }
-            return snapshot;
-        }
-
-        private PluginArtifactLoadPlan.Entry loadPlanEntry() {
-            return new PluginArtifactLoadPlan.Entry(originalArtifact(), inspection.descriptor());
-        }
-
-        private PluginArtifactSnapshot detachSnapshot() {
-            PluginArtifactSnapshot detached = snapshot();
-            snapshot = null;
-            return detached;
-        }
-
-        @Override
-        public void close() {
-            PluginArtifactSnapshot current = snapshot;
-            snapshot = null;
-            closeProductionSnapshot(current);
-        }
-    }
-
-    private static final class StartupVerificationBudget {
-        private final int maximumEntries;
-        private final long maximumUncompressedBytes;
-        private long consumedEntries;
-        private long consumedUncompressedBytes;
-        private boolean exhausted;
-
-        private StartupVerificationBudget(int maximumEntries, long maximumUncompressedBytes) {
-            this.maximumEntries = maximumEntries;
-            this.maximumUncompressedBytes = maximumUncompressedBytes;
-        }
-
-        private void consume(PluginPackageVerifier.VerificationUsage usage) {
-            consume(usage, null);
-        }
-
-        private void consumeFailure(PluginPackageException failure) {
-            if (!failure.hasVerificationUsage()) {
-                exhausted = true;
-                return;
-            }
-            consume(new PluginPackageVerifier.VerificationUsage(
-                    failure.consumedEntries(), failure.consumedUncompressedBytes()), failure);
-        }
-
-        private void consume(PluginPackageVerifier.VerificationUsage usage, Throwable cause) {
-            boolean exceedsBudget = wouldExceed(consumedEntries, usage.entryCount(), maximumEntries)
-                    || wouldExceed(consumedUncompressedBytes, usage.totalUncompressedBytes(),
-                    maximumUncompressedBytes);
-            consumedEntries += usage.entryCount();
-            consumedUncompressedBytes += usage.totalUncompressedBytes();
-            exhausted = exhausted || exceedsBudget
-                    || consumedEntries >= maximumEntries
-                    || consumedUncompressedBytes >= maximumUncompressedBytes;
-            if (exceedsBudget) {
-                throw new PluginRuntimeOperationException(
-                        "startup plugin verification cumulative resource budget exceeded", cause);
-            }
-        }
-
-        private PluginPackageLimits remainingLimits(PluginPackageLimits packageLimits) {
-            if (exhausted()) {
-                throw new PluginRuntimeOperationException(
-                        "startup plugin verification cumulative resource budget exceeded");
-            }
-            int remainingEntries = (int) Math.min(
-                    packageLimits.maxEntries(), maximumEntries - consumedEntries);
-            long remainingUncompressedBytes = Math.min(
-                    packageLimits.maxTotalUncompressedBytes(),
-                    maximumUncompressedBytes - consumedUncompressedBytes);
-            return new PluginPackageLimits(
-                    packageLimits.maxArchiveBytes(),
-                    remainingEntries,
-                    remainingUncompressedBytes,
-                    Math.min(packageLimits.maxEntryUncompressedBytes(), remainingUncompressedBytes),
-                    packageLimits.maxDescriptorBytes(),
-                    packageLimits.maxCompressionRatio());
-        }
-
-        private boolean exhausted() {
-            return exhausted;
-        }
-    }
-
-    private static final class StartupProvenanceBudget {
-        private final long maximumBytes;
-        private long consumedBytes;
-        private boolean exhausted;
-
-        private StartupProvenanceBudget(long maximumBytes) {
-            this.maximumBytes = maximumBytes;
-        }
-
-        private void consume(long byteCount) {
-            consume(byteCount, null);
-        }
-
-        private void consumeFailure(long byteCount, Throwable cause) {
-            consume(byteCount, cause);
-        }
-
-        private void consume(long byteCount, Throwable cause) {
-            boolean exceedsBudget = wouldExceed(consumedBytes, byteCount, maximumBytes);
-            if (byteCount < 0L || consumedBytes > Long.MAX_VALUE - byteCount) {
-                consumedBytes = Long.MAX_VALUE;
-            } else {
-                consumedBytes += byteCount;
-            }
-            exhausted = exhausted || exceedsBudget || consumedBytes >= maximumBytes;
-            if (exceedsBudget) {
-                throw new PluginRuntimeOperationException(
-                        "startup plugin provenance sidecar cumulative byte budget exceeded", cause);
-            }
-        }
-
-        private long remainingBytes() {
-            if (exhausted()) {
-                throw new PluginRuntimeOperationException(
-                        "startup plugin provenance sidecar cumulative byte budget exceeded");
-            }
-            return maximumBytes - consumedBytes;
-        }
-
-        private boolean exhausted() {
-            return exhausted;
-        }
-    }
-
-    private static final class RuntimeEntry {
-        private final String packageId;
-        private final Path artifactPath;
-        private final Path pf4jLoadPath;
-        private final String version;
-        private final long generation;
-        private PluginRuntimePackagePhase phase;
-        private PluginDescriptor descriptor;
-        private PluginInventory contributionSnapshot;
-        private final PluginArtifactSnapshot productionSnapshot;
-
-        private RuntimeEntry(String packageId, Path artifactPath, Path pf4jLoadPath, String version,
-                             long generation, PluginRuntimePackagePhase phase, PluginDescriptor descriptor,
-                             PluginArtifactSnapshot productionSnapshot) {
-            this.packageId = packageId;
-            this.artifactPath = artifactPath;
-            this.pf4jLoadPath = pf4jLoadPath;
-            this.version = version;
-            this.generation = generation;
-            this.phase = phase;
-            this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
-            this.productionSnapshot = productionSnapshot;
-        }
-    }
 }

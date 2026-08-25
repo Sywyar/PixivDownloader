@@ -70,8 +70,8 @@ public class CollectionController {
 
     @PutMapping("/{id}/sort-order")
     public ResponseEntity<Collection> updateSortOrder(@PathVariable long id,
-                                                      @RequestBody Map<String, Integer> body) {
-        Integer sortOrder = body.get("sortOrder");
+                                                      @RequestBody SortOrderRequest body) {
+        Integer sortOrder = body == null ? null : body.sortOrder();
         return ResponseEntity.ok(collectionService.updateSortOrder(id, sortOrder == null ? 0 : sortOrder));
     }
 
@@ -120,58 +120,74 @@ public class CollectionController {
     }
 
     @PostMapping("/{id}/artworks/{artworkId}")
-    public ResponseEntity<Map<String, Object>> addArtwork(@PathVariable long id, @PathVariable long artworkId) {
+    public ResponseEntity<AddedResponse> addArtwork(@PathVariable long id, @PathVariable long artworkId) {
         boolean added = collectionService.addArtwork(id, artworkId);
-        return ResponseEntity.ok(Map.of("added", added));
+        return ResponseEntity.ok(new AddedResponse(added));
     }
 
     @DeleteMapping("/{id}/artworks/{artworkId}")
-    public ResponseEntity<Map<String, Object>> removeArtwork(@PathVariable long id, @PathVariable long artworkId) {
+    public ResponseEntity<RemovedResponse> removeArtwork(@PathVariable long id, @PathVariable long artworkId) {
         boolean removed = collectionService.removeArtwork(id, artworkId);
-        return ResponseEntity.ok(Map.of("removed", removed));
+        return ResponseEntity.ok(new RemovedResponse(removed));
     }
 
     @GetMapping("/of/{artworkId}")
-    public ResponseEntity<Map<String, Object>> collectionsOf(@PathVariable long artworkId,
-                                                             HttpServletRequest httpRequest) {
+    public ResponseEntity<CollectionIdsResponse> collectionsOf(
+            @PathVariable long artworkId,
+            HttpServletRequest httpRequest) {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         List<Long> ids = collectionService.collectionsOf(artworkId);
-        return ResponseEntity.ok(Map.of("collectionIds", ids));
+        return ResponseEntity.ok(new CollectionIdsResponse(ids));
     }
 
     @PostMapping("/memberships")
-    public ResponseEntity<Map<String, Object>> memberships(@RequestBody Map<String, List<Long>> body) {
-        List<Long> ids = body == null ? List.of() : body.getOrDefault("artworkIds", List.of());
+    public ResponseEntity<MembershipsResponse> memberships(@RequestBody ArtworkMembershipsRequest body) {
+        List<Long> ids = body == null || body.artworkIds() == null ? List.of() : body.artworkIds();
         Map<Long, List<Long>> memberships = collectionService.membershipsOf(ids);
-        return ResponseEntity.ok(Map.of("memberships", memberships));
+        return ResponseEntity.ok(new MembershipsResponse(memberships));
     }
 
     @PostMapping("/{id}/novels/{novelId}")
-    public ResponseEntity<Map<String, Object>> addNovel(@PathVariable long id, @PathVariable long novelId) {
+    public ResponseEntity<AddedResponse> addNovel(@PathVariable long id, @PathVariable long novelId) {
         boolean added = collectionService.addNovel(id, novelId);
-        return ResponseEntity.ok(Map.of("added", added));
+        return ResponseEntity.ok(new AddedResponse(added));
     }
 
     @DeleteMapping("/{id}/novels/{novelId}")
-    public ResponseEntity<Map<String, Object>> removeNovel(@PathVariable long id, @PathVariable long novelId) {
+    public ResponseEntity<RemovedResponse> removeNovel(@PathVariable long id, @PathVariable long novelId) {
         boolean removed = collectionService.removeNovel(id, novelId);
-        return ResponseEntity.ok(Map.of("removed", removed));
+        return ResponseEntity.ok(new RemovedResponse(removed));
     }
 
     @GetMapping("/novels/of/{novelId}")
-    public ResponseEntity<Map<String, Object>> novelCollectionsOf(@PathVariable long novelId,
-                                                                  HttpServletRequest httpRequest) {
+    public ResponseEntity<CollectionIdsResponse> novelCollectionsOf(
+            @PathVariable long novelId,
+            HttpServletRequest httpRequest) {
         guestAccessGuard.requireNovelVisible(httpRequest, novelId);
         List<Long> ids = collectionService.novelCollectionsOf(novelId);
-        return ResponseEntity.ok(Map.of("collectionIds", ids));
+        return ResponseEntity.ok(new CollectionIdsResponse(ids));
     }
 
     @PostMapping("/novels/memberships")
-    public ResponseEntity<Map<String, Object>> novelMemberships(@RequestBody Map<String, List<Long>> body) {
-        List<Long> ids = body == null ? List.of() : body.getOrDefault("novelIds", List.of());
+    public ResponseEntity<MembershipsResponse> novelMemberships(@RequestBody NovelMembershipsRequest body) {
+        List<Long> ids = body == null || body.novelIds() == null ? List.of() : body.novelIds();
         Map<Long, List<Long>> memberships = collectionService.novelMembershipsOf(ids);
-        return ResponseEntity.ok(Map.of("memberships", memberships));
+        return ResponseEntity.ok(new MembershipsResponse(memberships));
     }
+
+    public record SortOrderRequest(Integer sortOrder) {}
+
+    public record ArtworkMembershipsRequest(List<Long> artworkIds) {}
+
+    public record NovelMembershipsRequest(List<Long> novelIds) {}
+
+    public record AddedResponse(boolean added) {}
+
+    public record RemovedResponse(boolean removed) {}
+
+    public record CollectionIdsResponse(List<Long> collectionIds) {}
+
+    public record MembershipsResponse(Map<Long, List<Long>> memberships) {}
 
     private void requireGuestCollectionVisible(HttpServletRequest request, long collectionId) {
         GuestInviteSession session = GuestAccessGuard.extractSession(request);

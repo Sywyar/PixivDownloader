@@ -1,0 +1,142 @@
+/* ── Modals ────────────────────────────────────────────── */
+        .modal-content {
+            background: var(--surface);
+            border: 1px solid var(--border-bright);
+            border-radius: 0;
+            color: var(--text);
+            font-family: var(--font);
+            box-shadow: var(--popup-shadow);
+        }
+        .modal-header {
+            background: var(--cyan-faint);
+            border-bottom: 1px solid var(--border);
+            padding: 0.85rem 1.25rem;
+        }
+        .modal-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--cyan);
+        }
+        .modal-body {
+            max-height: 70vh;
+            overflow-y: auto;
+            padding: 1.25rem;
+        }
+        .modal-footer {
+            border-top: 1px solid var(--border);
+            padding: 0.75rem 1.25rem;
+        }
+        .btn-close { filter: var(--close-btn-filter); opacity: 0.7; }
+        .btn-close:hover { opacity: 1; }
+        .image-modal .btn-close { filter: invert(1) sepia(1) saturate(5) hue-rotate(155deg); }
+
+        .detail-section h6 {
+            font-size: 0.62rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.4rem;
+            margin-bottom: 0.75rem;
+        }
+        .detail-list { list-style: none; padding: 0; margin: 0; }
+        .detail-list li {
+            display: flex;
+            gap: 0.75rem;
+            padding: 0.35rem 0;
+            border-bottom: 1px solid var(--detail-line);
+            font-size: 0.78rem;
+        }
+        .detail-list li:last-child { border-bottom: none; }
+        .detail-key {
+            color: var(--text-dim);
+            white-space: nowrap;
+            min-width: 6rem;
+            flex-shrink: 0;
+        }
+        .detail-val { color: var(--text-bright); word-break: break-all; }
+
+        .image-modal .modal-content {
+            background: var(--image-modal-bg);
+            border: none;
+            height: 100%;
+        }
+        .image-modal .modal-body {
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .image-modal img {
+            max-width: calc(100% - 120px);
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .img-nav-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--image-control-bg);
+            border: 1px solid var(--image-control-border);
+            color: var(--image-control-text);
+            width: 48px;
+            height: 88px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-family: var(--font);
+            transition: background 0.2s, border-color 0.2s;
+            z-index: 10;
+        }
+        .img-nav-btn:hover:not(:disabled) {
+            background: var(--image-control-hover-bg);
+            border-color: var(--image-control-hover-border);
+        }
+        .img-nav-btn:disabled { opacity: 0.18; cursor: default; }
+        .img-nav-btn.prev { left: 12px; }
+        .img-nav-btn.next { right: 12px; }
+        .img-counter {
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            letter-spacing: .12em;
+            background: var(--image-counter-bg);
+            padding: 3px 12px;
+            pointer-events: none;
+        }
+        .img-close-btn {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            z-index: 20;
+        }
+        .img-spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 52px;
+            height: 52px;
+            border: 3px solid var(--image-spinner-border);
+            border-top-color: var(--image-control-text);
+            border-radius: 50%;
+            animation: imgSpin 0.7s linear infinite;
+            z-index: 15;
+            display: none;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+        }
+        .img-spinner.active {
+            display: block;
+        }
+        @keyframes imgSpin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }

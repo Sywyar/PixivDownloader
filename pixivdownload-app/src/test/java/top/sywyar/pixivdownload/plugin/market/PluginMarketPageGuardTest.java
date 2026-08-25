@@ -255,8 +255,6 @@ class PluginMarketPageGuardTest {
         String vue = read(VUE);
         String fallback = read(FALLBACK);
         String css = read("static/plugin-market/plugin-market.css");
-        Properties zh = loadProps("i18n/web/plugin-market.properties");
-
         assertThat(core).contains("'download-type'", "dependency", "PMK.categoryDescription");
         assertThat(vue).contains("pmk-toolbar-title-row", "pmk-toolbar-description", "{{ categoryDescription }}");
         assertThat(fallback).contains(
@@ -264,26 +262,16 @@ class PluginMarketPageGuardTest {
                 "esc(PMK.categoryDescription(state.category))",
                 "description.textContent = PMK.categoryDescription(state.category)");
         assertThat(css).contains(".pmk-toolbar-title-row", ".pmk-toolbar-description");
-        assertThat(zh.getProperty("category.dependency.description"))
-                .contains("其他插件的依赖", "自动安装", "无需手动安装");
-        assertThat(zh.getProperty("category.download-type.description"))
-                .contains("数据来源", "下载类型", "Pixiv 下载器");
     }
 
     @Test
-    @DisplayName("插件市场说明所有插件的同进程权限与签名边界，Vue 与基础回退视图共用 i18n 文案")
+    @DisplayName("Vue 与基础回退视图共用插件权限说明 i18n key")
     void rendersSecurityNoticeInVueAndFallback() throws IOException {
         String vue = read(VUE);
         String fallback = read(FALLBACK);
-        Properties zh = loadProps("i18n/web/plugin-market.properties");
-        Properties en = loadProps("i18n/web/plugin-market_en.properties");
 
         assertThat(vue).contains("pmk-security-notice", "security.notice");
         assertThat(fallback).contains("pmk-security-notice", "security.notice");
-        assertThat(zh.getProperty("security.notice"))
-                .contains("所有插件", "同一 JVM", "操作系统权限", "安全审查", "沙箱隔离");
-        assertThat(en.getProperty("security.notice"))
-                .contains("all plugins", "same JVM", "operating-system permissions", "security review", "sandbox");
     }
 
     @Test

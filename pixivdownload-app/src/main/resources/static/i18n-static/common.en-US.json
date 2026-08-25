@@ -11,6 +11,7 @@
     "button.done": "Done",
     "button.reset": "Reset",
     "button.save": "Save",
+    "error.feature-unavailable": "This feature is temporarily unavailable. Refresh the page and try again.",
     "external-link.confirm.cancel": "Cancel",
     "external-link.confirm.message": "You are about to open an external link:\n{url}\nContinue?",
     "external-link.confirm.open": "Continue",

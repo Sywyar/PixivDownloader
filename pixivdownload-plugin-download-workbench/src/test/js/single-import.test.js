@@ -2,7 +2,7 @@
 /*
  * single-import.js 的运行态测试（启用 / 禁用作品类型时的批量导入解析行为）。
  *
- * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载**真实**的 batch-queue-types.js + single-import.js，
+ * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载**真实**的 queueTypes 模块 + single-import.js，
  * 用最小 DOM + 宿主工具函数桩驱动**真实**的 parseSingleImport（不只测 registry），验证：
  *   a) novel 可用 → `novel:` 区段裸 ID + 显式 novel URL 正常构造 novel 队列项并入队。
  *   b) novel 不可用 → `novel:` 区段裸 ID 跳过、计入 unavailable、不入队。
@@ -18,7 +18,11 @@ const vm = require('vm');
 const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const QT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue-types.js'), 'utf8');
+const QT_SOURCE = [
+    'batch-queue-types-normalize.js',
+    'batch-queue-types-runtime.js',
+    'batch-queue-types.js'
+].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SI_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'single-import.js'), 'utf8');
 const DOUYIN_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
     'pixivdownload-plugin-douyin', 'src', 'main', 'resources', 'static',

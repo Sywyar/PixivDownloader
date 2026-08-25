@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import java.util.ArrayList;
 import java.util.List;

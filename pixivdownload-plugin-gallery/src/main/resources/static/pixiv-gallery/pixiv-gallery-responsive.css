@@ -1,0 +1,279 @@
+        html[data-theme="dark"] .filter-btn,
+        html[data-theme="dark"] .chip,
+        html[data-theme="dark"] .filter-mode-btn,
+        html[data-theme="dark"] .tag-search-box,
+        html[data-theme="dark"] .page-btn,
+        html[data-theme="dark"] .page-jump-input,
+        html[data-theme="dark"] .form-input,
+        html[data-theme="dark"] .btn,
+        html[data-theme="dark"] .context-menu,
+        html[data-theme="dark"] .mobile-menu-btn,
+        html[data-theme="dark"] .filter-summary-bar .clear,
+        html[data-theme="dark"] .author-row-btn,
+        html[data-theme="dark"] .author-works-arrow {
+            background: var(--control-bg);
+            color: var(--text-secondary);
+        }
+
+        html[data-theme="dark"] .search-box,
+        html[data-theme="dark"] .filter-panel {
+            background: var(--control-muted-bg);
+        }
+
+        html[data-theme="dark"] .search-box:focus-within {
+            background: var(--surface);
+        }
+
+        html[data-theme="dark"] .nav-item:hover,
+        html[data-theme="dark"] .collection-item:hover,
+        html[data-theme="dark"] .collection-menu:hover,
+        html[data-theme="dark"] .section-add:hover,
+        html[data-theme="dark"] .modal-close:hover,
+        html[data-theme="dark"] .collection-row:hover,
+        html[data-theme="dark"] .context-item:hover {
+            background: var(--hover-bg);
+        }
+
+        html[data-theme="dark"] .nav-item.active,
+        html[data-theme="dark"] .collection-item.selected {
+            background: var(--dark-brand-soft-bg);
+        }
+
+        html[data-theme="dark"] .filter-btn.active,
+        html[data-theme="dark"] .chip.active {
+            border-color: var(--brand);
+            color: var(--brand);
+            background: var(--dark-brand-active-bg);
+        }
+
+        html[data-theme="dark"] .gallery-type-switch {
+            background: var(--bg); border-color: var(--line);
+        }
+        html[data-theme="dark"] .gallery-type-option { color: var(--text-secondary); }
+        html[data-theme="dark"] .gallery-type-option.active {
+            background: var(--control-bg); color: var(--brand);
+            box-shadow: 0 1px 2px var(--shadow-dark-color);
+        }
+
+        html[data-theme="dark"] .page-btn.active,
+        html[data-theme="dark"] .btn-primary {
+            background: var(--brand);
+            border-color: var(--brand);
+            color: var(--on-accent);
+        }
+
+        html[data-theme="dark"] .btn-danger {
+            border-color: var(--dark-danger-border);
+            color: var(--danger);
+        }
+
+        html[data-theme="dark"] .modal {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .work-thumb,
+        html[data-theme="dark"] .author-work-thumb,
+        html[data-theme="dark"] .icon-preview {
+            background: var(--control-bg);
+        }
+
+        html[data-theme="dark"] .collection-icon,
+        html[data-theme="dark"] .chip .chip-icon,
+        html[data-theme="dark"] .collection-row-icon {
+            background: var(--pink-soft-bg);
+        }
+
+        html[data-theme="dark"] .filter-summary-bar {
+            background: var(--soft-bg);
+        }
+
+        html[data-theme="dark"] .context-item.danger:hover {
+            background: var(--dark-danger-soft-bg);
+        }
+
+        html[data-theme="dark"] .form-input:disabled {
+            background: var(--dark-disabled-bg);
+            color: var(--muted);
+        }
+
+        html[data-theme="dark"] .thumb-heart {
+            background: var(--dark-floating-control-bg);
+        }
+
+        html[data-theme="dark"] .thumb-heart svg,
+        html[data-theme="dark"] .mobile-menu-btn svg {
+            stroke: var(--text-secondary);
+        }
+
+        html[data-theme="dark"] #filterTagChips:not(.expanded).has-overflow::after,
+        html[data-theme="dark"] #filterSeriesChips:not(.expanded).has-overflow::after,
+        html[data-theme="dark"] #filterAuthorChips:not(.expanded).has-overflow::after {
+            background: linear-gradient(90deg, var(--dark-control-muted-transparent) 0%, var(--control-muted-bg) 40%, var(--control-muted-bg) 100%);
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                transform: translateX(-100%);
+                z-index: 100;
+            }
+
+            .sidebar.mobile-open {
+                transform: translateX(0);
+            }
+
+            .gallery-wrapper {
+                padding: 16px;
+            }
+
+            .topbar {
+                padding: 12px 16px;
+                align-items: stretch;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .filter-panel {
+                padding: 14px 16px;
+            }
+
+            .mobile-menu-btn {
+                display: flex !important;
+            }
+
+            .search-type-select {
+                flex: 1 1 140px;
+                min-width: 0;
+            }
+
+            .search-box {
+                order: 2;
+                flex: 1 1 100%;
+                max-width: none;
+                min-width: 0;
+            }
+
+            .filter-btn,
+            .gallery-type-switch,
+            .batch-manage-btn {
+                flex: 1 1 140px;
+                justify-content: center;
+                margin-left: 0;
+            }
+
+            .gallery-type-switch {
+                width: 100%;
+            }
+
+            .topbar-actions {
+                order: 3;
+                width: 100%;
+                margin-left: 0;
+                justify-content: flex-end;
+            }
+
+            .filter-row {
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .filter-row-label {
+                flex: 1 1 100%;
+            }
+
+            .filter-chip-list,
+            .filter-tags-main,
+            .filter-tags-controls,
+            .filter-mode-group {
+                width: 100%;
+            }
+
+            .filter-tags-controls > *,
+            .tag-search-box,
+            .filter-mode-btn,
+            .chip {
+                flex: 1 1 150px;
+                justify-content: center;
+            }
+
+            .tag-search-box input {
+                flex: 1;
+                width: auto;
+                min-width: 0;
+            }
+
+            .gallery-type-option { min-width: 0; padding: 0 10px; font-size: 12px; }
+
+            .author-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .author-row-info {
+                width: 100%;
+                max-width: none;
+                padding-right: 0;
+            }
+
+            .pagination {
+                flex-wrap: wrap;
+            }
+
+            .batch-action-bar {
+                left: 12px;
+                right: 12px;
+                bottom: 12px;
+                max-width: none;
+                transform: translateY(140%);
+            }
+
+            .batch-action-bar.open {
+                transform: translateY(0);
+            }
+
+            .batch-action-bar .btn,
+            .batch-menu-wrap,
+            .batch-count {
+                flex: 1 1 140px;
+                justify-content: center;
+                text-align: center;
+            }
+
+            .batch-menu {
+                left: auto;
+                right: 0;
+                transform: translateY(4px);
+            }
+
+            .batch-menu.open {
+                transform: translateY(0);
+            }
+
+            .modal {
+                max-width: calc(100vw - 24px);
+            }
+
+            .modal-head,
+            .modal-body,
+            .modal-foot {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .modal-foot {
+                flex-wrap: wrap;
+            }
+
+            .modal-foot .btn {
+                flex: 1 1 120px;
+                justify-content: center;
+            }
+
+            .icon-upload-wrap {
+                align-items: stretch;
+                flex-direction: column;
+            }
+        }

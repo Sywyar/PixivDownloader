@@ -5,6 +5,17 @@
     var loaded = {};
     var BASE = '/pixiv-tts/';
 
+    function showLoadFailure() {
+        var fallback = 'This feature is temporarily unavailable. Refresh the page and try again.';
+        var message = typeof pageI18n !== 'undefined' && pageI18n
+                ? pageI18n.t('common:error.feature-unavailable', fallback) : fallback;
+        if (global.PixivFeedback && typeof global.PixivFeedback.toast === 'function') {
+            global.PixivFeedback.toast({ message: message, kind: 'error' });
+        } else if (typeof toast === 'function') {
+            toast(message, 'error');
+        }
+    }
+
     function loadScript(url) {
         if (loaded[url]) return loaded[url];
         loaded[url] = new Promise(function (resolve) {
@@ -14,6 +25,7 @@
             script.onload = function () { resolve(true); };
             script.onerror = function () {
                 console.warn('[TTS] script load failed:', url);
+                showLoadFailure();
                 resolve(false);
             };
             (document.head || document.documentElement).appendChild(script);
@@ -114,12 +126,18 @@
             BASE + 'tts/tts-ui.js',
             BASE + 'tts/tts-engine-browser.js',
             BASE + 'tts/tts-engine-edge.js',
+            BASE + 'pixiv-novel-narration-core.js',
+            BASE + 'pixiv-novel-narration-marks.js',
+            BASE + 'pixiv-novel-narration-playback.js',
+            BASE + 'pixiv-novel-narration-cast.js',
+            BASE + 'pixiv-novel-narration-dialog.js',
             BASE + 'pixiv-novel-narration.js',
             BASE + 'pixiv-novel-tts.js'
         ];
         for (var i = 0; i < urls.length; i++) {
-            await loadScript(urls[i]);
+            if (!await loadScript(urls[i])) return false;
         }
+        return true;
     }
 
     function attach() {
@@ -153,7 +171,7 @@
         if (typeof pageI18n !== 'undefined' && pageI18n) {
             try { pageI18n.apply(document.body); } catch (_) {}
         }
-        await loadControllers();
+        if (!await loadControllers()) return;
         attach();
     }
 

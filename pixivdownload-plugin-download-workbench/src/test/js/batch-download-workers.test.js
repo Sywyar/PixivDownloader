@@ -8,7 +8,10 @@ const test = require('node:test');
 const {isMainThread, parentPort, workerData, Worker} = require('node:worker_threads');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const DOWNLOAD_SOURCE_PATH = path.join(STATIC, 'batch-download.js');
+const DOWNLOAD_SOURCE = [
+    'batch-download-quota.js', 'batch-download-artwork.js',
+    'batch-download-workers.js', 'batch-download.js'
+].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SCENARIO_TIMEOUT_MS = 2000;
 
 function createWorkerHarness(options) {
@@ -83,7 +86,7 @@ function createWorkerHarness(options) {
         syncAllResultsQueueState() {}
     };
     vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(DOWNLOAD_SOURCE_PATH, 'utf8'), sandbox);
+    vm.runInContext(DOWNLOAD_SOURCE, sandbox);
     if (options.quotaEnabled) vm.runInContext('quotaInfo.enabled = true', sandbox);
     return {sandbox, state, calls};
 }

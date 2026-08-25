@@ -1,0 +1,361 @@
+        .section-hero {
+            background: var(--bg);
+        }
+
+        .hero-bg {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+        }
+
+        .hero-bg img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.35;
+            filter: blur(40px) saturate(1.4);
+            transform: scale(1.2);
+            display: block;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 64px;
+            max-width: 1200px;
+            width: 100%;
+            padding: 0 48px;
+        }
+
+        .hero-artwork {
+            flex: 0 0 auto;
+            width: 420px;
+            height: 420px;
+            border-radius: 16px;
+            overflow: hidden;
+            background: var(--surface);
+            box-shadow: 0 32px 80px var(--scrim-strong), 0 0 0 1px var(--glass-bg);
+            position: relative;
+            cursor: pointer;
+            transition: transform 0.5s var(--transition-smooth), box-shadow 0.5s var(--transition-smooth);
+            opacity: 0;
+            transform: translateX(-60px) scale(0.9);
+        }
+
+        .hero-artwork.animate-in {
+            animation: heroArtworkIn 0.9s var(--transition-smooth) forwards;
+        }
+
+        @keyframes heroArtworkIn {
+            0% { opacity: 0; transform: translateX(-60px) scale(0.9); }
+            100% { opacity: 1; transform: translateX(0) scale(1); }
+        }
+
+        .hero-artwork:hover {
+            transform: translateY(-4px) scale(1.01);
+            box-shadow: 0 40px 100px var(--scrim-label), 0 0 0 1px var(--glass-line-strong);
+        }
+
+        .hero-artwork img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .hero-artwork-badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            gap: 6px;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 24px;
+            padding: 0 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            backdrop-filter: blur(8px);
+        }
+
+        .hero-badge.r18 {
+            color: var(--on-accent);
+            background: var(--danger-badge-bg);
+        }
+
+        .hero-badge.ai {
+            color: var(--on-accent);
+            background: var(--ai-badge-bg);
+        }
+
+        .hero-badge.pages {
+            color: var(--on-accent);
+            background: var(--scrim-label);
+        }
+
+        .hero-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .hero-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--hero-accent, var(--brand));
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 16px;
+            opacity: 0;
+            transform: translateY(16px);
+        }
+
+        .hero-label.animate-in {
+            animation: heroLabelIn 0.7s var(--transition-smooth) forwards;
+        }
+
+        @keyframes heroLabelIn {
+            0% { opacity: 0; transform: translateY(16px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        .hero-label-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--hero-accent, var(--brand));
+            animation: labelPulse 2s ease-in-out infinite, labelRotate 4s linear infinite;
+            box-shadow: 0 0 8px var(--hero-accent-glow, var(--brand-glow));
+        }
+
+        @keyframes labelPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        @keyframes labelRotate {
+            0% { transform: rotate(0deg) scale(1); }
+            25% { transform: rotate(90deg) scale(1.3); }
+            50% { transform: rotate(180deg) scale(1); }
+            75% { transform: rotate(270deg) scale(1.3); }
+            100% { transform: rotate(360deg) scale(1); }
+        }
+
+        .hero-title {
+            font-size: 42px;
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -0.03em;
+            color: var(--hero-text, var(--text));
+            margin-bottom: 16px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            opacity: 0;
+            transform: translateY(24px);
+        }
+
+        .hero-title.animate-in {
+            animation: heroTitleIn 0.8s var(--transition-smooth) forwards;
+        }
+
+        @keyframes heroTitleIn {
+            0% { opacity: 0; transform: translateY(24px); filter: blur(6px); }
+            100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+        }
+
+        .hero-author {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            opacity: 0;
+            transform: translateX(-20px);
+        }
+
+        .hero-author.animate-in {
+            animation: heroAuthorIn 0.7s var(--transition-smooth) forwards;
+        }
+
+        @keyframes heroAuthorIn {
+            0% { opacity: 0; transform: translateX(-20px); }
+            100% { opacity: 1; transform: translateX(0); }
+        }
+
+        .hero-author-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--brand), var(--brand-gradient-end));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--on-accent);
+            font-size: 14px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .hero-author-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--hero-text-secondary, var(--text-secondary));
+        }
+
+        .hero-author-id {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .hero-desc {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--hero-muted, var(--muted));
+            max-width: 480px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            opacity: 0;
+            transform: translateY(12px);
+        }
+
+        .hero-desc.animate-in {
+            animation: heroDescIn 0.7s var(--transition-smooth) forwards;
+        }
+
+        @keyframes heroDescIn {
+            0% { opacity: 0; transform: translateY(12px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        .hero-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 20px;
+            opacity: 0;
+            transform: translateY(16px);
+        }
+
+        .hero-tags.animate-in {
+            animation: heroTagsIn 0.7s var(--transition-smooth) forwards;
+        }
+
+        @keyframes heroTagsIn {
+            0% { opacity: 0; transform: translateY(16px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        .hero-tag {
+            display: inline-flex;
+            padding: 5px 12px;
+            border-radius: 999px;
+            background: var(--glass-bg);
+            border: 1px solid var(--line);
+            color: var(--hero-text-secondary, var(--text-secondary));
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .hero-tag:hover {
+            border-color: var(--hero-accent, var(--brand));
+            color: var(--hero-accent, var(--brand));
+            background: var(--hero-accent-bg, var(--brand-soft-bg));
+        }
+
+        .hero-tag .tag-trans {
+            color: var(--muted);
+            margin-left: 4px;
+            font-size: 11px;
+        }
+
+        .section-artwork {
+            background: var(--bg);
+        }
+
+        .artwork-display {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .artwork-display-bg {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+        }
+
+        .artwork-display-bg img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.15;
+            filter: blur(60px) saturate(1.5);
+            transform: scale(1.3);
+        }
+
+        .artwork-frame {
+            position: relative;
+            z-index: 1;
+            max-width: 900px;
+            max-height: 85vh;
+            border-radius: 12px;
+            overflow: hidden;
+            background: var(--surface);
+            box-shadow: 0 40px 120px var(--scrim-label), 0 0 0 1px var(--glass-line);
+            cursor: zoom-in;
+            transition: transform 0.5s var(--transition-smooth);
+        }
+
+        .artwork-frame:hover {
+            transform: scale(1.005);
+        }
+
+        .artwork-frame img {
+            display: block;
+            max-width: 900px;
+            max-height: 85vh;
+            object-fit: contain;
+        }
+
+        .artwork-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 48px 32px 32px;
+            background: linear-gradient(transparent, var(--scrim-heavy));
+            z-index: 2;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .artwork-frame:hover .artwork-overlay {
+            opacity: 1;
+        }
+
+        .artwork-overlay-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .artwork-overlay-author {
+            font-size: 13px;
+            color: var(--muted);
+        }

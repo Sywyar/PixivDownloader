@@ -2,7 +2,7 @@
 /*
  * Douyin 下载类型前端模块 smoke。
  *
- * 在 Node vm 沙箱里加载真实 batch-queue-types.js 与真实 douyin-queue-type.js，验证：
+ * 在 Node vm 沙箱里加载真实 queueTypes 模块与真实 douyin-queue-type.js，验证：
  *   1) Douyin URL / 分享文本解析只识别 douyin.com / iesdouyin.com。
  *   2) 行为模块通过 scoped registerModule 按后端 owner token 接入。
  *   3) import / series / filters / cookie-tools contract 均可发现，下载设置不再贡献到前端。
@@ -15,12 +15,15 @@ const vm = require('vm');
 const assert = require('assert');
 
 const ROOT = path.join(__dirname, '..', '..', '..', '..');
-const QT_PATH = path.join(ROOT,
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch',
-    'batch-queue-types.js');
+const QT_ROOT = path.join(ROOT,
+    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
 const DOUYIN_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-douyin-download',
     'douyin-queue-type.js');
-const QT_SOURCE = fs.readFileSync(QT_PATH, 'utf8');
+const QT_SOURCE = [
+    'batch-queue-types-normalize.js',
+    'batch-queue-types-runtime.js',
+    'batch-queue-types.js'
+].map(file => fs.readFileSync(path.join(QT_ROOT, file), 'utf8')).join('\n');
 const DOUYIN_SOURCE = fs.readFileSync(DOUYIN_PATH, 'utf8');
 const DOUYIN_TEST_SOURCE = DOUYIN_SOURCE.replace(/\}\)\(\);\s*$/, [
     'window.__testDouyinFetchJson = douyinFetchJson;',

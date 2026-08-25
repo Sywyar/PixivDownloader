@@ -2,10 +2,11 @@
 /*
  * 跨页新手向导下载结果入口回归测试。
  *
- * 无浏览器 / 无 jsdom：用最小 DOM 在 Node 的 vm 沙箱里加载真实的 pixiv-onboarding.js，验证：
- *   1) 下载中 first-download-result 入口存在时保留旧的画廊导向文案，缺席时使用中性结果文案。
- *   2) 下载成功 first-download-result 入口存在时，仍保持旧的 await-gallery 状态与“点击画廊入口”提示。
- *   3) 下载成功 first-download-result 入口缺席时，下载页引导完成，不渲染要求点击不存在入口的阻塞提示。
+ * 无浏览器 / 无 jsdom：用最小 DOM 在 Node 的 vm 沙箱里按生产顺序加载真实引导模块，验证：
+ *   1) 四个页面按 core → overlay → download → gallery → facade 顺序装配。
+ *   2) 下载中 first-download-result 入口存在时保留旧的画廊导向文案，缺席时使用中性结果文案。
+ *   3) 下载成功 first-download-result 入口存在时，仍保持旧的 await-gallery 状态与“点击画廊入口”提示。
+ *   4) 下载成功 first-download-result 入口缺席时，下载页引导完成，不渲染要求点击不存在入口的阻塞提示。
  *
  * 运行： node src/test/js/pixiv-onboarding.test.js
  */
@@ -14,13 +15,39 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SRC = fs.readFileSync(
-    path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'js', 'pixiv-onboarding.js'), 'utf8');
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
+const SCRIPT_NAMES = [
+    'pixiv-onboarding-core.js',
+    'pixiv-onboarding-overlay.js',
+    'pixiv-onboarding-download.js',
+    'pixiv-onboarding-gallery.js',
+    'pixiv-onboarding.js'
+];
+const SCRIPT_SOURCES = SCRIPT_NAMES.map(name => fs.readFileSync(
+    path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'js', name), 'utf8'));
+const SCRIPT_URLS = SCRIPT_NAMES.map(name => '/js/' + name);
+const PAGE_PATHS = [
+    'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch.html',
+    'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt.html',
+    'pixivdownload-plugin-gallery/src/main/resources/static/pixiv-gallery.html',
+    'pixivdownload-plugin-gallery/src/main/resources/static/pixiv-artwork.html'
+];
 const STORAGE_KEY = 'pixiv_onboarding_v1';
 const RESULT_ENTRY_SELECTOR = 'a.app-nav-link[data-nav-markers~="first-download-result"]';
 
 let passed = 0;
 function ok(label, cond) { assert.ok(cond, label); passed++; }
+
+function loadOnboardingModules(sandbox) {
+    SCRIPT_SOURCES.forEach((source, index) => {
+        vm.runInContext(source, sandbox, { filename: SCRIPT_NAMES[index] });
+    });
+}
+
+function onboardingScriptUrls(pageSource) {
+    return Array.from(pageSource.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g), match => match[1])
+        .filter(src => src.startsWith('/js/pixiv-onboarding'));
+}
 
 class ClassList {
     constructor() { this.values = new Set(); }
@@ -175,7 +202,7 @@ function loadScenario(hasResultEntry) {
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(SRC, sandbox);
+    loadOnboardingModules(sandbox);
     sandbox.PixivOnboarding.boot({
         page: 'batch',
         eligible: true,
@@ -185,7 +212,8 @@ function loadScenario(hasResultEntry) {
     return {
         storage,
         pop: findByClass(document.body, 'po-pop'),
-        resultEntry: document.resultEntry
+        resultEntry: document.resultEntry,
+        onboarding: sandbox.PixivOnboarding
     };
 }
 
@@ -233,7 +261,7 @@ function loadMonitorScenario(hasResultEntry, holdAtStart) {
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(SRC, sandbox);
+    loadOnboardingModules(sandbox);
     sandbox.PixivOnboarding.boot({
         page: 'batch',
         eligible: true,
@@ -286,6 +314,13 @@ function loadMonitorScenario(hasResultEntry, holdAtStart) {
 }
 
 async function main() {
+    for (const pagePath of PAGE_PATHS) {
+        const pageSource = fs.readFileSync(path.join(REPO_ROOT, pagePath), 'utf8');
+        assert.deepStrictEqual(onboardingScriptUrls(pageSource), SCRIPT_URLS,
+            pagePath + ' must load the onboarding modules in dependency order');
+        passed++;
+    }
+
     {
         const { startButtonClicks, startButtonFocused } = loadMonitorScenario(false, true);
         ok('P: 聚光洞口把点击转交给层叠上下文内的真实控件', startButtonClicks === 1);
@@ -312,9 +347,16 @@ async function main() {
     }
 
     {
-        const { storage, pop, resultEntry } = loadScenario(true);
+        const { storage, pop, resultEntry, onboarding } = loadScenario(true);
         const state = JSON.parse(storage[STORAGE_KEY]);
 
+        ok('API: facade 保留 boot', typeof onboarding.boot === 'function');
+        ok('API: facade 保留 restart', typeof onboarding.restart === 'function');
+        ok('API: facade 保留 refreshFab', typeof onboarding.refreshFab === 'function');
+        ok('API: facade 保留 getName', typeof onboarding.getName === 'function');
+        ok('API: facade 保留示例作品常量',
+            onboarding.EXAMPLE_ID === '145378118'
+            && onboarding.EXAMPLE_URL === 'https://www.pixiv.net/artworks/145378118');
         ok('A: marker 存在时仍停在 await-gallery，供画廊页续跑', state.status === 'active' && state.phase === 'await-gallery');
         ok('A: marker 存在时保留旧的点击画廊入口文案',
             pop && pop.innerHTML.indexOf('点击高亮的「画廊」入口') >= 0);

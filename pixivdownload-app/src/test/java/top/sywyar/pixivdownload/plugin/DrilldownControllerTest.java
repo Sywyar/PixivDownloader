@@ -23,7 +23,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import top.sywyar.pixivdownload.plugin.registry.DrilldownRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.web.DrilldownController;
+import top.sywyar.pixivdownload.plugin.web.controller.DrilldownController;
 
 /**
  * {@code /api/drilldowns} 的可见性过滤、排序与禁用语义，以及 {@link DrilldownRegistry} 的注册期校验：

@@ -25,7 +25,9 @@ const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const VUE_SRC = fs.readFileSync(path.join(STATIC, 'batch-queue-vue.js'), 'utf8');
-const QUEUE_SRC = fs.readFileSync(path.join(STATIC, 'batch-queue.js'), 'utf8');
+const QUEUE_SRC = [
+    'batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js', 'batch-queue.js'
+].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 
 let passed = 0;
 function ok(label, cond) { assert.ok(cond, label); passed++; }

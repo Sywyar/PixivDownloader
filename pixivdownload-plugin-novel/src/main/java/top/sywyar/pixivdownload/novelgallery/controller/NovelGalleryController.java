@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
+import top.sywyar.pixivdownload.novelgallery.NovelTagOption;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
@@ -127,11 +128,13 @@ public class NovelGalleryController {
     }
 
     @GetMapping("/novels/tags")
-    public java.util.Map<String, Object> listNovelTags(
+    public NovelTagListResponse listNovelTags(
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "500") int limit,
             WorkVisibilityScope visibilityScope) {
-        return java.util.Map.of("tags", novelGalleryService.listTags(search, limit,
+        return new NovelTagListResponse(novelGalleryService.listTags(
+                search,
+                limit,
                 visibilityScope.restrictionFor(WorkType.NOVEL)));
     }
 
@@ -189,6 +192,8 @@ public class NovelGalleryController {
     }
 
     public record DeleteResponse(int deleted) {}
+
+    public record NovelTagListResponse(List<NovelTagOption> tags) {}
 
     public record BatchCollectResponse(int count, int changed) {}
 

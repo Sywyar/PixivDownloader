@@ -1,0 +1,93 @@
+
+/* ============================================================
+   响应式
+   ============================================================ */
+@media (max-width: 1460px) {
+    .ab-shell {
+        grid-template-columns: 92px minmax(0, 1fr);
+    }
+
+    .ab-dock {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(400px, 94vw);
+        max-height: none;
+        z-index: 90;
+        border-radius: 0;
+        transform: translateX(103%);
+        transition: transform var(--motion-med) var(--motion-ease-out);
+    }
+
+    .ab-dock.is-open {
+        transform: translateX(0);
+        box-shadow: var(--shadow-3);
+    }
+
+    .ab-dock-close {
+        display: inline-flex;
+    }
+
+    .ab-dock-toggle {
+        display: inline-flex;
+    }
+
+    .ab-dock-scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        background: var(--scrim);
+        opacity: 0;
+        transition: opacity var(--motion-med) var(--motion-ease-standard);
+    }
+
+    .ab-dock-scrim[hidden] {
+        display: none;
+    }
+
+    .ab-dock-scrim.is-open {
+        opacity: 1;
+    }
+}
+
+@media (max-width: 900px) {
+    .ab-shell {
+        grid-template-columns: 1fr;
+        padding: 14px 14px 32px;
+    }
+
+    .ab-rail {
+        position: static;
+        flex-direction: row;
+        overflow-x: auto;
+        padding: 8px;
+    }
+
+    .ab-rail-modes {
+        flex-direction: row;
+    }
+
+    .ab-rail-item {
+        padding: 8px 12px;
+        flex-direction: row;
+        gap: 7px;
+    }
+
+    .ab-rail-indicator {
+        display: none;
+    }
+
+    .ab-rail-item.is-active {
+        background: var(--brand-soft);
+    }
+
+    .ab-brand-sub {
+        display: none;
+    }
+
+    .ab-topnav {
+        display: none;
+    }
+}

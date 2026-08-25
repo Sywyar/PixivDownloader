@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
  */
 public final class ScheduleCredentialBindingLease implements AutoCloseable {
 
-    private final ScheduleExecutionEngine engine;
+    private final ScheduleCredentialSupport credentialSupport;
     private final long taskId;
     private final String policyOwnerPluginId;
     private final String policyId;
@@ -22,14 +22,14 @@ public final class ScheduleCredentialBindingLease implements AutoCloseable {
     private boolean probed;
 
     ScheduleCredentialBindingLease(
-            ScheduleExecutionEngine engine,
+            ScheduleCredentialSupport credentialSupport,
             long taskId,
             String policyOwnerPluginId,
             String policyId,
             ScheduleExecutionLease execution,
             ScheduledTaskDefinition definition,
             ScheduledNetworkRoute route) {
-        this.engine = engine;
+        this.credentialSupport = credentialSupport;
         this.taskId = taskId;
         this.policyOwnerPluginId = policyOwnerPluginId;
         this.policyId = policyId;
@@ -54,7 +54,7 @@ public final class ScheduleCredentialBindingLease implements AutoCloseable {
             throw new IllegalStateException("schedule credential binding lease was already probed");
         }
         probed = true;
-        return engine.probeCredentialForBinding(
+        return credentialSupport.probeForBinding(
                 taskId, definition, route, execution, candidateSecret);
     }
 

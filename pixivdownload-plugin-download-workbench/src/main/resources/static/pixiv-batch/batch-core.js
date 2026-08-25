@@ -388,12 +388,17 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         }
     }
 
-    const STATUS_COLORS = {info: '#007bff', success: '#28a745', error: '#dc3545', warning: '#e6a700'};
+    const STATUS_COLORS = {
+        info: 'var(--primary)',
+        success: 'var(--brand)',
+        error: 'var(--danger-bg)',
+        warning: 'var(--warning-accent)'
+    };
 
     function setStatus(msg, type = 'info') {
         const el = document.getElementById('status-bar');
         el.textContent = msg;
-        el.style.color = STATUS_COLORS[type] || '#666';
+        el.style.color = STATUS_COLORS[type] || 'var(--muted)';
     }
 
     function esc(s) {

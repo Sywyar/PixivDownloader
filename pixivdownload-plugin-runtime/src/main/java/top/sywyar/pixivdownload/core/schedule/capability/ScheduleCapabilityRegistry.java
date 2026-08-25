@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.core.schedule.capability;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityIndex.CapabilityEntry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityIndex.PublishedOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityIndex.SourceRoute;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityIndex.WorkRoute;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
@@ -17,8 +21,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -85,16 +87,6 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         }
     }
 
-    private record PublishedOwner(
-            ScheduleOwnerBundle bundle,
-            long publicationId,
-            String activationToken,
-            ScheduleCapabilityPublication publication,
-            ScheduleLeaseState leaseState,
-            ScheduleGenerationDrain drain
-    ) {
-    }
-
     private record ReservedOwner(
             ScheduleCapabilityReservation token,
             ScheduleOwnerBundle bundle,
@@ -136,51 +128,9 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         }
     }
 
-    private record SourceRoute(
-            ScheduleCapabilityOwner owner,
-            long publicationId,
-            String sourceType,
-            ScheduledSourceDescriptor descriptor,
-            ScheduledSourceExecutor executor
-    ) {
-    }
-
-    private record WorkRoute(
-            ScheduleCapabilityOwner owner,
-            long publicationId,
-            String workType,
-            ScheduledWorkExecutor executor
-    ) {
-    }
-
-    private record CapabilityEntry<T>(
-            ScheduleCapabilityOwner owner,
-            long publicationId,
-            String capabilityId,
-            T capability
-    ) {
-    }
-
-    private record Snapshot(
-            long revision,
-            Map<ScheduleCapabilityOwner, PublishedOwner> owners,
-            Map<String, SourceRoute> sourcesByName,
-            Map<String, SourceRoute> sourcesByCanonical,
-            Map<String, WorkRoute> worksByType,
-            Map<String, CapabilityEntry<ScheduledCredentialPolicy>> credentialPolicies,
-            Map<String, CapabilityEntry<ScheduledExecutionGuard>> guards,
-            SnapshotView view
-    ) {
-        static Snapshot empty(String epoch) {
-            SnapshotView view = new SnapshotView(epoch, 0L, List.of());
-            return new Snapshot(0L, Map.of(), Map.of(), Map.of(), Map.of(),
-                    Map.of(), Map.of(), view);
-        }
-    }
-
     private final Object lock = new Object();
     private final String epoch = UUID.randomUUID().toString();
-    private volatile Snapshot snapshot = Snapshot.empty(epoch);
+    private volatile ScheduleCapabilityIndex snapshot = ScheduleCapabilityIndex.empty(epoch);
     private final Map<Long, ReservedOwner> reservations = new LinkedHashMap<>();
     private final Map<Long, RetiredOwner> retirementProofs = new LinkedHashMap<>();
     private final Predicate<String> ownerAdmission;
@@ -329,11 +279,11 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         }
         synchronized (lock) {
             Map<ScheduleCapabilityOwner, PublishedOwner> validationOwners = validationOwners();
-            rejectActiveOwnerClash(validationOwners, bundle.owner());
+            ScheduleCapabilityIndex.rejectOwnerClash(validationOwners, bundle.owner());
             validationOwners.put(bundle.owner(), new PublishedOwner(
                     bundle, -reservation.reservationId(), reservationToken(reservation.reservationId()),
                     null, new ScheduleLeaseState(), null));
-            rebuild(epoch, snapshot.revision(), validationOwners);
+            ScheduleCapabilityIndex.rebuild(epoch, snapshot.revision(), validationOwners);
             Map<String, String> credentialPolicyOwnersById =
                     migrationCredentialPolicyOwners(bundle);
             reservations.put(reservation.reservationId(), new ReservedOwner(
@@ -370,7 +320,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
                 throw new IllegalStateException("unknown schedule capability reservation: " + reservation);
             }
             ScheduleOwnerBundle bundle = reserved.bundle();
-            rejectActiveOwnerClash(snapshot.owners(), bundle.owner());
+            ScheduleCapabilityIndex.rejectOwnerClash(snapshot.owners(), bundle.owner());
             long publicationId = nextPublicationId + 1L;
             ScheduleCapabilityPublication publication =
                     new ScheduleCapabilityPublication(bundle.owner(), publicationId);
@@ -385,7 +335,8 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             nextOwners.put(bundle.owner(), new PublishedOwner(
                     bundle, publicationId, binding.activationToken(), publication,
                     leaseState, binding.drain()));
-            Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
+            ScheduleCapabilityIndex next = ScheduleCapabilityIndex.rebuild(
+                    epoch, snapshot.revision() + 1L, nextOwners);
             nextPublicationId = publicationId;
             snapshot = next;
             postCommitProbe.run();
@@ -453,7 +404,8 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             Optional<ScheduleGenerationDrain> result = Optional.of(current.drain());
             Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners = new LinkedHashMap<>(snapshot.owners());
             nextOwners.remove(publication.owner());
-            Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
+            ScheduleCapabilityIndex next = ScheduleCapabilityIndex.rebuild(
+                    epoch, snapshot.revision() + 1L, nextOwners);
             current.leaseState().retire();
             retirementProofs.put(publication.publicationId(), RetiredOwner.from(current));
             snapshot = next;
@@ -478,7 +430,8 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
                     Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners =
                             new LinkedHashMap<>(snapshot.owners());
                     nextOwners.remove(reservation.owner());
-                    Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
+                    ScheduleCapabilityIndex next = ScheduleCapabilityIndex.rebuild(
+                            epoch, snapshot.revision() + 1L, nextOwners);
                     current.leaseState().retire();
                     retirementProofs.put(
                             binding.publication().publicationId(), RetiredOwner.from(current));
@@ -551,7 +504,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         if (featurePluginId == null || featurePluginId.isBlank()) {
             return Optional.empty();
         }
-        Snapshot current = snapshot;
+        ScheduleCapabilityIndex current = snapshot;
         for (Map.Entry<ScheduleCapabilityOwner, PublishedOwner> entry : current.owners().entrySet()) {
             if (entry.getKey().featurePluginId().equals(featurePluginId)) {
                 return Optional.of(handle(ScheduleCapabilityHandle.Kind.OWNER,
@@ -635,7 +588,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             if (published == null) {
                 return Optional.empty();
             }
-            T capability = resolveCapability(snapshot, handle);
+            T capability = snapshot.resolveCapability(handle);
             if (capability == null) {
                 return Optional.empty();
             }
@@ -656,7 +609,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             PublishedOwner published = currentPublishedOwner(
                     snapshot, handle.owner(), handle.publicationId());
             if (published == null || published.leaseState() != lease.leaseState()
-                    || resolveCapability(snapshot, handle) == null) {
+                    || snapshot.resolveCapability(handle) == null) {
                 return false;
             }
             if (!published.leaseState().tryAcquire(lease.leaseToken())) {
@@ -762,7 +715,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         }
         synchronized (lock) {
             return planning.whileActive(() -> {
-                Snapshot current = snapshot;
+                ScheduleCapabilityIndex current = snapshot;
                 PublishedOwner published = currentPublishedOwner(
                         current, planning.owner(), planning.publicationId());
                 SourceRoute source = current.sourcesByCanonical().get(planning.sourceType());
@@ -810,7 +763,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             if (!lease.root().isSingle()
                     || published == null
                     || published.leaseState() != lease.leaseState()
-                    || resolveCapability(snapshot, handle) == null) {
+                    || snapshot.resolveCapability(handle) == null) {
                 return Optional.empty();
             }
             return Optional.of(Objects.requireNonNull(
@@ -909,116 +862,14 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             return Optional.empty();
         }
         synchronized (lock) {
-            return planning.whileActive(() -> prepareActiveExpansion(
-                    planning, workTypes, credentialPolicyId, guardIds));
+            return planning.whileActive(() -> ScheduleExecutionExpansion.prepare(
+                    snapshot,
+                    planning,
+                    workTypes,
+                    credentialPolicyId,
+                    guardIds,
+                    ownerAdmission));
         }
-    }
-
-    private Optional<ScheduleExecutionLease> prepareActiveExpansion(
-            SchedulePlanningLease planning,
-            Set<String> workTypes,
-            String credentialPolicyId,
-            Set<String> guardIds) {
-        Snapshot current = snapshot;
-        PublishedOwner sourceOwner = currentPublishedOwner(
-                current, planning.owner(), planning.publicationId());
-        if (sourceOwner == null
-                || sourceOwner.leaseState() != planning.leaseState()
-                || !sourceOwner.leaseState().isAccepting()) {
-            return Optional.empty();
-        }
-
-        ScheduledSourceDescriptor descriptor = planning.descriptor().orElse(null);
-        if (descriptor == null || planning.sourceExecutor().isEmpty()) {
-            return Optional.empty();
-        }
-        if (!descriptor.possibleWorkTypes().containsAll(workTypes)) {
-            throw new IllegalArgumentException("execution plan requests undeclared work type for source: "
-                    + planning.sourceType());
-        }
-        if (credentialPolicyId != null
-                && !descriptor.credentialPolicyIds().contains(credentialPolicyId)) {
-            throw new IllegalArgumentException("execution plan requests undeclared credential policy for source: "
-                    + planning.sourceType());
-        }
-        if (!descriptor.guardIds().containsAll(guardIds)) {
-            throw new IllegalArgumentException("execution plan requests undeclared guard for source: "
-                    + planning.sourceType());
-        }
-
-        Map<ScheduleCapabilityOwner, PublishedOwner> requiredOwners = new LinkedHashMap<>();
-        requiredOwners.put(planning.owner(), sourceOwner);
-        Map<String, ScheduledWorkExecutor> workExecutors = new LinkedHashMap<>();
-        Map<String, ScheduleCapabilityOwner> workExecutorOwners = new LinkedHashMap<>();
-        Map<String, Long> workExecutorPublicationIds = new LinkedHashMap<>();
-        for (String workType : workTypes) {
-            WorkRoute route = current.worksByType().get(workType);
-            if (route == null) {
-                return Optional.empty();
-            }
-            PublishedOwner published = currentPublishedOwner(current, route.owner(), route.publicationId());
-            if (published == null) {
-                return Optional.empty();
-            }
-            requiredOwners.put(route.owner(), published);
-            workExecutors.put(workType, route.executor());
-            workExecutorOwners.put(workType, route.owner());
-            workExecutorPublicationIds.put(workType, route.publicationId());
-        }
-
-        ScheduledCredentialPolicy credentialPolicy = null;
-        ScheduleCapabilityOwner credentialPolicyOwner = null;
-        if (credentialPolicyId != null) {
-            CapabilityEntry<ScheduledCredentialPolicy> entry =
-                    current.credentialPolicies().get(credentialPolicyId);
-            if (entry == null) {
-                return Optional.empty();
-            }
-            PublishedOwner published = currentPublishedOwner(
-                    current, entry.owner(), entry.publicationId());
-            if (published == null) {
-                return Optional.empty();
-            }
-            requiredOwners.put(entry.owner(), published);
-            credentialPolicy = entry.capability();
-            credentialPolicyOwner = entry.owner();
-        }
-
-        Map<String, ScheduledExecutionGuard> guards = new LinkedHashMap<>();
-        Map<String, ScheduleCapabilityOwner> guardOwners = new LinkedHashMap<>();
-        for (String guardId : guardIds) {
-            CapabilityEntry<ScheduledExecutionGuard> entry = current.guards().get(guardId);
-            if (entry == null) {
-                return Optional.empty();
-            }
-            PublishedOwner published = currentPublishedOwner(
-                    current, entry.owner(), entry.publicationId());
-            if (published == null) {
-                return Optional.empty();
-            }
-            requiredOwners.put(entry.owner(), published);
-            guards.put(guardId, entry.capability());
-            guardOwners.put(guardId, entry.owner());
-        }
-
-        SchedulePlanningLease.TransferredSource source = planning.prepareTransfer();
-        ScheduleLeaseBranch branch = new ScheduleLeaseBranch(planning.root());
-        ScheduleExecutionLease.OwnerState sourceState = new ScheduleExecutionLease.OwnerState(
-                planning.owner(), planning.publicationId(), sourceOwner.leaseState(), planning.leaseToken());
-        List<ScheduleExecutionLease.OwnerState> additionalOwners = new ArrayList<>(requiredOwners.size() - 1);
-        for (Map.Entry<ScheduleCapabilityOwner, PublishedOwner> required : requiredOwners.entrySet()) {
-            if (required.getKey().equals(planning.owner())) {
-                continue;
-            }
-            additionalOwners.add(new ScheduleExecutionLease.OwnerState(
-                    required.getKey(), required.getValue().publicationId(), required.getValue().leaseState(),
-                    ScheduleLeaseState.LeaseToken.branch(planning.root(), branch)));
-        }
-
-        return Optional.of(new ScheduleExecutionLease(
-                planning, branch, sourceState, additionalOwners, source,
-                workExecutors, workExecutorOwners, workExecutorPublicationIds,
-                credentialPolicy, credentialPolicyOwner, guards, guardOwners));
     }
 
     /** 在调用方已持有 execution lease 的 try/finally 内原子激活全部附加 owner 并转移根状态。 */
@@ -1083,170 +934,15 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
                 && current.publicationId() == lease.publicationId();
     }
 
-    private static Snapshot rebuild(
-            String epoch,
-            long revision,
-            Map<ScheduleCapabilityOwner, PublishedOwner> mutableOwners) {
-        Map<ScheduleCapabilityOwner, PublishedOwner> owners = Map.copyOf(mutableOwners);
-        Map<String, SourceRoute> sourcesByName = new LinkedHashMap<>();
-        Map<String, SourceRoute> sourcesByCanonical = new LinkedHashMap<>();
-        Map<String, WorkRoute> works = new LinkedHashMap<>();
-        Map<String, CapabilityEntry<ScheduledCredentialPolicy>> policies = new LinkedHashMap<>();
-        Map<String, CapabilityEntry<ScheduledExecutionGuard>> guards = new LinkedHashMap<>();
-        List<OwnerView> ownerViews = new ArrayList<>();
-
-        List<Map.Entry<ScheduleCapabilityOwner, PublishedOwner>> orderedOwners =
-                new ArrayList<>(mutableOwners.entrySet());
-        orderedOwners.sort(Map.Entry.comparingByKey());
-        for (Map.Entry<ScheduleCapabilityOwner, PublishedOwner> ownerEntry : orderedOwners) {
-            ScheduleCapabilityOwner owner = ownerEntry.getKey();
-            PublishedOwner published = ownerEntry.getValue();
-            ScheduleOwnerBundle bundle = published.bundle();
-
-            Map<String, ScheduleOwnerBundle.SourceExecutorEntry> sourceExecutors = new LinkedHashMap<>();
-            for (ScheduleOwnerBundle.SourceExecutorEntry executor : bundle.sourceExecutors()) {
-                sourceExecutors.put(executor.sourceType(), executor);
-            }
-
-            Set<String> aliases = new LinkedHashSet<>();
-            for (ScheduleOwnerBundle.SourceDescriptorEntry descriptor : bundle.sourceDescriptors()) {
-                ScheduleOwnerBundle.SourceExecutorEntry executor = sourceExecutors.get(descriptor.sourceType());
-                SourceRoute route = new SourceRoute(owner, published.publicationId(),
-                        descriptor.sourceType(), descriptor.descriptor(), executor.executor());
-                putUnique(sourcesByCanonical, descriptor.sourceType(), route,
-                        "scheduled source descriptor type");
-                putUnique(sourcesByName, descriptor.sourceType(), route, "scheduled source name");
-                for (String alias : descriptor.aliases()) {
-                    aliases.add(alias);
-                    putUnique(sourcesByName, alias, route, "scheduled source alias");
-                }
-            }
-
-            for (ScheduleOwnerBundle.WorkExecutorEntry work : bundle.workExecutors()) {
-                WorkRoute route = new WorkRoute(
-                        owner, published.publicationId(), work.workType(), work.executor());
-                putUnique(works, work.workType(), route, "scheduled work executor");
-            }
-
-            for (ScheduleOwnerBundle.CredentialPolicyEntry policy : bundle.credentialPolicies()) {
-                CapabilityEntry<ScheduledCredentialPolicy> entry = new CapabilityEntry<>(
-                        owner, published.publicationId(), policy.policyId(), policy.policy());
-                putUnique(policies, policy.policyId(), entry, "scheduled credential policy");
-            }
-            for (ScheduleOwnerBundle.GuardEntry guard : bundle.guards()) {
-                CapabilityEntry<ScheduledExecutionGuard> entry = new CapabilityEntry<>(
-                        owner, published.publicationId(), guard.guardId(), guard.guard());
-                putUnique(guards, guard.guardId(), entry, "scheduled execution guard");
-            }
-
-            ownerViews.add(new OwnerView(
-                    owner,
-                    published.publicationId(),
-                    published.activationToken(),
-                    sortedSet(bundle.sourceDescriptors().stream()
-                            .map(ScheduleOwnerBundle.SourceDescriptorEntry::sourceType).toList()),
-                    sortedSet(aliases),
-                    sortedSet(bundle.workExecutors().stream()
-                            .map(ScheduleOwnerBundle.WorkExecutorEntry::workType).toList()),
-                    sortedSet(bundle.credentialPolicies().stream()
-                            .map(ScheduleOwnerBundle.CredentialPolicyEntry::policyId).toList()),
-                    sortedSet(bundle.guards().stream().map(ScheduleOwnerBundle.GuardEntry::guardId).toList()),
-                    bundle.sourceDescriptors().stream()
-                            .map(ScheduleOwnerBundle.SourceDescriptorEntry::descriptor)
-                            .sorted(Comparator.comparing(ScheduledSourceDescriptor::sourceType))
-                            .toList()));
-        }
-
-        SnapshotView view = new SnapshotView(epoch, revision, ownerViews);
-        return new Snapshot(
-                revision,
-                owners,
-                Map.copyOf(sourcesByName),
-                Map.copyOf(sourcesByCanonical),
-                Map.copyOf(works),
-                Map.copyOf(policies),
-                Map.copyOf(guards),
-                view);
-    }
-
     private static String reservationToken(long reservationId) {
         return "reservation-" + reservationId;
     }
 
-    private static void rejectActiveOwnerClash(
-            Map<ScheduleCapabilityOwner, PublishedOwner> owners,
-            ScheduleCapabilityOwner candidate) {
-        for (ScheduleCapabilityOwner active : owners.keySet()) {
-            if (active.featurePluginId().equals(candidate.featurePluginId())) {
-                throw new IllegalStateException("schedule feature owner already published: "
-                        + candidate.featurePluginId() + " (active: " + active + ")");
-            }
-            if (active.packageId().equals(candidate.packageId())) {
-                throw new IllegalStateException("schedule package owner already published: "
-                        + candidate.packageId() + " (active: " + active + ")");
-            }
-        }
-    }
-
     private PublishedOwner currentPublishedOwner(
-            Snapshot current, ScheduleCapabilityOwner owner, long publicationId) {
-        PublishedOwner published = current.owners().get(owner);
-        if (published == null || published.publicationId() != publicationId
-                || !published.leaseState().isAccepting()
-                || !ownerAdmission.test(owner.featurePluginId())) {
-            return null;
-        }
-        return published;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> T resolveCapability(Snapshot current, ScheduleCapabilityHandle<T> handle) {
-        Object value = switch (handle.kind()) {
-            case OWNER -> {
-                PublishedOwner published = current.owners().get(handle.owner());
-                yield published != null
-                        && published.publicationId() == handle.publicationId()
-                        && handle.capabilityId().equals(handle.owner().featurePluginId())
-                        ? handle.owner() : null;
-            }
-            case SOURCE_DESCRIPTOR -> {
-                SourceRoute route = current.sourcesByCanonical().get(handle.capabilityId());
-                yield matches(route, handle) ? route.descriptor() : null;
-            }
-            case SOURCE_EXECUTOR -> {
-                SourceRoute route = current.sourcesByCanonical().get(handle.capabilityId());
-                yield matches(route, handle) ? route.executor() : null;
-            }
-            case WORK_EXECUTOR -> {
-                WorkRoute route = current.worksByType().get(handle.capabilityId());
-                yield matches(route, handle) ? route.executor() : null;
-            }
-            case CREDENTIAL_POLICY -> {
-                CapabilityEntry<ScheduledCredentialPolicy> entry =
-                        current.credentialPolicies().get(handle.capabilityId());
-                yield matches(entry, handle) ? entry.capability() : null;
-            }
-            case EXECUTION_GUARD -> {
-                CapabilityEntry<ScheduledExecutionGuard> entry = current.guards().get(handle.capabilityId());
-                yield matches(entry, handle) ? entry.capability() : null;
-            }
-        };
-        return (T) value;
-    }
-
-    private static boolean matches(SourceRoute route, ScheduleCapabilityHandle<?> handle) {
-        return route != null && route.owner().equals(handle.owner())
-                && route.publicationId() == handle.publicationId();
-    }
-
-    private static boolean matches(WorkRoute route, ScheduleCapabilityHandle<?> handle) {
-        return route != null && route.owner().equals(handle.owner())
-                && route.publicationId() == handle.publicationId();
-    }
-
-    private static boolean matches(CapabilityEntry<?> entry, ScheduleCapabilityHandle<?> handle) {
-        return entry != null && entry.owner().equals(handle.owner())
-                && entry.publicationId() == handle.publicationId();
+            ScheduleCapabilityIndex current,
+            ScheduleCapabilityOwner owner,
+            long publicationId) {
+        return current.currentPublishedOwner(owner, publicationId, ownerAdmission);
     }
 
     private static <T> ScheduleCapabilityHandle<T> handle(
@@ -1262,21 +958,6 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
             return null;
         }
         return values.get(key);
-    }
-
-    private static <T> void putUnique(Map<String, T> values, String key, T value, String label) {
-        T previous = values.putIfAbsent(key, value);
-        if (previous != null) {
-            throw new IllegalStateException("duplicate " + label + ": " + key);
-        }
-    }
-
-    private static IllegalStateException duplicate(
-            String label, String value,
-            ScheduleCapabilityOwner candidate,
-            ScheduleCapabilityOwner previous) {
-        return new IllegalStateException("duplicate " + label + ": " + value
-                + " (owner: " + candidate + "; already claimed by: " + previous + ")");
     }
 
     private static Set<String> normalizedIds(Set<String> values, String label) {
@@ -1304,7 +985,4 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
         return normalized;
     }
 
-    private static Set<String> sortedSet(java.util.Collection<String> values) {
-        return Set.copyOf(values.stream().sorted().toList());
-    }
 }

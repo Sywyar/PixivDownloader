@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.market;
 
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;

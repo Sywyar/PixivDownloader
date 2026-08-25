@@ -24,7 +24,9 @@ const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch-alt');
 const VUE_SRC = fs.readFileSync(path.join(STATIC, 'alt-queue-vue.js'), 'utf8');
-const SCHEDULE_SRC = fs.readFileSync(path.join(STATIC, 'alt-schedule.js'), 'utf8');
+const SCHEDULE_SRC = ['alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']
+    .map(name => fs.readFileSync(path.join(STATIC, name), 'utf8'))
+    .join('\n');
 
 let passed = 0;
 function ok(label, cond) { assert.ok(cond, label); passed++; }

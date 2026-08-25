@@ -1,0 +1,80 @@
+/* ── Misc Bootstrap overrides ──────────────────────────── */
+        .card-footer {
+            background: var(--cyan-faint);
+            border-top: 1px solid var(--border);
+            padding: 0.6rem 1rem;
+        }
+        .table-responsive { background: transparent; overflow-x: auto; }
+        .badge.bg-primary { background: var(--cyan-dim) !important; color: var(--cyan); border: 1px solid var(--border-bright); font-family: var(--font); font-size: 0.65rem; letter-spacing: 0.05em; border-radius: 0; }
+        .modal-backdrop { backdrop-filter: blur(2px); }
+        .modal { z-index: 1050; }
+        .modal-backdrop { z-index: 1040; }
+
+        /* ── Responsive tweaks ─────────────────────────────────── */
+        @media (max-width: 768px) {
+            .stat-value { font-size: 1.6rem; }
+            .header-title { font-size: 1rem; }
+            .artwork-title { max-width: 120px; }
+
+            .site-header .d-flex.justify-content-between {
+                align-items: flex-start !important;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .header-status {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .app-nav {
+                align-items: stretch;
+                flex-wrap: wrap;
+                gap: 0.35rem;
+            }
+
+            .app-nav-brand {
+                flex: 1 1 100%;
+                margin-right: 0;
+                padding-right: 0;
+                border-right: none;
+            }
+
+            .app-nav-link {
+                flex: 1 1 140px;
+                justify-content: center;
+                min-height: 34px;
+                padding: 0.45rem 0.55rem;
+                text-align: center;
+            }
+
+            .app-nav-spacer {
+                display: none;
+            }
+
+            .app-nav-actions {
+                width: 100%;
+                margin-left: 0;
+                justify-content: flex-end;
+            }
+
+            .panel-header {
+                align-items: stretch;
+                flex-direction: column;
+                gap: 0.6rem;
+            }
+
+            .panel-header .d-flex {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .search-box {
+                flex: 1 1 100%;
+                max-width: none;
+            }
+
+            .btn-refresh {
+                flex: 1 1 40px;
+            }
+        }

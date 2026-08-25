@@ -291,7 +291,7 @@
             if (requestSeq !== searchState.requestSeq) return;
             if (!res.ok) {
                 document.getElementById('search-results-area').innerHTML =
-                    `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.search-failed', '搜索失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
+                    `<div class="preview-message preview-message--error">${esc(bt('status.search-failed', '搜索失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
                 return;
             }
             let items = data.items || [];
@@ -347,7 +347,7 @@
         } catch (e) {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             document.getElementById('search-results-area').innerHTML =
-                `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
+                `<div class="preview-message preview-message--error">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
         }
     }
 
@@ -397,7 +397,7 @@
             const empty = (acq && acq.emptyResultsLabel)
                 ? acq.emptyResultsLabel()
                 : bt('status.search-no-results', '无搜索结果');
-            area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(empty)}</div>`;
+            area.innerHTML = `<div class="preview-message">${esc(empty)}</div>`;
             return;
         }
         if (!searchState.results.length) {
@@ -410,7 +410,7 @@
                     {count: searchState.filterSummary.bookmarkMetaMissing}
                 ));
             }
-            area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(bt('status.search-no-filtered-results', '附加筛选后无结果'))}<br><span style="font-size:12px;">${tips.map(t => `<span>${esc(t)}</span>`).join(summarySeparator())}</span></div>`;
+            area.innerHTML = `<div class="preview-message">${esc(bt('status.search-no-filtered-results', '附加筛选后无结果'))}<br><span class="preview-message-detail">${tips.map(t => `<span>${esc(t)}</span>`).join(summarySeparator())}</span></div>`;
             return;
         }
         const view = getSearchView();
@@ -445,8 +445,8 @@
             }
         }
         area.innerHTML = `
-    ${searchState.noCookie ? `<div style="font-size:12px;color:#e6a700;margin-bottom:8px;">${esc(bt('status.search-no-cookie-warning', '⚠ 未保存 Cookie，搜索结果可能减少'))}</div>` : ''}
-    <div style="font-size:12px;color:#888;margin-bottom:10px;">
+    ${searchState.noCookie ? `<div class="search-no-cookie-warning">${esc(bt('status.search-no-cookie-warning', '⚠ 未保存 Cookie，搜索结果可能减少'))}</div>` : ''}
+    <div class="preview-summary">
       ${summary.map(s => `<span>${esc(s)}</span>`).join(summarySeparator())}
     </div>
     <div class="search-grid">
@@ -459,12 +459,12 @@
             const bookmarkCount = getSearchBookmarkCount(item);
             const blurClass = (isR18 && searchState.blurR18) ? 'blur-r18' : '';
             const r18Badge = xr === 2
-                ? '<span class="thumb-badge" style="background:#b91c1c;">R-18G</span>'
+                ? '<span class="thumb-badge thumb-badge-r18g">R-18G</span>'
                 : xr === 1 ? '<span class="thumb-badge">R-18</span>' : '';
             const aiBadge = isAi ? '<span class="thumb-badge thumb-badge-ai">AI</span>' : '';
             const typeBadge = illustType === 2
-                ? `<span class="thumb-badge" style="background:#0ea5e9;">${esc(bt('search.type.ugoira', '动图'))}</span>`
-                : illustType === 1 ? `<span class="thumb-badge" style="background:#f59e0b;">${esc(bt('search.type.manga', '漫画'))}</span>` : '';
+                ? `<span class="thumb-badge thumb-badge-ugoira">${esc(bt('search.type.ugoira', '动图'))}</span>`
+                : illustType === 1 ? `<span class="thumb-badge thumb-badge-manga">${esc(bt('search.type.manga', '漫画'))}</span>` : '';
             const pagesLabel = item.pageCount > 1 ? `<span class="thumb-pages">${item.pageCount}P</span>` : '';
             const inQueueClass = inQueue.has(item.id) ? ' in-queue' : '';
             const queueTip = buildQueueToggleTip(inQueue.has(item.id));
@@ -888,7 +888,7 @@
             if (requestSeq !== searchState.requestSeq) return;
             if (!res.ok) {
                 document.getElementById('search-results-area').innerHTML =
-                    `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.batch-fetch-failed', '批量获取失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
+                    `<div class="preview-message preview-message--error">${esc(bt('status.batch-fetch-failed', '批量获取失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
                 return;
             }
             let items = data.items || [];
@@ -932,7 +932,7 @@
         } catch (e) {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             document.getElementById('search-results-area').innerHTML =
-                `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
+                `<div class="preview-message preview-message--error">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
         } finally {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             btn.disabled = false;

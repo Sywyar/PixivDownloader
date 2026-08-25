@@ -28,7 +28,7 @@ import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextPropertySnap
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.setup.SetupProperties;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
+import top.sywyar.pixivdownload.setup.guest.config.GuestInviteConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;

@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -34,7 +34,6 @@ import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * 计划任务管理 API（管理员专用）。
@@ -88,9 +87,9 @@ public class ScheduleController {
     }
 
     @DeleteMapping("/tasks/{id}")
-    public Map<String, Object> delete(@PathVariable long id) {
+    public SuccessResponse delete(@PathVariable long id) {
         scheduleService.delete(id);
-        return Map.of("success", true);
+        return new SuccessResponse(true);
     }
 
     @PostMapping("/tasks/{id}/enabled")
@@ -118,10 +117,10 @@ public class ScheduleController {
 
     /** 只接受精确 policy publication 身份；动作语义由当前凭证策略纯值规划。 */
     @PostMapping("/credential-policies/actions")
-    public Map<String, Object> applyCredentialPolicyAction(
+    public SuccessResponse applyCredentialPolicyAction(
             @Valid @RequestBody ScheduleCredentialPolicyActionRequest request) {
         scheduleService.applyCredentialPolicyAction(request);
-        return Map.of("success", true);
+        return new SuccessResponse(true);
     }
 
     /** 设置 / 清除任务级单独代理（host:port；body 的 proxy 为空 = 清除并回退全局代理设置）。 */
@@ -132,9 +131,9 @@ public class ScheduleController {
     }
 
     @PostMapping("/tasks/{id}/run")
-    public Map<String, Object> runOnce(@PathVariable long id) {
+    public SuccessResponse runOnce(@PathVariable long id) {
         scheduleService.manualRun(id);
-        return Map.of("success", true);
+        return new SuccessResponse(true);
     }
 
     // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────
@@ -169,12 +168,14 @@ public class ScheduleController {
 
     /** 手动清除隔离表中某个「需人工」条目。 */
     @DeleteMapping("/tasks/{id}/pending")
-    public Map<String, Object> clearPending(
+    public SuccessResponse clearPending(
             @PathVariable long id,
             @Valid @RequestBody SchedulePendingDeleteRequest request) {
         scheduleService.clearPending(id, request.getWorkType(), request.getWorkId());
-        return Map.of("success", true);
+        return new SuccessResponse(true);
     }
+
+    public record SuccessResponse(boolean success) {}
 
     @ExceptionHandler(LocalizedException.class)
     public ResponseEntity<ErrorResponse> handleLocalized(LocalizedException failure, Locale locale) {

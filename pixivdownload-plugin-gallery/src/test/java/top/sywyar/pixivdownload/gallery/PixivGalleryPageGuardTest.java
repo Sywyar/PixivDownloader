@@ -72,6 +72,31 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
+    @DisplayName("画廊页面按职责顺序加载自有样式")
+    void galleryStylesheetsKeepResponsibilityOrder() throws IOException {
+        assertStylesheetOrder("static/pixiv-gallery.html", List.of(
+                "/pixiv-gallery/pixiv-gallery.css",
+                "/pixiv-gallery/pixiv-gallery-controls.css",
+                "/pixiv-gallery/pixiv-gallery-grid.css",
+                "/pixiv-gallery/pixiv-gallery-management.css",
+                "/pixiv-gallery/pixiv-gallery-responsive.css"));
+        assertStylesheetOrder("static/pixiv-showcase.html", List.of(
+                "/pixiv-showcase/pixiv-showcase.css",
+                "/pixiv-showcase/pixiv-showcase-hero.css",
+                "/pixiv-showcase/pixiv-showcase-content.css",
+                "/pixiv-showcase/pixiv-showcase-overlays.css",
+                "/pixiv-showcase/pixiv-showcase-responsive.css"));
+        assertStylesheetOrder("static/pixiv-series.html", List.of(
+                "/pixiv-series/pixiv-series.css",
+                "/pixiv-series/pixiv-series-content.css",
+                "/pixiv-series/pixiv-series-responsive.css"));
+        assertStylesheetOrder("static/pixiv-artwork.html", List.of(
+                "/pixiv-artwork/pixiv-artwork.css",
+                "/pixiv-artwork/pixiv-artwork-overlays.css",
+                "/pixiv-artwork/pixiv-artwork-theme.css"));
+    }
+
+    @Test
     @DisplayName("动态结果状态在静态国际化重渲染后保持当前语义")
     void dynamicGalleryStatusSurvivesStaticI18nRendering() throws IOException {
         String core = read("static/pixiv-gallery/gallery-core.js");
@@ -138,6 +163,17 @@ class PixivGalleryPageGuardTest {
         try (var input = getClass().getClassLoader().getResourceAsStream(path)) {
             assertThat(input).as(path).isNotNull();
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void assertStylesheetOrder(String page, List<String> stylesheets) throws IOException {
+        String html = read(page);
+        int previous = -1;
+        for (String stylesheet : stylesheets) {
+            int current = html.indexOf("href=\"" + stylesheet + "\"");
+            assertThat(current).as("%s 应加载 %s", page, stylesheet).isGreaterThan(previous);
+            previous = current;
+            assertThat(read("static" + stylesheet)).as(stylesheet).isNotBlank();
         }
     }
 

@@ -26,8 +26,8 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 

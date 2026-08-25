@@ -4,6 +4,17 @@
     var loaded = {};
     var BASE = '/pixiv-ai/';
 
+    function showLoadFailure() {
+        var fallback = 'This feature is temporarily unavailable. Refresh the page and try again.';
+        var message = typeof pageI18n !== 'undefined' && pageI18n
+                ? pageI18n.t('common:error.feature-unavailable', fallback) : fallback;
+        if (global.PixivFeedback && typeof global.PixivFeedback.toast === 'function') {
+            global.PixivFeedback.toast({ message: message, kind: 'error' });
+        } else if (typeof toast === 'function') {
+            toast(message, 'error');
+        }
+    }
+
     function loadScript(url) {
         if (loaded[url]) return loaded[url];
         loaded[url] = new Promise(function (resolve) {
@@ -13,6 +24,7 @@
             script.onload = function () { resolve(true); };
             script.onerror = function () {
                 console.warn('[AI] script load failed:', url);
+                showLoadFailure();
                 resolve(false);
             };
             (document.head || document.documentElement).appendChild(script);
@@ -108,7 +120,9 @@
 
     async function init() {
         loadStyle(BASE + 'pixiv-translate.css');
-        await loadScript(BASE + 'pixiv-translate.js');
+        if (!await loadScript(BASE + 'pixiv-translate-dialog.js')) return;
+        if (!await loadScript(BASE + 'pixiv-content-lang.js')) return;
+        if (!await loadScript(BASE + 'pixiv-translate.js')) return;
         if (global.PixivNovel && global.PixivNovel.content
                 && typeof global.PixivNovel.content.mountContentLangSwitcher === 'function') {
             global.PixivNovel.content.mountContentLangSwitcher();

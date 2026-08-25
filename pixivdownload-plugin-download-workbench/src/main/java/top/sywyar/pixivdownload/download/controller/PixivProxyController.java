@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.download.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,25 +10,29 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
-import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.download.response.collection.CollectionPageResponse;
+import top.sywyar.pixivdownload.download.response.collection.CollectionWorksResponse;
+import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
+import top.sywyar.pixivdownload.download.response.error.ProxyRateLimitResponse;
+import top.sywyar.pixivdownload.download.response.search.SearchRangeResponse;
+import top.sywyar.pixivdownload.download.response.search.SearchResponse;
+import top.sywyar.pixivdownload.download.response.user.FollowLatestResponse;
+import top.sywyar.pixivdownload.download.response.user.MeUidResponse;
+import top.sywyar.pixivdownload.download.response.user.UserArtworksResponse;
+import top.sywyar.pixivdownload.download.response.user.UserMetaResponse;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
-import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.download.response.ProxyRateLimitResponse;
 
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -47,11 +50,6 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @RequiredArgsConstructor
 public class PixivProxyController {
-
-    private static final Set<String> FORWARDED_META_STRIP_KEYS = Set.of(
-            "userIllusts", "userNovels", "zoneConfig", "extraData", "noLoginData",
-            "comicPromotion", "fanboxPromotion", "contestBanners", "contestData",
-            "pollData", "imageResponseData", "imageResponseOutData");
 
     private final ObjectMapper objectMapper;
     private final PixivThumbnailFetcher pixivThumbnailFetcher;
@@ -220,100 +218,7 @@ public class PixivProxyController {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse(root.path("message").asText()));
         }
-        JsonNode b = root.path("body");
-        JsonNode nav = b.path("seriesNavData");
-        Long seriesId = null;
-        Long seriesOrder = null;
-        String seriesTitle = null;
-        if (nav.isObject()) {
-            long sid = nav.path("seriesId").asLong(0);
-            if (sid > 0) {
-                seriesId = sid;
-                seriesOrder = nav.path("order").asLong(0);
-                seriesTitle = nav.path("title").asText("");
-            }
-        }
-        return ResponseEntity.ok(new ArtworkMetaResponse(
-                b.path("illustType").asInt(0),
-                b.path("illustTitle").asText(""),
-                b.path("xRestrict").asInt(0),
-                b.path("aiType").asInt(0) >= 2,
-                b.path("bookmarkCount").asInt(-1),
-                b.path("pageCount").asInt(0),
-                parsePositiveLong(b.path("userId").asText(null)),
-                b.path("userName").asText(""),
-                PixivDescriptionHtml.normalizeLinks(b.path("description").asText("")),
-                extractTags(b),
-                seriesId,
-                seriesOrder,
-                seriesTitle,
-                buildForwardedMetaJson(b)
-        ));
-    }
-
-    private String buildForwardedMetaJson(JsonNode body) throws IOException {
-        if (!body.isObject()) {
-            return null;
-        }
-        ObjectNode pruned = body.deepCopy();
-        FORWARDED_META_STRIP_KEYS.forEach(pruned::remove);
-        return objectMapper.writeValueAsString(pruned);
-    }
-
-    private static Long parsePositiveLong(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            long parsed = Long.parseLong(value);
-            return parsed > 0 ? parsed : null;
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static List<WorkTag> extractTags(JsonNode body) {
-        JsonNode tagsArr = body.path("tags").path("tags");
-        if (!tagsArr.isArray() || tagsArr.isEmpty()) {
-            tagsArr = body.path("tags");
-        }
-        if (!tagsArr.isArray() || tagsArr.isEmpty()) {
-            return List.of();
-        }
-        List<WorkTag> out = new ArrayList<>();
-        for (JsonNode t : tagsArr) {
-            String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
-            if (name.isEmpty()) continue;
-            String translated = null;
-            JsonNode translation = t.path("translation");
-            if (translation.isObject()) {
-                String en = translation.path("en").asText("");
-                if (!en.isEmpty()) translated = en;
-            }
-            out.add(new WorkTag(null, name, translated));
-        }
-        return out;
-    }
-
-    private static String extractNovelCoverUrl(JsonNode node) {
-        for (String parent : List.of("imageUrls", "urls")) {
-            JsonNode urls = node.path(parent);
-            if (urls.isObject()) {
-                for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
-                    String cover = urls.path(key).asText("");
-                    if (!cover.isBlank()) {
-                        return PixivCoverUrlResolver.preferHighResolution(cover);
-                    }
-                }
-            }
-        }
-        for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
-            String cover = node.path(key).asText("");
-            if (!cover.isBlank()) {
-                return PixivCoverUrlResolver.preferHighResolution(cover);
-            }
-        }
-        return "";
+        return ResponseEntity.ok(PixivProxyResponseMapper.artworkMeta(objectMapper, root.path("body")));
     }
 
     @GetMapping("/artwork/{artworkId}/pages")
@@ -333,12 +238,7 @@ public class PixivProxyController {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse(root.path("message").asText()));
         }
-        List<String> urls = new ArrayList<>();
-        for (JsonNode page : root.path("body")) {
-            String origUrl = page.path("urls").path("original").asText("");
-            if (!origUrl.isEmpty()) urls.add(origUrl);
-        }
-        return ResponseEntity.ok(new ArtworkPagesResponse(urls));
+        return ResponseEntity.ok(PixivProxyResponseMapper.artworkPages(root.path("body")));
     }
 
     @GetMapping("/artwork/{artworkId}/ugoira")
@@ -358,14 +258,7 @@ public class PixivProxyController {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse(root.path("message").asText()));
         }
-        JsonNode b = root.path("body");
-        String zipUrl = b.path("originalSrc").asText("");
-        if (zipUrl.isEmpty()) zipUrl = b.path("src").asText("");
-        List<Integer> delays = new ArrayList<>();
-        for (JsonNode frame : b.path("frames")) {
-            delays.add(frame.path("delay").asInt(100));
-        }
-        return ResponseEntity.ok(new UgoiraMetaResponse(zipUrl, delays));
+        return ResponseEntity.ok(PixivProxyResponseMapper.ugoiraMeta(root.path("body")));
     }
 
     private static final Set<String> VALID_ORDERS  = Set.of("date_d", "date", "popular_d");
@@ -388,52 +281,6 @@ public class PixivProxyController {
     private int resolveSearchFillLimitPage(HttpServletRequest request) {
         return pixivProxyAccessPolicy.resolveSearchFillLimitPage(
                 requestOwnerIdentityResolver.isAdminAuthenticated(request));
-    }
-
-    /**
-     * Pixiv 搜索结果 item 的 tags 为字符串数组（如 ["tag1","tag2"]）。
-     * 解析为去空白、去重、保序的字符串列表，供前端做客户端标签精确/模糊筛选。
-     */
-    static List<String> parseStringTags(JsonNode tagsNode) {
-        if (tagsNode == null || !tagsNode.isArray() || tagsNode.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<String> tags = new LinkedHashSet<>();
-        for (JsonNode tag : tagsNode) {
-            String value = tag.isTextual() ? tag.asText("") : tag.path("tag").asText("");
-            value = value.trim();
-            if (!value.isEmpty()) {
-                tags.add(value);
-            }
-        }
-        return new ArrayList<>(tags);
-    }
-
-    /**
-     * 把 {@code /ajax/user/{id}/illusts?ids[]=...} 的 {@code body}（按作品 id 键控的对象）解析为
-     * 与搜索结果同形的卡片列表，并按 {@code ids} 请求顺序保序、跳过已删除（null/缺失）的作品。
-     * 纯函数：不触网、不依赖实例状态，便于单测。
-     */
-    static List<SearchResponse.SearchItem> parseUserIllustCards(JsonNode body, List<String> ids) {
-        List<SearchResponse.SearchItem> items = new ArrayList<>();
-        if (body == null || ids == null) return items;
-        for (String id : ids) {
-            JsonNode item = body.path(id);
-            if (item.isMissingNode() || item.isNull() || !item.isObject()) continue;
-            items.add(new SearchResponse.SearchItem(
-                    item.path("id").asText(id),
-                    item.path("title").asText(""),
-                    item.path("illustType").asInt(0),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("url").asText(""),
-                    item.path("pageCount").asInt(1),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return items;
     }
 
     private SearchResponse fetchSearchPage(
@@ -462,23 +309,7 @@ public class PixivProxyController {
             throw new IllegalArgumentException(root.path("message").asText(messages.get("pixiv.proxy.search.failed")));
         }
         JsonNode illustManga = root.path("body").path("illustManga");
-        int total = illustManga.path("total").asInt(0);
-        List<SearchResponse.SearchItem> items = new ArrayList<>();
-        for (JsonNode item : illustManga.path("data")) {
-            items.add(new SearchResponse.SearchItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
-                    item.path("illustType").asInt(0),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("url").asText(""),
-                    item.path("pageCount").asInt(1),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return new SearchResponse(items, total, safePage);
+        return PixivProxyResponseMapper.searchResponse(illustManga, safePage);
     }
 
     @GetMapping("/search")
@@ -618,109 +449,7 @@ public class PixivProxyController {
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
         }
-        JsonNode b = root.path("body");
-        // illustSeries[0] holds the series record
-        JsonNode seriesArr = b.path("illustSeries");
-        long sid = parsedId;
-        String title = "";
-        Long authorId = null;
-        String authorName = "";
-        int total = 0;
-        String caption = "";
-        String coverUrl = "";
-        if (seriesArr.isArray() && !seriesArr.isEmpty()) {
-            JsonNode s = seriesArr.get(0);
-            sid = parsePositiveOrDefault(s.path("id").asText(null), parsedId);
-            title = s.path("title").asText("");
-            authorId = parsePositiveLong(s.path("userId").asText(null));
-            total = s.path("total").asInt(0);
-            caption = s.path("caption").asText("");
-            coverUrl = extractSeriesCoverUrl(s);
-        }
-        // Author name from users object
-        JsonNode usersArr = b.path("users");
-        if (authorId != null && usersArr.isArray()) {
-            for (JsonNode u : usersArr) {
-                if (u.path("userId").asText("").equals(String.valueOf(authorId))) {
-                    authorName = u.path("name").asText("");
-                    break;
-                }
-            }
-        }
-        // Items: thumbnails.illust[]
-        JsonNode thumbsIllust = b.path("thumbnails").path("illust");
-        // Order map: page[].works[] gives series_order via {id, order}
-        Map<String, Integer> orderMap = new LinkedHashMap<>();
-        JsonNode pageArr = b.path("page").path("series");
-        if (pageArr.isArray()) {
-            for (JsonNode entry : pageArr) {
-                String id = entry.path("workId").asText("");
-                int order = entry.path("order").asInt(0);
-                if (!id.isEmpty()) orderMap.put(id, order);
-            }
-        }
-        List<SeriesResponse.SeriesItem> items = new ArrayList<>();
-        if (thumbsIllust.isArray()) {
-            int fallbackOrder = (safePage - 1) * 12;
-            for (JsonNode t : thumbsIllust) {
-                String id = t.path("id").asText("");
-                if (id.isEmpty()) continue;
-                int seriesOrder = orderMap.getOrDefault(id, ++fallbackOrder);
-                items.add(new SeriesResponse.SeriesItem(
-                        id,
-                        t.path("title").asText(""),
-                        t.path("illustType").asInt(0),
-                        t.path("xRestrict").asInt(0),
-                        t.path("aiType").asInt(0),
-                        t.path("url").asText(""),
-                        t.path("pageCount").asInt(1),
-                        t.path("userId").asText(""),
-                        t.path("userName").asText(""),
-                        seriesOrder,
-                        parseStringTags(t.path("tags"))
-                ));
-            }
-            // Filter to only series members and sort by series order ascending
-            List<SeriesResponse.SeriesItem> filtered = new ArrayList<>();
-            for (SeriesResponse.SeriesItem item : items) {
-                if (orderMap.containsKey(item.id())) filtered.add(item);
-            }
-            if (!filtered.isEmpty()) {
-                filtered.sort(Comparator.comparingInt(SeriesResponse.SeriesItem::seriesOrder));
-                items = filtered;
-            }
-        }
-        boolean isLastPage = items.size() < 12 || (total > 0 && safePage * 12 >= total);
-        return ResponseEntity.ok(new SeriesResponse(
-                new SeriesResponse.SeriesMeta(sid, title, authorId, authorName, total, caption, coverUrl),
-                items,
-                safePage,
-                isLastPage
-        ));
-    }
-
-    /**
-     * 从 {@code /ajax/series/{id}} 的 {@code illustSeries[0]} 中抽取封面 URL；优先取最高分辨率。
-     * 失败返回空串（与该字段在 DTO 中的"未知"语义一致）。
-     */
-    private static String extractSeriesCoverUrl(JsonNode meta) {
-        JsonNode urls = meta.path("cover").path("urls");
-        if (urls.isObject()) {
-            for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
-                String value = urls.path(key).asText("");
-                if (!value.isBlank()) return value;
-            }
-        }
-        for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
-            String value = meta.path(key).asText("");
-            if (!value.isBlank()) return value;
-        }
-        return "";
-    }
-
-    private static long parsePositiveOrDefault(String value, long fallback) {
-        Long parsed = parsePositiveLong(value);
-        return parsed == null ? fallback : parsed;
+        return ResponseEntity.ok(PixivProxyResponseMapper.seriesResponse(root.path("body"), parsedId, safePage));
     }
 
     /**
@@ -755,7 +484,7 @@ public class PixivProxyController {
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
         }
-        List<SearchResponse.SearchItem> items = parseUserIllustCards(root.path("body"), ids);
+        List<SearchResponse.SearchItem> items = PixivProxyResponseMapper.parseUserIllustCards(root.path("body"), ids);
         return ResponseEntity.ok(new SearchResponse(items, items.size(), 1));
     }
 
@@ -835,25 +564,8 @@ public class PixivProxyController {
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
         }
-        JsonNode b = root.path("body");
-        int total = b.path("total").asInt(0);
-        List<SearchResponse.SearchItem> items = new ArrayList<>();
-        for (JsonNode item : b.path("works")) {
-            // 私密 / 受限作品在 Pixiv 上以占位形式返回：isMasked=true，没有 title / illustType；前端按 xRestrict 高亮提示但仍可点入队列重试
-            items.add(new SearchResponse.SearchItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
-                    item.path("illustType").asInt(0),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("url").asText(""),
-                    item.path("pageCount").asInt(1),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return ResponseEntity.ok(new SearchResponse(items, total, safeOffset / safeLimit + 1));
+        return ResponseEntity.ok(PixivProxyResponseMapper.bookmarkResponse(
+                root.path("body"), safeOffset, safeLimit));
     }
 
     @GetMapping("/me/following")
@@ -891,18 +603,8 @@ public class PixivProxyController {
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
         }
-        JsonNode b = root.path("body");
-        int total = b.path("total").asInt(0);
-        List<FollowingPageResponse.FollowingUser> users = new ArrayList<>();
-        for (JsonNode u : b.path("users")) {
-            users.add(new FollowingPageResponse.FollowingUser(
-                    u.path("userId").asText(""),
-                    u.path("userName").asText(""),
-                    u.path("profileImageUrl").asText(""),
-                    u.path("userComment").asText(u.path("comment").asText(""))
-            ));
-        }
-        return ResponseEntity.ok(new FollowingPageResponse(users, total, safeOffset, safeLimit));
+        return ResponseEntity.ok(PixivProxyResponseMapper.followingPageResponse(
+                root.path("body"), safeOffset, safeLimit));
     }
 
     /**
@@ -936,63 +638,9 @@ public class PixivProxyController {
             return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
         }
         JsonNode b = root.path("body");
-        List<SearchResponse.SearchItem> items = parseFollowLatestIllusts(b);
-        boolean hasNext = followLatestHasNext(b, items.size());
+        List<SearchResponse.SearchItem> items = PixivProxyResponseMapper.parseFollowLatestIllusts(b);
+        boolean hasNext = PixivProxyResponseMapper.followLatestHasNext(b, items.size());
         return ResponseEntity.ok(new FollowLatestResponse(items, safePage, hasNext));
-    }
-
-    /**
-     * 把 {@code /ajax/follow_latest/illust} 的 {@code body} 解析为按 {@code page.ids} 顺序排列的插画卡片列表。
-     * 卡片详情取自 {@code thumbnails.illust[]}（按 id 建索引）；{@code page.ids} 缺失时回退为 thumbnails 自身顺序，
-     * 命中不到卡片的 id（被屏蔽/已删除等）跳过。纯函数：不触网、不依赖实例状态，便于单测。
-     */
-    static List<SearchResponse.SearchItem> parseFollowLatestIllusts(JsonNode body) {
-        List<SearchResponse.SearchItem> items = new ArrayList<>();
-        if (body == null) return items;
-        Map<String, JsonNode> illustById = new LinkedHashMap<>();
-        for (JsonNode it : body.path("thumbnails").path("illust")) {
-            String id = it.path("id").asText("");
-            if (!id.isBlank()) illustById.put(id, it);
-        }
-        JsonNode ids = body.path("page").path("ids");
-        if (ids.isArray() && !ids.isEmpty()) {
-            for (JsonNode idNode : ids) {
-                JsonNode it = illustById.get(idNode.asText(""));
-                if (it != null) items.add(followLatestCardOf(it));
-            }
-        } else {
-            for (JsonNode it : illustById.values()) {
-                items.add(followLatestCardOf(it));
-            }
-        }
-        return items;
-    }
-
-    private static SearchResponse.SearchItem followLatestCardOf(JsonNode item) {
-        return new SearchResponse.SearchItem(
-                item.path("id").asText(""),
-                item.path("title").asText(""),
-                item.path("illustType").asInt(0),
-                item.path("xRestrict").asInt(0),
-                item.path("aiType").asInt(0),
-                item.path("url").asText(""),
-                item.path("pageCount").asInt(1),
-                item.path("userId").asText(""),
-                item.path("userName").asText(""),
-                parseStringTags(item.path("tags"))
-        );
-    }
-
-    /**
-     * 判断 follow_latest 是否还有下一页：优先用 Pixiv 自身的 {@code page.isLastPage}；缺失时退化为
-     * 「当前页解析出非空作品即可能还有下一页」（请求越界时 Pixiv 返回空页，从而停止）。纯函数。
-     */
-    static boolean followLatestHasNext(JsonNode body, int pageItemCount) {
-        if (body != null) {
-            JsonNode isLast = body.path("page").path("isLastPage");
-            if (isLast.isBoolean()) return !isLast.asBoolean();
-        }
-        return pageItemCount > 0;
     }
 
     /**
@@ -1017,19 +665,7 @@ public class PixivProxyController {
         if (allRoot.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new ErrorResponse(allRoot.path("message").asText()));
         }
-        List<String> ids = new ArrayList<>();
-        JsonNode idsNode = allRoot.path("body").path("collectionIds");
-        if (idsNode.isArray()) {
-            for (JsonNode n : idsNode) {
-                String id = n.asText("");
-                if (!id.isBlank()) ids.add(id);
-            }
-        }
-        // collectionIds 缺失时回退到 body.collections 对象的键集
-        if (ids.isEmpty()) {
-            JsonNode collMap = allRoot.path("body").path("collections");
-            if (collMap.isObject()) collMap.fieldNames().forEachRemaining(ids::add);
-        }
+        List<String> ids = PixivProxyResponseMapper.collectionIds(allRoot.path("body"));
         if (ids.isEmpty()) {
             return ResponseEntity.ok(new CollectionPageResponse(List.of(), 0));
         }
@@ -1052,20 +688,8 @@ public class PixivProxyController {
             if (root.path("error").asBoolean(false)) {
                 return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
             }
-            JsonNode works = root.path("body").path("works");
-            if (works.isArray()) {
-                for (JsonNode c : works) {
-                    collections.add(new CollectionPageResponse.CollectionItem(
-                            c.path("id").asText(""),
-                            c.path("title").asText(""),
-                            c.path("caption").asText(""),
-                            c.path("thumbnailImageUrl").asText(""),
-                            c.path("bookmarkCount").asInt(0),
-                            c.path("xRestrict").asInt(0),
-                            parseStringTags(c.path("tags"))
-                    ));
-                }
-            }
+            collections.addAll(PixivProxyResponseMapper.collectionItems(
+                    root.path("body").path("works")));
         }
         return ResponseEntity.ok(new CollectionPageResponse(collections, collections.size()));
     }
@@ -1102,77 +726,8 @@ public class PixivProxyController {
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
         }
-        List<CollectionWorksResponse.Work> works = parseCollectionWorks(root.path("body"));
+        List<CollectionWorksResponse.Work> works = PixivProxyResponseMapper.parseCollectionWorks(
+                root.path("body"));
         return ResponseEntity.ok(new CollectionWorksResponse(works, works.size()));
-    }
-
-    /**
-     * 把 {@code /ajax/collection/{id}} 的 {@code body} 解析为按珍藏集布局顺序排列的混合作品列表。
-     * 顺序与 workType/workId 取自 {@code data.detail.tiles[]}，卡片详情取自 {@code thumbnails.illust[]} /
-     * {@code thumbnails.novel[]}（按 id 建索引）。仅保留 {@code type=Work} 且 {@code status=Active} 的 tile，
-     * 卡片缺失（已删除等）跳过。纯函数：不触网、不依赖实例状态，便于单测。
-     */
-    static List<CollectionWorksResponse.Work> parseCollectionWorks(JsonNode body) {
-        List<CollectionWorksResponse.Work> works = new ArrayList<>();
-        if (body == null) return works;
-        Map<String, JsonNode> illustById = new LinkedHashMap<>();
-        for (JsonNode it : body.path("thumbnails").path("illust")) {
-            illustById.put(it.path("id").asText(""), it);
-        }
-        Map<String, JsonNode> novelById = new LinkedHashMap<>();
-        for (JsonNode it : body.path("thumbnails").path("novel")) {
-            novelById.put(it.path("id").asText(""), it);
-        }
-        JsonNode tiles = body.path("data").path("detail").path("tiles");
-        if (!tiles.isArray()) return works;
-        for (JsonNode tile : tiles) {
-            if (!"Work".equals(tile.path("type").asText(""))) continue;
-            if (!"Active".equals(tile.path("status").asText("Active"))) continue;
-            String workType = tile.path("workType").asText("");
-            String workId = tile.path("workId").asText("");
-            if (workId.isBlank()) continue;
-            if ("novel".equals(workType)) {
-                JsonNode it = novelById.get(workId);
-                if (it == null) continue;
-                works.add(new CollectionWorksResponse.Work(
-                        "novel",
-                        workId,
-                        it.path("title").asText(""),
-                        0,
-                        it.path("xRestrict").asInt(0),
-                        it.path("aiType").asInt(0),
-                        extractNovelCoverUrl(it),
-                        1,
-                        it.path("userId").asText(""),
-                        it.path("userName").asText(""),
-                        parseStringTags(it.path("tags")),
-                        it.path("bookmarkCount").asInt(-1),
-                        it.path("wordCount").asInt(0),
-                        it.path("textLength").asInt(it.path("characterCount").asInt(0)),
-                        it.path("isOriginal").asBoolean(false)
-                ));
-            } else {
-                JsonNode it = illustById.get(workId);
-                if (it == null) continue;
-                works.add(new CollectionWorksResponse.Work(
-                        "illust",
-                        workId,
-                        it.path("title").asText(""),
-                        it.path("illustType").asInt(0),
-                        it.path("xRestrict").asInt(0),
-                        it.path("aiType").asInt(0),
-                        it.path("url").asText(""),
-                        it.path("pageCount").asInt(1),
-                        it.path("userId").asText(""),
-                        it.path("userName").asText(""),
-                        parseStringTags(it.path("tags")),
-                        it.path("bookmarkCount").asInt(-1),
-                        0,
-                        0,
-                        false
-                ));
-            }
-        }
-        return works;
     }
 }

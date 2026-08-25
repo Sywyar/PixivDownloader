@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.download.response.CollectionWorksResponse;
-import top.sywyar.pixivdownload.download.response.SearchResponse;
+import top.sywyar.pixivdownload.download.response.collection.CollectionWorksResponse;
+import top.sywyar.pixivdownload.download.response.search.SearchResponse;
 
 import java.util.List;
 
@@ -68,7 +68,7 @@ class PixivMeProxyParseTest {
                 + "  {\"type\":\"Work\",\"status\":\"Active\",\"workType\":\"novel\",\"workId\":\"555\"},"
                 + "  {\"type\":\"Work\",\"status\":\"Active\",\"workType\":\"illust\",\"workId\":\"143390502\"}"
                 + "]}}}");
-        List<CollectionWorksResponse.Work> works = PixivProxyController.parseCollectionWorks(b);
+        List<CollectionWorksResponse.Work> works = PixivProxyResponseMapper.parseCollectionWorks(b);
         assertThat(works).extracting(CollectionWorksResponse.Work::kind).containsExactly("novel", "illust");
         assertThat(works).extracting(CollectionWorksResponse.Work::id).containsExactly("555", "143390502");
         CollectionWorksResponse.Work novel = works.get(0);
@@ -94,15 +94,15 @@ class PixivMeProxyParseTest {
                 + "  {\"type\":\"Quote\",\"status\":\"Active\",\"workType\":\"illust\",\"workId\":\"1\"},"
                 + "  {\"type\":\"Work\",\"status\":\"Active\",\"workType\":\"illust\",\"workId\":\"999\"}"
                 + "]}}}");
-        List<CollectionWorksResponse.Work> works = PixivProxyController.parseCollectionWorks(b);
+        List<CollectionWorksResponse.Work> works = PixivProxyResponseMapper.parseCollectionWorks(b);
         assertThat(works).extracting(CollectionWorksResponse.Work::id).containsExactly("1");
     }
 
     @Test
     @DisplayName("珍藏集集内作品：body 为 null 或无 tiles 时返回空列表，不抛异常")
     void collectionWorksHandlesNull() {
-        assertThat(PixivProxyController.parseCollectionWorks(null)).isEmpty();
-        assertThat(PixivProxyController.parseCollectionWorks(body("{}"))).isEmpty();
+        assertThat(PixivProxyResponseMapper.parseCollectionWorks(null)).isEmpty();
+        assertThat(PixivProxyResponseMapper.parseCollectionWorks(body("{}"))).isEmpty();
     }
 
     // ── parseFollowLatestIllusts / followLatestHasNext ──────────────────────
@@ -118,7 +118,7 @@ class PixivMeProxyParseTest {
                 + "  {\"id\":\"222\",\"title\":\"b\",\"illustType\":2,\"xRestrict\":1,\"aiType\":2,"
                 + "   \"url\":\"https://i.pximg.net/b.jpg\",\"pageCount\":1,\"userId\":\"8\",\"userName\":\"u8\",\"tags\":[]}"
                 + "]}}");
-        List<SearchResponse.SearchItem> items = PixivProxyController.parseFollowLatestIllusts(b);
+        List<SearchResponse.SearchItem> items = PixivProxyResponseMapper.parseFollowLatestIllusts(b);
         assertThat(items).extracting(SearchResponse.SearchItem::id).containsExactly("222", "111");
         SearchResponse.SearchItem first = items.get(0);
         assertThat(first.title()).isEqualTo("b");
@@ -134,24 +134,24 @@ class PixivMeProxyParseTest {
         JsonNode withMissing = body("{"
                 + "\"page\":{\"ids\":[1,999]},"
                 + "\"thumbnails\":{\"illust\":[{\"id\":\"1\",\"title\":\"keep\"}]}}");
-        assertThat(PixivProxyController.parseFollowLatestIllusts(withMissing))
+        assertThat(PixivProxyResponseMapper.parseFollowLatestIllusts(withMissing))
                 .extracting(SearchResponse.SearchItem::id).containsExactly("1");
 
         JsonNode noIds = body("{"
                 + "\"thumbnails\":{\"illust\":[{\"id\":\"5\",\"title\":\"x\"},{\"id\":\"6\",\"title\":\"y\"}]}}");
-        assertThat(PixivProxyController.parseFollowLatestIllusts(noIds))
+        assertThat(PixivProxyResponseMapper.parseFollowLatestIllusts(noIds))
                 .extracting(SearchResponse.SearchItem::id).containsExactly("5", "6");
 
-        assertThat(PixivProxyController.parseFollowLatestIllusts(null)).isEmpty();
+        assertThat(PixivProxyResponseMapper.parseFollowLatestIllusts(null)).isEmpty();
     }
 
     @Test
     @DisplayName("已关注的用户的新作：hasNext 优先取 page.isLastPage，缺失时按本页是否有作品推断")
     void followLatestHasNextSignal() {
-        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{\"isLastPage\":false}}"), 0)).isTrue();
-        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{\"isLastPage\":true}}"), 48)).isFalse();
-        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{}}"), 48)).isTrue();
-        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{}}"), 0)).isFalse();
-        assertThat(PixivProxyController.followLatestHasNext(null, 5)).isTrue();
+        assertThat(PixivProxyResponseMapper.followLatestHasNext(body("{\"page\":{\"isLastPage\":false}}"), 0)).isTrue();
+        assertThat(PixivProxyResponseMapper.followLatestHasNext(body("{\"page\":{\"isLastPage\":true}}"), 48)).isFalse();
+        assertThat(PixivProxyResponseMapper.followLatestHasNext(body("{\"page\":{}}"), 48)).isTrue();
+        assertThat(PixivProxyResponseMapper.followLatestHasNext(body("{\"page\":{}}"), 0)).isFalse();
+        assertThat(PixivProxyResponseMapper.followLatestHasNext(null, 5)).isTrue();
     }
 }

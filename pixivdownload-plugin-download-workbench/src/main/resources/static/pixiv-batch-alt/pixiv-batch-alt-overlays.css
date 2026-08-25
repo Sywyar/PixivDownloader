@@ -1,0 +1,405 @@
+
+/* ============================================================
+   抽屉 / 弹窗
+   ============================================================ */
+.ab-drawer-root, .ab-modal-root {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+}
+
+.ab-drawer-scrim, .ab-modal-scrim {
+    position: absolute;
+    inset: 0;
+    background: var(--scrim);
+    opacity: 0;
+    transition: opacity var(--motion-med) var(--motion-ease-standard);
+}
+
+.ab-drawer-scrim.is-open, .ab-modal-scrim.is-open {
+    opacity: 1;
+}
+
+.ab-drawer-scrim.is-closing, .ab-modal-scrim.is-closing {
+    opacity: 0;
+}
+
+.ab-drawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(430px, 94vw);
+    background: var(--surface);
+    border-left: 1px solid var(--line);
+    box-shadow: var(--shadow-3);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(102%);
+    transition: transform var(--motion-med) var(--motion-ease-out);
+}
+
+.ab-drawer.is-open {
+    transform: translateX(0);
+}
+
+.ab-drawer.is-closing {
+    transform: translateX(102%);
+}
+
+.ab-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--line);
+}
+
+.ab-drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.ab-drawer-title .ab-icon {
+    color: var(--brand);
+}
+
+.ab-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+}
+
+.ab-drawer-foot {
+    border-top: 1px solid var(--line);
+    padding: 12px 18px;
+}
+
+.ab-drawer-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.ab-modal {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: min(520px, 94vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-3);
+    transform: translate(-50%, -48%) scale(.96);
+    opacity: 0;
+    transition: transform var(--motion-med) var(--motion-ease-spring),
+                opacity var(--motion-med) var(--motion-ease-standard);
+}
+
+.ab-modal--wide {
+    width: min(680px, 96vw);
+}
+
+.ab-modal.is-open {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+}
+
+.ab-modal.is-closing {
+    transform: translate(-50%, -48%) scale(.96);
+    opacity: 0;
+}
+
+.ab-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--line);
+}
+
+.ab-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.ab-modal-title .ab-icon {
+    color: var(--brand);
+}
+
+.ab-modal-body {
+    overflow-y: auto;
+    padding: 16px 20px 20px;
+}
+
+/* ============================================================
+   Cookie 弹窗 / 脚本弹窗
+   ============================================================ */
+.ab-cookie-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.ab-cookie-input-wrap {
+    position: relative;
+}
+
+.ab-cookie-input {
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.ab-cookie-input.is-masked {
+    -webkit-text-security: disc;
+    text-security: disc;
+}
+
+.ab-cookie-tools {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.ab-cookie-parse {
+    margin-top: 10px;
+    font-size: 12.5px;
+    padding: 9px 12px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+}
+
+.ab-cookie-parse[data-tone="error"] {
+    color: var(--danger);
+    background: var(--danger-soft);
+    border-color: var(--danger);
+}
+
+.ab-cookie-formats {
+    margin-top: 12px;
+}
+
+.ab-cookie-formats summary {
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.ab-cookie-guide {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 12px;
+}
+
+.ab-cookie-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.ab-scripts {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ab-script-card {
+    padding: 13px 15px;
+}
+
+.ab-script-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.ab-script-name {
+    font-size: 13.5px;
+    flex: 1;
+    min-width: 0;
+}
+
+.ab-script-version {
+    font-size: 11px;
+    color: var(--faint);
+    font-family: var(--mono);
+}
+
+.ab-script-desc {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+}
+
+.ab-script-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+/* ============================================================
+   设置 / 筛选抽屉
+   ============================================================ */
+.ab-settings-group {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--brand-strong);
+    letter-spacing: .04em;
+    margin: 20px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+}
+
+.ab-settings-group:first-child {
+    margin-top: 4px;
+}
+
+.ab-setting-row {
+    margin-bottom: 14px;
+}
+
+.ab-setting-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ab-setting-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.ab-setting-row .ab-input,
+.ab-setting-row .ab-number-unit,
+.ab-setting-row .ab-switch,
+.ab-setting-row select {
+    margin-top: 8px;
+}
+
+.ab-setting-row .ab-switch {
+    margin-top: 0;
+}
+
+.ab-setting-row .ab-setting-head + .ab-input,
+.ab-setting-row .ab-setting-head + select {
+    margin-top: 8px;
+}
+
+.ab-number-unit {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ab-unit-toggle {
+    padding: 8px 12px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: var(--control-muted-bg);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    min-width: 48px;
+}
+
+.ab-unit-toggle:hover {
+    color: var(--brand-strong);
+    border-color: var(--brand);
+}
+
+.ab-var-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: 8px 0;
+}
+
+.ab-var-chip {
+    padding: 4px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--brand-strong);
+    transition: border-color var(--motion-fast) var(--motion-ease-standard),
+                background-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.ab-var-chip:hover {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+}
+
+.ab-name-preview {
+    font-size: 11.5px;
+    color: var(--faint);
+    font-family: var(--mono);
+}
+
+/* ============================================================
+   顶栏语言 / 主题切换（自定义 topbar 变体，避免内联样式）
+   ============================================================ */
+.pixiv-lang-switcher--topbar .pixiv-lang-switcher__select {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: var(--control-bg);
+    color: var(--text);
+    border-radius: var(--r-sm);
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    max-width: 120px;
+}
+
+.pixiv-lang-switcher--topbar .pixiv-lang-switcher__select:hover {
+    border-color: var(--brand);
+}
+
+.pixiv-theme-toggle--topbar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color var(--motion-fast) var(--motion-ease-standard),
+                color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.pixiv-theme-toggle--topbar:hover {
+    background: var(--hover-bg);
+    color: var(--text);
+}
+
+.pixiv-theme-toggle--topbar svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}

@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.download.response.ArtworkMetaResponse;
-import top.sywyar.pixivdownload.download.response.SearchResponse;
+import top.sywyar.pixivdownload.download.response.artwork.ArtworkMetaResponse;
+import top.sywyar.pixivdownload.download.response.search.SearchResponse;
 
 import java.util.List;
 

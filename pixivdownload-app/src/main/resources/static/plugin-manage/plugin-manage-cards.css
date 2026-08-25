@@ -1,0 +1,759 @@
+/* ── 按钮 ── */
+.pm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--on-accent);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter var(--transition), background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.pm-btn:hover {
+    filter: brightness(.92);
+}
+
+.pm-btn:active {
+    filter: brightness(.86);
+}
+
+.pm-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+    filter: none;
+}
+
+.pm-btn i {
+    font-size: 12px;
+}
+
+.pm-btn--primary { background: var(--brand); }
+.pm-btn--teal { background: var(--accent-teal); }
+.pm-btn--blue { background: var(--accent-blue); }
+.pm-btn--amber { background: var(--accent-amber); }
+
+/* 描边按钮（设置 / 卸载等次级动作） */
+.pm-btn--gray,
+.pm-btn--danger {
+    background: transparent;
+}
+
+.pm-btn--gray {
+    color: var(--text-secondary);
+    border-color: var(--border);
+}
+
+.pm-btn--gray:hover {
+    background: var(--control-muted-bg);
+    filter: none;
+}
+
+.pm-btn--danger {
+    color: var(--accent-red);
+    border-color: color-mix(in srgb, var(--accent-red) 45%, transparent);
+}
+
+.pm-btn--danger:hover {
+    background: color-mix(in srgb, var(--accent-red) 12%, transparent);
+    filter: none;
+}
+
+.pm-btn--sm {
+    height: 28px;
+    padding: 0 11px;
+    font-size: 12px;
+}
+
+/* ── 恢复 / 补齐模式横幅 ── */
+.pm-recovery {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--warning-bg);
+    color: var(--warning-text);
+    border: 1px solid color-mix(in srgb, var(--warning-text) 35%, transparent);
+    border-radius: var(--radius-md);
+    padding: 14px 18px;
+}
+
+.pm-recovery i {
+    font-size: 20px;
+    margin-top: 1px;
+    flex-shrink: 0;
+}
+
+.pm-recovery-title {
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.pm-recovery-desc {
+    margin-top: 4px;
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+/* ── 概览统计（信息区） ── */
+.pm-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.pm-stat {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+    padding: 16px 18px;
+}
+
+.pm-stat-num {
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1;
+    font-family: var(--font-mono);
+    color: var(--stat-color, var(--text));
+}
+
+.pm-stat-label {
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+}
+
+.pm-stat-icon {
+    position: absolute;
+    right: 12px;
+    bottom: 6px;
+    font-size: 46px;
+    color: var(--stat-color, var(--accent-pixiv));
+    opacity: .13;
+    pointer-events: none;
+}
+
+.pm-stat--pixiv { --stat-color: var(--accent-pixiv); }
+.pm-stat--green { --stat-color: var(--status-green); }
+.pm-stat--amber { --stat-color: var(--accent-amber); }
+.pm-stat--blue { --stat-color: var(--accent-blue); }
+
+/* ── 工具栏卡片 ── */
+.pm-toolbar {
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+    padding: 14px;
+}
+
+.pm-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--control-muted-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+}
+
+.pm-tab {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-xs);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+}
+
+.pm-tab:hover {
+    color: var(--text);
+}
+
+.pm-tab.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-card);
+}
+
+.pm-tab.active.pm-tab--amber {
+    color: var(--accent-amber);
+}
+
+.pm-tab i {
+    font-size: 12px;
+}
+
+.pm-toolbar-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.pm-search {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.pm-search > i {
+    position: absolute;
+    left: 12px;
+    font-size: 13px;
+    color: var(--muted);
+    pointer-events: none;
+}
+
+.pm-search input {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px 0 32px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.pm-search input:focus {
+    outline: none;
+    border-color: var(--accent-pixiv);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.pm-result-count {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    font-family: var(--font-mono);
+}
+
+/* ── 插件卡片网格 ── */
+.pm-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+/* 紧凑平铺卡片：内容始终完整可见；flex 列 + row-gap 统一内部节奏，底栏 margin-top:auto 让同行卡片底栏对齐。 */
+.pm-card {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    row-gap: 12px;
+    transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.pm-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-raised);
+}
+
+/* 异常状态卡片：左侧色条抬升视觉优先级，多插件网格中需要处理的卡片一眼可见。 */
+.pm-card--warn {
+    border-left: 3px solid var(--status-yellow);
+}
+
+.pm-card--bad {
+    border-left: 3px solid var(--status-red);
+}
+
+.pm-card.has-open-menu {
+    overflow: visible;
+    z-index: 2;
+}
+
+/* 首行右侧：状态指示位于启停开关左侧。 */
+.pm-card-side {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+}
+
+.pm-card-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.pm-card-status--ok { color: var(--status-green); }
+.pm-card-status--info { color: var(--status-blue); }
+.pm-card-status--warn { color: var(--status-yellow); }
+.pm-card-status--bad { color: var(--status-red); }
+
+.pm-card-status--ok .pm-status-dot { background: var(--status-green); }
+.pm-card-status--info .pm-status-dot { background: var(--status-blue); }
+.pm-card-status--warn .pm-status-dot { background: var(--status-yellow); }
+.pm-card-status--bad .pm-status-dot { background: var(--status-red); }
+
+.pm-card-ribbon {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: -14px -16px 0;
+    padding: 7px 16px;
+    background: var(--warning-bg);
+    color: var(--warning-text);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.pm-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pm-card-icon {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 19px;
+    /* 强调色由受控 token 决定（pm-card-icon--<token> 设置 --pm-accent）；默认 neutral=灰。 */
+    color: var(--pm-accent, var(--accent-gray));
+    background: color-mix(in srgb, var(--pm-accent, var(--accent-gray)) 14%, transparent);
+}
+
+/* colorToken 受控白名单 → 固定强调色（与 core 的 COLOR_TOKENS 一一对应；未知 token 由前端回退到 neutral）。 */
+.pm-card-icon--neutral { --pm-accent: var(--accent-gray); }
+.pm-card-icon--gray    { --pm-accent: var(--accent-gray); }
+.pm-card-icon--pixiv   { --pm-accent: var(--accent-pixiv); }
+.pm-card-icon--blue    { --pm-accent: var(--accent-blue); }
+.pm-card-icon--teal    { --pm-accent: var(--accent-teal); }
+.pm-card-icon--amber   { --pm-accent: var(--accent-amber); }
+.pm-card-icon--purple  { --pm-accent: var(--accent-purple); }
+.pm-card-icon--orange  { --pm-accent: var(--accent-orange); }
+.pm-card-icon--red     { --pm-accent: var(--accent-red); }
+.pm-card-icon--green   { --pm-accent: var(--accent-green); }
+
+.pm-card-titleblock {
+    flex: 1;
+    min-width: 0;
+}
+
+.pm-card-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pm-card-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.pm-card-version {
+    flex-shrink: 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.pm-card-sub {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pm-card-desc {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+    text-wrap: pretty;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+
+/* 诊断备注行（替代原标签区：同样的信息以更轻的文字行表达，不再用胶囊标签片） */
+.pm-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pm-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.pm-note > i {
+    margin-top: 2px;
+    flex-shrink: 0;
+    color: var(--accent-amber);
+    font-size: 11px;
+}
+
+.pm-progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 5px;
+}
+
+.pm-progressbar {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--progress-bg);
+    overflow: hidden;
+}
+
+.pm-progressbar > span {
+    display: block;
+    height: 100%;
+    background: var(--status-green);
+    border-radius: 999px;
+    transition: width .25s ease;
+}
+
+/* ── 卡片底栏 ── */
+.pm-card-foot {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pm-meta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--muted);
+    flex-wrap: wrap;
+}
+
+.pm-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.pm-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--status-idle);
+    flex-shrink: 0;
+}
+
+.pm-meta-item--ok { color: var(--status-green); }
+.pm-meta-item--info { color: var(--status-blue); }
+.pm-meta-item--warn { color: var(--status-yellow); }
+.pm-meta-item--bad { color: var(--status-red); }
+
+.pm-action-menu-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* 幽灵图标按钮：浮层菜单等次级操作的入口，弱化存在感，hover / 打开时才点亮。 */
+.pm-icon-btn {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.pm-icon-btn:hover:not(:disabled),
+.pm-action-menu-toggle[aria-expanded="true"] {
+    background: var(--control-muted-bg);
+    color: var(--text);
+}
+
+.pm-icon-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.pm-icon-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--motion-focus-ring);
+}
+
+.pm-action-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    z-index: 10;
+    min-width: 160px;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow-raised);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity var(--motion-fast, .18s) var(--motion-ease-standard, ease),
+                transform var(--motion-fast, .18s) var(--motion-ease-standard, ease),
+                visibility var(--motion-fast, .18s) var(--motion-ease-standard, ease);
+}
+
+.pm-action-menu.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.pm-action-menu button {
+    width: 100%;
+    padding: 9px 10px;
+    border: 0;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pm-action-menu button > i {
+    width: 14px;
+    margin-right: 7px;
+    text-align: center;
+    color: var(--muted);
+}
+
+.pm-action-menu button.danger > i {
+    color: inherit;
+}
+
+.pm-action-menu button:hover:not(:disabled),
+.pm-action-menu button:focus-visible {
+    outline: none;
+    background: var(--control-muted-bg);
+}
+
+.pm-action-menu button.danger {
+    color: var(--accent-red);
+}
+
+.pm-action-menu button:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* ── 徽标 ── */
+.pm-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 8px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    border: 1px solid transparent;
+}
+
+.pm-badge--success {
+    background: var(--status-green);
+    color: var(--on-accent);
+}
+
+.pm-badge--idle {
+    background: transparent;
+    color: var(--muted);
+    border-color: var(--border);
+}
+
+.pm-badge--warn {
+    background: transparent;
+    color: var(--accent-amber);
+    border-color: color-mix(in srgb, var(--accent-amber) 45%, transparent);
+}
+
+/* ── 开关（启用 / 停用） ── */
+.pm-switch {
+    flex-shrink: 0;
+    width: 40px;
+    height: 22px;
+    border-radius: 999px;
+    border: none;
+    background: var(--border);
+    position: relative;
+    cursor: pointer;
+    padding: 0;
+    transition: background var(--transition);
+}
+
+.pm-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--on-accent);
+    box-shadow: 0 1px 2px var(--control-shadow-color);
+    transition: transform var(--transition);
+}
+
+.pm-switch.on {
+    background: var(--brand);
+}
+
+.pm-switch.on::after {
+    transform: translateX(18px);
+}
+
+.pm-switch:disabled,
+.pm-switch.pm-switch--locked {
+    cursor: not-allowed;
+    opacity: .65;
+}
+
+.pm-switch:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+/* ── 空状态 ── */
+.pm-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+}
+
+.pm-empty i {
+    font-size: 40px;
+    opacity: .5;
+}
+
+.pm-empty-title {
+    margin-top: 14px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pm-empty-hint {
+    margin-top: 4px;
+    font-size: 12px;
+}
+
+/* ── 加载 / 错误占位 ── */
+.pm-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.pm-state i {
+    margin-right: 8px;
+}
+
+.pm-state--error {
+    color: var(--status-red);
+}
+
+/* ── 免责声明 ── */
+.pm-disclaimer {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--faint);
+    text-align: center;
+    line-height: 1.6;
+}
+
+/* ── 轻提示 toast ── */
+.pm-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%) translateY(12px);
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-pixiv);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-raised);
+    padding: 11px 16px;
+    font-size: 13px;
+    max-width: min(440px, calc(100vw - 32px));
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition), transform var(--transition);
+    z-index: 1000;
+}
+
+.pm-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.pm-toast--ok { border-left-color: var(--status-green); }
+.pm-toast--error { border-left-color: var(--status-red); }
+.pm-toast--info { border-left-color: var(--accent-pixiv); }

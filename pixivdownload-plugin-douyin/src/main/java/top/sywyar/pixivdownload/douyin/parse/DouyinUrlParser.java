@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.douyin.parse;
 
-import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
-import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinParsedInput;
+import top.sywyar.pixivdownload.douyin.model.input.DouyinParsedKind;
 
 import java.net.URI;
 import java.net.URISyntaxException;

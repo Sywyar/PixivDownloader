@@ -29,6 +29,7 @@ class WebUiSlotVueHostContractTest {
     private static final String STATIC_ROOT = "static/";
     private static final String BATCH_HTML = "pixiv-batch.html";
     private static final String BATCH_CSS = "pixiv-batch/pixiv-batch.css";
+    private static final String BATCH_COMPONENTS_CSS = "pixiv-batch/pixiv-batch-components.css";
 
     private static String read(String resource) throws IOException {
         String path = STATIC_ROOT + resource;
@@ -89,9 +90,9 @@ class WebUiSlotVueHostContractTest {
     }
 
     @Test
-    @DisplayName("pixiv-batch.css 的 .kind-switcher 分隔线 :not(:first-child) + 为 display:contents 宿主内 kind 选项补分隔线")
+    @DisplayName("下载页共享组件样式的 .kind-switcher 使用非相邻分隔线并覆盖槽位内选项")
     void kindSwitcherDividerDecoupledFromAdjacency() throws IOException {
-        String css = read(BATCH_CSS);
+        String css = read(BATCH_COMPONENTS_CSS);
         assertThat(css)
                 .as(".kind-switcher 分隔线应用 :not(:first-child)（与 .quick-kind-switcher 同款），不依赖严格相邻")
                 .contains(".kind-switcher label:not(:first-child)");

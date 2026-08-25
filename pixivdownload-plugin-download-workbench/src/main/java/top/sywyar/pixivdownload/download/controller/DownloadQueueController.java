@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadExtensionIdentity;

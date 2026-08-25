@@ -1,10 +1,16 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 
 /**
@@ -42,6 +48,85 @@ public record PluginRuntimeStatus(
         startedPluginIds = List.copyOf(startedPluginIds);
         failures = List.copyOf(failures);
         verifications = List.copyOf(verifications);
+    }
+
+    static PluginRuntimeStatus populated(
+            Path directory,
+            Map<String, PluginRuntimePackagePhase> phases,
+            List<PluginLoadFailure> failures) {
+        return populated(directory, phases, failures, List.of());
+    }
+
+    static PluginRuntimeStatus populated(
+            Path directory,
+            Map<String, PluginRuntimePackagePhase> phases,
+            List<PluginLoadFailure> failures,
+            List<PluginRuntimeVerificationSnapshot> verifications) {
+        return project(directory, PluginDirectoryState.POPULATED, phases, failures, verifications);
+    }
+
+    /** 用运行期包阶段刷新状态，并保留最近复验事实。 */
+    PluginRuntimeStatus refreshed(Map<String, PluginRuntimePackagePhase> phases) {
+        PluginDirectoryState refreshedState = Files.isDirectory(directory)
+                ? (phases.isEmpty() ? PluginDirectoryState.EMPTY : PluginDirectoryState.POPULATED)
+                : PluginDirectoryState.ABSENT;
+        return project(directory, refreshedState, phases, List.of(), verifications);
+    }
+
+    /**
+     * 替换同安装路径或同插件 id 的旧复验快照，并只保留最新的有界结果。
+     */
+    PluginRuntimeStatus withLatestRuntimeVerifications(
+            Path attemptedPath,
+            List<PluginRuntimeVerificationSnapshot> latest,
+            int maximumSnapshots) {
+        if (maximumSnapshots <= 0) {
+            throw new IllegalArgumentException("maximumSnapshots must be positive");
+        }
+        Set<Path> replacedPaths = new LinkedHashSet<>();
+        Set<String> replacedPluginIds = new LinkedHashSet<>();
+        if (attemptedPath != null) {
+            replacedPaths.add(attemptedPath.toAbsolutePath().normalize());
+        }
+        if (latest != null) {
+            replacedPaths.addAll(latest.stream()
+                    .map(PluginRuntimeVerificationSnapshot::artifactPath)
+                    .toList());
+            replacedPluginIds.addAll(latest.stream()
+                    .map(PluginRuntimeVerificationSnapshot::pluginId)
+                    .toList());
+        }
+        if (replacedPaths.isEmpty() && replacedPluginIds.isEmpty()) {
+            return this;
+        }
+        List<PluginRuntimeVerificationSnapshot> merged = new ArrayList<>();
+        verifications.stream()
+                .filter(snapshot -> !replacedPaths.contains(snapshot.artifactPath())
+                        && !replacedPluginIds.contains(snapshot.pluginId()))
+                .forEach(merged::add);
+        if (latest != null) {
+            merged.addAll(latest);
+        }
+        if (merged.size() > maximumSnapshots) {
+            merged.subList(0, merged.size() - maximumSnapshots).clear();
+        }
+        return new PluginRuntimeStatus(
+                directory, state, loadedPluginIds, startedPluginIds, failures, merged);
+    }
+
+    private static PluginRuntimeStatus project(
+            Path directory,
+            PluginDirectoryState state,
+            Map<String, PluginRuntimePackagePhase> phases,
+            List<PluginLoadFailure> failures,
+            List<PluginRuntimeVerificationSnapshot> verifications) {
+        Objects.requireNonNull(phases, "phases");
+        List<String> loaded = List.copyOf(phases.keySet());
+        List<String> started = phases.entrySet().stream()
+                .filter(entry -> entry.getValue() == PluginRuntimePackagePhase.STARTED)
+                .map(Map.Entry::getKey)
+                .toList();
+        return new PluginRuntimeStatus(directory, state, loaded, started, failures, verifications);
     }
 
     /** 插件目录是否存在且为目录（{@link PluginDirectoryState#ABSENT} 取反）。 */

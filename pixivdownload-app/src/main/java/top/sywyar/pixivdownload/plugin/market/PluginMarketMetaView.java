@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.plugin.market;
 
-import top.sywyar.pixivdownload.plugin.catalog.model.CatalogLink;
-import top.sywyar.pixivdownload.plugin.catalog.model.CatalogPresentationToken;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogCategory;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogMarketMeta;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogMarketMeta;
+import top.sywyar.pixivdownload.plugin.market.presentation.CatalogLink;
+import top.sywyar.pixivdownload.plugin.market.presentation.CatalogPresentationToken;
+import top.sywyar.pixivdownload.plugin.market.presentation.PluginCatalogCategory;
 
 import java.util.List;
 import java.util.Map;

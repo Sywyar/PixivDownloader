@@ -1,0 +1,447 @@
+
+/* ============================================================
+   右侧下载坞
+   ============================================================ */
+.ab-dock {
+    position: sticky;
+    top: 76px;
+    max-height: calc(100vh - 96px);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-1);
+    overflow: hidden;
+}
+
+.ab-dock-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 10px;
+}
+
+.ab-dock-title {
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.ab-dock-close {
+    display: none;
+}
+
+.ab-dock-body {
+    overflow-y: auto;
+    padding: 0 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ab-dock-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.ab-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 6px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+}
+
+.ab-stat-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--faint);
+}
+
+.ab-stat-value {
+    font-size: 18px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
+.ab-stat-label {
+    font-size: 10.5px;
+    color: var(--muted);
+}
+
+.ab-dock-controls {
+    padding: 12px 14px;
+}
+
+.ab-dock-status {
+    font-size: 12.5px;
+    min-height: 20px;
+    margin-bottom: 10px;
+}
+
+.ab-dock-status[data-tone="success"] {
+    color: var(--ok);
+}
+
+.ab-dock-status[data-tone="error"] {
+    color: var(--danger);
+}
+
+.ab-dock-status[data-tone="warning"] {
+    color: var(--warn);
+}
+
+.ab-dock-btns {
+    display: flex;
+    gap: 8px;
+}
+
+.ab-dock-btns .ab-btn {
+    flex: 1;
+    justify-content: center;
+}
+
+.ab-current {
+    padding: 12px 14px;
+}
+
+.ab-current-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.ab-current-head .ab-icon {
+    color: var(--brand);
+}
+
+.ab-current-idle {
+    color: var(--faint);
+    font-size: 12.5px;
+}
+
+.ab-current-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ab-ring {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    flex: none;
+}
+
+.ab-ring svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.ab-ring-track {
+    fill: none;
+    stroke: var(--surface-3);
+    stroke-width: 6;
+}
+
+.ab-ring-fill {
+    fill: none;
+    stroke: var(--brand);
+    stroke-width: 6;
+    stroke-linecap: round;
+    transition: stroke-dashoffset var(--motion-med) var(--motion-ease-standard);
+}
+
+.ab-ring-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.ab-current-meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.ab-current-title {
+    font-size: 13px;
+    font-weight: 700;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.ab-current-detail {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 队首进度卡下方的剩余计数行（「还有 X 个正在下载、Y 个排队中…」）；var(--muted) 自动适配深色模式。 */
+.ab-current-remaining {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+.ab-queue-ops {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ab-queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.ab-queue-item {
+    padding: 7px 10px;
+    border-left: 3px solid var(--line-strong);
+    margin-bottom: 4px;
+    border-radius: 0 4px 4px 0;
+    background: var(--surface-2);
+    font-size: 11px;
+}
+
+.ab-queue-item[data-status="downloading"] {
+    border-left-color: var(--brand);
+}
+
+.ab-queue-item[data-status="completed"] {
+    border-left-color: var(--ok);
+}
+
+.ab-queue-item[data-status="failed"] {
+    border-left-color: var(--danger);
+}
+
+.ab-queue-item[data-status="skipped"] {
+    border-left-color: var(--warn);
+}
+
+.ab-queue-item[data-status="paused"] {
+    border-left-color: var(--faint);
+}
+
+.ab-queue-title {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 2px;
+}
+
+.ab-queue-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ab-queue-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+    margin-bottom: 3px;
+}
+
+.ab-queue-tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 16px;
+    padding: 1px 5px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.ab-queue-tag--source {
+    color: var(--on-brand);
+    background: var(--brand);
+}
+
+.ab-queue-tag--mode {
+    color: var(--text);
+    background: var(--surface-3);
+}
+
+.ab-queue-tag--r18 {
+    color: var(--r18);
+    background: var(--r18-soft);
+}
+
+.ab-queue-tag--r18g {
+    color: var(--r18g);
+    background: var(--r18g-soft);
+}
+
+.ab-queue-tag--ai {
+    color: var(--ai);
+    background: var(--ai-soft);
+}
+
+.ab-queue-tag--sfw {
+    color: var(--on-brand);
+    background: var(--ok);
+}
+
+.ab-queue-tag--unknown,
+.ab-queue-tag--plugin {
+    border-color: var(--line);
+    color: var(--text);
+    background: var(--control-muted-bg);
+}
+
+.ab-queue-meta {
+    font-size: 11px;
+    color: var(--faint);
+    font-family: var(--mono);
+}
+
+.ab-queue-status {
+    font-family: var(--font);
+    color: var(--muted);
+}
+
+.ab-queue-status[data-status="failed"] {
+    color: var(--danger);
+}
+
+.ab-queue-status[data-status="completed"] {
+    color: var(--ok);
+}
+
+.ab-queue-status[data-status="downloading"] {
+    color: var(--brand-strong);
+}
+
+.ab-mini-prog {
+    margin-top: 7px;
+}
+
+.ab-mini-prog-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-bottom: 3px;
+    font-variant-numeric: tabular-nums;
+}
+
+.ab-mini-prog-bar {
+    height: 5px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    overflow: hidden;
+}
+
+.ab-mini-prog-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--brand);
+    transition: width var(--motion-med) var(--motion-ease-standard);
+}
+
+.ab-mini-prog-fill.is-image {
+    background: var(--brand);
+}
+
+.ab-mini-prog-fill.is-zip {
+    background: var(--brand-2);
+}
+
+.ab-mini-prog-fill.is-ffmpeg {
+    background: var(--ai);
+}
+
+.ab-mini-prog-fill.is-completed {
+    background: var(--ok);
+}
+
+.ab-mini-prog-fill.is-failed {
+    background: var(--danger);
+}
+
+.ab-mini-prog-fill.is-warn {
+    background: var(--warn);
+}
+
+.ab-mini-prog-fill.is-danger {
+    background: var(--danger);
+}
+
+.ab-mini-prog-fill.is-indeterminate {
+    opacity: .3;
+}
+
+.ab-progress-note {
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 5px;
+}
+
+.ab-progress-note--error {
+    color: var(--danger);
+}
+
+.ab-quota, .ab-archive {
+    padding: 12px 14px;
+}
+
+.ab-quota-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.ab-quota-head .ab-icon {
+    color: var(--brand);
+}
+
+.ab-quota-line {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 6px;
+}
+
+.ab-archive-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.ab-archive-countdown {
+    font-size: 11.5px;
+    color: var(--warn);
+    font-variant-numeric: tabular-nums;
+}
+
+.ab-dock-scrim {
+    display: none;
+}

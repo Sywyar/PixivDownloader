@@ -6,7 +6,7 @@ import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
-import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.account.DouyinAccount;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;

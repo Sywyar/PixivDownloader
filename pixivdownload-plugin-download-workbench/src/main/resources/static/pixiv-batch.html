@@ -15,6 +15,10 @@
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
     <script src="/js/pixiv-tour.js"></script>
+    <script src="/js/pixiv-onboarding-core.js"></script>
+    <script src="/js/pixiv-onboarding-overlay.js"></script>
+    <script src="/js/pixiv-onboarding-download.js"></script>
+    <script src="/js/pixiv-onboarding-gallery.js"></script>
     <script src="/js/pixiv-onboarding.js"></script>
     <script src="/js/pixiv-feedback.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
@@ -26,6 +30,13 @@
     <link rel="stylesheet" href="/css/pixiv-motion.css">
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch.css">
+    <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-components.css">
+    <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-navigation.css">
+    <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-search.css">
+    <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-schedule.css">
+    <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-quick-fetch.css">
+    <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-workbench.css">
+    <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-collapsible.css">
     <link rel="stylesheet"
           href="/pixiv-batch/pixiv-batch-layout-workbench.css"
           data-batch-layout-style="landscape">
@@ -96,7 +107,7 @@
                             <input type="password" id="cookie-input" data-i18n-placeholder="cookie.placeholder" placeholder="粘贴 Cookie...">
                             <button class="btn-sm" id="cookie-toggle" data-i18n="cookie.toggle.show">显示</button>
                             <button class="btn-cookie-save" id="cookie-save" data-i18n="common:button.save">保存</button>
-                            <button class="btn-sm" id="cookie-import" hidden style="background:#e7f0fb;border-color:#1a73e8;" data-i18n="cookie.import">一键导入 Cookie</button>
+                            <button class="btn-sm cookie-import-button" id="cookie-import" hidden data-i18n="cookie.import">一键导入 Cookie</button>
                             <button class="btn-cookie-clear" id="cookie-clear" data-i18n="cookie.clear">清除</button>
                         </div>
                         <div class="cookie-status" id="cookie-status" role="status" aria-live="polite"></div>
@@ -114,8 +125,8 @@
                     <button class="btn btn-green" style="padding:2px 10px;font-size:12px;" data-pixiv-click="toggleUserscripts()" data-i18n="userscripts.toggle">展开 / 折叠</button>
                 </div>
                 <div id="userscripts-panel" hidden>
-                    <div id="userscripts-hint" style="font-size:12px;color:#666;margin-bottom:10px;"><span data-i18n="userscripts.hint.prefix">需要先安装</span> <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> <span data-i18n="userscripts.hint.suffix">扩展。点击「安装」后 Tampermonkey 将弹出确认页面。</span></div>
-                    <div id="userscripts-host-hint" style="font-size:12px;color:#17a2b8;margin-bottom:10px;display:none;"></div>
+                    <div id="userscripts-hint" class="userscripts-hint"><span data-i18n="userscripts.hint.prefix">需要先安装</span> <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> <span data-i18n="userscripts.hint.suffix">扩展。点击「安装」后 Tampermonkey 将弹出确认页面。</span></div>
+                    <div id="userscripts-host-hint" class="userscripts-host-hint" style="display:none;"></div>
                     <div id="userscripts-list" style="display:flex;flex-direction:column;gap:10px;"></div>
                 </div>
             </div>
@@ -252,9 +263,9 @@
                 <button class="btn btn-cyan" id="btn-user-add-page" data-pixiv-click="addCurrentUserPageToQueue()" disabled data-i18n="button.user-add-current-page">将当前页所有作品加入队列</button>
                 <button class="btn btn-green" id="btn-user-add-all" data-pixiv-click="addAllUserResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
             </div>
-            <div id="user-info-display" style="margin:8px 0;font-size:13px;color:#666;">-</div>
+            <div id="user-info-display" class="preview-meta">-</div>
             <div id="user-results-area">
-                <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.user-empty">输入画师 ID 后点击「解析并预览」</div>
+                <div class="preview-message preview-message--compact" data-i18n="status.user-empty">输入画师 ID 后点击「解析并预览」</div>
             </div>
             <div class="search-pagination" id="user-pagination" style="display:none;"></div>
         </div>
@@ -319,7 +330,7 @@
                 <label data-i18n-title="dialog.search-order-popular" title="未购买 Pixiv Premium 时将自动按最新排序"><input type="radio" name="search-order"
                                                                               value="popular_d"> <span data-i18n="search.order.popular">热门 ⚠</span></label>
             </div>
-            <div id="search-premium-tip" style="display:none;font-size:11px;color:#e6a700;margin-bottom:8px;" data-i18n="dialog.search-premium">⚠ 热门排序需要 Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果</div>
+            <div id="search-premium-tip" class="search-premium-tip" style="display:none;" data-i18n="dialog.search-premium">⚠ 热门排序需要 Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果</div>
             <div id="search-r18-controls" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
                 <input type="checkbox" id="search-blur-r18" data-pixiv-change="toggleBlurR18()">
                 <label for="search-blur-r18" class="r18-blur-label" style="cursor:pointer;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
@@ -348,9 +359,9 @@
                 <button class="btn btn-cyan" id="btn-series-add-page" data-pixiv-click="addCurrentSeriesPageToQueue()" disabled data-i18n="button.series-add-current-page">将当前页所有作品加入队列</button>
                 <button class="btn btn-green" id="btn-series-add-all" data-pixiv-click="addAllSeriesResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
             </div>
-            <div id="series-meta-display" style="margin:8px 0;font-size:13px;color:#666;"></div>
+            <div id="series-meta-display" class="preview-meta"></div>
             <div id="series-results-area">
-                <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.series-empty">粘贴当前数据来源支持的系列、合集或关联作品链接</div>
+                <div class="preview-message preview-message--compact" data-i18n="status.series-empty">粘贴当前数据来源支持的系列、合集或关联作品链接</div>
             </div>
             <div class="search-pagination" id="series-pagination" style="display:none;"></div>
         </div>
@@ -571,7 +582,7 @@
                     </div>
                     <div class="setting-item" id="s-collection-wrap" style="display:none;">
                         <label for="s-collection" data-i18n="label.settings.collection">收藏到:</label>
-                        <select id="s-collection" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:200px;">
+                        <select id="s-collection" class="schedule-collection-select">
                             <option value="" data-i18n="option.collection.none">（不加入收藏夹）</option>
                         </select>
                     </div>
@@ -774,8 +785,12 @@
 <script src="/js/pixiv-actions.js"></script>
 <script src="/pixiv-batch/batch-core.js"></script>
 <script src="/pixiv-batch/batch-layout.js"></script>
+<script src="/pixiv-batch/batch-queue-types-normalize.js"></script>
+<script src="/pixiv-batch/batch-queue-types-runtime.js"></script>
 <script src="/pixiv-batch/batch-queue-types.js"></script>
 <script src="/pixiv-batch/batch-mode-controls.js"></script>
+<script src="/pixiv-batch/batch-schedule-sources-normalize.js"></script>
+<script src="/pixiv-batch/batch-schedule-sources-runtime.js"></script>
 <script src="/pixiv-batch/batch-schedule-sources.js"></script>
 <script src="/pixiv-batch/batch-state.js"></script>
 <script src="/pixiv-batch/batch-storage.js"></script>
@@ -783,15 +798,34 @@
 <script src="/pixiv-batch/batch-cookie.js"></script>
 <script src="/pixiv-batch/batch-settings.js"></script>
 <script src="/pixiv-batch/batch-filters.js"></script>
+<script src="/pixiv-batch/batch-queue-model.js"></script>
+<script src="/pixiv-batch/batch-queue-actions.js"></script>
+<script src="/pixiv-batch/batch-queue-view.js"></script>
 <script src="/pixiv-batch/batch-queue.js"></script>
 <script src="/pixiv-batch/batch-queue-vue.js"></script>
 <script src="/pixiv-batch/batch-sse.js"></script>
+<script src="/pixiv-batch/batch-download-quota.js"></script>
+<script src="/pixiv-batch/batch-download-artwork.js"></script>
+<script src="/pixiv-batch/batch-download-workers.js"></script>
 <script src="/pixiv-batch/batch-download.js"></script>
+<script src="/pixiv-batch/modes/quick-fetch-core.js"></script>
+<script src="/pixiv-batch/modes/quick-fetch-outer.js"></script>
+<script src="/pixiv-batch/modes/quick-fetch-inner.js"></script>
 <script src="/pixiv-batch/modes/quick-fetch.js"></script>
 <script src="/pixiv-batch/modes/single-import.js"></script>
+<script src="/pixiv-batch/modes/user-core.js"></script>
+<script src="/pixiv-batch/modes/user-data.js"></script>
+<script src="/pixiv-batch/modes/user-view.js"></script>
 <script src="/pixiv-batch/modes/user.js"></script>
 <script src="/pixiv-batch/modes/search.js"></script>
+<script src="/pixiv-batch/modes/series-browser.js"></script>
+<script src="/pixiv-batch/modes/series-data.js"></script>
+<script src="/pixiv-batch/modes/series-view.js"></script>
 <script src="/pixiv-batch/modes/series.js"></script>
+<script src="/pixiv-batch/modes/schedule-core.js"></script>
+<script src="/pixiv-batch/modes/schedule-editor.js"></script>
+<script src="/pixiv-batch/modes/schedule-view.js"></script>
+<script src="/pixiv-batch/modes/schedule-queue.js"></script>
 <script src="/pixiv-batch/modes/schedule.js"></script>
 <script src="/pixiv-batch/batch-init.js"></script>
 </body>

@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import top.sywyar.pixivdownload.plugin.web.NavigationController;
+import top.sywyar.pixivdownload.plugin.web.controller.NavigationController;
 
 /**
  * 导航注册中心。收集各插件的 {@link NavigationContribution}，

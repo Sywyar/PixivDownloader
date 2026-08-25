@@ -1,0 +1,158 @@
+/* ── App Navigation ─────────────────────────────────────── */
+        .app-nav {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            margin-top: 0.65rem;
+            padding-top: 0.45rem;
+            border-top: 1px solid var(--header-border);
+        }
+        .app-nav-brand {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            color: var(--header-brand);
+            text-shadow: var(--cyan-glow);
+            padding-right: 1rem;
+            margin-right: 0.5rem;
+            border-right: 1px solid var(--header-border);
+            white-space: nowrap;
+        }
+        .app-nav-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.28rem 0.7rem;
+            font-size: 0.63rem;
+            font-weight: 500;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--nav-link);
+            text-decoration: none;
+            border: 1px solid transparent;
+            transition: color 0.2s, background 0.2s, border-color 0.2s;
+        }
+        .app-nav-link:hover {
+            color: var(--nav-active);
+            background: var(--nav-hover-bg);
+            border-color: var(--header-border);
+        }
+        .app-nav-link.active {
+            color: var(--nav-active);
+            background: var(--nav-hover-bg);
+            border-color: var(--border-bright);
+        }
+        /* 动态导航 slot 用内联 SVG 图标（替代旧的 Font Awesome <i>），按链接字号缩放。 */
+        .app-nav-link svg {
+            width: 1em;
+            height: 1em;
+            flex: 0 0 auto;
+        }
+        .app-nav-spacer { flex: 1; }
+        .app-nav-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        /* ── Language Switcher (cyberpunk variant) ─────────────── */
+        .pixiv-lang-switcher--cyberpunk {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-left: 0.5rem;
+            padding: 0.18rem 0.55rem 0.18rem 0.7rem;
+            border: 1px solid var(--border);
+            background: var(--cyan-faint);
+            font-family: var(--font);
+            font-size: 0.62rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+        }
+        .pixiv-lang-switcher--cyberpunk::before {
+            content: 'LANG';
+            color: var(--text-dim);
+            letter-spacing: 0.2em;
+        }
+        .pixiv-lang-switcher--cyberpunk:hover {
+            border-color: var(--border-bright);
+            background: var(--cyan-dim);
+            box-shadow: var(--cyan-glow);
+        }
+        .pixiv-lang-switcher--cyberpunk .pixiv-lang-switcher__select {
+            appearance: none;
+            -webkit-appearance: none;
+            background: transparent;
+            border: none;
+            outline: none;
+            padding: 0 1.1rem 0 0;
+            color: var(--cyan);
+            font-family: var(--font);
+            font-size: 0.65rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            cursor: pointer;
+            text-shadow: 0 0 6px var(--language-glow);
+            background-image: linear-gradient(45deg, transparent 50%, var(--cyan) 50%),
+                              linear-gradient(135deg, var(--cyan) 50%, transparent 50%);
+            background-position: calc(100% - 8px) 50%, calc(100% - 4px) 50%;
+            background-size: 4px 4px, 4px 4px;
+            background-repeat: no-repeat;
+        }
+        .pixiv-lang-switcher--cyberpunk .pixiv-lang-switcher__select option {
+            background: var(--surface);
+            color: var(--cyan);
+        }
+
+        .app-nav-actions .pixiv-lang-switcher--cyberpunk {
+            margin-left: 0;
+            border-color: var(--header-border);
+            background: var(--nav-hover-bg);
+            color: var(--header-brand);
+        }
+
+        .app-nav-actions .pixiv-lang-switcher--cyberpunk::before {
+            color: var(--header-muted);
+        }
+
+        .app-nav-actions .pixiv-lang-switcher--cyberpunk .pixiv-lang-switcher__select {
+            color: var(--header-brand);
+            text-shadow: none;
+            background-image: linear-gradient(45deg, transparent 50%, var(--header-brand) 50%),
+                              linear-gradient(135deg, var(--header-brand) 50%, transparent 50%);
+        }
+
+        .pixiv-theme-toggle--green {
+            width: 30px;
+            height: 30px;
+            border: 1px solid var(--header-border);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--header-brand);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        .pixiv-theme-toggle--green:hover {
+            background: var(--nav-hover-bg);
+            border-color: var(--border-bright);
+            color: var(--nav-active);
+        }
+
+        .pixiv-theme-toggle--green svg {
+            width: 15px;
+            height: 15px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }

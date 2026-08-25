@@ -43,10 +43,10 @@ import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
 
 /**
  * 外置插件子 context 生命周期的 {@code SmartLifecycle} 驱动测试：验证 {@link ExternalPluginContextManager} 把核心壳

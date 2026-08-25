@@ -11,6 +11,7 @@
     "button.done": "完成",
     "button.reset": "重置",
     "button.save": "保存",
+    "error.feature-unavailable": "此功能暂时不可用，请刷新页面后重试",
     "external-link.confirm.cancel": "取消",
     "external-link.confirm.message": "即将打开外部链接：\n{url}\n是否继续？",
     "external-link.confirm.open": "继续访问",

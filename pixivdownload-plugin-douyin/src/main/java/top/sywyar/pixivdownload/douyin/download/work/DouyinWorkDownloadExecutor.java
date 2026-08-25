@@ -9,9 +9,9 @@ import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkRecord;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadedFile;
 import top.sywyar.pixivdownload.douyin.download.DouyinMediaDownloader;
 import top.sywyar.pixivdownload.douyin.download.validation.DouyinMediaPayloadValidator;
-import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
-import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
-import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinMedia;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinMediaType;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinWork;
 
 import java.io.IOException;
 import java.net.URI;

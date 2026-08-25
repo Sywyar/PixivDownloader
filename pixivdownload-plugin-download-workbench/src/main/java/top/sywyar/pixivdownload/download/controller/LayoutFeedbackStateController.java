@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.download.LayoutFeedbackIdentityDeriver;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
-import top.sywyar.pixivdownload.download.response.LayoutFeedbackStateResponse;
+import top.sywyar.pixivdownload.download.response.feedback.LayoutFeedbackStateResponse;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackDecisionView;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackRevisionExhaustedException;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateEntry;

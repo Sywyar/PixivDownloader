@@ -14,8 +14,8 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallResponse;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorResponse;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorResponse;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 /**

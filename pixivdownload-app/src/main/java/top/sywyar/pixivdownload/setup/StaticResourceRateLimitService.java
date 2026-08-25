@@ -5,7 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
+import top.sywyar.pixivdownload.setup.guest.config.GuestInviteConfig;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;

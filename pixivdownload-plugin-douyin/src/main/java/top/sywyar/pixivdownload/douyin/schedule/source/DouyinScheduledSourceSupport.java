@@ -2,11 +2,11 @@ package top.sywyar.pixivdownload.douyin.schedule.source;
 
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
-import top.sywyar.pixivdownload.douyin.client.DouyinCookieValidator;
-import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
-import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
-import top.sywyar.pixivdownload.douyin.model.DouyinListing;
-import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.client.request.DouyinCookieValidator;
+import top.sywyar.pixivdownload.douyin.model.account.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.account.DouyinAccountSource;
+import top.sywyar.pixivdownload.douyin.model.listing.DouyinListing;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinWork;
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec.CheckpointState;
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec.Definition;

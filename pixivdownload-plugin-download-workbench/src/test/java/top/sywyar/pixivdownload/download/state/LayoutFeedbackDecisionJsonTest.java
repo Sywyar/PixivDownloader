@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.download.state;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.download.response.LayoutFeedbackStateResponse;
+import top.sywyar.pixivdownload.download.response.feedback.LayoutFeedbackStateResponse;
 
 import java.util.List;
 import java.util.Map;

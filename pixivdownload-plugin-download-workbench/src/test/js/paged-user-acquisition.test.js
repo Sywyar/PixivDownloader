@@ -7,8 +7,12 @@ const test = require('node:test');
 const vm = require('vm');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const USER_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'user.js'), 'utf8');
-const QUICK_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'quick-fetch.js'), 'utf8');
+const modeSource = files => files
+    .map(file => fs.readFileSync(path.join(STATIC, 'modes', file), 'utf8')).join('\n');
+const USER_SOURCE = modeSource(['user-core.js', 'user-data.js', 'user-view.js', 'user.js']);
+const QUICK_SOURCE = modeSource([
+    'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
+]);
 
 function deferred() {
     let resolve;

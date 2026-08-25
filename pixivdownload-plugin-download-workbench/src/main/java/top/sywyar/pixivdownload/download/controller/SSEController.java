@@ -17,8 +17,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
-import top.sywyar.pixivdownload.download.response.DownloadResponse;
-import top.sywyar.pixivdownload.download.response.SseStatusData;
+import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.status.SseStatusData;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
@@ -29,18 +29,10 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -59,8 +51,6 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/api/sse")
 public class SSEController {
 
-    private static final int GCM_IV_BYTES = 12;
-    private static final int GCM_TAG_BITS = 128;
     private static final long CLOSE_TOKEN_MAX_AGE_MILLIS = Duration.ofHours(25).toMillis();
 
     private final TaskScheduler taskScheduler;
@@ -68,9 +58,8 @@ public class SSEController {
     private final MessageResolver messages;
     private final PluginStreamRegistrar pluginStreamRegistrar;
     private final PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar;
+    private final AggregatedSseCloseTokenCodec closeTokenCodec;
     private final ExecutorService sseProgressExecutor;
-    private final SecureRandom secureRandom = new SecureRandom();
-    private final byte[] closeTokenKey = new byte[32];
 
     private final ConcurrentHashMap<String, ArtworkSubscription> emitters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, PluginRuntimeTask> heartbeatTasks = new ConcurrentHashMap<>();
@@ -86,12 +75,23 @@ public class SSEController {
                          MessageResolver messages,
                          PluginStreamRegistrar pluginStreamRegistrar,
                          PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar) {
+        this(taskScheduler, requestOwnerIdentityResolver, messages, pluginStreamRegistrar,
+                pluginRuntimeTaskRegistrar, new AggregatedSseCloseTokenCodec());
+    }
+
+    SSEController(
+            @Qualifier("downloadWorkbenchTaskScheduler") TaskScheduler taskScheduler,
+            RequestOwnerIdentityResolver requestOwnerIdentityResolver,
+            MessageResolver messages,
+            PluginStreamRegistrar pluginStreamRegistrar,
+            PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar,
+            AggregatedSseCloseTokenCodec closeTokenCodec) {
         this.taskScheduler = taskScheduler;
         this.requestOwnerIdentityResolver = requestOwnerIdentityResolver;
         this.messages = messages;
         this.pluginStreamRegistrar = pluginStreamRegistrar;
         this.pluginRuntimeTaskRegistrar = pluginRuntimeTaskRegistrar;
-        this.secureRandom.nextBytes(closeTokenKey);
+        this.closeTokenCodec = Objects.requireNonNull(closeTokenCodec, "closeTokenCodec");
         this.sseProgressExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "sse-progress-flush");
             thread.setDaemon(true);
@@ -139,8 +139,6 @@ public class SSEController {
     }
 
     private record PendingProgress(Long artworkId, DownloadStatus downloadStatus, String userUuid) {}
-
-    private record CloseTokenPayload(String connectionId, String ownerUuid, boolean admin, long issuedAtMillis) {}
 
     private record ProgressFlushHandle(PluginRuntimeTask task, Future<?> cancellation) {}
 
@@ -229,7 +227,7 @@ public class SSEController {
                 emitter,
                 messages.get(subscription.locale(), "plugin.unavailable.quiesced")));
 
-        String closeToken = createAggregatedCloseToken(connectionId, ownerUuid, admin, System.currentTimeMillis());
+        String closeToken = closeTokenCodec.create(connectionId, ownerUuid, admin, System.currentTimeMillis());
         if (!sendEvent(emitter, SseEmitter.event()
                 .id(String.valueOf(System.currentTimeMillis()))
                 .name("aggregated-ready")
@@ -281,7 +279,7 @@ public class SSEController {
     @PostMapping("/close/aggregated/{token}")
     public ResponseEntity<?> closeAggregatedSSEConnection(@PathVariable String token,
                                                            HttpServletRequest request) {
-        CloseTokenPayload payload = parseAggregatedCloseToken(token);
+        AggregatedSseCloseTokenCodec.Payload payload = closeTokenCodec.parse(token);
         if (payload == null) {
             return ResponseEntity.status(403)
                     .body(ApiErrorResponse.of("auth.unauthorized", messages.get("auth.unauthorized")));
@@ -717,7 +715,7 @@ public class SSEController {
     }
 
     private boolean canCloseAggregatedSubscription(AggregatedSubscription sub,
-                                                   CloseTokenPayload payload,
+                                                   AggregatedSseCloseTokenCodec.Payload payload,
                                                    HttpServletRequest request) {
         if (payload.admin() != sub.admin()
                 || !Objects.equals(payload.ownerUuid(), sub.ownerUuid())
@@ -732,62 +730,6 @@ public class SSEController {
         }
         RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
         return sub.ownerUuid() != null && sub.ownerUuid().equals(identity.ownerUuid());
-    }
-
-    private String createAggregatedCloseToken(String connectionId, String ownerUuid, boolean admin, long issuedAtMillis) {
-        String payload = String.join("|",
-                "v1",
-                connectionId,
-                ownerUuid == null ? "" : ownerUuid,
-                String.valueOf(admin),
-                String.valueOf(issuedAtMillis));
-        byte[] iv = new byte[GCM_IV_BYTES];
-        secureRandom.nextBytes(iv);
-        try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(closeTokenKey, "AES"),
-                    new GCMParameterSpec(GCM_TAG_BITS, iv));
-            byte[] encrypted = cipher.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            byte[] token = ByteBuffer.allocate(iv.length + encrypted.length)
-                    .put(iv)
-                    .put(encrypted)
-                    .array();
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(token);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("Failed to create SSE close token", e);
-        }
-    }
-
-    private CloseTokenPayload parseAggregatedCloseToken(String token) {
-        if (token == null || token.isBlank() || token.length() > 2048) {
-            return null;
-        }
-        try {
-            byte[] tokenBytes = Base64.getUrlDecoder().decode(token);
-            if (tokenBytes.length <= GCM_IV_BYTES) {
-                return null;
-            }
-            byte[] iv = new byte[GCM_IV_BYTES];
-            byte[] encrypted = new byte[tokenBytes.length - GCM_IV_BYTES];
-            System.arraycopy(tokenBytes, 0, iv, 0, GCM_IV_BYTES);
-            System.arraycopy(tokenBytes, GCM_IV_BYTES, encrypted, 0, encrypted.length);
-
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(closeTokenKey, "AES"),
-                    new GCMParameterSpec(GCM_TAG_BITS, iv));
-            String decoded = new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
-            String[] parts = decoded.split("\\|", -1);
-            if (parts.length != 5 || !"v1".equals(parts[0])) {
-                return null;
-            }
-            return new CloseTokenPayload(
-                    parts[1],
-                    parts[2].isBlank() ? null : parts[2],
-                    Boolean.parseBoolean(parts[3]),
-                    Long.parseLong(parts[4]));
-        } catch (IllegalArgumentException | GeneralSecurityException e) {
-            return null;
-        }
     }
 
     public void notifyProgressUpdate(Long artworkId) {

@@ -10,10 +10,13 @@ const moduleSource = fs.readFileSync(path.join(
     __dirname,
     '../../main/resources/static/pixiv-douyin-download/douyin-schedule-sources.js'
 ), 'utf8');
-const runtimeSource = fs.readFileSync(path.join(
-    __dirname,
-    '../../../../pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-schedule-sources.js'
-), 'utf8');
+const scheduleRuntimeRoot = path.join(__dirname,
+    '../../../../pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch');
+const runtimeSource = [
+    'batch-schedule-sources-normalize.js',
+    'batch-schedule-sources-runtime.js',
+    'batch-schedule-sources.js'
+].map(file => fs.readFileSync(path.join(scheduleRuntimeRoot, file), 'utf8')).join('\n');
 
 const SOURCE_TYPES = [
     'douyin.user',

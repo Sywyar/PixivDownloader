@@ -11,6 +11,7 @@
     "button.done": "完了",
     "button.reset": "リセット",
     "button.save": "保存",
+    "error.feature-unavailable": "この機能は一時的に利用できません。ページを再読み込みしてから、もう一度お試しください。",
     "external-link.confirm.cancel": "キャンセル",
     "external-link.confirm.message": "外部リンクを開こうとしています：\n{url}\n続行しますか？",
     "external-link.confirm.open": "続行",

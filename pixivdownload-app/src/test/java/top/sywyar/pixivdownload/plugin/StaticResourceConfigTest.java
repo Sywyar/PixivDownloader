@@ -28,7 +28,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry.RegisteredPlugin;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
-import top.sywyar.pixivdownload.plugin.web.StaticResourceConfig;
+import top.sywyar.pixivdownload.plugin.web.resource.StaticResourceConfig;
 
 @DisplayName("StaticResourceConfig 查询期静态资源映射与服务行为")
 class StaticResourceConfigTest {

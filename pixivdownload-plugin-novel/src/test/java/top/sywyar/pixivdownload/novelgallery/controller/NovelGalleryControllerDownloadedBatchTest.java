@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
+import top.sywyar.pixivdownload.novelgallery.NovelTagOption;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
@@ -56,6 +57,21 @@ class NovelGalleryControllerDownloadedBatchTest {
         assertThat(response.getStatusCode().value()).isEqualTo(404);
         verify(workVisibilityService).requireVisible(scope, WorkType.NOVEL, 77L);
         verify(novelGalleryService).find(77L);
+    }
+
+    @Test
+    @DisplayName("小说标签目录响应保留 tags 字段与标签投影")
+    void tagListKeepsResponseShape() {
+        when(novelGalleryService.listTags(null, 500, null)).thenReturn(List.of(
+                new NovelTagOption(12L, "tag", "translated", 4L)));
+
+        var response = controller.listNovelTags(null, 500, WorkVisibilityScope.unrestricted());
+        var json = new ObjectMapper().valueToTree(response);
+
+        assertThat(json.path("tags").get(0).path("tagId").longValue()).isEqualTo(12L);
+        assertThat(json.path("tags").get(0).path("name").textValue()).isEqualTo("tag");
+        assertThat(json.path("tags").get(0).path("translatedName").textValue()).isEqualTo("translated");
+        assertThat(json.path("tags").get(0).path("novelCount").longValue()).isEqualTo(4L);
     }
 
     @Test

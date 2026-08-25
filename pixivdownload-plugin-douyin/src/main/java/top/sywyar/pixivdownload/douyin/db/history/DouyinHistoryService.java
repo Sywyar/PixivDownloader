@@ -2,10 +2,10 @@ package top.sywyar.pixivdownload.douyin.db.history;
 
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadedFile;
-import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
-import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
-import top.sywyar.pixivdownload.douyin.model.DouyinWork;
-import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinMedia;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinMediaType;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.work.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 
 import java.nio.file.Path;

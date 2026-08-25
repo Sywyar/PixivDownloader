@@ -11,6 +11,7 @@
     "button.done": "完成",
     "button.reset": "重設",
     "button.save": "儲存",
+    "error.feature-unavailable": "此功能暫時無法使用，請重新整理頁面後再試。",
     "external-link.confirm.cancel": "取消",
     "external-link.confirm.message": "即將開啟外部連結：\n{url}\n是否繼續？",
     "external-link.confirm.open": "繼續前往",

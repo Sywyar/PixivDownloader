@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.download.web;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.util.Locale;

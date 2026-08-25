@@ -1,0 +1,213 @@
+
+        /* ── App Navigation ── */
+        .app-nav {
+            background: var(--brand); /* 沿用 header 的绿色 */
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            height: 50px;
+            box-shadow: 0 2px 4px var(--shadow-nav);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .app-nav-brand {
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--fixed-white);
+            margin-right: 24px;
+            letter-spacing: .5px;
+        }
+
+        .app-nav-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 16px;
+            height: 100%;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--on-brand-strong);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .app-nav-link:hover {
+            color: var(--fixed-white);
+            background: var(--on-brand-hover);
+        }
+
+        .app-nav-link.active {
+            color: var(--fixed-white);
+            background: var(--shadow-nav);
+            font-weight: bold;
+            cursor: default;
+        }
+
+        .app-nav-link i {
+            font-size: 14px;
+        }
+
+        /* 动态导航 slot 用内联 SVG 图标（替代旧的 Font Awesome <i>），按链接字号缩放。 */
+        .app-nav-link svg {
+            width: 1em;
+            height: 1em;
+            flex: 0 0 auto;
+        }
+
+        .app-nav-spacer {
+            flex: 1;
+        }
+
+        .app-nav-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .batch-layout-toggle {
+            min-height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border: 1px solid color-mix(in srgb, var(--brand-text) 45%, transparent);
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--brand-text) 10%, transparent);
+            color: var(--brand-text);
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.2;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .batch-layout-toggle:hover {
+            background: color-mix(in srgb, var(--brand-text) 20%, transparent);
+            border-color: var(--brand-text);
+        }
+
+        .batch-page-layout-link {
+            background: var(--brand-text);
+            border-color: var(--brand-text);
+            color: var(--brand);
+        }
+
+        .batch-page-layout-link:hover {
+            background: color-mix(in srgb, var(--brand-text) 88%, transparent);
+        }
+
+        .batch-layout-toggle:active {
+            transform: translateY(1px);
+        }
+
+        .batch-layout-toggle:focus-visible {
+            outline: 2px solid var(--brand-text);
+            outline-offset: 2px;
+        }
+
+        .app-nav-login,
+        .app-nav-logout {
+            font-size: 12px;
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid var(--on-brand-muted);
+            color: var(--fixed-white);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .app-nav-login:hover,
+        .app-nav-logout:hover {
+            background: var(--fixed-white);
+            color: var(--brand);
+        }
+
+        /* ── Language Switcher (green nav variant) ── */
+        .pixiv-lang-switcher--green {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px 4px 12px;
+            border: 1px solid var(--on-brand-muted);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--fixed-white);
+            font-size: 12px;
+            font-weight: 500;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .pixiv-lang-switcher--green:hover {
+            background: var(--on-brand-hover);
+        }
+
+        .pixiv-lang-switcher--green::before {
+            content: '\f0ac'; /* fa-globe */
+            font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+            font-weight: 900;
+            font-size: 12px;
+            opacity: 0.85;
+        }
+
+        .pixiv-lang-switcher--green .pixiv-lang-switcher__select {
+            appearance: none;
+            -webkit-appearance: none;
+            background: transparent;
+            border: none;
+            outline: none;
+            padding: 0 16px 0 0;
+            color: var(--fixed-white);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            background-image: linear-gradient(45deg, transparent 50%, var(--fixed-white) 50%),
+                              linear-gradient(135deg, var(--fixed-white) 50%, transparent 50%);
+            background-position: calc(100% - 8px) 50%, calc(100% - 4px) 50%;
+            background-size: 4px 4px, 4px 4px;
+            background-repeat: no-repeat;
+        }
+
+        .pixiv-lang-switcher--green .pixiv-lang-switcher__select option {
+            background: var(--fixed-white);
+            color: var(--text);
+        }
+
+        .pixiv-lang-switcher--green .pixiv-lang-switcher__select option:checked {
+            background: var(--primary);
+            color: var(--fixed-white);
+        }
+
+        .pixiv-theme-toggle--green {
+            width: 30px;
+            height: 30px;
+            border: 1px solid var(--on-brand-muted);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--fixed-white);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .pixiv-theme-toggle--green:hover {
+            background: var(--on-brand-hover);
+            border-color: var(--on-brand-border);
+        }
+
+        .pixiv-theme-toggle--green svg {
+            width: 15px;
+            height: 15px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
