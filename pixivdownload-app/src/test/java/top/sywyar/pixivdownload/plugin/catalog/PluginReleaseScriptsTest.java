@@ -1188,6 +1188,12 @@ class PluginReleaseScriptsTest {
         String publisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
                 .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback.js"),
                 StandardCharsets.UTF_8);
+        String publisherCore = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
+                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback-core.js"),
+                StandardCharsets.UTF_8);
+        String publisherSurvey = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
+                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback-survey.js"),
+                StandardCharsets.UTF_8);
         String publisherConfig = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
                 .resolve("src/main/resources/static/pixiv-layout-feedback/posthog-config.js"),
                 StandardCharsets.UTF_8);
@@ -1209,10 +1215,17 @@ class PluginReleaseScriptsTest {
                         "https://layout-survey.sywyar.top",
                         "download-workbench.layout-feedback",
                         "options.sdk");
-        assertThat(publisher).contains(
+        assertThat(publisherCore).contains(
                 "var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({})",
-                "ownerKey: POSTHOG_OWNER_KEY",
-                "posthog: POSTHOG");
+                "POSTHOG_OWNER_KEY: POSTHOG_OWNER_KEY",
+                "POSTHOG: POSTHOG");
+        assertThat(publisherSurvey).contains(
+                "global.PixivPostHog.createSurveyClient({",
+                "ownerKey: ctx.POSTHOG_OWNER_KEY",
+                "posthog: ctx.POSTHOG");
+        assertThat(publisher).contains(
+                "['core', 'server', 'state', 'survey', 'dialog'].forEach(function (name)",
+                "module.install(ctx)");
         assertThat(publisherConfig).contains(
                 "global.PixivLayoutSurveyPostHog = Object.freeze({",
                 "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
