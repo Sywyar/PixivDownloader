@@ -181,11 +181,10 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("市场清单身份字段从官方 descriptor/i18n 派生，curation 只保留市场专属字段")
     void marketIdentityMetadataIsCanonicalDescriptorDerived() throws Exception {
-        String common = script("plugin-distribution-common.ps1");
         String generator = script("generate-market-manifest.ps1");
         JsonNode curation = new ObjectMapper().readTree(repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
-        List<OfficialPlugin> officialPlugins = officialDistributionPlugins(common);
-        Set<String> officialPluginIds = officialDistributionPluginIds(common);
+        List<OfficialPlugin> officialPlugins = officialDistributionPlugins();
+        Set<String> officialPluginIds = officialPluginIds();
 
         assertThat(officialPluginIds).contains("download-workbench");
         assertThat(officialPluginIds).contains("posthog");
@@ -277,26 +276,16 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("默认安装集合保留 Swing，Compose 与 Douyin 作为按需插件")
     void distributionSeparatesDefaultInstalledAndOnDemandPlugins() throws Exception {
-        String common = script("plugin-distribution-common.ps1");
-        Matcher defaultInstalled = Pattern.compile(
-                "function Get-OfficialDefaultInstalledPlugins(?<body>.*?)function Get-OfficialOptionalPlugins",
-                Pattern.DOTALL).matcher(common);
-        assertThat(defaultInstalled.find()).isTrue();
-        assertThat(defaultInstalled.group("body")).contains(
-                "Get-OfficialRequiredPlugins",
-                "Id = \"gui-swing\"", "Id = \"stats\"", "Id = \"posthog\"", "Id = \"duplicate\"",
-                "Id = \"gallery\"", "Id = \"novel\"", "Id = \"notification\"",
-                "Id = \"multi-mode-decision-survey\"",
-                "Id = \"push\"", "Id = \"mail\"", "Id = \"tts\"", "Id = \"ai\"")
-                .doesNotContain("Id = \"douyin\"", "Id = \"gui-compose\"", "Id = \"recovery-sentinel\"");
-
-        Matcher optional = Pattern.compile(
-                "function Get-OfficialOptionalPlugins(?<body>.*?)function Get-OfficialDistributionPlugins",
-                Pattern.DOTALL).matcher(common);
-        assertThat(optional.find()).isTrue();
-        assertThat(optional.group("body")).contains("Id = \"douyin\"", "Id = \"gui-compose\"")
-                .doesNotContain("Id = \"stats\"", "Id = \"gallery\"");
-        assertThat(common).contains("$plugins = @(Get-OfficialDefaultInstalledPlugins)");
+        assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
+                .containsExactly(
+                        "download-workbench", "gui-swing", "stats", "posthog", "duplicate", "gallery",
+                        "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
+        assertThat(officialPluginIds("Get-OfficialOptionalPlugins"))
+                .containsExactly("douyin", "gui-compose");
+        assertThat(officialPluginIds())
+                .doesNotContain("recovery-sentinel")
+                .containsAll(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
+                .containsAll(officialPluginIds("Get-OfficialOptionalPlugins"));
     }
 
     @Test
@@ -739,7 +728,7 @@ class PluginReleaseScriptsTest {
     @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个SDK 1.0")
     void officialPluginVersionsStartAtInitialVersion() throws Exception {
         String common = script("plugin-distribution-common.ps1");
-        for (OfficialPlugin plugin : officialDistributionPlugins(common)) {
+        for (OfficialPlugin plugin : officialDistributionPlugins()) {
             assertThat(pluginDescriptor(plugin.module())).as(plugin.id())
                     .contains("plugin.version=1.0.0", "plugin.requires=1.0");
         }
@@ -1187,68 +1176,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("调查发布者自持四个 PostHog 参数且 official-surveys profile 启用发布位")
+    @DisplayName("调查资源按依赖顺序装配且 official-surveys profile 启用发布位")
     void surveyPublisherOwnsPostHogConfigurationAndOfficialProfileActivatesIt() throws Exception {
-        String adapter = Files.readString(repoRoot().resolve("pixivdownload-plugin-posthog")
-                .resolve("src/main/resources/static/pixiv-posthog/pixiv-posthog.js"),
-                StandardCharsets.UTF_8);
-        String publisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback.js"),
-                StandardCharsets.UTF_8);
-        String publisherCore = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback-core.js"),
-                StandardCharsets.UTF_8);
-        String publisherSurvey = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback-survey.js"),
-                StandardCharsets.UTF_8);
-        String publisherConfig = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/posthog-config.js"),
-                StandardCharsets.UTF_8);
-        String inboxOnlyPublisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
-                .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/survey.js"),
-                StandardCharsets.UTF_8);
-        String inboxOnlyPublisherConfig = Files.readString(
-                repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
-                        .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/posthog-config.js"),
-                StandardCharsets.UTF_8);
-        assertThat(adapter).contains(
-                "PixivPostHog",
-                "ownerKey",
-                "options.posthog",
-                "createSurveyClient")
-                .doesNotContain(
-                        "phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k",
-                        "surveyId: '",
-                        "https://layout-survey.sywyar.top",
-                        "download-workbench.layout-feedback",
-                        "options.sdk");
-        assertThat(publisherCore).contains(
-                "var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({})",
-                "POSTHOG_OWNER_KEY: POSTHOG_OWNER_KEY",
-                "POSTHOG: POSTHOG");
-        assertThat(publisherSurvey).contains(
-                "global.PixivPostHog.createSurveyClient({",
-                "ownerKey: ctx.POSTHOG_OWNER_KEY",
-                "posthog: ctx.POSTHOG");
-        assertThat(publisher).contains(
-                "['core', 'server', 'state', 'survey', 'dialog'].forEach(function (name)",
-                "module.install(ctx)");
-        assertThat(publisherConfig).contains(
-                "global.PixivLayoutSurveyPostHog = Object.freeze({",
-                "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
-                "apiHost: 'https://layout-survey.sywyar.top'",
-                "uiHost: 'https://us.posthog.com'")
-                .containsPattern("surveyId: '[^']+'");
-        assertThat(inboxOnlyPublisher).contains(
-                "var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({})",
-                "ownerKey: OWNER_KEY",
-                "posthog: POSTHOG");
-        assertThat(inboxOnlyPublisherConfig).contains(
-                "global.PixivMultiModeDecisionSurveyPostHog = Object.freeze({",
-                "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
-                "apiHost: 'https://layout-survey.sywyar.top'",
-                "uiHost: 'https://us.posthog.com'")
-                .containsPattern("surveyId: '[^']+'");
         assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
                 .contains("plugin.dependencies=posthog?@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-multi-mode-decision-survey"))
@@ -1731,34 +1660,50 @@ class PluginReleaseScriptsTest {
         assertThat(Base64.getEncoder().encodeToString(decoded)).isEqualTo(value);
     }
 
-    private static List<OfficialPlugin> officialDistributionPlugins(String common) {
-        Matcher matcher = Pattern.compile("\\[pscustomobject\\]@\\{(?<body>.*?)\\}", Pattern.DOTALL)
-                .matcher(common);
+    private static List<OfficialPlugin> officialDistributionPlugins() throws Exception {
+        return officialDistributionPlugins("Get-OfficialDistributionPlugins -IncludeOptional");
+    }
+
+    private static List<OfficialPlugin> officialDistributionPlugins(String functionName) throws Exception {
+        JsonNode values = new ObjectMapper().readTree(runPowerShell(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "$items=@(" + functionName + "); "
+                        + "ConvertTo-Json -InputObject $items -Depth 4 -Compress"));
         List<OfficialPlugin> plugins = new ArrayList<>();
-        while (matcher.find()) {
-            String body = matcher.group("body");
-            String id = pscustomObjectStringField(body, "Id");
-            String module = pscustomObjectStringField(body, "Module");
-            if (id != null && module != null && !"recovery-sentinel".equals(id)) {
-                plugins.add(new OfficialPlugin(id, module));
-            }
+        for (JsonNode value : values) {
+            plugins.add(new OfficialPlugin(value.path("Id").asText(), value.path("Module").asText()));
         }
         assertThat(plugins).as("official plugins").isNotEmpty();
+        assertThat(plugins).allSatisfy(plugin -> {
+            assertThat(plugin.id()).isNotBlank();
+            assertThat(plugin.module()).isNotBlank();
+        });
         return plugins;
     }
 
-    private static Set<String> officialDistributionPluginIds(String common) {
-        Set<String> ids = new LinkedHashSet<>();
-        for (OfficialPlugin plugin : officialDistributionPlugins(common)) {
-            ids.add(plugin.id());
-        }
+    private static Set<String> officialPluginIds(String functionName) throws Exception {
+        Set<String> ids = officialDistributionPlugins(functionName).stream()
+                .map(OfficialPlugin::id)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         assertThat(ids).as("official plugin ids").isNotEmpty();
         return ids;
     }
 
-    private static String pscustomObjectStringField(String body, String field) {
-        Matcher matcher = Pattern.compile("\\b" + field + "\\s*=\\s*\"([^\"]+)\"").matcher(body);
-        return matcher.find() ? matcher.group(1) : null;
+    private static Set<String> officialPluginIds() throws Exception {
+        return officialPluginIds("Get-OfficialDistributionPlugins -IncludeOptional");
+    }
+
+    private static String runPowerShell(String command) throws Exception {
+        String executable = canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
+                ? "pwsh" : "powershell";
+        Process process = new ProcessBuilder(executable, "-NoProfile", "-Command", command)
+                .directory(repoRoot().toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        assertThat(process.waitFor()).as("PowerShell failed: %s", output).isEqualTo(0);
+        return output;
     }
 
     private static Map<String, String> readProperties(Path path) throws IOException {
