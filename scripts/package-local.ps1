@@ -25,6 +25,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 # Shared official-plugin list + plugin-jar / checksum primitives (one source of distribution truth,
 # also used by scripts/assemble-plugin-distribution.ps1).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+. (Join-Path $PSScriptRoot "ffmpeg-release-integrity.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildRoot = Join-Path $ProjectRoot "build"
@@ -48,7 +49,8 @@ $AppName = "PixivDownload"
 $AppVendor = "sywyar"
 $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
-$FfmpegZipUrl = "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-windows-x64.zip"
+$FfmpegReleaseBaseUrl = "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/"
+$FfmpegAssetName = "ffmpeg-windows-x64.zip"
 $OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
 $InstallerSdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot
 $EnableInstallerPluginSelection = $false
@@ -587,26 +589,59 @@ function Get-InstallerVersion {
 }
 
 function Ensure-FfmpegPayload {
-    $hasPayload = (Test-Path $FfmpegExe) -and (Test-Path $FfprobeExe)
-    foreach ($licenseName in $FfmpegLicenseFiles) {
-        $hasPayload = $hasPayload -and (Test-Path (Join-Path $FfmpegLicenseDir $licenseName))
-    }
-
-    if ($hasPayload -and -not $RedownloadFfmpeg) {
-        Write-Step "Reusing existing FFmpeg payload from build/ffmpeg"
-        return
-    }
-
     Assert-Command "curl.exe"
 
-    Write-Step "Downloading FFmpeg payload"
     Ensure-Directory $FfmpegDir
+    $zipPath = Join-Path $FfmpegDir "ffmpeg.zip"
+    $manifestPath = Join-Path $FfmpegDir "ffmpeg-release.json"
+    $signaturePath = "$manifestPath.sig"
+    $expectedAsset = $null
+
+    if (-not $RedownloadFfmpeg -and
+        (Test-Path -LiteralPath $zipPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $manifestPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $signaturePath -PathType Leaf)) {
+        try {
+            $expectedAsset = Get-VerifiedFfmpegReleaseAsset `
+                -ManifestPath $manifestPath `
+                -SignaturePath $signaturePath `
+                -AssetName $FfmpegAssetName `
+                -SignatureToolJar $SignatureToolJar
+            Assert-FfmpegReleaseAsset -ArchivePath $zipPath -ExpectedAsset $expectedAsset
+            Write-Step "Reusing verified FFmpeg release archive from build/ffmpeg"
+        } catch {
+            Write-Host "Cached FFmpeg archive is not trusted; downloading the signed release again." -ForegroundColor Yellow
+            $expectedAsset = $null
+        }
+    }
+
+    if (-not $expectedAsset) {
+        Write-Step "Downloading and verifying FFmpeg payload"
+        $downloadManifest = "$manifestPath.download"
+        $downloadSignature = "$signaturePath.download"
+        $downloadZip = "$zipPath.download"
+        foreach ($path in @($downloadManifest, $downloadSignature, $downloadZip)) {
+            Remove-PathIfExists $path
+        }
+        Invoke-External "curl.exe" @("--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "-fL",
+            "${FfmpegReleaseBaseUrl}ffmpeg-release.json", "-o", $downloadManifest)
+        Invoke-External "curl.exe" @("--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "-fL",
+            "${FfmpegReleaseBaseUrl}ffmpeg-release.json.sig", "-o", $downloadSignature)
+        $expectedAsset = Get-VerifiedFfmpegReleaseAsset `
+            -ManifestPath $downloadManifest `
+            -SignaturePath $downloadSignature `
+            -AssetName $FfmpegAssetName `
+            -SignatureToolJar $SignatureToolJar
+        Invoke-External "curl.exe" @("--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "-fL",
+            "$FfmpegReleaseBaseUrl$FfmpegAssetName", "-o", $downloadZip)
+        Assert-FfmpegReleaseAsset -ArchivePath $downloadZip -ExpectedAsset $expectedAsset
+        Move-Item -LiteralPath $downloadManifest -Destination $manifestPath -Force
+        Move-Item -LiteralPath $downloadSignature -Destination $signaturePath -Force
+        Move-Item -LiteralPath $downloadZip -Destination $zipPath -Force
+    }
+
     Remove-PathIfExists $FfmpegUnpackDir
     Ensure-Directory $FfmpegUnpackDir
-
-    $zipPath = Join-Path $FfmpegDir "ffmpeg.zip"
-    Invoke-External "curl.exe" @("-fL", $FfmpegZipUrl, "-o", $zipPath)
-
     Expand-Archive -Path $zipPath -DestinationPath $FfmpegUnpackDir -Force
 
     $payloadRoot = Get-ChildItem $FfmpegUnpackDir -Directory |
@@ -617,15 +652,24 @@ function Ensure-FfmpegPayload {
         throw "Could not locate unpacked FFmpeg payload."
     }
 
-    Copy-Item (Join-Path $payloadRoot.FullName "bin\ffmpeg.exe") $FfmpegExe -Force
-    Copy-Item (Join-Path $payloadRoot.FullName "bin\ffprobe.exe") $FfprobeExe -Force
-    Remove-PathIfExists $FfmpegLicenseDir
-    Copy-Item (Join-Path $payloadRoot.FullName "licenses") $FfmpegDir -Recurse -Force
+    $sourceFfmpeg = Join-Path $payloadRoot.FullName "bin\ffmpeg.exe"
+    $sourceFfprobe = Join-Path $payloadRoot.FullName "bin\ffprobe.exe"
+    $sourceLicenseDir = Join-Path $payloadRoot.FullName "licenses"
+    foreach ($requiredPath in @($sourceFfmpeg, $sourceFfprobe)) {
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+            throw "FFmpeg payload is missing required file: $requiredPath"
+        }
+    }
     foreach ($licenseName in $FfmpegLicenseFiles) {
-        if (-not (Test-Path (Join-Path $FfmpegLicenseDir $licenseName) -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $sourceLicenseDir $licenseName) -PathType Leaf)) {
             throw "FFmpeg payload is missing required license file: $licenseName"
         }
     }
+
+    Copy-Item $sourceFfmpeg $FfmpegExe -Force
+    Copy-Item $sourceFfprobe $FfprobeExe -Force
+    Remove-PathIfExists $FfmpegLicenseDir
+    Copy-Item $sourceLicenseDir $FfmpegDir -Recurse -Force
 }
 
 if ($AllowUnsignedLocalPlugins) {
@@ -636,9 +680,8 @@ if ($AllowUnsignedLocalPlugins) {
         throw "AllowUnsignedLocalPlugins only accepts plugin artifacts built from the current source tree; PrebuiltPluginsDir is not allowed."
     }
     if (-not [string]::IsNullOrWhiteSpace($OfficialKeyId) -or
-        -not [string]::IsNullOrWhiteSpace($PrivateKeyFile) -or
-        -not [string]::IsNullOrWhiteSpace($SignatureToolJar)) {
-        throw "AllowUnsignedLocalPlugins cannot be combined with OfficialKeyId, PrivateKeyFile, or SignatureToolJar."
+        -not [string]::IsNullOrWhiteSpace($PrivateKeyFile)) {
+        throw "AllowUnsignedLocalPlugins cannot be combined with OfficialKeyId or PrivateKeyFile."
     }
     if (-not $SkipPortable -or -not $SkipOfflinePortable) {
         throw "AllowUnsignedLocalPlugins requires SkipPortable and SkipOfflinePortable so no unsigned portable archive is produced."
@@ -658,9 +701,6 @@ try {
     $resolvedPrebuiltPluginsDir = ""
     if (-not $SkipPlugins) {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
-        if (-not $AllowUnsignedLocalPlugins) {
-            $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
-        }
     }
     $mavenCmd = $null
     if (-not $PrebuiltJar) {
@@ -732,6 +772,11 @@ try {
 
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
+
+    if ((-not $SkipPlugins -and -not $AllowUnsignedLocalPlugins) -or
+        -not $SkipOfflinePortable -or -not $SkipInstaller) {
+        $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
+    }
 
     # Stage all default-installed external plugins into the online app-image before packaging. They remain
     # separate PF4J artifacts; only Douyin is left for on-demand installation / the full-offline image.

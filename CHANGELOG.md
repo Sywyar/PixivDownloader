@@ -60,6 +60,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 各 Web 页面加入统一的过渡与动画体系：页面与导航入场、按钮 / 输入 / 卡片交互、深浅主题切换过渡，以及下载页的来源 / 类型切换、设置显隐联动、计划任务折叠和画廊筛选开合、弹窗、卡片阶梯入场等场景都有平滑动画，并跟随系统「减少动态效果」偏好自动降级。
 
 ### Security
+- FFmpeg 自动安装、Windows 安装器与离线包构建现在会先验证内置官方信任根签发的发行清单，再严格核对目标资产名、长度和 SHA-256；清单缺失、签名无效或资产被篡改时会在解压及替换既有工具前失败。
 - 反向代理转发头只在来源命中 `server.trusted-proxy-cidrs` 的显式 CIDR 时生效（默认受信 CIDR 数为 0）；受信代理必须完整提供 RFC `Forwarded`，或 `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`（`X-Forwarded-Port` 可选），两套头混用、链错位、缺失、畸形、端口不在 1–65535 或全链均为受信代理时返回 400，并在鉴权和同源校验前统一规范化客户端地址、外部协议、主机与端口。
 - 本地图片缩略图、相似度与分类工具会在解码前把源文件限制为 100 MiB、宽和高分别不超过 25,000 像素且总像素不超过 25,000,000；画廊图片接口改为直接流式返回文件，避免 Base64 JSON 放大内存。
 - Web 页面统一设置 CSP（普通页面 `frame-ancestors 'none'`，同源 iframe 为 `'self'`）、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`，并关闭 accelerometer、camera、geolocation、gyroscope、magnetometer、microphone、payment、usb 共 8 项浏览器能力；TRACE 请求统一返回 405，并移除内联事件执行路径。

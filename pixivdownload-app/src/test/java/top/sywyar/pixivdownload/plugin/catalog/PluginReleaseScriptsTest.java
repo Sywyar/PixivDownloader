@@ -322,8 +322,10 @@ class PluginReleaseScriptsTest {
         String distribution = script("assemble-plugin-distribution.ps1");
         String windows = script("package-local.ps1");
         String catalogStage = script("stage-official-plugin-inputs-from-catalog.ps1");
+        String ffmpegIntegrity = script("ffmpeg-release-integrity.ps1");
         String inno = innoScript();
         String installerInstall = innoSupportScript("installer-plugin-install.ps1");
+        String ffmpegInstallerDownload = innoSupportScript("installer-ffmpeg-download.ps1");
 
         assertThat(common).contains(
                 "function Get-PixivDownloadSdkVersion",
@@ -401,6 +403,9 @@ class PluginReleaseScriptsTest {
                 "out-local-unsigned",
                 "$AppName-$Version-LOCAL-UNSIGNED-win-x64-setup.exe",
                 "Move-Item -LiteralPath $SetupPath -Destination $LocalUnsignedSetupPath -Force",
+                "ffmpeg-release-integrity.ps1",
+                "Get-VerifiedFfmpegReleaseAsset",
+                "Assert-FfmpegReleaseAsset",
                 "$installerPluginCatalogEnabled = if ((-not $SkipPlugins) -and $EnableInstallerPluginSelection) { \"1\" } else { \"0\" }",
                 "/DSdkVersion=$InstallerSdkVersion",
                 "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
@@ -426,8 +431,11 @@ class PluginReleaseScriptsTest {
                 "#ifndef SdkVersion",
                 "#error SdkVersion must be supplied from pixivdownload-sdk-info metadata.",
                 "#define InstallerPluginCatalogEnabled \"0\"",
-                "#error SignatureToolJar must be defined when InstallerPluginCatalogEnabled is 1.",
+                "#error SignatureToolJar must be defined for FFmpeg release verification.",
                 "#if InstallerPluginCatalogEnabled == \"1\"",
+                "installer-ffmpeg-download.ps1",
+                "ffmpeg-release-integrity.ps1",
+                "-SignatureToolJar ' + DoubleQuote(SignatureToolTempPath)",
                 "installer-plugin-install.ps1",
                 "IsInstallerPluginCatalogEnabled",
                 "ShouldShowOptionalPluginsPage",
@@ -446,6 +454,23 @@ class PluginReleaseScriptsTest {
                 "LoadStringsFromFile(ProgressPath, Lines)",
                 "RaiseException(DecodeCatalogField(Parts[1]))",
                 "pixivdownload-plugin-signature-tool.jar");
+        assertThat(ffmpegIntegrity).contains(
+                "verify-manifest",
+                "--repository-id", "ffmpeg-stable",
+                "expectedSizeBytes",
+                "Get-FileHash -Algorithm SHA256",
+                "does not contain the exact asset name");
+        assertThat(ffmpegInstallerDownload).contains(
+                "Get-VerifiedFfmpegReleaseAsset",
+                "Assert-FfmpegReleaseAsset",
+                "Move-Item -LiteralPath $downloadPath -Destination $OutFile -Force");
+        assertThat(ffmpegInstallerDownload.indexOf("Assert-FfmpegReleaseAsset"))
+                .isLessThan(ffmpegInstallerDownload.indexOf(
+                        "Move-Item -LiteralPath $downloadPath -Destination $OutFile -Force"));
+        assertThat(windows.indexOf("Assert-FfmpegReleaseAsset -ArchivePath $downloadZip"))
+                .isLessThan(windows.indexOf("Expand-Archive -Path $zipPath"));
+        assertThat(inno.indexOf("DownloadFfmpegArchive(ArchivePath)"))
+                .isLessThan(inno.indexOf("ExtractArchive(ArchivePath, ExtractDir"));
         assertThat(inno).doesNotContain("#if Len(SignatureToolJar) > 0");
         assertThat(inno).doesNotContain("LoadStringFromFile(OutputPath");
         assertThat(inno).doesNotContain("RunPowerShellAndWait");
@@ -531,8 +556,11 @@ class PluginReleaseScriptsTest {
     @DisplayName("PowerShell provenance 脚本保持无 BOM 的纯 ASCII 字节")
     void provenancePowerShellScriptsAreAsciiWithoutBom() throws Exception {
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("plugin-distribution-common.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("ffmpeg-release-integrity.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
                 .resolve("installer-plugin-install.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
+                .resolve("installer-ffmpeg-download.ps1"));
     }
 
     @Test

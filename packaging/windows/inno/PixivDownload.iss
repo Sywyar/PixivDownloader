@@ -1,7 +1,8 @@
 #define AppName "PixivDownload"
 #define AppPublisher "sywyar"
 #define AppExeName "PixivDownload.exe"
-#define FfmpegArchiveUrl "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-windows-x64.zip"
+#define FfmpegReleaseBaseUrl "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/"
+#define FfmpegAssetName "ffmpeg-windows-x64.zip"
 #ifndef SdkVersion
 #error SdkVersion must be supplied from pixivdownload-sdk-info metadata.
 #endif
@@ -30,10 +31,8 @@
 #define InstallerPluginCatalogEnabled "0"
 #endif
 
-#if InstallerPluginCatalogEnabled == "1"
 #if Len(SignatureToolJar) == 0
-#error SignatureToolJar must be defined when InstallerPluginCatalogEnabled is 1.
-#endif
+#error SignatureToolJar must be defined for FFmpeg release verification.
 #endif
 
 [Setup]
@@ -313,8 +312,10 @@ Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 #if InstallerPluginCatalogEnabled == "1"
 Source: "{#AppImageDir}\installer-catalog\manifest.json"; DestDir: "{tmp}"; DestName: "installer-plugin-catalog.json"; Flags: dontcopy
 Source: "{#AppImageDir}\installer-catalog\manifest.json.sig"; DestDir: "{tmp}"; DestName: "installer-plugin-catalog.json.sig"; Flags: dontcopy
-Source: "{#SignatureToolJar}"; DestDir: "{tmp}"; DestName: "pixivdownload-plugin-signature-tool.jar"; Flags: dontcopy
 #endif
+Source: "{#SignatureToolJar}"; DestDir: "{tmp}"; DestName: "pixivdownload-plugin-signature-tool.jar"; Flags: dontcopy
+Source: "..\..\..\scripts\ffmpeg-release-integrity.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "installer-ffmpeg-download.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "installer-plugin-install.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Registry]
@@ -372,6 +373,8 @@ const
   MaintenanceUninstallMode = 'uninstall';
   PluginInstallScriptName = 'installer-plugin-install.ps1';
   PluginSignatureToolName = 'pixivdownload-plugin-signature-tool.jar';
+  FfmpegDownloadScriptName = 'installer-ffmpeg-download.ps1';
+  FfmpegIntegrityScriptName = 'ffmpeg-release-integrity.ps1';
 
 function PeekMessage(var Msg: TMsg; Hwnd: Longword; MsgFilterMin, MsgFilterMax, RemoveMsg: Longword): Boolean;
 external 'PeekMessageW@user32.dll stdcall';
@@ -861,11 +864,14 @@ end;
 
 function SignatureToolTempPath: String;
 begin
-#if InstallerPluginCatalogEnabled == "1"
   Result := ExpandConstant('{tmp}\' + PluginSignatureToolName);
-#else
-  Result := '';
-#endif
+end;
+
+procedure ExtractFfmpegInstallerSupportFiles;
+begin
+  ExtractTemporaryFile(PluginSignatureToolName);
+  ExtractTemporaryFile(FfmpegDownloadScriptName);
+  ExtractTemporaryFile(FfmpegIntegrityScriptName);
 end;
 
 function QuoteArg(const Value: String): String;
@@ -1688,19 +1694,22 @@ var
   ProgressText: String;
   Parts: TArrayOfString;
 begin
-  ScriptPath := ExpandConstant('{tmp}\pixivdownload-ffmpeg-download.ps1');
+  ExtractFfmpegInstallerSupportFiles;
+  ScriptPath := ExpandConstant('{tmp}\' + FfmpegDownloadScriptName);
   ProgressPath := ExpandConstant('{tmp}\pixivdownload-ffmpeg-download.progress');
   PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
 
   DeleteFile(ProgressPath);
-  if not SaveStringToFile(ScriptPath, AnsiString(BuildFfmpegDownloadScript), False) then
-    RaiseException('Could not prepare the FFmpeg downloader script.');
 
   Params :=
     '-NoProfile -ExecutionPolicy Bypass -File ' + DoubleQuote(ScriptPath) +
-    ' -Url ' + DoubleQuote('{#FfmpegArchiveUrl}') +
+    ' -ReleaseBaseUrl ' + DoubleQuote('{#FfmpegReleaseBaseUrl}') +
+    ' -AssetName ' + DoubleQuote('{#FfmpegAssetName}') +
     ' -OutFile ' + DoubleQuote(ArchivePath) +
     ' -ProgressFile ' + DoubleQuote(ProgressPath) +
+    ' -SignatureToolJar ' + DoubleQuote(SignatureToolTempPath) +
+    ' -JavaPath ' + DoubleQuote(ExpandConstant('{app}\runtime\bin\java.exe')) +
+    ' -IntegrityScript ' + DoubleQuote(ExpandConstant('{tmp}\' + FfmpegIntegrityScriptName)) +
     ' -ProxyUrl ' + DoubleQuote(SystemProxyUrl);
 
   Log('Starting FFmpeg download. Proxy URL: ' + SystemProxyUrl);

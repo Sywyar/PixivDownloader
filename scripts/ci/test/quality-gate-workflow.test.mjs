@@ -157,8 +157,22 @@ test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五�
     assert.equal(ffmpeg.jobs.publish.environment, 'release');
     assert.ok(ffmpeg.jobs.publish.needs.includes('quality-gate'));
     assert.equal(ffmpeg.jobs.publish.env.GH_TOKEN, '${{ secrets.CROSS_REPO_RELEASE_TOKEN }}');
+    assert.equal(ffmpeg.jobs.publish.steps.find((step) => step.name === 'Checkout').with.ref,
+        '${{ github.sha }}');
     assert.equal(ffmpeg.jobs.publish.steps.find((step) => step.name === 'Download platform archives')
         .with.pattern, 'ffmpeg-*-*');
+    const generateManifest = ffmpeg.jobs.publish.steps
+        .find((step) => step.name === 'Generate checksums and manifest');
+    const signManifest = ffmpeg.jobs.publish.steps
+        .find((step) => step.name === 'Sign FFmpeg release manifest');
+    const publishRelease = ffmpeg.jobs.publish.steps
+        .find((step) => step.name === 'Publish Remote Content release');
+    assert.match(generateManifest.run, /expectedSizeBytes: fs\.statSync\(file\)\.size/);
+    assert.equal(signManifest.env.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64,
+        '${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}');
+    assert.match(signManifest.run, /manifest --manifest assets\/ffmpeg-release\.json --repository-id ffmpeg-stable/);
+    assert.match(signManifest.run, /pixivdownloader-official-root-2026-07/);
+    assert.match(publishRelease.run, /assets\/ffmpeg-release\.json\.sig/);
     assert.equal(ffmpeg.env.REMOTE_CONTENT_REPO, 'Sywyar/PixivDownloader-Remote-Content');
     assert.equal(ffmpeg.env.RELEASE_TAG, 'ffmpeg-stable');
     assert.equal(ffmpeg.env.FFMPEG_SIGNING_KEY_FINGERPRINT,
