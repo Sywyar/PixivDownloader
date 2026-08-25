@@ -28,7 +28,7 @@ class NovelPixivUserCardsParseTest {
     void novelPreservesOrderAndSkipsDeleted() {
         JsonNode b = body("{\"222\":{\"id\":\"222\"},\"111\":null,\"333\":{\"id\":\"333\"}}");
         List<NovelSearchResponse.NovelSearchItem> items =
-                NovelPixivProxyController.parseUserNovelCards(b, List.of("111", "222", "333"));
+                NovelPixivResponseMapper.userNovelCards(b, List.of("111", "222", "333"));
         assertThat(items).extracting(NovelSearchResponse.NovelSearchItem::id).containsExactly("222", "333");
     }
 
@@ -38,7 +38,7 @@ class NovelPixivUserCardsParseTest {
         JsonNode b = body("{\"111\":{\"id\":\"111\",\"title\":\"t\",\"xRestrict\":2,\"wordCount\":1200,"
                 + "\"userName\":\"u\",\"isOriginal\":true,\"tags\":[\"x\"]}}");
         NovelSearchResponse.NovelSearchItem item =
-                NovelPixivProxyController.parseUserNovelCards(b, List.of("111")).get(0);
+                NovelPixivResponseMapper.userNovelCards(b, List.of("111")).get(0);
         assertThat(item.xRestrict()).isEqualTo(2);
         assertThat(item.bookmarkCount()).isEqualTo(-1);
         assertThat(item.wordCount()).isEqualTo(1200);

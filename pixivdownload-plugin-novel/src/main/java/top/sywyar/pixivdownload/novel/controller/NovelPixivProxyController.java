@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,19 +13,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
-import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
-import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
-import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
-import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
 import top.sywyar.pixivdownload.novel.response.NovelProxyRateLimitResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
@@ -42,7 +37,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,7 +44,6 @@ import java.util.Set;
 @RestController
 @RequestMapping("/api/pixiv")
 @PluginManagedBean
-@Slf4j
 @RequiredArgsConstructor
 public class NovelPixivProxyController {
 
@@ -149,49 +142,7 @@ public class NovelPixivProxyController {
         String fetchToken = browserFetchTicketStore.issuePreviewFetchTicket(
                 parsedId, metadata, NovelDownloadRequestFactory.boundedRawMetadata(objectMapper, b),
                 requestOwnerIdentityResolver.resolve(request), cookie);
-        Long seriesId = null;
-        Long seriesOrder = null;
-        String seriesTitle = null;
-        JsonNode nav = b.path("seriesNavData");
-        if (nav.isObject()) {
-            long sid = nav.path("seriesId").asLong(0);
-            if (sid > 0) {
-                seriesId = sid;
-                seriesOrder = nav.path("order").asLong(0);
-                seriesTitle = nav.path("title").asText("");
-            }
-        }
-        Integer wordCount = b.has("wordCount") ? b.path("wordCount").asInt(0) : null;
-        Integer textLength = b.has("characterCount") ? b.path("characterCount").asInt(0) : null;
-        Integer readingTimeSeconds = extractReadingTimeSeconds(b);
-        String content = b.path("content").asText("");
-        Integer pageCount = countPages(content);
-        Long uploadTimestamp = extractUploadTimestamp(b);
-        return ResponseEntity.ok(new NovelMetaResponse(
-                parsedId,
-                b.path("title").asText(""),
-                b.path("xRestrict").asInt(0),
-                b.path("aiType").asInt(0) >= 2,
-                b.path("bookmarkCount").asInt(-1),
-                parsePositiveLong(b.path("userId").asText(null)),
-                b.path("userName").asText(""),
-                PixivDescriptionHtml.normalizeLinks(b.path("description").asText("")),
-                extractTags(b),
-                seriesId,
-                seriesOrder,
-                seriesTitle,
-                content,
-                wordCount,
-                textLength,
-                readingTimeSeconds,
-                pageCount,
-                b.path("isOriginal").asBoolean(false),
-                b.path("language").asText(""),
-                extractNovelCoverUrl(b),
-                uploadTimestamp,
-                extractTextEmbeddedImages(b),
-                fetchToken
-        ));
+        return ResponseEntity.ok(NovelPixivResponseMapper.novelMeta(parsedId, b, fetchToken));
     }
 
     private static boolean matchesNovelId(JsonNode value, long expected) {
@@ -259,18 +210,7 @@ public class NovelPixivProxyController {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(metaRoot.path("message").asText()));
         }
         JsonNode mb = metaRoot.path("body");
-        long sid = parsePositiveOrDefault(mb.path("id").asText(null), parsedId);
-        String title = mb.path("title").asText("");
-        Long authorId = parsePositiveLong(mb.path("userId").asText(null));
-        String authorName = mb.path("userName").asText("");
-        int total = mb.path("publishedContentCount").asInt(mb.path("total").asInt(0));
-        String language = mb.path("language").asText("");
-        boolean isOriginal = mb.path("isOriginal").asBoolean(false);
-        int totalCharCount = mb.path("publishedTotalCharacterCount").asInt(0);
-        int totalWordCount = mb.path("publishedTotalWordCount").asInt(0);
-        String caption = mb.path("caption").asText("");
-        String coverUrl = extractSeriesCoverUrl(mb);
-        List<WorkTag> seriesTags = extractTags(mb);
+        NovelSeriesResponse.NovelSeriesMeta meta = NovelPixivResponseMapper.seriesMeta(mb, parsedId);
 
         int safePage = Math.max(1, page);
         int limit = 30;
@@ -285,37 +225,12 @@ public class NovelPixivProxyController {
                 .toUri();
         String contentBody = proxyGetUri(contentUri, cookie);
         JsonNode contentRoot = objectMapper.readTree(contentBody);
-        List<NovelSeriesResponse.NovelSeriesItem> items = new ArrayList<>();
-        if (!contentRoot.path("error").asBoolean(false)) {
-            JsonNode arr = contentRoot.path("body").path("page").path("seriesContents");
-            if (!arr.isArray() || arr.isEmpty()) {
-                arr = contentRoot.path("body").path("seriesContents");
-            }
-            if (arr.isArray()) {
-                for (JsonNode it : arr) {
-                    items.add(new NovelSeriesResponse.NovelSeriesItem(
-                            it.path("id").asText(""),
-                            it.path("title").asText(""),
-                            it.path("xRestrict").asInt(0),
-                            it.path("aiType").asInt(0),
-                            it.path("wordCount").asInt(0),
-                            it.path("textLength").asInt(it.path("characterCount").asInt(0)),
-                            extractReadingTimeSeconds(it),
-                            it.path("userId").asText(String.valueOf(authorId == null ? "" : authorId)),
-                            it.path("userName").asText(authorName),
-                            it.path("seriesOrder").asInt(it.path("order").asInt(0)),
-                            extractNovelCoverUrl(it),
-                            extractUploadTimestamp(it),
-                            extractTags(it)
-                    ));
-                }
-            }
-        }
-        boolean isLastPage = items.size() < limit || (total > 0 && safePage * limit >= total);
+        List<NovelSeriesResponse.NovelSeriesItem> items = contentRoot.path("error").asBoolean(false)
+                ? List.of()
+                : NovelPixivResponseMapper.seriesItems(contentRoot, meta.authorId(), meta.authorName());
+        boolean isLastPage = items.size() < limit || (meta.total() > 0 && safePage * limit >= meta.total());
         return ResponseEntity.ok(new NovelSeriesResponse(
-                new NovelSeriesResponse.NovelSeriesMeta(sid, title, authorId, authorName, total,
-                        language, isOriginal, totalCharCount, totalWordCount,
-                        caption, coverUrl, seriesTags),
+                meta,
                 items,
                 safePage,
                 isLastPage
@@ -431,7 +346,8 @@ public class NovelPixivProxyController {
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
-        List<NovelSearchResponse.NovelSearchItem> items = parseUserNovelCards(root.path("body"), ids);
+        List<NovelSearchResponse.NovelSearchItem> items =
+                NovelPixivResponseMapper.userNovelCards(root.path("body"), ids);
         return ResponseEntity.ok(new NovelSearchResponse(items, items.size(), 1));
     }
 
@@ -470,26 +386,8 @@ public class NovelPixivProxyController {
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
-        JsonNode b = root.path("body");
-        int total = b.path("total").asInt(0);
-        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
-        for (JsonNode item : b.path("works")) {
-            items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("bookmarkCount").asInt(-1),
-                    item.path("wordCount").asInt(0),
-                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    extractNovelCoverUrl(item),
-                    item.path("isOriginal").asBoolean(false),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return ResponseEntity.ok(new NovelSearchResponse(items, total, safeOffset / safeLimit + 1));
+        return ResponseEntity.ok(NovelPixivResponseMapper.bookmarks(
+                root.path("body"), safeOffset / safeLimit + 1));
     }
 
     private NovelSearchResponse fetchNovelSearchPage(
@@ -516,50 +414,7 @@ public class NovelPixivProxyController {
         if (root.path("error").asBoolean(false)) {
             throw new IllegalArgumentException(root.path("message").asText(messages.get("pixiv.proxy.search.failed")));
         }
-        JsonNode novel = root.path("body").path("novel");
-        int total = novel.path("total").asInt(0);
-        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
-        for (JsonNode item : novel.path("data")) {
-            items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("bookmarkCount").asInt(-1),
-                    item.path("wordCount").asInt(0),
-                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    item.path("url").asText(""),
-                    item.path("isOriginal").asBoolean(false),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return new NovelSearchResponse(items, total, safePage);
-    }
-
-    static List<NovelSearchResponse.NovelSearchItem> parseUserNovelCards(JsonNode body, List<String> ids) {
-        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
-        if (body == null || ids == null) return items;
-        for (String id : ids) {
-            JsonNode item = body.path(id);
-            if (item.isMissingNode() || item.isNull() || !item.isObject()) continue;
-            items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(id),
-                    item.path("title").asText(""),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("bookmarkCount").asInt(-1),
-                    item.path("wordCount").asInt(0),
-                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    extractNovelCoverUrl(item),
-                    item.path("isOriginal").asBoolean(false),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return items;
+        return NovelPixivResponseMapper.search(root.path("body").path("novel"), safePage);
     }
 
     private SearchRangeResponse buildSearchRange(
@@ -635,169 +490,4 @@ public class NovelPixivProxyController {
         return null;
     }
 
-    private static Long parsePositiveLong(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            long parsed = Long.parseLong(value);
-            return parsed > 0 ? parsed : null;
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static long parsePositiveOrDefault(String value, long fallback) {
-        Long parsed = parsePositiveLong(value);
-        return parsed == null ? fallback : parsed;
-    }
-
-    private static List<WorkTag> extractTags(JsonNode body) {
-        JsonNode tagsArr = body.path("tags").path("tags");
-        if (!tagsArr.isArray() || tagsArr.isEmpty()) {
-            tagsArr = body.path("tags");
-        }
-        if (!tagsArr.isArray() || tagsArr.isEmpty()) {
-            return List.of();
-        }
-        List<WorkTag> out = new ArrayList<>();
-        for (JsonNode t : tagsArr) {
-            String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
-            if (name.isEmpty()) continue;
-            String translated = null;
-            JsonNode translation = t.path("translation");
-            if (translation.isObject()) {
-                String en = translation.path("en").asText("");
-                if (!en.isEmpty()) translated = en;
-            }
-            out.add(new WorkTag(null, name, translated));
-        }
-        return out;
-    }
-
-    static List<String> parseStringTags(JsonNode tagsNode) {
-        if (tagsNode == null || !tagsNode.isArray() || tagsNode.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<String> tags = new LinkedHashSet<>();
-        for (JsonNode tag : tagsNode) {
-            String value = tag.isTextual() ? tag.asText("") : tag.path("tag").asText("");
-            value = value.trim();
-            if (!value.isEmpty()) {
-                tags.add(value);
-            }
-        }
-        return new ArrayList<>(tags);
-    }
-
-    private static String extractNovelCoverUrl(JsonNode node) {
-        for (String parent : List.of("imageUrls", "urls")) {
-            JsonNode urls = node.path(parent);
-            if (urls.isObject()) {
-                for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
-                    String cover = urls.path(key).asText("");
-                    if (!cover.isBlank()) {
-                        return PixivCoverUrlResolver.preferHighResolution(cover);
-                    }
-                }
-            }
-        }
-        for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
-            String cover = node.path(key).asText("");
-            if (!cover.isBlank()) {
-                return PixivCoverUrlResolver.preferHighResolution(cover);
-            }
-        }
-        return "";
-    }
-
-    private static String extractSeriesCoverUrl(JsonNode meta) {
-        JsonNode urls = meta.path("cover").path("urls");
-        if (urls.isObject()) {
-            for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
-                String value = urls.path(key).asText("");
-                if (!value.isBlank()) return value;
-            }
-        }
-        for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
-            String value = meta.path(key).asText("");
-            if (!value.isBlank()) return value;
-        }
-        return "";
-    }
-
-    private static Integer extractReadingTimeSeconds(JsonNode node) {
-        String[] fieldNames = {"readingTimeSeconds", "readingTime", "readTime", "estimatedReadingTime"};
-        for (String fieldName : fieldNames) {
-            JsonNode value = node.path(fieldName);
-            if (value.isMissingNode() || value.isNull()) continue;
-            if (value.isNumber()) {
-                int seconds = value.asInt(0);
-                return seconds > 0 ? seconds : null;
-            }
-            String raw = value.asText("").trim();
-            if (raw.isEmpty()) continue;
-            String digits = raw.replaceAll("[^0-9]", "");
-            if (digits.isEmpty()) continue;
-            try {
-                int seconds = Integer.parseInt(digits);
-                return seconds > 0 ? seconds : null;
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return null;
-    }
-
-    private static Long extractUploadTimestamp(JsonNode node) {
-        for (String fieldName : List.of("uploadDate", "createDate", "updateDate")) {
-            Long parsed = parsePixivIsoToEpochMillis(node.path(fieldName).asText(null));
-            if (parsed != null) return parsed;
-        }
-        return null;
-    }
-
-    private static Integer countPages(String content) {
-        if (content == null || content.isEmpty()) return 1;
-        int pages = 1;
-        int idx = 0;
-        while ((idx = content.indexOf("[newpage]", idx)) >= 0) {
-            pages++;
-            idx += "[newpage]".length();
-        }
-        return pages;
-    }
-
-    private static Long parsePixivIsoToEpochMillis(String iso) {
-        if (iso == null || iso.isBlank()) return null;
-        try {
-            return java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli();
-        } catch (Exception e) {
-            log.debug("Failed to parse Pixiv ISO date: {}", iso, e);
-            return null;
-        }
-    }
-
-    /**
-     * 抽取 Pixiv 小说 AJAX 响应中的 {@code body.textEmbeddedImages}。
-     * 结构示例：{@code "1234": { "novelImageId": "1234", "urls": { "original": "https://i.pximg.net/.../1234.jpg" } }}。
-     * 仅保留 {@code original} URL，且只接受 pximg.net 主机。
-     */
-    private static Map<String, String> extractTextEmbeddedImages(JsonNode body) {
-        JsonNode node = body.path("textEmbeddedImages");
-        if (!node.isObject() || node.isEmpty()) return Map.of();
-        Map<String, String> out = new LinkedHashMap<>();
-        node.fields().forEachRemaining(e -> {
-            String url = e.getValue().path("urls").path("original").asText("");
-            if (url.isBlank()) return;
-            try {
-                URI uri = URI.create(url);
-                String host = uri.getHost();
-                if (host == null || !host.endsWith(".pximg.net")) return;
-            } catch (IllegalArgumentException ignored) {
-                return;
-            }
-            out.put(e.getKey(), url);
-        });
-        return out;
-    }
 }
