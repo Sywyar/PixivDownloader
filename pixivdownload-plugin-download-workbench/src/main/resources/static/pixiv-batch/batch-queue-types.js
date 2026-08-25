@@ -69,7 +69,7 @@ window.PixivBatch.queueTypes = (function () {
         text, opaqueText, queueKey, normalizedCancelWorkKey, isPlainObject,
         queueItemSnapshot, normalizedQueueTags, normalizedQueueLiveStatus,
         normalizedEndpoint, sanitizedRequestHeaders, isActivationLive,
-        staleQueueTypeError, registerModule, registerUiModule, refresh,
+        staleQueueTypeError, registerModule, registerUiModule, registerSubmodule, refresh,
         prefetchExtensions
     } = moduleContext;
     const disposeRuntime = moduleContext.dispose;
@@ -850,6 +850,7 @@ window.PixivBatch.queueTypes = (function () {
     return Object.freeze({
         registerModule,
         registerUiModule,
+        registerSubmodule,
         bootstrap,
         refresh(force) { return refresh(!!force, false); },
         get,

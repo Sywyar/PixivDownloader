@@ -16,6 +16,13 @@ const NOVEL_PATH = path.join(ROOT, 'pixivdownload-plugin-novel', 'src', 'main', 
     'static', 'pixiv-novel-download', 'novel-queue-type.js');
 const DOUYIN_PATH = path.join(ROOT, 'pixivdownload-plugin-douyin', 'src', 'main', 'resources',
     'static', 'pixiv-douyin-download', 'douyin-queue-type.js');
+const NOVEL_MODULES = moduleSources('pixivdownload-plugin-novel', 'pixiv-novel-download', [
+    'novel-queue-acquisition.js', 'novel-queue-download.js',
+    'novel-queue-search.js', 'novel-queue-view.js'
+]);
+const DOUYIN_MODULES = moduleSources('pixivdownload-plugin-douyin', 'pixiv-douyin-download', [
+    'douyin-queue.js', 'douyin-download.js', 'douyin-view.js', 'douyin-acquisition.js'
+]);
 const MODES_ROOT = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main',
     'resources', 'static', 'pixiv-batch', 'modes');
 const SEARCH_PATH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources',
@@ -23,6 +30,11 @@ const SEARCH_PATH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', '
 
 function readModeScripts(files) {
     return files.map(file => fs.readFileSync(path.join(MODES_ROOT, file), 'utf8')).join('\n');
+}
+
+function moduleSources(plugin, route, files) {
+    return Object.fromEntries(files.map(file => [`/${route}/${file}`, fs.readFileSync(path.join(
+        ROOT, plugin, 'src', 'main', 'resources', 'static', route, file), 'utf8')]));
 }
 
 const PIXIV_SOURCE = fs.readFileSync(PIXIV_PATH, 'utf8');
@@ -47,13 +59,18 @@ function ok(label, condition) {
 
 function noOp() {}
 
-function loadDescriptor(source, type, globals) {
+async function loadDescriptor(source, type, globals, entryPath, submoduleSources = {}) {
     let initializer = null;
+    let submoduleInitializer = null;
     const window = {
         PixivBatch: {
             queueTypes: {
                 registerModule(candidate) {
                     initializer = candidate;
+                    return true;
+                },
+                registerSubmodule(candidate) {
+                    submoduleInitializer = candidate;
                     return true;
                 }
             }
@@ -72,17 +89,25 @@ function loadDescriptor(source, type, globals) {
     vm.runInContext(source, sandbox);
     assert.strictEqual(typeof initializer, 'function', `${type} 模块应注册 initializer`);
     const controller = new AbortController();
-    const activation = initializer({
+    const activation = await initializer({
         type,
         signal: controller.signal,
         isActive: () => true,
         assertActive() {},
-        onCleanup() {}
+        onCleanup() {},
+        async loadSubmodule(moduleUrl, shared) {
+            const pathname = new URL(moduleUrl, `https://local.test${entryPath}`).pathname;
+            submoduleInitializer = null;
+            vm.runInContext(submoduleSources[pathname], sandbox);
+            assert.strictEqual(typeof submoduleInitializer, 'function', `${pathname} 应登记 initializer`);
+            return submoduleInitializer(shared);
+        }
     });
     return activation && activation.descriptor ? activation.descriptor : activation;
 }
 
-const pixivDescriptor = loadDescriptor(PIXIV_SOURCE, 'illust', {
+(async function () {
+const pixivDescriptor = await loadDescriptor(PIXIV_SOURCE, 'illust', {
     getCookie: () => 'pixiv-secret',
     processIllustItem: noOp,
     SINGLE_IMPORT_MODE: 'single-import-artwork',
@@ -105,16 +130,16 @@ const pixivDescriptor = loadDescriptor(PIXIV_SOURCE, 'illust', {
     loadQuickFollowingNew: noOp,
     loadQuickCollections: noOp,
     bt: (_key, fallback) => fallback
-});
-const novelDescriptor = loadDescriptor(NOVEL_SOURCE, 'novel', {
+}, '/pixiv-batch/pixiv-queue-type.js');
+const novelDescriptor = await loadDescriptor(NOVEL_SOURCE, 'novel', {
     getCookie: () => 'novel-pixiv-secret',
     parseUserIdInput: noOp,
     getUserMeta: noOp,
     SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel',
     QUICK_PAGE_SIZE_NOVEL: 24,
     bt: (_key, fallback) => fallback
-});
-const douyinDescriptor = loadDescriptor(DOUYIN_SOURCE, 'douyin', {
+}, '/pixiv-novel-download/novel-queue-type.js', NOVEL_MODULES);
+const douyinDescriptor = await loadDescriptor(DOUYIN_SOURCE, 'douyin', {
     bt: (_key, fallback, params) => String(fallback).replace(/\{(\w+)}/g,
         (_match, name) => params && params[name] != null ? String(params[name]) : ''),
     localStorage: {
@@ -126,7 +151,7 @@ const douyinDescriptor = loadDescriptor(DOUYIN_SOURCE, 'douyin', {
         setItem() {},
         removeItem() {}
     }
-});
+}, '/pixiv-douyin-download/douyin-queue-type.js', DOUYIN_MODULES);
 const novelWordsFilter = novelDescriptor.filters['novel-words'];
 
 ok('真实 Novel 嵌套 filter 执行字数范围匹配与跳过判定',
@@ -392,7 +417,6 @@ vm.runInContext(SERIES_SOURCE + [
     '};'
 ].join('\n'), seriesBrowserSandbox);
 
-(async function () {
     ok('系列解析候选严格按所选来源分组',
         seriesWindow.__testSelectedSeriesOwners('pixiv').join(',') === 'illust,novel'
         && seriesWindow.__testSelectedSeriesOwners('douyin').join(',') === 'douyin');

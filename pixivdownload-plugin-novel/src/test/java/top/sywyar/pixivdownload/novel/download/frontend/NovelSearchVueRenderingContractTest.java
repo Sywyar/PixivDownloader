@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 同一「按 classpath 资源读取各模块 static/」的形态。
  * <p>具体守住：
  * <ul>
- *   <li>小说作品类型行为模块 {@code novel-queue-type.js} 的搜索网格走 Vue（经 {@code PixivVue.ensure()} 懒加载核心
+ *   <li>小说作品类型搜索模块 {@code novel-queue-search.js} 的搜索网格走 Vue（经 {@code PixivVue.ensure()} 懒加载核心
  *       运行时 + 专属挂载根 {@code novel-search-vue-root} + {@code Vue.createApp().mount()}），且保留命令式回退
  *       {@code applyNovelSearchImperative} 与「{@code window.PixivVue} 缺失即回退」分支，descriptor 仍以
  *       {@code render} / {@code syncQueueState} 钩子接线；</li>
@@ -30,7 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelSearchVueRenderingContractTest {
 
     private static final String STATIC_ROOT = "static/";
-    private static final String NOVEL_MODULE = "pixiv-novel-download/novel-queue-type.js";
+    private static final String NOVEL_SEARCH_MODULE = "pixiv-novel-download/novel-queue-search.js";
+    private static final String NOVEL_ACQUISITION_MODULE = "pixiv-novel-download/novel-queue-acquisition.js";
 
     private static String read(String resource) throws IOException {
         String path = STATIC_ROOT + resource;
@@ -54,7 +55,7 @@ class NovelSearchVueRenderingContractTest {
     @Test
     @DisplayName("小说搜索网格走 Vue reactive：经 PixivVue.ensure 懒加载运行时、专属挂载根、Vue.createApp 挂载")
     void novelSearchGridUsesVueReactivePath() throws IOException {
-        String js = read(NOVEL_MODULE);
+        String js = read(NOVEL_SEARCH_MODULE);
         assertThat(js)
                 .as("搜索网格应经共享 helper 懒加载核心 Vue 运行时")
                 .contains("PixivVue.ensure(");
@@ -69,17 +70,18 @@ class NovelSearchVueRenderingContractTest {
     @Test
     @DisplayName("保留命令式回退：Vue 不可用即回退 applyNovelSearchImperative，且 descriptor 仍以 render/syncQueueState 接线")
     void novelSearchGridKeepsImperativeFallback() throws IOException {
-        String js = read(NOVEL_MODULE);
+        String js = read(NOVEL_SEARCH_MODULE);
+        String acquisition = read(NOVEL_ACQUISITION_MODULE);
         assertThat(js)
                 .as("必须保留命令式回退渲染函数")
                 .contains("function applyNovelSearchImperative(");
         assertThat(js)
                 .as("window.PixivVue 缺失时应优雅回退命令式（不依赖 Vue）")
                 .contains("if (!window.PixivVue)");
-        assertThat(js)
+        assertThat(acquisition)
                 .as("搜索取得侧仍以 render 钩子接线渲染器")
                 .contains("render: renderNovelSearchResults");
-        assertThat(js)
+        assertThat(acquisition)
                 .as("搜索取得侧仍以 syncQueueState 钩子接线队列态同步")
                 .contains("syncQueueState: syncNovelSearchQueueState");
     }
@@ -87,7 +89,7 @@ class NovelSearchVueRenderingContractTest {
     @Test
     @DisplayName("挂载失败保留命令式首屏：先命令式出图、Vue 在游离根挂载成功后才替换搜索结果区，createApp/mount 抛错不致空白")
     void vueMountFailureKeepsImperativeContent() throws IOException {
-        String js = read(NOVEL_MODULE);
+        String js = read(NOVEL_SEARCH_MODULE);
         // 渲染钩子：必须先命令式出图（写入 area）、再异步尝试挂载 Vue——这样 ensure resolve 后挂载抛错时 area 仍有内容。
         String render = sliceBetween(js,
                 "function renderNovelSearchResults(", "function ensureNovelSearchMounted(");
@@ -130,7 +132,7 @@ class NovelSearchVueRenderingContractTest {
     @Test
     @DisplayName("运行时单一来源：小说模块只经 helper 引用核心 Vue，不自带 / 不硬编码 /vendor/vue/")
     void novelModuleDoesNotBundleVueRuntime() throws IOException {
-        String js = read(NOVEL_MODULE);
+        String js = read(NOVEL_SEARCH_MODULE);
         assertThat(js)
                 .as("小说行为模块不得硬编码核心 Vue 运行时路径（应只经 PixivVue helper 解析单一来源）")
                 .doesNotContain("/vendor/vue/");

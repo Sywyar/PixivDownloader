@@ -15,9 +15,21 @@ const NOVEL_SOURCE = read('pixivdownload-plugin-novel', 'src', 'main', 'resource
     'static', 'pixiv-novel-download', 'novel-queue-type.js');
 const DOUYIN_SOURCE = read('pixivdownload-plugin-douyin', 'src', 'main', 'resources',
     'static', 'pixiv-douyin-download', 'douyin-queue-type.js');
+const NOVEL_MODULES = moduleSources('pixivdownload-plugin-novel', 'pixiv-novel-download', [
+    'novel-queue-acquisition.js', 'novel-queue-download.js',
+    'novel-queue-search.js', 'novel-queue-view.js'
+]);
+const DOUYIN_MODULES = moduleSources('pixivdownload-plugin-douyin', 'pixiv-douyin-download', [
+    'douyin-queue.js', 'douyin-download.js', 'douyin-view.js', 'douyin-acquisition.js'
+]);
 
 function read() {
     return fs.readFileSync(path.join(ROOT, ...arguments), 'utf8');
+}
+
+function moduleSources(plugin, route, files) {
+    return Object.fromEntries(files.map(file => [`/${route}/${file}`,
+        read(plugin, 'src', 'main', 'resources', 'static', route, file)]));
 }
 
 function interpolate(template, vars) {
@@ -45,7 +57,9 @@ function hostFormatter(type, acquisition) {
         vm.runInContext('searchStatText(' + JSON.stringify(metric) + ', ' + Number(count) + ')', sandbox);
 }
 
-function sourceSearchAcquisition(source, type) {
+async function sourceSearchAcquisition(source, type, entryPath, submoduleSources = {}) {
+    let initializer = null;
+    let submoduleInitializer = null;
     let descriptor = null;
     const controller = new AbortController();
     const context = {
@@ -54,15 +68,25 @@ function sourceSearchAcquisition(source, type) {
         signal: controller.signal,
         isActive() { return true; },
         assertActive() {},
-        onCleanup() {}
+        onCleanup() {},
+        async loadSubmodule(moduleUrl, shared) {
+            const pathname = new URL(moduleUrl, `https://local.test${entryPath}`).pathname;
+            submoduleInitializer = null;
+            vm.runInContext(submoduleSources[pathname], sandbox);
+            assert.strictEqual(typeof submoduleInitializer, 'function', pathname + ' should register');
+            return submoduleInitializer(shared);
+        }
     };
     const window = {
         PixivBatch: {
             cookie: null,
             queueTypes: {
-                registerModule(initializer) {
-                    const registration = initializer(context);
-                    descriptor = registration && registration.descriptor;
+                registerModule(candidate) {
+                    initializer = candidate;
+                    return true;
+                },
+                registerSubmodule(candidate) {
+                    submoduleInitializer = candidate;
                     return true;
                 }
             }
@@ -103,19 +127,24 @@ function sourceSearchAcquisition(source, type) {
     };
     vm.createContext(sandbox);
     vm.runInContext(source, sandbox);
+    const registration = await initializer(context);
+    descriptor = registration && registration.descriptor;
     assert.ok(descriptor && descriptor.acquisition && descriptor.acquisition.search,
         type + ' search acquisition should register');
     return descriptor.acquisition.search;
 }
 
-test('宿主可端到端消费 Pixiv 小说与抖音的来源统计格式化契约', () => {
+test('宿主可端到端消费 Pixiv 小说与抖音的来源统计格式化契约', async () => {
     const cases = [
-        ['illust', PIXIV_SOURCE, 'total', 'Pixiv 总数 12'],
-        ['novel', NOVEL_SOURCE, 'current-page', '小说当前页 12 部'],
-        ['douyin', DOUYIN_SOURCE, 'batch-fetched', '已抓取去重 12 个抖音作品']
+        ['illust', PIXIV_SOURCE, '/pixiv-batch/pixiv-queue-type.js', {},
+            'total', 'Pixiv 总数 12'],
+        ['novel', NOVEL_SOURCE, '/pixiv-novel-download/novel-queue-type.js', NOVEL_MODULES,
+            'current-page', '小说当前页 12 部'],
+        ['douyin', DOUYIN_SOURCE, '/pixiv-douyin-download/douyin-queue-type.js', DOUYIN_MODULES,
+            'batch-fetched', '已抓取去重 12 个抖音作品']
     ];
-    cases.forEach(([type, source, metric, expected]) => {
-        const acquisition = sourceSearchAcquisition(source, type);
+    for (const [type, source, entryPath, modules, metric, expected] of cases) {
+        const acquisition = await sourceSearchAcquisition(source, type, entryPath, modules);
         assert.strictEqual(hostFormatter(type, acquisition)(metric, 12), expected);
-    });
+    }
 });

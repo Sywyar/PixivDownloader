@@ -17,20 +17,26 @@ const assert = require('assert');
 const ROOT = path.join(__dirname, '..', '..', '..', '..');
 const QT_ROOT = path.join(ROOT,
     'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
-const DOUYIN_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-douyin-download',
-    'douyin-queue-type.js');
+const DOUYIN_STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
+    'pixiv-douyin-download');
+const DOUYIN_PATH = path.join(DOUYIN_STATIC, 'douyin-queue-type.js');
 const QT_SOURCE = [
     'batch-queue-types-normalize.js',
     'batch-queue-types-runtime.js',
     'batch-queue-types.js'
 ].map(file => fs.readFileSync(path.join(QT_ROOT, file), 'utf8')).join('\n');
 const DOUYIN_SOURCE = fs.readFileSync(DOUYIN_PATH, 'utf8');
-const DOUYIN_TEST_SOURCE = DOUYIN_SOURCE.replace(/\}\)\(\);\s*$/, [
-    'window.__testDouyinFetchJson = douyinFetchJson;',
-    'window.__testLoadQuickDouyinAccount = loadQuickDouyinAccount;',
-    'window.__testLoadQuickDouyinFavoriteCollections = loadQuickDouyinFavoriteCollections;',
-    '})();'
-].join('\n'));
+const DOUYIN_MODULE_SOURCES = Object.fromEntries([
+    'douyin-queue.js', 'douyin-download.js', 'douyin-view.js', 'douyin-acquisition.js'
+].map(file => [`/pixiv-douyin-download/${file}`,
+    fs.readFileSync(path.join(DOUYIN_STATIC, file), 'utf8')]));
+const DOUYIN_TEST_SOURCE = DOUYIN_SOURCE.replace(
+    '    return {descriptor: Object.assign({}, shared.douyinDescriptor)};',
+    `    window.__testDouyinFetchJson = shared.douyinFetchJson;
+    window.__testLoadQuickDouyinAccount = shared.loadQuickDouyinAccount;
+    window.__testLoadQuickDouyinFavoriteCollections = shared.loadQuickDouyinFavoriteCollections;
+    return {descriptor: Object.assign({}, shared.douyinDescriptor)};`
+);
 assert.notStrictEqual(DOUYIN_TEST_SOURCE, DOUYIN_SOURCE,
     '测试应能临时暴露真实 douyinFetchJson 助手');
 
@@ -190,12 +196,11 @@ function makeSandbox() {
     document.head.onAppend = child => {
         const pathname = new URL(child.src, window.location.origin).pathname;
         setTimeout(() => {
-            if (pathname !== '/pixiv-douyin-download/douyin-queue-type.js') {
-                if (typeof child.onload === 'function') child.onload();
-                return;
-            }
+            const source = pathname === '/pixiv-douyin-download/douyin-queue-type.js'
+                ? DOUYIN_TEST_SOURCE : DOUYIN_MODULE_SOURCES[pathname];
+            if (!source) throw new Error(`unexpected Douyin module: ${pathname}`);
             document.currentScript = child;
-            vm.runInContext(DOUYIN_TEST_SOURCE, sandbox);
+            vm.runInContext(source, sandbox);
             document.currentScript = null;
             if (typeof child.onload === 'function') child.onload();
         }, 0);

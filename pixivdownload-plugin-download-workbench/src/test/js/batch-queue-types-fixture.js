@@ -293,7 +293,9 @@ function harness(manifests, moduleScripts, options = {}) {
             if (spec.source) {
                 sandbox.registrationResult = vm.runInContext(spec.source, sandbox);
             } else {
-                const register = spec.ui ? 'registerUiModule' : 'registerModule';
+                const register = script.dataset.queueTypeSubmoduleToken
+                    ? 'registerSubmodule'
+                    : (spec.ui ? 'registerUiModule' : 'registerModule');
                 sandbox.registrationResult = vm.runInContext(
                     `window.PixivBatch.queueTypes.${register}(${spec.initializer})`, sandbox);
             }
