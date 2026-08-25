@@ -18,15 +18,15 @@ import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClien
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.tts.controller.TtsController;
 import top.sywyar.pixivdownload.tts.http.TtsHttpClientConfiguration;
-import top.sywyar.pixivdownload.tts.narration.engine.CosyVoiceNarrationEngine;
-import top.sywyar.pixivdownload.tts.narration.engine.DoubaoNarrationEngine;
-import top.sywyar.pixivdownload.tts.narration.engine.ElevenLabsNarrationEngine;
-import top.sywyar.pixivdownload.tts.narration.engine.FishNarrationEngine;
-import top.sywyar.pixivdownload.tts.narration.engine.MiMoNarrationEngine;
-import top.sywyar.pixivdownload.tts.narration.engine.MiniMaxNarrationEngine;
-import top.sywyar.pixivdownload.tts.narration.engine.QwenNarrationEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.TtsPluginConfig;
-import top.sywyar.pixivdownload.tts.narration.engine.VoxCpmNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.cosyvoice.CosyVoiceNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.doubao.DoubaoNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.elevenlabs.ElevenLabsNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.fish.FishNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.mimo.MiMoNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.minimax.MiniMaxNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.qwen.QwenNarrationEngine;
+import top.sywyar.pixivdownload.tts.narration.engine.voxcpm.VoxCpmNarrationEngine;
 
 import java.util.function.Supplier;
 

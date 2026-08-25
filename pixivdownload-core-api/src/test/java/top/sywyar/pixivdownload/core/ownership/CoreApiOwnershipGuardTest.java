@@ -801,7 +801,7 @@ class CoreApiOwnershipGuardTest {
                 /**
                  * {@code MiMo} / {@code CosyVoice} / {@code Qwen} / {@code Doubao}
                  * {@code MiMoNarrationEngine}
-                 * {@link top.sywyar.pixivdownload.tts.narration.engine.MiMoNarrationEngine}
+                 * {@link top.sywyar.pixivdownload.tts.narration.engine.mimo.MiMoNarrationEngine}
                  * {@link StatsAggregates.InternalRow}
                  * Capability contributed by the optional AI plugin.
                  * Capability contributed by the optional Douyin plugin.
