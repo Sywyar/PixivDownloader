@@ -57,6 +57,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryMa
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryManifest;
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryOperation;
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryResourceBudget;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryWorkspaceCleaner;
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryValidationException;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginDirectorySessionLock;
@@ -146,6 +147,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private final PluginRecoveryArtifactInspector recoveryArtifactInspector;
     private final PluginRecoveryArtifactSnapshotter recoveryArtifactSnapshotter;
     private final PluginRecoveryVisibleInventoryVerifier recoveryVisibleInventoryVerifier;
+    private final PluginRecoveryWorkspaceCleaner recoveryWorkspaceCleaner;
     private final PluginDirectorySessionLock directorySessionLock;
     /** 把恢复、权威枚举与文件事务串行化（同一实例 / 同一安装目录的并发操作互斥）。 */
     private final ReentrantLock installLock = new ReentrantLock();
@@ -222,6 +224,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 this.limits,
                 this.recoveryArtifactInspector,
                 this.provenanceStore);
+        this.recoveryWorkspaceCleaner = new PluginRecoveryWorkspaceCleaner(
+                MAX_HIDDEN_WORKSPACES,
+                MAX_HIDDEN_WORKSPACE_ENTRIES);
         this.directorySessionLock = isolatedWithoutDirectoryLock
                 ? directorySessionLock
                 : Objects.requireNonNull(directorySessionLock, "directorySessionLock");
@@ -2577,65 +2582,13 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 ? error.getClass().getName() : error.getMessage();
     }
 
-    private void cleanupHiddenWorkspaceRoot(Path pluginsRoot, String directoryName)
-            throws IOException, PluginRecoveryValidationException {
-        Path workspaceRoot = pluginsRoot.resolve(directoryName);
-        BasicFileAttributes rootAttributes = readAttributesIfPresent(workspaceRoot).orElse(null);
-        if (rootAttributes == null) {
-            return;
-        }
-        if (rootAttributes.isSymbolicLink() || rootAttributes.isOther() || !rootAttributes.isDirectory()) {
-            throw unsafePath("hidden transaction workspace must be a plain directory: " + workspaceRoot);
-        }
-        List<Path> workspaces = new ArrayList<>();
-        try (Stream<Path> entries = Files.list(workspaceRoot)) {
-            var iterator = entries.iterator();
-            while (iterator.hasNext()) {
-                if (workspaces.size() >= MAX_HIDDEN_WORKSPACES) {
-                    throw invalidManifest("hidden transaction workspace exceeds the supported count");
-                }
-                Path workspace = iterator.next().toAbsolutePath().normalize();
-                BasicFileAttributes attributes = readAttributesIfPresent(workspace).orElse(null);
-                if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
-                        || !attributes.isDirectory() || !Objects.equals(workspace.getParent(), workspaceRoot)) {
-                    throw unsafePath("hidden transaction workspace contains an unsafe entry: " + workspace);
-                }
-                workspaces.add(workspace);
-            }
-        }
-        int remainingEntries = MAX_HIDDEN_WORKSPACE_ENTRIES;
-        for (Path workspace : workspaces) {
-            List<Path> deletionOrder = new ArrayList<>();
-            try (Stream<Path> walk = Files.walk(workspace)) {
-                var iterator = walk.iterator();
-                while (iterator.hasNext()) {
-                    if (remainingEntries-- <= 0) {
-                        throw invalidManifest("hidden transaction workspaces exceed the cumulative entry budget");
-                    }
-                    Path entry = iterator.next().toAbsolutePath().normalize();
-                    BasicFileAttributes attributes = Files.readAttributes(
-                            entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                    if (attributes.isSymbolicLink() || attributes.isOther()) {
-                        throw unsafePath("hidden transaction workspace contains a link or special entry: " + entry);
-                    }
-                    deletionOrder.add(entry);
-                }
-            }
-            deletionOrder.sort(Comparator.comparingInt(Path::getNameCount).reversed());
-            for (Path entry : deletionOrder) {
-                Files.deleteIfExists(entry);
-            }
-        }
-        Files.deleteIfExists(workspaceRoot);
-    }
-
     /**
      * 未发布准备区和已退役清理区都不是权威恢复面；无法安全删除时原样保留并告警，不能因此绕过或封闭后续
      * {@code .staging} 校验。artifact scanner 会继续忽略这些隐藏路径。
      */
     private void cleanupHiddenWorkspaceRootBestEffort(Path pluginsRoot, String directoryName) {
         try {
-            cleanupHiddenWorkspaceRoot(pluginsRoot, directoryName);
+            recoveryWorkspaceCleaner.cleanup(pluginsRoot, directoryName);
         } catch (IOException | PluginRecoveryValidationException | RuntimeException e) {
             log.warn("Leaving non-authoritative plugin transaction workspace {} after cleanup failure: {}",
                     pluginsRoot.resolve(directoryName), describeRecoveryFailure(e));
