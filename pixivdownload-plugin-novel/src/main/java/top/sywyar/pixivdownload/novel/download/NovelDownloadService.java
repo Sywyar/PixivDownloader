@@ -21,7 +21,6 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
-import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
@@ -34,7 +33,6 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -49,7 +47,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
-import top.sywyar.pixivdownload.novel.export.NovelEpubWriter;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 
 @Slf4j
@@ -96,6 +93,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final MessageResolver messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final WorkMetadataCapture workMetadataCapture;
+    private final NovelDownloadDocumentWriter documentWriter;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
     private final QueueTaskTracker taskTracker;
@@ -135,6 +133,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.novelAutoTranslateService = novelAutoTranslateService;
         this.workMetadataCapture = workMetadataCapture;
         this.taskTracker = taskTracker;
+        this.documentWriter = new NovelDownloadDocumentWriter(messages);
     }
 
     @Override
@@ -247,15 +246,17 @@ public class NovelDownloadService implements NovelDownloader {
 
             // Write file
             status.setStage("writing");
-            String ext = format.ext();
-            Path outputFile = downloadPath.resolve(baseName + "." + ext);
-            NovelMarkupParser.ImageResolver resolver = localFolderResolver(embeddedExts);
-            switch (format) {
-                case TXT -> writeTxt(outputFile, rawContent);
-                case HTML -> writeHtml(outputFile, title, rawContent, other, resolver);
-                case EPUB -> writeEpub(outputFile, novelId, title, other,
-                        rawContent, downloadPath, baseName, coverExt, embeddedExts);
-            }
+            documentWriter.write(
+                    format,
+                    novelId,
+                    title,
+                    other,
+                    rawContent,
+                    downloadPath,
+                    baseName,
+                    coverExt,
+                    embeddedExts
+            );
             ensureNotCancelled(status);
 
             // Persist DB
@@ -630,50 +631,6 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    private void writeTxt(Path file, String raw) throws IOException {
-        String txt = NovelMarkupParser.render(raw, NovelMarkupParser.Format.TXT, imageLabels());
-        Files.writeString(file, txt, StandardCharsets.UTF_8);
-    }
-
-    private void writeHtml(Path file, String title, String raw,
-                           NovelDownloadRequest.Other other,
-                           NovelMarkupParser.ImageResolver resolver) throws IOException {
-        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML, resolver, imageLabels());
-        StringBuilder html = new StringBuilder()
-                .append("<!DOCTYPE html>\n")
-                .append("<html lang=\"")
-                .append(escapeHtml(NovelEpubWriter.normalizeLanguageTag(other.getLanguage())))
-                .append("\">\n<head>\n<meta charset=\"UTF-8\">\n<title>")
-                .append(escapeHtml(title))
-                .append("</title>\n<style>\n")
-                .append("body{font-family:serif;line-height:1.7;max-width:42em;margin:2em auto;padding:0 1em;}\n")
-                .append("h1,h2{font-weight:700;}\n")
-                .append("figure.novel-image{text-align:center;margin:1em 0;max-width:100%;}\n")
-                .append("figure.novel-image img{display:block;margin:0 auto;max-width:90%;height:auto;}\n")
-                .append(".novel-image-placeholder{color:#888;}\n.novel-jump{color:#888;font-size:0.85em;}\n")
-                .append("ruby rt{font-size:0.6em;}\n")
-                .append("</style>\n</head>\n<body>\n<h1>").append(escapeHtml(title)).append("</h1>\n")
-                .append(body)
-                .append("</body>\n</html>\n");
-        Files.writeString(file, html.toString(), StandardCharsets.UTF_8);
-    }
-
-    /**
-     * 把已落盘的内嵌图扩展名映射成 {@link NovelMarkupParser.ImageResolver}：
-     * {@code [uploadedimage:id]} → 同目录下相对路径 {@code embed_{id}.{ext}}。
-     * pixivimage 暂不支持下载，保持占位符。
-     */
-    private static NovelMarkupParser.ImageResolver localFolderResolver(Map<String, String> exts) {
-        if (exts == null || exts.isEmpty()) return NovelMarkupParser.ImageResolver.NONE;
-        return new NovelMarkupParser.ImageResolver() {
-            @Override public String uploadedImage(String id) {
-                String ext = exts.get(id);
-                return ext == null ? null : "embed_" + id + "." + ext;
-            }
-            @Override public String pixivImage(String id) { return null; }
-        };
-    }
-
     private void ensureNotCancelled(NovelDownloadStatus status) {
         if (status != null && status.isCancelled()) {
             throw new CancellationException(messages.get("download.cancelled"));
@@ -847,131 +804,4 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    private void writeEpub(Path file, long novelId, String title, NovelDownloadRequest.Other other,
-                           String raw, Path downloadPath, String baseName, String coverExt,
-                           Map<String, String> embeddedExts) throws IOException {
-        // 内嵌图在 EPUB 内的相对路径：images/embed_{id}.{ext}（相对 OEBPS/chapter-n.xhtml）
-        NovelMarkupParser.ImageResolver resolver = embeddedExts == null || embeddedExts.isEmpty()
-                ? NovelMarkupParser.ImageResolver.NONE
-                : new NovelMarkupParser.ImageResolver() {
-            @Override public String uploadedImage(String id) {
-                String ext = embeddedExts.get(id);
-                return ext == null ? null : "images/embed_" + id + "." + ext;
-            }
-            @Override public String pixivImage(String id) { return null; }
-        };
-        // [chapter:] 拆成独立 spine 文件 + 单层目录
-        List<NovelMarkupParser.Segment> segments = NovelMarkupParser.splitChapters(raw);
-        List<NovelEpubWriter.Chapter> chapters = new java.util.ArrayList<>();
-        List<NovelEpubWriter.NavEntry> nav = new java.util.ArrayList<>();
-        for (int i = 0; i < segments.size(); i++) {
-            NovelMarkupParser.Segment seg = segments.get(i);
-            String segTitle = (seg.title() != null && !seg.title().isBlank()) ? seg.title() : title;
-            String body = NovelMarkupParser.render(
-                    seg.raw(), NovelMarkupParser.Format.XHTML, resolver, imageLabels());
-            chapters.add(new NovelEpubWriter.Chapter(segTitle, body));
-            nav.add(new NovelEpubWriter.NavEntry(segTitle, i));
-        }
-        byte[] epub = NovelEpubWriter.write(title, other.getAuthorName(), other.getLanguage(),
-                "urn:pixiv:novel:" + novelId, chapters, nav,
-                readEmbeddedImages(downloadPath, embeddedExts),
-                readCover(downloadPath, baseName, coverExt),
-                buildNovelMetadata(novelId, other), epubLabels());
-        Files.write(file, epub);
-    }
-
-    /** 单本小说的 OPF 元数据：简介、上传日期、标签、Pixiv 源链接、所属系列。 */
-    private NovelEpubWriter.Metadata buildNovelMetadata(long novelId, NovelDownloadRequest.Other other) {
-        String isoDate = null;
-        if (other.getUploadTimestamp() != null) {
-            isoDate = Instant.ofEpochMilli(EpochMillisNormalizer.normalize(other.getUploadTimestamp()))
-                    .toString().replaceAll("\\.\\d+Z$", "Z");
-        }
-        List<String> subjects = other.getTags() == null ? List.of()
-                : other.getTags().stream()
-                        .map(WorkTag::name)
-                        .filter(n -> n != null && !n.isBlank())
-                        .toList();
-        String source = "https://www.pixiv.net/novel/show.php?id=" + novelId;
-        String collectionTitle = null;
-        String collectionPosition = null;
-        if (other.getSeriesId() != null && other.getSeriesId() > 0) {
-            collectionTitle = (other.getSeriesTitle() != null && !other.getSeriesTitle().isBlank())
-                    ? other.getSeriesTitle() : ("series-" + other.getSeriesId());
-            if (other.getSeriesOrder() != null) {
-                collectionPosition = String.valueOf(other.getSeriesOrder());
-            }
-        }
-        return new NovelEpubWriter.Metadata(other.getDescription(), isoDate, subjects,
-                source, collectionTitle, collectionPosition);
-    }
-
-    /**
-     * 把已落盘的封面 {@code {baseName}_thumb.{ext}} 读回字节，供 {@link NovelEpubWriter} 内嵌进 EPUB。
-     * Best-effort：封面缺失 / 读失败一律返回 null（EPUB 不带封面页，与下载未拿到封面时一致）。
-     */
-    private NovelEpubWriter.Cover readCover(Path downloadPath, String baseName, String coverExt) {
-        if (coverExt == null || coverExt.isBlank()) return null;
-        Path cover = downloadPath.resolve(baseName + "_thumb." + coverExt);
-        try {
-            return new NovelEpubWriter.Cover(coverExt, Files.readAllBytes(cover));
-        } catch (IOException ex) {
-            log.warn("epub cover read failed, skipped: {} — {}", cover, ex.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 把已落盘的 {@code embed_{id}.{ext}} 读回字节，供 {@link NovelEpubWriter} 内嵌进 EPUB。
-     * Best-effort：单张读失败仅记日志并跳过（XHTML 端会回退到占位符）。
-     */
-    private List<NovelEpubWriter.ImageResource> readEmbeddedImages(Path downloadPath,
-                                                                   Map<String, String> embeddedExts) {
-        if (embeddedExts == null || embeddedExts.isEmpty()) return List.of();
-        List<NovelEpubWriter.ImageResource> images = new java.util.ArrayList<>();
-        for (Map.Entry<String, String> e : embeddedExts.entrySet()) {
-            Path img = downloadPath.resolve("embed_" + e.getKey() + "." + e.getValue());
-            try {
-                images.add(new NovelEpubWriter.ImageResource(
-                        e.getKey(), e.getValue(), Files.readAllBytes(img)));
-            } catch (IOException ex) {
-                log.warn("epub embed image read failed, skipped: {} — {}", img, ex.getMessage());
-            }
-        }
-        return images;
-    }
-
-    private NovelMarkupParser.ImageLabels imageLabels() {
-        return new NovelMarkupParser.ImageLabels() {
-            @Override public String uploadedImage(String id) {
-                return messages.get("novel.render.uploaded-image", id);
-            }
-
-            @Override public String pixivImage(String id) {
-                return messages.get("novel.render.pixiv-image", id);
-            }
-        };
-    }
-
-    private NovelEpubWriter.Labels epubLabels() {
-        return new NovelEpubWriter.Labels() {
-            @Override public String untitled() {
-                return messages.get("novel.epub.untitled");
-            }
-
-            @Override public String unknownAuthor() {
-                return messages.get("novel.epub.unknown-author");
-            }
-
-            @Override public String chapter(int index) {
-                return messages.get("novel.epub.chapter", index);
-            }
-        };
-    }
-
-    private static String escapeHtml(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace("\"", "&quot;");
-    }
 }
