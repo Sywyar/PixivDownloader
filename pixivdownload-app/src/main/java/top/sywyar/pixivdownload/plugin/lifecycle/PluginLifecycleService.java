@@ -6,7 +6,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
-import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
@@ -14,8 +13,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilit
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar.PreparedOwner;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPublication;
-import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestGenerationDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
+import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeDrainState;
 import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -334,11 +333,7 @@ public class PluginLifecycleService {
                     ManagedPlugin record = managed.get(id);
                     try {
                         ensureQuiesced(record);
-                        if (record.requestWithdrawalComplete && record.capabilityWithdrawalComplete
-                                && record.scheduleWithdrawalComplete
-                                && record.taskPreparationComplete
-                                && record.queuePreparationComplete
-                                && record.runtimeTasksQuiesced) {
+                        if (record.drains.quiesceComplete()) {
                             pendingQuiesce.remove(index);
                         } else {
                             index++;
@@ -359,13 +354,8 @@ public class PluginLifecycleService {
             for (String id : ids) {
                 ManagedPlugin record = managed.get(id);
                 PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
-                if (phase == PluginRuntimePhase.QUIESCED
-                        && record.requestWithdrawalComplete && record.capabilityWithdrawalComplete
-                        && record.scheduleWithdrawalComplete
-                        && record.taskPreparationComplete
-                        && record.queuePreparationComplete
-                        && record.runtimeTasksQuiesced) {
-                    interrupted |= awaitRuntimeDrainsUninterruptibly(record);
+                if (phase == PluginRuntimePhase.QUIESCED && record.drains.quiesceComplete()) {
+                    interrupted |= record.drains.awaitDrainedUninterruptibly();
                     while (lifecycleState.phase(id).orElse(null) == PluginRuntimePhase.QUIESCED) {
                         try {
                             finishStop(record, false);
@@ -686,7 +676,7 @@ public class PluginLifecycleService {
         }
         ensureQuiesced(record);
         long deadline = System.nanoTime() + RUNTIME_DRAIN_TIMEOUT_NANOS;
-        String activeDrain = awaitRuntimeDrains(record, deadline);
+        String activeDrain = record.drains.awaitDrained(deadline);
         if (activeDrain != null) {
             throw new ClassifiedPluginLifecycleException(
                     PluginManagementErrorCode.OPERATION_IN_PROGRESS,
@@ -704,37 +694,40 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("cannot quiesce plugin '" + record.pluginId
                     + "' from phase " + phase);
         }
-        if (!record.requestWithdrawalComplete) {
+        if (!record.drains.requestWithdrawalComplete()) {
             PluginWebContributionHandle handle = record.webHandle;
-            record.requestDrain = handle == null
+            record.drains.completeRequestWithdrawal(handle == null
                     ? null
-                    : webContributionRegistrar.withdrawRequests(handle).orElse(null);
-            record.requestWithdrawalComplete = true;
+                    : webContributionRegistrar.withdrawRequests(handle).orElse(null));
         }
-        if (!record.capabilityWithdrawalComplete) {
-            record.capabilityDrain = withdrawCapabilityPublication(record, "withdrawal");
-            record.capabilityWithdrawalComplete = true;
+        if (!record.drains.capabilityWithdrawalComplete()) {
+            record.drains.completeCapabilityWithdrawal(withdrawCapabilityPublication(record, "withdrawal"));
         }
-        if (!record.scheduleWithdrawalComplete) {
-            record.scheduleDrain = withdrawScheduleOrRetryFailedRegistration(record);
-            record.scheduleWithdrawalComplete = true;
+        if (!record.drains.scheduleWithdrawalComplete()) {
+            record.drains.completeScheduleWithdrawal(withdrawScheduleOrRetryFailedRegistration(record));
         }
-        if (!record.taskPreparationComplete) {
+        if (!record.drains.taskPreparationComplete()) {
             runtimeTaskQuiescer.prepareRuntimeTaskDrain(
-                    record.pluginId, record.runtimeTaskDrain, drain -> record.runtimeTaskDrain = drain);
-            record.taskPreparationComplete = true;
+                    record.pluginId,
+                    record.drains.runtimeTaskDrain(),
+                    record.drains::rememberRuntimeTaskDrain);
+            record.drains.markTaskPreparationComplete();
         }
-        if (!record.queuePreparationComplete) {
+        if (!record.drains.queuePreparationComplete()) {
             runtimeTaskQuiescer.prepareQueueDrains(
-                    record.pluginId, List.copyOf(record.queueDrains), record.queueDrains::add);
-            record.queuePreparationComplete = true;
+                    record.pluginId,
+                    record.drains.queueDrains(),
+                    record.drains::rememberQueueDrain);
+            record.drains.markQueuePreparationComplete();
         }
-        if (record.runtimeTasksQuiesced) {
+        if (record.drains.runtimeTasksQuiesced()) {
             return;
         }
         runtimeTaskQuiescer.quiesceAfterScheduleWithdrawal(
-                record.pluginId, record.runtimeTaskDrain, List.copyOf(record.queueDrains));
-        record.runtimeTasksQuiesced = true;
+                record.pluginId,
+                record.drains.runtimeTaskDrain(),
+                record.drains.queueDrains());
+        record.drains.markRuntimeTasksQuiesced();
     }
 
     /** Recover a publication returned before lifecycle assignment, then withdraw the same exact central drain. */
@@ -750,7 +743,6 @@ public class PluginLifecycleService {
                         "missing external capability publication during " + action + ": "
                                 + publication.owner()));
         afterCapabilityWithdrawReturnProbe.run();
-        record.capabilityDrain = drain;
         return drain;
     }
 
@@ -795,96 +787,23 @@ public class PluginLifecycleService {
 
     /** 全部 runtime drain 已归零后的唯一服务足迹关闭入口；核心关闭把 feature stop 留给后续 Registry phase。 */
     private void finishStop(ManagedPlugin record, boolean invokeFeatureStop) {
-        assertRuntimeDrained(record);
+        record.drains.assertDrained(record.pluginId);
         // Request drain 归零后再封一次 stream：覆盖首次 closeForPlugin 返回后由旧请求迟到登记的失败回调。
         runtimeTaskQuiescer.quiesceStreams(record.pluginId);
         tearDownServing(record, invokeFeatureStop);
-        resetRuntimeDrainState(record);
+        resetQuiesceState(record);
         lifecycleState.set(record.pluginId, PluginRuntimePhase.STOPPED);
         log.info("Stopped plugin '{}'.", record.pluginId);
     }
 
-    private static void resetRuntimeDrainState(ManagedPlugin record) {
-        record.requestDrain = null;
-        record.requestWithdrawalComplete = false;
+    private static void resetQuiesceState(ManagedPlugin record) {
         record.capabilityPreparation = null;
         record.capabilityPublication = null;
-        record.capabilityDrain = null;
-        record.capabilityWithdrawalComplete = false;
         record.capabilityRetirementComplete = true;
         record.capabilityRetirementAcknowledged = true;
         record.schedulePublication = null;
-        record.scheduleDrain = null;
-        record.scheduleWithdrawalComplete = false;
         record.scheduleRetirementAcknowledged = true;
-        record.runtimeTaskDrain = null;
-        record.taskPreparationComplete = false;
-        record.queueDrains.clear();
-        record.queuePreparationComplete = false;
-        record.runtimeTasksQuiesced = false;
-    }
-
-    /** 对 request、schedule 与全部 queue drain 使用同一个绝对截止时间；返回首个仍活动的纯值诊断。 */
-    private static String awaitRuntimeDrains(ManagedPlugin record, long deadlineNanos) {
-        PluginRequestGenerationDrain requestDrain = record.requestDrain;
-        if (requestDrain != null && !requestDrain.awaitDrained(deadlineNanos)) {
-            return "request lease(s)=" + requestDrain.activeLeaseCount();
-        }
-        ExternalCapabilityDrain capabilityDrain = record.capabilityDrain;
-        if (capabilityDrain != null && !capabilityDrain.awaitDrained(deadlineNanos)) {
-            return "capability invocation(s)=" + capabilityDrain.activeLeaseCount();
-        }
-        ScheduleGenerationDrain drain = record.scheduleDrain;
-        if (drain != null && !drain.awaitDrained(deadlineNanos)) {
-            return "schedule lease(s)=" + drain.activeLeaseCount();
-        }
-        PluginRuntimeTaskDrain runtimeTaskDrain = record.runtimeTaskDrain;
-        if (runtimeTaskDrain != null && !runtimeTaskDrain.awaitDrained(deadlineNanos)) {
-            return "background task(s)=" + runtimeTaskDrain.activeCount();
-        }
-        for (QueueDrain queueDrain : record.queueDrains) {
-            if (!queueDrain.awaitDrained(deadlineNanos)) {
-                return "queue task(s) " + queueDrain.queueType() + "=" + queueDrain.activeCount();
-            }
-        }
-        return null;
-    }
-
-    /** clean context shutdown 使用：清除中断并持续等待全部 runtime drain，返回是否曾观察到中断。 */
-    private static boolean awaitRuntimeDrainsUninterruptibly(ManagedPlugin record) {
-        boolean interrupted = false;
-        PluginRequestGenerationDrain requestDrain = record.requestDrain;
-        while (requestDrain != null && !requestDrain.isDrained()) {
-            if (!requestDrain.awaitDrained()) {
-                interrupted |= Thread.interrupted();
-            }
-        }
-        ExternalCapabilityDrain capabilityDrain = record.capabilityDrain;
-        while (capabilityDrain != null && !capabilityDrain.isDrained()) {
-            if (!capabilityDrain.awaitDrained()) {
-                interrupted |= Thread.interrupted();
-            }
-        }
-        ScheduleGenerationDrain drain = record.scheduleDrain;
-        while (drain != null && !drain.isDrained()) {
-            if (!drain.awaitDrained()) {
-                interrupted |= Thread.interrupted();
-            }
-        }
-        PluginRuntimeTaskDrain runtimeTaskDrain = record.runtimeTaskDrain;
-        while (runtimeTaskDrain != null && !runtimeTaskDrain.isDrained()) {
-            if (!runtimeTaskDrain.awaitDrained()) {
-                interrupted |= Thread.interrupted();
-            }
-        }
-        for (QueueDrain queueDrain : record.queueDrains) {
-            while (!queueDrain.isDrained()) {
-                if (!queueDrain.awaitDrained()) {
-                    interrupted |= Thread.interrupted();
-                }
-            }
-        }
-        return interrupted;
+        record.drains.reset();
     }
 
     private void doUnload(ManagedPlugin record) {
@@ -1186,10 +1105,10 @@ public class PluginLifecycleService {
                 pending.add("capability=" + failure.getClass().getName());
             }
         }
-        if (!record.capabilityRetirementComplete && record.capabilityDrain != null) {
+        if (!record.capabilityRetirementComplete && record.drains.capabilityDrain() != null) {
             try {
                 ExternalCapabilityDrain drain = Objects.requireNonNull(
-                        record.capabilityDrain, "missing external capability drain");
+                        record.drains.capabilityDrain(), "missing external capability drain");
                 capabilityContributionRegistrar.retireDrained(drain);
                 afterCapabilityRetireReturnProbe.run();
                 record.capabilityRetirementComplete = true;
@@ -1198,10 +1117,10 @@ public class PluginLifecycleService {
                 pending.add("capability-retirement=" + failure.getClass().getName());
             }
         }
-        if (!record.capabilityRetirementAcknowledged && record.capabilityDrain != null) {
+        if (!record.capabilityRetirementAcknowledged && record.drains.capabilityDrain() != null) {
             try {
                 ExternalCapabilityDrain drain = Objects.requireNonNull(
-                        record.capabilityDrain, "missing acknowledged external capability drain");
+                        record.drains.capabilityDrain(), "missing acknowledged external capability drain");
                 capabilityContributionRegistrar.acknowledgeRetired(drain);
                 afterCapabilityAcknowledgeReturnProbe.run();
                 record.capabilityRetirementAcknowledged = true;
@@ -1211,10 +1130,10 @@ public class PluginLifecycleService {
                 pending.add("capability-acknowledgement=" + failure.getClass().getName());
             }
         }
-        if (!record.scheduleRetirementAcknowledged && record.scheduleDrain != null) {
+        if (!record.scheduleRetirementAcknowledged && record.drains.scheduleDrain() != null) {
             try {
                 scheduleContributionRegistrar.acknowledgeRetired(
-                        scheduleMutationAuthority, record.scheduleDrain);
+                        scheduleMutationAuthority, record.drains.scheduleDrain());
                 record.scheduleRetirementAcknowledged = true;
             } catch (Throwable failure) {
                 fatal = mergeFatal(fatal, failure);
@@ -1279,10 +1198,10 @@ public class PluginLifecycleService {
                 pending.add("capability=" + failure.getClass().getName());
             }
         }
-        if (!record.capabilityRetirementComplete && record.capabilityDrain != null) {
+        if (!record.capabilityRetirementComplete && record.drains.capabilityDrain() != null) {
             try {
                 ExternalCapabilityDrain drain = Objects.requireNonNull(
-                        record.capabilityDrain, "missing external capability drain");
+                        record.drains.capabilityDrain(), "missing external capability drain");
                 capabilityContributionRegistrar.retireDrained(drain);
                 afterCapabilityRetireReturnProbe.run();
                 record.capabilityRetirementComplete = true;
@@ -1291,10 +1210,10 @@ public class PluginLifecycleService {
                 pending.add("capability-retirement=" + failure.getClass().getName());
             }
         }
-        if (!record.capabilityRetirementAcknowledged && record.capabilityDrain != null) {
+        if (!record.capabilityRetirementAcknowledged && record.drains.capabilityDrain() != null) {
             try {
                 ExternalCapabilityDrain drain = Objects.requireNonNull(
-                        record.capabilityDrain, "missing acknowledged external capability drain");
+                        record.drains.capabilityDrain(), "missing acknowledged external capability drain");
                 capabilityContributionRegistrar.acknowledgeRetired(drain);
                 afterCapabilityAcknowledgeReturnProbe.run();
                 record.capabilityRetirementAcknowledged = true;
@@ -1304,10 +1223,10 @@ public class PluginLifecycleService {
                 pending.add("capability-acknowledgement=" + failure.getClass().getName());
             }
         }
-        if (!record.scheduleRetirementAcknowledged && record.scheduleDrain != null) {
+        if (!record.scheduleRetirementAcknowledged && record.drains.scheduleDrain() != null) {
             try {
                 scheduleContributionRegistrar.acknowledgeRetired(
-                        scheduleMutationAuthority, record.scheduleDrain);
+                        scheduleMutationAuthority, record.drains.scheduleDrain());
                 record.scheduleRetirementAcknowledged = true;
             } catch (Throwable failure) {
                 fatal = mergeFatal(fatal, failure);
@@ -1328,7 +1247,7 @@ public class PluginLifecycleService {
         }
         try {
             closeQuietly(record);
-            resetRuntimeDrainState(record);
+            resetQuiesceState(record);
         } catch (Throwable failure) {
             lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
             throw failure;
@@ -1341,68 +1260,66 @@ public class PluginLifecycleService {
      */
     private Throwable quiesceFailedBringUpRuntime(ManagedPlugin record) {
         Throwable failure = null;
-        if (!record.requestWithdrawalComplete) {
+        if (!record.drains.requestWithdrawalComplete()) {
             try {
                 PluginWebContributionHandle handle = record.webHandle;
-                record.requestDrain = handle == null
+                record.drains.completeRequestWithdrawal(handle == null
                         ? null
-                        : webContributionRegistrar.withdrawRequests(handle).orElse(null);
-                record.requestWithdrawalComplete = true;
+                        : webContributionRegistrar.withdrawRequests(handle).orElse(null));
             } catch (Throwable withdrawalFailure) {
                 failure = mergeFailure(failure, withdrawalFailure);
             }
         }
-        if (!record.capabilityWithdrawalComplete) {
+        if (!record.drains.capabilityWithdrawalComplete()) {
             try {
-                record.capabilityDrain = withdrawCapabilityPublication(record, "rollback");
-                record.capabilityWithdrawalComplete = true;
+                record.drains.completeCapabilityWithdrawal(withdrawCapabilityPublication(record, "rollback"));
             } catch (Throwable withdrawalFailure) {
                 failure = mergeFailure(failure, withdrawalFailure);
             }
         }
-        if (!record.scheduleWithdrawalComplete) {
+        if (!record.drains.scheduleWithdrawalComplete()) {
             try {
-                record.scheduleDrain = withdrawScheduleOrRetryFailedRegistration(record);
-                record.scheduleWithdrawalComplete = true;
+                record.drains.completeScheduleWithdrawal(withdrawScheduleOrRetryFailedRegistration(record));
             } catch (Throwable withdrawalFailure) {
                 failure = mergeFailure(failure, withdrawalFailure);
             }
         }
-        if (!record.taskPreparationComplete) {
+        if (!record.drains.taskPreparationComplete()) {
             try {
                 runtimeTaskQuiescer.prepareRuntimeTaskDrain(
-                        record.pluginId, record.runtimeTaskDrain, drain -> record.runtimeTaskDrain = drain);
-                record.taskPreparationComplete = true;
+                        record.pluginId,
+                        record.drains.runtimeTaskDrain(),
+                        record.drains::rememberRuntimeTaskDrain);
+                record.drains.markTaskPreparationComplete();
             } catch (Throwable preparationFailure) {
                 failure = mergeFailure(failure, preparationFailure);
             }
         }
-        if (!record.queuePreparationComplete) {
+        if (!record.drains.queuePreparationComplete()) {
             try {
                 runtimeTaskQuiescer.prepareQueueDrains(
-                        record.pluginId, List.copyOf(record.queueDrains), record.queueDrains::add);
-                record.queuePreparationComplete = true;
+                        record.pluginId,
+                        record.drains.queueDrains(),
+                        record.drains::rememberQueueDrain);
+                record.drains.markQueuePreparationComplete();
             } catch (Throwable preparationFailure) {
                 failure = mergeFailure(failure, preparationFailure);
             }
         }
-        if (record.requestWithdrawalComplete
-                && record.capabilityWithdrawalComplete
-                && record.scheduleWithdrawalComplete
-                && record.taskPreparationComplete
-                && record.queuePreparationComplete
-                && !record.runtimeTasksQuiesced) {
+        if (record.drains.preparationsComplete() && !record.drains.runtimeTasksQuiesced()) {
             try {
                 runtimeTaskQuiescer.quiesceAfterScheduleWithdrawal(
-                        record.pluginId, record.runtimeTaskDrain, List.copyOf(record.queueDrains));
-                record.runtimeTasksQuiesced = true;
+                        record.pluginId,
+                        record.drains.runtimeTaskDrain(),
+                        record.drains.queueDrains());
+                record.drains.markRuntimeTasksQuiesced();
             } catch (Throwable quiesceFailure) {
                 failure = mergeFailure(failure, quiesceFailure);
             }
         }
-        if (failure == null && record.runtimeTasksQuiesced) {
+        if (failure == null && record.drains.runtimeTasksQuiesced()) {
             long deadline = System.nanoTime() + RUNTIME_DRAIN_TIMEOUT_NANOS;
-            String activeDrain = awaitRuntimeDrains(record, deadline);
+            String activeDrain = record.drains.awaitDrained(deadline);
             if (activeDrain != null) {
                 failure = new ClassifiedPluginLifecycleException(
                         PluginManagementErrorCode.OPERATION_IN_PROGRESS,
@@ -1554,10 +1471,10 @@ public class PluginLifecycleService {
 
     private void closeQuietly(ManagedPlugin record) {
         ConfigurableApplicationContext child = record.context;
-        if (child == null && record.capabilityDrain == null) {
+        if (child == null && record.drains.capabilityDrain() == null) {
             return;
         }
-        assertRuntimeDrained(record);
+        record.drains.assertDrained(record.pluginId);
         if (!record.capabilityRetirementComplete || !record.capabilityRetirementAcknowledged) {
             throw new PluginLifecycleException("refusing to close child context before capability retirement: "
                     + record.pluginId);
@@ -1575,12 +1492,12 @@ public class PluginLifecycleService {
                         + record.pluginId + "' (failureType=" + failure.getClass().getName() + ")");
             }
         }
-        if (record.capabilityDrain != null) {
-            capabilityContributionRegistrar.releaseRetirementProof(record.capabilityDrain);
+        if (record.drains.capabilityDrain() != null) {
+            capabilityContributionRegistrar.releaseRetirementProof(record.drains.capabilityDrain());
         }
-        if (record.scheduleDrain != null) {
+        if (record.drains.scheduleDrain() != null) {
             scheduleContributionRegistrar.releaseRetirementProof(
-                    scheduleMutationAuthority, record.scheduleDrain);
+                    scheduleMutationAuthority, record.drains.scheduleDrain());
         }
         record.context = null;
     }
@@ -1625,32 +1542,6 @@ public class PluginLifecycleService {
         }
         throw new PluginLifecycleException(message + " (failureType="
                 + originalFailure.getClass().getName() + ")", originalFailure);
-    }
-
-    private static void assertRuntimeDrained(ManagedPlugin record) {
-        if (record.requestDrain != null && !record.requestDrain.isDrained()) {
-            throw new PluginLifecycleException("refusing to close child context with active request leases: "
-                    + record.pluginId + " (active=" + record.requestDrain.activeLeaseCount() + ")");
-        }
-        if (record.capabilityDrain != null && !record.capabilityDrain.isDrained()) {
-            throw new PluginLifecycleException("refusing to close child context with active capability invocations: "
-                    + record.pluginId + " (active=" + record.capabilityDrain.activeLeaseCount() + ")");
-        }
-        if (record.scheduleDrain != null && !record.scheduleDrain.isDrained()) {
-            throw new PluginLifecycleException("refusing to close child context with active schedule leases: "
-                    + record.pluginId + " (active=" + record.scheduleDrain.activeLeaseCount() + ")");
-        }
-        if (record.runtimeTaskDrain != null && !record.runtimeTaskDrain.isDrained()) {
-            throw new PluginLifecycleException("refusing to close child context with active background tasks: "
-                    + record.pluginId + " (active=" + record.runtimeTaskDrain.activeCount() + ")");
-        }
-        for (QueueDrain queueDrain : record.queueDrains) {
-            if (!queueDrain.isDrained()) {
-                throw new PluginLifecycleException("refusing to close child context with active queue tasks: "
-                        + record.pluginId + "/" + queueDrain.queueType()
-                        + " (active=" + queueDrain.activeCount() + ")");
-            }
-        }
     }
 
     /** 保留首个 fatal 对象身份；后续 fatal 仅作诊断，不覆盖主失败。 */
@@ -1718,23 +1609,13 @@ public class PluginLifecycleService {
         final PluginRegistry.RegisteredPlugin registered; // 可空（无核心注册条目的测试夹具）
         volatile ConfigurableApplicationContext context;  // 不在服务时为空
         PluginWebContributionHandle webHandle;
-        PluginRequestGenerationDrain requestDrain;
-        boolean requestWithdrawalComplete;
         PreparedOwner capabilityPreparation;
         ExternalCapabilityPublication capabilityPublication;
-        ExternalCapabilityDrain capabilityDrain;
-        boolean capabilityWithdrawalComplete;
         boolean capabilityRetirementComplete = true;
         boolean capabilityRetirementAcknowledged = true;
         ScheduleCapabilityPublication schedulePublication;
-        ScheduleGenerationDrain scheduleDrain;
-        boolean scheduleWithdrawalComplete;
         boolean scheduleRetirementAcknowledged = true;
-        PluginRuntimeTaskDrain runtimeTaskDrain;
-        boolean taskPreparationComplete;
-        final List<QueueDrain> queueDrains = new ArrayList<>();
-        boolean queuePreparationComplete;
-        boolean runtimeTasksQuiesced;
+        final PluginRuntimeDrainState drains = new PluginRuntimeDrainState();
         boolean controllerCleanupComplete = true;
         boolean capabilityCleanupComplete = true;
 
