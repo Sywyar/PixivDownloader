@@ -1,0 +1,91 @@
+        @media (min-width: 768px) {
+            .chapter-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .chapter-grid {
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+                gap: 16px;
+            }
+        }
+
+        @media (min-width: 1400px) {
+            .chapter-grid {
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                transform: translateX(-100%);
+                z-index: 100;
+            }
+
+            .sidebar.mobile-open {
+                transform: translateX(0);
+            }
+
+            .mobile-menu-btn {
+                display: flex;
+            }
+
+            .topbar {
+                padding: 12px 16px;
+                align-items: stretch;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .search-box {
+                flex: 1 1 100%;
+                max-width: none;
+                min-width: 0;
+                order: 2;
+            }
+
+            .topbar-actions {
+                width: 100%;
+                margin-left: 0;
+                justify-content: flex-end;
+                order: 3;
+            }
+
+            .series-wrapper {
+                padding: 16px;
+            }
+
+            .series-hero {
+                grid-template-columns: 1fr;
+                align-items: start;
+            }
+
+            .series-hero-cover {
+                width: 100%;
+                max-width: 200px;
+                margin: 0 auto;
+            }
+
+            .series-actions {
+                justify-content: flex-start;
+                width: 100%;
+            }
+
+            .series-actions .btn,
+            .chapter-actions .btn {
+                flex: 1 1 140px;
+                justify-content: center;
+            }
+
+            .series-title {
+                font-size: 24px;
+            }
+
+            .series-nav {
+                grid-template-columns: minmax(0, 1fr);
+            }
+        }

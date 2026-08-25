@@ -188,12 +188,6 @@
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
-    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-artwork/pixiv-artwork.css": {
-      "hardcodedColors": 51,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
     "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-gallery.html": {
       "hardcodedColors": 0,
       "inlineStyles": 10,
@@ -206,27 +200,9 @@
       "inlineHandlers": 0,
       "nativeDialogs": 2
     },
-    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-gallery/pixiv-gallery.css": {
-      "hardcodedColors": 109,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
     "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-series.html": {
       "hardcodedColors": 0,
       "inlineStyles": 6,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-series/pixiv-series.css": {
-      "hardcodedColors": 22,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-showcase/pixiv-showcase.css": {
-      "hardcodedColors": 82,
-      "inlineStyles": 0,
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
