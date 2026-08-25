@@ -21,9 +21,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -64,45 +62,9 @@ public final class CliSetupCommand {
     public static final String FLAG_HELP_LONG = "--help";
     public static final String FLAG_HELP_SHORT = "-h";
 
-    private static final Set<String> COMMANDS = Set.of(CMD_SETUP, CMD_CHANGE_PASSWORD, CMD_RESET_PASSWORD);
     private static final Set<String> VALID_MODES = Set.of("solo", "multi");
     private static final int MIN_PASSWORD_LENGTH = SetupService.MIN_PASSWORD_LENGTH;
     private static final int RECOMMENDED_PASSWORD_LENGTH = SetupService.RECOMMENDED_PASSWORD_LENGTH;
-
-    /**
-     * 启动器自己识别的"无 value 标志"白名单。匹配这些字符串的参数会被原样放行。
-     * Spring Boot 在 {@link org.springframework.boot.SpringApplication} 中也识别 {@code --debug} /
-     * {@code --trace}（开启 debug/trace 日志），故一并白名单。
-     */
-    private static final Set<String> KNOWN_BOOL_FLAGS = Set.of(
-            "--no-gui",
-            "--intro",
-            "--pixivdownload-startup",
-            "--startup",
-            CMD_SETUP,
-            CMD_CHANGE_PASSWORD,
-            CMD_RESET_PASSWORD,
-            FLAG_HELP_LONG,
-            FLAG_HELP_SHORT,
-            "--debug",
-            "--trace"
-    );
-
-    /**
-     * 启动器自己识别的"必须带 value 的 flag 名"（以 {@code --name=value} 的形式出现）。
-     * 仅用于在错误信息中提示用户「这个 flag 必须带值」。任何含 {@code =} 的参数都会被放行
-     * 作为 Spring property override，无需在此显式列出。
-     */
-    private static final Set<String> KNOWN_VALUE_FLAGS = Set.of(
-            FLAG_USERNAME,
-            FLAG_PASSWORD,
-            FLAG_OLD_PASSWORD,
-            FLAG_NEW_PASSWORD,
-            FLAG_MODE,
-            FLAG_PROXY_ENABLED,
-            FLAG_PROXY_HOST,
-            FLAG_PROXY_PORT
-    );
 
     private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -120,53 +82,25 @@ public final class CliSetupCommand {
      *   <li>已识别但缺少必需值的 flag（如 {@code --username} 不带 {@code =}） → 同上</li>
      *   <li>否则正常返回</li>
      * </ul>
-     * <p>放行规则：白名单 {@link #KNOWN_BOOL_FLAGS} 中的精确匹配、以及任何形如
+     * <p>放行规则：已知无值 flag 的精确匹配、以及任何形如
      * {@code --key=value} 的参数（视为 Spring property override）。
      */
     public static void validateArgsOrExit(String[] args) {
-        if (args == null || args.length == 0) {
-            return;
-        }
-        boolean helpRequested = false;
-        List<String> unknown = new ArrayList<>();
-        List<String> missingValue = new ArrayList<>();
+        CliSetupArguments.Inspection inspection = CliSetupArguments.inspect(args);
 
-        for (String arg : args) {
-            if (arg == null || arg.isEmpty()) {
-                continue;
-            }
-            if (FLAG_HELP_LONG.equals(arg) || FLAG_HELP_SHORT.equals(arg)) {
-                helpRequested = true;
-                continue;
-            }
-            if (KNOWN_BOOL_FLAGS.contains(arg)) {
-                continue;
-            }
-            int eq = arg.indexOf('=');
-            if (eq > 0 && arg.startsWith("--")) {
-                // --key=value：放行（即便是未知 key 也按 Spring 属性覆盖处理）
-                continue;
-            }
-            if (eq < 0 && KNOWN_VALUE_FLAGS.contains(arg)) {
-                missingValue.add(arg);
-                continue;
-            }
-            unknown.add(arg);
-        }
-
-        if (helpRequested) {
+        if (inspection.helpRequested()) {
             printHelp(System.out);
             System.exit(0);
         }
 
-        if (unknown.isEmpty() && missingValue.isEmpty()) {
+        if (inspection.unknown().isEmpty() && inspection.missingValue().isEmpty()) {
             return;
         }
 
-        for (String arg : unknown) {
+        for (String arg : inspection.unknown()) {
             err(message("cli.error.unknown-arg", arg));
         }
-        for (String arg : missingValue) {
+        for (String arg : inspection.missingValue()) {
             err(message("cli.error.flag-missing-value", arg, arg));
         }
         err("");
@@ -251,15 +185,7 @@ public final class CliSetupCommand {
      * 判断启动参数中是否含有任何已知的 CLI 管理命令。供 GuiLauncher 在锁取得失败时定制错误提示。
      */
     public static boolean containsCliCommand(String[] args) {
-        if (args == null) {
-            return false;
-        }
-        for (String arg : args) {
-            if (arg != null && COMMANDS.contains(arg)) {
-                return true;
-            }
-        }
-        return false;
+        return CliSetupArguments.containsCommand(args);
     }
 
     /**
@@ -283,7 +209,7 @@ public final class CliSetupCommand {
 
         String command = null;
         for (String arg : args) {
-            if (arg != null && COMMANDS.contains(arg)) {
+            if (CliSetupArguments.isCommand(arg)) {
                 if (command != null && !command.equals(arg)) {
                     err(message("cli.error.conflicting-commands", command, arg));
                     System.exit(2);
@@ -295,7 +221,7 @@ public final class CliSetupCommand {
             return false;
         }
 
-        Flags flags = Flags.parse(args);
+        CliSetupArguments flags = CliSetupArguments.parse(args);
         int exit;
         try {
             exit = switch (command) {
@@ -349,7 +275,7 @@ public final class CliSetupCommand {
 
     // ── 命令实现 ───────────────────────────────────────────────────────────────────
 
-    private static int runSetup(Flags flags) throws IOException {
+    private static int runSetup(CliSetupArguments flags) throws IOException {
         Path path = resolveSetupConfigPath();
         SetupConfig existing = loadOrEmpty(path);
         if (existing.isSetupComplete()) {
@@ -362,7 +288,7 @@ public final class CliSetupCommand {
         out(message("cli.setup.target-file", path.toAbsolutePath()));
         out("");
 
-        String username = flags.username;
+        String username = flags.username();
         if (username == null || username.isBlank()) {
             username = promptLine(message("cli.prompt.username"));
         }
@@ -372,7 +298,7 @@ public final class CliSetupCommand {
         }
         username = username.trim();
 
-        String password = flags.password;
+        String password = flags.password();
         if (password == null || password.isEmpty()) {
             password = promptPassword(message("cli.prompt.password"));
         }
@@ -395,7 +321,7 @@ public final class CliSetupCommand {
             return 2;
         }
 
-        String mode = flags.mode;
+        String mode = flags.mode();
         if (mode == null || mode.isBlank()) {
             out("");
             out(message("cli.setup.mode.intro"));
@@ -442,9 +368,9 @@ public final class CliSetupCommand {
      * 解析代理配置：flag 优先，缺省时交互式询问。校验失败返回 null（调用方据此以 2 退出）。
      * 关闭代理时仍记录 host/port（flag 或默认值），便于后续开启复用。
      */
-    private static ProxyChoice resolveProxy(Flags flags) {
-        Boolean flagEnabled = parseBoolFlag(flags.proxyEnabled);
-        if (flags.proxyEnabled != null && flagEnabled == null) {
+    private static ProxyChoice resolveProxy(CliSetupArguments flags) {
+        Boolean flagEnabled = parseBoolFlag(flags.proxyEnabled());
+        if (flags.proxyEnabled() != null && flagEnabled == null) {
             err(message("cli.error.invalid-proxy-enabled"));
             return null;
         }
@@ -459,7 +385,7 @@ public final class CliSetupCommand {
             enabled = !isNegative(answer);  // 缺省启用
         }
 
-        String host = flags.proxyHost;
+        String host = flags.proxyHost();
         int port;
         if (enabled) {
             if (host == null || host.isBlank()) {
@@ -468,7 +394,7 @@ public final class CliSetupCommand {
             } else {
                 host = host.trim();
             }
-            String portText = flags.proxyPort;
+            String portText = flags.proxyPort();
             if (portText == null || portText.isBlank()) {
                 String input = promptLine(message("cli.prompt.proxy-port", ProxyConfig.DEFAULT_PORT));
                 portText = (input == null || input.isBlank())
@@ -481,7 +407,7 @@ public final class CliSetupCommand {
             }
         } else {
             host = (host == null || host.isBlank()) ? ProxyConfig.DEFAULT_HOST : host.trim();
-            int parsed = parsePort(flags.proxyPort);
+            int parsed = parsePort(flags.proxyPort());
             port = (parsed < 1 || parsed > 65535) ? ProxyConfig.DEFAULT_PORT : parsed;
         }
         return new ProxyChoice(enabled, host, port);
@@ -551,7 +477,7 @@ public final class CliSetupCommand {
     private record ProxyChoice(boolean enabled, String host, int port) {
     }
 
-    private static int runChangePassword(Flags flags) throws IOException {
+    private static int runChangePassword(CliSetupArguments flags) throws IOException {
         Path path = resolveSetupConfigPath();
         SetupConfig config = loadOrEmpty(path);
         if (!config.isSetupComplete() || config.getUsername() == null || config.getPasswordHash() == null) {
@@ -564,7 +490,7 @@ public final class CliSetupCommand {
         out(message("cli.setup.target-file", path.toAbsolutePath()));
         out("");
 
-        String oldPassword = flags.oldPassword;
+        String oldPassword = flags.oldPassword();
         if (oldPassword == null || oldPassword.isEmpty()) {
             oldPassword = promptPassword(message("cli.prompt.current-password"));
         }
@@ -577,7 +503,7 @@ public final class CliSetupCommand {
             return 1;
         }
 
-        String newPassword = flags.newPassword;
+        String newPassword = flags.newPassword();
         if (newPassword == null || newPassword.isEmpty()) {
             newPassword = promptPassword(message("cli.prompt.new-password"));
             if (newPassword == null) {
@@ -611,7 +537,7 @@ public final class CliSetupCommand {
         return 0;
     }
 
-    private static int runResetPassword(Flags flags) throws IOException {
+    private static int runResetPassword(CliSetupArguments flags) throws IOException {
         Path path = resolveSetupConfigPath();
         SetupConfig config = loadOrEmpty(path);
         if (!config.isSetupComplete() || config.getUsername() == null || config.getPasswordHash() == null) {
@@ -625,7 +551,7 @@ public final class CliSetupCommand {
         out(message("cli.reset-password.warning"));
         out("");
 
-        String newPassword = flags.newPassword;
+        String newPassword = flags.newPassword();
         if (newPassword == null || newPassword.isEmpty()) {
             newPassword = promptPassword(message("cli.prompt.new-password"));
             if (newPassword == null) {
@@ -784,40 +710,4 @@ public final class CliSetupCommand {
         return MessageBundles.get(code, args);
     }
 
-    // ── flag 解析 ─────────────────────────────────────────────────────────────────
-
-    private static final class Flags {
-        String username;
-        String password;
-        String oldPassword;
-        String newPassword;
-        String mode;
-        String proxyEnabled;
-        String proxyHost;
-        String proxyPort;
-
-        static Flags parse(String[] args) {
-            Flags flags = new Flags();
-            for (String arg : args) {
-                if (arg == null) continue;
-                flags.username = takeValue(arg, FLAG_USERNAME, flags.username);
-                flags.password = takeValue(arg, FLAG_PASSWORD, flags.password);
-                flags.oldPassword = takeValue(arg, FLAG_OLD_PASSWORD, flags.oldPassword);
-                flags.newPassword = takeValue(arg, FLAG_NEW_PASSWORD, flags.newPassword);
-                flags.mode = takeValue(arg, FLAG_MODE, flags.mode);
-                flags.proxyEnabled = takeValue(arg, FLAG_PROXY_ENABLED, flags.proxyEnabled);
-                flags.proxyHost = takeValue(arg, FLAG_PROXY_HOST, flags.proxyHost);
-                flags.proxyPort = takeValue(arg, FLAG_PROXY_PORT, flags.proxyPort);
-            }
-            return flags;
-        }
-
-        private static String takeValue(String arg, String name, String current) {
-            String prefix = name + "=";
-            if (arg.startsWith(prefix)) {
-                return arg.substring(prefix.length());
-            }
-            return current;
-        }
-    }
 }
