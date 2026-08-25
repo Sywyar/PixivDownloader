@@ -108,7 +108,9 @@
 
     async function init() {
         loadStyle(BASE + 'pixiv-translate.css');
-        await loadScript(BASE + 'pixiv-translate.js');
+        if (!await loadScript(BASE + 'pixiv-translate-dialog.js')) return;
+        if (!await loadScript(BASE + 'pixiv-content-lang.js')) return;
+        if (!await loadScript(BASE + 'pixiv-translate.js')) return;
         if (global.PixivNovel && global.PixivNovel.content
                 && typeof global.PixivNovel.content.mountContentLangSwitcher === 'function') {
             global.PixivNovel.content.mountContentLangSwitcher();
