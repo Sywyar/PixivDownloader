@@ -56,6 +56,8 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackageIndex;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackageIndex.Entry;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
@@ -84,8 +86,7 @@ public class PluginRuntimeManager {
     private final int maximumStartupVerificationEntries;
     private final long maximumStartupVerificationUncompressedBytes;
     private final long maximumStartupProvenanceBytes;
-    private final Map<String, RuntimeEntry> entries = new LinkedHashMap<>();
-    private final Map<String, Long> generations = new LinkedHashMap<>();
+    private final PluginRuntimePackageIndex packageIndex = new PluginRuntimePackageIndex();
 
     private volatile PluginManager pluginManager;
     private volatile PluginRuntimeStatus status;
@@ -197,7 +198,7 @@ public class PluginRuntimeManager {
                 throw new IOException("plugins root must be a plain directory: " + directory);
             }
             beforeProductionScan(directory);
-            workspaceOwner.cleanupAbandoned(entries.isEmpty());
+            workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
@@ -307,7 +308,7 @@ public class PluginRuntimeManager {
         } finally {
             preparedCandidates.forEach(PreparedPluginArtifact::close);
         }
-        for (String packageId : List.copyOf(entries.keySet())) {
+        for (String packageId : packageIndex.packageIds()) {
             try {
                 startPlugin(packageId);
             } catch (RuntimeException e) {
@@ -330,7 +331,7 @@ public class PluginRuntimeManager {
             return loadDevelopmentPlugin(artifactPath);
         }
         try {
-            workspaceOwner.cleanupAbandoned(entries.isEmpty());
+            workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
         } catch (RuntimeException e) {
             throw new PluginRuntimeOperationException(
                     "plugin directory is not safe for a production artifact load", e);
@@ -353,7 +354,7 @@ public class PluginRuntimeManager {
                 .orElseThrow(() -> new PluginRuntimeOperationException(
                         "development plugin artifact not found: " + normalizedClasses));
         PluginDescriptor descriptor = PluginPackageReader.inspectDescriptor(artifact.descriptorPath());
-        if (entries.containsKey(descriptor.id())) {
+        if (packageIndex.contains(descriptor.id())) {
             throw new PluginRuntimeOperationException("plugin package already loaded: " + descriptor.id());
         }
         PluginDevelopmentArtifacts.DevelopmentCacheSession session =
@@ -414,7 +415,7 @@ public class PluginRuntimeManager {
                         materialized.moduleRoot().getFileName(), e);
             }
         }
-        for (String packageId : List.copyOf(entries.keySet())) {
+        for (String packageId : packageIndex.packageIds()) {
             try {
                 startPlugin(packageId);
             } catch (RuntimeException e) {
@@ -428,7 +429,7 @@ public class PluginRuntimeManager {
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
                                                     PluginDescriptor packageDescriptor,
                                                     PluginArtifactSnapshot productionSnapshot) {
-        if (entries.containsKey(packageDescriptor.id())) {
+        if (packageIndex.contains(packageDescriptor.id())) {
             workspaceOwner.discard(productionSnapshot);
             throw new PluginRuntimeOperationException("plugin package already loaded: " + packageDescriptor.id());
         }
@@ -460,7 +461,7 @@ public class PluginRuntimeManager {
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw failure;
         }
-        if (entries.containsKey(packageId)) {
+        if (packageIndex.contains(packageId)) {
             // 不得在重复加载分支调用 unloadPlugin：PF4J 返回的 id 可能指向原有 wrapper，
             // 此时卸载会错误释放仍在服务的旧 generation。
             PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
@@ -492,15 +493,18 @@ public class PluginRuntimeManager {
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw operationFailure("failed to inspect loaded plugin descriptor " + packageId, failure);
         }
-        long generation = generations.merge(packageId, 1L, Long::sum);
-        RuntimeEntry entry = new RuntimeEntry(packageId,
-                artifactPath.toAbsolutePath().normalize(), pf4jLoadPath.toAbsolutePath().normalize(),
-                version, generation, PluginRuntimePackagePhase.LOADED,
-                packageDescriptor, productionSnapshot);
-        entries.put(packageId, entry);
+        Entry entry = packageIndex.add(
+                packageId,
+                artifactPath,
+                pf4jLoadPath,
+                version,
+                PluginRuntimePackagePhase.LOADED,
+                packageDescriptor,
+                productionSnapshot
+        );
         try {
             LoadedPluginPackage loaded = snapshot(entry, true);
-            entry.descriptor = validateReleaseShape(loaded);
+            entry.updateDescriptor(validateReleaseShape(loaded));
             refreshStatus();
             return loaded;
         } catch (Throwable failure) {
@@ -512,7 +516,7 @@ public class PluginRuntimeManager {
             }
             try {
                 if (pluginManager.getPlugin(packageId) == null) {
-                    RuntimeEntry removed = entries.remove(packageId);
+                    Entry removed = packageIndex.remove(packageId);
                     if (released) {
                         releaseProductionSnapshot(removed);
                     } else {
@@ -529,15 +533,15 @@ public class PluginRuntimeManager {
 
     /** 启动 PF4J 插件入口，并返回 load 准入时固化的本代功能插件与 Spring 模块快照。 */
     public synchronized LoadedPluginPackage startPlugin(String packageId) {
-        RuntimeEntry entry = requireEntry(packageId);
-        if (entry.phase == PluginRuntimePackagePhase.STARTED) {
+        Entry entry = requireEntry(packageId);
+        if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
             try {
                 return snapshot(entry, true);
             } catch (Throwable failure) {
                 throw operationFailure("failed to inspect started plugin package " + packageId, failure);
             }
         }
-        PluginRuntimePackagePhase previousPhase = entry.phase;
+        PluginRuntimePackagePhase previousPhase = entry.phase();
         PluginState result;
         try {
             result = pluginManager.startPlugin(packageId);
@@ -553,7 +557,7 @@ public class PluginRuntimeManager {
             refreshStatusSafely(failure);
             throw failure;
         }
-        entry.phase = PluginRuntimePackagePhase.STARTED;
+        entry.updatePhase(PluginRuntimePackagePhase.STARTED);
         refreshStatus();
         try {
             return snapshot(entry, true);
@@ -564,8 +568,8 @@ public class PluginRuntimeManager {
 
     /** 停止 PF4J 插件入口但保留 wrapper/classloader。 */
     public synchronized LoadedPluginPackage stopPlugin(String packageId) {
-        RuntimeEntry entry = requireEntry(packageId);
-        if (entry.phase != PluginRuntimePackagePhase.STARTED) {
+        Entry entry = requireEntry(packageId);
+        if (entry.phase() != PluginRuntimePackagePhase.STARTED) {
             try {
                 return snapshot(entry, false);
             } catch (Throwable failure) {
@@ -587,7 +591,7 @@ public class PluginRuntimeManager {
             refreshStatusSafely(failure);
             throw failure;
         }
-        entry.phase = PluginRuntimePackagePhase.STOPPED;
+        entry.updatePhase(PluginRuntimePackagePhase.STOPPED);
         refreshStatus();
         return snapshot(entry, false);
     }
@@ -596,13 +600,13 @@ public class PluginRuntimeManager {
      * 物理卸载并关闭 classloader。存在已加载的非可选反向依赖时拒绝，避免 PF4J 隐式级联卸载。
      */
     public synchronized UnloadedPluginPackage unloadPlugin(String packageId) {
-        RuntimeEntry entry = requireEntry(packageId);
+        Entry entry = requireEntry(packageId);
         List<String> dependents = activeDependents(packageId);
         if (!dependents.isEmpty()) {
             throw new PluginRuntimeOperationException("plugin package " + packageId
                     + " is required by loaded package(s): " + String.join(", ", dependents));
         }
-        if (entry.phase == PluginRuntimePackagePhase.STARTED) {
+        if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
             stopPlugin(packageId);
         }
         boolean unloaded;
@@ -630,50 +634,43 @@ public class PluginRuntimeManager {
             refreshStatusSafely(failure);
             throw failure;
         }
-        RuntimeEntry removed = entries.remove(packageId);
+        Entry removed = packageIndex.remove(packageId);
         releaseProductionSnapshot(removed);
         refreshStatus();
-        return new UnloadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation);
+        return new UnloadedPluginPackage(
+                entry.packageId(), entry.artifactPath(), entry.version(), entry.generation());
     }
 
     /** 当前已加载包的纯值阶段快照。 */
     public synchronized Map<String, PluginRuntimePackagePhase> packagePhases() {
-        return Map.copyOf(phaseSnapshot());
+        return packageIndex.packagePhases();
     }
 
     private Map<String, PluginRuntimePackagePhase> phaseSnapshot() {
-        Map<String, PluginRuntimePackagePhase> result = new LinkedHashMap<>();
-        entries.forEach((id, entry) -> result.put(id, entry.phase));
-        return result;
+        return packageIndex.packagePhases();
     }
 
     public synchronized Optional<Long> generation(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry == null ? Optional.empty() : Optional.of(entry.generation);
+        return packageIndex.generation(packageId);
     }
 
     public synchronized Optional<Path> artifactPath(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry == null ? Optional.empty() : Optional.of(entry.artifactPath);
+        return packageIndex.artifactPath(packageId);
     }
 
     /** 当前已加载 generation 是否来自显式插件开发模式。 */
     public synchronized boolean isDevelopmentArtifact(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry != null && entry.productionSnapshot == null;
+        return packageIndex.isDevelopmentArtifact(packageId);
     }
 
     /** 当前已加载 generation 的纯值描述符；停止服务不移除，物理卸载时随 runtime entry 一并释放。 */
     public synchronized Optional<PluginDescriptor> loadedDescriptor(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
-        return entry == null ? Optional.empty() : Optional.of(entry.descriptor);
+        return packageIndex.descriptor(packageId);
     }
 
     /** 全部已加载 generation 的纯值描述符快照，包含 LOADED / STARTED / STOPPED。 */
     public synchronized Map<String, PluginDescriptor> loadedDescriptors() {
-        Map<String, PluginDescriptor> result = new LinkedHashMap<>();
-        entries.forEach((id, entry) -> result.put(id, entry.descriptor));
-        return Map.copyOf(result);
+        return packageIndex.descriptors();
     }
 
     /** 当前已加载的非可选反向依赖包。 */
@@ -713,8 +710,8 @@ public class PluginRuntimeManager {
         List<PluginInstallation> installations = new ArrayList<>();
         List<PluginContextModule> contextModules = new ArrayList<>();
         List<PluginLoadFailure> failures = new ArrayList<>();
-        for (RuntimeEntry entry : entries.values()) {
-            if (entry.phase != PluginRuntimePackagePhase.STARTED) {
+        for (Entry entry : packageIndex.entries()) {
+            if (entry.phase() != PluginRuntimePackagePhase.STARTED) {
                 continue;
             }
             PluginInventory captured = contributionSnapshot(entry);
@@ -750,9 +747,9 @@ public class PluginRuntimeManager {
 
     /** 当前所有 STARTED 包的代际快照。 */
     public synchronized List<LoadedPluginPackage> startedPackages() {
-        return entries.values().stream()
-                .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
-                .sorted(Comparator.comparing(entry -> entry.packageId))
+        return packageIndex.entries().stream()
+                .filter(entry -> entry.phase() == PluginRuntimePackagePhase.STARTED)
+                .sorted(Comparator.comparing(Entry::packageId))
                 .map(entry -> snapshot(entry, true))
                 .toList();
     }
@@ -766,18 +763,16 @@ public class PluginRuntimeManager {
     public synchronized void shutdown() {
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
-        if (previous == null && entries.isEmpty() && previousDevelopmentSession == null
+        if (previous == null && packageIndex.isEmpty() && previousDevelopmentSession == null
                 && !workspaceOwner.hasUnconfirmedSnapshots()) {
             // 已关闭（或从未扫描）：清空残余引用即返回，幂等。
-            generations.clear();
+            packageIndex.clearGenerations();
             status = null;
             return;
         }
-        List<RuntimeEntry> previousEntries = List.copyOf(entries.values());
+        List<Entry> previousEntries = packageIndex.clearAll();
         pluginManager = null;
         developmentCacheSession = null;
-        entries.clear();
-        generations.clear();
         status = null;
         boolean released = previous == null || bestEffortStopAndUnload(previous, "shutdown");
         workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "shutdown");
@@ -788,15 +783,16 @@ public class PluginRuntimeManager {
         return pluginsRoot;
     }
 
-    private LoadedPluginPackage snapshot(RuntimeEntry entry, boolean includeContributions) {
+    private LoadedPluginPackage snapshot(Entry entry, boolean includeContributions) {
         PluginInventory inventory = PluginInventory.empty();
         List<PluginContextModule> modules = List.of();
         if (includeContributions && pluginManager != null) {
             inventory = contributionSnapshot(entry);
             modules = inventory.contextModules();
         }
-        return new LoadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation,
-                entry.phase, inventory, modules);
+        return new LoadedPluginPackage(
+                entry.packageId(), entry.artifactPath(), entry.version(), entry.generation(),
+                entry.phase(), inventory, modules);
     }
 
     /** bootstrap 子类可在扫描或任意单包加载（含开发目录）触碰 entry 前取得并复核跨进程目录租约。 */
@@ -808,13 +804,13 @@ public class PluginRuntimeManager {
      * 每个物理 generation 恰好读取一次 provider 的 feature/configuration 声明并固化为宿主快照。
      * load、start、Spring 接入与状态查询只复用该快照，禁止状态化 getter 改变已验证身份或制造半份装配。
      */
-    private PluginInventory contributionSnapshot(RuntimeEntry entry) {
-        if (entry.contributionSnapshot == null) {
+    private PluginInventory contributionSnapshot(Entry entry) {
+        if (entry.contributionSnapshot() == null) {
             PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
-            entry.contributionSnapshot = attachPackageMetadata(
-                    bridge.inspectLoadedPackage(pluginManager, entry.packageId));
+            entry.updateContributionSnapshot(attachPackageMetadata(
+                    bridge.inspectLoadedPackage(pluginManager, entry.packageId())));
         }
-        return entry.contributionSnapshot;
+        return entry.contributionSnapshot();
     }
 
     /**
@@ -824,12 +820,12 @@ public class PluginRuntimeManager {
     private PluginInventory attachPackageMetadata(PluginInventory inventory) {
         List<PluginInstallation> installations = inventory.installations().stream()
                 .map(installation -> {
-                    RuntimeEntry entry = entries.get(installation.descriptor().sourcePluginId());
+                    Entry entry = packageIndex.get(installation.descriptor().sourcePluginId());
                     if (entry == null) {
                         return installation;
                     }
                     PluginDescriptor descriptor = installation.descriptor()
-                            .withPackageMetadataFrom(entry.descriptor);
+                            .withPackageMetadataFrom(entry.descriptor());
                     return new PluginInstallation(descriptor, installation.status(), installation.classLoader(),
                             installation.plugin());
                 })
@@ -972,7 +968,7 @@ public class PluginRuntimeManager {
     }
 
     private LoadedPluginPackage loadPreparedProductionArtifact(PreparedPluginArtifact prepared) {
-        if (entries.containsKey(prepared.inspection().descriptor().id())) {
+        if (packageIndex.contains(prepared.inspection().descriptor().id())) {
             throw new PluginRuntimeOperationException(
                     "plugin package already loaded: " + prepared.inspection().descriptor().id());
         }
@@ -983,8 +979,8 @@ public class PluginRuntimeManager {
                 prepared.inspection().descriptor(), ownedSnapshot);
     }
 
-    private RuntimeEntry requireEntry(String packageId) {
-        RuntimeEntry entry = entries.get(packageId);
+    private Entry requireEntry(String packageId) {
+        Entry entry = packageIndex.get(packageId);
         if (entry == null || pluginManager == null) {
             throw new PluginRuntimeOperationException("plugin package is not loaded: " + packageId);
         }
@@ -1011,7 +1007,7 @@ public class PluginRuntimeManager {
     }
 
     private void refreshStatus() {
-        if (status == null && entries.isEmpty()) {
+        if (status == null && packageIndex.isEmpty()) {
             return;
         }
         PluginRuntimeStatus current = status == null
@@ -1024,10 +1020,9 @@ public class PluginRuntimeManager {
     private synchronized void resetPluginManager() {
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
-        List<RuntimeEntry> previousEntries = List.copyOf(entries.values());
+        List<Entry> previousEntries = packageIndex.clearEntries();
         pluginManager = null;
         developmentCacheSession = null;
-        entries.clear();
         boolean released = previous == null || bestEffortStopAndUnload(previous, "reset");
         workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "reset");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "reset");
@@ -1120,18 +1115,18 @@ public class PluginRuntimeManager {
         }
     }
 
-    private void releaseProductionSnapshot(RuntimeEntry removedEntry) {
+    private void releaseProductionSnapshot(Entry removedEntry) {
         if (removedEntry == null) {
             return;
         }
         // 一个失败 load 可能留下多个 wrapper；它们共享同一 snapshot，只有最后一个 entry 移除后才关闭。
-        workspaceOwner.release(removedEntry.productionSnapshot,
-                entries.values().stream().map(entry -> entry.productionSnapshot).toList());
+        workspaceOwner.release(
+                removedEntry.productionSnapshot(), packageIndex.productionSnapshots());
     }
 
-    private void retainUnconfirmedProductionSnapshot(RuntimeEntry removedEntry) {
+    private void retainUnconfirmedProductionSnapshot(Entry removedEntry) {
         if (removedEntry != null) {
-            workspaceOwner.retainUnconfirmed(removedEntry.productionSnapshot);
+            workspaceOwner.retainUnconfirmed(removedEntry.productionSnapshot());
         }
     }
 
@@ -1139,8 +1134,8 @@ public class PluginRuntimeManager {
         workspaceOwner.retainUnconfirmed(snapshot);
     }
 
-    private static List<PluginArtifactSnapshot> productionSnapshots(List<RuntimeEntry> runtimeEntries) {
-        return runtimeEntries.stream().map(entry -> entry.productionSnapshot).toList();
+    private static List<PluginArtifactSnapshot> productionSnapshots(List<Entry> runtimeEntries) {
+        return runtimeEntries.stream().map(Entry::productionSnapshot).toList();
     }
 
     private Set<String> loadedWrapperIds() {
@@ -1220,23 +1215,22 @@ public class PluginRuntimeManager {
             PluginDescriptor packageDescriptor,
             PluginArtifactSnapshot productionSnapshot,
             Throwable primaryFailure) {
-        if (entries.containsKey(pluginId)) {
+        if (packageIndex.contains(pluginId)) {
             retainUnconfirmedProductionSnapshot(productionSnapshot);
             return;
         }
         try {
-            long generation = generations.merge(pluginId, 1L, Long::sum);
             PluginRuntimePackagePhase phase = wrapper.getPluginState() == PluginState.STARTED
                     ? PluginRuntimePackagePhase.STARTED : PluginRuntimePackagePhase.LOADED;
-            entries.put(pluginId, new RuntimeEntry(
+            packageIndex.add(
                     pluginId,
-                    artifactPath.toAbsolutePath().normalize(),
-                    pf4jLoadPath.toAbsolutePath().normalize(),
+                    artifactPath,
+                    pf4jLoadPath,
                     wrapper.getDescriptor().getVersion(),
-                    generation,
                     phase,
                     packageDescriptor,
-                    productionSnapshot));
+                    productionSnapshot
+            );
         } catch (Throwable retentionFailure) {
             addSuppressedSafely(primaryFailure, retentionFailure);
             retainUnconfirmedProductionSnapshot(productionSnapshot);
@@ -1245,17 +1239,17 @@ public class PluginRuntimeManager {
 
     /** PF4J 可能先改变 wrapper 状态再抛错；错误边界前把本地 entry 对齐到可观测事实。 */
     private void reconcileEntryWithWrapper(
-            RuntimeEntry entry, PluginRuntimePackagePhase nonStartedPhase, Throwable primaryFailure) {
+            Entry entry, PluginRuntimePackagePhase nonStartedPhase, Throwable primaryFailure) {
         try {
-            PluginWrapper wrapper = pluginManager.getPlugin(entry.packageId);
+            PluginWrapper wrapper = pluginManager.getPlugin(entry.packageId());
             if (wrapper == null) {
-                RuntimeEntry removed = entries.remove(entry.packageId);
+                Entry removed = packageIndex.remove(entry.packageId());
                 // 本方法只在 PF4J 原语抛错或返回异常状态时调用；wrapper 消失不等于 classloader 已释放。
                 retainUnconfirmedProductionSnapshot(removed);
                 return;
             }
-            entry.phase = wrapper.getPluginState() == PluginState.STARTED
-                    ? PluginRuntimePackagePhase.STARTED : nonStartedPhase;
+            entry.updatePhase(wrapper.getPluginState() == PluginState.STARTED
+                    ? PluginRuntimePackagePhase.STARTED : nonStartedPhase);
         } catch (Throwable inspectionFailure) {
             addSuppressedSafely(primaryFailure, inspectionFailure);
         }
@@ -1320,28 +1314,4 @@ public class PluginRuntimeManager {
         return origin -> fixed;
     }
 
-    private static final class RuntimeEntry {
-        private final String packageId;
-        private final Path artifactPath;
-        private final Path pf4jLoadPath;
-        private final String version;
-        private final long generation;
-        private PluginRuntimePackagePhase phase;
-        private PluginDescriptor descriptor;
-        private PluginInventory contributionSnapshot;
-        private final PluginArtifactSnapshot productionSnapshot;
-
-        private RuntimeEntry(String packageId, Path artifactPath, Path pf4jLoadPath, String version,
-                             long generation, PluginRuntimePackagePhase phase, PluginDescriptor descriptor,
-                             PluginArtifactSnapshot productionSnapshot) {
-            this.packageId = packageId;
-            this.artifactPath = artifactPath;
-            this.pf4jLoadPath = pf4jLoadPath;
-            this.version = version;
-            this.generation = generation;
-            this.phase = phase;
-            this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
-            this.productionSnapshot = productionSnapshot;
-        }
-    }
 }
