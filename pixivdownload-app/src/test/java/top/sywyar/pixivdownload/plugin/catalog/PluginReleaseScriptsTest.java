@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -321,6 +324,8 @@ class PluginReleaseScriptsTest {
         String common = script("plugin-distribution-common.ps1");
         String distribution = script("assemble-plugin-distribution.ps1");
         String windows = script("package-local.ps1");
+        String windowsPluginStaging = script("package-local-plugin-staging.ps1");
+        String windowsCatalog = script("package-local-installer-catalog.ps1");
         String catalogStage = script("stage-official-plugin-inputs-from-catalog.ps1");
         String ffmpegIntegrity = script("ffmpeg-release-integrity.ps1");
         String inno = innoScript();
@@ -361,15 +366,15 @@ class PluginReleaseScriptsTest {
                 .isLessThan(signedProvenance.group("body").indexOf("\"status=VERIFIED\""));
         assertThat(signedProvenance.group("body").indexOf("[string]::Equals($artifactSha256, $Sha256"))
                 .isLessThan(signedProvenance.group("body").indexOf("\"status=VERIFIED\""));
-        for (String script : List.of(distribution, windows)) {
+        for (String script : List.of(distribution, windowsPluginStaging)) {
             assertThat(script).contains(
                     "Find-PluginArtifactSignatureSidecar",
                     "Get-PluginArtifactSignatureForDistribution",
                     "Write-PluginProvenanceSidecar",
-                    "Assert-NoPrivateKeyMaterial",
                     "signature = $signature"
             );
         }
+        assertThat(windows).contains("Assert-NoPrivateKeyMaterial");
         assertThat(distribution).contains(
                 "[string]$PrebuiltPluginsDir",
                 "Find-PrebuiltPluginArtifact",
@@ -382,21 +387,10 @@ class PluginReleaseScriptsTest {
                 "$EnableInstallerPluginSelection = $false",
                 "Get-OfficialDefaultInstalledPlugins",
                 "Stage-InstallerPluginCatalogSnapshot",
-                "Write-InstallerPluginCatalogProjection",
-                "Write-InstallerPluginCatalogInclude",
-                "Escape-InstallerCatalogIssString",
                 "$InstallerCatalogIncludePath = Join-Path $BuildRoot \"installer-plugin-catalog-items.iss.inc\"",
-                "[AllowEmptyString()][string]$Fallback",
-                "\"verify-manifest\"",
-                "installer-catalog",
-                "catalog.en.txt",
-                "catalog.zh-CN.txt",
                 "installer-plugin-catalog-items.iss.inc",
-                "Get-InstallerCatalogProp $market \"defaultInstalled\"",
                 "if ($EnableInstallerPluginSelection)",
                 "[switch]$AllowUnsignedLocalPlugins",
-                "Write-UnsignedLocalPluginProvenanceSidecar",
-                "LOCAL-UNSIGNED-BUILD.txt",
                 "AllowUnsignedLocalPlugins only accepts plugin artifacts built from the current source tree",
                 "AllowUnsignedLocalPlugins requires SkipPortable and SkipOfflinePortable",
                 "AllowUnsignedLocalPlugins is only for building a local test installer",
@@ -410,6 +404,19 @@ class PluginReleaseScriptsTest {
                 "/DSdkVersion=$InstallerSdkVersion",
                 "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
                 "/DSignatureToolJar=$SignatureToolJar");
+        assertThat(windowsPluginStaging).contains(
+                "Write-UnsignedLocalPluginProvenanceSidecar",
+                "LOCAL-UNSIGNED-BUILD.txt");
+        assertThat(windowsCatalog).contains(
+                "Write-InstallerPluginCatalogProjection",
+                "Write-InstallerPluginCatalogInclude",
+                "Escape-InstallerCatalogIssString",
+                "[AllowEmptyString()][string]$Fallback",
+                "\"verify-manifest\"",
+                "installer-catalog",
+                "catalog.en.txt",
+                "catalog.zh-CN.txt",
+                "Get-InstallerCatalogProp $market \"defaultInstalled\"");
         assertThat(catalogStage).contains(
                 "$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
                 "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
@@ -557,6 +564,8 @@ class PluginReleaseScriptsTest {
     void provenancePowerShellScriptsAreAsciiWithoutBom() throws Exception {
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("plugin-distribution-common.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("ffmpeg-release-integrity.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-plugin-staging.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-installer-catalog.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
                 .resolve("installer-plugin-install.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
@@ -784,12 +793,133 @@ class PluginReleaseScriptsTest {
         assertThat(script("stage-official-plugin-inputs-from-catalog.ps1")).contains(
                 "Get-Prop $Package \"requiredSdk\"",
                 "Get-Prop $Package \"requiredCoreApi\"");
-        assertThat(script("package-local.ps1")).contains(
+        assertThat(script("package-local-installer-catalog.ps1")).contains(
                 "Get-InstallerCatalogProp $Package \"requiredSdk\"",
                 "Get-InstallerCatalogProp $Package \"requiredCoreApi\"");
         assertThat(innoSupportScript("installer-plugin-install.ps1")).contains(
                 "Get-Prop $Package \"requiredSdk\"",
                 "Get-Prop $Package \"requiredCoreApi\"");
+    }
+
+    @Test
+    @DisplayName("安装器目录投影执行公开入口并按 SDK 与安装集合过滤")
+    void installerCatalogProjectionExecutesPublicEntryPoint(@TempDir Path tempDir) throws Exception {
+        assumeTrue(canRun("powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
+                        || canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"),
+                "PowerShell 不可用，跳过行为测试");
+        Path manifest = tempDir.resolve("manifest.json");
+        Files.writeString(manifest, """
+                {
+                  "entries": [
+                    {
+                      "pluginId": "optional-sample",
+                      "market": {
+                        "officialRequired": false,
+                        "defaultInstalled": false,
+                        "latestVersion": "1.2.3",
+                        "displayName": {"en": "Optional Sample", "zh": "可选示例"},
+                        "summary": {"en": "Install on demand", "zh": "按需安装"},
+                        "category": "tools"
+                      },
+                      "packages": [{
+                        "version": "1.2.3",
+                        "packageUrl": "https://example.invalid/sample.jar",
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "expectedSizeBytes": 123,
+                        "signature": {"formatVersion": 1},
+                        "requiredSdk": "1.0"
+                      }]
+                    },
+                    {
+                      "pluginId": "default-sample",
+                      "market": {
+                        "officialRequired": false,
+                        "defaultInstalled": true,
+                        "latestVersion": "1.0.0",
+                        "displayName": {"en": "Default Sample"}
+                      },
+                      "packages": [{
+                        "version": "1.0.0",
+                        "packageUrl": "https://example.invalid/default.jar",
+                        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "expectedSizeBytes": 456,
+                        "signature": {"formatVersion": 1},
+                        "requiredSdk": "1.0"
+                      }]
+                    }
+                  ]
+                }
+                """, StandardCharsets.UTF_8);
+
+        String rowsJson = runPowerShell(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/package-local-installer-catalog.ps1'; "
+                        + "$rows=@(New-InstallerCatalogProjectionRows -ManifestPath '" + psQuote(manifest)
+                        + "' -Language 'en' -SdkVersion '1.0.0'); "
+                        + "ConvertTo-Json -InputObject $rows -Depth 4 -Compress");
+        JsonNode rows = new ObjectMapper().readTree(rowsJson);
+        assertThat(rows.isArray()).isTrue();
+        assertThat(rows.size()).isEqualTo(1);
+        assertThat(rows.get(0).path("PluginId").asText()).isEqualTo("optional-sample");
+        assertThat(rows.get(0).path("Version").asText()).isEqualTo("1.2.3");
+        assertThat(rows.get(0).path("DisplayName").asText()).isEqualTo("Optional Sample");
+        assertThat(rows.get(0).path("Summary").asText()).isEqualTo("Install on demand");
+        assertThat(rows.get(0).path("Size").asText()).isEqualTo("123");
+
+        CommandResult failure = runPowerShellResult(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/package-local-installer-catalog.ps1'; "
+                        + "$null=New-InstallerCatalogProjectionRows -ManifestPath '"
+                        + psQuote(tempDir.resolve("missing.json")) + "' -Language 'en' -SdkVersion '1.0.0'");
+        assertThat(failure.exitCode()).as(failure.output()).isNotZero();
+    }
+
+    @Test
+    @DisplayName("本地插件暂存执行公开入口并写出可复验布局")
+    void packageLocalPluginStagingExecutesPublicEntryPoint(@TempDir Path tempDir) throws Exception {
+        assumeTrue(canRun("powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
+                        || canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"),
+                "PowerShell 不可用，跳过行为测试");
+        Path prebuilt = Files.createDirectories(tempDir.resolve("prebuilt"));
+        Path appDir = Files.createDirectories(tempDir.resolve("app"));
+        writeThinPluginJar(prebuilt.resolve("sample-module-1.0.0.jar"), "sample", "1.0.0", "1.0");
+
+        String command = "$ErrorActionPreference='Stop'; "
+                + ". './scripts/package-local-plugin-staging.ps1'; "
+                + "$plugin=[pscustomobject]@{Id='sample';Module='sample-module';Format='jar';PrivateLibs=$false}; "
+                + "$count=Stage-OfficialPlugins -AppDir '" + psQuote(appDir) + "' -Plugins @($plugin) "
+                + "-PrebuiltPluginsDir '" + psQuote(prebuilt) + "' -ProjectRoot '" + psQuote(repoRoot())
+                + "' -AllowUnsignedLocalPlugins; Write-Output ('RESULT:'+$count)";
+        CommandResult result = runPowerShellResult(command);
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.output()).contains("RESULT:1");
+
+        Path plugins = appDir.resolve("plugins");
+        Path artifact = plugins.resolve("sample-module.jar");
+        assertThat(artifact).isRegularFile();
+        assertThat(plugins.resolve("sample-module.jar.sha256")).isRegularFile();
+        assertThat(plugins.resolve("SHA256SUMS")).isRegularFile();
+        assertThat(plugins.resolve("LOCAL-UNSIGNED-BUILD.txt")).isRegularFile();
+        assertThat(plugins.resolve("sample-module.jar.sig")).doesNotExist();
+        Path provenance = plugins.resolve("provenance/sample-module.jar.pixiv-plugin-provenance");
+        assertThat(provenance).isRegularFile();
+        assertThat(Files.readString(provenance, StandardCharsets.UTF_8))
+                .contains("source=LOCAL_UPLOAD", "status=UNSIGNED_ALLOWED");
+
+        JsonNode manifest = new ObjectMapper().readTree(
+                Files.readString(plugins.resolve("plugins-manifest.json"), StandardCharsets.UTF_8));
+        JsonNode entry = manifest.isArray() ? manifest.get(0) : manifest;
+        assertThat(entry.path("id").asText()).isEqualTo("sample");
+        assertThat(entry.path("version").asText()).isEqualTo("1.0.0");
+        assertThat(entry.path("requires").asText()).isEqualTo("1.0");
+        assertThat(entry.path("file").asText()).isEqualTo("sample-module.jar");
+        assertThat(entry.path("source").asText()).isEqualTo("LOCAL_UPLOAD");
+        assertThat(entry.path("verification").asText()).isEqualTo("UNSIGNED_ALLOWED");
+
+        CommandResult failure = runPowerShellResult(
+                "$ErrorActionPreference='Stop'; . './scripts/package-local-plugin-staging.ps1'; "
+                        + "$null=Resolve-PrebuiltPluginsDir '" + psQuote(tempDir.resolve("missing")) + "'");
+        assertThat(failure.exitCode()).as(failure.output()).isNotZero();
     }
 
     @Test
@@ -1020,7 +1150,9 @@ class PluginReleaseScriptsTest {
         for (String name : List.of(
                 "package-java-distributions.ps1",
                 "assemble-plugin-distribution.ps1",
-                "package-local.ps1")) {
+                "package-local.ps1",
+                "package-local-plugin-staging.ps1",
+                "package-local-installer-catalog.ps1")) {
             assertThat(script(name)).as(name).doesNotContain(
                     "Id = \"download-workbench\"",
                     "Id = \"gui-swing\"",
@@ -1194,7 +1326,9 @@ class PluginReleaseScriptsTest {
                 "assemble-plugin-distribution.ps1",
                 "package-java-distributions.ps1",
                 "package-installer-with-plugins.ps1",
-                "package-local.ps1")) {
+                "package-local.ps1",
+                "package-local-plugin-staging.ps1",
+                "package-local-installer-catalog.ps1")) {
             String script = script(name);
             assertThat(script).as(name).doesNotContain("-----BEGIN PRIVATE KEY-----");
             assertThat(script).as(name).doesNotContain("-----END PRIVATE KEY-----");
@@ -1723,6 +1857,12 @@ class PluginReleaseScriptsTest {
     }
 
     private static String runPowerShell(String command) throws Exception {
+        CommandResult result = runPowerShellResult(command);
+        assertThat(result.exitCode()).as("PowerShell failed: %s", result.output()).isEqualTo(0);
+        return result.output();
+    }
+
+    private static CommandResult runPowerShellResult(String command) throws Exception {
         String executable = canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
                 ? "pwsh" : "powershell";
         Process process = new ProcessBuilder(executable, "-NoProfile", "-Command", command)
@@ -1730,8 +1870,22 @@ class PluginReleaseScriptsTest {
                 .redirectErrorStream(true)
                 .start();
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-        assertThat(process.waitFor()).as("PowerShell failed: %s", output).isEqualTo(0);
-        return output;
+        return new CommandResult(process.waitFor(), output);
+    }
+
+    private static String psQuote(Path path) {
+        return path.toAbsolutePath().toString().replace("'", "''");
+    }
+
+    private static void writeThinPluginJar(Path path, String id, String version, String requires)
+            throws IOException {
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(path), StandardCharsets.UTF_8)) {
+            zip.putNextEntry(new ZipEntry("plugin.properties"));
+            zip.write(("plugin.id=" + id + "\n"
+                    + "plugin.version=" + version + "\n"
+                    + "plugin.requires=" + requires + "\n").getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
     }
 
     private static Map<String, String> readProperties(Path path) throws IOException {
@@ -1800,5 +1954,8 @@ class PluginReleaseScriptsTest {
     }
 
     private record OfficialPlugin(String id, String module) {
+    }
+
+    private record CommandResult(int exitCode, String output) {
     }
 }
