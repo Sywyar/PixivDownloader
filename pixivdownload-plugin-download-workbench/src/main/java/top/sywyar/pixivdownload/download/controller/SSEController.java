@@ -80,7 +80,7 @@ public class SSEController {
     }
 
     SSEController(
-            TaskScheduler taskScheduler,
+            @Qualifier("downloadWorkbenchTaskScheduler") TaskScheduler taskScheduler,
             RequestOwnerIdentityResolver requestOwnerIdentityResolver,
             MessageResolver messages,
             PluginStreamRegistrar pluginStreamRegistrar,
