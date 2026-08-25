@@ -246,6 +246,7 @@ public class NovelDownloadService implements NovelDownloader {
 
             // Write file
             status.setStage("writing");
+            String ext = format.ext();
             documentWriter.write(
                     format,
                     novelId,
