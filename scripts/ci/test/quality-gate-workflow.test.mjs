@@ -166,16 +166,27 @@ test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五�
     assert.equal(ffmpeg.env.LIBWEBP_COMMIT, '4fa21912338357f89e4fd51cf2368325b59e9bd9');
     assert.deepEqual(policy.workflows['.github/workflows/build-stable-ffmpeg.yml'].requiredTriggers,
         ['workflow_dispatch']);
-    const text = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'build-stable-ffmpeg.yml'), 'utf8');
-    assert.match(text, /gpg --batch --verify/);
-    assert.match(text, /if \[\[ "\$ASSET_ID" == "macos-x64" \]\]; then\s+brew install nasm/);
-    assert.match(text, /--pkg-config=pkg-config/);
-    assert.match(text, /tail -n 200 ffbuild\/config\.log/);
-    assert.match(text, /CONFIG_LIBWEBP_ENCODER 1\$' config_components\.h/);
-    assert.match(text, /ffmpeg-LGPLv2\.1\.txt/);
-    assert.match(text, /libwebp-COPYING\.txt/);
-    assert.match(text, /libwebp-PATENTS\.txt/);
-    assert.doesNotMatch(text, /BtbN|ffmpeg-master-latest/);
+    const sourceVerification = ffmpeg.jobs['resolve-source'].steps
+        .find((step) => step.name === 'Resolve and verify official stable source');
+    const dependencyInstall = ffmpeg.jobs.build.steps
+        .find((step) => step.name === 'Install build dependencies');
+    const platformBuild = ffmpeg.jobs.build.steps
+        .find((step) => step.name === 'Build FFmpeg and libwebp');
+    const packageBinaries = ffmpeg.jobs.build.steps
+        .find((step) => step.name === 'Verify and package binaries');
+    assert.ok(sourceVerification);
+    assert.ok(dependencyInstall);
+    assert.ok(platformBuild);
+    assert.ok(packageBinaries);
+    assert.match(sourceVerification.run, /gpg --batch --verify/);
+    assert.match(dependencyInstall.run, /if \[\[ "\$ASSET_ID" == "macos-x64" \]\]; then\s+brew install nasm/);
+    assert.match(platformBuild.run, /--pkg-config=pkg-config/);
+    assert.match(platformBuild.run, /tail -n 200 ffbuild\/config\.log/);
+    assert.match(platformBuild.run, /CONFIG_LIBWEBP_ENCODER 1\$' config_components\.h/);
+    assert.match(packageBinaries.run, /ffmpeg-LGPLv2\.1\.txt/);
+    assert.match(packageBinaries.run, /libwebp-COPYING\.txt/);
+    assert.match(packageBinaries.run, /libwebp-PATENTS\.txt/);
+    assert.doesNotMatch(JSON.stringify(ffmpeg), /BtbN|ffmpeg-master-latest/);
 });
 
 test('发布链：外部 ref 与输入先校验，再通过环境变量进入 shell', () => {
