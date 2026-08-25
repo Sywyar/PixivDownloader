@@ -218,12 +218,6 @@
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
-    "pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel-gallery/pixiv-novel-gallery.css": {
-      "hardcodedColors": 79,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
     "pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel.html": {
       "hardcodedColors": 0,
       "inlineStyles": 8,
