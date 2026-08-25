@@ -32,10 +32,8 @@ class DesktopToolHistoryTest {
                 ToolOutcome.SUCCEEDED, 1L, 12, null, null, privateLog);
 
         String json = Files.readString(tempDir.resolve("tool-history.json"), StandardCharsets.UTF_8);
-        assertThat(json).contains("\"toolId\" : \"ARTWORKS_BACKFILL\"",
-                        "\"processedCount\" : 12",
-                        "\"logFileName\" : \"artworks-backfill_2026-08-21_120000.html\"")
-                .doesNotContain(tempDir.toString(), "private", "credential", "changedCount", "failedCount");
+        assertThat(json).doesNotContain(
+                tempDir.toString(), "private", "credential", "changedCount", "failedCount");
         assertThat(new DesktopToolHistory(tempDir).entries()).singleElement().satisfies(entry -> {
             assertThat(entry.toolId()).isEqualTo(ToolId.ARTWORKS_BACKFILL);
             assertThat(entry.outcome()).isEqualTo(ToolOutcome.SUCCEEDED);

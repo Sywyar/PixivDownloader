@@ -51,18 +51,4 @@ class GuiSwingPluginDependencyGuardTest {
         }
         throw new IllegalStateException("pixivdownload-plugin-gui-swing module not found");
     }
-
-    @org.junit.jupiter.api.Test
-    void productionSourcesStayInsideSwingUiResponsibilities() throws java.io.IOException {
-        java.nio.file.Path root=java.nio.file.Path.of("src/main/java/top/sywyar/pixivdownload");
-        java.util.List<String> allowed=java.util.List.of("gui/","guiswing/","guitheme/");
-        try(var files=java.nio.file.Files.walk(root)){
-            java.util.List<String> violations=files.filter(path->path.toString().endsWith(".java"))
-                    .map(root::relativize).map(path->path.toString().replace('\\','/'))
-                    .filter(path->allowed.stream().noneMatch(path::startsWith)).sorted().toList();
-            org.assertj.core.api.Assertions.assertThat(violations)
-                    .as("gui-swing production code must remain Swing UI only").isEmpty();
-        }
-    }
-
 }

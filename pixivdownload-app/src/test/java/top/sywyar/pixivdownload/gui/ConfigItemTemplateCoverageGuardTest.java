@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.config;
+package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -7,17 +7,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
+import top.sywyar.pixivdownload.config.DefaultConfigTemplate;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.lang.reflect.Proxy;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -158,21 +157,20 @@ class ConfigItemTemplateCoverageGuardTest {
 
     /** App-owned Schema 中声明的全部核心配置字段键。 */
     private static Set<String> guiFieldKeys() {
-        try {
-            String source = Files.readString(Path.of(
-                    "src/main/java/top/sywyar/pixivdownload/gui/DesktopCoreConfigCatalog.java"), StandardCharsets.UTF_8);
-            Matcher matcher = Pattern.compile("core\\(\\s*\"([^\"]+)\"").matcher(source);
-            Set<String> keys = new TreeSet<>();
-            while (matcher.find()) keys.add(matcher.group(1));
-            for (String day : Set.of("monday", "tuesday", "wednesday", "thursday",
-                    "friday", "saturday", "sunday")) {
-                keys.add("maintenance." + day + ".enabled");
-                keys.add("maintenance." + day + ".time");
-            }
-            return keys;
-        } catch (java.io.IOException failure) {
-            throw new IllegalStateException("无法读取桌面核心配置目录", failure);
-        }
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
+                DesktopUiHost.class.getClassLoader(),
+                new Class<?>[]{DesktopUiHost.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "defaultProxyHost" -> "localhost";
+                    case "defaultProxyPort" -> 7890;
+                    case "defaultMaintenanceTime" -> "04:00";
+                    case "defaultUpdateManifestUrl", "defaultNightlyUpdateManifestUrl" -> "https://example.invalid";
+                    case "currentVersionNightly" -> false;
+                    default -> throw new AssertionError("unexpected DesktopUiHost call: " + method.getName());
+                });
+        return DesktopCoreConfigCatalog.fields(host).stream()
+                .map(GuiConfigFieldContribution::key)
+                .collect(Collectors.toCollection(TreeSet::new));
     }
 
     /** 扫描 {@value #BASE_PACKAGE} 下所有 {@code @ConfigurationProperties} 类，取其前缀（非空）。 */

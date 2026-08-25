@@ -7,6 +7,8 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
+import top.sywyar.pixivdownload.guicompose.model.DesktopUiSnapshot
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import java.awt.Dimension
 import java.awt.Insets
@@ -18,6 +20,8 @@ import java.nio.file.Path
 import java.util.Base64
 import java.util.Locale
 import java.util.ResourceBundle
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.function.Consumer
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -36,14 +40,21 @@ class GuiComposePluginTest {
     }
 
     @Test
-    @DisplayName("桌面文档刷新订阅模型快照且不使用固定频率 Timer")
-    fun subscribesToPublishedSnapshots() {
-        val source = Files.readString(Path.of(
-            "src/main/kotlin/top/sywyar/pixivdownload/guicompose/ComposeDesktopUi.kt",
-        ))
+    @DisplayName("桌面文档只观察较新的发布快照并在 dispose 后停止观察")
+    fun observesPublishedSnapshotsUntilDisposed() {
+        val source = SnapshotSource(snapshot(1))
+        val observed = mutableListOf<Long>()
+        val subscription = DesktopSnapshotObserver(source.current, source::subscribe) {
+            observed += it.revision()
+        }
 
-        assertTrue("model.subscribeSnapshots" in source)
-        assertFalse("Timer(" in source)
+        source.publish(snapshot(2))
+        source.publish(snapshot(1))
+        assertEquals(listOf(2L), observed)
+
+        subscription.close()
+        source.publish(snapshot(3))
+        assertEquals(listOf(2L), observed)
     }
 
     @Test
@@ -223,6 +234,28 @@ class GuiComposePluginTest {
             DesktopUiNode.Link("link", "action.help", raw("Help"), null, true),
         ),
     )
+
+    private fun snapshot(revision: Long): DesktopUiSnapshot = DesktopUiSnapshot(
+        revision,
+        DesktopUiDocument(listOf(DesktopUiDocument.Page("page", raw("Page"), completeTree()))),
+        emptyMap(),
+    )
+
+    private class SnapshotSource(initial: DesktopUiSnapshot) {
+        var current: DesktopUiSnapshot = initial
+            private set
+        private val listeners = CopyOnWriteArrayList<Consumer<DesktopUiSnapshot>>()
+
+        fun subscribe(listener: Consumer<DesktopUiSnapshot>): AutoCloseable {
+            listeners += listener
+            return AutoCloseable { listeners -= listener }
+        }
+
+        fun publish(snapshot: DesktopUiSnapshot) {
+            current = snapshot
+            listeners.forEach { it.accept(snapshot) }
+        }
+    }
 
     private fun input(id: String, kind: DesktopUiNode.InputKind) = DesktopUiNode.TextInput(
         id, "$id.value", raw(id), null, kind, "", 20, 1, true,

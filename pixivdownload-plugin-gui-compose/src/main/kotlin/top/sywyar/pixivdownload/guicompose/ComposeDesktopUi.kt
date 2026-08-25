@@ -332,9 +332,9 @@ private fun rememberDesktopDocument(model: ComposeDesktopUiModel): DesktopUiSnap
         mutableStateOf(model.snapshot())
     }
     DisposableEffect(model) {
-        val subscription = model.subscribeSnapshots { snapshot ->
+        val subscription = DesktopSnapshotObserver(model.snapshot(), model::subscribeSnapshots) { snapshot ->
             SwingUtilities.invokeLater {
-                if (snapshot.revision() > observed.revision()) observed = snapshot
+                observed = snapshot
             }
         }
         onDispose(subscription::close)

@@ -1,27 +1,24 @@
 package top.sywyar.pixivdownload.plugin;
 
+import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 class SwingUiExtractionBoundaryTest {
     @Test
-    void appProductionSourcesDoNotImportSwing() throws Exception {
-        Path sourceRoot = locateModule().resolve("src/main/java");
-        List<Path> offenders;
-        try (var files = Files.walk(sourceRoot)) {
-            offenders = files.filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> {
-                        try { return Files.readString(path).contains("javax.swing"); }
-                        catch (Exception failure) { throw new IllegalStateException(failure); }
-                    })
-                    .toList();
-        }
-        assertThat(offenders).as("Swing implementation belongs to pixivdownload-plugin-gui-swing").isEmpty();
+    void appProductionClassesDoNotDependOnSwingToolkit() {
+        var classes = new ClassFileImporter().importPath(locateModule().resolve("target/classes"));
+
+        noClasses().should().dependOnClassesThat().resideInAnyPackage(
+                        "javax.swing..",
+                        "com.formdev.flatlaf..",
+                        "com.sun.jna..")
+                .because("Swing, FlatLaf and JNA implementations belong to pixivdownload-plugin-gui-swing")
+                .check(classes);
     }
 
     private static Path locateModule() {
