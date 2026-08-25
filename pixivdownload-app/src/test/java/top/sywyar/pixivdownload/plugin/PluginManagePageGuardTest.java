@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.NoSuchFileException;
+import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +27,14 @@ class PluginManagePageGuardTest {
     private static final String STATIC_ROOT = "static/";
     private static final String HTML = "plugin-manage.html";
     private static final String CSS = "plugin-manage/plugin-manage.css";
+    private static final String CSS_CARDS = "plugin-manage/plugin-manage-cards.css";
+    private static final List<String> STYLESHEETS = List.of(
+            "/plugin-manage/plugin-manage.css",
+            "/" + CSS_CARDS,
+            "/plugin-manage/plugin-manage-install.css",
+            "/plugin-manage/plugin-manage-responsive.css",
+            "/plugin-manage/plugin-manage-theme-controls.css"
+    );
     private static final String CORE = "plugin-manage/plugin-manage-core.js";
     private static final String API = "plugin-manage/plugin-manage-api.js";
     private static final String VIEWS = "plugin-manage/plugin-manage-views.js";
@@ -209,8 +218,16 @@ class PluginManagePageGuardTest {
     }
 
     @Test
-    @DisplayName("页面专属样式独立成文件且支持深色模式（html[data-theme=\"dark\"] 覆盖）")
-    void cssIsSeparateAndDarkModeAware() throws IOException {
+    @DisplayName("页面按职责顺序加载自有样式且支持深色模式")
+    void stylesheetsKeepResponsibilityOrderAndDarkModeSupport() throws IOException {
+        String html = read(HTML);
+        int previous = -1;
+        for (String stylesheet : STYLESHEETS) {
+            int current = html.indexOf("href=\"" + stylesheet + "\"");
+            assertThat(current).as("plugin-manage.html 应加载 " + stylesheet).isGreaterThan(previous);
+            previous = current;
+            assertThat(read(stylesheet.substring(1))).as(stylesheet).isNotBlank();
+        }
         String css = read(CSS);
         assertThat(css).as("深色模式覆盖").contains("html[data-theme=\"dark\"]");
         assertThat(css).as("复用 CSS 变量主题方案").contains("--surface");
@@ -222,7 +239,7 @@ class PluginManagePageGuardTest {
         String core = read(CORE);
         String views = read(VIEWS);
         String init = read(INIT);
-        String css = read(CSS);
+        String css = read(CSS_CARDS);
 
         assertThat(views).as("卡片首行集中图标贴片、标题块、状态与启停开关")
                 .contains("pm-card-head", "pm-card-icon", "pm-card-side", "pm-card-status", "pm-switch");

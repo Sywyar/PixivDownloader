@@ -74,12 +74,6 @@
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
-    "pixivdownload-app/src/main/resources/static/monitor/monitor.css": {
-      "hardcodedColors": 56,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
     "pixivdownload-app/src/main/resources/static/pixiv-invite-detail/invite-detail-actions.js": {
       "hardcodedColors": 0,
       "inlineStyles": 0,
@@ -109,12 +103,6 @@
       "inlineStyles": 0,
       "inlineHandlers": 0,
       "nativeDialogs": 2
-    },
-    "pixivdownload-app/src/main/resources/static/plugin-manage/plugin-manage.css": {
-      "hardcodedColors": 29,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
     },
     "pixivdownload-app/src/main/resources/static/plugin-market/plugin-market.css": {
       "hardcodedColors": 46,

@@ -1,0 +1,89 @@
+/* ── 语言切换（绿色导航栏变体）+ 主题切换（与下载页同款） ── */
+.pixiv-lang-switcher--green {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 12px;
+    border: 1px solid var(--nav-select-border);
+    border-radius: 4px;
+    background: transparent;
+    color: white;
+    font-size: 12px;
+    font-weight: 500;
+    transition: background 0.2s, color 0.2s;
+}
+
+.pixiv-lang-switcher--green:hover {
+    background: var(--nav-select-bg);
+}
+
+.pixiv-lang-switcher--green::before {
+    content: '\f0ac'; /* fa-globe */
+    font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+    font-weight: 900;
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.pixiv-lang-switcher--green .pixiv-lang-switcher__select {
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0 16px 0 0;
+    color: white;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    background-image: linear-gradient(45deg, transparent 50%, white 50%),
+                      linear-gradient(135deg, white 50%, transparent 50%);
+    background-position: calc(100% - 8px) 50%, calc(100% - 4px) 50%;
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+}
+
+.pixiv-lang-switcher--green .pixiv-lang-switcher__select option {
+    background: white;
+    color: var(--native-option-text);
+}
+
+.pixiv-lang-switcher--green .pixiv-lang-switcher__select option:checked {
+    background: var(--accent-blue);
+    color: white;
+}
+
+.pixiv-theme-toggle--green {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--nav-select-border);
+    border-radius: 4px;
+    background: transparent;
+    color: white;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.pixiv-theme-toggle--green:hover {
+    background: var(--nav-select-bg);
+    border-color: var(--nav-select-hover-border);
+}
+
+.pixiv-theme-toggle--green svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select option {
+    background: var(--surface);
+    color: var(--text);
+}
