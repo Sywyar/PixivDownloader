@@ -230,12 +230,6 @@
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
-    "pixivdownload-plugin-tts/src/main/resources/static/pixiv-tts/pixiv-novel-narration.js": {
-      "hardcodedColors": 0,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 4
-    },
     "pixivdownload-plugin-tts/src/main/resources/static/pixiv-tts/pixiv-tts.css": {
       "hardcodedColors": 2,
       "inlineStyles": 0,

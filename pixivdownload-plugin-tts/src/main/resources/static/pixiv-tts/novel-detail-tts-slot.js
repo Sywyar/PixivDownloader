@@ -114,6 +114,11 @@
             BASE + 'tts/tts-ui.js',
             BASE + 'tts/tts-engine-browser.js',
             BASE + 'tts/tts-engine-edge.js',
+            BASE + 'pixiv-novel-narration-core.js',
+            BASE + 'pixiv-novel-narration-marks.js',
+            BASE + 'pixiv-novel-narration-playback.js',
+            BASE + 'pixiv-novel-narration-cast.js',
+            BASE + 'pixiv-novel-narration-dialog.js',
             BASE + 'pixiv-novel-narration.js',
             BASE + 'pixiv-novel-tts.js'
         ];
