@@ -6,7 +6,7 @@
     const modules = global.PixivNovelNarrationModules || (global.PixivNovelNarrationModules = {});
     modules.cast = {
         install(ctx) {
-            const { state, els, t, feedbackPrompt, feedbackConfirm } = ctx.core;
+            const { state, els, t, requireFeedbackPrompt, feedbackPrompt, feedbackConfirm } = ctx.core;
             const { reloadCachedScript, finish, clearCache } = ctx.playback;
     // ---------- 选角 / 冲突面板 ----------
     // 冲突触发时编辑「当前脚本所用花名册」；从设置弹窗触发时编辑「所选花名册」（借用别人的花名册即编辑那份共享册）。
@@ -329,7 +329,7 @@
 
     // 上传真人参考音（wav/mp3）+ 可选转录。
     function uploadRef(v) {
-        if (!state.editCastId) return;
+        if (!state.editCastId || !requireFeedbackPrompt()) return;
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'audio/wav,audio/x-wav,audio/mpeg,audio/mp3,.wav,.mp3';
@@ -474,7 +474,10 @@
     }
 
 
-            ctx.cast = { openCast, openCastFor, closeCast, renderConflicts, renderCastList, previewInstruction, sampleLineFor, bindModal };
+            ctx.cast = {
+                openCast, openCastFor, closeCast, renderConflicts, renderCastList,
+                previewInstruction, sampleLineFor, uploadRef, bindModal
+            };
         }
     };
 })(window);

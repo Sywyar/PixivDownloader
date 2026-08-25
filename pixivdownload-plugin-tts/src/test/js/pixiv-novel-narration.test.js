@@ -157,3 +157,71 @@ test('共享反馈组件缺失时朗读交互显示错误并失败关闭', async
     assert.equal(await ctx.core.feedbackConfirm('confirm'), false);
     assert.deepEqual(toasts.map(function (item) { return item.kind; }), ['error', 'error']);
 });
+
+function installCastSandbox(prompt) {
+    const sandbox = createSandbox();
+    const inputs = [];
+    const requests = [];
+    const toasts = [];
+    if (prompt) sandbox.PixivFeedback = {prompt};
+    sandbox.FormData = class {
+        constructor() { this.entries = []; }
+        append(key, value) { this.entries.push([key, value]); }
+    };
+    sandbox.document = {
+        body: {
+            appendChild() {},
+            removeChild() {}
+        },
+        createElement(tag) {
+            assert.equal(tag, 'input');
+            const input = {
+                style: {},
+                addEventListener(type, listener) {
+                    assert.equal(type, 'change');
+                    input.change = listener;
+                },
+                click() {}
+            };
+            inputs.push(input);
+            return input;
+        }
+    };
+    sandbox.fetch = async function (url, options) {
+        requests.push({url, options});
+        return {ok: true};
+    };
+    evaluate(sandbox, 'pixiv-novel-narration-core.js');
+    evaluate(sandbox, 'pixiv-novel-narration-cast.js');
+    const ctx = {playback: {clearCache() {}, async reloadCachedScript() {}}};
+    sandbox.PixivNovelNarrationModules.core.install(ctx);
+    ctx.core.state.editCastId = 7;
+    ctx.core.state.toast = function (message, kind) { toasts.push({message, kind}); };
+    sandbox.PixivNovelNarrationModules.cast.install(ctx);
+    return {ctx, inputs, requests, toasts};
+}
+
+test('共享输入组件缺失时参考音上传不会打开文件选择或发送请求', function () {
+    const result = installCastSandbox();
+
+    result.ctx.cast.uploadRef({id: 3});
+
+    assert.equal(result.inputs.length, 0);
+    assert.equal(result.requests.length, 0);
+    assert.deepEqual(result.toasts.map(function (item) { return item.kind; }), ['error']);
+});
+
+test('用户取消可选转录后仍上传参考音', async function () {
+    const result = installCastSandbox(async function () { return null; });
+
+    result.ctx.cast.uploadRef({id: 3});
+    assert.equal(result.inputs.length, 1);
+    result.inputs[0].files = [{name: 'voice.wav'}];
+    await result.inputs[0].change();
+
+    assert.equal(result.requests.length, 1);
+    assert.equal(result.requests[0].url, '/api/narration/cast/voice/reference');
+    assert.equal(result.requests[0].options.method, 'POST');
+    assert.deepEqual(result.requests[0].options.body.entries.map(function (entry) { return entry[0]; }),
+        ['castId', 'characterId', 'file']);
+});

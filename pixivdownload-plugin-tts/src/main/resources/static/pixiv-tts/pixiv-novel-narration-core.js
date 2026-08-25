@@ -184,11 +184,14 @@
         }
     }
 
+    function requireFeedbackPrompt() {
+        if (global.PixivFeedback && typeof global.PixivFeedback.prompt === 'function') return true;
+        feedbackUnavailable();
+        return false;
+    }
+
     function feedbackPrompt(message, value) {
-        if (!global.PixivFeedback || typeof global.PixivFeedback.prompt !== 'function') {
-            feedbackUnavailable();
-            return Promise.resolve(null);
-        }
+        if (!requireFeedbackPrompt()) return Promise.resolve(null);
         return global.PixivFeedback.prompt({
             message,
             value,
@@ -213,7 +216,8 @@
 
             ctx.core = {
                 LS, MARK_GAP, MARK_NAME_CAP_RATIO, PREFETCH_AHEAD, PREFETCH_CONCURRENCY,
-                lsGet, lsSet, NarrationStore, state, els, t, feedbackPrompt, feedbackConfirm
+                lsGet, lsSet, NarrationStore, state, els, t,
+                requireFeedbackPrompt, feedbackPrompt, feedbackConfirm
             };
         }
     };
