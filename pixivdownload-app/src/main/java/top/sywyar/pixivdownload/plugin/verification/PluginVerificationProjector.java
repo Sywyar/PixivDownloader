@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.verification;
 
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;

@@ -324,7 +324,7 @@ async function enqueueSeriesAll() {
             seriesAuthorName: seriesState.info.authorName
         }, 'series'));
         if (data.isLastPage === true || data.hasMore === false || !(data.items || []).length) break;
-        // ponytail: runaway guard; fail atomically instead of silently enqueuing a partial series.
+        // ponytail: 防止失控循环；原子失败，避免静默加入不完整系列。
         if (page === 100) {
             abToast('error', bt('pagination.error.page-limit', '分页数量超出安全上限，未加入不完整结果'));
             return;

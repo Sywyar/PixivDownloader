@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin;
+package top.sywyar.pixivdownload.core.schedule.capability;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

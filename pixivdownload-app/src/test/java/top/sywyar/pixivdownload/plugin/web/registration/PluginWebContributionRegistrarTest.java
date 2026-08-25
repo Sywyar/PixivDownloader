@@ -1,9 +1,10 @@
-package top.sywyar.pixivdownload.plugin;
+package top.sywyar.pixivdownload.plugin.web.registration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;

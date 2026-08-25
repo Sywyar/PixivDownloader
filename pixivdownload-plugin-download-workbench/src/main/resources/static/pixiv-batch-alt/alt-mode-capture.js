@@ -410,7 +410,7 @@ async function enqueueQuickAll(action) {
             all.push(...normalizeAcquisitionItems(data.items || data.works || [], acquisition, context, 'quick'));
             const hasMore = !!(data.hasNext || data.hasMore);
             if (!hasMore || !(data.items || data.works || []).length) break;
-            // ponytail: runaway guard; raise only when real accounts exceed this verified ceiling.
+            // ponytail: 防止失控循环；仅在真实账号数超过已验证上限时再提高此值。
             if (page === 200) {
                 abToast('error', bt('pagination.error.page-limit', '分页数量超出安全上限，未加入不完整结果'));
                 return;

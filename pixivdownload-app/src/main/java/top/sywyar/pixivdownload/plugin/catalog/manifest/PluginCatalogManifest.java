@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog.model;
+package top.sywyar.pixivdownload.plugin.catalog.manifest;
 
 import java.util.List;
 import java.util.Optional;

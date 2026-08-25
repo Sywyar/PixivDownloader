@@ -2,15 +2,15 @@ package top.sywyar.pixivdownload.plugin.catalog;
 
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogEntry;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogManifest;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogManifest;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogMarketMeta;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogMarketMeta;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;

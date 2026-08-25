@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.catalog;
 
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;

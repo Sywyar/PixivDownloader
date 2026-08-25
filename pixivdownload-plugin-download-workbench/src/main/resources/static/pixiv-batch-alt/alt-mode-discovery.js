@@ -286,7 +286,7 @@ async function enqueueUserAll() {
                 }
                 const hasMore = !!(data && data.hasMore);
                 if (!hasMore || !pageItems.length) break;
-                // ponytail: runaway guard; fail atomically instead of silently enqueuing a partial account.
+                // ponytail: 防止失控循环；原子失败，避免静默加入不完整账号。
                 if (page === 1000) {
                     throw new Error(bt('pagination.error.page-limit', '分页数量超出安全上限，未加入不完整结果'));
                 }

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.market;
 
 import top.sywyar.pixivdownload.common.SemanticVersion;
-import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogEntry;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 
 import java.util.List;

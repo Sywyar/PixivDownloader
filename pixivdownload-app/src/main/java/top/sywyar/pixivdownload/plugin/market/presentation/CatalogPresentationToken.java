@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog.model;
+package top.sywyar.pixivdownload.plugin.market.presentation;
 
 import java.util.Locale;
 import java.util.Set;

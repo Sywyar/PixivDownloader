@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog.model;
+package top.sywyar.pixivdownload.plugin.catalog.manifest;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;

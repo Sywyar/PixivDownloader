@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin;
+package top.sywyar.pixivdownload.plugin.lifecycle;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigra
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.maintenance.MaintenanceTaskRegistry;
+import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
