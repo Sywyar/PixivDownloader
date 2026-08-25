@@ -177,9 +177,16 @@
         return fallback != null ? fallback : key;
     }
 
+    function feedbackUnavailable() {
+        if (state.toast) {
+            state.toast(t('common:error.feature-unavailable',
+                'This feature is temporarily unavailable. Refresh the page and try again.'), 'error');
+        }
+    }
 
     function feedbackPrompt(message, value) {
         if (!global.PixivFeedback || typeof global.PixivFeedback.prompt !== 'function') {
+            feedbackUnavailable();
             return Promise.resolve(null);
         }
         return global.PixivFeedback.prompt({
@@ -192,6 +199,7 @@
 
     function feedbackConfirm(message) {
         if (!global.PixivFeedback || typeof global.PixivFeedback.confirm !== 'function') {
+            feedbackUnavailable();
             return Promise.resolve(false);
         }
         return global.PixivFeedback.confirm({

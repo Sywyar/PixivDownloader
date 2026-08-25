@@ -6,6 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -35,6 +37,7 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -141,6 +144,23 @@ class NovelDownloadServiceTest {
         other.setRawMetaJson(rawMetaJson);
         request.setOther(other);
         return request;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"txt", "html", "epub"})
+    @DisplayName("下载格式应同时决定输出扩展名与数据库格式")
+    void shouldPersistRequestedFormat(String format) throws Exception {
+        NovelDownloadRequest request = txtRequest(120L, null);
+        request.getOther().setFormat(format);
+
+        assertThat(service.downloadBlocking(request, null)).isTrue();
+        try (var files = Files.list(tempDir.resolve("novel-120"))) {
+            assertThat(files).anyMatch(path -> path.getFileName().toString().endsWith("." + format));
+        }
+        verify(novelDatabase).insertNovel(
+                eq(120L), any(), any(), anyInt(), eq(format), anyLong(), any(), any(),
+                any(), any(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any());
     }
 
     @Test

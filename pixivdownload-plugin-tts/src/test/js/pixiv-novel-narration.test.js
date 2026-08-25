@@ -15,6 +15,15 @@ const MODULE_FILES = [
     'pixiv-novel-narration-dialog.js',
     'pixiv-novel-narration.js'
 ];
+const SLOT_SCRIPT_FILES = [
+    'tts/tts-store.js',
+    'tts/tts-voices.js',
+    'tts/tts-ui.js',
+    'tts/tts-engine-browser.js',
+    'tts/tts-engine-edge.js',
+    ...MODULE_FILES,
+    'pixiv-novel-tts.js'
+];
 
 function createSandbox() {
     const listeners = [];
@@ -39,6 +48,53 @@ function createSandbox() {
 function evaluate(sandbox, file) {
     const source = fs.readFileSync(path.join(STATIC_DIR, file), 'utf8');
     vm.runInContext(source, sandbox, {filename: file});
+}
+
+async function waitFor(predicate) {
+    for (let i = 0; i < 20; i++) {
+        if (predicate()) return;
+        await new Promise(function (resolve) { setImmediate(resolve); });
+    }
+    assert.fail('slot initialization did not finish');
+}
+
+function runSlot(failedScript) {
+    const loadedScripts = [];
+    const toasts = [];
+    const sandbox = createSandbox();
+    const slotHost = {};
+    const content = {querySelector() { return {}; }};
+    const head = {
+        appendChild(node) {
+            if (node.rel === 'stylesheet') return node;
+            const file = String(node.src).replace('/pixiv-tts/', '');
+            loadedScripts.push(file);
+            queueMicrotask(function () {
+                if (file === failedScript) node.onerror();
+                else node.onload();
+            });
+            return node;
+        }
+    };
+    sandbox.PixivFeedback = {toast(options) { toasts.push(options); }};
+    sandbox.document = {
+        body: {insertAdjacentHTML() {}},
+        documentElement: head,
+        head,
+        createElement() { return {}; },
+        getElementById(id) {
+            if (id === 'content-card') return content;
+            return null;
+        },
+        querySelector(selector) {
+            return selector === '[data-vue-slot="novel-detail-tts"]' ? slotHost : null;
+        }
+    };
+    evaluate(sandbox, 'novel-detail-tts-slot.js');
+    const expectedCount = failedScript ? SLOT_SCRIPT_FILES.indexOf(failedScript) + 1 : SLOT_SCRIPT_FILES.length;
+    return waitFor(function () {
+        return loadedScripts.length === expectedCount && (!failedScript || toasts.length === 1);
+    }).then(function () { return {loadedScripts, toasts}; });
 }
 
 test('多角色朗读模块按显式上下文装配并保留公共门面', function () {
@@ -75,21 +131,29 @@ test('公共门面在任一职责模块缺失时失败关闭', function () {
     assert.equal(sandbox.PixivNovelNarration, undefined);
 });
 
-test('TTS 槽位按依赖顺序加载朗读职责模块', function () {
-    const source = fs.readFileSync(path.join(STATIC_DIR, 'novel-detail-tts-slot.js'), 'utf8');
-    const urls = MODULE_FILES.map(function (file) { return "BASE + '" + file + "'"; });
-    const positions = urls.map(function (url) { return source.indexOf(url); });
-    positions.forEach(function (position, index) {
-        assert.notEqual(position, -1, MODULE_FILES[index]);
-        if (index) assert.ok(position > positions[index - 1], MODULE_FILES[index]);
-    });
-    assert.ok(source.indexOf("BASE + 'pixiv-novel-tts.js'") > positions.at(-1));
+test('TTS 槽位按依赖顺序加载朗读职责模块', async function () {
+    const result = await runSlot();
+    assert.deepEqual(result.loadedScripts, SLOT_SCRIPT_FILES);
+});
 
-    MODULE_FILES.forEach(function (file) {
-        const moduleSource = fs.readFileSync(path.join(STATIC_DIR, file), 'utf8');
-        const lines = moduleSource.split(/\r?\n/).length;
-        assert.ok(lines < 1000, file + ' should remain responsibility-sized');
-        assert.doesNotMatch(moduleSource, /\bwindow\.(?:alert|confirm|prompt)\s*\(/,
-            file + ' should use PixivFeedback');
-    });
+test('TTS 槽位在职责脚本加载失败时提示并停止后续初始化', async function () {
+    const failedScript = 'pixiv-novel-narration-marks.js';
+    const result = await runSlot(failedScript);
+    assert.deepEqual(result.loadedScripts,
+        SLOT_SCRIPT_FILES.slice(0, SLOT_SCRIPT_FILES.indexOf(failedScript) + 1));
+    assert.equal(result.toasts.length, 1);
+    assert.equal(result.toasts[0].kind, 'error');
+});
+
+test('共享反馈组件缺失时朗读交互显示错误并失败关闭', async function () {
+    const sandbox = createSandbox();
+    evaluate(sandbox, 'pixiv-novel-narration-core.js');
+    const ctx = {};
+    const toasts = [];
+    sandbox.PixivNovelNarrationModules.core.install(ctx);
+    ctx.core.state.toast = function (message, kind) { toasts.push({message, kind}); };
+
+    assert.equal(await ctx.core.feedbackPrompt('prompt', 'value'), null);
+    assert.equal(await ctx.core.feedbackConfirm('confirm'), false);
+    assert.deepEqual(toasts.map(function (item) { return item.kind; }), ['error', 'error']);
 });

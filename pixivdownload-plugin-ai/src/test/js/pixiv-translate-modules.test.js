@@ -56,11 +56,16 @@ async function waitFor(predicate) {
     assert.fail('slot initialization did not finish');
 }
 
-function runSlot(slotFile, pageGlobals) {
+function runSlot(slotFile, pageGlobals, failedScript) {
     const loadedScripts = [];
     const styles = [];
+    const toasts = [];
     let mounted = false;
-    const sandbox = createSandbox(pageGlobals(function () { mounted = true; }));
+    const sandbox = createSandbox(Object.assign({
+        PixivFeedback: {
+            toast(options) { toasts.push(options); }
+        }
+    }, pageGlobals(function () { mounted = true; })));
     const head = {
         appendChild(node) {
             if (node.rel === 'stylesheet') {
@@ -69,6 +74,10 @@ function runSlot(slotFile, pageGlobals) {
             }
             const file = path.posix.basename(node.src);
             loadedScripts.push(file);
+            if (file === failedScript) {
+                queueMicrotask(function () { node.onerror(); });
+                return node;
+            }
             evaluateFile(sandbox, file);
             queueMicrotask(function () { node.onload(); });
             return node;
@@ -81,8 +90,8 @@ function runSlot(slotFile, pageGlobals) {
         querySelector() { return null; }
     };
     evaluateFile(sandbox, slotFile);
-    return waitFor(function () { return mounted; }).then(function () {
-        return {loadedScripts, styles, sandbox};
+    return waitFor(function () { return failedScript ? toasts.length : mounted; }).then(function () {
+        return {loadedScripts, styles, mounted, sandbox, toasts};
     });
 }
 
@@ -132,5 +141,24 @@ test('小说与系列槽位按职责顺序装载翻译模块', async function ()
         assert.deepEqual(result.styles, ['/pixiv-ai/pixiv-translate.css'], slotFile);
         assert.equal(typeof result.sandbox.PixivTranslate.openDialog, 'function');
         assert.equal(typeof result.sandbox.PixivContentLang.mount, 'function');
+    }
+});
+
+test('AI 翻译槽位在职责脚本加载失败时提示并停止后续初始化', async function () {
+    const scenarios = [
+        ['novel-detail-ai-translate-slot.js', function (mounted) {
+            return {PixivNovel: {content: {mountContentLangSwitcher: mounted}}};
+        }],
+        ['series-detail-ai-translate-slot.js', function (mounted) {
+            return {setupNovelContentControls: mounted};
+        }]
+    ];
+
+    for (const [slotFile, globals] of scenarios) {
+        const result = await runSlot(slotFile, globals, 'pixiv-content-lang.js');
+        assert.deepEqual(result.loadedScripts, MODULE_FILES.slice(0, 2), slotFile);
+        assert.equal(result.mounted, false, slotFile);
+        assert.equal(result.toasts.length, 1, slotFile);
+        assert.equal(result.toasts[0].kind, 'error', slotFile);
     }
 });

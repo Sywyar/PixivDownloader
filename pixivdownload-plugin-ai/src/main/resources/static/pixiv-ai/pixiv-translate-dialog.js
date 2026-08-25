@@ -400,7 +400,15 @@
             }
             async function doDelete() {
                 if (create || opts.id == null) { cleanup(null); return; }
-                if (!global.PixivFeedback || typeof global.PixivFeedback.confirm !== 'function') return;
+                if (!global.PixivFeedback || typeof global.PixivFeedback.confirm !== 'function') {
+                    if (opts.onToast) {
+                        opts.onToast(i18n && typeof i18n.t === 'function'
+                            ? i18n.t('common:error.feature-unavailable',
+                                'This feature is temporarily unavailable. Refresh the page and try again.')
+                            : 'This feature is temporarily unavailable. Refresh the page and try again.', 'error');
+                    }
+                    return;
+                }
                 var confirmed = await global.PixivFeedback.confirm({
                     title: tt(i18n, 'glossary.delete', 'Delete'),
                     message: tt(i18n, 'glossary.confirm-delete',

@@ -4,6 +4,17 @@
     var loaded = {};
     var BASE = '/pixiv-ai/';
 
+    function showLoadFailure() {
+        var fallback = 'This feature is temporarily unavailable. Refresh the page and try again.';
+        var message = typeof pageI18n !== 'undefined' && pageI18n
+                ? pageI18n.t('common:error.feature-unavailable', fallback) : fallback;
+        if (global.PixivFeedback && typeof global.PixivFeedback.toast === 'function') {
+            global.PixivFeedback.toast({ message: message, kind: 'error' });
+        } else if (typeof setSeriesMessage === 'function') {
+            setSeriesMessage(message);
+        }
+    }
+
     function loadScript(url) {
         if (loaded[url]) return loaded[url];
         loaded[url] = new Promise(function (resolve) {
@@ -13,6 +24,7 @@
             script.onload = function () { resolve(true); };
             script.onerror = function () {
                 console.warn('[AI] script load failed:', url);
+                showLoadFailure();
                 resolve(false);
             };
             (document.head || document.documentElement).appendChild(script);
