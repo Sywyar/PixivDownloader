@@ -255,7 +255,7 @@
             return;
         }
         el.textContent = msg;
-        el.style.color = STATUS_COLORS[type] || '#666';
+        el.style.color = STATUS_COLORS[type] || 'var(--muted)';
     }
 
     function hasPixivCookie() {

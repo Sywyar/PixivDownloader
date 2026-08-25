@@ -159,67 +159,13 @@
       "nativeDialogs": 0
     },
     "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch.html": {
-      "hardcodedColors": 10,
-      "inlineStyles": 62,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-cookie.js": {
-      "hardcodedColors": 1,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-core.js": {
-      "hardcodedColors": 5,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-queue.js": {
-      "hardcodedColors": 40,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/quick-fetch.js": {
-      "hardcodedColors": 8,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/schedule.js": {
-      "hardcodedColors": 4,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/search.js": {
-      "hardcodedColors": 11,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/series.js": {
-      "hardcodedColors": 8,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/user.js": {
-      "hardcodedColors": 10,
-      "inlineStyles": 0,
+      "hardcodedColors": 0,
+      "inlineStyles": 55,
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
     "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/pixiv-batch-layout-classic.css": {
       "hardcodedColors": 1,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/pixiv-batch.css": {
-      "hardcodedColors": 265,
       "inlineStyles": 0,
       "inlineHandlers": 0,
       "nativeDialogs": 0

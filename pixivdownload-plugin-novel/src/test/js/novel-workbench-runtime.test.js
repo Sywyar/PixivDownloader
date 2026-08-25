@@ -10,8 +10,13 @@ const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resourc
 const ROOT = path.join(__dirname, '..', '..', '..', '..');
 const WORKBENCH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main',
     'resources', 'static', 'pixiv-batch');
-const QUEUE_TYPES_SOURCE = fs.readFileSync(path.join(WORKBENCH, 'batch-queue-types.js'), 'utf8');
-const DOWNLOAD_SOURCE = fs.readFileSync(path.join(WORKBENCH, 'batch-download.js'), 'utf8');
+const QUEUE_TYPES_SOURCE = [
+    'batch-queue-types-normalize.js', 'batch-queue-types-runtime.js', 'batch-queue-types.js'
+].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
+const DOWNLOAD_SOURCE = [
+    'batch-download-quota.js', 'batch-download-artwork.js',
+    'batch-download-workers.js', 'batch-download.js'
+].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
 
 function interpolate(template, vars) {
     return String(template).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, key) =>

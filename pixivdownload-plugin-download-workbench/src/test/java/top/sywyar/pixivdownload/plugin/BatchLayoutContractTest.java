@@ -33,6 +33,10 @@ class BatchLayoutContractTest {
     private static final String STATIC_ROOT = "static/";
     private static final String BATCH_HTML = STATIC_ROOT + "pixiv-batch.html";
     private static final String BASE_CSS = STATIC_ROOT + "pixiv-batch/pixiv-batch.css";
+    private static final String WORKBENCH_COMPONENT_CSS =
+            STATIC_ROOT + "pixiv-batch/pixiv-batch-workbench.css";
+    private static final String NAVIGATION_CSS =
+            STATIC_ROOT + "pixiv-batch/pixiv-batch-navigation.css";
     private static final String WORKBENCH_LAYOUT_CSS =
             STATIC_ROOT + "pixiv-batch/pixiv-batch-layout-workbench.css";
     private static final String CLASSIC_LAYOUT_CSS =
@@ -250,35 +254,39 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("共享 CSS 不再隐含 workbench 空间编排")
+    @DisplayName("共享、工作区与导航 CSS 各自承载稳定结构职责")
     void baseCssContainsOnlySharedStructureAndComponents() throws IOException {
-        String css = read(BASE_CSS);
+        String baseCss = read(BASE_CSS);
+        String workbenchCss = read(WORKBENCH_COMPONENT_CSS);
+        String navigationCss = read(NAVIGATION_CSS);
 
-        assertThat(css).doesNotContain("data-batch-layout");
-        assertNoPattern(css, "共享层不得保留 1440px workbench shell",
+        assertThat(baseCss).doesNotContain("data-batch-layout");
+        assertNoPattern(baseCss, "共享层不得保留 1440px workbench shell",
                 "\\.wb-shell\\s*\\{[^}]*max-width\\s*:\\s*1440px");
-        assertNoPattern(css, "共享层不得保留 workbench 三栏",
+        assertNoPattern(baseCss, "共享层不得保留 workbench 三栏",
                 "grid-template-columns\\s*:\\s*190px\\s+minmax\\(0,\\s*1fr\\)\\s+350px");
-        assertNoPattern(css, "共享层不得保留 sticky mode rail",
+        assertNoPattern(baseCss, "共享层不得保留 sticky mode rail",
                 "\\.mode-rail\\s*\\{[^}]*position\\s*:\\s*sticky");
-        assertNoPattern(css, "共享层不得保留纵向 tabs",
+        assertNoPattern(baseCss, "共享层不得保留纵向 tabs",
                 "\\.tabs\\s*\\{[^}]*flex-direction\\s*:\\s*column");
-        assertNoPattern(css, "共享层不得保留左对齐 tab",
+        assertNoPattern(baseCss, "共享层不得保留左对齐 tab",
                 "\\.tab\\s*\\{[^}]*text-align\\s*:\\s*left");
-        assertNoPattern(css, "共享层不得保留满幅 dashboard band",
+        assertNoPattern(baseCss, "共享层不得保留满幅 dashboard band",
                 "\\.dash-strip\\s*\\{[^}]*(?:100vmax|clip-path)");
-        assertNoPattern(css, "共享层不得保留 workbench 统计卡 flex 投影",
+        assertNoPattern(baseCss, "共享层不得保留 workbench 统计卡 flex 投影",
                 "\\.dash-stats\\s*\\{[^}]*display\\s*:\\s*flex");
-        assertNoPattern(css, "共享层不得保留 1200px queue 双列投影",
+        assertNoPattern(baseCss, "共享层不得保留 1200px queue 双列投影",
                 "\\.queue-rail\\s*\\{[^}]*grid-template-columns\\s*:\\s*minmax\\(0,\\s*\\.72fr\\)");
 
-        assertThat(css)
-                .contains("#download-workbench")
+        assertThat(baseCss)
                 .contains("display: contents")
-                .contains(".tools-drawer")
-                .contains("grid-area: tools")
                 .contains(".batch-layout-action-host")
-                .contains("grid-area: actions")
+                .contains("grid-area: actions");
+        assertThat(workbenchCss)
+                .contains("#download-workbench")
+                .contains(".tools-drawer")
+                .contains("grid-area: tools");
+        assertThat(navigationCss)
                 .contains(".batch-layout-toggle");
     }
 
@@ -390,7 +398,7 @@ class BatchLayoutContractTest {
     @Test
     @DisplayName("共享反馈弹窗显式适配下载页深色变量")
     void feedbackDialogsUseBatchThemeSurfacesInDarkMode() throws IOException {
-        String css = read(BASE_CSS);
+        String css = read(BASE_CSS) + read(WORKBENCH_COMPONENT_CSS);
 
         assertThat(css)
                 .contains("--overlay-bg: var(--modal-backdrop)")

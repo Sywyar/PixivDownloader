@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.NoSuchFileException;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -29,7 +30,13 @@ class BatchQueueVueRenderingContractTest {
     private static final String STATIC_ROOT = "static/";
     private static final String BATCH_HTML = "pixiv-batch.html";
     private static final String QUEUE_VUE_JS = "pixiv-batch/batch-queue-vue.js";
-    private static final String SCHEDULE_JS = "pixiv-batch/modes/schedule.js";
+    private static final List<String> SCHEDULE_JS = List.of(
+            "pixiv-batch/modes/schedule-core.js",
+            "pixiv-batch/modes/schedule-editor.js",
+            "pixiv-batch/modes/schedule-view.js",
+            "pixiv-batch/modes/schedule-queue.js",
+            "pixiv-batch/modes/schedule.js"
+    );
     private static final String BATCH_CSS = "pixiv-batch/pixiv-batch.css";
 
     private static String read(String resource) throws IOException {
@@ -40,6 +47,14 @@ class BatchQueueVueRenderingContractTest {
             }
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    private static String readScheduleSource() throws IOException {
+        StringBuilder source = new StringBuilder();
+        for (String resource : SCHEDULE_JS) {
+            source.append(read(resource)).append('\n');
+        }
+        return source.toString();
     }
 
     /** 截取 {@code source} 中 [startMarker, endMarker) 区间（不含 endMarker），把顺序断言限定在单个函数体内。 */
@@ -74,7 +89,7 @@ class BatchQueueVueRenderingContractTest {
     @Test
     @DisplayName("schedule.js 计划队列详情门面：Vue 激活走 syncScheduleQueue、否则命令式回退；折叠 / 下线卸载 reactive 岛")
     void scheduleQueueFacadesBranchVueWithImperativeFallback() throws IOException {
-        String js = read(SCHEDULE_JS);
+        String js = readScheduleSource();
         assertThat(js).as("应有计划队列 Vue 岛句柄门面").contains("function scheduleQueueVue(");
         assertThat(js).as("应有给 Vue 岛喂快照的读取上下文（与命令式同口径派生）").contains("function scheduleQueueVueContext(");
 

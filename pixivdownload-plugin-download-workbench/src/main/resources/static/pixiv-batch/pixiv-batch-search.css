@@ -1,0 +1,802 @@
+
+        /* ---- Search Mode ---- */
+        .search-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .search-controls input[type=text] {
+            flex: 1;
+            min-width: 200px;
+            padding: 7px 10px;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            font-size: 13px;
+        }
+
+        .preview-meta {
+            margin: 8px 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .preview-message {
+            padding: 24px 0;
+            color: var(--muted-2);
+            text-align: center;
+        }
+
+        .preview-message--compact {
+            font-size: 13px;
+        }
+
+        .preview-message--loading {
+            color: var(--muted-2);
+        }
+
+        .preview-message--error {
+            color: var(--danger-bg);
+        }
+
+        .preview-message-detail,
+        .preview-summary {
+            font-size: 12px;
+        }
+
+        .preview-summary {
+            margin-bottom: 10px;
+            color: var(--muted-2);
+        }
+
+        .search-no-cookie-warning,
+        .search-premium-tip {
+            color: var(--warning-accent);
+        }
+
+        .search-no-cookie-warning {
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .search-premium-tip {
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+
+        .search-filter-row {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .search-filter-row label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+
+        .search-filter-row span {
+            color: var(--heading);
+            font-weight: bold;
+            margin-right: 2px;
+        }
+
+        .search-extra-filters {
+            border: 1px solid var(--line-faint);
+            border-radius: 8px;
+            padding: 10px 12px;
+            background: var(--surface-muted);
+            margin-bottom: 12px;
+        }
+
+        .search-extra-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .search-extra-title {
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--heading);
+            text-transform: uppercase;
+            letter-spacing: .4px;
+        }
+
+        .search-extra-note {
+            font-size: 11px;
+            color: var(--muted-3);
+        }
+
+        .search-extra-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px 12px;
+            align-items: end;
+        }
+
+        .search-extra-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .search-extra-item label {
+            font-size: 12px;
+            color: var(--heading);
+            font-weight: bold;
+        }
+
+        .search-extra-item input,
+        .search-extra-item select {
+            width: 100%;
+            padding: 7px 9px;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            font-size: 13px;
+            background: var(--fixed-white);
+        }
+
+        .search-extra-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+        }
+
+        /* 搜索模式 / 作品批量获取模式 子模式切换：复用 .kind-switcher 外观，活动色用蓝色区分 */
+        .submode-switcher label.active {
+            background: var(--accent);
+            color: var(--fixed-white);
+        }
+
+        .search-action-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .batch-range-label {
+            font-size: 13px;
+            color: var(--muted, var(--heading));
+            font-weight: 600;
+        }
+
+        .batch-range-input {
+            width: 72px;
+            padding: 6px 8px;
+            border: 1px solid var(--line-strong, var(--line));
+            border-radius: 5px;
+            font-size: 13px;
+            background: var(--control-bg, var(--fixed-white));
+            color: var(--text, inherit);
+        }
+
+        .search-fill-warning {
+            color: var(--danger-bg);
+            cursor: help;
+            font-weight: bold;
+            user-select: none;
+        }
+
+        .search-fill-note {
+            font-size: 12px;
+            color: var(--muted-3);
+        }
+
+        /* Thumbnail grid */
+        .search-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .search-thumb {
+            border: 2px solid transparent;
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: pointer;
+            background: var(--hover-bg);
+            transition: border-color .15s, transform .15s;
+            position: relative;
+        }
+
+        .search-thumb:hover {
+            border-color: var(--brand);
+            transform: scale(1.03);
+        }
+
+        .search-thumb.in-queue {
+            border-color: var(--primary);
+        }
+
+        .search-thumb img {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            object-fit: cover;
+            display: block;
+            background: var(--line);
+        }
+
+        .search-thumb img.blur-r18 {
+            filter: blur(10px);
+            transition: filter .2s;
+        }
+
+        .search-thumb:hover img.blur-r18 {
+            filter: none;
+        }
+
+        .search-thumb .thumb-title {
+            font-size: 11px;
+            padding: 4px 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            background: var(--shadow-xs);
+            color: var(--text);
+        }
+
+        .search-thumb .thumb-badge-stack {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            pointer-events: none;
+        }
+
+        .search-thumb .thumb-badge {
+            background: var(--danger-bg);
+            color: var(--fixed-white);
+            font-size: 9px;
+            font-weight: bold;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        .search-thumb .thumb-badge-ai {
+            background: var(--magenta);
+        }
+
+        .search-thumb .thumb-badge-r18g {
+            background: var(--danger-strong);
+        }
+
+        .search-thumb .thumb-badge-ugoira {
+            background: var(--info);
+        }
+
+        .search-thumb .thumb-badge-manga {
+            background: var(--amber);
+        }
+
+        .search-thumb .thumb-badge-series-order {
+            background: var(--indigo);
+        }
+
+        .search-thumb .thumb-pages {
+            position: absolute;
+            bottom: 28px;
+            right: 4px;
+            background: var(--shadow-text);
+            color: var(--fixed-white);
+            font-size: 9px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            pointer-events: none;
+        }
+
+        .search-thumb .thumb-in-queue-mark {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            background: var(--primary);
+            color: var(--fixed-white);
+            font-size: 9px;
+            font-weight: bold;
+            padding: 1px 4px;
+            border-radius: 3px;
+            pointer-events: none;
+            display: none;
+        }
+
+        .search-thumb.in-queue .thumb-in-queue-mark {
+            display: block;
+        }
+
+        /* Novel search cards */
+        .novel-search-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .novel-search-card {
+            border: 2px solid var(--line, var(--line));
+            border-radius: 6px;
+            background: var(--surface, var(--fixed-white));
+            cursor: pointer;
+            padding: 10px 12px;
+            transition: border-color .15s, transform .15s;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .novel-search-card:hover {
+            border-color: var(--brand);
+            transform: translateY(-1px);
+        }
+
+        .novel-search-card.in-queue {
+            border-color: var(--primary);
+            background: var(--primary-soft-bg);
+        }
+
+        .novel-search-card .nsc-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text, var(--text));
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .novel-search-card .nsc-author {
+            font-size: 11px;
+            color: var(--muted, var(--muted));
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .novel-search-card .nsc-meta {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            font-size: 10px;
+        }
+
+        .novel-search-card .nsc-meta span {
+            background: var(--control-muted-bg, var(--surface-soft));
+            color: var(--text, var(--text));
+            padding: 1px 6px;
+            border-radius: 3px;
+        }
+
+        .novel-search-card .nsc-meta .nsc-r18 { background: var(--danger-bg); color: var(--fixed-white); }
+        .novel-search-card .nsc-meta .nsc-r18g { background: var(--danger-strong); color: var(--fixed-white); }
+        .novel-search-card .nsc-meta .nsc-ai { background: var(--magenta); color: var(--fixed-white); }
+        .novel-search-card .nsc-meta .nsc-original { background: var(--brand); color: var(--fixed-white); }
+
+        .novel-search-card .nsc-in-queue-mark {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: var(--primary);
+            color: var(--fixed-white);
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 5px;
+            border-radius: 3px;
+            display: none;
+        }
+
+        .novel-search-card.in-queue .nsc-in-queue-mark {
+            display: block;
+        }
+
+        .novel-series-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .novel-series-card {
+            display: grid;
+            grid-template-columns: 92px minmax(0, 1fr);
+            gap: 12px;
+            border: 2px solid var(--line, var(--line));
+            border-radius: 6px;
+            background: var(--surface, var(--fixed-white));
+            cursor: pointer;
+            padding: 10px;
+            transition: border-color .15s, transform .15s;
+            position: relative;
+            min-height: 132px;
+        }
+
+        .novel-series-card:hover {
+            border-color: var(--brand);
+            transform: translateY(-1px);
+        }
+
+        .novel-series-card.in-queue {
+            border-color: var(--primary);
+            background: var(--primary-soft-bg);
+        }
+
+        .novel-series-cover {
+            width: 92px;
+            aspect-ratio: 3 / 4;
+            border-radius: 4px;
+            overflow: hidden;
+            background: var(--control-muted-bg, var(--surface-soft));
+            color: var(--muted, var(--muted));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            text-align: center;
+        }
+
+        .novel-series-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .novel-series-info {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .novel-series-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text, var(--text));
+            line-height: 1.35;
+        }
+
+        .novel-series-card .nsc-author {
+            font-size: 11px;
+            color: var(--muted, var(--muted));
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .novel-series-tags,
+        .novel-series-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .novel-series-tags span,
+        .novel-series-meta span {
+            background: var(--control-muted-bg, var(--surface-soft));
+            color: var(--text, var(--text));
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+
+        .novel-series-meta .nsc-r18 { background: var(--danger-bg); color: var(--fixed-white); }
+        .novel-series-meta .nsc-r18g { background: var(--danger-strong); color: var(--fixed-white); }
+        .novel-series-meta .nsc-ai { background: var(--magenta); color: var(--fixed-white); }
+
+        .novel-series-card .nsc-in-queue-mark {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: var(--primary);
+            color: var(--fixed-white);
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 5px;
+            border-radius: 3px;
+            display: none;
+        }
+
+        .novel-series-card.in-queue .nsc-in-queue-mark {
+            display: block;
+        }
+
+        /* Loading spinner */
+        .search-spinner {
+            text-align: center;
+            padding: 40px 0;
+            color: var(--muted-4);
+            font-size: 13px;
+        }
+
+        .search-spinner-icon {
+            display: block;
+            margin: 0 auto 10px;
+            width: 28px;
+            height: 28px;
+            border: 3px solid var(--line);
+            border-top-color: var(--brand);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Pagination */
+        .search-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .search-pagination .pg-info {
+            font-size: 12px;
+            color: var(--muted);
+            padding: 0 8px;
+        }
+
+        .search-pagination button {
+            padding: 5px 10px;
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            background: var(--control-bg);
+            cursor: pointer;
+            font-size: 12px;
+            min-width: 32px;
+        }
+
+        .search-pagination button:hover:not(:disabled) {
+            background: var(--success-bg);
+            border-color: var(--brand);
+        }
+
+        .search-pagination button:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+        }
+
+        .search-pagination button.pg-active {
+            background: var(--brand);
+            color: var(--fixed-white);
+            border-color: var(--brand);
+            cursor: default;
+        }
+
+        /* ---- Footer ---- */
+        .app-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px 18px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .app-footer-meta,
+        .app-footer-links {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .app-footer-brand {
+            color: var(--heading);
+            font-weight: 700;
+        }
+
+        .app-footer-version {
+            font-family: Consolas, Monaco, monospace;
+            color: var(--heading);
+        }
+
+        .app-footer-separator {
+            color: var(--muted-2);
+        }
+
+        .app-footer a {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--accent);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .app-footer a:hover {
+            color: var(--primary-strong);
+            text-decoration: underline;
+        }
+
+        @media (max-width: 640px) {
+            .app-footer {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+
+        html[data-theme="dark"] .card,
+        html[data-theme="dark"] #quota-bar {
+            background: var(--surface);
+            color: var(--text);
+            box-shadow: 0 1px 10px var(--shadow-heavy);
+        }
+
+        html[data-theme="dark"] .card-title,
+        html[data-theme="dark"] .setting-item label,
+        html[data-theme="dark"] .filename-help,
+        html[data-theme="dark"] .search-filter-row span,
+        html[data-theme="dark"] .search-extra-title,
+        html[data-theme="dark"] .search-extra-item label,
+        html[data-theme="dark"] .batch-range-label {
+            color: var(--heading);
+        }
+
+        html[data-theme="dark"] .cookie-hint,
+        html[data-theme="dark"] .filename-help-note,
+        html[data-theme="dark"] #status-bar,
+        html[data-theme="dark"] .schedule-queue-status,
+        html[data-theme="dark"] .queue-item .q-meta,
+        html[data-theme="dark"] .prog-label,
+        html[data-theme="dark"] .search-extra-note,
+        html[data-theme="dark"] .search-fill-note,
+        html[data-theme="dark"] .search-spinner,
+        html[data-theme="dark"] .search-pagination .pg-info,
+        html[data-theme="dark"] #quota-bar .qb-reset {
+            color: var(--muted-2);
+        }
+
+        html[data-theme="dark"] input:not([type=checkbox]):not([type=radio]),
+        html[data-theme="dark"] textarea,
+        html[data-theme="dark"] select {
+            background: var(--control-bg);
+            border-color: var(--line);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select {
+            background-color: transparent;
+            background-image: linear-gradient(45deg, transparent 50%, var(--fixed-white) 50%),
+                              linear-gradient(135deg, var(--fixed-white) 50%, transparent 50%);
+            background-position: calc(100% - 8px) 50%, calc(100% - 4px) 50%;
+            background-size: 4px 4px, 4px 4px;
+            background-repeat: no-repeat;
+            border: none;
+            color: var(--fixed-white);
+        }
+
+        html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select option {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .cookie-fmt button,
+        html[data-theme="dark"] .tab,
+        html[data-theme="dark"] .unit-toggle,
+        html[data-theme="dark"] .btn-sm,
+        html[data-theme="dark"] .search-pagination button {
+            background: var(--control-bg);
+            border-color: var(--line);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .cookie-fmt button.active,
+        html[data-theme="dark"] .tab.active,
+        html[data-theme="dark"] .search-pagination button.pg-active {
+            color: var(--fixed-white);
+        }
+
+        html[data-theme="dark"] .cookie-fmt button.active {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        html[data-theme="dark"] .tab.active,
+        html[data-theme="dark"] .search-pagination button.pg-active {
+            background: var(--brand);
+            border-color: var(--brand);
+        }
+
+        html[data-theme="dark"] .btn-sm:hover,
+        html[data-theme="dark"] .unit-toggle:hover,
+        html[data-theme="dark"] .search-pagination button:hover:not(:disabled) {
+            background: var(--hover-bg);
+        }
+
+        html[data-theme="dark"] #cookie-save {
+            background: var(--brand) !important;
+            border-color: var(--brand) !important;
+            color: var(--fixed-white) !important;
+        }
+
+        html[data-theme="dark"] #cookie-clear {
+            background: var(--danger-bg) !important;
+            border-color: var(--danger-bg) !important;
+            color: var(--fixed-white) !important;
+        }
+
+        html[data-theme="dark"] #cookie-import {
+            background: var(--accent) !important;
+            border-color: var(--accent) !important;
+            color: var(--fixed-white) !important;
+        }
+
+        html[data-theme="dark"] .queue-item,
+        html[data-theme="dark"] .search-extra-filters {
+            background: var(--surface-muted);
+            border-color: var(--line);
+        }
+
+        html[data-theme="dark"] #current-card,
+        html[data-theme="dark"] .schedule-queue-current {
+            background: var(--current-bg);
+        }
+
+        html[data-theme="dark"] .prog-bg,
+        html[data-theme="dark"] #quota-bar .qb-fill-bg {
+            background: var(--progress-bg);
+        }
+
+        html[data-theme="dark"] #archive-card {
+            background: var(--warning-bg);
+            color: var(--warning-text);
+        }
+
+        html[data-theme="dark"] #archive-card .ac-title,
+        html[data-theme="dark"] #archive-card .ac-status,
+        html[data-theme="dark"] #archive-card .ac-countdown {
+            color: var(--warning-text);
+        }
+
+        html[data-theme="dark"] .filename-token-grid code,
+        html[data-theme="dark"] .search-thumb,
+        html[data-theme="dark"] .search-thumb img {
+            background: var(--control-muted-bg);
+        }
+
+        html[data-theme="dark"] .filename-token-grid code {
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .search-thumb .thumb-title {
+            background: var(--on-brand-faint);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .search-spinner-icon {
+            border-color: var(--line);
+            border-top-color: var(--brand);
+        }
+
+        html[data-theme="dark"] .app-footer a {
+            color: var(--dark-primary);
+        }
+
+        html[data-theme="dark"] .app-footer a:hover {
+            color: var(--dark-accent);
+        }

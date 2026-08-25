@@ -7,13 +7,28 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("计划任务前端状态与 pending 操作契约")
 class ScheduleUiContractTest {
 
-    private static final String RESOURCE = "static/pixiv-batch/modes/schedule.js";
+    private static final List<String> RESOURCES = List.of(
+            "static/pixiv-batch/modes/schedule-core.js",
+            "static/pixiv-batch/modes/schedule-editor.js",
+            "static/pixiv-batch/modes/schedule-view.js",
+            "static/pixiv-batch/modes/schedule-queue.js",
+            "static/pixiv-batch/modes/schedule.js"
+    );
+    private static final List<String> SCHEDULE_RUNTIME_RESOURCES = List.of(
+            "static/pixiv-batch/batch-schedule-sources-normalize.js",
+            "static/pixiv-batch/batch-schedule-sources-runtime.js",
+            "static/pixiv-batch/batch-schedule-sources.js"
+    );
+    private static final Pattern BATCH_STYLESHEET = Pattern.compile(
+            "href=\"(/pixiv-batch/pixiv-batch[^\"]*\\.css)\"");
 
     @Test
     @DisplayName("四类运行阻断原因有独立状态灯且只参与立即运行禁用")
@@ -73,7 +88,7 @@ class ScheduleUiContractTest {
     @DisplayName("宿主不解释来源定义且来源模块缺席时只读展示持久化摘要")
     void sourceFrontendUsesScopedHandlersAndPresentationFallback() throws IOException {
         String source = readSource();
-        String runtime = readSource("static/pixiv-batch/batch-schedule-sources.js");
+        String runtime = readSources(SCHEDULE_RUNTIME_RESOURCES);
         String pixivModule = readSource("static/pixiv-batch/pixiv-schedule-sources.js");
 
         assertThat(source)
@@ -104,7 +119,7 @@ class ScheduleUiContractTest {
     @DisplayName("抓取上限由来源贡献受控文案键且宿主默认不泄露来源名称")
     void fetchLimitPresentationUsesControlledSourceKeysAndNeutralDefaults() throws IOException {
         String source = readSource();
-        String runtime = readSource("static/pixiv-batch/batch-schedule-sources.js");
+        String runtime = readSources(SCHEDULE_RUNTIME_RESOURCES);
         String core = readSource("static/pixiv-batch/batch-core.js");
         String pixivModule = readSource("static/pixiv-batch/pixiv-schedule-sources.js");
         String page = readSource("static/pixiv-batch.html");
@@ -200,8 +215,41 @@ class ScheduleUiContractTest {
                 .contains("R-18");
     }
 
+    @Test
+    @DisplayName("计划宿主资源不硬编码来源会话字段或策略私有命名")
+    void scheduleHostResourcesStaySourceNeutral() throws IOException {
+        assertThat(readSource()).doesNotContainIgnoringCase(
+                "PHPSESSID",
+                "authorize-cookie",
+                "revoke-cookie",
+                "clear-cookie",
+                "no-cookie",
+                "schedule-overuse");
+        assertThat(readLinkedBatchStyles()).doesNotContain("schedule-overuse");
+    }
+
     private static String readSource() throws IOException {
-        return readSource(RESOURCE);
+        return readSources(RESOURCES);
+    }
+
+    private static String readSources(List<String> resources) throws IOException {
+        StringBuilder source = new StringBuilder();
+        for (String resource : resources) {
+            source.append(readSource(resource)).append('\n');
+        }
+        return source.toString();
+    }
+
+    private static String readLinkedBatchStyles() throws IOException {
+        Matcher matcher = BATCH_STYLESHEET.matcher(readSource("static/pixiv-batch.html"));
+        StringBuilder source = new StringBuilder();
+        int count = 0;
+        while (matcher.find()) {
+            source.append(readSource("static" + matcher.group(1))).append('\n');
+            count++;
+        }
+        assertThat(count).as("下载页应加载 pixiv-batch 样式资源").isPositive();
+        return source.toString();
     }
 
     private static String readSource(String resource) throws IOException {

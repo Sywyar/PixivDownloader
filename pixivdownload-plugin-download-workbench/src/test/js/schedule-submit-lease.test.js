@@ -6,10 +6,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(
-    __dirname,
-    '../../main/resources/static/pixiv-batch/modes/schedule.js'
-), 'utf8') + `
+const scheduleRoot = path.join(
+    __dirname, '../../main/resources/static/pixiv-batch/modes');
+const source = [
+    'schedule-core.js', 'schedule-editor.js', 'schedule-view.js',
+    'schedule-queue.js', 'schedule.js'
+].map(file => fs.readFileSync(path.join(scheduleRoot, file), 'utf8')).join('\n') + `
 window.__setScheduleEditing = function (id, tasks) {
     scheduleEditingId = id;
     scheduleTasksCache = tasks || [];

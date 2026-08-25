@@ -1,0 +1,54 @@
+
+/* ---- 预览结果「收起 / 展开」按钮（User / Search / 系列 / 快捷获取 各预览界面共用） ---- */
+.preview-collapse-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.preview-collapse-caret {
+    display: inline-block;
+    font-size: 11px;
+    transition: transform .15s;
+}
+
+.preview-collapse-btn.is-collapsed .preview-collapse-caret {
+    transform: rotate(180deg);
+}
+
+/* 被收起的预览结果区 / 分页：隐藏（!important 覆盖分页脚本设置的内联 display）。 */
+.preview-collapsed {
+    display: none !important;
+}
+
+/* ---- 「存为计划任务」可折叠卡片（默认折叠；summary 即标题行，展开交互与「附加筛选」一致） ---- */
+.schedule-save-card > summary.schedule-save-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.schedule-save-card > summary.schedule-save-summary::-webkit-details-marker {
+    display: none;
+}
+
+.schedule-save-summary .card-title {
+    margin-bottom: 0;
+}
+
+.schedule-save-card[open] > summary.schedule-save-summary {
+    margin-bottom: 12px;
+}
+
+.schedule-save-caret {
+    display: inline-block;
+    transition: transform .15s;
+    color: var(--muted-2);
+}
+
+.schedule-save-card[open] .schedule-save-caret {
+    transform: rotate(180deg);
+}

@@ -15,11 +15,35 @@ const assert = require('assert');
 const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch',
     'batch-layout.js');
 const HTML_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch.html');
-const CSS_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch',
-    'pixiv-batch.css');
+const CSS_FILES = [
+    'pixiv-batch.css',
+    'pixiv-batch-components.css',
+    'pixiv-batch-navigation.css',
+    'pixiv-batch-search.css',
+    'pixiv-batch-schedule.css',
+    'pixiv-batch-quick-fetch.css',
+    'pixiv-batch-workbench.css',
+    'pixiv-batch-collapsible.css'
+];
+const CSS_PATHS = CSS_FILES.map(file => path.join(
+    __dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch', file));
+const MAIN_SCRIPT_FILES = [
+    'batch-queue-types-normalize.js', 'batch-queue-types-runtime.js', 'batch-queue-types.js',
+    'batch-schedule-sources-normalize.js', 'batch-schedule-sources-runtime.js',
+    'batch-schedule-sources.js',
+    'batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js', 'batch-queue.js',
+    'batch-download-quota.js', 'batch-download-artwork.js', 'batch-download-workers.js',
+    'batch-download.js',
+    'modes/quick-fetch-core.js', 'modes/quick-fetch-outer.js', 'modes/quick-fetch-inner.js',
+    'modes/quick-fetch.js',
+    'modes/user-core.js', 'modes/user-data.js', 'modes/user-view.js', 'modes/user.js',
+    'modes/series-browser.js', 'modes/series-data.js', 'modes/series-view.js', 'modes/series.js',
+    'modes/schedule-core.js', 'modes/schedule-editor.js', 'modes/schedule-view.js',
+    'modes/schedule-queue.js', 'modes/schedule.js'
+];
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
-const CSS = fs.readFileSync(CSS_PATH, 'utf8');
+const CSS = CSS_PATHS.map(file => fs.readFileSync(file, 'utf8')).join('');
 const STORAGE_KEY = 'pixiv:batch-layout:v1';
 const ACTION_IDS = ['btn-start', 'btn-pause', 'btn-retry', 'btn-export', 'btn-export-failed', 'btn-clear'];
 const API_FUNCTIONS = [
@@ -555,6 +579,14 @@ function actionsAreAtOrigins(harness) {
         HTML.includes('class="series-data-source-control data-source-control"')
         && HTML.includes('id="series-data-source-switcher" role="radiogroup"')
         && HTML.includes('aria-labelledby="series-data-source-label"'));
+    const cssAssetPositions = CSS_FILES.map(file => HTML.indexOf(`/pixiv-batch/${file}`));
+    ok('下载页按基础、共享组件、导航、搜索、计划、快捷获取、工作区和折叠组件顺序加载样式',
+        cssAssetPositions.every(position => position >= 0)
+        && cssAssetPositions.every((position, index) => index === 0 || position > cssAssetPositions[index - 1]));
+    const scriptAssetPositions = MAIN_SCRIPT_FILES.map(file => HTML.indexOf(`/pixiv-batch/${file}`));
+    ok('下载页按模型、动作、视图和 facade 的依赖顺序加载主页面职责脚本',
+        scriptAssetPositions.every(position => position >= 0)
+        && scriptAssetPositions.every((position, index) => index === 0 || position > scriptAssetPositions[index - 1]));
     ok('数据来源布局样式由通用类复用而非快捷获取专属选择器',
         CSS.includes('.data-source-control {')
         && CSS.includes('.data-source-control .kind-switcher')

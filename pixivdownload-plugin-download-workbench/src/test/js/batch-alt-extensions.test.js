@@ -36,8 +36,11 @@ const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main
     'static', 'pixiv-batch.html'), 'utf8');
 const classicCoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch', 'batch-core.js'), 'utf8');
-const classicDownloadSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch', 'batch-download.js'), 'utf8');
+const classicDownloadSource = [
+    'batch-download-quota.js', 'batch-download-artwork.js',
+    'batch-download-workers.js', 'batch-download.js'
+].map(file => fs.readFileSync(path.join(
+    __dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch', file), 'utf8')).join('\n');
 const cssSource = readAltFiles(
     'pixiv-batch-alt.css', 'pixiv-batch-alt-layout.css', 'pixiv-batch-alt-dock.css',
     'pixiv-batch-alt-schedule.css', 'pixiv-batch-alt-overlays.css',
@@ -268,8 +271,12 @@ assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
         && source.includes("runtime.acquisitionList('quick')")
         && filtersSource.includes('let extraFilters = defaultSearchFilters();'));
     assert(classicPageSource.includes('/js/pixiv-vue.js')
+        && classicPageSource.includes('/pixiv-batch/batch-queue-types-normalize.js')
+        && classicPageSource.includes('/pixiv-batch/batch-queue-types-runtime.js')
         && classicPageSource.includes('/pixiv-batch/batch-queue-types.js')
         && pageSource.includes('/js/pixiv-vue.js')
+        && pageSource.includes('/pixiv-batch/batch-queue-types-normalize.js')
+        && pageSource.includes('/pixiv-batch/batch-queue-types-runtime.js')
         && pageSource.includes('/pixiv-batch/batch-queue-types.js'));
     [
         ['quick-fetch', 'QUICK_FETCH_MODE'], ['single-import', 'SINGLE_IMPORT_MODE'],

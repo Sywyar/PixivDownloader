@@ -16,22 +16,28 @@ const NOVEL_PATH = path.join(ROOT, 'pixivdownload-plugin-novel', 'src', 'main', 
     'static', 'pixiv-novel-download', 'novel-queue-type.js');
 const DOUYIN_PATH = path.join(ROOT, 'pixivdownload-plugin-douyin', 'src', 'main', 'resources',
     'static', 'pixiv-douyin-download', 'douyin-queue-type.js');
-const SERIES_PATH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources',
-    'static', 'pixiv-batch', 'modes', 'series.js');
-const USER_PATH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources',
-    'static', 'pixiv-batch', 'modes', 'user.js');
+const MODES_ROOT = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main',
+    'resources', 'static', 'pixiv-batch', 'modes');
 const SEARCH_PATH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources',
     'static', 'pixiv-batch', 'modes', 'search.js');
-const QUICK_PATH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources',
-    'static', 'pixiv-batch', 'modes', 'quick-fetch.js');
+
+function readModeScripts(files) {
+    return files.map(file => fs.readFileSync(path.join(MODES_ROOT, file), 'utf8')).join('\n');
+}
 
 const PIXIV_SOURCE = fs.readFileSync(PIXIV_PATH, 'utf8');
 const NOVEL_SOURCE = fs.readFileSync(NOVEL_PATH, 'utf8');
 const DOUYIN_SOURCE = fs.readFileSync(DOUYIN_PATH, 'utf8');
-const SERIES_SOURCE = fs.readFileSync(SERIES_PATH, 'utf8');
-const USER_SOURCE = fs.readFileSync(USER_PATH, 'utf8');
+const SERIES_SOURCE = readModeScripts([
+    'series-browser.js', 'series-data.js', 'series-view.js', 'series.js'
+]);
+const USER_SOURCE = readModeScripts([
+    'user-core.js', 'user-data.js', 'user-view.js', 'user.js'
+]);
 const SEARCH_SOURCE = fs.readFileSync(SEARCH_PATH, 'utf8');
-const QUICK_SOURCE = fs.readFileSync(QUICK_PATH, 'utf8');
+const QUICK_SOURCE = readModeScripts([
+    'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
+]);
 
 let passed = 0;
 function ok(label, condition) {

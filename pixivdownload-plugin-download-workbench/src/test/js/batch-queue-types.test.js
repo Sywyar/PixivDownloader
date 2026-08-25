@@ -5,10 +5,17 @@ const vm = require('vm');
 const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue-types.js'), 'utf8');
+const SOURCE = [
+    'batch-queue-types-normalize.js',
+    'batch-queue-types-runtime.js',
+    'batch-queue-types.js'
+].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
 const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
-const DOWNLOAD_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-download.js'), 'utf8');
+const DOWNLOAD_SOURCE = [
+    'batch-download-quota.js', 'batch-download-artwork.js',
+    'batch-download-workers.js', 'batch-download.js'
+].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SSE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-sse.js'), 'utf8');
 
 class El {

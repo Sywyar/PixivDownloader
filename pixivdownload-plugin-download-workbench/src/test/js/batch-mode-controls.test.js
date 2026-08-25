@@ -192,11 +192,17 @@ function ok(label, condition) {
     ok('single-import 静态页面只提供支持来源的只读展示锚点',
         HTML.includes('id="single-import-data-sources"')
         && !HTML.includes('id="single-import-data-source-switcher"'));
+    const queueTypesNormalizeIndex = HTML.indexOf('/pixiv-batch/batch-queue-types-normalize.js');
+    const queueTypesRuntimeIndex = HTML.indexOf('/pixiv-batch/batch-queue-types-runtime.js');
     const queueTypesIndex = HTML.indexOf('/pixiv-batch/batch-queue-types.js');
     const modeControlsIndex = HTML.indexOf('/pixiv-batch/batch-mode-controls.js');
     const initIndex = HTML.indexOf('/pixiv-batch/batch-init.js');
-    ok('来源控件模块在 queueTypes 之后且页面初始化之前加载',
-        queueTypesIndex >= 0 && modeControlsIndex > queueTypesIndex && initIndex > modeControlsIndex);
+    ok('queueTypes 职责模块在来源控件与页面初始化之前按依赖顺序加载',
+        queueTypesNormalizeIndex >= 0
+        && queueTypesRuntimeIndex > queueTypesNormalizeIndex
+        && queueTypesIndex > queueTypesRuntimeIndex
+        && modeControlsIndex > queueTypesIndex
+        && initIndex > modeControlsIndex);
 
     const h = createHarness();
     const controls = h.controls;

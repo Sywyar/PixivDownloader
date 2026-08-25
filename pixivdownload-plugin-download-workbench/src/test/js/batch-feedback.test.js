@@ -5,7 +5,9 @@ const fs = require('fs');
 const path = require('path');
 
 const BATCH_ROOT = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const SCHEDULE_SOURCE = fs.readFileSync(path.join(BATCH_ROOT, 'modes', 'schedule.js'), 'utf8');
+const SCHEDULE_SOURCE = [
+    'schedule-core.js', 'schedule-editor.js', 'schedule-view.js', 'schedule-queue.js', 'schedule.js'
+].map(file => fs.readFileSync(path.join(BATCH_ROOT, 'modes', file), 'utf8')).join('\n');
 const NATIVE_DIALOG_PATTERN = /(^|[^\w$.])(?:(?:window|globalThis)\s*\.\s*)?(?:alert|confirm|prompt)\s*\(/m;
 
 function collectJavascript(directory, files) {

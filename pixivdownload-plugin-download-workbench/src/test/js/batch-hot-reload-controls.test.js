@@ -8,9 +8,13 @@ const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', '
 const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
 const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
 const SEARCH_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'search.js'), 'utf8');
-const USER_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'user.js'), 'utf8');
-const SERIES_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'series.js'), 'utf8');
-const QUICK_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'quick-fetch.js'), 'utf8');
+const modeSource = files => files
+    .map(file => fs.readFileSync(path.join(STATIC, 'modes', file), 'utf8')).join('\n');
+const USER_SOURCE = modeSource(['user-core.js', 'user-data.js', 'user-view.js', 'user.js']);
+const SERIES_SOURCE = modeSource(['series-browser.js', 'series-data.js', 'series-view.js', 'series.js']);
+const QUICK_SOURCE = modeSource([
+    'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
+]);
 
 function makeLabel(kind) {
     const input = {checked: false};

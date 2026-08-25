@@ -7,7 +7,7 @@
  * （addItemsToQueue / removeFromQueue）只同步 Search/Series/User，均漏了「快捷获取」，导致其预览残留
  * 过期标记。修复引入聚合函数 syncAllResultsQueueState() 统一回调四个 sync，并接到三处队列变更入口。
  *
- * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载**真实**的 batch-queue.js，用四个 sync 函数 spy + 最小
+ * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载**真实**的 batch-queue 职责模块，用四个 sync 函数 spy + 最小
  * 宿主桩驱动**真实**的 syncAllResultsQueueState / addItemsToQueue / removeFromQueue，断言四个模式预览
  * 同步都被回调（重点守卫此前缺席的「快捷获取」）。stopAndClear 同样调用聚合函数，其断言由此一并覆盖。
  *
@@ -19,9 +19,11 @@ const vm = require('vm');
 const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const QUEUE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue.js'), 'utf8');
+const QUEUE_SOURCE = [
+    'batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js', 'batch-queue.js'
+].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 
-// 在沙箱里加载真实 batch-queue.js，返回 facade + 四个 sync 的调用计数器。
+// 在沙箱里加载真实 batch-queue 职责模块，返回 facade + 四个 sync 的调用计数器。
 function load() {
     const calls = {search: 0, series: 0, user: 0, quick: 0, workers: 0, statuses: []};
     const sandbox = {
@@ -215,7 +217,17 @@ function relationMergeBehavior(reasons) {
 
 // ===== 8) 所有卡片 toggle 入口都先调用中性合并 hook =====
 {
-    const modeSource = name => fs.readFileSync(path.join(STATIC, 'modes', name + '.js'), 'utf8');
+    const modeModules = {
+        search: ['search.js'],
+        user: ['user-core.js', 'user-data.js', 'user-view.js', 'user.js'],
+        series: ['series-browser.js', 'series-data.js', 'series-view.js', 'series.js'],
+        'quick-fetch': [
+            'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
+        ]
+    };
+    const modeSource = name => modeModules[name]
+        .map(file => fs.readFileSync(path.join(STATIC, 'modes', file), 'utf8'))
+        .join('\n');
     ok('8: Search 卡片 toggle 接入合并 hook',
         modeSource('search').includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
     ok('8: User 卡片 toggle 接入合并 hook',
