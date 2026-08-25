@@ -319,6 +319,35 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("Inno 主脚本通过原生 include 装配职责源码")
+    void innoSourceGraphAssemblesResponsibilityIncludes() throws Exception {
+        Path innoDir = repoRoot().resolve("packaging/windows/inno");
+        String main = Files.readString(innoDir.resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
+        List<String> includes = List.of(
+                "PixivDownload-maintenance.iss.inc",
+                "PixivDownload-plugins.iss.inc",
+                "PixivDownload-ffmpeg.iss.inc",
+                "PixivDownload-lifecycle.iss.inc");
+
+        for (String include : includes) {
+            assertThat(main).contains("#include \"" + include + "\"");
+            assertThat(innoDir.resolve(include)).isRegularFile();
+            assertThat(Files.readString(innoDir.resolve(include), StandardCharsets.UTF_8))
+                    .doesNotContain("[Code]");
+        }
+        assertThat(main.substring(main.indexOf("[Code]"))).doesNotContain("\nbegin\n");
+
+        String compilationUnit = innoScript();
+        assertThat(compilationUnit).contains(
+                "procedure ResolveExistingInstallation;",
+                "procedure LoadPackagedInstallerPluginCatalog;",
+                "procedure DownloadAndInstallFfmpeg;",
+                "procedure InitializeWizard;",
+                "procedure CurStepChanged(CurStep: TSetupStep);");
+        assertThat(compilationUnit).doesNotContain("function BuildFfmpegDownloadScript: String;");
+    }
+
+    @Test
     @DisplayName("离线分发与 Windows 打包脚本同时携带 artifact 签名和 provenance sidecar")
     void offlinePackagingScriptsCarrySignatureAndProvenanceSidecar() throws Exception {
         String common = script("plugin-distribution-common.ps1");
@@ -511,8 +540,9 @@ class PluginReleaseScriptsTest {
                 Pattern.DOTALL).matcher(inno);
         assertThat(initializeWizard.find()).isTrue();
         assertThat(initializeWizard.group("body")).doesNotContain("StartPluginCatalogTimer");
-        Matcher curPageChanged = Pattern.compile("procedure CurPageChanged\\(CurPageID: Integer\\);(?<body>.*?)function OnFfmpegDownloadProgress",
-                Pattern.DOTALL).matcher(inno);
+        Matcher curPageChanged = Pattern.compile(
+                "procedure CurPageChanged\\(CurPageID: Integer\\);(?<body>.*?)function GetProcessExeName",
+                Pattern.DOTALL).matcher(innoSupportScript("PixivDownload-lifecycle.iss.inc"));
         assertThat(curPageChanged.find()).isTrue();
         assertThat(curPageChanged.group("body")).contains("LoadPackagedInstallerPluginCatalog");
         assertThat(curPageChanged.group("body")).doesNotContain(
@@ -1756,9 +1786,39 @@ class PluginReleaseScriptsTest {
 
     private static String script(String name) throws IOException {
         return Files.readString(repoRoot().resolve("scripts").resolve(name), StandardCharsets.UTF_8);
-    }    private static String innoScript() throws IOException {
-        return Files.readString(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
-                .resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
+    }
+
+    private static String innoScript() throws IOException {
+        Path source = repoRoot().resolve("packaging/windows/inno/PixivDownload.iss");
+        return assembleInnoSource(source, new LinkedHashSet<>());
+    }
+
+    private static String assembleInnoSource(Path source, Set<Path> activeIncludes) throws IOException {
+        Path normalized = source.toAbsolutePath().normalize();
+        if (!activeIncludes.add(normalized)) {
+            throw new IllegalStateException("Inno include cycle: " + normalized);
+        }
+        try {
+            String text = Files.readString(normalized, StandardCharsets.UTF_8);
+            Matcher matcher = Pattern.compile("(?m)^#include\\s+\"([^\"]+)\"\\s*\\r?$").matcher(text);
+            StringBuilder assembled = new StringBuilder(text.length());
+            int cursor = 0;
+            while (matcher.find()) {
+                assembled.append(text, cursor, matcher.start());
+                Path include = normalized.getParent()
+                        .resolve(matcher.group(1).replace('\\', '/'))
+                        .normalize();
+                if (Files.isRegularFile(include)) {
+                    assembled.append(assembleInnoSource(include, activeIncludes));
+                } else {
+                    assembled.append(matcher.group());
+                }
+                cursor = matcher.end();
+            }
+            return assembled.append(text, cursor, text.length()).toString();
+        } finally {
+            activeIncludes.remove(normalized);
+        }
     }
 
     private static String innoSupportScript(String name) throws IOException {
