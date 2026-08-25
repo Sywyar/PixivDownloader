@@ -1,37 +1,22 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialAccountIncident;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialIncidentPresentation;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialTaskSnapshot;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
@@ -53,11 +38,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedExcepti
 import top.sywyar.pixivdownload.schedule.ScheduleSourceUnavailableException;
 import top.sywyar.pixivdownload.schedule.definition.ScheduleExecutionPlanGate;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
-import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
@@ -65,6 +46,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+
+import static top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionSafety.*;
 
 /**
  * 插件中性的单轮执行引擎。它固定复合租约、route、credential、Guard、背压、pending、finalizer 与
@@ -85,6 +68,7 @@ public final class ScheduleExecutionEngine {
     private final TaskExecutor workTaskExecutor;
     private final ScheduleWorkConcurrencyLimiter workConcurrencyLimiter;
     private final ObjectMapper objectMapper;
+    private final ScheduleCredentialSupport credentialSupport;
 
     ScheduleExecutionEngine(
             ScheduledTaskStore store,
@@ -122,6 +106,7 @@ public final class ScheduleExecutionEngine {
         this.workConcurrencyLimiter = Objects.requireNonNull(
                 workConcurrencyLimiter, "workConcurrencyLimiter");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.credentialSupport = new ScheduleCredentialSupport(store, objectMapper);
     }
 
     public boolean canResolve(ScheduledTask task) {
@@ -254,7 +239,7 @@ public final class ScheduleExecutionEngine {
             }
             ScheduledNetworkRoute route = resolveRoute(task, plan);
             return new ScheduleCredentialBindingLease(
-                    this, task.id(), policyOwner.featurePluginId(), plan.credentialPolicyId(),
+                    credentialSupport, task.id(), policyOwner.featurePluginId(), plan.credentialPolicyId(),
                     execution, definition, route);
         } catch (ScheduleExecutorUnavailableException failure) {
             execution.close();
@@ -410,15 +395,16 @@ public final class ScheduleExecutionEngine {
             boolean credentialRevoked = false;
             ScheduleExecutionResult result;
             cancellation.throwIfCancellationRequested();
-            ScheduleCredentialMaterial credential = loadCredential(task, execution, plan);
+            ScheduleCredentialMaterial credential = credentialSupport.load(task, execution, plan);
             try (credential) {
-                validateStoredCredentialArtifacts(
+                credentialSupport.validateStoredArtifacts(
                         task, storedCheckpoint, credential);
-                GuardInvoker guardInvoker = new GuardInvoker(
-                        task, definition, route, cancellation, credential, execution, plan);
-                CredentialProbeOutcome probeOutcome;
+                ScheduleGuardInvoker guardInvoker = new ScheduleGuardInvoker(
+                        task, definition, route, cancellation, credential, execution, plan,
+                        store, runState);
+                ScheduleCredentialSupport.ProbeOutcome probeOutcome;
                 try {
-                    probeOutcome = probeCredential(
+                    probeOutcome = credentialSupport.probeForRun(
                             task, definition, route, cancellation, credential, execution, plan);
                 } catch (Throwable primary) {
                     DeferredFatal fatalFailures = new DeferredFatal();
@@ -593,25 +579,6 @@ public final class ScheduleExecutionEngine {
         }
     }
 
-    private ScheduleCredentialMaterial loadCredential(
-            ScheduledTask task,
-            ScheduleExecutionLease execution,
-            ScheduledExecutionPlan plan) {
-        ScheduleCapabilityOwner actualOwner = execution.credentialPolicyOwner().orElse(null);
-        boolean bindingMatches = actualOwner != null
-                && Objects.equals(task.credentialPolicyOwnerPluginId(), actualOwner.featurePluginId())
-                && Objects.equals(task.credentialPolicyId(), plan.credentialPolicyId())
-                && task.credentialSecretReference() != null;
-        String secret = bindingMatches
-                ? store.findCredentialSecret(
-                        task.id(), actualOwner.featurePluginId(), plan.credentialPolicyId())
-                : null;
-        return new ScheduleCredentialMaterial(
-                secret,
-                bindingMatches ? task.credentialSecretReference() : null,
-                bindingMatches ? task.credentialAccountKey() : null);
-    }
-
     private ScheduledNetworkRoute resolveRoute(
             ScheduledTask task,
             ScheduledExecutionPlan plan) throws ScheduleDefinitionException {
@@ -639,298 +606,6 @@ public final class ScheduleExecutionEngine {
             }
         }
         return rows;
-    }
-
-    private CredentialProbeOutcome probeCredential(
-            ScheduledTask task,
-            ScheduledTaskDefinition definition,
-            ScheduledNetworkRoute route,
-            ScheduledCancellation cancellation,
-            ScheduleCredentialMaterial credential,
-            ScheduleExecutionLease execution,
-            ScheduledExecutionPlan plan)
-            throws ScheduleExecutionControlException, ScheduledExecutionException {
-        cancellation.throwIfCancellationRequested();
-        if (plan.credentialRequirement() == ScheduledCredentialRequirement.NONE) {
-            return CredentialProbeOutcome.KEPT;
-        }
-        if (!credential.isPresent()) {
-            if (plan.credentialRequirement() == ScheduledCredentialRequirement.REQUIRED) {
-                throw control(ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
-                        "schedule.credential.required", 0L, ScheduledGuardEvidence.empty());
-            }
-            return CredentialProbeOutcome.KEPT;
-        }
-        var policy = execution.credentialPolicy().orElseThrow(() -> new ScheduledExecutionException(
-                ScheduledFailure.Category.INTERNAL, "schedule.credential.policy-unavailable"));
-        ScheduledCredentialProbeResult probe;
-        try (var handle = credential.openHandle()) {
-            ScheduledCredentialContext context = new ScheduledCredentialContext() {
-                @Override
-                public Purpose purpose() {
-                    return Purpose.RUN_START;
-                }
-
-                @Override
-                public ScheduledTaskDefinition task() {
-                    return definition;
-                }
-
-                @Override
-                public ScheduledNetworkRoute route() {
-                    return route;
-                }
-
-                @Override
-                public top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle credential() {
-                    return handle;
-                }
-
-                @Override
-                public ScheduledCancellation cancellation() {
-                    return cancellation;
-                }
-            };
-            try {
-                probe = policy.probe(context);
-            } catch (ScheduledExecutionException failure) {
-                throw safePluginException(
-                        failure, "schedule.credential.probe-failed", credential);
-            } catch (Throwable failure) {
-                rethrowFatal(failure);
-                throw pluginFailure("schedule.credential.probe-failed");
-            }
-            if (probe == null) {
-                throw pluginFailure("schedule.credential.null-result");
-            }
-            if (!isSafeMachineCode(probe.code())
-                    || !isSafeAccountKey(probe.accountKey())
-                    || credential.containsEcho(probe.code())
-                    || credential.containsEcho(probe.accountKey())) {
-                throw pluginFailure("schedule.credential.invalid-result");
-            }
-            probe = new ScheduledCredentialProbeResult(
-                    probe.status(), probe.accountKey(), probe.code(), probe.retryAfterMillis());
-        }
-        return switch (probe.status()) {
-            case VALID -> {
-                if (task.credentialAccountKey() != null
-                        && !Objects.equals(task.credentialAccountKey(), probe.accountKey())) {
-                    throw control(ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
-                            "schedule.credential.account-mismatch", 0L, ScheduledGuardEvidence.empty());
-                }
-                credential.setAccountKey(probe.accountKey());
-                yield CredentialProbeOutcome.KEPT;
-            }
-            case INVALID -> {
-                if (plan.anonymousFallbackAllowed()) {
-                    credential.revoke();
-                    yield CredentialProbeOutcome.REVOKED;
-                }
-                throw control(ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
-                        probe.code(), 0L, ScheduledGuardEvidence.empty());
-            }
-            case RETRY_LATER -> throw control(ScheduledGuardDecision.Action.RETRY_LATER,
-                    probe.code(), probe.retryAfterMillis(), ScheduledGuardEvidence.empty());
-        };
-    }
-
-    ScheduledCredentialBindResult probeCredentialForBinding(
-            long taskId,
-            ScheduledTaskDefinition definition,
-            ScheduledNetworkRoute route,
-            ScheduleExecutionLease execution,
-            String candidateSecret) throws ScheduledExecutionException {
-        ScheduledCancellation cancellation = execution.cancellation();
-        cancellation.throwIfCancellationRequested();
-        var policy = execution.credentialPolicy().orElseThrow(() -> pluginFailure(
-                "schedule.credential.policy-unavailable"));
-        try (ScheduleCredentialMaterial credential = new ScheduleCredentialMaterial(
-                candidateSecret, "scheduled-task:" + taskId + ":credential", null);
-             var handle = credential.openHandle()) {
-            ScheduledCredentialContext context = new ScheduledCredentialContext() {
-                @Override
-                public Purpose purpose() {
-                    return Purpose.BIND;
-                }
-
-                @Override
-                public ScheduledTaskDefinition task() {
-                    return definition;
-                }
-
-                @Override
-                public ScheduledNetworkRoute route() {
-                    return route;
-                }
-
-                @Override
-                public top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle credential() {
-                    return handle;
-                }
-
-                @Override
-                public ScheduledCancellation cancellation() {
-                    return cancellation;
-                }
-            };
-            ScheduledCredentialBindResult result;
-            try {
-                result = policy.probeForBinding(context);
-            } catch (ScheduledExecutionException failure) {
-                throw safePluginException(
-                        failure, "schedule.credential.bind-probe-failed", credential);
-            } catch (Throwable failure) {
-                rethrowFatal(failure);
-                throw pluginFailure("schedule.credential.bind-probe-failed");
-            }
-            cancellation.throwIfCancellationRequested();
-            return validateCredentialBindResult(result, credential);
-        }
-    }
-
-    private ScheduledCredentialBindResult validateCredentialBindResult(
-            ScheduledCredentialBindResult result,
-            ScheduleCredentialMaterial credential) throws ScheduledExecutionException {
-        if (result == null || result.probeResult() == null
-                || !isSafeMachineCode(result.probeResult().code())
-                || !isSafeAccountKey(result.probeResult().accountKey())
-                || credential.containsEcho(result.probeResult().code())
-                || credential.containsEcho(result.probeResult().accountKey())) {
-            throw pluginFailure("schedule.credential.invalid-bind-result");
-        }
-        ScheduledGuardDecision decision = result.postBindResult().decision();
-        if (decision.action() != ScheduledGuardDecision.Action.CONTINUE
-                && (!isSafeMachineCode(decision.reasonCode())
-                || credential.containsEcho(decision.reasonCode()))) {
-            throw pluginFailure("schedule.credential.invalid-bind-result");
-        }
-        try {
-            String initialPolicyStateJson = validateInitialPolicyState(
-                    result.initialPolicyStateJson(), credential);
-            ScheduledCredentialProbeResult probe = new ScheduledCredentialProbeResult(
-                    result.probeResult().status(), result.probeResult().accountKey(),
-                    result.probeResult().code(), result.probeResult().retryAfterMillis());
-            ScheduledGuardResult postBind = new ScheduledGuardResult(
-                    new ScheduledGuardDecision(
-                            decision.action(), decision.reasonCode(), decision.retryAfterMillis()),
-                    sanitizeEvidence(
-                            result.postBindResult().evidence(), credential,
-                            "schedule.credential.invalid-bind-result"));
-            return new ScheduledCredentialBindResult(
-                    probe, initialPolicyStateJson, postBind);
-        } catch (ScheduledExecutionException failure) {
-            throw failure;
-        } catch (RuntimeException ignored) {
-            throw pluginFailure("schedule.credential.invalid-bind-result");
-        }
-    }
-
-    private String validateInitialPolicyState(
-            String initialPolicyStateJson,
-            ScheduleCredentialMaterial credential)
-            throws ScheduledExecutionException {
-        if (credential.containsEchoInJson(objectMapper, initialPolicyStateJson)) {
-            throw pluginFailure("schedule.credential.invalid-policy-state");
-        }
-        ObjectReader strictReader = objectMapper.readerFor(JsonNode.class).with(
-                DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY,
-                DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-        JsonNode root = readStrictPolicyJson(strictReader, initialPolicyStateJson);
-        if (root == null || !root.isObject()) {
-            throw pluginFailure("schedule.credential.invalid-policy-state");
-        }
-        ArrayDeque<JsonNode> pending = new ArrayDeque<>();
-        pending.add(root);
-        while (!pending.isEmpty()) {
-            JsonNode node = pending.removeFirst();
-            if (node.isObject()) {
-                var fields = node.fields();
-                while (fields.hasNext()) {
-                    var field = fields.next();
-                    if (credential.containsEcho(field.getKey())
-                            || ScheduleCredentialRedactor.isSensitiveFieldName(field.getKey())
-                            || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(field.getKey())
-                            && (!field.getValue().isValueNode()
-                            || field.getValue().isNull()
-                            || !ScheduleCredentialRedactor.isSafeMetadataValue(
-                            field.getKey(), field.getValue().asText())))) {
-                        throw pluginFailure("schedule.credential.invalid-policy-state");
-                    }
-                    pending.addLast(field.getValue());
-                }
-            } else if (node.isArray()) {
-                node.forEach(pending::addLast);
-            } else if (node.isTextual()) {
-                String text = node.textValue();
-                if (credential.containsEcho(text)) {
-                    throw pluginFailure("schedule.credential.invalid-policy-state");
-                }
-                JsonNode embedded = readEmbeddedPolicyJson(strictReader, text);
-                if (embedded != null) {
-                    pending.addLast(embedded);
-                } else if (ScheduleCredentialRedactor.containsCredentialMaterial(text)) {
-                    throw pluginFailure("schedule.credential.invalid-policy-state");
-                }
-            } else if (node.isValueNode()
-                    && !node.isNull()
-                    && credential.containsEcho(node.asText())) {
-                throw pluginFailure("schedule.credential.invalid-policy-state");
-            }
-        }
-        return initialPolicyStateJson;
-    }
-
-    private void validateStoredCredentialArtifacts(
-            ScheduledTask task,
-            ScheduledCheckpoint storedCheckpoint,
-            ScheduleCredentialMaterial credential) throws ScheduledExecutionException {
-        if (storedCheckpoint != null
-                && (credential.containsEcho(storedCheckpoint.schema())
-                    || credential.containsEchoInJson(
-                        objectMapper, storedCheckpoint.payloadJson()))) {
-            throw new ScheduledExecutionException(
-                    ScheduledFailure.Category.INVALID_DEFINITION,
-                    "schedule.checkpoint.payload-invalid");
-        }
-        String policyStateJson = task.credentialPolicyStateJson();
-        if (policyStateJson != null
-                && credential.containsEchoInJson(objectMapper, policyStateJson)) {
-            throw pluginFailure("schedule.credential.invalid-policy-state");
-        }
-    }
-
-    private JsonNode readStrictPolicyJson(ObjectReader strictReader, String json)
-            throws ScheduledExecutionException {
-        try {
-            return strictReader.readTree(json);
-        } catch (JsonProcessingException | IllegalArgumentException ignored) {
-            throw pluginFailure("schedule.credential.invalid-policy-state");
-        }
-    }
-
-    private JsonNode readEmbeddedPolicyJson(ObjectReader strictReader, String text)
-            throws ScheduledExecutionException {
-        String candidate = text == null ? "" : text.trim();
-        if (!candidate.startsWith("{") && !candidate.startsWith("[")) {
-            return null;
-        }
-        try {
-            JsonNode nested = strictReader.readTree(candidate);
-            return nested != null && (nested.isObject() || nested.isArray()) ? nested : null;
-        } catch (JsonProcessingException | IllegalArgumentException strictFailure) {
-            try {
-                JsonNode permissive = objectMapper.readTree(candidate);
-                if (permissive != null && (permissive.isObject() || permissive.isArray())) {
-                    throw pluginFailure("schedule.credential.invalid-policy-state");
-                }
-            } catch (ScheduledExecutionException failure) {
-                throw failure;
-            } catch (JsonProcessingException | IllegalArgumentException ignored) {
-                // 以花括号开头的普通文本不是嵌套 JSON，不按策略状态解释。
-            }
-            return null;
-        }
     }
 
     private void finishExecutors(
@@ -1160,94 +835,6 @@ public final class ScheduleExecutionEngine {
         }
     }
 
-    private static void rethrowFatal(Throwable failure) {
-        if (failure instanceof VirtualMachineError fatal) {
-            throw fatal;
-        }
-        if (failure instanceof ThreadDeath fatal) {
-            throw fatal;
-        }
-    }
-
-    /** 先完成租约释放，再决定 fatal 是否必须原样越过插件异常归一边界。 */
-    private static void closeBeforeFatalPropagation(AutoCloseable lease, Throwable failure) {
-        DeferredFatal fatalFailures = new DeferredFatal();
-        fatalFailures.capture(failure);
-        try {
-            lease.close();
-        } catch (Throwable closeFailure) {
-            if (!fatalFailures.capture(closeFailure) && failure != closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
-        }
-        fatalFailures.rethrowIfPresent();
-    }
-
-    private static void closeBeforeFatalPropagation(
-            AutoCloseable first,
-            AutoCloseable second,
-            Throwable failure) {
-        DeferredFatal fatalFailures = new DeferredFatal();
-        fatalFailures.capture(failure);
-        closeForPropagation(first, failure, fatalFailures);
-        closeForPropagation(second, failure, fatalFailures);
-        fatalFailures.rethrowIfPresent();
-    }
-
-    private static void closeForPropagation(
-            AutoCloseable lease,
-            Throwable failure,
-            DeferredFatal fatalFailures) {
-        try {
-            lease.close();
-        } catch (Throwable closeFailure) {
-            if (!fatalFailures.capture(closeFailure) && failure != closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
-        }
-    }
-
-    /**
-     * best-effort 清理不能因首个失败中断；fatal 仍必须在全部清理完成后原样传播，后续 fatal 作为 suppressed 保留。
-     */
-    private static final class DeferredFatal {
-        private Error first;
-
-        boolean capture(Throwable failure) {
-            Error fatal = fatalError(failure);
-            if (fatal == null) {
-                return false;
-            }
-            if (first == null) {
-                first = fatal;
-            } else if (first != fatal) {
-                first.addSuppressed(fatal);
-            }
-            return true;
-        }
-
-        boolean hasFailure() {
-            return first != null;
-        }
-
-        void rethrowIfPresent() {
-            if (first == null) {
-                return;
-            }
-            throw first;
-        }
-
-        private static Error fatalError(Throwable failure) {
-            if (failure instanceof VirtualMachineError fatal) {
-                return fatal;
-            }
-            if (failure instanceof ThreadDeath fatal) {
-                return fatal;
-            }
-            return null;
-        }
-    }
-
     private static Map<String, Integer> resolveWorkConcurrencyLimits(
             Map<String, ScheduledWorkExecutor> executors,
             int planMaxInFlight) throws ScheduledExecutionException {
@@ -1274,10 +861,6 @@ public final class ScheduleExecutionEngine {
                 && Objects.equals(task.sourceType(), planning.sourceType());
     }
 
-    private static ScheduledExecutionException pluginFailure(String code) {
-        return new ScheduledExecutionException(ScheduledFailure.Category.INTERNAL, code);
-    }
-
     private static ScheduledFailure safeFailure(
             Throwable failure,
             ScheduleCredentialMaterial credential) {
@@ -1301,7 +884,7 @@ public final class ScheduleExecutionEngine {
     }
 
     private void propagateFailure(
-            GuardInvoker guardInvoker,
+            ScheduleGuardInvoker guardInvoker,
             ScheduleCredentialMaterial credential,
             long attempted,
             Throwable primary,
@@ -1333,378 +916,4 @@ public final class ScheduleExecutionEngine {
         rethrow(primary, credential);
     }
 
-    private static ScheduleExecutionControlException control(
-            ScheduledGuardDecision.Action action,
-            String code,
-            long retryAfterMillis,
-            ScheduledGuardEvidence evidence) {
-        return new ScheduleExecutionControlException(action, code, retryAfterMillis, evidence);
-    }
-
-    private static ScheduleExecutionControlException control(
-            ScheduledGuardDecision.Action action,
-            String code,
-            long retryAfterMillis,
-            ScheduledGuardEvidence evidence,
-            ScheduledCredentialIncidentPresentation incidentPresentation) {
-        return new ScheduleExecutionControlException(
-                action, code, retryAfterMillis, evidence, incidentPresentation);
-    }
-
-    private static void rethrow(
-            Throwable failure,
-            ScheduleCredentialMaterial credential)
-            throws ScheduleExecutionControlException, ScheduledExecutionException {
-        rethrowFatal(failure);
-        if (failure instanceof ScheduleExecutionControlException control) {
-            if (credential.containsEcho(control.reasonCode())
-                    || containsEcho(control.evidence(), credential)) {
-                throw pluginFailure("schedule.execution.invalid-failure-code");
-            }
-            throw control;
-        }
-        if (failure instanceof ScheduledExecutionException scheduled) {
-            throw safePluginException(
-                    scheduled, "schedule.execution.invalid-failure-code", credential);
-        }
-        throw pluginFailure("schedule.execution.failed");
-    }
-
-    private static ScheduledExecutionException safePluginException(
-            ScheduledExecutionException failure,
-            String fallbackCode) {
-        return safePluginException(failure, fallbackCode, null);
-    }
-
-    private static ScheduledExecutionException safePluginException(
-            ScheduledExecutionException failure,
-            String fallbackCode,
-            ScheduleCredentialMaterial credential) {
-        if (failure instanceof ScheduleCredentialCircuitOpenException circuitOpen) {
-            if (credential != null
-                    && (credential.containsEcho(circuitOpen.code())
-                    || credential.containsEcho(circuitOpen.lastFailureCode()))) {
-                return pluginFailure(fallbackCode);
-            }
-            return circuitOpen;
-        }
-        try {
-            String code = failure.code();
-            if (!isSafeMachineCode(code)
-                    || (credential != null && credential.containsEcho(code))) {
-                return pluginFailure(fallbackCode);
-            }
-            return new ScheduledExecutionException(
-                    failure.category(), code, failure.retryAfterMillis());
-        } catch (Throwable projectionFailure) {
-            rethrowFatal(projectionFailure);
-            return pluginFailure(fallbackCode);
-        }
-    }
-
-    private static boolean isSafeMachineCode(String code) {
-        return code != null
-                && code.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
-                && !ScheduleCredentialRedactor.containsCredentialMaterial(code);
-    }
-
-    private static boolean isSafeAccountKey(String accountKey) {
-        return accountKey == null
-                || (accountKey.length() <= 256
-                && !ScheduleCredentialRedactor.containsCredentialMaterial(accountKey));
-    }
-
-    private static ScheduledGuardEvidence sanitizeEvidence(
-            ScheduledGuardEvidence evidence,
-            ScheduleCredentialMaterial credential,
-            String fallbackCode) throws ScheduledExecutionException {
-        if (containsEcho(evidence, credential)) {
-            throw pluginFailure(fallbackCode);
-        }
-        Map<String, String> sanitized = new LinkedHashMap<>();
-        evidence.attributes().forEach((key, value) -> sanitized.put(
-                key, ScheduleCredentialRedactor.redact(value)));
-        return new ScheduledGuardEvidence(sanitized);
-    }
-
-    private static boolean containsEcho(
-            ScheduledGuardEvidence evidence,
-            ScheduleCredentialMaterial credential) {
-        for (Map.Entry<String, String> entry : evidence.attributes().entrySet()) {
-            if (credential.containsEcho(entry.getKey())
-                    || credential.containsEcho(entry.getValue())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private enum CredentialProbeOutcome {
-        KEPT(false),
-        REVOKED(true);
-
-        private final boolean revoked;
-
-        CredentialProbeOutcome(boolean revoked) {
-            this.revoked = revoked;
-        }
-
-        boolean revoked() {
-            return revoked;
-        }
-    }
-
-    private final class GuardInvoker {
-        private final ScheduledTask taskRow;
-        private final ScheduledTaskDefinition definition;
-        private final ScheduledNetworkRoute route;
-        private final ScheduledCancellation cancellation;
-        private final ScheduleCredentialMaterial credential;
-        private final ScheduleExecutionLease execution;
-        private final ScheduledExecutionPlan plan;
-        private boolean failureInvoked;
-        private ScheduleExecutionControlException failureDecision;
-
-        private GuardInvoker(
-                ScheduledTask taskRow,
-                ScheduledTaskDefinition definition,
-                ScheduledNetworkRoute route,
-                ScheduledCancellation cancellation,
-                ScheduleCredentialMaterial credential,
-                ScheduleExecutionLease execution,
-                ScheduledExecutionPlan plan) {
-            this.taskRow = taskRow;
-            this.definition = definition;
-            this.route = route;
-            this.cancellation = cancellation;
-            this.credential = credential;
-            this.execution = execution;
-            this.plan = plan;
-        }
-
-        boolean hasBatchGuardAt(long attempted) {
-            return plan.guards().stream().anyMatch(binding ->
-                    binding.points().contains(ScheduledGuardPoint.WORK_BATCH)
-                            && attempted % binding.workBatchSize() == 0);
-        }
-
-        boolean invoke(ScheduledGuardPoint point, long attempted, ScheduledFailure failure)
-                throws ScheduleExecutionControlException, ScheduledExecutionException {
-            if (point != ScheduledGuardPoint.RUN_FAILURE) {
-                cancellation.throwIfCancellationRequested();
-            }
-            boolean revoked = false;
-            for (ScheduledGuardBinding binding : plan.guards()) {
-                if (!binding.points().contains(point)) {
-                    continue;
-                }
-                if (point == ScheduledGuardPoint.WORK_BATCH
-                        && attempted % binding.workBatchSize() != 0) {
-                    continue;
-                }
-                if (point != ScheduledGuardPoint.RUN_FAILURE) {
-                    cancellation.throwIfCancellationRequested();
-                }
-                ScheduledExecutionGuard guard = execution.guard(binding.guardId())
-                        .orElseThrow(() -> pluginFailure("schedule.guard.unavailable"));
-                ScheduledGuardResult result = invokeOne(guard, binding.guardId(), point, attempted, failure);
-                ScheduledGuardDecision decision = result.decision();
-                if (decision.action() == ScheduledGuardDecision.Action.CONTINUE) {
-                    continue;
-                }
-                if (!isSafeMachineCode(decision.reasonCode())) {
-                    throw pluginFailure("schedule.guard.invalid-result");
-                }
-                if (decision.action() == ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE
-                        && point == ScheduledGuardPoint.RUN_START
-                        && plan.anonymousFallbackAllowed()) {
-                    credential.revoke();
-                    revoked = true;
-                    continue;
-                }
-                throw control(decision.action(), decision.reasonCode(),
-                        decision.retryAfterMillis(), result.evidence(),
-                        incidentPresentation(decision, result.evidence()));
-            }
-            return revoked;
-        }
-
-        ScheduleExecutionControlException invokeFailureOnce(
-                long attempted,
-                ScheduledFailure failure,
-                DeferredFatal fatalFailures) {
-            if (failureInvoked) {
-                return failureDecision;
-            }
-            failureInvoked = true;
-            for (ScheduledGuardBinding binding : plan.guards()) {
-                if (!binding.points().contains(ScheduledGuardPoint.RUN_FAILURE)) {
-                    continue;
-                }
-                try {
-                    ScheduledExecutionGuard guard = execution.guard(binding.guardId())
-                            .orElseThrow(() -> pluginFailure("schedule.guard.unavailable"));
-                    ScheduledGuardResult result = invokeOne(
-                            guard, binding.guardId(), ScheduledGuardPoint.RUN_FAILURE,
-                            attempted, failure);
-                    ScheduledGuardDecision decision = result.decision();
-                    if (decision.action() == ScheduledGuardDecision.Action.CONTINUE
-                            || decision.action()
-                            == ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE) {
-                        // 失败轮次不能伪装成匿名降级成功；凭证撤销只允许走成功返回通道。
-                        continue;
-                    }
-                    if (!isSafeMachineCode(decision.reasonCode())) {
-                        throw pluginFailure("schedule.guard.invalid-result");
-                    }
-                    ScheduleExecutionControlException candidate = control(
-                            decision.action(), decision.reasonCode(), decision.retryAfterMillis(),
-                            result.evidence(), incidentPresentation(decision, result.evidence()));
-                    if (failureDecision == null) {
-                        failureDecision = candidate;
-                    }
-                } catch (Throwable guardFailure) {
-                    // 每个 failure Guard 独立 best-effort；非致命失败不覆盖主失败，fatal 延后传播。
-                    fatalFailures.capture(guardFailure);
-                }
-            }
-            return failureDecision;
-        }
-
-        private ScheduledGuardResult invokeOne(
-                ScheduledExecutionGuard guard,
-                String guardId,
-                ScheduledGuardPoint point,
-                long attempted,
-                ScheduledFailure failure) throws ScheduledExecutionException {
-            ScheduleCapabilityOwner guardOwner = execution.guardOwner(guardId).orElse(null);
-            ScheduleCapabilityOwner policyOwner = execution.credentialPolicyOwner().orElse(null);
-            Optional<String> policyState = guardOwner != null && guardOwner.equals(policyOwner)
-                    ? Optional.ofNullable(taskRow.credentialPolicyStateJson())
-                    : Optional.empty();
-            try (var handle = credential.openHandle()) {
-                ScheduledGuardContext context = new ScheduledGuardContext() {
-                    @Override
-                    public ScheduledGuardPoint point() {
-                        return point;
-                    }
-
-                    @Override
-                    public long attemptedWorkCount() {
-                        return attempted;
-                    }
-
-                    @Override
-                    public Optional<String> credentialPolicyStateJson() {
-                        return policyState;
-                    }
-
-                    @Override
-                    public ScheduledFailure failure() {
-                        return failure;
-                    }
-
-                    @Override
-                    public ScheduledTaskDefinition task() {
-                        return definition;
-                    }
-
-                    @Override
-                    public ScheduledNetworkRoute route() {
-                        return route;
-                    }
-
-                    @Override
-                    public top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle credential() {
-                        return handle;
-                    }
-
-                    @Override
-                    public ScheduledCancellation cancellation() {
-                        return cancellation;
-                    }
-                };
-                ScheduledGuardResult result;
-                try {
-                    result = guard.evaluate(context);
-                } catch (ScheduledExecutionException scheduled) {
-                    throw safePluginException(
-                            scheduled, "schedule.guard.plugin-failure", credential);
-                } catch (Throwable callbackFailure) {
-                    rethrowFatal(callbackFailure);
-                    throw pluginFailure("schedule.guard.plugin-failure");
-                }
-                return validateGuardResult(result, credential);
-            }
-        }
-
-        private ScheduledCredentialIncidentPresentation incidentPresentation(
-                ScheduledGuardDecision decision,
-                ScheduledGuardEvidence evidence) {
-            if (decision.action() != ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT
-                    || taskRow.credentialPolicyOwnerPluginId() == null
-                    || taskRow.credentialPolicyId() == null
-                    || taskRow.credentialAccountKey() == null) {
-                return ScheduledCredentialIncidentPresentation.empty();
-            }
-            ScheduleCapabilityOwner policyOwner = execution.credentialPolicyOwner().orElse(null);
-            var policy = execution.credentialPolicy().orElse(null);
-            if (policyOwner == null || policy == null
-                    || !taskRow.credentialPolicyOwnerPluginId().equals(
-                    policyOwner.featurePluginId())
-                    || !taskRow.credentialPolicyId().equals(plan.credentialPolicyId())) {
-                return ScheduledCredentialIncidentPresentation.empty();
-            }
-            try {
-                List<ScheduledTask> affected = new ArrayList<>(
-                        store.findByCredentialAccount(
-                                taskRow.credentialPolicyOwnerPluginId(),
-                                taskRow.credentialPolicyId(),
-                                taskRow.credentialAccountKey()));
-                if (affected.isEmpty()) {
-                    affected.add(taskRow);
-                }
-                affected.sort(Comparator.comparingLong(ScheduledTask::id));
-                List<ScheduledCredentialTaskSnapshot> snapshots = affected.stream()
-                        .map(row -> new ScheduledCredentialTaskSnapshot(
-                                row.id(), row.stateVersion(),
-                                row.suspendReason() == ScheduleSuspendReason.CREDENTIAL,
-                                row.suspendReason() == ScheduleSuspendReason.POLICY,
-                                row.runState() != null || runState.get(row.id()) != null,
-                                row.suspendCode(), row.suspendDetailJson(),
-                                row.credentialPolicyStateJson()))
-                        .toList();
-                ScheduledCredentialIncidentPresentation presentation =
-                        policy.incidentPresentation(new ScheduledCredentialAccountIncident(
-                                taskRow.credentialAccountKey(), decision.reasonCode(),
-                                evidence, System.currentTimeMillis(), snapshots));
-                return presentation == null
-                        ? ScheduledCredentialIncidentPresentation.empty()
-                        : presentation;
-            } catch (Throwable failure) {
-                rethrowFatal(failure);
-                return ScheduledCredentialIncidentPresentation.empty();
-            }
-        }
-
-    }
-
-    private static ScheduledGuardResult validateGuardResult(
-            ScheduledGuardResult result,
-            ScheduleCredentialMaterial credential) throws ScheduledExecutionException {
-        if (result == null) {
-            throw pluginFailure("schedule.guard.null-result");
-        }
-        ScheduledGuardDecision decision = result.decision();
-        if (decision.action() != ScheduledGuardDecision.Action.CONTINUE
-                && (!isSafeMachineCode(decision.reasonCode())
-                || credential.containsEcho(decision.reasonCode()))) {
-            throw pluginFailure("schedule.guard.invalid-result");
-        }
-        ScheduledGuardDecision safeDecision = new ScheduledGuardDecision(
-                decision.action(), decision.reasonCode(), decision.retryAfterMillis());
-        ScheduledGuardEvidence safeEvidence = sanitizeEvidence(
-                result.evidence(), credential, "schedule.guard.invalid-result");
-        return new ScheduledGuardResult(safeDecision, safeEvidence);
-    }
 }
