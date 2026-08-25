@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.awt.datatransfer.StringSelection;
 import java.nio.file.Files;
@@ -26,11 +27,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /** 应用拥有的稳定桌面界面宿主契约实现。 */
 final class AppDesktopUiHost implements DesktopUiHost {
     private final DesktopUiLocalApiClient localApiClient;
     private final ConfigFile applicationConfig;
+    private final Supplier<DataSource> backfillDataSource;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
     private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
 
@@ -39,8 +42,13 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
 
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig) {
+        this(serverPort, applicationConfig, () -> BackendLifecycleManager.requiredBean(DataSource.class));
+    }
+
+    AppDesktopUiHost(int serverPort, ConfigFile applicationConfig, Supplier<DataSource> backfillDataSource) {
         this.localApiClient = new DesktopUiLocalApiClient(serverPort);
         this.applicationConfig = applicationConfig;
+        this.backfillDataSource = java.util.Objects.requireNonNull(backfillDataSource, "backfillDataSource");
     }
 
     void resetIncompleteOnboardingState(String rootFolder) {
@@ -234,13 +242,21 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return ArtworksBackFill.supportsDatabaseColumn(column.tableName(), column.columnName());
     }
     @Override public int countBackfillCandidates(BackfillOptions options) throws Exception {
-        return ArtworksBackFill.countCandidates(map(options));
+        return ArtworksBackFill.countCandidates(map(options), requireBackfillDataSource());
     }
     @Override public BackfillSummary runBackfill(BackfillOptions options) throws Exception {
-        var value = ArtworksBackFill.run(map(options));
+        var value = ArtworksBackFill.run(map(options), requireBackfillDataSource());
         return new BackfillSummary(value.totalCandidates(), value.processed(), value.filledAuthor(), value.filledR18(),
                 value.filledAi(), value.filledDescription(), value.filledTags(), value.filledSeries(), value.deletedCount(),
                 value.skipped(), value.previouslyUnreachable(), value.newlyUnreachable(), value.dryRun(), value.rateLimited());
+    }
+
+    private DataSource requireBackfillDataSource() {
+        try {
+            return java.util.Objects.requireNonNull(backfillDataSource.get(), "backfillDataSource result");
+        } catch (RuntimeException failure) {
+            throw new IllegalStateException(message("gui.message.backend-busy"), failure);
+        }
     }
     @Override public int countMigrationCandidates(MigrationOptions options) throws Exception {
         return JsonToSqliteMigration.countCandidates(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder()));

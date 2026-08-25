@@ -294,6 +294,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "artworks-backfill.database.active-path-mismatch",
+      "acceptedSourceHash": "3c25e919610faa7723ed6663eef3a0d893d5349309f7a813a8d71fe9bad28788",
+      "acceptedTranslationHash": "d195a1c43117df8842c5ee69a221b1084233fbfd7fd30f9a73b1cb6d66569b35"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "artworks-backfill.log.candidates.count",
       "acceptedSourceHash": "ab5875e6e793f87b7943993d19552a01bd13d677c4da94d53a2e3958a5c87a3b",
       "acceptedTranslationHash": "29adcc007327b5873ddffb40053eb2a71b0f831178bda2c2d33a27d6d4f09d3a"
@@ -59057,6 +59065,14 @@
       "key": "artworks-backfill.cli.usage",
       "acceptedSourceHash": "474d8073ded0ea96c736789c365beee3e4905f5cd829c8eb757bbad7a58b9524",
       "acceptedTranslationHash": "4420069dffba0324a1982db5025434fbafde608b58a7a94f3d03c805528d4d49"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "artworks-backfill.database.active-path-mismatch",
+      "acceptedSourceHash": "3c25e919610faa7723ed6663eef3a0d893d5349309f7a813a8d71fe9bad28788",
+      "acceptedTranslationHash": "b3ddb0fa7b99e31d67d8765d1f94193cdaf8a921e458275ea0f52f81babed131"
     },
     {
       "locale": "ja-JP",
@@ -117830,6 +117846,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "artworks-backfill.database.active-path-mismatch",
+      "acceptedSourceHash": "3c25e919610faa7723ed6663eef3a0d893d5349309f7a813a8d71fe9bad28788",
+      "acceptedTranslationHash": "c9be0e8ee93d0811bd26595785e50f29ce98daebe8e6e4a5ca4f5fe1c2f069bc"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "artworks-backfill.log.candidates.count",
       "acceptedSourceHash": "ab5875e6e793f87b7943993d19552a01bd13d677c4da94d53a2e3958a5c87a3b",
       "acceptedTranslationHash": "db910c5c9429a96af78ad5ede021cf708165b6db55a2e15584ffe4c0b59806b2"
@@ -176593,6 +176617,14 @@
       "key": "artworks-backfill.cli.usage",
       "acceptedSourceHash": "474d8073ded0ea96c736789c365beee3e4905f5cd829c8eb757bbad7a58b9524",
       "acceptedTranslationHash": "a5fd49db0766ab346045286c6175da52d71eb98b88acaba034d3d71af351c5f8"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "artworks-backfill.database.active-path-mismatch",
+      "acceptedSourceHash": "3c25e919610faa7723ed6663eef3a0d893d5349309f7a813a8d71fe9bad28788",
+      "acceptedTranslationHash": "e48c6db1da65597daed3a8d6999be250ad5dbc5fab810fbadbbef19dcbe24aca"
     },
     {
       "locale": "zh-Hant",

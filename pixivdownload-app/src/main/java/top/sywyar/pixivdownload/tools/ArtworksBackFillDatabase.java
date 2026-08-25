@@ -1,7 +1,10 @@
 package top.sywyar.pixivdownload.tools;
 
 import org.sqlite.SQLiteConfig;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 
+import javax.sql.DataSource;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -29,6 +32,37 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                 "jdbc:sqlite:" + dbPath,
                 sqliteConfig.toProperties()
         );
+        return prepare(connection);
+    }
+
+    static ArtworksBackFillDatabase open(DataSource dataSource, String expectedDbPath) throws SQLException {
+        Connection connection = dataSource.getConnection();
+        try {
+            String prefix = "jdbc:sqlite:";
+            String url = connection.getMetaData().getURL();
+            Path expected = Path.of(expectedDbPath).toAbsolutePath().normalize();
+            Path actual = url != null && url.startsWith(prefix)
+                    ? Path.of(url.substring(prefix.length())).toAbsolutePath().normalize()
+                    : null;
+            if (!expected.equals(actual)) {
+                throw new SQLException(MessageBundles.get(
+                        "artworks-backfill.database.active-path-mismatch",
+                        expected,
+                        actual == null ? url : actual
+                ));
+            }
+        } catch (SQLException | RuntimeException e) {
+            try {
+                connection.close();
+            } catch (SQLException closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
+            throw e;
+        }
+        return prepare(connection);
+    }
+
+    private static ArtworksBackFillDatabase prepare(Connection connection) throws SQLException {
         try {
             ArtworksBackFillDatabase database = new ArtworksBackFillDatabase(connection);
             database.ensureSchema();

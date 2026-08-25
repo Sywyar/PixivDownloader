@@ -409,8 +409,7 @@ public class ToolsPanel extends JPanel {
         refreshActionStates();
         setBackfillStatus(message("gui.tools.backfill.status.preparing"));
 
-        boolean accepted = SwingBackendLifecycle.stopAsync(() -> prepareBackfillInBackground(options));
-        if (!accepted) {
+        if (SwingBackendLifecycle.state() != SwingBackendLifecycle.State.RUNNING) {
             backfillRunning = false;
             exclusiveToolName = null;
             closeBackfillLogSession();
@@ -418,7 +417,9 @@ public class ToolsPanel extends JPanel {
             JOptionPane.showMessageDialog(this,
                     message("gui.message.backend-busy"),
                     message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
+            return;
         }
+        prepareBackfillInBackground(options);
     }
 
     private void prepareBackfillInBackground(DesktopUiHost.BackfillOptions options) {
@@ -470,16 +471,13 @@ public class ToolsPanel extends JPanel {
         exclusiveToolName = null;
         SwingUtilities.invokeLater(this::refreshActionStates);
 
-        Runnable afterRestart = () -> SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> {
             setBackfillStatus(statusText);
             GuiErrorDialog.show(this,
                     message("gui.dialog.error.title"),
                     dialogPrefix + (failure.getMessage() == null
                             ? message("gui.dialog.error.no-detail") : failure.getMessage()));
         });
-        if (!SwingBackendLifecycle.startAsync(afterRestart)) {
-            afterRestart.run();
-        }
     }
 
     private void runBackfillInBackground(DesktopUiHost.BackfillOptions options) {
@@ -505,10 +503,7 @@ public class ToolsPanel extends JPanel {
 
                 DesktopUiHost.BackfillSummary finalSummary = summary;
                 Throwable finalFailure = failure;
-                if (!SwingBackendLifecycle.startAsync(() ->
-                        SwingUtilities.invokeLater(() -> finishBackfill(finalSummary, finalFailure)))) {
-                    SwingUtilities.invokeLater(() -> finishBackfill(finalSummary, finalFailure));
-                }
+                SwingUtilities.invokeLater(() -> finishBackfill(finalSummary, finalFailure));
             }
         }, "tools-artworks-backfill");
         worker.setDaemon(true);

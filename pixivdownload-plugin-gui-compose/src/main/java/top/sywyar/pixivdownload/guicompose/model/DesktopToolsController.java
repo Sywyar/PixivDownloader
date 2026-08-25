@@ -268,7 +268,8 @@ final class DesktopToolsController {
                         );
                     }
                 },
-                DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL
+                DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL,
+                false
         );
     }
 
@@ -329,7 +330,8 @@ final class DesktopToolsController {
                         );
                     }
                 },
-                DesktopUiToolHost.ToolId.JSON_TO_SQLITE_MIGRATION
+                DesktopUiToolHost.ToolId.JSON_TO_SQLITE_MIGRATION,
+                true
         );
     }
 
@@ -520,7 +522,8 @@ final class DesktopToolsController {
                         action.run();
                         return ToolCompletion.EMPTY;
                     },
-                    DesktopUiToolHost.ToolId.FOLDER_CHECKER
+                    DesktopUiToolHost.ToolId.FOLDER_CHECKER,
+                    true
             );
             return;
         }
@@ -937,10 +940,15 @@ final class DesktopToolsController {
     private void runExclusiveTool(
             String toolName,
             ToolOperation operation,
-            DesktopUiToolHost.ToolId toolId
+            DesktopUiToolHost.ToolId toolId,
+            boolean stopBackend
     ) {
         if (owner.busy()) return;
-        if (owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING && owner.backendSnapshot().state() != DesktopUiHost.BackendState.STOPPED) {
+        DesktopUiHost.BackendState backendState = owner.backendSnapshot().state();
+        if (stopBackend
+                ? backendState != DesktopUiHost.BackendState.RUNNING
+                        && backendState != DesktopUiHost.BackendState.STOPPED
+                : backendState != DesktopUiHost.BackendState.RUNNING) {
             owner.showDialog(
                     "tools.backend-busy",
                     "gui.dialog.error.title",
@@ -956,7 +964,8 @@ final class DesktopToolsController {
         owner.setBusy(true);
         owner.rebuild();
         owner.executeAsync(() -> {
-            boolean restart = owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
+            boolean restart = stopBackend
+                    && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
             try {
                 if (restart) {
                     java.util.concurrent.CountDownLatch stopped = new java.util.concurrent.CountDownLatch(

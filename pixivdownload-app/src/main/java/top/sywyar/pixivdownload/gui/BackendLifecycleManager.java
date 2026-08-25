@@ -440,6 +440,16 @@ public final class BackendLifecycleManager {
         return state == State.RUNNING;
     }
 
+    static <T> T requiredBean(Class<T> type) {
+        Objects.requireNonNull(type, "type");
+        synchronized (LOCK) {
+            if (state != State.RUNNING || context == null) {
+                throw new IllegalStateException("backend context is not running");
+            }
+            return context.getBean(type);
+        }
+    }
+
     public static void addListener(Listener listener) {
         Listener safeListener = Objects.requireNonNull(listener, "listener");
         LISTENERS.add(safeListener);
