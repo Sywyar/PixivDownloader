@@ -10,25 +10,13 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.StringReader;
-import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
-import java.nio.channels.FileChannel;
-import java.nio.channels.SeekableByteChannel;
-import java.nio.charset.CharacterCodingException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,12 +25,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
-import java.util.Properties;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -55,8 +40,24 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
-import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
-import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshotter;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshotter.Artifact;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryArtifactInspector;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryArtifactInspector.LogicalArtifactState;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryArtifactSnapshotter;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryArtifactSnapshotter.BackupPath;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryVisibleInventoryVerifier;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryVisibleInventoryVerifier.VisibleArtifactInventory;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestStore.ReadException;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestStore.ReadResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.ExpectedArtifact;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryBackup;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryManifest;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryOperation;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryResourceBudget;
+import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryValidationException;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginDirectorySessionLock;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
@@ -135,46 +136,26 @@ public class ExternalPluginInstaller implements AutoCloseable {
     /** 已完成状态从恢复扫描面原子退役后的隐藏清理区；其中残留不再影响插件加载安全。 */
     private static final String FINALIZATION_DIR = ".transaction-cleanup";
 
-    /** 暂存目录内存放「被取代旧包隔离备份」的子目录名。 */
-    private static final String BACKUP_SUBDIR = "removed";
-
     private final Path pluginsDir;
     private final PluginPackageLimits limits;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactVerificationService verificationService;
     private final PluginProvenanceStore provenanceStore;
+    private final InstalledPluginInventorySnapshotter inventorySnapshotter;
+    private final PluginRecoveryManifestValidator recoveryManifestValidator;
+    private final PluginRecoveryArtifactInspector recoveryArtifactInspector;
+    private final PluginRecoveryArtifactSnapshotter recoveryArtifactSnapshotter;
+    private final PluginRecoveryVisibleInventoryVerifier recoveryVisibleInventoryVerifier;
     private final PluginDirectorySessionLock directorySessionLock;
     /** 把恢复、权威枚举与文件事务串行化（同一实例 / 同一安装目录的并发操作互斥）。 */
     private final ReentrantLock installLock = new ReentrantLock();
 
-    private static final String TRANSACTION_MANIFEST = "transaction.properties";
-
-    /** 当前未发布事务清单的唯一受支持格式；不对开发期旧草稿做兼容读取。 */
-    private static final String TRANSACTION_FORMAT_VERSION = "1";
-
     /** 启动期最多枚举的待恢复事务数；超过即在任何事务写入前 fail-closed。 */
     private static final int MAX_RECOVERY_TRANSACTIONS = 256;
 
-    /** 防止损坏清单用超大 backup.count 放大启动期开销。 */
-    private static final int MAX_RECOVERY_BACKUPS = 256;
-
-    /** 清单只承载路径、身份和摘要；超过 512 KiB 视为损坏，读取前即拒绝。 */
-    private static final long MAX_RECOVERY_MANIFEST_BYTES = 512L * 1024L;
-
-    /** 一轮启动恢复的累计预算；单事务有界不能替代全局有界。 */
-    private static final long MAX_RECOVERY_TOTAL_MANIFEST_BYTES = 8L * 1024L * 1024L;
-    private static final int MAX_RECOVERY_TOTAL_BACKUPS = 1_024;
-    private static final int MAX_RECOVERY_TOTAL_ENTRIES = 8_192;
-    private static final long MAX_RECOVERY_TOTAL_ARTIFACT_BYTES = 2L * 1024L * 1024L * 1024L;
-    private static final long MAX_RECOVERY_TOTAL_SIDECAR_BYTES = 64L * 1024L * 1024L;
-    private static final int MAX_RECOVERY_TOTAL_ARCHIVE_ENTRIES = 32_000;
-    private static final long MAX_RECOVERY_TOTAL_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
     private static final int MAX_HIDDEN_WORKSPACES = 256;
     private static final int MAX_HIDDEN_WORKSPACE_ENTRIES = 8_192;
     private static final int MAX_MANAGED_CLEANUP_ENTRIES = 8_192;
-
-    /** 单事务允许出现的文件系统 entry 上限，覆盖 manifest/new/removed 与每份 artifact/sidecar。 */
-    private static final int MAX_RECOVERY_TRANSACTION_ENTRIES = MAX_RECOVERY_BACKUPS * 4 + 16;
 
     /** 恢复安全门从未检查开始；只有显式成功恢复才能开放扫描和写入口。 */
     /** 状态与报告必须原子发布，避免读方观察到 SAFE + 失败报告等不可能组合。 */
@@ -229,6 +210,18 @@ public class ExternalPluginInstaller implements AutoCloseable {
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
         this.provenanceStore = new PluginProvenanceStore(this.pluginsDir);
+        this.inventorySnapshotter = new InstalledPluginInventorySnapshotter(provenanceStore);
+        this.recoveryManifestValidator = new PluginRecoveryManifestValidator(
+                this.pluginsDir, this.limits, this.provenanceStore);
+        this.recoveryArtifactInspector = new PluginRecoveryArtifactInspector(
+                this.limits, this.provenanceStore);
+        this.recoveryArtifactSnapshotter = new PluginRecoveryArtifactSnapshotter(
+                this.limits, this.provenanceStore);
+        this.recoveryVisibleInventoryVerifier = new PluginRecoveryVisibleInventoryVerifier(
+                this.pluginsDir,
+                this.limits,
+                this.recoveryArtifactInspector,
+                this.provenanceStore);
         this.directorySessionLock = isolatedWithoutDirectoryLock
                 ? directorySessionLock
                 : Objects.requireNonNull(directorySessionLock, "directorySessionLock");
@@ -338,7 +331,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
         Path stagingRoot = pluginsRoot.resolve(STAGING_DIR);
         try {
             assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
-        } catch (RecoveryValidationException e) {
+        } catch (PluginRecoveryValidationException e) {
             return new PluginTransactionRecoveryReport(List.of(recoveryFailure(
                     STAGING_DIR, stagingRoot, FailureKind.STAGING_ROOT_UNSAFE, e.getMessage())));
         }
@@ -481,14 +474,20 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     .map(path -> path.toAbsolutePath().normalize())
                     .distinct().sorted().toList();
             List<CommittedPluginTransaction.BackupArtifact> declaredBackups = new ArrayList<>();
-            Path backupDir = transaction.resolve(BACKUP_SUBDIR);
+            Path backupDir = transaction.resolve(PluginRecoveryManifestValidator.BACKUP_SUBDIRECTORY);
             for (Path currentArtifact : expectedCurrent) {
                 declaredBackups.add(new CommittedPluginTransaction.BackupArtifact(currentArtifact,
                         backupDir.resolve(declaredBackups.size() + "-" + currentArtifact.getFileName())));
             }
-            ExpectedArtifact newArtifact = snapshotExpectedArtifact(unpublishedArtifact, unpublishedArtifact,
-                    descriptor.id(), descriptor.version(), true);
-            List<RecoveryBackup> frozenBackups = freezeInstallBackups(null, declaredBackups);
+            ExpectedArtifact newArtifact = recoveryArtifactSnapshotter.snapshotInstallArtifact(
+                    unpublishedArtifact,
+                    unpublishedArtifact,
+                    descriptor.id(),
+                    descriptor.version(),
+                    verificationService);
+            List<RecoveryBackup> frozenBackups = recoveryArtifactSnapshotter.freezeInstallBackups(
+                    null,
+                    declaredBackups);
             RecoveryManifest publishedManifest = new RecoveryManifest(
                     RecoveryOperation.INSTALL, PluginTransactionState.PREPARED,
                     descriptor.id(), descriptor.version(), target, staged, newArtifact,
@@ -496,7 +495,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             RecoveryManifest unpublishedManifest = relocateManifestToTransaction(
                     publishedManifest, unpublishedTransaction);
             validateCandidateBeforePersist(unpublishedTransaction, unpublishedManifest);
-            persistManifest(unpublishedTransaction,
+            PluginRecoveryManifestStore.persist(unpublishedTransaction,
                     manifestProperties(transactionId, publishedManifest),
                     "PixivDownloader plugin transaction");
             beforeInstallTransactionPublished(unpublishedTransaction);
@@ -553,7 +552,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 }
                 throw new IOException("unexpected transaction verification failure", verificationFailure);
             }
-            Path backupDir = prepared.transactionDirectory().resolve(BACKUP_SUBDIR);
+            Path backupDir = prepared.transactionDirectory()
+                    .resolve(PluginRecoveryManifestValidator.BACKUP_SUBDIRECTORY);
             List<CommittedPluginTransaction.BackupArtifact> backups = new ArrayList<>();
             try {
                 for (Path origin : expected) {
@@ -654,8 +654,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
             requireRecoverySafe("verify committed plugin target");
             RecoveryManifest manifest = requireManagedCommittedManifest(
                     transaction, PluginTransactionState.NEW_PLACED);
-            verifyActivatedTarget(manifest);
-        } catch (IOException | RecoveryValidationException e) {
+            recoveryVisibleInventoryVerifier.verifyActivatedTarget(manifest, verificationService);
+        } catch (IOException | PluginRecoveryValidationException e) {
             // 调用方必须先按同一 committed handle 回滚；回滚失败才封闭 gate，避免自锁。
             throw new IllegalStateException("committed plugin target failed its frozen verification", e);
         } finally {
@@ -676,9 +676,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     "installed plugin set changed while transaction was staged");
         }
         try {
-            validateTransactionTree(prepared.transactionDirectory(), manifest);
-            validateRecoveryState(manifest);
-        } catch (RecoveryValidationException e) {
+            recoveryArtifactInspector.validateTransactionTree(prepared.transactionDirectory(), manifest);
+            recoveryArtifactInspector.validateState(manifest);
+        } catch (PluginRecoveryValidationException e) {
             throw new IOException("prepared plugin transaction bindings changed: " + e.getMessage(), e);
         }
         return expected;
@@ -796,7 +796,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             if (durable.state() == PluginTransactionState.NEW_PLACED) {
                 return PluginTransactionState.NEW_PLACED;
             }
-            verifyActivatedTarget(durable);
+            recoveryVisibleInventoryVerifier.verifyActivatedTarget(durable, verificationService);
             transaction.confirmDurableState(durable.state() == PluginTransactionState.COMMITTED
                     ? CommittedPluginTransaction.DurableState.COMMITTED
                     : CommittedPluginTransaction.DurableState.ACTIVATED);
@@ -816,7 +816,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private void retireCommittedTransaction(CommittedPluginTransaction transaction)
-            throws IOException, RecoveryValidationException {
+            throws IOException, PluginRecoveryValidationException {
         RecoveryManifest manifest = requireManagedCommittedManifest(
                 transaction, PluginTransactionState.COMMITTED);
         retireTransaction(new RecoveryPlan(transaction.prepared().transactionId(),
@@ -832,7 +832,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             if (readAttributesIfPresent(transactionDirectory).isPresent()) {
                 RecoveryManifest durable = requireManagedCommittedManifest(
                         transaction, PluginTransactionState.COMMITTED);
-                verifyActivatedTarget(durable);
+                recoveryVisibleInventoryVerifier.verifyActivatedTarget(durable, verificationService);
                 transaction.confirmDurableState(CommittedPluginTransaction.DurableState.COMMITTED);
                 transaction.markRecoveryBlocked();
                 blockAfterPublishedFailure(transactionDirectory, FailureKind.RECOVERY_FAILED, failure);
@@ -983,7 +983,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
         List<Failure> failures = new ArrayList<>();
         try {
             assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
-        } catch (RecoveryValidationException e) {
+        } catch (PluginRecoveryValidationException e) {
             failures.add(recoveryFailure(STAGING_DIR, stagingRoot, FailureKind.STAGING_ROOT_UNSAFE,
                     e.getMessage()));
             return new PluginTransactionRecoveryReport(failures);
@@ -1030,7 +1030,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
         List<Path> emptyTransactions = new ArrayList<>();
         List<RecoveryPlan> plans = new ArrayList<>();
-        RecoveryBudget recoveryBudget = new RecoveryBudget();
+        PluginRecoveryResourceBudget recoveryBudget = new PluginRecoveryResourceBudget();
         for (Path transaction : transactions) {
             String transactionId = transaction.getFileName().toString();
             try {
@@ -1049,8 +1049,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 } else {
                     plans.add(plan);
                 }
-            } catch (RecoveryValidationException e) {
-                failures.add(recoveryFailure(transactionId, transaction, e.kind, e.getMessage()));
+            } catch (PluginRecoveryValidationException e) {
+                failures.add(recoveryFailure(transactionId, transaction, e.kind(), e.getMessage()));
                 if (recoveryBudget.exhausted()) {
                     break;
                 }
@@ -1093,8 +1093,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
             }
             try {
                 executeRecoveryPlan(plan, recoveryBudget);
-            } catch (RecoveryValidationException e) {
-                failures.add(recoveryFailure(plan.transactionId(), plan.transaction(), e.kind, e.getMessage()));
+            } catch (PluginRecoveryValidationException e) {
+                failures.add(recoveryFailure(plan.transactionId(), plan.transaction(), e.kind(), e.getMessage()));
                 break;
             } catch (IOException | RuntimeException e) {
                 failures.add(recoveryFailure(plan.transactionId(), plan.transaction(), FailureKind.RECOVERY_FAILED,
@@ -1110,8 +1110,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 // 可能留下的双名字；不能因前一个终态先写入而掩盖后一个坏清单。
                 for (RecoveryPlan plan : finalPlans) {
                     finalPlanInProgress = plan;
-                    validateTransactionTree(plan.transaction(), plan.manifest());
-                    validateRecoveryState(plan.manifest(), recoveryBudget);
+                    recoveryArtifactInspector.validateTransactionTree(plan.transaction(), plan.manifest());
+                    recoveryArtifactInspector.validateState(plan.manifest(), recoveryBudget);
                     verifyFinalRecoveryBinding(plan.manifest(), recoveryBudget);
                 }
                 for (RecoveryPlan plan : finalPlans) {
@@ -1121,24 +1121,24 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 finalPlanInProgress = null;
                 VisibleArtifactInventory inventory = finalPlans.stream()
                         .anyMatch(plan -> requiresVisibleInventory(plan.manifest()))
-                        ? inspectVisibleArtifactInventory(recoveryBudget)
+                        ? recoveryVisibleInventoryVerifier.inspectVisibleInventory(recoveryBudget)
                         : VisibleArtifactInventory.empty();
                 // alias 收敛后再以单份可见 inventory 做冲突复核，最后才统一退役审计清单。
                 for (RecoveryPlan plan : finalPlans) {
                     finalPlanInProgress = plan;
-                    validateTransactionTree(plan.transaction(), plan.manifest());
-                    validateRecoveryState(plan.manifest(), recoveryBudget);
+                    recoveryArtifactInspector.validateTransactionTree(plan.transaction(), plan.manifest());
+                    recoveryArtifactInspector.validateState(plan.manifest(), recoveryBudget);
                     verifyFinalRecoveryPlan(plan.manifest(), inventory, recoveryBudget);
                 }
                 for (RecoveryPlan plan : finalPlans) {
                     finalPlanInProgress = plan;
                     retireTransaction(plan, recoveryBudget);
                 }
-            } catch (RecoveryValidationException e) {
+            } catch (PluginRecoveryValidationException e) {
                 failures.add(recoveryFailure(
                         finalPlanInProgress != null ? finalPlanInProgress.transactionId() : STAGING_DIR,
                         finalPlanInProgress != null ? finalPlanInProgress.transaction() : stagingRoot,
-                        e.kind, e.getMessage()));
+                        e.kind(), e.getMessage()));
             } catch (IOException | RuntimeException e) {
                 failures.add(recoveryFailure(
                         finalPlanInProgress != null ? finalPlanInProgress.transactionId() : STAGING_DIR,
@@ -1178,38 +1178,48 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private void verifyFinalRecoveryPlan(RecoveryManifest manifest, VisibleArtifactInventory inventory,
-                                         RecoveryBudget budget)
-            throws RecoveryValidationException {
+                                         PluginRecoveryResourceBudget budget)
+            throws PluginRecoveryValidationException {
         if (manifest.state() == PluginTransactionState.ROLLED_BACK) {
             return;
         }
         if (manifest.operation() == RecoveryOperation.INSTALL) {
-            verifyActivatedTarget(manifest, inventory, budget);
+            recoveryVisibleInventoryVerifier.verifyActivatedTarget(
+                    manifest,
+                    inventory,
+                    budget,
+                    verificationService);
         } else {
-            verifyRemovedIdentityAbsent(manifest, inventory);
+            recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(manifest, inventory);
         }
     }
 
-    private void verifyFinalRecoveryBinding(RecoveryManifest manifest, RecoveryBudget budget)
-            throws RecoveryValidationException {
+    private void verifyFinalRecoveryBinding(RecoveryManifest manifest, PluginRecoveryResourceBudget budget)
+            throws PluginRecoveryValidationException {
         if (manifest.state() == PluginTransactionState.ROLLED_BACK) {
             return;
         }
         if (manifest.operation() == RecoveryOperation.INSTALL) {
-            verifyActivatedTargetBinding(manifest, budget);
+            recoveryVisibleInventoryVerifier.verifyActivatedTargetBinding(
+                    manifest,
+                    budget,
+                    verificationService);
         }
     }
 
     /** 校验单个事务并建立只读恢复计划；返回 null 表示无 manifest 的空事务目录。 */
     private RecoveryPlan prepareRecoveryPlan(Path pluginsRoot, Path transaction)
-            throws IOException, RecoveryValidationException {
+            throws IOException, PluginRecoveryValidationException {
         return prepareRecoveryPlan(pluginsRoot, transaction, null);
     }
 
-    private RecoveryPlan prepareRecoveryPlan(Path pluginsRoot, Path transaction, RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
+    private RecoveryPlan prepareRecoveryPlan(
+            Path pluginsRoot,
+            Path transaction,
+            PluginRecoveryResourceBudget budget)
+            throws IOException, PluginRecoveryValidationException {
         String transactionId = transaction.getFileName().toString();
-        Path manifestPath = transaction.resolve(TRANSACTION_MANIFEST);
+        Path manifestPath = PluginRecoveryManifestStore.manifestPath(transaction);
         BasicFileAttributes manifestAttributes = readAttributesIfPresent(manifestPath).orElse(null);
         if (manifestAttributes == null) {
             try (Stream<Path> entries = Files.list(transaction)) {
@@ -1217,21 +1227,21 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     return null;
                 }
             }
-            throw new RecoveryValidationException(FailureKind.MISSING_MANIFEST,
+            throw new PluginRecoveryValidationException(FailureKind.MISSING_MANIFEST,
                     "transaction directory contains files but has no recovery manifest; preserved for manual recovery");
         }
         if (manifestAttributes.isSymbolicLink() || manifestAttributes.isOther()
                 || !manifestAttributes.isRegularFile()) {
             throw invalidManifest("transaction manifest must be a plain regular file");
         }
-        if (manifestAttributes.size() > MAX_RECOVERY_MANIFEST_BYTES) {
+        if (PluginRecoveryManifestStore.exceedsMaximumSize(manifestAttributes.size())) {
             throw invalidManifest("transaction manifest exceeds the supported size");
         }
         beforeRecoveryManifestRead(manifestPath);
-        ReadManifest readManifest;
+        ReadResult readManifest;
         try {
-            readManifest = readManifest(manifestPath);
-        } catch (ManifestReadException readFailure) {
+            readManifest = PluginRecoveryManifestStore.read(manifestPath);
+        } catch (ReadException readFailure) {
             if (budget != null) {
                 budget.consumeManifestBytes(readFailure.byteCount());
             }
@@ -1240,22 +1250,27 @@ public class ExternalPluginInstaller implements AutoCloseable {
         if (budget != null) {
             budget.consumeManifestBytes(readManifest.byteCount());
         }
-        RecoveryManifest manifest = validateRecoveryManifest(
-                pluginsRoot, transaction, readManifest.properties());
+        RecoveryManifest manifest = recoveryManifestValidator.validate(
+                transaction, readManifest.properties());
         if (budget != null) {
-            budget.consumeManifest(manifest);
+            budget.consumeManifest(
+                    manifest.backups().size(),
+                    manifest.newArtifact() != null ? manifest.newArtifact().size() : 0L,
+                    manifest.backups().stream().map(backup -> backup.expected().size()).toList());
             consumeRecoverySidecars(manifest, budget);
         }
-        int entries = validateTransactionTree(transaction, manifest);
+        int entries = recoveryArtifactInspector.validateTransactionTree(transaction, manifest);
         if (budget != null) {
             budget.consumeEntries(entries);
         }
-        validateRecoveryState(manifest, budget != null ? budget : new RecoveryBudget());
+        recoveryArtifactInspector.validateState(
+                manifest,
+                budget != null ? budget : new PluginRecoveryResourceBudget());
         return new RecoveryPlan(transactionId, transaction, manifest);
     }
 
-    private void consumeRecoverySidecars(RecoveryManifest manifest, RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
+    private void consumeRecoverySidecars(RecoveryManifest manifest, PluginRecoveryResourceBudget budget)
+            throws IOException, PluginRecoveryValidationException {
         Set<Path> sidecars = new LinkedHashSet<>();
         if (manifest.operation() == RecoveryOperation.INSTALL) {
             consumeRecoverySidecar(manifest.staged(), sidecars, budget);
@@ -1267,8 +1282,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
     }
 
-    private void consumeRecoverySidecar(Path artifact, Set<Path> sidecars, RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
+    private void consumeRecoverySidecar(Path artifact, Set<Path> sidecars, PluginRecoveryResourceBudget budget)
+            throws IOException, PluginRecoveryValidationException {
         Optional<Path> selected = provenanceStore.existingManagedSidecarPathStrict(artifact);
         if (selected.isEmpty() || !sidecars.add(selected.orElseThrow())) {
             return;
@@ -1338,27 +1353,33 @@ public class ExternalPluginInstaller implements AutoCloseable {
         return Set.copyOf(conflicted);
     }
 
-    private void executeRecoveryPlan(RecoveryPlan plan) throws IOException, RecoveryValidationException {
-        executeRecoveryPlan(plan, new RecoveryBudget());
+    private void executeRecoveryPlan(RecoveryPlan plan) throws IOException, PluginRecoveryValidationException {
+        executeRecoveryPlan(plan, new PluginRecoveryResourceBudget());
     }
 
-    private void executeRecoveryPlan(RecoveryPlan plan, RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
+    private void executeRecoveryPlan(RecoveryPlan plan, PluginRecoveryResourceBudget budget)
+            throws IOException, PluginRecoveryValidationException {
         RecoveryManifest manifest = plan.manifest();
         // 缩短 TOCTOU 窗口：全局预检后、第一次写入前重新核对目录树、身份、摘要与状态分布。
-        validateTransactionTree(plan.transaction(), manifest);
-        validateRecoveryState(manifest, budget);
+        recoveryArtifactInspector.validateTransactionTree(plan.transaction(), manifest);
+        recoveryArtifactInspector.validateState(manifest, budget);
 
         if (manifest.operation() == RecoveryOperation.INSTALL
                 && (manifest.state() == PluginTransactionState.ACTIVATED
                 || manifest.state() == PluginTransactionState.COMMITTED)) {
-            verifyActivatedTarget(manifest, inspectVisibleArtifactInventory(budget), budget);
+            recoveryVisibleInventoryVerifier.verifyActivatedTarget(
+                    manifest,
+                    recoveryVisibleInventoryVerifier.inspectVisibleInventory(budget),
+                    budget,
+                    verificationService);
             retireTransaction(plan, budget);
             return;
         }
         if (manifest.operation() == RecoveryOperation.REMOVE
                 && manifest.state() == PluginTransactionState.COMMITTED) {
-            verifyRemovedIdentityAbsent(manifest, inspectVisibleArtifactInventory(budget));
+            recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(
+                    manifest,
+                    recoveryVisibleInventoryVerifier.inspectVisibleInventory(budget));
             retireTransaction(plan, budget);
             return;
         }
@@ -1377,28 +1398,28 @@ public class ExternalPluginInstaller implements AutoCloseable {
             deleteArtifactAndSidecar(manifest.target());
         }
         for (RecoveryBackup backup : manifest.backups()) {
-            LogicalArtifactState observed = inspectLogicalArtifact(
+            LogicalArtifactState observed = recoveryArtifactInspector.inspectLogicalArtifact(
                     backup.expected(), backup.origin(), backup.backup(), budget);
             restoreDeclaredBackup(backup, observed);
         }
         for (RecoveryBackup backup : manifest.backups()) {
-            LogicalArtifactState restored = inspectLogicalArtifact(
+            LogicalArtifactState restored = recoveryArtifactInspector.inspectLogicalArtifact(
                     backup.expected(), backup.origin(), backup.backup(), budget);
-            requireBackupRestored(backup, restored);
+            recoveryArtifactInspector.requireBackupRestored(backup, restored);
         }
         RecoveryManifest rolledBack = persistRecoveryState(plan, PluginTransactionState.ROLLED_BACK, budget);
-        validateTransactionTree(plan.transaction(), rolledBack);
-        validateRecoveryState(rolledBack, budget);
+        recoveryArtifactInspector.validateTransactionTree(plan.transaction(), rolledBack);
+        recoveryArtifactInspector.validateState(rolledBack, budget);
         retireTransaction(new RecoveryPlan(plan.transactionId(), plan.transaction(), rolledBack), budget);
     }
 
     private RecoveryManifest persistRecoveryState(RecoveryPlan plan, PluginTransactionState state)
             throws IOException {
-        return persistRecoveryState(plan, state, new RecoveryBudget());
+        return persistRecoveryState(plan, state, new PluginRecoveryResourceBudget());
     }
 
     private RecoveryManifest persistRecoveryState(
-            RecoveryPlan plan, PluginTransactionState state, RecoveryBudget budget) throws IOException {
+            RecoveryPlan plan, PluginTransactionState state, PluginRecoveryResourceBudget budget) throws IOException {
         RecoveryManifest current = plan.manifest();
         if (current.operation() == RecoveryOperation.INSTALL) {
             requireInstallStateTransition(current.state(), state);
@@ -1416,19 +1437,20 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 current.packageId(), current.version(), current.target(), current.staged(),
                 current.newArtifact(), current.replaces(), current.backups());
         validateCandidateBeforePersist(plan.transaction(), candidate, budget);
-        persistManifest(plan.transaction(), manifestProperties(plan.transactionId(), candidate),
+        PluginRecoveryManifestStore.persist(
+                plan.transaction(), manifestProperties(plan.transactionId(), candidate),
                 "PixivDownloader plugin transaction recovery");
         return candidate;
     }
 
-    private void retireTransaction(RecoveryPlan plan) throws IOException, RecoveryValidationException {
-        retireTransaction(plan, new RecoveryBudget());
+    private void retireTransaction(RecoveryPlan plan) throws IOException, PluginRecoveryValidationException {
+        retireTransaction(plan, new PluginRecoveryResourceBudget());
     }
 
-    private void retireTransaction(RecoveryPlan plan, RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
-        validateTransactionTree(plan.transaction(), plan.manifest());
-        validateRecoveryState(plan.manifest(), budget);
+    private void retireTransaction(RecoveryPlan plan, PluginRecoveryResourceBudget budget)
+            throws IOException, PluginRecoveryValidationException {
+        recoveryArtifactInspector.validateTransactionTree(plan.transaction(), plan.manifest());
+        recoveryArtifactInspector.validateState(plan.manifest(), budget);
         Path pluginsRoot = pluginsDir.toAbsolutePath().normalize();
         Path finalizationRoot = pluginsRoot.resolve(FINALIZATION_DIR);
         if (readAttributesIfPresent(finalizationRoot).isEmpty()) {
@@ -1467,8 +1489,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     /** 完成态只可能把 hardlink 发布的源名遗留为同 inode alias；证明同一身份后删源名，不触碰目标名。 */
-    private void normalizeFinalRecoveryAliases(RecoveryManifest manifest, RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
+    private void normalizeFinalRecoveryAliases(RecoveryManifest manifest, PluginRecoveryResourceBudget budget)
+            throws IOException, PluginRecoveryValidationException {
         if (manifest.state() == PluginTransactionState.ROLLED_BACK) {
             return;
         }
@@ -1481,9 +1503,10 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private void normalizeCompletedMoveAlias(ExpectedArtifact expected, Path source, Path target,
-                                             RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
-        LogicalArtifactState state = inspectLogicalArtifact(expected, source, target, budget);
+                                             PluginRecoveryResourceBudget budget)
+            throws IOException, PluginRecoveryValidationException {
+        LogicalArtifactState state = recoveryArtifactInspector.inspectLogicalArtifact(
+                expected, source, target, budget);
         if (!state.artifactAt(target)
                 || expected.hasSidecar() && !state.sidecarAt(target)) {
             throw unsafePath("completed hardlink publication is missing its target binding: " + target);
@@ -1499,127 +1522,13 @@ public class ExternalPluginInstaller implements AutoCloseable {
             }
             Files.delete(source);
         }
-        LogicalArtifactState normalized = inspectLogicalArtifact(expected, source, target, budget);
+        LogicalArtifactState normalized = recoveryArtifactInspector.inspectLogicalArtifact(
+                expected, source, target, budget);
         if (normalized.artifactAt(source) || normalized.sidecarAt(source)
                 || !normalized.artifactAt(target)
                 || expected.hasSidecar() && !normalized.sidecarAt(target)) {
             throw unsafePath("completed hardlink publication aliases could not be normalized: " + source);
         }
-    }
-
-    private void verifyActivatedTarget(RecoveryManifest manifest) throws RecoveryValidationException {
-        try {
-            RecoveryBudget budget = new RecoveryBudget();
-            verifyActivatedTarget(manifest, inspectVisibleArtifactInventory(budget), budget);
-        } catch (IOException e) {
-            throw unsafePath("visible plugin inventory could not be proven: " + describeRecoveryFailure(e));
-        }
-    }
-
-    private void verifyActivatedTarget(RecoveryManifest manifest, VisibleArtifactInventory inventory)
-            throws RecoveryValidationException {
-        verifyActivatedTarget(manifest, inventory, new RecoveryBudget());
-    }
-
-    private void verifyActivatedTarget(RecoveryManifest manifest, VisibleArtifactInventory inventory,
-                                       RecoveryBudget budget)
-            throws RecoveryValidationException {
-        verifyActivatedTargetBinding(manifest, budget);
-        verifyNoConflictingVisibleArtifacts(manifest, inventory);
-    }
-
-    private void verifyActivatedTargetBinding(RecoveryManifest manifest)
-            throws RecoveryValidationException {
-        verifyActivatedTargetBinding(manifest, new RecoveryBudget());
-    }
-
-    private void verifyActivatedTargetBinding(RecoveryManifest manifest, RecoveryBudget budget)
-            throws RecoveryValidationException {
-        try {
-            PluginPackageInspection inspection = inspectBoundArtifact(
-                    manifest.target(), manifest.newArtifact(), "activated target", budget);
-            if (!List.copyOf(inspection.descriptor().replaces()).equals(manifest.replaces())) {
-                throw unsafePath("activated target replaces declaration does not match its recovery manifest");
-            }
-            var provenance = provenanceStore.readRequiredForRecovery(manifest.target());
-            VerificationResult result = verificationService.verifyInstalled(
-                    manifest.target(), inspection.descriptor(), provenance);
-            if (!result.accepted()) {
-                throw unsafePath("activated target provenance verification failed: " + result.status());
-            }
-        } catch (IOException | RuntimeException e) {
-            throw unsafePath("activated target provenance could not be proven: " + describeRecoveryFailure(e));
-        }
-    }
-
-    private void verifyNoConflictingVisibleArtifacts(RecoveryManifest manifest,
-                                                     VisibleArtifactInventory inventory)
-            throws RecoveryValidationException {
-        Set<String> affectedIds = new LinkedHashSet<>(manifest.replaces());
-        affectedIds.add(manifest.packageId());
-        boolean targetSeen = inventory.artifacts().stream()
-                .anyMatch(candidate -> candidate.path().equals(manifest.target()));
-        for (VisibleArtifact candidate : inventory.artifacts()) {
-            if (candidate.path().equals(manifest.target())) {
-                continue;
-            }
-            if (affectedIds.contains(candidate.descriptor().id())) {
-                throw unsafePath("activated transaction leaves another visible artifact for identity "
-                        + candidate.descriptor().id() + ": " + candidate.path());
-            }
-        }
-        if (!targetSeen) {
-            throw unsafePath("activated target is not the unique visible package artifact");
-        }
-    }
-
-    private void verifyRemovedIdentityAbsent(RecoveryManifest manifest, VisibleArtifactInventory inventory)
-            throws RecoveryValidationException {
-        verifyRemovedIdentityAbsent(manifest.packageId(), inventory);
-    }
-
-    private void verifyRemovedIdentityAbsent(String packageId, VisibleArtifactInventory inventory)
-            throws RecoveryValidationException {
-        boolean stillVisible = inventory.artifacts().stream()
-                .anyMatch(plugin -> packageId.equals(plugin.descriptor().id()));
-        if (stillVisible) {
-            throw unsafePath("completed removal leaves a visible artifact for identity "
-                    + packageId);
-        }
-    }
-
-    private void verifyRemovedIdentityAbsent(RecoveryManifest manifest) throws RecoveryValidationException {
-        try {
-            verifyRemovedIdentityAbsent(manifest, inspectVisibleArtifactInventory());
-        } catch (IOException e) {
-            throw unsafePath("visible plugin inventory could not be proven: " + describeRecoveryFailure(e));
-        }
-    }
-
-    private VisibleArtifactInventory inspectVisibleArtifactInventory()
-            throws IOException, RecoveryValidationException {
-        return inspectVisibleArtifactInventory(new RecoveryBudget());
-    }
-
-    private VisibleArtifactInventory inspectVisibleArtifactInventory(RecoveryBudget budget)
-            throws IOException, RecoveryValidationException {
-        PluginArtifactScanner.ScanResult scan = PluginArtifactScanner.scan(
-                pluginsDir.toAbsolutePath().normalize());
-        List<VisibleArtifact> artifacts = new ArrayList<>(scan.candidates().size());
-        for (Path candidate : scan.candidates()) {
-            try {
-                String digest = PluginPackageIntegrity.sha256Hex(candidate);
-                PluginPackageInspection inspection = budget.inspectArchive(candidate, digest, limits);
-                if (!inspection.descriptor().externalValidationErrors().isEmpty()) {
-                    throw unsafePath("visible plugin artifact has an invalid identity: " + candidate);
-                }
-                artifacts.add(new VisibleArtifact(candidate, inspection.descriptor()));
-            } catch (PluginPackageException e) {
-                throw unsafePath("visible plugin artifact could not be inspected before scan: "
-                        + candidate + " (" + describeRecoveryFailure(e) + ")");
-            }
-        }
-        return new VisibleArtifactInventory(artifacts);
     }
 
     private PluginInstallResult installExclusive(Path packagePath, boolean allowDowngrade,
@@ -1784,98 +1693,20 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 return new InstalledPluginInventorySnapshot(List.of(), false);
             }
             requireRecoverySafe("snapshot installed plugins with provenance");
-            List<InspectedInstalledArtifact> installed = inspectInstalledArtifactsExclusive();
+            List<Artifact> installed = inspectInstalledArtifactsExclusive();
             beforeManagementProvenanceSnapshot();
-            List<InstalledPluginSnapshot> entries = new ArrayList<>(installed.size());
-            int records = 0;
-            long bytes = 0L;
-            boolean exhausted = false;
-            for (InspectedInstalledArtifact inspected : installed) {
-                InstalledPlugin plugin = inspected.plugin();
-                if (exhausted || records >= maximumRecords) {
-                    exhausted = true;
-                    entries.add(new InstalledPluginSnapshot(
-                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                            ProvenanceSnapshotState.BUDGET_EXHAUSTED, null, 0L));
-                    continue;
-                }
-                records++;
-                long remainingBytes = maximumBytes - bytes;
-                try {
-                    var measured = provenanceStore.readMeasuredStrict(plugin.path(), remainingBytes);
-                    if (measured.isEmpty()) {
-                        entries.add(new InstalledPluginSnapshot(
-                                plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                                ProvenanceSnapshotState.ABSENT, null, 0L));
-                        continue;
-                    }
-                    PluginProvenanceStore.MeasuredProvenance present = measured.orElseThrow();
-                    bytes = addManagementSnapshotBytes(bytes, present.byteCount(), maximumBytes);
-                    entries.add(new InstalledPluginSnapshot(
-                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                            ProvenanceSnapshotState.PRESENT, present.record(), present.byteCount()));
-                } catch (PluginProvenanceStore.ReadBudgetExceededException budgetFailure) {
-                    exhausted = true;
-                    ProvenanceSnapshotState state = budgetFailure.byteCount() <= 0L
-                            ? ProvenanceSnapshotState.INVALID
-                            : ProvenanceSnapshotState.BUDGET_EXHAUSTED;
-                    entries.add(new InstalledPluginSnapshot(
-                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                            state, null, 0L));
-                } catch (PluginProvenanceStore.InvalidProvenanceException invalidProvenance) {
-                    try {
-                        bytes = addManagementSnapshotBytes(
-                                bytes, invalidProvenance.byteCount(), maximumBytes);
-                    } catch (ArithmeticException overflow) {
-                        exhausted = true;
-                    }
-                    entries.add(new InstalledPluginSnapshot(
-                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                            ProvenanceSnapshotState.INVALID, null, 0L));
-                } catch (PluginProvenanceStore.ProvenanceReadException readFailure) {
-                    try {
-                        bytes = addManagementSnapshotBytes(
-                                bytes, readFailure.byteCount(), maximumBytes);
-                    } catch (ArithmeticException overflow) {
-                        exhausted = true;
-                    }
-                    entries.add(new InstalledPluginSnapshot(
-                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                            ProvenanceSnapshotState.INVALID, null, 0L));
-                } catch (IOException invalidProvenance) {
-                    entries.add(new InstalledPluginSnapshot(
-                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                            ProvenanceSnapshotState.INVALID, null, 0L));
-                } catch (IllegalStateException | ArithmeticException invalidProvenance) {
-                    exhausted = true;
-                    entries.add(new InstalledPluginSnapshot(
-                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
-                            ProvenanceSnapshotState.INVALID, null, 0L));
-                }
-            }
-            return new InstalledPluginInventorySnapshot(entries, exhausted);
+            return inventorySnapshotter.snapshot(installed, maximumRecords, maximumBytes);
         } finally {
             installLock.unlock();
         }
     }
 
-    private static long addManagementSnapshotBytes(
-            long consumedBytes, long candidateBytes, long maximumBytes) {
-        if (consumedBytes < 0L
-                || consumedBytes > maximumBytes
-                || candidateBytes < 0L
-                || candidateBytes > maximumBytes - consumedBytes) {
-            throw new ArithmeticException("management provenance read budget exceeded");
-        }
-        return consumedBytes + candidateBytes;
-    }
-
     private List<InstalledPlugin> listInstalledExclusive() {
         return inspectInstalledArtifactsExclusive().stream()
-                .map(InspectedInstalledArtifact::plugin).toList();
+                .map(Artifact::plugin).toList();
     }
 
-    private List<InspectedInstalledArtifact> inspectInstalledArtifactsExclusive() {
+    private List<Artifact> inspectInstalledArtifactsExclusive() {
         Path pluginsRoot = pluginsDir.toAbsolutePath().normalize();
         try {
             PluginArtifactScanner.ScanResult scan = PluginArtifactScanner.scan(pluginsRoot);
@@ -1883,8 +1714,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 return List.of();
             }
             assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
-            List<InspectedInstalledArtifact> result = new ArrayList<>(scan.candidates().size());
-            RecoveryBudget inventoryBudget = new RecoveryBudget();
+            List<Artifact> result = new ArrayList<>(scan.candidates().size());
+            PluginRecoveryResourceBudget inventoryBudget = new PluginRecoveryResourceBudget();
             for (Path path : scan.candidates()) {
                 try {
                     BasicFileAttributes before = Files.readAttributes(
@@ -1905,14 +1736,14 @@ public class ExternalPluginInstaller implements AutoCloseable {
                             || !identity.equals(cleanupIdentity(after))) {
                         throw new IOException("installed plugin artifact changed during inventory: " + path);
                     }
-                    result.add(new InspectedInstalledArtifact(
+                    result.add(new Artifact(
                             new InstalledPlugin(inspection.descriptor(), path), before.size(), digest));
                 } catch (PluginPackageException | IOException e) {
                     log.warn("Skipping unreadable plugin package {}: {}", path.getFileName(), e.getMessage());
                 }
             }
             return List.copyOf(result);
-        } catch (IOException | RecoveryValidationException e) {
+        } catch (IOException | PluginRecoveryValidationException e) {
             throw new IllegalStateException("failed to enumerate plugins directory safely", e);
         }
     }
@@ -1941,7 +1772,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             Path pluginsRoot = pluginsDir.toAbsolutePath().normalize();
             String transactionId = "remove-" + UUID.randomUUID();
             transaction = pluginsRoot.resolve(STAGING_DIR).resolve(transactionId);
-            Path backupDir = transaction.resolve(BACKUP_SUBDIR);
+            Path backupDir = transaction.resolve(PluginRecoveryManifestValidator.BACKUP_SUBDIRECTORY);
             List<Backup> backups = new ArrayList<>();
             try {
                 unpublishedTransaction = createUnpublishedTransaction(pluginsRoot, transactionId);
@@ -1956,7 +1787,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 RecoveryManifest unpublishedManifest = relocateManifestToTransaction(
                         publishedManifest, unpublishedTransaction);
                 validateCandidateBeforePersist(unpublishedTransaction, unpublishedManifest);
-                persistManifest(unpublishedTransaction,
+                PluginRecoveryManifestStore.persist(unpublishedTransaction,
                         manifestProperties(transactionId, publishedManifest),
                         "PixivDownloader plugin removal transaction");
                 beforeRemovalTransactionPublished(unpublishedTransaction);
@@ -1976,7 +1807,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                         || completed.manifest().state() != PluginTransactionState.COMMITTED) {
                     throw new IOException("completed removal transaction could not be verified");
                 }
-                verifyRemovedIdentityAbsent(completed.manifest());
+                recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(completed.manifest());
                 retireTransaction(completed);
                 attempt.confirm(PluginRemovalAttempt.Outcome.REMOVED);
                 return true;
@@ -2024,7 +1855,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
         // 本次安装必须让安装目录里同 id 旧包从可识别文件中消失（规范目标自身除外）——纳入提交事务、失败可回滚
         List<InstalledPlugin> superseded = supersededExcluding(supersededCandidates, target);
-        Path backupDir = staging.resolve(BACKUP_SUBDIR);
+        Path backupDir = staging.resolve(PluginRecoveryManifestValidator.BACKUP_SUBDIRECTORY);
         List<Backup> backups = new ArrayList<>();
         List<String> removedNames = new ArrayList<>();
         boolean backupsResolved = false; // 备份已「随提交丢弃」或「随回滚还原」，可安全清理
@@ -2196,7 +2027,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private void requirePlainManagedDirectory(Path pluginsRoot, Path directory, String role) throws IOException {
         try {
             assertExistingPathComponentsSafe(pluginsRoot, directory, role);
-        } catch (RecoveryValidationException e) {
+        } catch (PluginRecoveryValidationException e) {
             throw new IOException(role + " is unsafe: " + e.getMessage(), e);
         }
         BasicFileAttributes attributes = readAttributesIfPresent(directory).orElse(null);
@@ -2220,7 +2051,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         List<RecoveryBackup> backups = new ArrayList<>(manifest.backups().size());
         for (RecoveryBackup backup : manifest.backups()) {
             backups.add(new RecoveryBackup(backup.expected(), backup.origin(),
-                    transaction.resolve(BACKUP_SUBDIR).resolve(backup.backup().getFileName())));
+                    transaction.resolve(PluginRecoveryManifestValidator.BACKUP_SUBDIRECTORY)
+                            .resolve(backup.backup().getFileName())));
         }
         return new RecoveryManifest(manifest.operation(), manifest.state(), manifest.packageId(),
                 manifest.version(), manifest.target(), staged, manifest.newArtifact(), manifest.replaces(),
@@ -2234,7 +2066,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     || plan.manifest().state() != PluginTransactionState.PREPARED) {
                 throw new IOException("published transaction is not a valid prepared install");
             }
-        } catch (RecoveryValidationException e) {
+        } catch (PluginRecoveryValidationException e) {
             throw new IOException("published transaction is unsafe: " + e.getMessage(), e);
         }
     }
@@ -2246,7 +2078,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     || plan.manifest().state() != PluginTransactionState.PREPARED) {
                 throw new IOException("published transaction is not a valid prepared removal");
             }
-        } catch (RecoveryValidationException e) {
+        } catch (PluginRecoveryValidationException e) {
             throw new IOException("published removal transaction is unsafe: " + e.getMessage(), e);
         }
     }
@@ -2259,7 +2091,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
         try {
             if (readAttributesIfPresent(transaction).isEmpty()) {
                 if (committedManifestPersisted) {
-                    verifyRemovedIdentityAbsent(packageId, inspectVisibleArtifactInventory());
+                    recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(
+                            packageId,
+                            recoveryVisibleInventoryVerifier.inspectVisibleInventory());
                     return RemovalFailureOutcome.REMOVED;
                 }
                 return RemovalFailureOutcome.ROLLED_BACK;
@@ -2380,7 +2214,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
     private static Properties manifestProperties(String transactionId, RecoveryManifest manifest) {
         Properties properties = new Properties();
-        properties.setProperty("format.version", TRANSACTION_FORMAT_VERSION);
+        properties.setProperty("format.version", PluginRecoveryManifestValidator.FORMAT_VERSION);
         properties.setProperty("transaction.id", transactionId);
         properties.setProperty("operation", manifest.operation().name());
         properties.setProperty("state", manifest.state().name());
@@ -2419,9 +2253,15 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
         ExpectedArtifact newArtifact = existing != null
                 ? existing.newArtifact()
-                : snapshotExpectedArtifact(prepared.stagedArtifact(), prepared.target(),
-                descriptor.id(), descriptor.version(), true);
-        List<RecoveryBackup> frozenBackups = freezeInstallBackups(existing, backups);
+                : recoveryArtifactSnapshotter.snapshotInstallArtifact(
+                        prepared.stagedArtifact(),
+                        prepared.target(),
+                        descriptor.id(),
+                        descriptor.version(),
+                        verificationService);
+        List<RecoveryBackup> frozenBackups = recoveryArtifactSnapshotter.freezeInstallBackups(
+                existing,
+                backups);
         RecoveryManifest candidate = new RecoveryManifest(
                 RecoveryOperation.INSTALL, state, descriptor.id(), descriptor.version(),
                 prepared.target().toAbsolutePath().normalize(),
@@ -2429,30 +2269,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 newArtifact, List.copyOf(descriptor.replaces()), frozenBackups);
         validateCandidateBeforePersist(prepared.transactionDirectory(), candidate);
 
-        Properties properties = new Properties();
-        properties.setProperty("format.version", TRANSACTION_FORMAT_VERSION);
-        properties.setProperty("transaction.id", prepared.transactionId());
-        properties.setProperty("operation", RecoveryOperation.INSTALL.name());
-        properties.setProperty("state", state.name());
-        properties.setProperty("package.id", descriptor.id());
-        properties.setProperty("version", descriptor.version());
-        properties.setProperty("target", prepared.target().toAbsolutePath().normalize().toString());
-        properties.setProperty("staged", prepared.stagedArtifact().toAbsolutePath().normalize().toString());
-        writeExpectedArtifact(properties, "artifact", newArtifact);
-        properties.setProperty("replaces.count", Integer.toString(descriptor.replaces().size()));
-        for (int i = 0; i < descriptor.replaces().size(); i++) {
-            properties.setProperty("replaces." + i, descriptor.replaces().get(i));
-        }
-        properties.setProperty("backup.count", Integer.toString(frozenBackups.size()));
-        for (int i = 0; i < frozenBackups.size(); i++) {
-            RecoveryBackup backup = frozenBackups.get(i);
-            writeExpectedArtifact(properties, "backup." + i, backup.expected());
-            properties.setProperty("backup." + i + ".origin",
-                    backup.origin().toString());
-            properties.setProperty("backup." + i + ".path",
-                    backup.backup().toString());
-        }
-        persistManifest(prepared.transactionDirectory(), properties,
+        PluginRecoveryManifestStore.persist(
+                prepared.transactionDirectory(),
+                manifestProperties(prepared.transactionId(), candidate),
                 "PixivDownloader plugin transaction");
     }
 
@@ -2478,35 +2297,14 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 null, List.of(), frozenBackups);
         validateCandidateBeforePersist(transaction, candidate);
 
-        Properties properties = new Properties();
-        properties.setProperty("format.version", TRANSACTION_FORMAT_VERSION);
-        properties.setProperty("transaction.id", transaction.getFileName().toString());
-        properties.setProperty("operation", RecoveryOperation.REMOVE.name());
-        properties.setProperty("state", state.name());
-        properties.setProperty("package.id", Objects.toString(packageId, ""));
-        properties.setProperty("version", "");
-        properties.setProperty("target", "");
-        properties.setProperty("staged", "");
-        properties.setProperty("artifact.id", "");
-        properties.setProperty("artifact.version", "");
-        properties.setProperty("artifact.size", "");
-        properties.setProperty("artifact.sha256", "");
-        properties.setProperty("artifact.sidecar.sha256", "");
-        properties.setProperty("replaces.count", "0");
-        properties.setProperty("backup.count", Integer.toString(frozenBackups.size()));
-        for (int i = 0; i < frozenBackups.size(); i++) {
-            RecoveryBackup backup = frozenBackups.get(i);
-            writeExpectedArtifact(properties, "backup." + i, backup.expected());
-            properties.setProperty("backup." + i + ".origin",
-                    backup.origin().toString());
-            properties.setProperty("backup." + i + ".path",
-                    backup.backup().toString());
-        }
-        persistManifest(transaction, properties, "PixivDownloader plugin removal transaction");
+        PluginRecoveryManifestStore.persist(
+                transaction,
+                manifestProperties(transaction.getFileName().toString(), candidate),
+                "PixivDownloader plugin removal transaction");
     }
 
     private RecoveryManifest readExistingManifest(Path transaction) throws IOException {
-        Path manifestPath = transaction.resolve(TRANSACTION_MANIFEST);
+        Path manifestPath = PluginRecoveryManifestStore.manifestPath(transaction);
         BasicFileAttributes attributes = readAttributesIfPresent(manifestPath).orElse(null);
         if (attributes == null) {
             return null;
@@ -2514,70 +2312,27 @@ public class ExternalPluginInstaller implements AutoCloseable {
         if (attributes.isSymbolicLink() || attributes.isOther() || !attributes.isRegularFile()) {
             throw new IOException("plugin transaction manifest is not a plain regular file");
         }
-        if (attributes.size() > MAX_RECOVERY_MANIFEST_BYTES) {
+        if (PluginRecoveryManifestStore.exceedsMaximumSize(attributes.size())) {
             throw new IOException("plugin transaction manifest exceeds the supported size");
         }
         try {
-            return validateRecoveryManifest(pluginsDir.toAbsolutePath().normalize(),
-                    transaction.toAbsolutePath().normalize(), readManifest(manifestPath).properties());
-        } catch (RecoveryValidationException e) {
+            return recoveryManifestValidator.validate(
+                    transaction, PluginRecoveryManifestStore.read(manifestPath).properties());
+        } catch (PluginRecoveryValidationException e) {
             throw new IOException("plugin transaction manifest is invalid: " + e.getMessage(), e);
         }
-    }
-
-    private List<RecoveryBackup> freezeInstallBackups(
-            RecoveryManifest existing,
-            List<CommittedPluginTransaction.BackupArtifact> backups) throws IOException {
-        List<RecoveryBackup> frozen = existing != null ? existing.backups() : List.of();
-        if (!frozen.isEmpty()) {
-            if (frozen.size() != backups.size()) {
-                throw new IOException("plugin transaction backup set changed after it was frozen");
-            }
-            for (int i = 0; i < frozen.size(); i++) {
-                Path origin = backups.get(i).origin().toAbsolutePath().normalize();
-                Path backup = backups.get(i).backup().toAbsolutePath().normalize();
-                if (!frozen.get(i).origin().equals(origin) || !frozen.get(i).backup().equals(backup)) {
-                    throw new IOException("plugin transaction backup paths changed after they were frozen");
-                }
-            }
-            return frozen;
-        }
-        List<RecoveryBackup> result = new ArrayList<>(backups.size());
-        for (CommittedPluginTransaction.BackupArtifact backup : backups) {
-            Path origin = backup.origin().toAbsolutePath().normalize();
-            Path target = backup.backup().toAbsolutePath().normalize();
-            result.add(new RecoveryBackup(
-                    snapshotExpectedArtifact(origin, target, null, null, false), origin, target));
-        }
-        return List.copyOf(result);
     }
 
     private List<RecoveryBackup> freezeRemovalBackups(
             RecoveryManifest existing,
             List<Backup> backups,
             String packageId) throws IOException {
-        List<RecoveryBackup> frozen = existing != null ? existing.backups() : List.of();
-        if (!frozen.isEmpty()) {
-            if (frozen.size() != backups.size()) {
-                throw new IOException("plugin removal backup set changed after it was frozen");
-            }
-            for (int i = 0; i < frozen.size(); i++) {
-                Path origin = backups.get(i).origin().toAbsolutePath().normalize();
-                Path backup = backups.get(i).backup().toAbsolutePath().normalize();
-                if (!frozen.get(i).origin().equals(origin) || !frozen.get(i).backup().equals(backup)) {
-                    throw new IOException("plugin removal backup paths changed after they were frozen");
-                }
-            }
-            return frozen;
-        }
-        List<RecoveryBackup> result = new ArrayList<>(backups.size());
-        for (Backup backup : backups) {
-            Path origin = backup.origin().toAbsolutePath().normalize();
-            Path target = backup.backup().toAbsolutePath().normalize();
-            result.add(new RecoveryBackup(
-                    snapshotExpectedArtifact(origin, target, packageId, null, false), origin, target));
-        }
-        return List.copyOf(result);
+        return recoveryArtifactSnapshotter.freezeRemovalBackups(
+                existing,
+                backups.stream()
+                        .map(backup -> new BackupPath(backup.origin(), backup.backup()))
+                        .toList(),
+                packageId);
     }
 
     private void requireInstallStateTransition(PluginTransactionState current, PluginTransactionState next)
@@ -2639,7 +2394,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 throw new IOException("plugin transaction is in unexpected state: " + manifest.state());
             }
             return manifest;
-        } catch (RecoveryValidationException e) {
+        } catch (PluginRecoveryValidationException e) {
             throw new IOException("plugin transaction handle is not managed safely: " + e.getMessage(), e);
         }
     }
@@ -2691,7 +2446,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private Path requirePreparedTransactionPath(Path pluginsRoot, PreparedPluginTransaction prepared)
-            throws RecoveryValidationException {
+            throws PluginRecoveryValidationException {
         String transactionId = Objects.requireNonNull(prepared.transactionId(), "transactionId");
         if (!transactionId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")) {
             throw unsafePath("prepared transaction id is not a safe token");
@@ -2707,155 +2462,37 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private void validateCandidateBeforePersist(Path transaction, RecoveryManifest candidate) throws IOException {
-        validateCandidateBeforePersist(transaction, candidate, new RecoveryBudget());
+        validateCandidateBeforePersist(transaction, candidate, new PluginRecoveryResourceBudget());
     }
 
     private void validateCandidateBeforePersist(
-            Path transaction, RecoveryManifest candidate, RecoveryBudget budget) throws IOException {
+            Path transaction,
+            RecoveryManifest candidate,
+            PluginRecoveryResourceBudget budget) throws IOException {
         try {
-            if (candidate.replaces().size() > MAX_RECOVERY_BACKUPS
-                    || candidate.backups().size() > MAX_RECOVERY_BACKUPS) {
+            if (candidate.replaces().size() > PluginRecoveryManifestValidator.MAX_BACKUPS
+                    || candidate.backups().size() > PluginRecoveryManifestValidator.MAX_BACKUPS) {
                 throw invalidManifest("generated transaction exceeds the supported replacement or backup count");
             }
-            validateTransactionTree(transaction, candidate);
-            validateRecoveryState(candidate, budget);
+            recoveryArtifactInspector.validateTransactionTree(transaction, candidate);
+            recoveryArtifactInspector.validateState(candidate, budget);
             if (candidate.operation() == RecoveryOperation.INSTALL
                     && (candidate.state() == PluginTransactionState.ACTIVATED
                     || candidate.state() == PluginTransactionState.COMMITTED)) {
-                verifyActivatedTarget(candidate, inspectVisibleArtifactInventory(budget), budget);
+                recoveryVisibleInventoryVerifier.verifyActivatedTarget(
+                        candidate,
+                        recoveryVisibleInventoryVerifier.inspectVisibleInventory(budget),
+                        budget,
+                        verificationService);
             } else if (candidate.operation() == RecoveryOperation.REMOVE
                     && candidate.state() == PluginTransactionState.COMMITTED) {
-                verifyRemovedIdentityAbsent(candidate, inspectVisibleArtifactInventory(budget));
+                recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(
+                        candidate,
+                        recoveryVisibleInventoryVerifier.inspectVisibleInventory(budget));
             }
-        } catch (RecoveryValidationException e) {
+        } catch (PluginRecoveryValidationException e) {
             throw new IOException("plugin transaction state is unsafe: " + e.getMessage(), e);
         }
-    }
-
-    private static void persistManifest(Path transaction, Properties properties, String comment) throws IOException {
-        byte[] serialized = serializeManifest(properties, comment);
-        BasicFileAttributes transactionAttributes = readAttributesIfPresent(transaction).orElse(null);
-        if (transactionAttributes == null || transactionAttributes.isSymbolicLink()
-                || transactionAttributes.isOther() || !transactionAttributes.isDirectory()) {
-            throw new IOException("plugin transaction directory is not a plain directory");
-        }
-        Path manifest = transaction.resolve(TRANSACTION_MANIFEST);
-        Path temporary = transaction.resolve(TRANSACTION_MANIFEST + ".tmp");
-        BasicFileAttributes temporaryAttributes = readAttributesIfPresent(temporary).orElse(null);
-        if (temporaryAttributes != null) {
-            if (temporaryAttributes.isSymbolicLink() || temporaryAttributes.isOther()
-                    || !temporaryAttributes.isRegularFile()) {
-                throw new IOException("plugin transaction manifest temporary path is unsafe");
-            }
-            Files.delete(temporary);
-        }
-        BasicFileAttributes manifestAttributes = readAttributesIfPresent(manifest).orElse(null);
-        if (manifestAttributes != null && (manifestAttributes.isSymbolicLink() || manifestAttributes.isOther()
-                || !manifestAttributes.isRegularFile())) {
-            throw new IOException("plugin transaction manifest path is unsafe");
-        }
-        Set<OpenOption> options = Set.of(
-                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
-        try (SeekableByteChannel channel = Files.newByteChannel(temporary, options)) {
-            ByteBuffer buffer = ByteBuffer.wrap(serialized);
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
-            }
-            if (channel instanceof FileChannel fileChannel) {
-                fileChannel.force(true);
-            }
-        }
-        try {
-            Files.move(temporary, manifest, StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.deleteIfExists(temporary);
-            throw new IOException("filesystem does not support atomic transaction manifest persistence", e);
-        }
-    }
-
-    private static byte[] serializeManifest(Properties properties, String comment) throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        OutputStream bounded = new OutputStream() {
-            private int count;
-
-            @Override
-            public void write(int value) throws IOException {
-                requireCapacity(1);
-                bytes.write(value);
-                count++;
-            }
-
-            @Override
-            public void write(byte[] source, int offset, int length) throws IOException {
-                Objects.checkFromIndexSize(offset, length, source.length);
-                requireCapacity(length);
-                bytes.write(source, offset, length);
-                count += length;
-            }
-
-            private void requireCapacity(int increment) throws IOException {
-                if (increment < 0 || count > MAX_RECOVERY_MANIFEST_BYTES - increment) {
-                    throw new IOException("generated transaction manifest exceeds the supported size");
-                }
-            }
-        };
-        try (Writer writer = new OutputStreamWriter(bounded, StandardCharsets.UTF_8)) {
-            properties.store(writer, comment);
-        }
-        return bytes.toByteArray();
-    }
-
-    private ExpectedArtifact snapshotExpectedArtifact(Path first, Path second, String expectedId,
-                                                      String expectedVersion, boolean requireSidecar)
-            throws IOException {
-        Path artifact = existingPlainFile(first).orElse(null);
-        if (artifact == null) {
-            artifact = existingPlainFile(second).orElse(null);
-        }
-        if (artifact == null) {
-            throw new IOException("transaction artifact is missing while writing recovery manifest: " + first);
-        }
-        try {
-            PluginPackageVerifier.verify(artifact, limits);
-            PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, limits);
-            PluginDescriptor descriptor = inspection.descriptor();
-            if (expectedId != null && !expectedId.equals(descriptor.id())) {
-                throw new IOException("transaction artifact id changed while writing manifest: " + artifact);
-            }
-            if (expectedVersion != null && !expectedVersion.equals(descriptor.version())) {
-                throw new IOException("transaction artifact version changed while writing manifest: " + artifact);
-            }
-            Path sidecar = provenanceStore.existingManagedSidecarPathStrict(artifact).orElse(null);
-            if (requireSidecar && sidecar == null) {
-                throw new IOException("transaction artifact provenance is missing: " + artifact);
-            }
-            if (sidecar != null && requireSidecar) {
-                var provenance = provenanceStore.readRequiredForRecovery(artifact);
-                VerificationResult verification = verificationService.verifyInstalled(
-                        artifact, descriptor, provenance);
-                if (!verification.accepted()) {
-                    throw new IOException("transaction artifact provenance verification failed: "
-                            + artifact + " (" + verification.status() + ")");
-                }
-            }
-            return new ExpectedArtifact(descriptor.id(), descriptor.version(), Files.size(artifact),
-                    PluginPackageIntegrity.sha256Hex(artifact),
-                    sidecar != null ? PluginPackageIntegrity.sha256Hex(sidecar) : "");
-        } catch (PluginPackageException e) {
-            throw new IOException("transaction artifact could not be inspected: " + artifact, e);
-        }
-    }
-
-    private static java.util.Optional<Path> existingPlainFile(Path path) throws IOException {
-        BasicFileAttributes attributes = readAttributesIfPresent(path).orElse(null);
-        if (attributes == null) {
-            return java.util.Optional.empty();
-        }
-        if (attributes.isSymbolicLink() || attributes.isOther() || !attributes.isRegularFile()) {
-            throw new IOException("transaction artifact is not a plain file: " + path);
-        }
-        return java.util.Optional.of(path);
     }
 
     private static void writeExpectedArtifact(Properties properties, String prefix, ExpectedArtifact artifact) {
@@ -2866,310 +2503,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         properties.setProperty(prefix + ".sidecar.sha256", artifact.sidecarSha256());
     }
 
-    private static ReadManifest readManifest(Path manifest) throws IOException {
-        BasicFileAttributes attributes = readAttributesIfPresent(manifest).orElse(null);
-        if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
-                || !attributes.isRegularFile()) {
-            throw new IOException("plugin transaction manifest is not a plain regular file");
-        }
-        if (attributes.size() > MAX_RECOVERY_MANIFEST_BYTES) {
-            throw new IOException("plugin transaction manifest exceeds the supported size");
-        }
-        Set<OpenOption> options = Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
-        ByteArrayOutputStream collected = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        long byteCount = 0L;
-        try (SeekableByteChannel channel = Files.newByteChannel(manifest, options);
-             InputStream input = Channels.newInputStream(channel)) {
-            int read;
-            while ((read = input.read(buffer, 0, (int) Math.min(
-                    buffer.length, MAX_RECOVERY_MANIFEST_BYTES + 1L - byteCount))) != -1) {
-                collected.write(buffer, 0, read);
-                byteCount += read;
-                if (byteCount > MAX_RECOVERY_MANIFEST_BYTES) {
-                    throw new ManifestReadException(
-                            "plugin transaction manifest grew beyond the supported size while reading",
-                            byteCount, null);
-                }
-            }
-        } catch (ManifestReadException e) {
-            throw e;
-        } catch (IOException e) {
-            throw new ManifestReadException(
-                    "failed to read plugin transaction manifest", byteCount, e);
-        }
-        byte[] bytes = collected.toByteArray();
-        String content;
-        try {
-            content = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(bytes)).toString();
-        } catch (CharacterCodingException e) {
-            throw new ManifestReadException(
-                    "plugin transaction manifest is not valid UTF-8", bytes.length, e);
-        }
-        Properties properties = new RejectingProperties();
-        try (Reader reader = new StringReader(content)) {
-            properties.load(reader);
-        } catch (IOException | IllegalArgumentException e) {
-            throw new ManifestReadException(
-                    "plugin transaction manifest properties are invalid", bytes.length, e);
-        }
-        return new ReadManifest(properties, bytes.length);
-    }
-
-    private RecoveryManifest validateRecoveryManifest(Path pluginsRoot, Path transaction, Properties properties)
-            throws RecoveryValidationException {
-        String formatVersion = requiredProperty(properties, "format.version");
-        if (!TRANSACTION_FORMAT_VERSION.equals(formatVersion)) {
-            throw invalidManifest("unsupported transaction manifest format.version: " + formatVersion);
-        }
-        String transactionId = requiredProperty(properties, "transaction.id");
-        if (!transactionId.equals(transaction.getFileName().toString())) {
-            throw invalidManifest("transaction.id does not match its directory name");
-        }
-        if (!transactionId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")) {
-            throw invalidManifest("transaction.id is not a safe token");
-        }
-
-        RecoveryOperation operation;
-        try {
-            operation = RecoveryOperation.valueOf(requiredProperty(properties, "operation"));
-        } catch (IllegalArgumentException e) {
-            throw invalidManifest("unknown transaction operation");
-        }
-
-        PluginTransactionState state;
-        try {
-            state = PluginTransactionState.valueOf(requiredProperty(properties, "state"));
-        } catch (IllegalArgumentException e) {
-            throw invalidManifest("unknown transaction state");
-        }
-        String packageId = requiredProperty(properties, "package.id");
-        if (!PluginDescriptor.ID_PATTERN.matcher(packageId).matches()) {
-            throw invalidManifest("invalid manifest package.id");
-        }
-        String version = properties.getProperty("version");
-        if (version == null) {
-            throw invalidManifest("missing manifest property: version");
-        }
-
-        String targetValue = properties.getProperty("target");
-        if (targetValue == null) {
-            throw invalidManifest("missing manifest property: target");
-        }
-        String stagedValue = properties.getProperty("staged");
-        if (stagedValue == null) {
-            throw invalidManifest("missing manifest property: staged");
-        }
-        boolean removal = operation == RecoveryOperation.REMOVE;
-        if (removal != targetValue.isBlank() || removal != stagedValue.isBlank()) {
-            throw invalidManifest(removal
-                    ? "removal transaction must not declare a target"
-                    : "install transaction must declare target and staged paths");
-        }
-        if (removal && state != PluginTransactionState.PREPARED
-                && state != PluginTransactionState.ROLLING_BACK
-                && state != PluginTransactionState.ROLLED_BACK
-                && state != PluginTransactionState.COMMITTED) {
-            throw invalidManifest("removal transaction has an unsupported state: " + state);
-        }
-        if (removal) {
-            if (!version.isBlank()) {
-                throw invalidManifest("removal transaction must not declare a version");
-            }
-        } else {
-            validateVersion(version, "install transaction version");
-        }
-
-        Path target = targetValue.isBlank() ? null
-                : validateArtifactPath(targetValue, pluginsRoot, pluginsRoot, "target");
-        Path stagedRoot = transaction.resolve("new").toAbsolutePath().normalize();
-        Path staged = stagedValue.isBlank() ? null
-                : validateArtifactPath(stagedValue, stagedRoot, pluginsRoot, "staged artifact");
-        ExpectedArtifact newArtifact = removal ? null : parseExpectedArtifact(properties, "artifact");
-        if (!removal) {
-            if (!packageId.equals(newArtifact.pluginId()) || !version.equals(newArtifact.version())) {
-                throw invalidManifest("package identity does not match the staged artifact identity");
-            }
-            requireCanonicalArtifactName(target, packageId, version, "target");
-            if (!target.getFileName().equals(staged.getFileName())) {
-                throw invalidManifest("target and staged artifact names differ");
-            }
-            requireCanonicalArtifactName(staged, packageId, version, "staged artifact");
-            if (!newArtifact.hasSidecar()) {
-                throw invalidManifest("install transaction must bind the staged provenance sidecar");
-            }
-        } else if (!blankProperty(properties, "artifact.id")
-                || !blankProperty(properties, "artifact.version")
-                || !blankProperty(properties, "artifact.size")
-                || !blankProperty(properties, "artifact.sha256")
-                || !blankProperty(properties, "artifact.sidecar.sha256")) {
-            throw invalidManifest("removal transaction must not declare a new artifact digest");
-        }
-
-        int replacesCount = parseBoundedCount(properties, "replaces.count", MAX_RECOVERY_BACKUPS);
-        Set<String> replaces = new LinkedHashSet<>();
-        for (int i = 0; i < replacesCount; i++) {
-            String replacedId = requiredProperty(properties, "replaces." + i);
-            if (!PluginDescriptor.ID_PATTERN.matcher(replacedId).matches()
-                    || replacedId.equals(packageId) || !replaces.add(replacedId)) {
-                throw invalidManifest("invalid or duplicate replaced plugin id");
-            }
-        }
-        if (removal && !replaces.isEmpty()) {
-            throw invalidManifest("removal transaction must not declare replacement ids");
-        }
-
-        int backupCount = parseBackupCount(properties);
-        if (removal && backupCount == 0) {
-            throw invalidManifest("removal transaction must declare at least one backup");
-        }
-
-        Path removedRoot = transaction.resolve(BACKUP_SUBDIR).toAbsolutePath().normalize();
-        if (backupCount > 0) {
-            requirePathWithin(removedRoot, transaction, "backup root");
-            assertExistingPathComponentsSafe(pluginsRoot, removedRoot, "backup root");
-            try {
-                BasicFileAttributes attributes = readAttributesIfPresent(removedRoot).orElse(null);
-                if (attributes != null && (attributes.isSymbolicLink() || attributes.isOther()
-                        || !attributes.isDirectory())) {
-                    throw unsafePath("backup root is not a plain directory: " + removedRoot);
-                }
-            } catch (IOException e) {
-                throw unsafePath("backup root could not be inspected: " + describeRecoveryFailure(e));
-            }
-        }
-
-        List<RecoveryBackup> backups = new ArrayList<>(backupCount);
-        Set<Path> claimedPaths = new LinkedHashSet<>();
-        if (target != null) {
-            claimedPaths.add(target);
-            claimedPaths.add(staged);
-        }
-        for (int i = 0; i < backupCount; i++) {
-            ExpectedArtifact expected = parseExpectedArtifact(properties, "backup." + i);
-            if (removal && !packageId.equals(expected.pluginId())) {
-                throw invalidManifest("removal backup identity does not match package.id");
-            }
-            if (!removal && !packageId.equals(expected.pluginId()) && !replaces.contains(expected.pluginId())) {
-                throw invalidManifest("install backup identity is not owned or explicitly replaced");
-            }
-            Path origin = validateArtifactPath(requiredProperty(properties, "backup." + i + ".origin"),
-                    pluginsRoot, pluginsRoot, "backup origin");
-            Path backup = validateArtifactPath(requiredProperty(properties, "backup." + i + ".path"),
-                    removedRoot, pluginsRoot, "backup path");
-            // 既有安装包可能来自旧版本或人工复制，扫描事实以包内 descriptor 为准；恢复清单必须原样保留
-            // 其安全的根级文件名。只有本事务生成的新 target/staged 强制规范命名。
-            String expectedBackupName = i + "-" + origin.getFileName();
-            if (!backup.getFileName().toString().equals(expectedBackupName)) {
-                throw invalidManifest("backup path is not bound to its index and origin name");
-            }
-            if (!claimedPaths.add(origin) || !claimedPaths.add(backup)) {
-                throw invalidManifest("transaction declares a duplicate artifact path");
-            }
-            backups.add(new RecoveryBackup(expected, origin, backup));
-        }
-        validateManifestPropertyKeys(properties, replacesCount, backupCount);
-        return new RecoveryManifest(operation, state, packageId, version, target, staged,
-                newArtifact, List.copyOf(replaces), List.copyOf(backups));
-    }
-
-    private static void validateManifestPropertyKeys(Properties properties, int replacesCount, int backupCount)
-            throws RecoveryValidationException {
-        Set<String> allowed = new LinkedHashSet<>(List.of(
-                "format.version", "transaction.id", "operation", "state", "package.id", "version",
-                "target", "staged", "artifact.id", "artifact.version", "artifact.size",
-                "artifact.sha256", "artifact.sidecar.sha256", "replaces.count", "backup.count"));
-        for (int i = 0; i < replacesCount; i++) {
-            allowed.add("replaces." + i);
-        }
-        for (int i = 0; i < backupCount; i++) {
-            String prefix = "backup." + i;
-            allowed.add(prefix + ".id");
-            allowed.add(prefix + ".version");
-            allowed.add(prefix + ".size");
-            allowed.add(prefix + ".sha256");
-            allowed.add(prefix + ".sidecar.sha256");
-            allowed.add(prefix + ".origin");
-            allowed.add(prefix + ".path");
-        }
-        for (String key : properties.stringPropertyNames()) {
-            if (!allowed.contains(key)) {
-                throw invalidManifest("unknown transaction manifest property: " + key);
-            }
-        }
-    }
-
-    private Path validateArtifactPath(String value, Path expectedParent, Path pluginsRoot, String role)
-            throws RecoveryValidationException {
-        Path path;
-        try {
-            path = Path.of(value);
-        } catch (RuntimeException e) {
-            throw unsafePath(role + " is not a valid path");
-        }
-        if (!path.isAbsolute()) {
-            throw unsafePath(role + " must be absolute: " + value);
-        }
-        Path normalized = path.normalize();
-        if (!path.equals(normalized)) {
-            throw unsafePath(role + " must already be normalized: " + value);
-        }
-        if (normalized.getParent() == null || !normalized.getParent().equals(expectedParent)) {
-            throw unsafePath(role + " escapes its expected root: " + value);
-        }
-        String name = normalized.getFileName().toString().toLowerCase(Locale.ROOT);
-        if (name.startsWith(".") || !(name.endsWith(".jar") || name.endsWith(".zip"))) {
-            throw unsafePath(role + " is not a plugin artifact path: " + value);
-        }
-        requirePathWithin(normalized, pluginsRoot, role);
-        assertExistingPathComponentsSafe(pluginsRoot, normalized, role);
-        try {
-            BasicFileAttributes attributes = readAttributesIfPresent(normalized).orElse(null);
-            if (attributes != null && (attributes.isSymbolicLink() || attributes.isOther()
-                    || !attributes.isRegularFile())) {
-                throw unsafePath(role + " is not a plain regular file: " + value);
-            }
-        } catch (IOException e) {
-            throw unsafePath(role + " could not be inspected: " + describeRecoveryFailure(e));
-        }
-        validateProvenancePath(normalized, pluginsRoot, role);
-        return normalized;
-    }
-
-    private void validateProvenancePath(Path artifact, Path pluginsRoot, String role)
-            throws RecoveryValidationException {
-        Path provenanceRoot = provenanceStore.provenanceDir().toAbsolutePath().normalize();
-        for (Path configuredSidecar : provenanceStore.managedSidecarPaths(artifact)) {
-            Path sidecar = configuredSidecar.toAbsolutePath().normalize();
-            Path sidecarParent = sidecar.getParent();
-            if (sidecarParent == null
-                    || !sidecarParent.equals(artifact.getParent()) && !sidecarParent.equals(provenanceRoot)) {
-                throw unsafePath(role + " provenance path escapes its expected root: " + sidecar);
-            }
-            requirePathWithin(sidecar, pluginsRoot, role + " provenance");
-            assertExistingPathComponentsSafe(pluginsRoot, sidecar, role + " provenance");
-            try {
-                BasicFileAttributes parentAttributes = readAttributesIfPresent(sidecarParent).orElse(null);
-                if (parentAttributes != null && (parentAttributes.isSymbolicLink() || parentAttributes.isOther()
-                        || !parentAttributes.isDirectory())) {
-                    throw unsafePath(role + " provenance root is not a plain directory: " + sidecarParent);
-                }
-                BasicFileAttributes attributes = readAttributesIfPresent(sidecar).orElse(null);
-                if (attributes != null && (attributes.isSymbolicLink() || attributes.isOther()
-                        || !attributes.isRegularFile())) {
-                    throw unsafePath(role + " provenance is not a plain regular file: " + sidecar);
-                }
-            } catch (IOException e) {
-                throw unsafePath(role + " provenance could not be inspected: " + describeRecoveryFailure(e));
-            }
-        }
-    }
-
     private static void requirePathWithin(Path path, Path expectedRoot, String role)
-            throws RecoveryValidationException {
+            throws PluginRecoveryValidationException {
         Path normalizedRoot = expectedRoot.toAbsolutePath().normalize();
         Path normalizedPath = path.toAbsolutePath().normalize();
         if (!normalizedPath.startsWith(normalizedRoot)) {
@@ -3178,7 +2513,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private static void assertExistingPathComponentsSafe(Path pluginsRoot, Path path, String role)
-            throws RecoveryValidationException {
+            throws PluginRecoveryValidationException {
         Path normalizedRoot = pluginsRoot.toAbsolutePath().normalize();
         Path normalizedPath = path.toAbsolutePath().normalize();
         requirePathWithin(normalizedPath, normalizedRoot, role);
@@ -3197,7 +2532,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private static boolean assertPlainExistingComponent(Path path, String role)
-            throws RecoveryValidationException {
+            throws PluginRecoveryValidationException {
         try {
             BasicFileAttributes attributes = readAttributesIfPresent(path).orElse(null);
             if (attributes == null) {
@@ -3222,363 +2557,16 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
     }
 
-    private ExpectedArtifact parseExpectedArtifact(Properties properties, String prefix)
-            throws RecoveryValidationException {
-        String pluginId = requiredProperty(properties, prefix + ".id");
-        if (!PluginDescriptor.ID_PATTERN.matcher(pluginId).matches()) {
-            throw invalidManifest("invalid " + prefix + " plugin id");
-        }
-        String version = requiredProperty(properties, prefix + ".version");
-        validateVersion(version, prefix + " version");
-
-        long size;
-        try {
-            size = Long.parseLong(requiredProperty(properties, prefix + ".size"));
-        } catch (NumberFormatException e) {
-            throw invalidManifest(prefix + ".size is not an integer");
-        }
-        if (size <= 0L) {
-            throw invalidManifest(prefix + ".size must be positive");
-        }
-        if (size > limits.maxArchiveBytes()) {
-            throw invalidManifest(prefix + ".size exceeds the configured archive limit");
-        }
-        String sha256 = requiredSha256(properties, prefix + ".sha256", false);
-        String sidecarKey = prefix + ".sidecar.sha256";
-        String sidecarValue = properties.getProperty(sidecarKey);
-        if (sidecarValue == null) {
-            throw invalidManifest("missing manifest property: " + sidecarKey);
-        }
-        String sidecarSha256 = sidecarValue.isBlank()
-                ? "" : normalizeSha256(sidecarValue, sidecarKey);
-        return new ExpectedArtifact(pluginId, version, size, sha256, sidecarSha256);
-    }
-
-    private static String requiredSha256(Properties properties, String key, boolean allowBlank)
-            throws RecoveryValidationException {
-        String value = properties.getProperty(key);
-        if (value == null || !allowBlank && value.isBlank()) {
-            throw invalidManifest("missing manifest property: " + key);
-        }
-        if (value.isBlank()) {
-            return "";
-        }
-        return normalizeSha256(value, key);
-    }
-
-    private static String normalizeSha256(String value, String key) throws RecoveryValidationException {
-        if (!value.matches("[0-9A-Fa-f]{64}")) {
-            throw invalidManifest(key + " is not a SHA-256 digest");
-        }
-        return value.toLowerCase(Locale.ROOT);
-    }
-
-    private static boolean blankProperty(Properties properties, String key) {
-        String value = properties.getProperty(key);
-        return value != null && value.isBlank();
-    }
-
-    private static void validateVersion(String version, String role) throws RecoveryValidationException {
-        if (!version.equals(version.trim())
-                || !version.matches("\\d+\\.\\d+\\.\\d+"
-                + "(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?"
-                + "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?")) {
-            throw invalidManifest(role + " is not a valid semantic version");
-        }
-    }
-
-    private static void requireCanonicalArtifactName(Path artifact, String pluginId, String version, String role)
-            throws RecoveryValidationException {
-        String actual = artifact.getFileName().toString();
-        if (!actual.equals(pluginId + "-" + version + ".jar")
-                && !actual.equals(pluginId + "-" + version + ".zip")) {
-            throw invalidManifest(role + " is not canonically named for its declared identity");
-        }
-    }
-
-    /**
-     * 清单声明之外的 transaction entry 一律拒绝；Files.walk 不跟随链接，且每个 entry 再以 NOFOLLOW_LINKS
-     * 检查，避免 junction / reparse point 越过事务边界。
-     */
-    private int validateTransactionTree(Path transaction, RecoveryManifest manifest)
-            throws IOException, RecoveryValidationException {
-        Path normalizedTransaction = transaction.toAbsolutePath().normalize();
-        Set<Path> allowedDirectories = new LinkedHashSet<>();
-        Set<Path> allowedFiles = new LinkedHashSet<>();
-        allowedDirectories.add(normalizedTransaction);
-        allowedFiles.add(normalizedTransaction.resolve(TRANSACTION_MANIFEST));
-        allowedFiles.add(normalizedTransaction.resolve(TRANSACTION_MANIFEST + ".tmp"));
-        if (manifest.operation() == RecoveryOperation.INSTALL) {
-            allowedDirectories.add(normalizedTransaction.resolve("new"));
-            addArtifactAndSidecars(allowedFiles, manifest.staged());
-        }
-        if (!manifest.backups().isEmpty()) {
-            allowedDirectories.add(normalizedTransaction.resolve(BACKUP_SUBDIR));
-            for (RecoveryBackup backup : manifest.backups()) {
-                addArtifactAndSidecars(allowedFiles, backup.backup());
-            }
-        }
-
-        int entries = 0;
-        try (Stream<Path> walk = Files.walk(normalizedTransaction)) {
-            var iterator = walk.iterator();
-            while (iterator.hasNext()) {
-                Path entry = iterator.next();
-                if (++entries > MAX_RECOVERY_TRANSACTION_ENTRIES) {
-                    throw invalidManifest("transaction tree exceeds the supported entry count");
-                }
-                Path normalized = entry.toAbsolutePath().normalize();
-                BasicFileAttributes attributes = Files.readAttributes(
-                        normalized, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                if (attributes.isSymbolicLink() || attributes.isOther()) {
-                    throw unsafePath("transaction tree contains a symbolic link or reparse/special entry: "
-                            + normalized);
-                }
-                if (attributes.isDirectory()) {
-                    if (!allowedDirectories.contains(normalized)) {
-                        throw unsafePath("transaction tree contains an undeclared directory: " + normalized);
-                    }
-                } else if (attributes.isRegularFile()) {
-                    if (!allowedFiles.contains(normalized)) {
-                        throw unsafePath("transaction tree contains an undeclared file: " + normalized);
-                    }
-                } else {
-                    throw unsafePath("transaction tree contains an unsupported entry: " + normalized);
-                }
-            }
-        }
-        return entries;
-    }
-
-    private void addArtifactAndSidecars(Set<Path> allowedFiles, Path artifact) {
-        allowedFiles.add(artifact.toAbsolutePath().normalize());
-        for (Path sidecar : provenanceStore.managedSidecarPaths(artifact)) {
-            allowedFiles.add(sidecar.toAbsolutePath().normalize());
-        }
-    }
-
-    /** 复核清单状态与磁盘分布；任何重复、副本缺失或摘要漂移都在第一次写入前失败。 */
-    private RecoveryState validateRecoveryState(RecoveryManifest manifest) throws RecoveryValidationException {
-        return validateRecoveryState(manifest, new RecoveryBudget());
-    }
-
-    private RecoveryState validateRecoveryState(RecoveryManifest manifest, RecoveryBudget budget)
-            throws RecoveryValidationException {
-        List<LogicalArtifactState> backupStates = new ArrayList<>(manifest.backups().size());
-        for (RecoveryBackup backup : manifest.backups()) {
-            LogicalArtifactState observed = inspectLogicalArtifact(
-                    backup.expected(), backup.origin(), backup.backup(), budget);
-            boolean finalized = manifest.state() == PluginTransactionState.COMMITTED
-                    || manifest.operation() == RecoveryOperation.INSTALL
-                    && manifest.state() == PluginTransactionState.ACTIVATED;
-            if (manifest.state() == PluginTransactionState.ROLLED_BACK) {
-                requireBackupRestored(backup, observed);
-            } else if (finalized) {
-                if (!observed.artifactAt(backup.backup())
-                        || backup.expected().hasSidecar() && !observed.sidecarAt(backup.backup())) {
-                    throw unsafePath("completed transaction does not retain its declared backup: "
-                            + backup.backup());
-                }
-            } else {
-                if (observed.artifactOwner() == null) {
-                    throw unsafePath("declared backup artifact is missing: " + backup.origin());
-                }
-                if (backup.expected().hasSidecar() && observed.sidecarOwner() == null) {
-                    throw unsafePath("declared backup provenance is missing: " + backup.origin());
-                }
-            }
-            backupStates.add(observed);
-        }
-
-        if (manifest.operation() == RecoveryOperation.INSTALL) {
-            LogicalArtifactState newState = inspectLogicalArtifact(
-                    manifest.newArtifact(), manifest.staged(), manifest.target(), budget);
-            if (newState.inspection() != null
-                    && !List.copyOf(newState.inspection().descriptor().replaces()).equals(manifest.replaces())) {
-                throw unsafePath("transaction replaces declaration does not match the new artifact descriptor");
-            }
-            switch (manifest.state()) {
-                case PREPARED -> {
-                    requireNewArtifactInspection(newState);
-                    requireOwners(newState, manifest.staged(), manifest.staged(), "prepared artifact");
-                }
-                case OLD_ISOLATED -> {
-                    requireNewArtifactInspection(newState);
-                    if (newState.artifactOwner() == null || newState.sidecarOwner() == null) {
-                        throw unsafePath("old-isolated transaction has an incomplete new artifact");
-                    }
-                }
-                case NEW_PLACED, ACTIVATED, COMMITTED -> {
-                    requireNewArtifactInspection(newState);
-                    requireOwners(newState, manifest.target(), manifest.target(), "placed artifact");
-                }
-                case ROLLING_BACK -> {
-                    // artifact 与 sidecar 可分别位于 staged / target，或已按单调回滚流程被删除。
-                }
-                case ROLLED_BACK -> {
-                    if (newState.artifactOwner() != null || newState.sidecarOwner() != null) {
-                        throw unsafePath("rolled-back transaction still owns the new artifact");
-                    }
-                }
-            }
-        }
-        return new RecoveryState(List.copyOf(backupStates));
-    }
-
-    private static void requireNewArtifactInspection(LogicalArtifactState state)
-            throws RecoveryValidationException {
-        if (state.inspection() == null) {
-            throw unsafePath("transaction new artifact is missing or incomplete");
-        }
-    }
-
-    private static void requireBackupRestored(RecoveryBackup backup, LogicalArtifactState state)
-            throws RecoveryValidationException {
-        if (!state.artifactAt(backup.origin())
-                || backup.expected().hasSidecar() && !state.sidecarAt(backup.origin())
-                || !backup.expected().hasSidecar() && state.sidecarOwner() != null) {
-            throw unsafePath("rolled-back artifact is not fully restored at its origin: " + backup.origin());
-        }
-    }
-
-    private static void requireOwners(LogicalArtifactState observed, Path artifactOwner, Path sidecarOwner,
-                                      String role) throws RecoveryValidationException {
-        if (!observed.artifactAt(artifactOwner) || !observed.sidecarAt(sidecarOwner)) {
-            throw unsafePath(role + " is not at its state-bound path");
-        }
-    }
-
-    private LogicalArtifactState inspectLogicalArtifact(ExpectedArtifact expected, Path first, Path second)
-            throws RecoveryValidationException {
-        return inspectLogicalArtifact(expected, first, second, new RecoveryBudget());
-    }
-
-    private LogicalArtifactState inspectLogicalArtifact(ExpectedArtifact expected, Path first, Path second,
-                                                        RecoveryBudget budget)
-            throws RecoveryValidationException {
-        Path artifactOwner = null;
-        Path artifactAlias = null;
-        Path sidecarOwner = null;
-        Path sidecarAlias = null;
-        Path sidecarPath = null;
-        PluginPackageInspection artifactInspection = null;
-        for (Path candidate : List.of(first, second)) {
-            try {
-                BasicFileAttributes attributes = readAttributesIfPresent(candidate).orElse(null);
-                if (attributes != null) {
-                    PluginPackageInspection candidateInspection = inspectBoundArtifact(
-                            candidate, expected, "transaction artifact", budget);
-                    if (artifactOwner == null) {
-                        artifactOwner = candidate;
-                        artifactInspection = candidateInspection;
-                    } else if (!Files.isSameFile(artifactOwner, candidate)) {
-                        throw unsafePath("artifact has multiple physical copies: " + first + " and " + second);
-                    } else {
-                        artifactAlias = candidate;
-                    }
-                }
-                Path sidecar = provenanceStore.existingManagedSidecarPathStrict(candidate).orElse(null);
-                if (sidecar != null) {
-                    if (!expected.hasSidecar()) {
-                        throw unsafePath("unexpected provenance sidecar: " + sidecar);
-                    }
-                    String digest = PluginPackageIntegrity.sha256Hex(sidecar);
-                    if (!expected.sidecarSha256().equals(digest)) {
-                        throw unsafePath("provenance digest does not match its manifest binding: " + sidecar);
-                    }
-                    if (sidecarOwner == null) {
-                        sidecarOwner = candidate;
-                        sidecarPath = sidecar;
-                    } else if (!Files.isSameFile(sidecarPath, sidecar)) {
-                        throw unsafePath("provenance has multiple physical copies: " + first + " and " + second);
-                    } else {
-                        sidecarAlias = candidate;
-                    }
-                }
-            } catch (IOException e) {
-                throw unsafePath("transaction artifact state could not be inspected: "
-                        + describeRecoveryFailure(e));
-            }
-        }
-        return new LogicalArtifactState(
-                artifactOwner, artifactAlias, sidecarOwner, sidecarAlias, artifactInspection);
-    }
-
-    private PluginPackageInspection inspectBoundArtifact(Path artifact, ExpectedArtifact expected, String role)
-            throws RecoveryValidationException {
-        return inspectBoundArtifact(artifact, expected, role, new RecoveryBudget());
-    }
-
-    private PluginPackageInspection inspectBoundArtifact(
-            Path artifact, ExpectedArtifact expected, String role, RecoveryBudget budget)
-            throws RecoveryValidationException {
-        try {
-            BasicFileAttributes attributes = readAttributesIfPresent(artifact).orElse(null);
-            if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
-                    || !attributes.isRegularFile()) {
-                throw unsafePath(role + " is missing or is not a plain regular file: " + artifact);
-            }
-            if (attributes.size() != expected.size()) {
-                throw unsafePath(role + " size does not match its manifest binding: " + artifact);
-            }
-            if (attributes.size() > limits.maxArchiveBytes()) {
-                throw unsafePath(role + " exceeds the configured archive limit before hashing: " + artifact);
-            }
-            String digest = PluginPackageIntegrity.sha256Hex(artifact);
-            if (!expected.sha256().equals(digest)) {
-                throw unsafePath(role + " digest does not match its manifest binding: " + artifact);
-            }
-            PluginPackageInspection inspection = budget.inspectArchive(artifact, digest, limits);
-            PluginDescriptor descriptor = inspection.descriptor();
-            if (!expected.pluginId().equals(descriptor.id())
-                    || !expected.version().equals(descriptor.version())
-                    || !descriptor.externalValidationErrors().isEmpty()) {
-                throw unsafePath(role + " package identity is not valid or does not match its manifest binding: "
-                        + artifact);
-            }
-            return inspection;
-        } catch (IOException | PluginPackageException e) {
-            throw unsafePath(role + " could not be verified: " + describeRecoveryFailure(e));
-        }
-    }
-
-    private static int parseBackupCount(Properties properties) throws RecoveryValidationException {
-        return parseBoundedCount(properties, "backup.count", MAX_RECOVERY_BACKUPS);
-    }
-
-    private static int parseBoundedCount(Properties properties, String key, int maximum)
-            throws RecoveryValidationException {
-        String value = requiredProperty(properties, key);
-        int count;
-        try {
-            count = Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            throw invalidManifest(key + " is not an integer");
-        }
-        if (count < 0 || count > maximum) {
-            throw invalidManifest(key + " is outside the supported range");
-        }
-        return count;
-    }
-
-    private static String requiredProperty(Properties properties, String key) throws RecoveryValidationException {
-        String value = properties.getProperty(key);
-        if (value == null || value.isBlank()) {
-            throw invalidManifest("missing manifest property: " + key);
-        }
-        return value;
-    }
-
     private static Failure recoveryFailure(String transactionId, Path transaction, FailureKind kind, String detail) {
         return new Failure(transactionId, transaction, kind, detail);
     }
 
-    private static RecoveryValidationException invalidManifest(String message) {
-        return new RecoveryValidationException(FailureKind.INVALID_MANIFEST, message);
+    private static PluginRecoveryValidationException invalidManifest(String message) {
+        return new PluginRecoveryValidationException(FailureKind.INVALID_MANIFEST, message);
     }
 
-    private static RecoveryValidationException unsafePath(String message) {
-        return new RecoveryValidationException(FailureKind.UNSAFE_PATH, message);
+    private static PluginRecoveryValidationException unsafePath(String message) {
+        return new PluginRecoveryValidationException(FailureKind.UNSAFE_PATH, message);
     }
 
     private static String describeRecoveryFailure(Throwable error) {
@@ -3590,7 +2578,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private void cleanupHiddenWorkspaceRoot(Path pluginsRoot, String directoryName)
-            throws IOException, RecoveryValidationException {
+            throws IOException, PluginRecoveryValidationException {
         Path workspaceRoot = pluginsRoot.resolve(directoryName);
         BasicFileAttributes rootAttributes = readAttributesIfPresent(workspaceRoot).orElse(null);
         if (rootAttributes == null) {
@@ -3648,7 +2636,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private void cleanupHiddenWorkspaceRootBestEffort(Path pluginsRoot, String directoryName) {
         try {
             cleanupHiddenWorkspaceRoot(pluginsRoot, directoryName);
-        } catch (IOException | RecoveryValidationException | RuntimeException e) {
+        } catch (IOException | PluginRecoveryValidationException | RuntimeException e) {
             log.warn("Leaving non-authoritative plugin transaction workspace {} after cleanup failure: {}",
                     pluginsRoot.resolve(directoryName), describeRecoveryFailure(e));
         }
@@ -3712,7 +2700,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             deleteRecursivelyQuietly(staging);
         } else {
             log.error("Leaving staging backups for manual recovery (could not restore superseded packages): {}",
-                    staging.resolve(BACKUP_SUBDIR));
+                    staging.resolve(PluginRecoveryManifestValidator.BACKUP_SUBDIRECTORY));
         }
         // 暂存根若已空则一并清掉（best-effort，不影响并发的其它安装——本设计为单管理员串行操作）
         try {
@@ -3726,11 +2714,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private record Backup(Path origin, Path backup) {
     }
 
-    private enum RecoveryOperation {
-        INSTALL,
-        REMOVE
-    }
-
     private enum RemovalFailureOutcome {
         ROLLED_BACK,
         REMOVED,
@@ -3740,258 +2723,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private record PublishedTransactionFailure(boolean publishedOrUncertain, Throwable failure) {
     }
 
-    private record ExpectedArtifact(String pluginId, String version, long size, String sha256,
-                                    String sidecarSha256) {
-
-        private boolean hasSidecar() {
-            return sidecarSha256 != null && !sidecarSha256.isBlank();
-        }
-    }
-
-    private record RecoveryBackup(ExpectedArtifact expected, Path origin, Path backup) {
-    }
-
-    private record RecoveryManifest(RecoveryOperation operation, PluginTransactionState state,
-                                    String packageId, String version, Path target, Path staged,
-                                    ExpectedArtifact newArtifact, List<String> replaces,
-                                    List<RecoveryBackup> backups) {
-
-        private Set<Path> claimedArtifactPaths() {
-            Set<Path> claims = new LinkedHashSet<>();
-            if (target != null) {
-                claims.add(target);
-            }
-            if (staged != null) {
-                claims.add(staged);
-            }
-            for (RecoveryBackup backup : backups) {
-                claims.add(backup.origin());
-                claims.add(backup.backup());
-            }
-            return Set.copyOf(claims);
-        }
-    }
-
     private record RecoveryPlan(String transactionId, Path transaction, RecoveryManifest manifest) {
-    }
-
-    private static final class RejectingProperties extends Properties {
-        @Override
-        public synchronized Object put(Object key, Object value) {
-            if (containsKey(key)) {
-                throw new IllegalArgumentException("duplicate transaction manifest property: " + key);
-            }
-            return super.put(key, value);
-        }
-    }
-
-    private static final class RecoveryBudget {
-        private long manifestBytes;
-        private int backups;
-        private int entries;
-        private long artifactBytes;
-        private long sidecarBytes;
-        private int archiveEntries;
-        private long uncompressedBytes;
-        private boolean exhausted;
-        private final java.util.Map<String, PluginPackageInspection> archiveInspections =
-                new java.util.LinkedHashMap<>();
-
-        private void requireAvailable() throws RecoveryValidationException {
-            if (exhausted) {
-                throw invalidManifest("recovery cumulative resource budget is already exhausted");
-            }
-        }
-
-        private boolean exhausted() {
-            return exhausted;
-        }
-
-        private void consumeManifestBytes(long bytes) throws RecoveryValidationException {
-            manifestBytes = boundedAddOrExhaust(manifestBytes, bytes, MAX_RECOVERY_TOTAL_MANIFEST_BYTES,
-                    "recovery manifests exceed the cumulative byte budget");
-        }
-
-        private void consumeManifest(RecoveryManifest manifest) throws RecoveryValidationException {
-            requireAvailable();
-            if (manifest.backups().size() > MAX_RECOVERY_TOTAL_BACKUPS - backups) {
-                throw exhaust("recovery backups exceed the cumulative count budget");
-            }
-            backups += manifest.backups().size();
-            long declaredBytes = manifest.newArtifact() != null ? manifest.newArtifact().size() : 0L;
-            for (RecoveryBackup backup : manifest.backups()) {
-                declaredBytes = boundedAddOrExhaust(declaredBytes, backup.expected().size(),
-                        MAX_RECOVERY_TOTAL_ARTIFACT_BYTES,
-                        "recovery artifacts exceed the cumulative byte budget");
-            }
-            artifactBytes = boundedAddOrExhaust(artifactBytes, declaredBytes,
-                    MAX_RECOVERY_TOTAL_ARTIFACT_BYTES,
-                    "recovery artifacts exceed the cumulative byte budget");
-        }
-
-        private void consumeEntries(int count) throws RecoveryValidationException {
-            requireAvailable();
-            if (count > MAX_RECOVERY_TOTAL_ENTRIES - entries) {
-                throw exhaust("recovery transaction trees exceed the cumulative entry budget");
-            }
-            entries += count;
-        }
-
-        private void consumeSidecarBytes(long bytes) throws RecoveryValidationException {
-            sidecarBytes = boundedAddOrExhaust(sidecarBytes, bytes, MAX_RECOVERY_TOTAL_SIDECAR_BYTES,
-                    "recovery provenance exceeds the cumulative byte budget");
-        }
-
-        private PluginPackageInspection inspectArchive(Path artifact, String sha256, PluginPackageLimits limits)
-                throws RecoveryValidationException {
-            requireAvailable();
-            PluginPackageInspection cached = archiveInspections.get(sha256);
-            if (cached != null) {
-                return cached;
-            }
-            int remainingEntries = MAX_RECOVERY_TOTAL_ARCHIVE_ENTRIES - archiveEntries;
-            long remainingUncompressed = MAX_RECOVERY_TOTAL_UNCOMPRESSED_BYTES - uncompressedBytes;
-            if (remainingEntries <= 0 || remainingUncompressed <= 0L) {
-                throw exhaust("plugin archives exceed the cumulative recovery verification budget");
-            }
-            PluginPackageLimits effectiveLimits = new PluginPackageLimits(
-                    limits.maxArchiveBytes(),
-                    Math.min(limits.maxEntries(), remainingEntries),
-                    Math.min(limits.maxTotalUncompressedBytes(), remainingUncompressed),
-                    Math.min(limits.maxEntryUncompressedBytes(), remainingUncompressed),
-                    limits.maxDescriptorBytes(),
-                    limits.maxCompressionRatio());
-            boolean constrainedByRemainingBudget = effectiveLimits.maxEntries() < limits.maxEntries()
-                    || effectiveLimits.maxTotalUncompressedBytes() < limits.maxTotalUncompressedBytes()
-                    || effectiveLimits.maxEntryUncompressedBytes() < limits.maxEntryUncompressedBytes();
-            PluginPackageVerifier.VerificationUsage usage;
-            try {
-                usage = PluginPackageVerifier.verifyAndMeasure(artifact, effectiveLimits);
-            } catch (PluginPackageException failure) {
-                if (failure.hasVerificationUsage()) {
-                    consumeArchiveUsage(
-                            failure.consumedEntries(), failure.consumedUncompressedBytes());
-                } else if (constrainedByRemainingBudget) {
-                    exhausted = true;
-                }
-                throw failure;
-            }
-            consumeArchiveUsage(usage.entryCount(), usage.totalUncompressedBytes());
-            PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, limits);
-            archiveInspections.put(sha256, inspection);
-            return inspection;
-        }
-
-        private void consumeArchiveUsage(int consumedEntries, long consumedBytes)
-                throws RecoveryValidationException {
-            if (consumedEntries < 0 || consumedBytes < 0L
-                    || consumedEntries > MAX_RECOVERY_TOTAL_ARCHIVE_ENTRIES - archiveEntries
-                    || consumedBytes > MAX_RECOVERY_TOTAL_UNCOMPRESSED_BYTES - uncompressedBytes) {
-                throw exhaust("plugin archives exceed the cumulative recovery verification budget");
-            }
-            archiveEntries += consumedEntries;
-            uncompressedBytes += consumedBytes;
-        }
-
-        private long boundedAddOrExhaust(long current, long increment, long maximum, String message)
-                throws RecoveryValidationException {
-            requireAvailable();
-            if (increment < 0L || current > maximum - increment) {
-                throw exhaust(message);
-            }
-            return current + increment;
-        }
-
-        private RecoveryValidationException exhaust(String message) {
-            exhausted = true;
-            return invalidManifest(message);
-        }
-    }
-
-    private record LogicalArtifactState(
-            Path artifactOwner,
-            Path artifactAlias,
-            Path sidecarOwner,
-            Path sidecarAlias,
-            PluginPackageInspection inspection) {
-
-        private boolean artifactAt(Path path) {
-            return Objects.equals(path, artifactOwner) || Objects.equals(path, artifactAlias);
-        }
-
-        private boolean sidecarAt(Path path) {
-            return Objects.equals(path, sidecarOwner) || Objects.equals(path, sidecarAlias);
-        }
-    }
-
-    private record RecoveryState(List<LogicalArtifactState> backups) {
-    }
-
-    private record VisibleArtifact(Path path, PluginDescriptor descriptor) {
-
-        private VisibleArtifact {
-            path = Objects.requireNonNull(path, "path").toAbsolutePath().normalize();
-            descriptor = Objects.requireNonNull(descriptor, "descriptor");
-        }
-    }
-
-    private record VisibleArtifactInventory(List<VisibleArtifact> artifacts) {
-
-        private VisibleArtifactInventory {
-            artifacts = List.copyOf(Objects.requireNonNull(artifacts, "artifacts"));
-        }
-
-        private static VisibleArtifactInventory empty() {
-            return new VisibleArtifactInventory(List.of());
-        }
-    }
-
-    private record InspectedInstalledArtifact(
-            InstalledPlugin plugin,
-            long artifactSizeBytes,
-            String artifactSha256) {
-
-        private InspectedInstalledArtifact {
-            plugin = Objects.requireNonNull(plugin, "plugin");
-            if (artifactSizeBytes <= 0L) {
-                throw new IllegalArgumentException("installed artifact size must be positive");
-            }
-            artifactSha256 = Objects.requireNonNull(artifactSha256, "artifactSha256");
-        }
-    }
-
-    private record ReadManifest(Properties properties, long byteCount) {
-
-        private ReadManifest {
-            properties = Objects.requireNonNull(properties, "properties");
-            if (byteCount < 0L || byteCount > MAX_RECOVERY_MANIFEST_BYTES) {
-                throw new IllegalArgumentException("manifest byte count is outside the supported range");
-            }
-        }
-    }
-
-    private static final class ManifestReadException extends IOException {
-
-        private final long byteCount;
-
-        private ManifestReadException(String message, long byteCount, Throwable cause) {
-            super(message, cause);
-            this.byteCount = byteCount;
-        }
-
-        private long byteCount() {
-            return byteCount;
-        }
-    }
-
-    private static final class RecoveryValidationException extends Exception {
-
-        private final FailureKind kind;
-
-        private RecoveryValidationException(FailureKind kind, String message) {
-            super(message);
-            this.kind = kind;
-        }
     }
 
     @Override
@@ -4080,7 +2812,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 }
                 Files.delete(entry.path());
             }
-        } catch (IOException | RecoveryValidationException | RuntimeException e) {
+        } catch (IOException | PluginRecoveryValidationException | RuntimeException e) {
             log.warn("Failed to clean managed plugin directory {}: {}", normalizedRoot, e.toString());
         }
     }
