@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 插件管理页会标明外置插件启停后是热重载、重启后端还是重启软件生效，并按策略即时应用或引导重启；桌面 GUI 配置字段也使用同一三级生效语义，保存后会按需热重载、重启后端或完整重启应用。
 - 桌面 GUI 新增插件状态页与插件市场 / 仓库配置入口，可查看已发现插件，并配置官方仓库、自定义仓库、代理策略、大小 / 超时上限和仓库签名密钥。
 - 桌面 GUI 配置页新增界面偏好，可集中切换语言与主题，并可将任意多级配置菜单的末级页面直接展开为一级标签。
-- 桌面 GUI 可在已安装的界面提供者之间切换，官方新增 Compose Multiplatform 界面；Swing 与 Compose 分别完整拥有自己的页面和交互，并共享同一套业务数据与操作语义，Swing 继续作为必装回退。
+- 桌面 GUI 可在已安装的界面提供者之间切换，官方新增 Compose Multiplatform 界面；Swing 与 Compose 分别完整拥有自己的页面和交互，并共享同一套业务数据与操作语义。Compose 默认启用，Swing 自动后备，两者都不是宿主必选能力。
 - Compose 桌面界面新增七页 Material 3 控制中心，可查看真实服务状态、插件指标、运行任务和下载目录所在磁盘的存储空间，从经同 owner 路由校验的快捷入口打开本地 Web 页面，并在响应式插件、工具、安全与设置页面中查看插件诊断、运行维护工具及编辑现有配置。
 - Pixiv 体验增强工具箱可选择为已删除作品显示边框，默认继承已下载作品样式，也可单独调整宽度、颜色与线型。
 - 新增显式插件开发模式：设置 `-Dpixivdownload.plugin-dev.enabled=true` 后会忽略 `plugins/` 目录，自动从仓库插件模块的 `target/classes` 加载已编译代码，并在控制台显示开发模式诊断。
@@ -35,7 +35,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Changed
 - FFmpeg 自动安装改用项目从官方最新稳定源码构建的固定 Release，并按 Windows x64、Linux x64/arm64 与 macOS x64/arm64 自动选择资产；不再依赖每日构建版。
 - 桌面 Swing 界面与主题实现已从主程序抽离并合并为官方外置 `gui-swing` 插件；宿主仅保留工具包无关的 `DesktopUiProvider` / `DesktopUiHost` 稳定契约与确定性选择流程，`app.gui-provider` 可显式选择界面提供者，显式提供者不可用时会给出诊断并退回唯一默认提供者，无法唯一选择时拒绝静默启动。
-- 新增可按需安装的 `gui-compose` Compose Multiplatform 桌面 UI 插件；Gradle 独占其编译、测试与 JAR-with-lib 产物生成，Maven reactor 与 Developer Mode 负责调用并暂存产物，插件完整拥有 Material 3 页面、布局、交互及 Windows、Linux、macOS 桌面原生运行库；Swing「配置 → 界面」会从当前活动的 `DesktopUiProvider` 插件动态生成提供者下拉选项，保存后可在完整进程重启时切换。
+- 默认桌面界面改为随标准包安装的 `gui-compose` Compose Multiplatform 插件，`gui-swing` 保留为自动后备；两者仍可在「配置 → 界面」中切换，若均缺席则由主程序引导用户打开插件市场恢复界面。
 - 各 Web 页面统一使用随深浅主题切换的滚动条样式，插件页面与插件模板复用同一核心样式资源。
 - 插件管理页采用更紧凑的卡片布局，运行期操作集中到操作菜单；当前页面内的插件顺序在状态变化后保持稳定，刷新或重新打开页面后按最新状态重新排序。
 - 浏览器页面导航遇到常见 4xx / 5xx 错误时显示支持深浅主题与中英文切换的状态页，通用兜底页会显示实际 HTTP 状态码，插件开发模式还提供仅本机可访问的错误页触发入口；结构化 API 错误统一提供稳定的 `code` 与可读的 `error` 字段，并与 HTML 错误通道严格分离。

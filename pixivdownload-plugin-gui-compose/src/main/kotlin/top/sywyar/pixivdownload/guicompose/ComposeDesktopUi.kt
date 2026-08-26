@@ -128,6 +128,7 @@ internal object ComposeDesktopUi {
             context.serverPort(),
             context.rootFolder(),
             context.configPath(),
+            context.selectedProviderId(),
             context.host(),
             context::currentPluginSnapshots,
         )

@@ -84,7 +84,7 @@ final class DesktopConfigurationFieldView {
             }
         }
 
-        String selectedProvider = selected("app.gui-provider", "gui-swing");
+        String selectedProvider = model.selectedProvider();
         List<DesktopUiNode.Option> themes = themeOptions(selectedProvider);
         String configuredTheme = selected("app.theme", "system");
         String selectedTheme = themes.stream().anyMatch(theme -> theme.id().equals(configuredTheme)) ? configuredTheme : "system";
@@ -115,7 +115,7 @@ final class DesktopConfigurationFieldView {
                         "gui.interface.provider.label",
                         null,
                         providers,
-                        selected("app.gui-provider", "gui-swing"),
+                        selectedProvider,
                         !providers.isEmpty()
                 ),
                 GuiConfigEffect.PROCESS_RESTART

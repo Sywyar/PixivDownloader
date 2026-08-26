@@ -16,6 +16,7 @@ public final class DesktopUiContext {
     private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
+    private final String selectedProviderId;
     private final DesktopUiHost host;
     private final List<DesktopUiPluginSnapshot> startupPlugins;
     private final Supplier<List<DesktopUiPluginSnapshot>> currentPlugins;
@@ -46,6 +47,27 @@ public final class DesktopUiContext {
             Function<DesktopUiText, String> textResolver,
             Supplier<String> themePreference
     ) {
+        this(startupLaunch, serverPort, rootFolder, configPath, "", host, startupPlugins,
+                currentPlugins, textResolver, themePreference);
+    }
+
+    /**
+     * 创建带当前实际提供者标识的桌面业务上下文。
+     *
+     * @param selectedProviderId 本次启动实际选中的桌面 UI 提供者 id
+     */
+    public DesktopUiContext(
+            boolean startupLaunch,
+            int serverPort,
+            String rootFolder,
+            Path configPath,
+            String selectedProviderId,
+            DesktopUiHost host,
+            List<DesktopUiPluginSnapshot> startupPlugins,
+            Supplier<List<DesktopUiPluginSnapshot>> currentPlugins,
+            Function<DesktopUiText, String> textResolver,
+            Supplier<String> themePreference
+    ) {
         if (serverPort < 1 || serverPort > 65_535) {
             throw new IllegalArgumentException("serverPort out of range");
         }
@@ -53,6 +75,7 @@ public final class DesktopUiContext {
         this.serverPort = serverPort;
         this.rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
         this.configPath = Objects.requireNonNull(configPath, "configPath");
+        this.selectedProviderId = selectedProviderId == null ? "" : selectedProviderId.trim();
         this.host = Objects.requireNonNull(host, "host");
         this.startupPlugins = List.copyOf(Objects.requireNonNull(startupPlugins, "startupPlugins"));
         this.currentPlugins = Objects.requireNonNull(currentPlugins, "currentPlugins");
@@ -87,6 +110,13 @@ public final class DesktopUiContext {
      */
     public Path configPath() {
         return configPath;
+    }
+
+    /**
+     * @return 本次启动实际选中的桌面 UI 提供者 id
+     */
+    public String selectedProviderId() {
+        return selectedProviderId;
     }
 
     /**

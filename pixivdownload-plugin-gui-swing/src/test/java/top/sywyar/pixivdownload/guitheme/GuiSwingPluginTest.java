@@ -20,6 +20,7 @@ class GuiSwingPluginTest {
     void exposesOfficialThemeIdsAndLocaleNames() {
         GuiSwingPlugin plugin = new GuiSwingPlugin();
 
+        assertThat(plugin.defaultProvider()).isFalse();
         assertThat(plugin.guiThemes())
                 .extracting(theme -> theme.themeId())
                 .containsExactly("system", "light", "dark", "moonlight");

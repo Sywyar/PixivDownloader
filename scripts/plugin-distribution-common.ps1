@@ -52,6 +52,23 @@ function Get-OfficialDefaultInstalledPlugins {
     $plugins = @(Get-OfficialRequiredPlugins)
     $plugins += @(
         [pscustomobject]@{
+            Id = "gui-compose"; Module = "pixivdownload-plugin-gui-compose"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
+            RequiredLibPatterns = @(
+                "^ui-desktop-[0-9].*\.jar$",
+                "^material-icons-extended-desktop-[0-9].*\.jar$",
+                "^jna-[0-9].*\.jar$",
+                "^jna-platform-[0-9].*\.jar$",
+                "^skiko-awt-[0-9].*\.jar$",
+                "^skiko-awt-runtime-windows-x64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-windows-arm64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-linux-x64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-linux-arm64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-macos-arm64-[0-9].*\.jar$",
+                "^kotlin-stdlib-[0-9].*\.jar$"
+            )
+        },
+        [pscustomobject]@{
             Id = "gui-swing"; Module = "pixivdownload-plugin-gui-swing"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/guitheme/";
             RequiredLibPatterns = @(
@@ -91,24 +108,7 @@ function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
     $plugins = @(
-        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false },
-        [pscustomobject]@{
-            Id = "gui-compose"; Module = "pixivdownload-plugin-gui-compose"; Format = "jar"; PrivateLibs = $true;
-            ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
-            RequiredLibPatterns = @(
-                "^ui-desktop-[0-9].*\.jar$",
-                "^material-icons-extended-desktop-[0-9].*\.jar$",
-                "^jna-[0-9].*\.jar$",
-                "^jna-platform-[0-9].*\.jar$",
-                "^skiko-awt-[0-9].*\.jar$",
-                "^skiko-awt-runtime-windows-x64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-windows-arm64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-linux-x64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-linux-arm64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-macos-arm64-[0-9].*\.jar$",
-                "^kotlin-stdlib-[0-9].*\.jar$"
-            )
-        }
+        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false }
     )
     if ($IncludeSentinel) {
         $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }

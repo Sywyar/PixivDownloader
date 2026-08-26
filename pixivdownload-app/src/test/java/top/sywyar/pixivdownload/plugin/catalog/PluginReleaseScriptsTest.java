@@ -277,14 +277,14 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("默认安装集合保留 Swing，Compose 与 Douyin 作为按需插件")
+    @DisplayName("默认安装集合同时携带 Compose 与 Swing，Douyin 保持按需安装")
     void distributionSeparatesDefaultInstalledAndOnDemandPlugins() throws Exception {
         assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
                 .containsExactly(
-                        "download-workbench", "gui-swing", "stats", "posthog", "duplicate", "gallery",
+                        "download-workbench", "gui-compose", "gui-swing", "stats", "posthog", "duplicate", "gallery",
                         "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
         assertThat(officialPluginIds("Get-OfficialOptionalPlugins"))
-                .containsExactly("douyin", "gui-compose");
+                .containsExactly("douyin");
         assertThat(officialPluginIds())
                 .doesNotContain("recovery-sentinel")
                 .containsAll(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))

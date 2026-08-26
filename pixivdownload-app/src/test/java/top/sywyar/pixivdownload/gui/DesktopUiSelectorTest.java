@@ -12,18 +12,32 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DesktopUiSelectorTest {
     @Test
+    void blankConfigurationSelectsComposeDefault() {
+        Provider swing = new Provider("gui-swing", false);
+        Provider compose = new Provider("gui-compose", true);
+
+        assertThat(DesktopUiSelector.select("", List.of(swing, compose)).provider()).isSameAs(compose);
+    }
+
+    @Test
     void explicitProviderWinsOverDefault() {
-        Provider swing = new Provider("gui-swing", true);
-        Provider compose = new Provider("gui-compose", false);
-        assertThat(DesktopUiSelector.select("gui-compose", List.of(swing, compose)).provider()).isSameAs(compose);
+        Provider swing = new Provider("gui-swing", false);
+        Provider compose = new Provider("gui-compose", true);
+        assertThat(DesktopUiSelector.select("gui-swing", List.of(swing, compose)).provider()).isSameAs(swing);
     }
 
     @Test
     void unavailableExplicitProviderFallsBackToSingleDefaultWithDiagnostic() {
-        Provider swing = new Provider("gui-swing", true);
-        var selection = DesktopUiSelector.select("missing", List.of(swing));
-        assertThat(selection.provider()).isSameAs(swing);
-        assertThat(selection.diagnostic()).contains("missing", "gui-swing");
+        Provider compose = new Provider("gui-compose", true);
+        var selection = DesktopUiSelector.select("missing", List.of(compose));
+        assertThat(selection.provider()).isSameAs(compose);
+        assertThat(selection.diagnostic()).contains("missing", "gui-compose");
+    }
+
+    @Test
+    void missingDefaultProviderFallsBackToOnlyRemainingProvider() {
+        Provider swing = new Provider("gui-swing", false);
+        assertThat(DesktopUiSelector.select("gui-compose", List.of(swing)).provider()).isSameAs(swing);
     }
 
     @Test

@@ -31,12 +31,12 @@ import kotlin.test.assertTrue
 @DisplayName("Compose Multiplatform GUI 插件")
 class GuiComposePluginTest {
     @Test
-    @DisplayName("作为按需提供者完整拥有 Compose 桌面界面")
-    fun exposesOptionalComposeProvider() {
+    @DisplayName("作为默认提供者完整拥有 Compose 桌面界面")
+    fun exposesDefaultComposeProvider() {
         val plugin = GuiComposePlugin()
 
         assertEquals("gui-compose", plugin.id())
-        assertFalse(plugin.defaultProvider())
+        assertTrue(plugin.defaultProvider())
         assertEquals("Compose Multiplatform GUI",
             ResourceBundle.getBundle("i18n.web.gui-compose", Locale.US).getString("plugin.name"))
     }

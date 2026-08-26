@@ -1030,7 +1030,7 @@ class DistributionPackagingBoundaryTest {
                     assertThat(feature).isInstanceOf(DesktopUiProvider.class);
                     DesktopUiProvider provider = (DesktopUiProvider) feature;
                     assertThat(provider.id()).isEqualTo("gui-compose");
-                    assertThat(provider.defaultProvider()).isFalse();
+                    assertThat(provider.defaultProvider()).isTrue();
                     Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
                     Object companion = imageType.getField("Companion").get(null);
                     byte[] pixel = Base64.getDecoder().decode(

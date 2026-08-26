@@ -41,6 +41,8 @@ import java.awt.GraphicsEnvironment;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.BindException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
@@ -287,13 +289,20 @@ public class GuiLauncher {
         registerProcessShutdown(pluginSession, backendRegistration);
         // ── 3. 选择并启动外置桌面 UI ─────────────────────────────────────────
         try {
+            List<DesktopUiProvider> desktopProviders = startupPluginSources.stream()
+                    .map(DesktopUiPluginSource::plugin)
+                    .filter(DesktopUiProvider.class::isInstance)
+                    .map(DesktopUiProvider.class::cast)
+                    .toList();
+            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
+            if (desktopProviders.isEmpty()) {
+                pluginSession.releaseStartupSnapshot();
+                openPluginMarketWithoutDesktopProvider(configPath, port, desktopUiHost);
+                return;
+            }
             DesktopUiSelector.Selection selection = DesktopUiSelector.select(
                     readConfigScalar(configPath, "app.gui-provider"),
-                    startupPluginSources.stream().map(DesktopUiPluginSource::plugin)
-                            .filter(DesktopUiProvider.class::isInstance)
-                            .map(DesktopUiProvider.class::cast)
-                            .toList());
-            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
+                    desktopProviders);
             desktopUiHost.resetIncompleteOnboardingState(root);
             Supplier<List<DesktopUiPluginSource>> currentDesktopSources = memoizedDesktopUiSources(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
@@ -311,6 +320,7 @@ public class GuiLauncher {
                     port,
                     root,
                     configPath,
+                    selectedProvider.id(),
                     desktopUiHost,
                     startupDesktopSnapshots,
                     currentDesktopSnapshots,
@@ -375,6 +385,43 @@ public class GuiLauncher {
         // System.exit（而非 halt）：让单实例 shutdown hook 释放锁，
         // 否则下次启动会误判为「已在运行」。
         System.exit(1);
+    }
+
+    private static void openPluginMarketWithoutDesktopProvider(
+            Path configPath, int port, AppDesktopUiHost desktopUiHost) {
+        boolean confirmed = DesktopUiDialogs.showBootstrapConfirmDialog(
+                message("gui.launcher.dialog.no-provider.title"),
+                message("gui.launcher.dialog.no-provider.message"),
+                message("gui.launcher.dialog.no-provider.confirm"));
+        if (!confirmed) return;
+
+        URI marketUri = pluginMarketUri(configPath, port);
+        BackendLifecycleManager.startAsync(() -> {
+            try {
+                desktopUiHost.openExternalUri(marketUri);
+            } catch (Exception failure) {
+                log.error(logMessage("gui.status.log.open-browser-failed",
+                        marketUri, safeMessage(failure)), failure);
+            }
+        });
+    }
+
+    static URI pluginMarketUri(Path configPath, int port) {
+        String scheme = Boolean.parseBoolean(readConfigScalar(configPath, "server.ssl.enabled"))
+                ? "https" : "http";
+        String domain = defaultIfBlank(readConfigScalar(configPath, "ssl.domain"), "localhost").trim();
+        if (domain.contains("://") || domain.contains("/") || domain.contains("\\")
+                || domain.contains("@") || domain.contains(" ")) {
+            domain = "localhost";
+        }
+        try {
+            URI uri = new URI(scheme, null, domain, port, "/plugin-market.html", null, null);
+            return uri.getHost() == null
+                    ? new URI(scheme, null, "localhost", port, "/plugin-market.html", null, null)
+                    : uri;
+        } catch (URISyntaxException | IllegalArgumentException failure) {
+            return URI.create("http://localhost:" + DEFAULT_PORT + "/plugin-market.html");
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────

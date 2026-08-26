@@ -25,16 +25,16 @@ class InterfacePreferencesPanelTest {
     }
 
     @Test
-    @DisplayName("配置 ID 不可用时回退 Swing 且不生成占位项")
+    @DisplayName("配置 ID 不可用时回退当前实际提供者且不生成占位项")
     void unavailableConfiguredIdFallsBackWithoutPlaceholderOption() {
         List<InterfacePreferencesPanel.ProviderOption> options = InterfacePreferencesPanel.providerOptions(
                 List.of(snapshot("gui-compose", true), snapshot("gui-swing", true)),
                 text -> text.fallback());
 
         InterfacePreferencesPanel.ProviderOption selected =
-                InterfacePreferencesPanel.selectedProviderOption(options, "removed-ui");
+                InterfacePreferencesPanel.selectedProviderOption(options, "removed-ui", "gui-compose");
 
-        assertThat(selected.id()).isEqualTo("gui-swing");
+        assertThat(selected.id()).isEqualTo("gui-compose");
         assertThat(options).extracting(InterfacePreferencesPanel.ProviderOption::id)
                 .containsExactly("gui-compose", "gui-swing")
                 .doesNotContain("removed-ui");

@@ -163,7 +163,9 @@ final class InterfacePreferencesPanel extends JPanel {
     private void configureProviderSelector() {
         List<ProviderOption> options = providerOptions(SwingHost.context().currentPluginSnapshots());
         options.forEach(providerCombo::addItem);
-        ProviderOption selected = selectedProviderOption(options, preference(GUI_PROVIDER_CONFIG_KEY, "gui-swing"));
+        String activeProviderId = SwingHost.context().selectedProviderId();
+        ProviderOption selected = selectedProviderOption(
+                options, preference(GUI_PROVIDER_CONFIG_KEY, activeProviderId), activeProviderId);
         providerCombo.setSelectedItem(selected);
         providerCombo.setEnabled(!options.isEmpty());
         providerCombo.setToolTipText(message("gui.interface.provider.help"));
@@ -310,7 +312,7 @@ final class InterfacePreferencesPanel extends JPanel {
                 LANGUAGE_CONFIG_KEY,
                 locale == null || locale.locale() == null ? "follow-system" : locale.locale().toLanguageTag(),
                 GUI_PROVIDER_CONFIG_KEY,
-                provider == null ? "gui-swing" : provider.id(),
+                provider == null ? SwingHost.context().selectedProviderId() : provider.id(),
                 THEME_CONFIG_KEY,
                 theme == null || theme.unavailable() ? "system" : theme.id(),
                 EXPAND_ALL_CONFIG_KEY,
@@ -362,13 +364,14 @@ final class InterfacePreferencesPanel extends JPanel {
         return List.copyOf(options);
     }
 
-    static ProviderOption selectedProviderOption(List<ProviderOption> options, String configuredId) {
+    static ProviderOption selectedProviderOption(List<ProviderOption> options, String configuredId,
+                                                  String activeProviderId) {
         if (options == null || options.isEmpty()) {
             return null;
         }
         String configured = configuredId == null ? "" : configuredId.trim();
         return options.stream().filter(option -> option.id().equals(configured)).findFirst()
-                .or(() -> options.stream().filter(option -> option.id().equals("gui-swing")).findFirst())
+                .or(() -> options.stream().filter(option -> option.id().equals(activeProviderId)).findFirst())
                 .orElse(options.get(0));
     }
 

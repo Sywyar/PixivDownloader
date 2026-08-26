@@ -47,6 +47,7 @@ class DesktopUiContextTest {
         context.requestApplicationExit();
 
         assertThat(context.themePreference()).isEqualTo("dark");
+        assertThat(context.selectedProviderId()).isEqualTo("gui-compose");
         assertThat(context.resolveText(DesktopUiText.key("desktop.test"))).isEqualTo("desktop.test");
         assertThat(exitRequested).isTrue();
     }
@@ -82,6 +83,7 @@ class DesktopUiContextTest {
                 6999,
                 ".",
                 Path.of("config.yaml"),
+                "gui-compose",
                 host,
                 startup,
                 current,

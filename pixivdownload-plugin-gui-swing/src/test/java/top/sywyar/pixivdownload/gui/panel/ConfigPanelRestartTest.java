@@ -158,7 +158,7 @@ class ConfigPanelRestartTest {
                 null, "", List.of(), List.of(), List.of(), List.of(), List.of());
         List<DesktopUiPluginSnapshot> snapshots = List.of(swing, compose);
         SwingHost.install(new DesktopUiContext(
-                false, 6999, ".", tempDir.resolve("config.yaml"), host,
+                false, 6999, ".", tempDir.resolve("config.yaml"), "gui-swing", host,
                 snapshots, () -> snapshots, text -> text.fallback(), () -> "system"));
         return config;
     }

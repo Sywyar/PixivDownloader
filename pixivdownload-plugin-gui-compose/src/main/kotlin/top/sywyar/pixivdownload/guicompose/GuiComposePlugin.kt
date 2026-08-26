@@ -14,6 +14,7 @@ class GuiComposePlugin : PixivFeaturePlugin, DesktopUiProvider {
     override fun iconKey(): String = "palette"
     override fun colorToken(): String = "violet"
     override fun kind(): PluginKind = PluginKind.FEATURE
+    override fun defaultProvider(): Boolean = true
     override fun launch(context: DesktopUiContext): DesktopUiSession = ComposeDesktopUi.launch(context)
 
     override fun i18n(): List<I18nContribution> =

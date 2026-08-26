@@ -336,7 +336,7 @@ final class DesktopConfigurationController {
             boolean processRestart = interfaceChanged && !Objects.equals(
                     interfaceValues.get(
                             "app.gui-provider"),
-                    savedValues.getOrDefault(new FieldKey(null, "app.gui-provider"), "gui-swing")
+                    savedProviderId()
             );
             for (ConfigField field : changed) {
                 switch (field.spec().effect()) {
@@ -420,7 +420,7 @@ final class DesktopConfigurationController {
         ))) {
             effects.add(Objects.equals(
                     interfaceValues.get("app.gui-provider"),
-                    savedValues.getOrDefault(new FieldKey(null, "app.gui-provider"), "gui-swing")
+                    savedProviderId()
             ) ? GuiConfigEffect.HOT_RELOAD : GuiConfigEffect.PROCESS_RESTART);
         }
         return strongestEffect(effects);
@@ -845,9 +845,9 @@ final class DesktopConfigurationController {
                 DesktopUiPluginSnapshot::id).collect(java.util.stream.Collectors.toSet());
         String provider = form(
                 "interface.provider",
-                selected("app.gui-provider", "gui-swing")
+                selectedProvider()
         );
-        if (!availableProviders.contains(provider)) provider = "gui-swing";
+        if (!availableProviders.contains(provider)) provider = owner.selectedProviderId();
         Set<String> availableThemes = view.fields.themeOptions(provider).stream().map(DesktopUiNode.Option::id).collect(
                 java.util.stream.Collectors.toSet());
         String theme = form("interface.theme", selected("app.theme", "system"));
@@ -952,6 +952,16 @@ final class DesktopConfigurationController {
                 },
                 savedValues.getOrDefault(new FieldKey(null, key), fallback)
         );
+    }
+
+    String selectedProvider() {
+        String selected = selected("app.gui-provider", owner.selectedProviderId());
+        return selected == null || selected.isBlank() ? owner.selectedProviderId() : selected;
+    }
+
+    private String savedProviderId() {
+        String saved = savedValues.get(new FieldKey(null, "app.gui-provider"));
+        return saved == null || saved.isBlank() ? owner.selectedProviderId() : saved;
     }
 
     private String form(String key, String fallback) {

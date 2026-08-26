@@ -51,7 +51,7 @@ public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
 
     @Override
     public boolean defaultProvider() {
-        return true;
+        return false;
     }
 
     @Override

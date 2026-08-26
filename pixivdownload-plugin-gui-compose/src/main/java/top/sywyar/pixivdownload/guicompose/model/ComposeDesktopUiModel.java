@@ -46,6 +46,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
+    private final String selectedProviderId;
     private final DesktopUiHost host;
     private final DesktopToolsController tools;
     private final DesktopOnboardingController onboarding;
@@ -86,12 +87,14 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             int serverPort,
             String rootFolder,
             Path configPath,
+            String selectedProviderId,
             DesktopUiHost host,
             Supplier<List<DesktopUiPluginSnapshot>> pluginSources
     ) {
         this.serverPort = serverPort;
         this.rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
         this.configPath = Objects.requireNonNull(configPath, "configPath");
+        this.selectedProviderId = Objects.requireNonNull(selectedProviderId, "selectedProviderId");
         this.host = Objects.requireNonNull(host, "host");
         this.tools = new DesktopToolsController(
                 this,
@@ -771,6 +774,10 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     List<DesktopUiPluginSnapshot> currentSources() {
         List<DesktopUiPluginSnapshot> sources = rebuildSources;
         return sources == null ? loadCurrentSources() : sources;
+    }
+
+    String selectedProviderId() {
+        return selectedProviderId;
     }
 
     private List<DesktopUiPluginSnapshot> loadCurrentSources() {
