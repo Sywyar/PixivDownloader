@@ -27,9 +27,7 @@ final class DesktopCoreConfigCatalog {
             group(GuiConfigGroups.MAINTENANCE, "gui.config.group.maintenance", 800),
             group(GuiConfigGroups.HTTPS, "gui.config.group.https", 900),
             group(GuiConfigGroups.UPDATE, "gui.config.group.update", 1000),
-            group(GuiConfigGroups.SCHEDULE, "gui.config.group.schedule", 1100),
-            group(GuiConfigGroups.AI, "gui.config.group.ai", 1200),
-            group(GuiConfigGroups.NOTIFICATION, "gui.config.group.notification", 1300)
+            group(GuiConfigGroups.SCHEDULE, "gui.config.group.schedule", 1100)
     );
 
     private DesktopCoreConfigCatalog() {
