@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.novel.config.NovelExecutionSettings;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
@@ -173,7 +174,7 @@ class NovelPluginContributionTest {
             assertThat(field.minValue()).isEqualTo(1);
             assertThat(field.maxValue()).isNull();
             assertThat(field.sensitive()).isFalse();
-            assertThat(field.requiresRestart()).isTrue();
+            assertThat(field.effect()).isEqualTo(GuiConfigEffect.BACKEND_RESTART);
         });
 
         Properties chinese = loadProperties("/i18n/web/novel.properties");
@@ -211,7 +212,8 @@ class NovelPluginContributionTest {
                 .satisfies(nav -> {
                     assertThat(nav.placements()).containsExactlyInAnyOrder(
                             NavigationPlacements.APP_TOP,
-                            NavigationPlacements.NOVEL_SIDEBAR);
+                            NavigationPlacements.NOVEL_SIDEBAR,
+                            NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.labelNamespace()).isEqualTo("novel-gallery");
                     assertThat(nav.href()).isEqualTo("/pixiv-novel-gallery.html?view=all");
                 });

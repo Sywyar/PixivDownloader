@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
 @DisplayName("PixivDatabase 集成测试")
 class PixivDatabaseTest {
@@ -41,8 +41,8 @@ class PixivDatabaseTest {
         PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
 
         // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行（含 deleteArtwork 清理的 artwork_collections）
-        top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry registry =
-                top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry.forBuiltInPlugins();
+        top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry registry =
+                top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
         DatabaseInitializer initializer = new DatabaseInitializer(
                 new org.springframework.jdbc.core.JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(),
@@ -582,14 +582,21 @@ class PixivDatabaseTest {
         }
 
         @Test
-        @DisplayName("incrementStats 应递增统计")
-        void shouldIncrementStats() {
-            pixivDatabase.incrementStats(5);
-            pixivDatabase.incrementStats(3);
+        @DisplayName("下载终态应原子累计并在日期变化时重置当日计数")
+        void shouldRecordDailyDownloadOutcomes() {
+            pixivDatabase.recordCompletedDownload(5, "2026-08-23");
+            pixivDatabase.recordFailedDownload("2026-08-23");
+            pixivDatabase.recordCompletedDownload(3, "2026-08-24");
+            pixivDatabase.recordFailedDownload("2026-08-24");
 
             int[] stats = pixivDatabase.getStats();
             assertThat(stats[0]).isEqualTo(2);  // total_artworks
             assertThat(stats[1]).isEqualTo(8);  // total_images
+            assertThat(pixivDatabase.getStatisticsData()).satisfies(data -> {
+                assertThat(data.dailyDate()).isEqualTo("2026-08-24");
+                assertThat(data.dailyCompleted()).isEqualTo(1);
+                assertThat(data.dailyFailed()).isEqualTo(1);
+            });
         }
 
         @Test

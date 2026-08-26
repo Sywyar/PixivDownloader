@@ -42,6 +42,12 @@
             <artifactId>pixivdownload-plugin-signature</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-gui-swing</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
 
         <!-- 插件框架启用运行时：ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties
              （Spring 耦合，零 plugin-api、零 app/插件反向依赖） -->
@@ -174,8 +180,44 @@
                     <exclude>plugin-credential-key.properties</exclude>
                 </excludes>
             </resource>
+            <resource>
+                <directory>..</directory>
+                <targetPath>.</targetPath>
+                <filtering>false</filtering>
+                <includes>
+                    <include>LICENSE</include>
+                </includes>
+            </resource>
         </resources>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>generate-maintainer-catalog</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <exec executable="node" dir="${maven.multiModuleProjectDirectory}"
+                                      failonerror="true">
+                                    <arg value="${maven.multiModuleProjectDirectory}/scripts/generate-maintainers.mjs"/>
+                                    <arg value="--repo-root"/>
+                                    <arg value="${maven.multiModuleProjectDirectory}"/>
+                                    <arg value="--repository"/>
+                                    <arg value="Sywyar/PixivDownloader"/>
+                                    <arg value="--output"/>
+                                    <arg value="${project.build.outputDirectory}/pixivdownload/maintainers.json"/>
+                                </exec>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -206,8 +248,10 @@
                         <duplicate.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-duplicate/target/classes</duplicate.plugin.classes>
                         <gallery.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gallery/target/classes</gallery.plugin.classes>
                         <novel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel/target/classes</novel.plugin.classes>
-                        <gui-theme.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/classes</gui-theme.plugin.classes>
-                        <gui-theme.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-${project.version}.jar</gui-theme.plugin.jar>
+                        <gui-swing.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/classes</gui-swing.plugin.classes>
+                        <gui-swing.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/pixivdownload-plugin-gui-swing-${project.version}.jar</gui-swing.plugin.jar>
+                        <gui-compose.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-compose/target/classes</gui-compose.plugin.classes>
+                        <gui-compose.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-compose/target/pixivdownload-plugin-gui-compose-${project.version}.jar</gui-compose.plugin.jar>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

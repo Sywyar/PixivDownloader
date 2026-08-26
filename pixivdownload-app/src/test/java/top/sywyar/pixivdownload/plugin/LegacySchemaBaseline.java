@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema.TableSpec;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
 /**
  * 对照基线：v1.13.0 周期 {@code ManagedDatabaseSchema.createSpec()} 的原文拷贝。
@@ -92,7 +92,10 @@ final class LegacySchemaBaseline {
                         column("id", "INTEGER", false, null, 1),
                         column("total_artworks", "INTEGER", false, "0", 0),
                         column("total_images", "INTEGER", false, "0", 0),
-                        column("total_moved", "INTEGER", false, "0", 0)
+                        column("total_moved", "INTEGER", false, "0", 0),
+                        column("daily_date", "TEXT", false, null, 0),
+                        column("daily_completed", "INTEGER", false, "0", 0),
+                        column("daily_failed", "INTEGER", false, "0", 0)
                 ),
                 List.of()
         ));

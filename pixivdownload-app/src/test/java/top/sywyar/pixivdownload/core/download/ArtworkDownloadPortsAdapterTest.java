@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics.DailyOutcomes;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
@@ -169,15 +170,20 @@ class ArtworkDownloadPortsAdapterTest {
     }
 
     @Test
-    @DisplayName("统计适配器应原样委托完整下载图片数")
-    void statisticsAdapterDelegatesCompletedCount() {
+    @DisplayName("统计适配器应原样委托下载终态")
+    void statisticsAdapterDelegatesOutcomes() {
         DownloadStatisticsService downloadStatisticsService = mock(DownloadStatisticsService.class);
         ArtworkDownloadStatisticsAdapter adapter =
                 new ArtworkDownloadStatisticsAdapter(downloadStatisticsService);
+        DailyOutcomes today = new DailyOutcomes(3, 1);
+        when(downloadStatisticsService.today()).thenReturn(today);
 
         adapter.recordCompleted(4);
+        adapter.recordFailed();
 
         verify(downloadStatisticsService).recordStatistics(4);
+        verify(downloadStatisticsService).recordFailure();
+        assertThat(adapter.today()).isSameAs(today);
     }
 
     private ArtworkDownloadCompletion sampleCompletion() {

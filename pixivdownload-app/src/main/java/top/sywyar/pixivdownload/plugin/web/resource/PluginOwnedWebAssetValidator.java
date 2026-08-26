@@ -4,7 +4,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 import java.io.IOException;
 import java.io.InputStream;

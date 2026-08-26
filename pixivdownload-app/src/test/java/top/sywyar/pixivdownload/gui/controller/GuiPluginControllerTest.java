@@ -101,6 +101,7 @@ class GuiPluginControllerTest {
         mockMvc.perform(get("/api/gui/plugins/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recoveryMode").value(false))
+                .andExpect(jsonPath("$.observedAt").isString())
                 .andExpect(jsonPath("$.plugins[0].id").value("gallery"))
                 .andExpect(jsonPath("$.plugins[0].name").value("Gallery"))
                 .andExpect(jsonPath("$.plugins[0].source").value("external"))

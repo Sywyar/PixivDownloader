@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.download;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics.DailyOutcomes;
 
 /**
  * 将完成下载统计端口适配到宿主累计统计服务。
@@ -18,5 +19,15 @@ public class ArtworkDownloadStatisticsAdapter implements ArtworkDownloadStatisti
     @Override
     public void recordCompleted(int imageCount) {
         downloadStatisticsService.recordStatistics(imageCount);
+    }
+
+    @Override
+    public void recordFailed() {
+        downloadStatisticsService.recordFailure();
+    }
+
+    @Override
+    public DailyOutcomes today() {
+        return downloadStatisticsService.today();
     }
 }

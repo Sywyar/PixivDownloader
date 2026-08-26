@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.signature.cli;
 
 import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.OfficialArtifactTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -18,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -147,8 +149,9 @@ public final class PluginSignatureTool {
     }
 
     private static PluginSupplyChainVerifier verifier(Map<String, String> options) {
+        List<TrustedPluginKey> keys = new ArrayList<>(officialRoots(options));
         if (!options.containsKey("trusted-key-id") && !options.containsKey("trusted-public-key")) {
-            return new PluginSupplyChainVerifier();
+            return new PluginSupplyChainVerifier(PluginTrustStores.of(keys));
         }
         TrustedPluginKey key = new TrustedPluginKey(
                 required(options, "trusted-key-id"),
@@ -158,7 +161,18 @@ public final class PluginSignatureTool {
                 options.getOrDefault("trusted-publisher", "CLI Trusted Publisher"),
                 options.getOrDefault("trusted-label", "CLI Trusted Root"),
                 Boolean.parseBoolean(options.getOrDefault("trusted-official", "false")));
-        return new PluginSupplyChainVerifier(PluginTrustStores.withBuiltInOfficial(List.of(key)));
+        keys.add(key);
+        return new PluginSupplyChainVerifier(PluginTrustStores.of(keys));
+    }
+
+    private static List<TrustedPluginKey> officialRoots(Map<String, String> options) {
+        return switch (options.getOrDefault("official-purpose", "plugin").trim()) {
+            case "plugin" -> OfficialArtifactTrustRoots.pluginRoots();
+            case "update" -> OfficialArtifactTrustRoots.updateRoots();
+            case "ffmpeg" -> OfficialArtifactTrustRoots.ffmpegRoots();
+            default -> throw new IllegalArgumentException("unsupported --official-purpose: "
+                    + options.get("official-purpose"));
+        };
     }
 
     private static void report(VerificationResult result) {
@@ -251,8 +265,10 @@ public final class PluginSignatureTool {
         System.out.println("  manifest --manifest <manifest.json> --repository-id <id> "
                 + "--key-id <key> --private-key <pkcs8.pem> --out <manifest.json.sig>");
         System.out.println("  verify-manifest --manifest <manifest.json> --signature <manifest.json.sig> "
-                + "--repository-id <id> [--policy official|custom]");
+                + "--repository-id <id> [--policy official|custom] "
+                + "[--official-purpose plugin|update|ffmpeg]");
         System.out.println("  verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> "
-                + "--version <version> --expected-size <bytes> --sha256 <hex> [--policy official|custom]");
+                + "--version <version> --expected-size <bytes> --sha256 <hex> [--policy official|custom] "
+                + "[--official-purpose plugin|update|ffmpeg]");
     }
 }

@@ -5,8 +5,17 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
-    'pixiv-novel-download', 'novel-queue-type.js'), 'utf8');
+const NOVEL_STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static',
+    'pixiv-novel-download');
+const ENTRY_PATH = '/pixiv-novel-download/novel-queue-type.js';
+const SOURCE = fs.readFileSync(path.join(NOVEL_STATIC, 'novel-queue-type.js'), 'utf8');
+const MODULE_SOURCES = Object.fromEntries([
+    'novel-queue-acquisition.js',
+    'novel-queue-download.js',
+    'novel-queue-search.js',
+    'novel-queue-view.js'
+].map(file => [`/pixiv-novel-download/${file}`,
+    fs.readFileSync(path.join(NOVEL_STATIC, file), 'utf8')]));
 const ROOT = path.join(__dirname, '..', '..', '..', '..');
 const WORKBENCH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main',
     'resources', 'static', 'pixiv-batch');
@@ -68,7 +77,7 @@ function novelType() {
             publicationId: 1
         },
         order: 10,
-        moduleUrl: '/modules/novel.js',
+        moduleUrl: ENTRY_PATH,
         acquisitionModes: [],
         filters: ['novel-words'],
         settings: ['novel-settings-card']
@@ -136,8 +145,11 @@ function runtimeHarness(manifests) {
     const qt = sandbox.window.PixivBatch.queueTypes;
     head.onAppend = script => {
         if (script.tag !== 'script') return;
+        const pathname = new URL(script.src, sandbox.window.location.origin).pathname;
+        const source = pathname === ENTRY_PATH ? SOURCE : MODULE_SOURCES[pathname];
+        if (!source) throw new Error(`unexpected novel module: ${pathname}`);
         document.currentScript = script;
-        vm.runInContext(SOURCE, sandbox);
+        vm.runInContext(source, sandbox);
         document.currentScript = null;
         if (typeof script.onload === 'function') script.onload();
     };
@@ -154,9 +166,13 @@ async function waitUntil(predicate) {
 
 (async function () {
     let initializer = null;
+    let submoduleInitializer = null;
     let requestSignal = null;
     const sandbox = {
-        window: {PixivBatch: {queueTypes: {registerModule(candidate) { initializer = candidate; }}}},
+        window: {PixivBatch: {queueTypes: {
+            registerModule(candidate) { initializer = candidate; return true; },
+            registerSubmodule(candidate) { submoduleInitializer = candidate; return true; }
+        }}},
         console: {warn() {}, log() {}, error() {}},
         AbortController,
         URL,
@@ -202,9 +218,18 @@ async function waitUntil(predicate) {
                 throw error;
             }
         },
-        onCleanup() {}
+        onCleanup() {},
+        async loadSubmodule(moduleUrl, shared) {
+            const pathname = new URL(moduleUrl, `https://local.test${ENTRY_PATH}`).pathname;
+            const source = MODULE_SOURCES[pathname];
+            assert.ok(source, `应加载已声明小说子模块：${pathname}`);
+            submoduleInitializer = null;
+            vm.runInContext(source, sandbox);
+            assert.strictEqual(typeof submoduleInitializer, 'function', `${pathname} 应登记 initializer`);
+            return submoduleInitializer(shared);
+        }
     };
-    const activation = initializer(context);
+    const activation = await initializer(context);
     const descriptor = activation.descriptor;
     const filter = descriptor.filters['novel-words'];
     const bookmark = await filter.bookmarkCountFetch('42');
@@ -269,14 +294,6 @@ async function waitUntil(predicate) {
     assert.strictEqual(descriptor.canonicalUrl({id: 'n43'}),
         'https://www.pixiv.net/novel/show.php?id=43');
     assert.strictEqual(descriptor.canonicalUrl({id: 'invalid'}), '');
-    assert.ok(SOURCE.includes('item.liveStatus = {')
-        && SOURCE.includes('queueLiveStatus: novelQueueLiveStatus'));
-    assert.ok(SOURCE.includes('fetchToken: meta.fetchToken || null'),
-        '小说下载请求应复用元数据响应中的一次性抓取票据');
-    assert.ok(!SOURCE.includes('translatePhase')
-        && !SOURCE.includes('translateElapsed')
-        && !SOURCE.includes('translateSeriesPending'));
-
     const item = {id: 'n42', novelId: '42', kind: 'novel', status: 'downloading'};
     const processing = descriptor.process(item, context);
     for (let i = 0; i < 10 && !requestSignal; i++) await Promise.resolve();

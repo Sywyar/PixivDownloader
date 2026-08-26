@@ -46,6 +46,7 @@ class GalleryPluginContributionTest {
                 .singleElement()
                 .satisfies(nav -> {
                     assertThat(nav.href()).isEqualTo("/pixiv-gallery.html?view=all");
+                    assertThat(nav.placements()).contains(NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.markers()).containsExactly(NavigationMarkers.FIRST_DOWNLOAD_RESULT);
                 });
         assertThat(plugin.navigation())

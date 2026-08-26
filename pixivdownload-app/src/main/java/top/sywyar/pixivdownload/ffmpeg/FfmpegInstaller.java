@@ -1,7 +1,15 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.common.AppInfo;
-import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,8 +23,11 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,6 +42,10 @@ public final class FfmpegInstaller {
 
     public static final String RELEASE_BASE_URL = "https://github.com/Sywyar/"
             + "PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/";
+    static final String RELEASE_MANIFEST_NAME = "ffmpeg-release.json";
+    static final String RELEASE_REPOSITORY_ID = "ffmpeg-stable";
+    private static final int MAX_METADATA_BYTES = 1024 * 1024;
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String FFMPEG_LICENSE = "ffmpeg-LGPLv2.1.txt";
     private static final String LIBWEBP_LICENSE = "libwebp-COPYING.txt";
     private static final String LIBWEBP_PATENTS = "libwebp-PATENTS.txt";
@@ -38,14 +53,18 @@ public final class FfmpegInstaller {
     private FfmpegInstaller() {}
 
     private static String message(String code, Object... args) {
-        return GuiMessages.get(code, args);
+        return MessageBundles.get(code, args);
     }
 
     public static boolean supportsManagedDownload() {
-        return archiveUri(System.getProperty("os.name", ""), System.getProperty("os.arch", "")).isPresent();
+        return assetName(System.getProperty("os.name", ""), System.getProperty("os.arch", "")).isPresent();
     }
 
     static Optional<URI> archiveUri(String osName, String osArch) {
+        return assetName(osName, osArch).map(asset -> URI.create(RELEASE_BASE_URL + asset));
+    }
+
+    static Optional<String> assetName(String osName, String osArch) {
         String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
         String arch = osArch == null ? "" : osArch.toLowerCase(Locale.ROOT);
         String normalizedArch = switch (arch) {
@@ -68,14 +87,15 @@ public final class FfmpegInstaller {
         } else if (macos && normalizedArch.equals("arm64")) {
             asset = "ffmpeg-macos-arm64.zip";
         }
-        return asset.isEmpty() ? Optional.empty() : Optional.of(URI.create(RELEASE_BASE_URL + asset));
+        return asset.isEmpty() ? Optional.empty() : Optional.of(asset);
     }
 
     public static FfmpegInstallation installManaged(ProxySettings proxySettings,
                                                     ProgressListener listener)
             throws IOException, InterruptedException {
-        URI archiveUri = archiveUri(System.getProperty("os.name", ""), System.getProperty("os.arch", ""))
+        String assetName = assetName(System.getProperty("os.name", ""), System.getProperty("os.arch", ""))
                 .orElseThrow(() -> new IOException(message("gui.ffmpeg.install.unsupported")));
+        URI archiveUri = URI.create(RELEASE_BASE_URL + assetName);
 
         ProxySettings settings = proxySettings == null ? ProxySettings.disabled() : proxySettings;
         ProgressListener progress = listener == null ? ProgressListener.NO_OP : listener;
@@ -84,10 +104,16 @@ public final class FfmpegInstaller {
         Path archive = tempDir.resolve("ffmpeg.zip");
         Path extracted = tempDir.resolve("extract");
         try {
-            progress.onProgress(message("gui.ffmpeg.install.stage.connecting"), 0L, -1L);
+            progress.onProgress(ProgressStage.CONNECTING, 0L, -1L);
+            byte[] manifest = downloadMetadata(URI.create(RELEASE_BASE_URL + RELEASE_MANIFEST_NAME), settings);
+            byte[] signature = downloadMetadata(
+                    URI.create(RELEASE_BASE_URL + RELEASE_MANIFEST_NAME + ".sig"), settings);
+            AssetMetadata expected = verifyRelease(manifest, signature, assetName,
+                    ffmpegManifestVerifier());
             downloadArchive(archiveUri, settings, archive, progress);
+            verifyArchive(archive, expected);
 
-            progress.onProgress(message("gui.ffmpeg.install.stage.extracting"), -1L, -1L);
+            progress.onProgress(ProgressStage.EXTRACTING, -1L, -1L);
             ExtractedFiles extractedFiles = extractRequiredFiles(archive, extracted);
 
             Path toolsDir = FfmpegLocator.managedToolsDir();
@@ -108,7 +134,7 @@ public final class FfmpegInstaller {
             Files.copy(extractedFiles.libwebpPatents(), licenseDir.resolve(LIBWEBP_PATENTS),
                     StandardCopyOption.REPLACE_EXISTING);
 
-            progress.onProgress(message("gui.ffmpeg.install.completed"), 1L, 1L);
+            progress.onProgress(ProgressStage.COMPLETED, 1L, 1L);
             return FfmpegLocator.managedInstallation()
                     .orElseThrow(() -> new IOException(message("gui.ffmpeg.install.result-missing")));
         } finally {
@@ -118,6 +144,35 @@ public final class FfmpegInstaller {
 
     private static void downloadArchive(URI source, ProxySettings proxySettings, Path target,
                                         ProgressListener listener)
+            throws IOException, InterruptedException {
+        HttpResponse<InputStream> response = openDownload(source, proxySettings);
+        long total = contentLength(response);
+        try (InputStream inputStream = response.body();
+             OutputStream outputStream = Files.newOutputStream(target)) {
+            byte[] buffer = new byte[8192];
+            long downloaded = 0L;
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+                downloaded += read;
+                listener.onProgress(ProgressStage.DOWNLOADING, downloaded, total);
+            }
+        }
+    }
+
+    private static byte[] downloadMetadata(URI source, ProxySettings proxySettings)
+            throws IOException, InterruptedException {
+        HttpResponse<InputStream> response = openDownload(source, proxySettings);
+        try (InputStream inputStream = response.body()) {
+            byte[] bytes = inputStream.readNBytes(MAX_METADATA_BYTES + 1);
+            if (bytes.length > MAX_METADATA_BYTES) {
+                throw integrityFailure("METADATA_TOO_LARGE");
+            }
+            return bytes;
+        }
+    }
+
+    private static HttpResponse<InputStream> openDownload(URI source, ProxySettings proxySettings)
             throws IOException, InterruptedException {
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(20))
@@ -133,21 +188,87 @@ public final class FfmpegInstaller {
         HttpResponse<InputStream> response = builder.build()
                 .send(request, HttpResponse.BodyHandlers.ofInputStream());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            response.body().close();
             throw new IOException(message("gui.ffmpeg.install.download-http-error", response.statusCode()));
         }
+        return response;
+    }
 
-        long total = contentLength(response);
-        try (InputStream inputStream = response.body();
-             OutputStream outputStream = Files.newOutputStream(target)) {
+    static AssetMetadata verifyRelease(byte[] manifestBytes, byte[] signatureBytes, String assetName,
+                                       PluginSupplyChainVerifier verifier) throws IOException {
+        if (manifestBytes == null || manifestBytes.length == 0) {
+            throw integrityFailure("MANIFEST_MISSING");
+        }
+        if (signatureBytes == null || signatureBytes.length == 0) {
+            throw integrityFailure("SIGNATURE_MISSING");
+        }
+        SignatureMetadata signature;
+        try {
+            signature = MAPPER.readValue(signatureBytes, SignatureMetadata.class);
+        } catch (Exception e) {
+            throw integrityFailure("MALFORMED_SIGNATURE");
+        }
+        VerificationResult result = verifier.verifyManifest(new ManifestVerificationRequest(
+                manifestBytes, RELEASE_REPOSITORY_ID, signature, VerificationPolicy.officialRepository()));
+        if (!result.accepted()) {
+            throw integrityFailure(result.diagnosticCode());
+        }
+
+        JsonNode manifest;
+        try {
+            manifest = MAPPER.readTree(manifestBytes);
+        } catch (Exception e) {
+            throw integrityFailure("MALFORMED_MANIFEST");
+        }
+        if (manifest.path("schemaVersion").asInt(-1) != 1) {
+            throw integrityFailure("UNSUPPORTED_MANIFEST_SCHEMA");
+        }
+        JsonNode assets = manifest.path("assets");
+        JsonNode asset = assets.isObject() ? assets.get(assetName) : null;
+        if (asset == null || !asset.isObject()) {
+            throw integrityFailure("ASSET_NAME_MISMATCH");
+        }
+        JsonNode sizeNode = asset.get("expectedSizeBytes");
+        long expectedSize = sizeNode != null && sizeNode.canConvertToLong() ? sizeNode.asLong() : -1L;
+        String sha256 = asset.path("sha256").asText("").trim();
+        if (expectedSize <= 0L || !sha256.matches("(?i)[0-9a-f]{64}")) {
+            throw integrityFailure("ASSET_METADATA_INVALID");
+        }
+        return new AssetMetadata(assetName, expectedSize, sha256.toLowerCase(Locale.ROOT));
+    }
+
+    static PluginSupplyChainVerifier ffmpegManifestVerifier() {
+        return new PluginSupplyChainVerifier(PluginTrustStores.builtInOfficialFfmpeg());
+    }
+
+    static void verifyArchive(Path archive, AssetMetadata expected) throws IOException {
+        if (!Files.isRegularFile(archive)) {
+            throw integrityFailure("ASSET_MISSING");
+        }
+        if (Files.size(archive) != expected.expectedSizeBytes()) {
+            throw integrityFailure("ASSET_SIZE_MISMATCH");
+        }
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+        try (InputStream input = Files.newInputStream(archive)) {
             byte[] buffer = new byte[8192];
-            long downloaded = 0L;
             int read;
-            while ((read = inputStream.read(buffer)) != -1) {
-                outputStream.write(buffer, 0, read);
-                downloaded += read;
-                listener.onProgress(message("gui.ffmpeg.install.stage.downloading"), downloaded, total);
+            while ((read = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
             }
         }
+        String actual = HexFormat.of().formatHex(digest.digest());
+        if (!actual.equals(expected.sha256())) {
+            throw integrityFailure("ASSET_SHA256_MISMATCH");
+        }
+    }
+
+    private static IOException integrityFailure(String diagnosticCode) {
+        return new IOException(message("gui.ffmpeg.install.integrity-error", diagnosticCode));
     }
 
     private static long contentLength(HttpResponse<?> response) {
@@ -250,8 +371,10 @@ public final class FfmpegInstaller {
     public interface ProgressListener {
         ProgressListener NO_OP = (stage, current, total) -> {};
 
-        void onProgress(String stage, long current, long total);
+        void onProgress(ProgressStage stage, long current, long total);
     }
+
+    public enum ProgressStage { CONNECTING, DOWNLOADING, EXTRACTING, COMPLETED }
 
     public record ProxySettings(boolean enabled, String host, int port) {
 
@@ -280,6 +403,13 @@ public final class FfmpegInstaller {
             Objects.requireNonNull(ffmpegLicense, "ffmpegLicense");
             Objects.requireNonNull(libwebpLicense, "libwebpLicense");
             Objects.requireNonNull(libwebpPatents, "libwebpPatents");
+        }
+    }
+
+    record AssetMetadata(String assetName, long expectedSizeBytes, String sha256) {
+        AssetMetadata {
+            Objects.requireNonNull(assetName, "assetName");
+            Objects.requireNonNull(sha256, "sha256");
         }
     }
 }

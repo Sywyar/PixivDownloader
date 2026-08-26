@@ -42,6 +42,14 @@ class AppVersionTest {
     }
 
     @Test
+    @DisplayName("应暴露 Maven 维护的 Kotlin 版本")
+    void shouldReadKotlinVersionFromMavenFilteredResource() throws Exception {
+        assertThat(AppVersion.getKotlinVersionOrDefault("missing"))
+                .isEqualTo(mavenFilteredProperty("kotlin.version"))
+                .doesNotContain("@");
+    }
+
+    @Test
     @DisplayName("should normalize leading v prefix")
     void shouldNormalizeLeadingVPrefix() {
         assertThat(AppVersion.normalize("v2.0.1")).isEqualTo("2.0.1");
@@ -51,11 +59,15 @@ class AppVersionTest {
     }
 
     private static String mavenFilteredVersion() throws Exception {
+        return AppVersion.normalize(mavenFilteredProperty("app.version"));
+    }
+
+    private static String mavenFilteredProperty(String key) throws Exception {
         Properties properties = new Properties();
         try (InputStream stream = AppVersionTest.class.getResourceAsStream("/app-version.properties")) {
             properties.load(stream);
         }
-        return AppVersion.normalize(properties.getProperty("app.version"));
+        return properties.getProperty(key);
     }
 
     private static void restoreProperty(String key, String value) {

@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Comparator;
 import java.util.List;
-import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.PageSectionRegistry;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**

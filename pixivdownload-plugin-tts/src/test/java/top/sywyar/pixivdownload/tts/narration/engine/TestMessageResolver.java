@@ -7,9 +7,9 @@ import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
 
-final class TestMessageResolver implements MessageResolver {
+public final class TestMessageResolver implements MessageResolver {
 
-    static final TestMessageResolver INSTANCE = new TestMessageResolver();
+    public static final TestMessageResolver INSTANCE = new TestMessageResolver();
 
     private static final String BASE_NAME = "i18n.tts.messages";
     private static final ResourceBundle.Control CONTROL =

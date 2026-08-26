@@ -16,9 +16,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 /**
  * 落点 / 入口注册中心：把「业务落点选择」与「UI 导航排序」彻底拆开。落点只消费 {@link LandingContribution}

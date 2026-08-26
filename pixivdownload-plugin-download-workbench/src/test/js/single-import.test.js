@@ -24,9 +24,14 @@ const QT_SOURCE = [
     'batch-queue-types.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SI_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'single-import.js'), 'utf8');
-const DOUYIN_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
+const DOUYIN_STATIC = path.join(__dirname, '..', '..', '..', '..',
     'pixivdownload-plugin-douyin', 'src', 'main', 'resources', 'static',
-    'pixiv-douyin-download', 'douyin-queue-type.js'), 'utf8');
+    'pixiv-douyin-download');
+const DOUYIN_SOURCE = fs.readFileSync(path.join(DOUYIN_STATIC, 'douyin-queue-type.js'), 'utf8');
+const DOUYIN_MODULES = Object.fromEntries([
+    'douyin-queue.js', 'douyin-download.js', 'douyin-view.js', 'douyin-acquisition.js'
+].map(file => [`/pixiv-douyin-download/${file}`,
+    fs.readFileSync(path.join(DOUYIN_STATIC, file), 'utf8')]));
 
 // ---- 最小 DOM（够 batch-queue-types 的 bootstrap/renderSlots + single-import 读 textarea 用）----
 function makeDocument(textareaValue) {
@@ -226,6 +231,8 @@ async function runParse(textareaValue, {
         document.currentScript = child;
         if (pathname === '/pixiv-douyin-download/douyin-queue-type.js') {
             vm.runInContext(DOUYIN_SOURCE, sandbox);
+        } else if (DOUYIN_MODULES[pathname]) {
+            vm.runInContext(DOUYIN_MODULES[pathname], sandbox);
         } else {
             vm.runInContext(`window.PixivBatch.queueTypes.registerModule(${initializers[pathname]})`, sandbox);
         }

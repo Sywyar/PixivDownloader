@@ -253,6 +253,12 @@ function validatePublication(rel, doc, invariants) {
             die(`${rel} does not use the dedicated update signing key`);
         }
     }
+    if (rel.endsWith('/build-stable-ffmpeg.yml')) {
+        if (!serialized.includes('FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64')
+            || serialized.includes('PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64')) {
+            die(`${rel} does not exclusively use the dedicated FFmpeg signing key`);
+        }
+    }
 }
 
 function validateWorkflows(candidateRoot, invariants, repoRoot) {

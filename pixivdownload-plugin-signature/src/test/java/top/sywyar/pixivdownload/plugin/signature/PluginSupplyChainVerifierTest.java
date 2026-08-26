@@ -147,8 +147,8 @@ class PluginSupplyChainVerifierTest {
         assertThatThrownBy(() -> PluginTrustStores.of(List.of(fixture.key, duplicate)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("duplicate");
-        assertThatThrownBy(() -> PluginTrustStores.withBuiltInOfficial(List.of(
-                new TrustedPluginKey(PluginTrustStores.builtInOfficialRoot().keyId(), SignatureMetadata.ED25519,
+        assertThatThrownBy(() -> PluginTrustStores.withBuiltInOfficialPlugins(List.of(
+                new TrustedPluginKey(PluginTrustStores.builtInOfficialPluginRoot().keyId(), SignatureMetadata.ED25519,
                         fixture.key.publicKeySpkiBase64(), TrustedPluginKey.State.ACTIVE,
                         "Other Publisher", "Other Root", false))))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -203,18 +203,32 @@ class PluginSupplyChainVerifierTest {
     }
 
     @Test
-    @DisplayName("trust：官方公钥集中由 OfficialPluginTrustRoots 提供并被默认 trust store 继承")
-    void officialTrustRootIsCentralized() {
-        TrustedPluginKey root = OfficialPluginTrustRoots.activeRoot();
+    @DisplayName("trust：官方公钥集中管理且插件、更新与 FFmpeg 用途相互隔离")
+    void officialTrustRootsAreCentralizedAndPurposeIsolated() {
+        TrustedPluginKey plugin = OfficialArtifactTrustRoots.activePluginRoot();
+        TrustedPluginKey update = OfficialArtifactTrustRoots.activeUpdateRoot();
+        TrustedPluginKey ffmpeg = OfficialArtifactTrustRoots.activeFfmpegRoot();
 
-        assertThat(root).isSameAs(PluginTrustStores.builtInOfficialRoot());
-        assertThat(OfficialPluginTrustRoots.all()).containsExactly(root);
-        assertThat(root.keyId()).isEqualTo(OfficialPluginTrustRoots.OFFICIAL_KEY_ID);
-        assertThat(root.algorithm()).isEqualTo(SignatureMetadata.ED25519);
-        assertThat(root.publicKeySpkiBase64()).isEqualTo(OfficialPluginTrustRoots.OFFICIAL_PUBLIC_KEY_SPKI_BASE64);
-        assertThat(root.state()).isEqualTo(TrustedPluginKey.State.ACTIVE);
-        assertThat(root.official()).isTrue();
-        assertThat(PluginTrustStores.builtInOfficial().findByKeyId(root.keyId())).contains(root);
+        assertThat(plugin).isSameAs(PluginTrustStores.builtInOfficialPluginRoot());
+        assertThat(List.of(plugin, update, ffmpeg))
+                .extracting(TrustedPluginKey::keyId)
+                .doesNotHaveDuplicates();
+        assertThat(List.of(plugin, update, ffmpeg))
+                .extracting(TrustedPluginKey::publicKeySpkiBase64)
+                .doesNotHaveDuplicates();
+        assertThat(List.of(plugin, update, ffmpeg))
+                .allSatisfy(root -> {
+                    assertThat(root.algorithm()).isEqualTo(SignatureMetadata.ED25519);
+                    assertThat(root.state()).isEqualTo(TrustedPluginKey.State.ACTIVE);
+                    assertThat(root.official()).isTrue();
+                });
+        assertThat(PluginTrustStores.builtInOfficialPlugins().findByKeyId(plugin.keyId())).contains(plugin);
+        assertThat(PluginTrustStores.builtInOfficialPlugins().findByKeyId(update.keyId())).isEmpty();
+        assertThat(PluginTrustStores.builtInOfficialPlugins().findByKeyId(ffmpeg.keyId())).isEmpty();
+        assertThat(PluginTrustStores.builtInOfficialUpdates().findByKeyId(update.keyId())).contains(update);
+        assertThat(PluginTrustStores.builtInOfficialUpdates().findByKeyId(plugin.keyId())).isEmpty();
+        assertThat(PluginTrustStores.builtInOfficialFfmpeg().findByKeyId(ffmpeg.keyId())).contains(ffmpeg);
+        assertThat(PluginTrustStores.builtInOfficialFfmpeg().findByKeyId(plugin.keyId())).isEmpty();
     }
 
     @Test

@@ -18,6 +18,37 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class QueueTaskTrackerTest {
 
     @Test
+    @DisplayName("计数快照区分排队、运行和停止接收状态")
+    void snapshotsQueuedRunningAndAcceptingState() throws Exception {
+        QueueTaskTracker tracker = new QueueTaskTracker("probe");
+        QueueTaskTracker.Task queued = tracker.prepareQueued("queued");
+        QueueTaskTracker.Task running = tracker.prepareQueued("running");
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        queued.bind(() -> { });
+        running.bind(() -> {
+            entered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        Thread worker = new Thread(running, "queue-snapshot-test");
+        worker.start();
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(tracker.snapshot()).isEqualTo(new QueueTaskTracker.Snapshot(true, 1, 1));
+        tracker.prepareQuiesce();
+        assertThat(tracker.snapshot()).isEqualTo(new QueueTaskTracker.Snapshot(false, 1, 1));
+
+        tracker.cancelQuiescedTasks();
+        release.countDown();
+        worker.join(2_000);
+        assertThat(tracker.snapshot()).isEqualTo(new QueueTaskTracker.Snapshot(false, 0, 0));
+    }
+
+    @Test
     @DisplayName("状态尚未发布的排队任务也能取消且清掉 delegate")
     void cancelsQueuedTaskBeforeStatusPublication() {
         QueueTaskTracker tracker = new QueueTaskTracker("probe");

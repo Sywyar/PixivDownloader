@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.novel;
 
 import top.sywyar.pixivdownload.novel.config.NovelExecutionSettings;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
@@ -202,7 +203,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 Integer.toString(NovelExecutionSettings.DEFAULT_CONCURRENCY),
                 order,
                 false,
-                true,
+                GuiConfigEffect.BACKEND_RESTART,
                 List.of(),
                 List.of(),
                 List.of(),
@@ -215,7 +216,8 @@ public class NovelPlugin implements PixivFeaturePlugin {
         return List.of(
                 new NavigationContribution(
                         "novel-gallery",
-                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.NOVEL_SIDEBAR),
+                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.NOVEL_SIDEBAR,
+                                NavigationPlacements.DESKTOP_QUICK_START),
                         "novel-gallery", "nav.label", "/pixiv-novel-gallery.html?view=all", "book",
                         AccessPolicy.INVITED_GUEST, 40),
                 new NavigationContribution(

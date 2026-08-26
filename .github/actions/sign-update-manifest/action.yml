@@ -1,0 +1,91 @@
+name: Sign update manifest
+description: Build the trusted signature tool and sign the generated update manifest
+
+inputs:
+  trusted_base_sha:
+    description: Previously trusted commit containing the signature tool source
+    required: true
+  update_signing_private_key_pem_base64:
+    description: Base64-encoded update manifest signing key
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout trusted update signature tool source
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        ref: ${{ inputs.trusted_base_sha }}
+        path: trusted-update-signature-tool-source
+        fetch-depth: 1
+        persist-credentials: false
+
+    - name: Set up JDK 17 for update signing
+      uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+      with:
+        java-version: '17'
+        distribution: temurin
+
+    - name: Build trusted update signature tool
+      shell: bash
+      working-directory: trusted-update-signature-tool-source
+      env:
+        TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
+      run: |
+        set -euo pipefail
+        if ! [[ "$TRUSTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$TRUSTED_BASE_SHA" = "$GITHUB_SHA" ]; then
+          echo "Invalid trusted update signature tool source: $TRUSTED_BASE_SHA" >&2
+          exit 1
+        fi
+        test "$(git rev-parse HEAD)" = "$TRUSTED_BASE_SHA"
+        test -z "$(git status --porcelain --untracked-files=all)"
+        mvn -B -ntp -pl pixivdownload-plugin-signature -am package -DskipTests -Dexec.skip=true
+        tools=(pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar)
+        filtered=()
+        for tool in "${tools[@]}"; do
+          case "$tool" in
+            *-sources.jar|*-javadoc.jar) ;;
+            *) filtered+=("$tool") ;;
+          esac
+        done
+        if [ "${#filtered[@]}" -ne 1 ] || [ ! -s "${filtered[0]}" ]; then
+          echo "Expected exactly one trusted update signature tool." >&2
+          exit 1
+        fi
+        destination="$RUNNER_TEMP/pixivdownloader-trusted-update-signature-tool.jar"
+        cp "${filtered[0]}" "$destination"
+        sha256="$(sha256sum "$destination" | awk '{print $1}')"
+        echo "TRUSTED_UPDATE_SIGNATURE_TOOL=$destination" >> "$GITHUB_ENV"
+        echo "TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256=$sha256" >> "$GITHUB_ENV"
+
+    - name: Sign update manifest
+      shell: pwsh
+      env:
+        UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ inputs.update_signing_private_key_pem_base64 }}
+      run: |
+        $privateKeyFile = Join-Path $env:RUNNER_TEMP "pixivdownloader-update-signing-key.pem"
+        try {
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
+            throw "Missing release Environment secret UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64."
+          }
+          [System.IO.File]::WriteAllBytes($privateKeyFile,
+            [System.Convert]::FromBase64String(($env:UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')))
+          & chmod 600 -- $privateKeyFile
+          if ($LASTEXITCODE -ne 0) { throw "Failed to restrict update signing private key permissions." }
+          if ([string]::IsNullOrWhiteSpace($env:TRUSTED_UPDATE_SIGNATURE_TOOL) -or
+              [string]::IsNullOrWhiteSpace($env:TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256) -or
+              -not (Test-Path -LiteralPath $env:TRUSTED_UPDATE_SIGNATURE_TOOL -PathType Leaf)) {
+            throw "Trusted update signature tool is unavailable."
+          }
+          $toolSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:TRUSTED_UPDATE_SIGNATURE_TOOL).Hash.ToLowerInvariant()
+          if ($toolSha256 -ne $env:TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256) {
+            throw "Trusted update signature tool checksum mismatch."
+          }
+          & java -cp $env:TRUSTED_UPDATE_SIGNATURE_TOOL top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
+            manifest --manifest artifacts/update.json --repository-id pixivdownloader-update `
+            --key-id pixivdownloader-update-root-2026-08 `
+            --private-key $privateKeyFile --out artifacts/update.json.sig
+          if ($LASTEXITCODE -ne 0) { throw "Update manifest signing failed." }
+        } finally {
+          Remove-Item -LiteralPath $privateKeyFile -Force -ErrorAction SilentlyContinue
+        }

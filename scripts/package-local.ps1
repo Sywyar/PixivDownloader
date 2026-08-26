@@ -25,6 +25,9 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 # Shared official-plugin list + plugin-jar / checksum primitives (one source of distribution truth,
 # also used by scripts/assemble-plugin-distribution.ps1).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+. (Join-Path $PSScriptRoot "ffmpeg-release-integrity.ps1")
+. (Join-Path $PSScriptRoot "package-local-plugin-staging.ps1")
+. (Join-Path $PSScriptRoot "package-local-installer-catalog.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildRoot = Join-Path $ProjectRoot "build"
@@ -48,7 +51,8 @@ $AppName = "PixivDownload"
 $AppVendor = "sywyar"
 $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
-$FfmpegZipUrl = "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-windows-x64.zip"
+$FfmpegReleaseBaseUrl = "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/"
+$FfmpegAssetName = "ffmpeg-windows-x64.zip"
 $OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
 $InstallerSdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot
 $EnableInstallerPluginSelection = $false
@@ -189,392 +193,6 @@ function Resolve-PrebuiltJar {
     return $item.FullName
 }
 
-function Resolve-PrebuiltPluginsDir {
-    param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ""
-    }
-    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-        throw "PrebuiltPluginsDir not found or not a directory: $Path"
-    }
-    return (Resolve-Path -LiteralPath $Path).Path
-}
-
-function Stage-OfficialPlugins {
-    # Stage the requested official external plugin artifacts into <AppDir>\plugins.
-    # Each artifact is shape-checked and copied under a STABLE, version-less name (<module>.<ext>): an in-place
-    # installer upgrade then overwrites only that exact path (the existing [Files] ignoreversion flag)
-    # and never leaves a stale duplicate, while third-party plugin artifacts under plugins/ - any other name -
-    # are not in the installer file list and are therefore preserved across upgrade. The plugin's own
-    # plugin.version (read from plugin.properties) is recorded in plugins-manifest.json.
-    param(
-        [Parameter(Mandatory = $true)][string]$AppDir,
-        [Parameter(Mandatory = $true)]$Plugins,
-        [string]$PrebuiltPluginsDir,
-        [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [string]$OfficialKeyId,
-        [string]$PrivateKeyFile,
-        [string]$SignatureToolJar,
-        [switch]$AllowUnsignedLocalPlugins
-    )
-    $pluginsDir = Join-Path $AppDir "plugins"
-    Ensure-Directory $pluginsDir
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    $manifest = @()
-    $sumLines = @()
-    $requiredPluginIds = @(Get-OfficialRequiredPlugins | ForEach-Object { $_.Id })
-    foreach ($plugin in $Plugins) {
-        $extension = Get-OfficialPluginArtifactExtension $plugin
-        if ($PrebuiltPluginsDir) {
-            $candidate = Get-ChildItem (Join-Path $PrebuiltPluginsDir "$($plugin.Module)-*.$extension") -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
-            if (-not $candidate) {
-                throw "Prebuilt plugin artifact for module $($plugin.Module) not found under $PrebuiltPluginsDir."
-            }
-            $sourceArtifact = $candidate.FullName
-        } else {
-            $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
-        }
-        $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
-        $stableName = "$($plugin.Module).$extension"
-        $targetArtifact = Join-Path $pluginsDir $stableName
-        Copy-Item $sourceArtifact $targetArtifact -Force
-        $sha = Get-Sha256Hex $targetArtifact
-        [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $stableName`n", $utf8NoBom)
-        $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
-        if ($AllowUnsignedLocalPlugins) {
-            foreach ($signatureSidecar in @("$targetArtifact.sig", "$targetArtifact.sig.json")) {
-                Remove-Item -LiteralPath $signatureSidecar -Force -ErrorAction SilentlyContinue
-            }
-            $signature = $null
-            $provenanceSource = "LOCAL_UPLOAD"
-            $verificationStatus = "UNSIGNED_ALLOWED"
-            [void](Write-UnsignedLocalPluginProvenanceSidecar $targetArtifact $verifiedAt)
-        } else {
-            if ([string]::IsNullOrWhiteSpace($SignatureToolJar)) {
-                throw "SignatureToolJar is required unless -AllowUnsignedLocalPlugins is used."
-            }
-            $sourceSignaturePath = Find-PluginArtifactSignatureSidecar $sourceArtifact
-            $signature = Get-PluginArtifactSignatureForDistribution `
-                -ToolJar $SignatureToolJar `
-                -ArtifactPath $targetArtifact `
-                -PluginId $plugin.Id `
-                -Version $descriptor["plugin.version"] `
-                -ExistingSignaturePath $sourceSignaturePath `
-                -OfficialKeyId $OfficialKeyId `
-                -PrivateKeyFile $PrivateKeyFile `
-                -OutputPath "$targetArtifact.sig"
-            $provenanceSource = "MARKET_CATALOG"
-            $verificationStatus = "VERIFIED"
-            [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
-                $sha $signature $verifiedAt)
-        }
-        $manifest += [ordered]@{
-            id       = $plugin.Id
-            version  = $descriptor["plugin.version"]
-            requires = $descriptor["plugin.requires"]
-            required = ($requiredPluginIds -contains $plugin.Id)
-            file     = $stableName
-            sha256   = $sha
-            source   = $provenanceSource
-            verification = $verificationStatus
-            signature = $signature
-        }
-        $sumLines += "$sha  $stableName"
-        Write-Host ("    OK: staged {0} (id {1}, sha256 {2}, verification {3})." -f `
-            $stableName, $plugin.Id, $sha, $verificationStatus) -ForegroundColor Green
-    }
-    # Checksums + manifest live alongside the jars inside plugins/ (paths relative to plugins/).
-    [System.IO.File]::WriteAllText((Join-Path $pluginsDir "SHA256SUMS"), (($sumLines -join "`n") + "`n"), $utf8NoBom)
-    $manifestJson = ConvertTo-Json @($manifest) -Depth 5
-    [System.IO.File]::WriteAllText((Join-Path $pluginsDir "plugins-manifest.json"), $manifestJson + "`n", $utf8NoBom)
-    if ($AllowUnsignedLocalPlugins) {
-        $warning = @(
-            "LOCAL TEST BUILD ONLY",
-            "Plugins in this directory are accepted as unsigned local uploads.",
-            "Do not distribute this installer or app image."
-        ) -join "`n"
-        [System.IO.File]::WriteAllText((Join-Path $pluginsDir "LOCAL-UNSIGNED-BUILD.txt"), $warning + "`n", $utf8NoBom)
-    }
-    return $manifest.Count
-}
-
-function ConvertTo-RawPluginCatalogUrl {
-    param([Parameter(Mandatory = $true)][string]$Url)
-    $trimmed = $Url.Trim()
-    if ($trimmed -match "^https://github\.com/([^/?#]+)/([^/?#]+)/blob/([^/?#]+)/(.+\.json)(?:[?#].*)?$") {
-        return "https://raw.githubusercontent.com/$($Matches[1])/$($Matches[2])/$($Matches[3])/$($Matches[4])"
-    }
-    return $trimmed
-}
-
-function Get-PluginCatalogSignatureUrl {
-    param([Parameter(Mandatory = $true)][string]$Url)
-    $raw = ConvertTo-RawPluginCatalogUrl $Url
-    $queryIndex = $raw.IndexOf("?")
-    if ($queryIndex -ge 0) {
-        return $raw.Substring(0, $queryIndex) + ".sig" + $raw.Substring($queryIndex)
-    }
-    return "$raw.sig"
-}
-
-function Assert-InstallerPluginCatalogSignature {
-    param(
-        [Parameter(Mandatory = $true)][string]$SignatureToolJar,
-        [Parameter(Mandatory = $true)][string]$ManifestPath,
-        [Parameter(Mandatory = $true)][string]$SignaturePath
-    )
-    Invoke-PluginSignatureTool $SignatureToolJar @(
-        "verify-manifest",
-        "--manifest", $ManifestPath,
-        "--signature", $SignaturePath,
-        "--repository-id", "official",
-        "--policy", "official"
-    )
-}
-
-function Get-InstallerCatalogProp {
-    param(
-        $Object,
-        [Parameter(Mandatory = $true)][string]$Name
-    )
-    if ($null -eq $Object) { return $null }
-    $prop = $Object.PSObject.Properties[$Name]
-    if ($null -eq $prop) { return $null }
-    return $prop.Value
-}
-
-function Get-InstallerCatalogTextValue {
-    param(
-        $Map,
-        [AllowEmptyString()][string]$Fallback,
-        [Parameter(Mandatory = $true)][string]$Language
-    )
-    if ($null -eq $Map) { return $Fallback }
-    $base = $Language.Split("-")[0]
-    foreach ($key in @($Language, $base, "zh", "en")) {
-        $value = Get-InstallerCatalogProp $Map $key
-        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
-            return [string]$value
-        }
-    }
-    foreach ($prop in $Map.PSObject.Properties) {
-        if (-not [string]::IsNullOrWhiteSpace([string]$prop.Value)) {
-            return [string]$prop.Value
-        }
-    }
-    return $Fallback
-}
-
-function Escape-InstallerCatalogField {
-    param([string]$Value)
-    if ($null -eq $Value) { return "" }
-    return $Value.Replace("%", "%25").Replace("|", "%7C").Replace("`r", " ").Replace("`n", " ")
-}
-
-function Parse-InstallerCatalogVersionPair {
-    param([string]$Version)
-    if ([string]::IsNullOrWhiteSpace($Version)) { return @(0, 0) }
-    $parts = $Version.Split(".")
-    $major = 0
-    $minor = 0
-    if ($parts.Length -ge 1) { [void][int]::TryParse($parts[0], [ref]$major) }
-    if ($parts.Length -ge 2) { [void][int]::TryParse($parts[1], [ref]$minor) }
-    return @($major, $minor)
-}
-
-function Test-InstallerCatalogCompatible {
-    param(
-        [string]$Required,
-        [Parameter(Mandatory = $true)][string]$SdkVersion
-    )
-    if ([string]::IsNullOrWhiteSpace($Required)) { return $true }
-    $core = Parse-InstallerCatalogVersionPair $SdkVersion
-    $requiredPair = Parse-InstallerCatalogVersionPair $Required
-    return ($core[0] -eq $requiredPair[0]) -and ($core[1] -ge $requiredPair[1])
-}
-
-function Get-InstallerCatalogRequiredSdk {
-    param($Package)
-    $required = [string](Get-InstallerCatalogProp $Package "requiredSdk")
-    if ([string]::IsNullOrWhiteSpace($required)) {
-        $required = [string](Get-InstallerCatalogProp $Package "requiredCoreApi")
-    }
-    return $required
-}
-
-function Select-InstallerCatalogPackage {
-    param($Entry)
-    $packages = @(Get-InstallerCatalogProp $Entry "packages")
-    if ($packages.Count -eq 0) { return $null }
-    $market = Get-InstallerCatalogProp $Entry "market"
-    $latest = Get-InstallerCatalogProp $market "latestVersion"
-    if (-not [string]::IsNullOrWhiteSpace([string]$latest)) {
-        foreach ($pkg in $packages) {
-            if ((Get-InstallerCatalogProp $pkg "version") -eq $latest) {
-                return $pkg
-            }
-        }
-    }
-    return $packages[0]
-}
-
-function Test-InstallerCatalogInstallablePackage {
-    param(
-        $Package,
-        [Parameter(Mandatory = $true)][string]$SdkVersion
-    )
-    if ($null -eq $Package) { return $false }
-    if ([string]::IsNullOrWhiteSpace([string](Get-InstallerCatalogProp $Package "version"))) { return $false }
-    if ([string]::IsNullOrWhiteSpace([string](Get-InstallerCatalogProp $Package "packageUrl"))) { return $false }
-    if ([string]::IsNullOrWhiteSpace([string](Get-InstallerCatalogProp $Package "sha256"))) { return $false }
-    $size = [int64](Get-InstallerCatalogProp $Package "expectedSizeBytes")
-    if ($size -le 0) { return $false }
-    if ($null -eq (Get-InstallerCatalogProp $Package "signature")) { return $false }
-    return Test-InstallerCatalogCompatible (Get-InstallerCatalogRequiredSdk $Package) $SdkVersion
-}
-
-function New-InstallerCatalogProjectionRows {
-    param(
-        [Parameter(Mandatory = $true)][string]$ManifestPath,
-        [Parameter(Mandatory = $true)][string]$Language,
-        [Parameter(Mandatory = $true)][string]$SdkVersion
-    )
-    $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $rows = New-Object System.Collections.Generic.List[object]
-    foreach ($entry in @(Get-InstallerCatalogProp $manifest "entries")) {
-        $pluginId = [string](Get-InstallerCatalogProp $entry "pluginId")
-        if ([string]::IsNullOrWhiteSpace($pluginId)) { continue }
-        $market = Get-InstallerCatalogProp $entry "market"
-        if ([bool](Get-InstallerCatalogProp $market "officialRequired")) { continue }
-        if ([bool](Get-InstallerCatalogProp $market "defaultInstalled")) { continue }
-        $pkg = Select-InstallerCatalogPackage $entry
-        if (-not (Test-InstallerCatalogInstallablePackage $pkg $SdkVersion)) { continue }
-        $rows.Add([pscustomobject]@{
-            PluginId = $pluginId
-            Version = [string](Get-InstallerCatalogProp $pkg "version")
-            DisplayName = Get-InstallerCatalogTextValue (Get-InstallerCatalogProp $market "displayName") $pluginId $Language
-            Summary = Get-InstallerCatalogTextValue (Get-InstallerCatalogProp $market "summary") "" $Language
-            Size = [string](Get-InstallerCatalogProp $pkg "expectedSizeBytes")
-            Category = [string](Get-InstallerCatalogProp $market "category")
-        })
-    }
-    return $rows.ToArray()
-}
-
-function Write-InstallerPluginCatalogProjection {
-    param(
-        [Parameter(Mandatory = $true)][string]$ManifestPath,
-        [Parameter(Mandatory = $true)][string]$OutputPath,
-        [Parameter(Mandatory = $true)][string]$Language,
-        [Parameter(Mandatory = $true)][string]$SdkVersion
-    )
-    $projectionUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("CATALOG|PACKAGED|installer-plugin-catalog.json")
-    foreach ($row in @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
-                -Language $Language -SdkVersion $SdkVersion)) {
-        $line = "ITEM|{0}|{1}|{2}|{3}|{4}|{5}" -f `
-            (Escape-InstallerCatalogField $row.PluginId), (Escape-InstallerCatalogField $row.Version), `
-            (Escape-InstallerCatalogField $row.DisplayName), (Escape-InstallerCatalogField $row.Summary), `
-            (Escape-InstallerCatalogField $row.Size), (Escape-InstallerCatalogField $row.Category)
-        $lines.Add($line)
-    }
-    [System.IO.File]::WriteAllText($OutputPath, (($lines -join "`n") + "`n"), $projectionUtf8NoBom)
-}
-
-function Escape-InstallerCatalogIssString {
-    param([AllowNull()][string]$Value)
-    if ($null -eq $Value) { return "''" }
-    $escaped = $Value.Replace("'", "''").Replace("`r", " ").Replace("`n", " ")
-    return "'$escaped'"
-}
-
-function Add-InstallerCatalogIncludeRows {
-    param(
-        [Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$Lines,
-        $Rows
-    )
-    foreach ($row in @($Rows)) {
-        $Lines.Add(("    AddPluginCatalogItem({0}, {1}, {2}, {3});" -f `
-                    (Escape-InstallerCatalogIssString $row.PluginId), `
-                    (Escape-InstallerCatalogIssString $row.Version), `
-                    (Escape-InstallerCatalogIssString $row.DisplayName), `
-                    (Escape-InstallerCatalogIssString $row.Summary)))
-    }
-}
-
-function Write-InstallerPluginCatalogInclude {
-    param(
-        [Parameter(Mandatory = $true)][string]$ManifestPath,
-        [Parameter(Mandatory = $true)][string]$OutputPath,
-        [Parameter(Mandatory = $true)][string]$SdkVersion
-    )
-    $projectionUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    $enRows = @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
-            -Language "en" -SdkVersion $SdkVersion)
-    $zhRows = @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
-            -Language "zh-CN" -SdkVersion $SdkVersion)
-    $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("// Generated by scripts/package-local.ps1. Do not edit.")
-    $lines.Add("procedure LoadCompiledInstallerPluginCatalogItems;")
-    $lines.Add("begin")
-    $lines.Add("  if ActiveLanguage = 'zhcn' then")
-    $lines.Add("  begin")
-    Add-InstallerCatalogIncludeRows -Lines $lines -Rows $zhRows
-    $lines.Add("  end")
-    $lines.Add("  else")
-    $lines.Add("  begin")
-    Add-InstallerCatalogIncludeRows -Lines $lines -Rows $enRows
-    $lines.Add("  end;")
-    $lines.Add("end;")
-    [System.IO.File]::WriteAllText($OutputPath, (($lines -join "`n") + "`n"), $projectionUtf8NoBom)
-}
-
-function Stage-InstallerPluginCatalogSnapshot {
-    param(
-        [Parameter(Mandatory = $true)][string]$AppDir,
-        [Parameter(Mandatory = $true)][string]$SignatureToolJar
-    )
-    $catalogDir = Join-Path $AppDir $InstallerCatalogDirName
-    Ensure-Directory $catalogDir
-    $manifestTarget = Join-Path $catalogDir "manifest.json"
-    $signatureTarget = Join-Path $catalogDir "manifest.json.sig"
-    $projectionEnTarget = Join-Path $catalogDir "catalog.en.txt"
-    $projectionZhTarget = Join-Path $catalogDir "catalog.zh-CN.txt"
-
-    $downloadDir = Join-Path $BuildRoot "installer-catalog-download"
-    Remove-PathIfExists $downloadDir
-    Ensure-Directory $downloadDir
-    $manifestTemp = Join-Path $downloadDir "manifest.json"
-    $signatureTemp = Join-Path $downloadDir "manifest.json.sig"
-    $manifestUrl = ConvertTo-RawPluginCatalogUrl $OfficialPluginCatalogUrl
-    $signatureUrl = Get-PluginCatalogSignatureUrl $OfficialPluginCatalogUrl
-
-    Write-Host ("    Fetching signed installer plugin catalog: {0}" -f $OfficialPluginCatalogUrl)
-    Invoke-WebRequest -Uri $manifestUrl -OutFile $manifestTemp -UseBasicParsing -TimeoutSec 30
-    Invoke-WebRequest -Uri $signatureUrl -OutFile $signatureTemp -UseBasicParsing -TimeoutSec 30
-    Assert-InstallerPluginCatalogSignature -SignatureToolJar $SignatureToolJar `
-        -ManifestPath $manifestTemp -SignaturePath $signatureTemp
-
-    $parsed = Get-Content -LiteralPath $manifestTemp -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($null -eq $parsed -or $null -eq $parsed.entries) {
-        throw "Installer plugin catalog manifest does not contain an entries array."
-    }
-
-    Copy-Item $manifestTemp $manifestTarget -Force
-    Copy-Item $signatureTemp $signatureTarget -Force
-    Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionEnTarget `
-        -Language "en" -SdkVersion $InstallerSdkVersion
-    Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionZhTarget `
-        -Language "zh-CN" -SdkVersion $InstallerSdkVersion
-    Write-InstallerPluginCatalogInclude -ManifestPath $manifestTemp -OutputPath $InstallerCatalogIncludePath `
-        -SdkVersion $InstallerSdkVersion
-    Write-Host ("    OK: signed installer plugin catalog staged under {0}." -f $InstallerCatalogDirName) -ForegroundColor Green
-}
-
 function Get-InstallerVersion {
     param([string]$VersionText)
 
@@ -587,26 +205,59 @@ function Get-InstallerVersion {
 }
 
 function Ensure-FfmpegPayload {
-    $hasPayload = (Test-Path $FfmpegExe) -and (Test-Path $FfprobeExe)
-    foreach ($licenseName in $FfmpegLicenseFiles) {
-        $hasPayload = $hasPayload -and (Test-Path (Join-Path $FfmpegLicenseDir $licenseName))
-    }
-
-    if ($hasPayload -and -not $RedownloadFfmpeg) {
-        Write-Step "Reusing existing FFmpeg payload from build/ffmpeg"
-        return
-    }
-
     Assert-Command "curl.exe"
 
-    Write-Step "Downloading FFmpeg payload"
     Ensure-Directory $FfmpegDir
+    $zipPath = Join-Path $FfmpegDir "ffmpeg.zip"
+    $manifestPath = Join-Path $FfmpegDir "ffmpeg-release.json"
+    $signaturePath = "$manifestPath.sig"
+    $expectedAsset = $null
+
+    if (-not $RedownloadFfmpeg -and
+        (Test-Path -LiteralPath $zipPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $manifestPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $signaturePath -PathType Leaf)) {
+        try {
+            $expectedAsset = Get-VerifiedFfmpegReleaseAsset `
+                -ManifestPath $manifestPath `
+                -SignaturePath $signaturePath `
+                -AssetName $FfmpegAssetName `
+                -SignatureToolJar $SignatureToolJar
+            Assert-FfmpegReleaseAsset -ArchivePath $zipPath -ExpectedAsset $expectedAsset
+            Write-Step "Reusing verified FFmpeg release archive from build/ffmpeg"
+        } catch {
+            Write-Host "Cached FFmpeg archive is not trusted; downloading the signed release again." -ForegroundColor Yellow
+            $expectedAsset = $null
+        }
+    }
+
+    if (-not $expectedAsset) {
+        Write-Step "Downloading and verifying FFmpeg payload"
+        $downloadManifest = "$manifestPath.download"
+        $downloadSignature = "$signaturePath.download"
+        $downloadZip = "$zipPath.download"
+        foreach ($path in @($downloadManifest, $downloadSignature, $downloadZip)) {
+            Remove-PathIfExists $path
+        }
+        Invoke-External "curl.exe" @("--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "-fL",
+            "${FfmpegReleaseBaseUrl}ffmpeg-release.json", "-o", $downloadManifest)
+        Invoke-External "curl.exe" @("--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "-fL",
+            "${FfmpegReleaseBaseUrl}ffmpeg-release.json.sig", "-o", $downloadSignature)
+        $expectedAsset = Get-VerifiedFfmpegReleaseAsset `
+            -ManifestPath $downloadManifest `
+            -SignaturePath $downloadSignature `
+            -AssetName $FfmpegAssetName `
+            -SignatureToolJar $SignatureToolJar
+        Invoke-External "curl.exe" @("--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "-fL",
+            "$FfmpegReleaseBaseUrl$FfmpegAssetName", "-o", $downloadZip)
+        Assert-FfmpegReleaseAsset -ArchivePath $downloadZip -ExpectedAsset $expectedAsset
+        Move-Item -LiteralPath $downloadManifest -Destination $manifestPath -Force
+        Move-Item -LiteralPath $downloadSignature -Destination $signaturePath -Force
+        Move-Item -LiteralPath $downloadZip -Destination $zipPath -Force
+    }
+
     Remove-PathIfExists $FfmpegUnpackDir
     Ensure-Directory $FfmpegUnpackDir
-
-    $zipPath = Join-Path $FfmpegDir "ffmpeg.zip"
-    Invoke-External "curl.exe" @("-fL", $FfmpegZipUrl, "-o", $zipPath)
-
     Expand-Archive -Path $zipPath -DestinationPath $FfmpegUnpackDir -Force
 
     $payloadRoot = Get-ChildItem $FfmpegUnpackDir -Directory |
@@ -617,15 +268,24 @@ function Ensure-FfmpegPayload {
         throw "Could not locate unpacked FFmpeg payload."
     }
 
-    Copy-Item (Join-Path $payloadRoot.FullName "bin\ffmpeg.exe") $FfmpegExe -Force
-    Copy-Item (Join-Path $payloadRoot.FullName "bin\ffprobe.exe") $FfprobeExe -Force
-    Remove-PathIfExists $FfmpegLicenseDir
-    Copy-Item (Join-Path $payloadRoot.FullName "licenses") $FfmpegDir -Recurse -Force
+    $sourceFfmpeg = Join-Path $payloadRoot.FullName "bin\ffmpeg.exe"
+    $sourceFfprobe = Join-Path $payloadRoot.FullName "bin\ffprobe.exe"
+    $sourceLicenseDir = Join-Path $payloadRoot.FullName "licenses"
+    foreach ($requiredPath in @($sourceFfmpeg, $sourceFfprobe)) {
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+            throw "FFmpeg payload is missing required file: $requiredPath"
+        }
+    }
     foreach ($licenseName in $FfmpegLicenseFiles) {
-        if (-not (Test-Path (Join-Path $FfmpegLicenseDir $licenseName) -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $sourceLicenseDir $licenseName) -PathType Leaf)) {
             throw "FFmpeg payload is missing required license file: $licenseName"
         }
     }
+
+    Copy-Item $sourceFfmpeg $FfmpegExe -Force
+    Copy-Item $sourceFfprobe $FfprobeExe -Force
+    Remove-PathIfExists $FfmpegLicenseDir
+    Copy-Item $sourceLicenseDir $FfmpegDir -Recurse -Force
 }
 
 if ($AllowUnsignedLocalPlugins) {
@@ -636,9 +296,8 @@ if ($AllowUnsignedLocalPlugins) {
         throw "AllowUnsignedLocalPlugins only accepts plugin artifacts built from the current source tree; PrebuiltPluginsDir is not allowed."
     }
     if (-not [string]::IsNullOrWhiteSpace($OfficialKeyId) -or
-        -not [string]::IsNullOrWhiteSpace($PrivateKeyFile) -or
-        -not [string]::IsNullOrWhiteSpace($SignatureToolJar)) {
-        throw "AllowUnsignedLocalPlugins cannot be combined with OfficialKeyId, PrivateKeyFile, or SignatureToolJar."
+        -not [string]::IsNullOrWhiteSpace($PrivateKeyFile)) {
+        throw "AllowUnsignedLocalPlugins cannot be combined with OfficialKeyId or PrivateKeyFile."
     }
     if (-not $SkipPortable -or -not $SkipOfflinePortable) {
         throw "AllowUnsignedLocalPlugins requires SkipPortable and SkipOfflinePortable so no unsigned portable archive is produced."
@@ -658,9 +317,6 @@ try {
     $resolvedPrebuiltPluginsDir = ""
     if (-not $SkipPlugins) {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
-        if (-not $AllowUnsignedLocalPlugins) {
-            $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
-        }
     }
     $mavenCmd = $null
     if (-not $PrebuiltJar) {
@@ -733,6 +389,11 @@ try {
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
 
+    if ((-not $SkipPlugins -and -not $AllowUnsignedLocalPlugins) -or
+        -not $SkipOfflinePortable -or -not $SkipInstaller) {
+        $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
+    }
+
     # Stage all default-installed external plugins into the online app-image before packaging. They remain
     # separate PF4J artifacts; only Douyin is left for on-demand installation / the full-offline image.
     if (-not $SkipPlugins) {
@@ -746,7 +407,14 @@ try {
 
         if ($EnableInstallerPluginSelection) {
             Write-Step "Staging signed installer plugin catalog snapshot"
-            Stage-InstallerPluginCatalogSnapshot -AppDir $OnlineAppDir -SignatureToolJar $SignatureToolJar
+            Stage-InstallerPluginCatalogSnapshot `
+                -AppDir $OnlineAppDir `
+                -SignatureToolJar $SignatureToolJar `
+                -CatalogUrl $OfficialPluginCatalogUrl `
+                -SdkVersion $InstallerSdkVersion `
+                -BuildRoot $BuildRoot `
+                -CatalogDirName $InstallerCatalogDirName `
+                -CatalogIncludePath $InstallerCatalogIncludePath
         } else {
             Write-Step "Skipping installer plugin selection (temporarily disabled; implementation retained)"
         }

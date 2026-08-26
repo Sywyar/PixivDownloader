@@ -12,7 +12,7 @@ import java.util.Optional;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationException;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.download.DownloadExtensionRegistry;
 
 /**
  * 跨类型队列宿主操作注册中心（核心 owned）。收集各方贡献的 {@link QueueOperations} Bean

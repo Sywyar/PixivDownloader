@@ -413,8 +413,12 @@ public class PixivDatabase {
         return pixivMapper.existsTagsForArtwork(artworkId) != null;
     }
 
-    public void incrementStats(int imageCount) {
-        pixivMapper.incrementStats(imageCount);
+    public void recordCompletedDownload(int imageCount, String date) {
+        pixivMapper.recordCompletedDownload(imageCount, date);
+    }
+
+    public void recordFailedDownload(String date) {
+        pixivMapper.recordFailedDownload(date);
     }
 
     public void incrementMoved() {
@@ -422,8 +426,12 @@ public class PixivDatabase {
     }
 
     public int[] getStats() {
-        StatisticsData data = pixivMapper.getStats();
+        StatisticsData data = getStatisticsData();
         return new int[]{data.totalArtworks(), data.totalImages(), data.totalMoved()};
+    }
+
+    public StatisticsData getStatisticsData() {
+        return pixivMapper.getStats();
     }
 
     public void setStats(int totalArtworks, int totalImages, int totalMoved) {

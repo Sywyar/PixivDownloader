@@ -134,6 +134,7 @@ public final class DefaultConfigTemplate {
 
         appendSection(config, messages, "config.template.section.language");
         appendSetting(config, messages, "app.language:", "config.template.app.language.comment");
+        appendSetting(config, messages, "app.gui-provider: \"\"", "config.template.app.gui-provider.comment");
         appendSetting(config, messages, "app.theme: system", "config.template.app.theme.comment");
         appendSetting(config, messages, "app.config-menu-expand-all: false",
                 "config.template.app.config-menu-expand-all.comment");

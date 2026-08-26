@@ -3,8 +3,16 @@ package top.sywyar.pixivdownload.stats;
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.stats.StatsAggregates;
 import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,10 +25,11 @@ import java.util.List;
  */
 @PluginManagedBean
 @RequiredArgsConstructor
-public class StatsService {
+public class StatsService implements DesktopDashboardSource {
 
     private final StatsQueryStore statsQueryStore;
 
+    private static final String DASHBOARD_NAMESPACE = "stats";
     private static final int DEFAULT_TOP_AUTHORS = 15;
     private static final int DEFAULT_TOP_TAGS = 50;
     private static final int MAX_TOP = 200;
@@ -33,6 +42,29 @@ public class StatsService {
                 toAuthorStats(statsQueryStore.topAuthors(authorLimit)),
                 toTagStats(statsQueryStore.topTags(tagLimit)),
                 toMonthlyStats(statsQueryStore.monthlyArtworkCounts()));
+    }
+
+    /**
+     * 发布现有统计总览能够直接证明的插画总数，不为桌面卡片新增查询或推断口径。
+     *
+     * @return stats owner 的桌面首页只读快照
+     */
+    @Override
+    public DesktopDashboardSnapshot snapshot() {
+        StatsAggregates.Overview overview = statsQueryStore.overview();
+        Instant observedAt = Instant.now();
+        DesktopDashboardCardContribution card = new DesktopDashboardCardContribution(
+                "total-artworks",
+                40,
+                text("overview.artworks", "Total artworks"),
+                DesktopUiText.raw(Long.toString(overview.totalArtworks())),
+                text("plugin.summary",
+                        "Dashboard of download statistics such as artwork and image counts (admin only)."),
+                DesktopUiTone.INFO,
+                DesktopUiIcon.STATISTICS,
+                DesktopControlCenterAvailability.AVAILABLE,
+                observedAt);
+        return new DesktopDashboardSnapshot(List.of(card), List.of(), observedAt);
     }
 
     private StatsDto.Overview toOverview(StatsAggregates.Overview o) {
@@ -70,5 +102,9 @@ public class StatsService {
     private int clamp(int requested, int fallback) {
         if (requested <= 0) return fallback;
         return Math.min(requested, MAX_TOP);
+    }
+
+    private static DesktopUiText text(String key, String fallback) {
+        return new DesktopUiText(DASHBOARD_NAMESPACE, key, fallback, List.of());
     }
 }

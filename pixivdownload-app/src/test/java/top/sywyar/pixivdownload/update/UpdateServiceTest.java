@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
-import top.sywyar.pixivdownload.plugin.signature.OfficialPluginTrustRoots;
+import top.sywyar.pixivdownload.plugin.signature.OfficialArtifactTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -74,10 +74,10 @@ class UpdateServiceTest {
         String invalidSignature = Base64.getEncoder().encodeToString(new byte[64]);
         SignatureMetadata updateSignature = new SignatureMetadata(
                 SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519,
-                UpdateService.UPDATE_SIGNING_KEY_ID, invalidSignature);
+                OfficialArtifactTrustRoots.UPDATE_KEY_ID, invalidSignature);
         SignatureMetadata pluginSignature = new SignatureMetadata(
                 SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519,
-                OfficialPluginTrustRoots.OFFICIAL_KEY_ID, invalidSignature);
+                OfficialArtifactTrustRoots.PLUGIN_KEY_ID, invalidSignature);
 
         assertThat(UpdateService.updateManifestVerifier().verifyManifest(new ManifestVerificationRequest(
                 manifest, UpdateService.UPDATE_MANIFEST_REPOSITORY_ID,

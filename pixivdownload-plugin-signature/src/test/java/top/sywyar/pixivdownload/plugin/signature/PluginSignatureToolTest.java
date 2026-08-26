@@ -16,6 +16,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("PluginSignatureTool 发布链路签名 CLI")
 class PluginSignatureToolTest {
@@ -96,6 +97,31 @@ class PluginSignatureToolTest {
                 "--trusted-label", "CLI Test Root",
                 "--trusted-official", "false"
         });
+    }
+
+    @Test
+    @DisplayName("verify-manifest 按用途选择官方公钥")
+    void verifyManifestSelectsOfficialRootByPurpose() throws Exception {
+        Path manifest = tempDir.resolve("ffmpeg-release.json");
+        Files.writeString(manifest, "{}");
+        Path signature = tempDir.resolve("ffmpeg-release.json.sig");
+        Files.writeString(signature, "{\"formatVersion\":1,\"algorithm\":\"Ed25519\","
+                + "\"keyId\":\"" + OfficialArtifactTrustRoots.FFMPEG_KEY_ID + "\","
+                + "\"value\":\"" + Base64.getEncoder().encodeToString(new byte[64]) + "\"}");
+
+        String[] command = {
+                "verify-manifest",
+                "--manifest", manifest.toString(),
+                "--signature", signature.toString(),
+                "--repository-id", "ffmpeg-stable",
+                "--official-purpose", "ffmpeg",
+                "--policy", "official"
+        };
+        assertThatThrownBy(() -> PluginSignatureTool.main(command))
+                .hasMessageContaining("INVALID_SIGNATURE");
+        command[8] = "plugin";
+        assertThatThrownBy(() -> PluginSignatureTool.main(command))
+                .hasMessageContaining("UNKNOWN_KEY");
     }
 
     private static String pem(byte[] pkcs8) {

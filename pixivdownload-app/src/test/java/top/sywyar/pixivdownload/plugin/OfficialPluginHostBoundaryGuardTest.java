@@ -46,6 +46,7 @@ class OfficialPluginHostBoundaryGuardTest {
                     + "NovelExecutionSettings.java";
     private static final List<String> PRODUCTION_TEXT_SUFFIXES = List.of(
             ".java",
+            ".kt",
             ".properties",
             ".yml",
             ".yaml",
@@ -57,20 +58,23 @@ class OfficialPluginHostBoundaryGuardTest {
             ".md",
             ".txt");
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
-            "(?m)^[\\t ]*package\\s+([A-Za-z0-9_$.]+)\\s*;");
+            "(?m)^[\\t ]*package\\s+([A-Za-z0-9_$.]+)\\s*;?");
     private static final Pattern PROJECT_TYPE_REFERENCE = Pattern.compile(
             "(?<![\\p{Alnum}_$])top\\.sywyar\\.pixivdownload"
                     + "(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
-            "(?m)^[\\t ]*import\\s+(?:static\\s+)?([A-Za-z0-9_$.*]+)\\s*;");
+            "(?m)^[\\t ]*import\\s+(?:static\\s+)?([A-Za-z0-9_$.*]+)\\s*;?");
     private static final Pattern QUALIFIED_NAME_SEPARATOR = Pattern.compile("\\s*\\.\\s*");
     private static final Pattern TOP_LEVEL_TYPE_DECLARATION = Pattern.compile(
-            "(?<![\\p{Alnum}_$])(?:class|interface|enum|record)\\s+"
+            "(?<![\\p{Alnum}_$])(?:class|interface|enum|record|object)\\s+"
                     + "([A-Za-z_$][A-Za-z0-9_$]*)");
     private static final Pattern FEATURE_PLUGIN_FACTORY = Pattern.compile(
             "(?s)featurePlugin\\s*\\(\\s*\\)\\s*\\{\\s*return\\s+new\\s+([A-Za-z0-9_$.]+)\\s*\\(");
     private static final Pattern FEATURE_ID_RETURN = Pattern.compile(
             "(?s)String\\s+id\\s*\\(\\s*\\)\\s*\\{\\s*return\\s+(?:\"([^\"]+)\"|([A-Z][A-Z0-9_]*))\\s*;");
+    private static final Pattern KOTLIN_FEATURE_ID_RETURN = Pattern.compile(
+            "(?m)\\bfun\\s+id\\s*\\(\\s*\\)\\s*:\\s*String\\s*=\\s*"
+                    + "(?:\"([^\"]+)\"|([A-Z][A-Z0-9_]*))");
     private static final List<String> NOVEL_EXECUTION_OWNER_TOKENS = List.of(
             "download.novel-max-concurrent",
             "download.novel-translate-max-concurrent",
@@ -142,7 +146,6 @@ class OfficialPluginHostBoundaryGuardTest {
             "top.sywyar.pixivdownload.config.RuntimeFiles",
             "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
             "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
-            "top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec",
             "top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain",
             "top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException",
             "top.sywyar.pixivdownload.core.download.queue.QueueStatusRetention",
@@ -178,15 +181,16 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
-            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
+            Set<String> localTypes = ownedTypes(repositoryRoot, sourceRoot, module);
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
-                sources.filter(path -> path.toString().endsWith(".java"))
+                sources.filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                         .sorted()
                         .forEach(path -> collectConcreteRuntimeViolations(
-                                repositoryRoot, module, path, violations));
+                                repositoryRoot, module, path, localTypes, violations));
             }
         }
 
@@ -204,9 +208,6 @@ class OfficialPluginHostBoundaryGuardTest {
 
         assertThat(appTypes).as("app owned production FQN set must be non-vacuous")
                 .hasSizeGreaterThan(400);
-        assertThat(appTypes)
-                .as("同一源码文件中的 package-private 顶层类型也必须纳入 app owned 集合")
-                .contains("top.sywyar.pixivdownload.gui.panel.StatusPanelThemeOption");
         for (String module : officialPluginModules(repositoryRoot)) {
             collectAppTypeReferences(repositoryRoot, module, appTypes, violations);
         }
@@ -231,7 +232,7 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
-            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
             Set<String> localTypes = ownedTypes(repositoryRoot, sourceRoot, module);
             assertThat(localTypes)
                     .as(module + " 必须暴露非空的本地生产类型集合")
@@ -253,6 +254,10 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
+            if ("pixivdownload-plugin-gui-swing".equals(module)) {
+                // 桌面 UI 提供者负责呈现并编辑宿主 config.yaml，不拥有其中的业务配置。
+                continue;
+            }
             Path mainRoot = repositoryRoot.resolve(module).resolve("src/main");
             if (!Files.isDirectory(mainRoot)) {
                 continue;
@@ -384,13 +389,13 @@ class OfficialPluginHostBoundaryGuardTest {
                     violations.add(module + ":pom.xml -> " + dependency);
                 }
             }
-            Path sourceRoot = moduleRoot.resolve("src/main/java");
+            Path sourceRoot = moduleRoot.resolve("src/main");
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
                 for (Path source : sources
-                        .filter(path -> path.toString().endsWith(".java"))
+                        .filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                         .sorted()
                         .toList()) {
                     for (String privateType : privateHttpReferences(read(source))) {
@@ -413,13 +418,13 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
-            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
                 for (Path source : sources
-                        .filter(path -> path.toString().endsWith(".java"))
+                        .filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                         .sorted()
                         .toList()) {
                     for (String beanName : privateHostExecutorBeanReferences(read(source))) {
@@ -456,13 +461,13 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
-            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
                 for (Path source : sources
-                        .filter(path -> path.toString().endsWith(".java"))
+                        .filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                         .sorted()
                         .toList()) {
                     for (String beanName : privateHostSchedulerBeanReferences(read(source))) {
@@ -498,14 +503,14 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
-            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
             List<Path> moduleSources;
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
                 moduleSources = sources
-                        .filter(path -> path.toString().endsWith(".java"))
+                        .filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                         .sorted()
                         .toList();
             }
@@ -594,14 +599,14 @@ class OfficialPluginHostBoundaryGuardTest {
         List<String> violations = new ArrayList<>();
 
         for (String module : officialPluginModules(repositoryRoot)) {
-            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
             List<Path> moduleSources;
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
                 moduleSources = sources
-                        .filter(path -> path.toString().endsWith(".java"))
+                        .filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                         .sorted()
                         .toList();
             }
@@ -739,9 +744,8 @@ class OfficialPluginHostBoundaryGuardTest {
                 continue;
             }
 
-            Path providerSource = repositoryRoot.resolve(module).resolve("src/main/java")
-                    .resolve(providerClass.replace('.', '/') + ".java");
-            if (!Files.isRegularFile(providerSource)) {
+            Path providerSource = pluginSource(repositoryRoot, module, providerClass);
+            if (providerSource == null) {
                 violations.add(module + ": provider source not found: " + providerClass);
                 continue;
             }
@@ -760,22 +764,27 @@ class OfficialPluginHostBoundaryGuardTest {
             String featureClass = featureSimpleName.contains(".")
                     ? featureSimpleName
                     : providerClass.substring(0, lastDot + 1) + featureSimpleName;
-            Path featureSource = repositoryRoot.resolve(module).resolve("src/main/java")
-                    .resolve(featureClass.replace('.', '/') + ".java");
-            if (!Files.isRegularFile(featureSource)) {
+            Path featureSource = pluginSource(repositoryRoot, module, featureClass);
+            if (featureSource == null) {
                 violations.add(module + ": feature source not found: " + featureClass);
                 continue;
             }
             String featureCode = stripComments(read(featureSource));
             Matcher idReturn = FEATURE_ID_RETURN.matcher(featureCode);
-            if (!idReturn.find()) {
+            boolean idFound = idReturn.find();
+            if (!idFound) {
+                idReturn = KOTLIN_FEATURE_ID_RETURN.matcher(featureCode);
+                idFound = idReturn.find();
+            }
+            if (!idFound) {
                 violations.add(module + ": feature id() must return a literal or local String constant");
                 continue;
             }
             String featureId = idReturn.group(1);
             if (featureId == null) {
-                Pattern constant = Pattern.compile("(?m)\\bString\\s+" + Pattern.quote(idReturn.group(2))
-                        + "\\s*=\\s*\"([^\"]+)\"\\s*;");
+                Pattern constant = Pattern.compile("(?m)(?:\\bString\\s+|\\b(?:const\\s+)?val\\s+)"
+                        + Pattern.quote(idReturn.group(2)) + "(?:\\s*:\\s*String)?"
+                        + "\\s*=\\s*\"([^\"]+)\"\\s*;?");
                 Matcher constantMatcher = constant.matcher(featureCode);
                 if (!constantMatcher.find()) {
                     violations.add(module + ": unresolved feature id constant " + idReturn.group(2));
@@ -824,18 +833,23 @@ class OfficialPluginHostBoundaryGuardTest {
                                                  String module,
                                                  Set<String> appTypes,
                                                  List<String> violations) throws IOException {
-        Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+        Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
         if (!Files.isDirectory(sourceRoot)) {
             return;
         }
+        Set<String> localTypes = ownedTypes(repositoryRoot, sourceRoot, module);
         try (Stream<Path> sources = Files.walk(sourceRoot)) {
-            for (Path source : sources.filter(path -> path.toString().endsWith(".java")).sorted().toList()) {
+            for (Path source : sources.filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
+                    .sorted().toList()) {
                 String sourceCode = read(source);
                 String references = referenceCode(sourceCode);
                 String declarations = normalizedDeclarationCode(sourceCode);
                 String packageName = packageName(declarations);
                 Set<String> imports = importedNames(declarations);
                 for (String appType : appTypes) {
+                    if (localTypes.contains(appType)) {
+                        continue;
+                    }
                     if (referencesFullyQualifiedType(references, appType)
                             || importsType(imports, appType)
                             || samePackageSimpleReference(
@@ -852,13 +866,13 @@ class OfficialPluginHostBoundaryGuardTest {
                                                           Set<String> sharedTypes,
                                                           Set<String> localTypes,
                                                           List<String> violations) throws IOException {
-        Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+        Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
         if (!Files.isDirectory(sourceRoot)) {
             return;
         }
         try (Stream<Path> sources = Files.walk(sourceRoot)) {
             for (Path source : sources
-                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                     .sorted()
                     .toList()) {
                 String comments = commentText(read(source));
@@ -965,7 +979,7 @@ class OfficialPluginHostBoundaryGuardTest {
         Set<String> types = new LinkedHashSet<>();
         try (Stream<Path> sources = Files.walk(sourceRoot)) {
             for (Path source : sources
-                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
                     .filter(path -> !path.getFileName().toString().equals("package-info.java")
                             && !path.getFileName().toString().equals("module-info.java"))
                     .sorted()
@@ -975,8 +989,10 @@ class OfficialPluginHostBoundaryGuardTest {
                 String packageName = packageName(declarationCode);
                 Set<String> sourceTypes = topLevelTypeNames(sourceCode);
                 String primaryType = source.getFileName().toString()
-                        .replaceFirst("\\.java$", "");
-                if (packageName.isBlank() || !sourceTypes.contains(primaryType)) {
+                        .replaceFirst("\\.(?:java|kt)$", "");
+                if (packageName.isBlank()
+                        || (source.getFileName().toString().endsWith(".java")
+                            && !sourceTypes.contains(primaryType))) {
                     throw new IllegalStateException(
                             "Cannot derive primary " + owner + " type from "
                                     + repositoryRoot.relativize(source));
@@ -1149,10 +1165,13 @@ class OfficialPluginHostBoundaryGuardTest {
     private static void collectConcreteRuntimeViolations(Path repositoryRoot,
                                                          String module,
                                                          Path source,
+                                                         Set<String> localTypes,
                                                          List<String> violations) {
         String content = read(source);
         for (String forbiddenType : concreteRuntimeReferences(content)) {
-            violations.add(module + ":" + repositoryRoot.relativize(source) + " -> " + forbiddenType);
+            if (!localTypes.contains(forbiddenType)) {
+                violations.add(module + ":" + repositoryRoot.relativize(source) + " -> " + forbiddenType);
+            }
         }
     }
 
@@ -1168,6 +1187,28 @@ class OfficialPluginHostBoundaryGuardTest {
         assertThat(modules).allSatisfy(module ->
                 assertThat(repositoryRoot.resolve(module).resolve("pom.xml")).isRegularFile());
         return List.copyOf(modules);
+    }
+
+    private static Path pluginSourceRoot(Path repositoryRoot, String module) {
+        return repositoryRoot.resolve(module).resolve("src/main");
+    }
+
+    private static Path pluginSource(Path repositoryRoot, String module, String className) {
+        String relativeName = className.replace('.', '/');
+        for (String language : List.of("java", "kotlin")) {
+            String suffix = "java".equals(language) ? ".java" : ".kt";
+            Path source = pluginSourceRoot(repositoryRoot, module)
+                    .resolve(language).resolve(relativeName + suffix);
+            if (Files.isRegularFile(source)) {
+                return source;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isJvmSource(Path path) {
+        String name = path.getFileName().toString();
+        return Files.isRegularFile(path) && (name.endsWith(".java") || name.endsWith(".kt"));
     }
 
     private static boolean isProductionText(Path path) {

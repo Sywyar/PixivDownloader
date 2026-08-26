@@ -286,12 +286,26 @@ public interface PixivMapper {
 
     // ── Statistics ───────────────────────────────────────────────────────────────
 
-    @Select("SELECT total_artworks, total_images, total_moved FROM statistics WHERE id = 1")
+    @Select("SELECT total_artworks, total_images, total_moved, daily_date,"
+            + " daily_completed, daily_failed FROM statistics WHERE id = 1")
     StatisticsData getStats();
 
     @Update("UPDATE statistics SET total_artworks = total_artworks + 1,"
-            + " total_images = total_images + #{imageCount} WHERE id = 1")
-    void incrementStats(int imageCount);
+            + " total_images = total_images + #{imageCount},"
+            + " daily_completed = CASE WHEN daily_date = #{date}"
+            + " THEN COALESCE(daily_completed, 0) + 1 ELSE 1 END,"
+            + " daily_failed = CASE WHEN daily_date = #{date}"
+            + " THEN COALESCE(daily_failed, 0) ELSE 0 END,"
+            + " daily_date = #{date} WHERE id = 1")
+    void recordCompletedDownload(@Param("imageCount") int imageCount, @Param("date") String date);
+
+    @Update("UPDATE statistics SET"
+            + " daily_completed = CASE WHEN daily_date = #{date}"
+            + " THEN COALESCE(daily_completed, 0) ELSE 0 END,"
+            + " daily_failed = CASE WHEN daily_date = #{date}"
+            + " THEN COALESCE(daily_failed, 0) + 1 ELSE 1 END,"
+            + " daily_date = #{date} WHERE id = 1")
+    void recordFailedDownload(@Param("date") String date);
 
     @Update("UPDATE statistics SET total_moved = total_moved + 1 WHERE id = 1")
     void incrementMoved();

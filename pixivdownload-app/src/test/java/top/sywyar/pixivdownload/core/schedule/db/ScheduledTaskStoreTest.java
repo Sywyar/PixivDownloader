@@ -25,7 +25,7 @@ import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;

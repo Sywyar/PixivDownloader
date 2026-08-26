@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -153,6 +156,8 @@ class PluginReleaseScriptsTest {
                 "Module = \"pixivdownload-plugin-download-workbench\"",
                 "Id = \"douyin\"",
                 "Module = \"pixivdownload-plugin-douyin\"",
+                "Id = \"gui-compose\"",
+                "Module = \"pixivdownload-plugin-gui-compose\"",
                 "function Get-OfficialDistributionPlugins",
                 "Format = \"jar\"",
                 "PrivateLibs = $true",
@@ -168,6 +173,9 @@ class PluginReleaseScriptsTest {
                 "Assert-ThinPluginJar",
                 "^flatlaf-[0-9].*\\.jar$",
                 "^jna-[0-9].*\\.jar$",
+                "^ui-desktop-[0-9].*\\.jar$",
+                "^material-icons-extended-desktop-[0-9].*\\.jar$",
+                "^skiko-awt-runtime-linux-arm64-[0-9].*\\.jar$",
                 "Plugin jar is not thin - found private lib/*.jar entries");
         assertThat(common).doesNotContain("Format = \"zip\"");
         assertThat(common).doesNotContain("Assert-ExplodedPluginZip");
@@ -176,17 +184,17 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("市场清单身份字段从官方 descriptor/i18n 派生，curation 只保留市场专属字段")
     void marketIdentityMetadataIsCanonicalDescriptorDerived() throws Exception {
-        String common = script("plugin-distribution-common.ps1");
         String generator = script("generate-market-manifest.ps1");
         JsonNode curation = new ObjectMapper().readTree(repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
-        List<OfficialPlugin> officialPlugins = officialDistributionPlugins(common);
-        Set<String> officialPluginIds = officialDistributionPluginIds(common);
+        List<OfficialPlugin> officialPlugins = officialDistributionPlugins();
+        Set<String> officialPluginIds = officialPluginIds();
 
         assertThat(officialPluginIds).contains("download-workbench");
         assertThat(officialPluginIds).contains("posthog");
         assertThat(officialPluginIds).contains("multi-mode-decision-survey");
         assertThat(officialPluginIds).contains("notification");
         assertThat(officialPluginIds).contains("douyin");
+        assertThat(officialPluginIds).contains("gui-compose");
         assertThat(generator).contains(
                 "pixiv.display-namespace",
                 "pixiv.display-name-key",
@@ -265,31 +273,22 @@ class PluginReleaseScriptsTest {
         assertThat(curation.path("notification").path("category").asText()).isEqualTo("dependency");
         assertThat(curation.path("posthog").path("category").asText()).isEqualTo("dependency");
         assertThat(curation.path("douyin").path("category").asText()).isEqualTo("download-type");
+        assertThat(curation.path("gui-compose").path("category").asText()).isEqualTo("ui");
     }
 
     @Test
-    @DisplayName("默认安装集合包含除 Douyin 外的全部用户插件，optional 集合仅保留 Douyin")
+    @DisplayName("默认安装集合同时携带 Compose 与 Swing，Douyin 保持按需安装")
     void distributionSeparatesDefaultInstalledAndOnDemandPlugins() throws Exception {
-        String common = script("plugin-distribution-common.ps1");
-        Matcher defaultInstalled = Pattern.compile(
-                "function Get-OfficialDefaultInstalledPlugins(?<body>.*?)function Get-OfficialOptionalPlugins",
-                Pattern.DOTALL).matcher(common);
-        assertThat(defaultInstalled.find()).isTrue();
-        assertThat(defaultInstalled.group("body")).contains(
-                "Get-OfficialRequiredPlugins",
-                "Id = \"gui-theme\"", "Id = \"stats\"", "Id = \"posthog\"", "Id = \"duplicate\"",
-                "Id = \"gallery\"", "Id = \"novel\"", "Id = \"notification\"",
-                "Id = \"multi-mode-decision-survey\"",
-                "Id = \"push\"", "Id = \"mail\"", "Id = \"tts\"", "Id = \"ai\"")
-                .doesNotContain("Id = \"douyin\"", "Id = \"recovery-sentinel\"");
-
-        Matcher optional = Pattern.compile(
-                "function Get-OfficialOptionalPlugins(?<body>.*?)function Get-OfficialDistributionPlugins",
-                Pattern.DOTALL).matcher(common);
-        assertThat(optional.find()).isTrue();
-        assertThat(optional.group("body")).contains("Id = \"douyin\"")
-                .doesNotContain("Id = \"stats\"", "Id = \"gallery\"");
-        assertThat(common).contains("$plugins = @(Get-OfficialDefaultInstalledPlugins)");
+        assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
+                .containsExactly(
+                        "download-workbench", "gui-compose", "gui-swing", "stats", "posthog", "duplicate", "gallery",
+                        "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
+        assertThat(officialPluginIds("Get-OfficialOptionalPlugins"))
+                .containsExactly("douyin");
+        assertThat(officialPluginIds())
+                .doesNotContain("recovery-sentinel")
+                .containsAll(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
+                .containsAll(officialPluginIds("Get-OfficialOptionalPlugins"));
     }
 
     @Test
@@ -320,14 +319,47 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("Inno 主脚本通过原生 include 装配职责源码")
+    void innoSourceGraphAssemblesResponsibilityIncludes() throws Exception {
+        Path innoDir = repoRoot().resolve("packaging/windows/inno");
+        String main = Files.readString(innoDir.resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
+        List<String> includes = List.of(
+                "PixivDownload-maintenance.iss.inc",
+                "PixivDownload-plugins.iss.inc",
+                "PixivDownload-ffmpeg.iss.inc",
+                "PixivDownload-lifecycle.iss.inc");
+
+        for (String include : includes) {
+            assertThat(main).contains("#include \"" + include + "\"");
+            assertThat(innoDir.resolve(include)).isRegularFile();
+            assertThat(Files.readString(innoDir.resolve(include), StandardCharsets.UTF_8))
+                    .doesNotContain("[Code]");
+        }
+        assertThat(main.substring(main.indexOf("[Code]"))).doesNotContain("\nbegin\n");
+
+        String compilationUnit = innoScript();
+        assertThat(compilationUnit).contains(
+                "procedure ResolveExistingInstallation;",
+                "procedure LoadPackagedInstallerPluginCatalog;",
+                "procedure DownloadAndInstallFfmpeg;",
+                "procedure InitializeWizard;",
+                "procedure CurStepChanged(CurStep: TSetupStep);");
+        assertThat(compilationUnit).doesNotContain("function BuildFfmpegDownloadScript: String;");
+    }
+
+    @Test
     @DisplayName("离线分发与 Windows 打包脚本同时携带 artifact 签名和 provenance sidecar")
     void offlinePackagingScriptsCarrySignatureAndProvenanceSidecar() throws Exception {
         String common = script("plugin-distribution-common.ps1");
         String distribution = script("assemble-plugin-distribution.ps1");
         String windows = script("package-local.ps1");
+        String windowsPluginStaging = script("package-local-plugin-staging.ps1");
+        String windowsCatalog = script("package-local-installer-catalog.ps1");
         String catalogStage = script("stage-official-plugin-inputs-from-catalog.ps1");
+        String ffmpegIntegrity = script("ffmpeg-release-integrity.ps1");
         String inno = innoScript();
         String installerInstall = innoSupportScript("installer-plugin-install.ps1");
+        String ffmpegInstallerDownload = innoSupportScript("installer-ffmpeg-download.ps1");
 
         assertThat(common).contains(
                 "function Get-PixivDownloadSdkVersion",
@@ -363,15 +395,15 @@ class PluginReleaseScriptsTest {
                 .isLessThan(signedProvenance.group("body").indexOf("\"status=VERIFIED\""));
         assertThat(signedProvenance.group("body").indexOf("[string]::Equals($artifactSha256, $Sha256"))
                 .isLessThan(signedProvenance.group("body").indexOf("\"status=VERIFIED\""));
-        for (String script : List.of(distribution, windows)) {
+        for (String script : List.of(distribution, windowsPluginStaging)) {
             assertThat(script).contains(
                     "Find-PluginArtifactSignatureSidecar",
                     "Get-PluginArtifactSignatureForDistribution",
                     "Write-PluginProvenanceSidecar",
-                    "Assert-NoPrivateKeyMaterial",
                     "signature = $signature"
             );
         }
+        assertThat(windows).contains("Assert-NoPrivateKeyMaterial");
         assertThat(distribution).contains(
                 "[string]$PrebuiltPluginsDir",
                 "Find-PrebuiltPluginArtifact",
@@ -384,31 +416,36 @@ class PluginReleaseScriptsTest {
                 "$EnableInstallerPluginSelection = $false",
                 "Get-OfficialDefaultInstalledPlugins",
                 "Stage-InstallerPluginCatalogSnapshot",
-                "Write-InstallerPluginCatalogProjection",
-                "Write-InstallerPluginCatalogInclude",
-                "Escape-InstallerCatalogIssString",
                 "$InstallerCatalogIncludePath = Join-Path $BuildRoot \"installer-plugin-catalog-items.iss.inc\"",
-                "[AllowEmptyString()][string]$Fallback",
-                "\"verify-manifest\"",
-                "installer-catalog",
-                "catalog.en.txt",
-                "catalog.zh-CN.txt",
                 "installer-plugin-catalog-items.iss.inc",
-                "Get-InstallerCatalogProp $market \"defaultInstalled\"",
                 "if ($EnableInstallerPluginSelection)",
                 "[switch]$AllowUnsignedLocalPlugins",
-                "Write-UnsignedLocalPluginProvenanceSidecar",
-                "LOCAL-UNSIGNED-BUILD.txt",
                 "AllowUnsignedLocalPlugins only accepts plugin artifacts built from the current source tree",
                 "AllowUnsignedLocalPlugins requires SkipPortable and SkipOfflinePortable",
                 "AllowUnsignedLocalPlugins is only for building a local test installer",
                 "out-local-unsigned",
                 "$AppName-$Version-LOCAL-UNSIGNED-win-x64-setup.exe",
                 "Move-Item -LiteralPath $SetupPath -Destination $LocalUnsignedSetupPath -Force",
+                "ffmpeg-release-integrity.ps1",
+                "Get-VerifiedFfmpegReleaseAsset",
+                "Assert-FfmpegReleaseAsset",
                 "$installerPluginCatalogEnabled = if ((-not $SkipPlugins) -and $EnableInstallerPluginSelection) { \"1\" } else { \"0\" }",
                 "/DSdkVersion=$InstallerSdkVersion",
                 "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
                 "/DSignatureToolJar=$SignatureToolJar");
+        assertThat(windowsPluginStaging).contains(
+                "Write-UnsignedLocalPluginProvenanceSidecar",
+                "LOCAL-UNSIGNED-BUILD.txt");
+        assertThat(windowsCatalog).contains(
+                "Write-InstallerPluginCatalogProjection",
+                "Write-InstallerPluginCatalogInclude",
+                "Escape-InstallerCatalogIssString",
+                "[AllowEmptyString()][string]$Fallback",
+                "\"verify-manifest\"",
+                "installer-catalog",
+                "catalog.en.txt",
+                "catalog.zh-CN.txt",
+                "Get-InstallerCatalogProp $market \"defaultInstalled\"");
         assertThat(catalogStage).contains(
                 "$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
                 "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
@@ -430,8 +467,11 @@ class PluginReleaseScriptsTest {
                 "#ifndef SdkVersion",
                 "#error SdkVersion must be supplied from pixivdownload-sdk-info metadata.",
                 "#define InstallerPluginCatalogEnabled \"0\"",
-                "#error SignatureToolJar must be defined when InstallerPluginCatalogEnabled is 1.",
+                "#error SignatureToolJar must be defined for FFmpeg release verification.",
                 "#if InstallerPluginCatalogEnabled == \"1\"",
+                "installer-ffmpeg-download.ps1",
+                "ffmpeg-release-integrity.ps1",
+                "-SignatureToolJar ' + DoubleQuote(SignatureToolTempPath)",
                 "installer-plugin-install.ps1",
                 "IsInstallerPluginCatalogEnabled",
                 "ShouldShowOptionalPluginsPage",
@@ -450,6 +490,24 @@ class PluginReleaseScriptsTest {
                 "LoadStringsFromFile(ProgressPath, Lines)",
                 "RaiseException(DecodeCatalogField(Parts[1]))",
                 "pixivdownload-plugin-signature-tool.jar");
+        assertThat(ffmpegIntegrity).contains(
+                "verify-manifest",
+                "--repository-id", "ffmpeg-stable",
+                "--official-purpose", "ffmpeg",
+                "expectedSizeBytes",
+                "Get-FileHash -Algorithm SHA256",
+                "does not contain the exact asset name");
+        assertThat(ffmpegInstallerDownload).contains(
+                "Get-VerifiedFfmpegReleaseAsset",
+                "Assert-FfmpegReleaseAsset",
+                "Move-Item -LiteralPath $downloadPath -Destination $OutFile -Force");
+        assertThat(ffmpegInstallerDownload.indexOf("Assert-FfmpegReleaseAsset"))
+                .isLessThan(ffmpegInstallerDownload.indexOf(
+                        "Move-Item -LiteralPath $downloadPath -Destination $OutFile -Force"));
+        assertThat(windows.indexOf("Assert-FfmpegReleaseAsset -ArchivePath $downloadZip"))
+                .isLessThan(windows.indexOf("Expand-Archive -Path $zipPath"));
+        assertThat(inno.indexOf("DownloadFfmpegArchive(ArchivePath)"))
+                .isLessThan(inno.indexOf("ExtractArchive(ArchivePath, ExtractDir"));
         assertThat(inno).doesNotContain("#if Len(SignatureToolJar) > 0");
         assertThat(inno).doesNotContain("LoadStringFromFile(OutputPath");
         assertThat(inno).doesNotContain("RunPowerShellAndWait");
@@ -483,8 +541,9 @@ class PluginReleaseScriptsTest {
                 Pattern.DOTALL).matcher(inno);
         assertThat(initializeWizard.find()).isTrue();
         assertThat(initializeWizard.group("body")).doesNotContain("StartPluginCatalogTimer");
-        Matcher curPageChanged = Pattern.compile("procedure CurPageChanged\\(CurPageID: Integer\\);(?<body>.*?)function OnFfmpegDownloadProgress",
-                Pattern.DOTALL).matcher(inno);
+        Matcher curPageChanged = Pattern.compile(
+                "procedure CurPageChanged\\(CurPageID: Integer\\);(?<body>.*?)function GetProcessExeName",
+                Pattern.DOTALL).matcher(innoSupportScript("PixivDownload-lifecycle.iss.inc"));
         assertThat(curPageChanged.find()).isTrue();
         assertThat(curPageChanged.group("body")).contains("LoadPackagedInstallerPluginCatalog");
         assertThat(curPageChanged.group("body")).doesNotContain(
@@ -535,8 +594,13 @@ class PluginReleaseScriptsTest {
     @DisplayName("PowerShell provenance 脚本保持无 BOM 的纯 ASCII 字节")
     void provenancePowerShellScriptsAreAsciiWithoutBom() throws Exception {
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("plugin-distribution-common.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("ffmpeg-release-integrity.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-plugin-staging.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-installer-catalog.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
                 .resolve("installer-plugin-install.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
+                .resolve("installer-ffmpeg-download.ps1"));
     }
 
     @Test
@@ -640,6 +704,9 @@ class PluginReleaseScriptsTest {
         for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
             assertThat(workflow(name)).as(name).doesNotContain("AllowUnsignedLocalPlugins");
         }
+        for (String name : List.of("package-release-java", "package-windows-installer", "sign-update-manifest")) {
+            assertThat(action(name)).as(name).doesNotContain("AllowUnsignedLocalPlugins");
+        }
     }
 
     @Test
@@ -694,12 +761,16 @@ class PluginReleaseScriptsTest {
         Pattern usesPattern = Pattern.compile(
                 "(?m)^\\s*uses:\\s*([^\\s#]+)(?:\\s+#\\s*(\\S+))?\\s*$");
         int externalActions = 0;
-        try (var workflowFiles = Files.list(repoRoot().resolve(".github").resolve("workflows"))) {
-            for (Path file : workflowFiles
-                    .filter(path -> path.getFileName().toString().matches(".*\\.ya?ml"))
+        Path githubRoot = repoRoot().resolve(".github");
+        try (var yamlFiles = Files.walk(githubRoot)) {
+            for (Path file : yamlFiles
+                    .filter(Files::isRegularFile)
+                    .filter(path -> (path.getParent().equals(githubRoot.resolve("workflows"))
+                            && path.getFileName().toString().matches(".*\\.ya?ml"))
+                            || path.getFileName().toString().equals("action.yml"))
                     .sorted()
                     .toList()) {
-                String name = file.getFileName().toString();
+                String name = githubRoot.relativize(file).toString();
                 Matcher matcher = usesPattern.matcher(Files.readString(file, StandardCharsets.UTF_8));
                 while (matcher.find()) {
                     String target = matcher.group(1);
@@ -718,7 +789,7 @@ class PluginReleaseScriptsTest {
                 }
             }
         }
-        assertThat(externalActions).as("external actions across all workflows").isPositive();
+        assertThat(externalActions).as("external actions across workflows and composite actions").isPositive();
 
         String dependabot = Files.readString(repoRoot().resolve(".github/dependabot.yml"), StandardCharsets.UTF_8);
         assertThat(dependabot).contains(
@@ -732,7 +803,7 @@ class PluginReleaseScriptsTest {
     @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个SDK 1.0")
     void officialPluginVersionsStartAtInitialVersion() throws Exception {
         String common = script("plugin-distribution-common.ps1");
-        for (OfficialPlugin plugin : officialDistributionPlugins(common)) {
+        for (OfficialPlugin plugin : officialDistributionPlugins()) {
             assertThat(pluginDescriptor(plugin.module())).as(plugin.id())
                     .contains("plugin.version=1.0.0", "plugin.requires=1.0");
         }
@@ -760,7 +831,7 @@ class PluginReleaseScriptsTest {
         assertThat(script("stage-official-plugin-inputs-from-catalog.ps1")).contains(
                 "Get-Prop $Package \"requiredSdk\"",
                 "Get-Prop $Package \"requiredCoreApi\"");
-        assertThat(script("package-local.ps1")).contains(
+        assertThat(script("package-local-installer-catalog.ps1")).contains(
                 "Get-InstallerCatalogProp $Package \"requiredSdk\"",
                 "Get-InstallerCatalogProp $Package \"requiredCoreApi\"");
         assertThat(innoSupportScript("installer-plugin-install.ps1")).contains(
@@ -769,33 +840,159 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("release/nightly 只上传恰好一个内部 app-shell JAR，安装器消费同一 artifact")
+    @DisplayName("安装器目录投影执行公开入口并按 SDK 与安装集合过滤")
+    void installerCatalogProjectionExecutesPublicEntryPoint(@TempDir Path tempDir) throws Exception {
+        assumeTrue(canRun("powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
+                        || canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"),
+                "PowerShell 不可用，跳过行为测试");
+        Path manifest = tempDir.resolve("manifest.json");
+        Files.writeString(manifest, """
+                {
+                  "entries": [
+                    {
+                      "pluginId": "optional-sample",
+                      "market": {
+                        "officialRequired": false,
+                        "defaultInstalled": false,
+                        "latestVersion": "1.2.3",
+                        "displayName": {"en": "Optional Sample", "zh": "可选示例"},
+                        "summary": {"en": "Install on demand", "zh": "按需安装"},
+                        "category": "tools"
+                      },
+                      "packages": [{
+                        "version": "1.2.3",
+                        "packageUrl": "https://example.invalid/sample.jar",
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "expectedSizeBytes": 123,
+                        "signature": {"formatVersion": 1},
+                        "requiredSdk": "1.0"
+                      }]
+                    },
+                    {
+                      "pluginId": "default-sample",
+                      "market": {
+                        "officialRequired": false,
+                        "defaultInstalled": true,
+                        "latestVersion": "1.0.0",
+                        "displayName": {"en": "Default Sample"}
+                      },
+                      "packages": [{
+                        "version": "1.0.0",
+                        "packageUrl": "https://example.invalid/default.jar",
+                        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "expectedSizeBytes": 456,
+                        "signature": {"formatVersion": 1},
+                        "requiredSdk": "1.0"
+                      }]
+                    }
+                  ]
+                }
+                """, StandardCharsets.UTF_8);
+
+        String rowsJson = runPowerShell(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/package-local-installer-catalog.ps1'; "
+                        + "$rows=@(New-InstallerCatalogProjectionRows -ManifestPath '" + psQuote(manifest)
+                        + "' -Language 'en' -SdkVersion '1.0.0'); "
+                        + "ConvertTo-Json -InputObject $rows -Depth 4 -Compress");
+        JsonNode rows = new ObjectMapper().readTree(rowsJson);
+        assertThat(rows.isArray()).isTrue();
+        assertThat(rows.size()).isEqualTo(1);
+        assertThat(rows.get(0).path("PluginId").asText()).isEqualTo("optional-sample");
+        assertThat(rows.get(0).path("Version").asText()).isEqualTo("1.2.3");
+        assertThat(rows.get(0).path("DisplayName").asText()).isEqualTo("Optional Sample");
+        assertThat(rows.get(0).path("Summary").asText()).isEqualTo("Install on demand");
+        assertThat(rows.get(0).path("Size").asText()).isEqualTo("123");
+
+        CommandResult failure = runPowerShellResult(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/package-local-installer-catalog.ps1'; "
+                        + "$null=New-InstallerCatalogProjectionRows -ManifestPath '"
+                        + psQuote(tempDir.resolve("missing.json")) + "' -Language 'en' -SdkVersion '1.0.0'");
+        assertThat(failure.exitCode()).as(failure.output()).isNotZero();
+    }
+
+    @Test
+    @DisplayName("本地插件暂存执行公开入口并写出可复验布局")
+    void packageLocalPluginStagingExecutesPublicEntryPoint(@TempDir Path tempDir) throws Exception {
+        assumeTrue(canRun("powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
+                        || canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"),
+                "PowerShell 不可用，跳过行为测试");
+        Path prebuilt = Files.createDirectories(tempDir.resolve("prebuilt"));
+        Path appDir = Files.createDirectories(tempDir.resolve("app"));
+        writeThinPluginJar(prebuilt.resolve("sample-module-1.0.0.jar"), "sample", "1.0.0", "1.0");
+
+        String command = "$ErrorActionPreference='Stop'; "
+                + ". './scripts/package-local-plugin-staging.ps1'; "
+                + "$plugin=[pscustomobject]@{Id='sample';Module='sample-module';Format='jar';PrivateLibs=$false}; "
+                + "$count=Stage-OfficialPlugins -AppDir '" + psQuote(appDir) + "' -Plugins @($plugin) "
+                + "-PrebuiltPluginsDir '" + psQuote(prebuilt) + "' -ProjectRoot '" + psQuote(repoRoot())
+                + "' -AllowUnsignedLocalPlugins; Write-Output ('RESULT:'+$count)";
+        CommandResult result = runPowerShellResult(command);
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.output()).contains("RESULT:1");
+
+        Path plugins = appDir.resolve("plugins");
+        Path artifact = plugins.resolve("sample-module.jar");
+        assertThat(artifact).isRegularFile();
+        assertThat(plugins.resolve("sample-module.jar.sha256")).isRegularFile();
+        assertThat(plugins.resolve("SHA256SUMS")).isRegularFile();
+        assertThat(plugins.resolve("LOCAL-UNSIGNED-BUILD.txt")).isRegularFile();
+        assertThat(plugins.resolve("sample-module.jar.sig")).doesNotExist();
+        Path provenance = plugins.resolve("provenance/sample-module.jar.pixiv-plugin-provenance");
+        assertThat(provenance).isRegularFile();
+        assertThat(Files.readString(provenance, StandardCharsets.UTF_8))
+                .contains("source=LOCAL_UPLOAD", "status=UNSIGNED_ALLOWED");
+
+        JsonNode manifest = new ObjectMapper().readTree(
+                Files.readString(plugins.resolve("plugins-manifest.json"), StandardCharsets.UTF_8));
+        JsonNode entry = manifest.isArray() ? manifest.get(0) : manifest;
+        assertThat(entry.path("id").asText()).isEqualTo("sample");
+        assertThat(entry.path("version").asText()).isEqualTo("1.0.0");
+        assertThat(entry.path("requires").asText()).isEqualTo("1.0");
+        assertThat(entry.path("file").asText()).isEqualTo("sample-module.jar");
+        assertThat(entry.path("source").asText()).isEqualTo("LOCAL_UPLOAD");
+        assertThat(entry.path("verification").asText()).isEqualTo("UNSIGNED_ALLOWED");
+
+        CommandResult failure = runPowerShellResult(
+                "$ErrorActionPreference='Stop'; . './scripts/package-local-plugin-staging.ps1'; "
+                        + "$null=Resolve-PrebuiltPluginsDir '" + psQuote(tempDir.resolve("missing")) + "'");
+        assertThat(failure.exitCode()).as(failure.output()).isNotZero();
+    }
+
+    @Test
+    @DisplayName("release/nightly 通过共享动作只上传一个 app-shell JAR，安装器消费同一 artifact")
     void releaseWorkflowsUploadOnlyStagedAppShellJar() throws Exception {
+        String javaAction = action("package-release-java");
+        String windowsAction = action("package-windows-installer");
+
+        assertThat(javaAction).contains(
+                "Stage executable JAR",
+                "build/release-jars",
+                "jar tf \"$OUTPUT_JAR\" | grep -q '^BOOT-INF/'",
+                "test -s \"$OUTPUT_JAR\"",
+                "STAGED_COUNT",
+                "path: build/release-jars/*.jar",
+                "name: app-shell-jar",
+                "if-no-files-found: error",
+                "Upload internal app-shell JAR",
+                "Expected exactly one executable app jar",
+                "PixivDownload-*-boot.jar 2>/dev/null",
+                "-original\\.jar");
+        assertThat(windowsAction).contains(
+                "Download internal app-shell JAR",
+                "path: artifacts/app-shell-jar",
+                "$jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)",
+                "$jars.Count -ne 1");
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
 
             assertThat(workflow).as(name).contains(
-                    "Stage executable JAR",
-                    "build/release-jars",
-                    "jar tf \"$OUTPUT_JAR\" | grep -q '^BOOT-INF/'",
-                    "test -s \"$OUTPUT_JAR\"",
-                    "STAGED_COUNT",
-                    "path: build/release-jars/*.jar",
-                    "name: app-shell-jar",
-                    "if-no-files-found: error",
-                    "Upload internal app-shell JAR",
-                    "Download internal app-shell JAR",
-                    "path: artifacts/app-shell-jar",
-                    "$jars = @(Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar -File)",
-                    "$jars.Count -ne 1",
-                    "$jar = $jars[0]");
-            // 候选必须唯一：优先 boot jar，回退普通可执行 jar 时排除 sources/javadoc/original，
-            // 不得静默取第一个。
-            assertThat(workflow).as(name).contains(
-                    "Expected exactly one executable app jar",
-                    "PixivDownload-*-boot.jar 2>/dev/null",
-                    "-original\\.jar");
+                    "uses: ./.github/actions/package-release-java",
+                    "uses: ./.github/actions/package-windows-installer");
             assertThat(workflow).as(name).doesNotContain(
+                    "Stage executable JAR",
+                    "Get-ChildItem artifacts/app-shell-jar/PixivDownload-*.jar",
                     "name: jar",
                     "artifacts/jar",
                     "path: artifacts/jar",
@@ -804,30 +1001,33 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("release/nightly 经共享脚本发布 java-standard 与 full-offline 签名分发布局")
+    @DisplayName("release/nightly 经共享动作发布 java-standard 与 full-offline 签名分发布局")
     void releaseWorkflowsPublishJavaDistributions() throws Exception {
+        String javaAction = action("package-release-java");
+        assertThat(javaAction).contains(
+                "Stage official plugin inputs from signed catalog",
+                "stage-official-plugin-inputs-from-catalog.ps1",
+                "IncludeOptional = $true",
+                "Assemble Java distributions",
+                "package-java-distributions.ps1",
+                "-PrebuiltJar $jars[0].FullName",
+                "-PrebuiltPluginsDir build/plugin-inputs",
+                "-SignatureToolJar $signatureTools[0].FullName",
+                "name: java-distributions",
+                "build/plugin-distributions/PixivDownload-*-java.zip",
+                "build/plugin-distributions/PixivDownload-*-full-offline.zip",
+                "if-no-files-found: error",
+                "name: plugin-inputs",
+                "path: build/plugin-inputs/*");
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
 
             assertThat(workflow).as(name).contains(
                     "publish-plugins:",
                     "uses: ./.github/workflows/publish-plugins.yml",
-                    "Stage official plugin inputs from signed catalog",
-                    "stage-official-plugin-inputs-from-catalog.ps1",
-                    "-IncludeOptional",
-                    "Assemble Java distributions",
-                    "package-java-distributions.ps1",
-                    "-PrebuiltJar $jars[0].FullName",
-                    "-PrebuiltPluginsDir build/plugin-inputs",
-                    "-SignatureToolJar $signatureTool.FullName",
-                    "name: java-distributions",
-                    "build/plugin-distributions/PixivDownload-*-java.zip",
-                    "build/plugin-distributions/PixivDownload-*-full-offline.zip",
-                    "if-no-files-found: error",
+                    "uses: ./.github/actions/package-release-java",
+                    "uses: ./.github/actions/package-windows-installer",
                     "path: artifacts/java-distributions",
-                    "name: plugin-inputs",
-                    "path: build/plugin-inputs/*",
-                    "path: artifacts/plugin-inputs",
                     "Generate update manifest",
                     "artifacts/update.json",
                     "artifacts/update.json.sig",
@@ -996,10 +1196,12 @@ class PluginReleaseScriptsTest {
         for (String name : List.of(
                 "package-java-distributions.ps1",
                 "assemble-plugin-distribution.ps1",
-                "package-local.ps1")) {
+                "package-local.ps1",
+                "package-local-plugin-staging.ps1",
+                "package-local-installer-catalog.ps1")) {
             assertThat(script(name)).as(name).doesNotContain(
                     "Id = \"download-workbench\"",
-                    "Id = \"gui-theme\"",
+                    "Id = \"gui-swing\"",
                     "Id = \"douyin\"",
                     "Id = \"stats\"");
         }
@@ -1054,6 +1256,34 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("Release 与 Nightly 为更新清单写入时效元数据并生成 detached 签名")
     void updateManifestsAreVersionedAndSigned() throws Exception {
+        String signingAction = action("sign-update-manifest");
+        assertThat(signingAction).contains(
+                "Checkout trusted update signature tool source",
+                "working-directory: trusted-update-signature-tool-source",
+                "test \"$(git rev-parse HEAD)\" = \"$TRUSTED_BASE_SHA\"",
+                "mvn -B -ntp -pl pixivdownload-plugin-signature -am package -DskipTests -Dexec.skip=true",
+                "TRUSTED_UPDATE_SIGNATURE_TOOL=$destination",
+                "TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256=$sha256",
+                "Trusted update signature tool checksum mismatch.",
+                "& java -cp $env:TRUSTED_UPDATE_SIGNATURE_TOOL",
+                "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ inputs.update_signing_private_key_pem_base64 }}",
+                "--repository-id pixivdownloader-update",
+                "--key-id pixivdownloader-update-root-2026-08",
+                "--out artifacts/update.json.sig",
+                "chmod 600 -- $privateKeyFile",
+                "} finally {",
+                "Remove-Item -LiteralPath $privateKeyFile",
+                "pixivdownloader-update-signing-key.pem")
+                .doesNotContain(
+                        "UPDATE_SIGNING_PRIVATE_KEY_PEM:",
+                        "Download update signature tool",
+                        "tools/update-signature",
+                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64",
+                        "PLUGIN_SIGNING_PRIVATE_KEY_PEM",
+                        "--key-id pixivdownloader-official-root-2026-07");
+        assertThat(signingAction.indexOf("name: Build trusted update signature tool"))
+                .isGreaterThan(signingAction.indexOf("name: Checkout trusted update signature tool source"))
+                .isLessThan(signingAction.indexOf("- name: Sign update manifest"));
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
             String signingJob = workflowJob(workflow,
@@ -1063,30 +1293,16 @@ class PluginReleaseScriptsTest {
                     "sequence: $sequence",
                     "expiresAt: $expiresAt",
                     "Sign update manifest",
-                    "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                    "--repository-id pixivdownloader-update",
-                    "--key-id pixivdownloader-update-root-2026-08",
-                    "--out artifacts/update.json.sig",
-                    "chmod 600 -- $privateKeyFile",
-                    "} finally {",
-                    "Remove-Item -LiteralPath $privateKeyFile",
-                    "pixivdownloader-update-signing-key.pem",
+                    "update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                    "uses: ./.github/actions/sign-update-manifest",
                     "artifacts/update.json.sig");
             assertThat(workflowJob(workflow, "build-jar")).as(name + " candidate build job")
                     .doesNotContain("Upload update signature tool");
             assertThat(signingJob).as(name + " update signing job")
                     .contains(
                             "needs.publish-plugins.outputs.trusted_base_sha",
-                            "Checkout trusted update signature tool source",
-                            "working-directory: trusted-update-signature-tool-source",
-                            "test \"$(git rev-parse HEAD)\" = \"$TRUSTED_BASE_SHA\"",
-                            "mvn -B -ntp -pl pixivdownload-plugin-signature -am package -DskipTests -Dexec.skip=true",
-                            "TRUSTED_UPDATE_SIGNATURE_TOOL=$destination",
-                            "TRUSTED_UPDATE_SIGNATURE_TOOL_SHA256=$sha256",
-                            "Trusted update signature tool checksum mismatch.",
-                            "& java -cp $env:TRUSTED_UPDATE_SIGNATURE_TOOL",
-                            "UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                            "--key-id pixivdownloader-update-root-2026-08")
+                            "update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                            "uses: ./.github/actions/sign-update-manifest")
                     .doesNotContain(
                             "UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM }}",
                             "Download update signature tool",
@@ -1094,10 +1310,9 @@ class PluginReleaseScriptsTest {
                             "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64",
                             "PLUGIN_SIGNING_PRIVATE_KEY_PEM",
                             "--key-id pixivdownloader-official-root-2026-07");
-            assertThat(signingJob.indexOf("name: Build trusted update signature tool"))
-                    .as(name + " trusted tool build precedes secret injection")
-                    .isGreaterThan(signingJob.indexOf("name: Generate update manifest"))
-                    .isLessThan(signingJob.indexOf("name: Sign update manifest"));
+            assertThat(signingJob.indexOf("name: Sign update manifest"))
+                    .as(name + " signing action follows manifest generation")
+                    .isGreaterThan(signingJob.indexOf("name: Generate update manifest"));
         }
         assertThat(workflow("publish-plugins.yml")).contains(
                 "trusted_base_sha:",
@@ -1170,7 +1385,9 @@ class PluginReleaseScriptsTest {
                 "assemble-plugin-distribution.ps1",
                 "package-java-distributions.ps1",
                 "package-installer-with-plugins.ps1",
-                "package-local.ps1")) {
+                "package-local.ps1",
+                "package-local-plugin-staging.ps1",
+                "package-local-installer-catalog.ps1")) {
             String script = script(name);
             assertThat(script).as(name).doesNotContain("-----BEGIN PRIVATE KEY-----");
             assertThat(script).as(name).doesNotContain("-----END PRIVATE KEY-----");
@@ -1180,68 +1397,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("调查发布者自持四个 PostHog 参数且 official-surveys profile 启用发布位")
+    @DisplayName("调查资源按依赖顺序装配且 official-surveys profile 启用发布位")
     void surveyPublisherOwnsPostHogConfigurationAndOfficialProfileActivatesIt() throws Exception {
-        String adapter = Files.readString(repoRoot().resolve("pixivdownload-plugin-posthog")
-                .resolve("src/main/resources/static/pixiv-posthog/pixiv-posthog.js"),
-                StandardCharsets.UTF_8);
-        String publisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback.js"),
-                StandardCharsets.UTF_8);
-        String publisherCore = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback-core.js"),
-                StandardCharsets.UTF_8);
-        String publisherSurvey = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/pixiv-layout-feedback-survey.js"),
-                StandardCharsets.UTF_8);
-        String publisherConfig = Files.readString(repoRoot().resolve("pixivdownload-plugin-download-workbench")
-                .resolve("src/main/resources/static/pixiv-layout-feedback/posthog-config.js"),
-                StandardCharsets.UTF_8);
-        String inboxOnlyPublisher = Files.readString(repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
-                .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/survey.js"),
-                StandardCharsets.UTF_8);
-        String inboxOnlyPublisherConfig = Files.readString(
-                repoRoot().resolve("pixivdownload-plugin-multi-mode-decision-survey")
-                        .resolve("src/main/resources/static/pixiv-multi-mode-decision-survey/posthog-config.js"),
-                StandardCharsets.UTF_8);
-        assertThat(adapter).contains(
-                "PixivPostHog",
-                "ownerKey",
-                "options.posthog",
-                "createSurveyClient")
-                .doesNotContain(
-                        "phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k",
-                        "surveyId: '",
-                        "https://layout-survey.sywyar.top",
-                        "download-workbench.layout-feedback",
-                        "options.sdk");
-        assertThat(publisherCore).contains(
-                "var POSTHOG = global.PixivLayoutSurveyPostHog || Object.freeze({})",
-                "POSTHOG_OWNER_KEY: POSTHOG_OWNER_KEY",
-                "POSTHOG: POSTHOG");
-        assertThat(publisherSurvey).contains(
-                "global.PixivPostHog.createSurveyClient({",
-                "ownerKey: ctx.POSTHOG_OWNER_KEY",
-                "posthog: ctx.POSTHOG");
-        assertThat(publisher).contains(
-                "['core', 'server', 'state', 'survey', 'dialog'].forEach(function (name)",
-                "module.install(ctx)");
-        assertThat(publisherConfig).contains(
-                "global.PixivLayoutSurveyPostHog = Object.freeze({",
-                "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
-                "apiHost: 'https://layout-survey.sywyar.top'",
-                "uiHost: 'https://us.posthog.com'")
-                .containsPattern("surveyId: '[^']+'");
-        assertThat(inboxOnlyPublisher).contains(
-                "var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({})",
-                "ownerKey: OWNER_KEY",
-                "posthog: POSTHOG");
-        assertThat(inboxOnlyPublisherConfig).contains(
-                "global.PixivMultiModeDecisionSurveyPostHog = Object.freeze({",
-                "projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k'",
-                "apiHost: 'https://layout-survey.sywyar.top'",
-                "uiHost: 'https://us.posthog.com'")
-                .containsPattern("surveyId: '[^']+'");
         assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
                 .contains("plugin.dependencies=posthog?@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-multi-mode-decision-survey"))
@@ -1658,9 +1815,39 @@ class PluginReleaseScriptsTest {
 
     private static String script(String name) throws IOException {
         return Files.readString(repoRoot().resolve("scripts").resolve(name), StandardCharsets.UTF_8);
-    }    private static String innoScript() throws IOException {
-        return Files.readString(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
-                .resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
+    }
+
+    private static String innoScript() throws IOException {
+        Path source = repoRoot().resolve("packaging/windows/inno/PixivDownload.iss");
+        return assembleInnoSource(source, new LinkedHashSet<>());
+    }
+
+    private static String assembleInnoSource(Path source, Set<Path> activeIncludes) throws IOException {
+        Path normalized = source.toAbsolutePath().normalize();
+        if (!activeIncludes.add(normalized)) {
+            throw new IllegalStateException("Inno include cycle: " + normalized);
+        }
+        try {
+            String text = Files.readString(normalized, StandardCharsets.UTF_8);
+            Matcher matcher = Pattern.compile("(?m)^#include\\s+\"([^\"]+)\"\\s*\\r?$").matcher(text);
+            StringBuilder assembled = new StringBuilder(text.length());
+            int cursor = 0;
+            while (matcher.find()) {
+                assembled.append(text, cursor, matcher.start());
+                Path include = normalized.getParent()
+                        .resolve(matcher.group(1).replace('\\', '/'))
+                        .normalize();
+                if (Files.isRegularFile(include)) {
+                    assembled.append(assembleInnoSource(include, activeIncludes));
+                } else {
+                    assembled.append(matcher.group());
+                }
+                cursor = matcher.end();
+            }
+            return assembled.append(text, cursor, text.length()).toString();
+        } finally {
+            activeIncludes.remove(normalized);
+        }
     }
 
     private static String innoSupportScript(String name) throws IOException {
@@ -1670,6 +1857,11 @@ class PluginReleaseScriptsTest {
 
     private static String workflow(String name) throws IOException {
         return Files.readString(repoRoot().resolve(".github").resolve("workflows").resolve(name),
+                StandardCharsets.UTF_8);
+    }
+
+    private static String action(String name) throws IOException {
+        return Files.readString(repoRoot().resolve(".github").resolve("actions").resolve(name).resolve("action.yml"),
                 StandardCharsets.UTF_8);
     }
 
@@ -1724,34 +1916,70 @@ class PluginReleaseScriptsTest {
         assertThat(Base64.getEncoder().encodeToString(decoded)).isEqualTo(value);
     }
 
-    private static List<OfficialPlugin> officialDistributionPlugins(String common) {
-        Matcher matcher = Pattern.compile("\\[pscustomobject\\]@\\{(?<body>.*?)\\}", Pattern.DOTALL)
-                .matcher(common);
+    private static List<OfficialPlugin> officialDistributionPlugins() throws Exception {
+        return officialDistributionPlugins("Get-OfficialDistributionPlugins -IncludeOptional");
+    }
+
+    private static List<OfficialPlugin> officialDistributionPlugins(String functionName) throws Exception {
+        JsonNode values = new ObjectMapper().readTree(runPowerShell(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "$items=@(" + functionName + "); "
+                        + "ConvertTo-Json -InputObject $items -Depth 4 -Compress"));
         List<OfficialPlugin> plugins = new ArrayList<>();
-        while (matcher.find()) {
-            String body = matcher.group("body");
-            String id = pscustomObjectStringField(body, "Id");
-            String module = pscustomObjectStringField(body, "Module");
-            if (id != null && module != null && !"recovery-sentinel".equals(id)) {
-                plugins.add(new OfficialPlugin(id, module));
-            }
+        for (JsonNode value : values) {
+            plugins.add(new OfficialPlugin(value.path("Id").asText(), value.path("Module").asText()));
         }
         assertThat(plugins).as("official plugins").isNotEmpty();
+        assertThat(plugins).allSatisfy(plugin -> {
+            assertThat(plugin.id()).isNotBlank();
+            assertThat(plugin.module()).isNotBlank();
+        });
         return plugins;
     }
 
-    private static Set<String> officialDistributionPluginIds(String common) {
-        Set<String> ids = new LinkedHashSet<>();
-        for (OfficialPlugin plugin : officialDistributionPlugins(common)) {
-            ids.add(plugin.id());
-        }
+    private static Set<String> officialPluginIds(String functionName) throws Exception {
+        Set<String> ids = officialDistributionPlugins(functionName).stream()
+                .map(OfficialPlugin::id)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         assertThat(ids).as("official plugin ids").isNotEmpty();
         return ids;
     }
 
-    private static String pscustomObjectStringField(String body, String field) {
-        Matcher matcher = Pattern.compile("\\b" + field + "\\s*=\\s*\"([^\"]+)\"").matcher(body);
-        return matcher.find() ? matcher.group(1) : null;
+    private static Set<String> officialPluginIds() throws Exception {
+        return officialPluginIds("Get-OfficialDistributionPlugins -IncludeOptional");
+    }
+
+    private static String runPowerShell(String command) throws Exception {
+        CommandResult result = runPowerShellResult(command);
+        assertThat(result.exitCode()).as("PowerShell failed: %s", result.output()).isEqualTo(0);
+        return result.output();
+    }
+
+    private static CommandResult runPowerShellResult(String command) throws Exception {
+        String executable = canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
+                ? "pwsh" : "powershell";
+        Process process = new ProcessBuilder(executable, "-NoProfile", "-Command", command)
+                .directory(repoRoot().toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        return new CommandResult(process.waitFor(), output);
+    }
+
+    private static String psQuote(Path path) {
+        return path.toAbsolutePath().toString().replace("'", "''");
+    }
+
+    private static void writeThinPluginJar(Path path, String id, String version, String requires)
+            throws IOException {
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(path), StandardCharsets.UTF_8)) {
+            zip.putNextEntry(new ZipEntry("plugin.properties"));
+            zip.write(("plugin.id=" + id + "\n"
+                    + "plugin.version=" + version + "\n"
+                    + "plugin.requires=" + requires + "\n").getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
     }
 
     private static Map<String, String> readProperties(Path path) throws IOException {
@@ -1820,5 +2048,8 @@ class PluginReleaseScriptsTest {
     }
 
     private record OfficialPlugin(String id, String module) {
+    }
+
+    private record CommandResult(int exitCode, String output) {
     }
 }

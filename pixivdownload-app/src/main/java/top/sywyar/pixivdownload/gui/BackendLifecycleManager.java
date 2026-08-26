@@ -6,8 +6,6 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 
-import javax.swing.*;
-import java.awt.*;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -442,6 +440,16 @@ public final class BackendLifecycleManager {
         return state == State.RUNNING;
     }
 
+    static <T> T requiredBean(Class<T> type) {
+        Objects.requireNonNull(type, "type");
+        synchronized (LOCK) {
+            if (state != State.RUNNING || context == null) {
+                throw new IllegalStateException("backend context is not running");
+            }
+            return context.getBean(type);
+        }
+    }
+
     public static void addListener(Listener listener) {
         Listener safeListener = Objects.requireNonNull(listener, "listener");
         LISTENERS.add(safeListener);
@@ -626,14 +634,7 @@ public final class BackendLifecycleManager {
     }
 
     private static void runOnEdt(Runnable action) {
-        if (action == null) {
-            return;
-        }
-        if (GraphicsEnvironment.isHeadless() || SwingUtilities.isEventDispatchThread()) {
-            action.run();
-        } else {
-            SwingUtilities.invokeLater(action);
-        }
+        if (action != null) action.run();
     }
 
     /**

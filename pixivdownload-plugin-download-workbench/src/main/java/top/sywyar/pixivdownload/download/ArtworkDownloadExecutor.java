@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics.DailyOutcomes;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
@@ -22,6 +23,14 @@ import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
@@ -43,6 +52,7 @@ import top.sywyar.pixivdownload.download.web.LocalizedException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -61,9 +71,11 @@ import java.util.function.Consumer;
  */
 @Slf4j
 @Service
-public class ArtworkDownloadExecutor implements ArtworkDownloader {
+public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashboardSource {
 
     private static final URI DEFAULT_PIXIV_REFERER = URI.create("https://www.pixiv.net/");
+    private static final String DASHBOARD_NAMESPACE = "batch";
+    private static final int MAX_DASHBOARD_TEXT_CODE_POINTS = 512;
 
     private final DownloadSettings downloadSettings;
     private final ApplicationEventPublisher eventPublisher;
@@ -298,7 +310,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                     fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
                     other.getSeriesId(), other.getSeriesOrder());
 
-            recordDownloadStatistics(successCount.get());
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
 
@@ -340,6 +351,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
             succeeded = true;
+            recordDownloadStatistics(successCount.get());
 
             // 前端转发的原始 meta（若有）：下载成功、作品行已落库后旁路归一化为 sidecar + 列投影。
             // 零额外请求、best-effort，绝不反报已成功的下载。
@@ -360,6 +372,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             status.setEndTime(java.time.LocalDateTime.now());
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } finally {
+            if (!succeeded && status.isCompleted() && status.isFailed() && !status.isCancelled()) {
+                recordDownloadFailureStatistics();
+            }
             // 下载完成后保留状态 5 分钟；清理句柄也属于本 queue generation，热停时会被取消并移除。
             if (downloadStatusMap.get(statusKey) == status) {
                 QueueStatusRetention.schedule(taskTracker, userUuid, taskScheduler,
@@ -631,6 +646,170 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     }
 
     /**
+     * 返回下载工作台当前可证明的队列卡片与运行任务纯值，不暴露 owner、路径或可执行句柄。
+     * 已结束状态仍按既有保留窗口留在查询 map 中，但不再列为运行任务。
+     *
+     * @return 当前桌面首页只读快照
+     */
+    @Override
+    public DesktopDashboardSnapshot snapshot() {
+        Instant observedAt = Instant.now();
+        QueueTaskTracker.Snapshot queue = taskTracker.snapshot();
+        DailyOutcomes today = null;
+        try {
+            today = artworkDownloadStatistics.today();
+        } catch (RuntimeException failure) {
+            log.warn(logMessage("download.log.statistics.failed", failure.getMessage()), failure);
+        }
+        List<DesktopDashboardCardContribution> cards = List.of(
+                today == null
+                        ? unavailableCard("today-downloads", 10,
+                        text("desktop.control-center.card.today-downloads", "Today's downloads"),
+                        DesktopUiIcon.DOWNLOAD, observedAt)
+                        : todayDownloadsCard(today, observedAt),
+                new DesktopDashboardCardContribution(
+                        "waiting-queue",
+                        20,
+                        text("desktop.control-center.card.waiting-queue", "Waiting queue"),
+                        DesktopUiText.raw(Integer.toString(queue.queued())),
+                        queue.accepting()
+                                ? text("desktop.control-center.card.queue.accepting",
+                                "{0} queued, {1} running",
+                                Integer.toString(queue.queued()), Integer.toString(queue.running()))
+                                : text("desktop.control-center.card.queue.quiesced",
+                                "{0} queued, {1} running; intake stopped",
+                                Integer.toString(queue.queued()), Integer.toString(queue.running())),
+                        DesktopUiTone.INFO,
+                        DesktopUiIcon.QUEUE,
+                        DesktopControlCenterAvailability.AVAILABLE,
+                        observedAt),
+                today == null
+                        ? unavailableCard("success-rate", 30,
+                        text("desktop.control-center.card.success-rate", "Success rate"),
+                        DesktopUiIcon.SUCCESS, observedAt)
+                        : successRateCard(today, observedAt));
+
+        List<DesktopRunningTaskContribution> runningTasks = new ArrayList<>();
+        for (Map.Entry<String, DownloadStatus> entry : List.copyOf(downloadStatusMap.entrySet())) {
+            DesktopRunningTaskContribution task = runningTask(entry.getKey(), entry.getValue(), observedAt);
+            if (task != null) {
+                runningTasks.add(task);
+            }
+        }
+        return new DesktopDashboardSnapshot(cards, runningTasks, observedAt);
+    }
+
+    private static DesktopDashboardCardContribution todayDownloadsCard(
+            DailyOutcomes today,
+            Instant observedAt) {
+        return new DesktopDashboardCardContribution(
+                "today-downloads",
+                10,
+                text("desktop.control-center.card.today-downloads", "Today's downloads"),
+                DesktopUiText.raw(Integer.toString(today.completed())),
+                outcomeSummary(today),
+                DesktopUiTone.INFO,
+                DesktopUiIcon.DOWNLOAD,
+                DesktopControlCenterAvailability.AVAILABLE,
+                observedAt);
+    }
+
+    private static DesktopDashboardCardContribution successRateCard(
+            DailyOutcomes today,
+            Instant observedAt) {
+        long attempted = (long) today.completed() + today.failed();
+        String percentage = attempted == 0
+                ? "—"
+                : Math.round(today.completed() * 100.0d / attempted) + "%";
+        return new DesktopDashboardCardContribution(
+                "success-rate",
+                30,
+                text("desktop.control-center.card.success-rate", "Success rate"),
+                DesktopUiText.raw(percentage),
+                outcomeSummary(today),
+                DesktopUiTone.SUCCESS,
+                DesktopUiIcon.SUCCESS,
+                DesktopControlCenterAvailability.AVAILABLE,
+                observedAt);
+    }
+
+    private static DesktopUiText outcomeSummary(DailyOutcomes today) {
+        return text(
+                "desktop.control-center.card.today-summary",
+                "{0} completed, {1} failed today",
+                Integer.toString(today.completed()),
+                Integer.toString(today.failed()));
+    }
+
+    private static DesktopDashboardCardContribution unavailableCard(
+            String cardId,
+            int order,
+            DesktopUiText title,
+            DesktopUiIcon icon,
+            Instant observedAt) {
+        return new DesktopDashboardCardContribution(
+                cardId,
+                order,
+                title,
+                DesktopUiText.raw("—"),
+                text("desktop.control-center.card.unavailable", "Reliable statistics unavailable"),
+                DesktopUiTone.DEFAULT,
+                icon,
+                DesktopControlCenterAvailability.UNAVAILABLE,
+                observedAt);
+    }
+
+    private static DesktopRunningTaskContribution runningTask(
+            String statusKey,
+            DownloadStatus status,
+            Instant observedAt) {
+        if (status == null || status.isCompleted() || status.isFailed() || status.isCancelled()) {
+            return null;
+        }
+        int total = Math.max(0, status.getTotalImages());
+        int downloaded = Math.max(0, Math.min(status.getDownloadedCount(), total));
+        boolean started = status.getCurrentImageIndex() >= 0;
+        DesktopRunningTaskContribution.Status taskStatus = !started
+                ? DesktopRunningTaskContribution.Status.PREPARING
+                : total > 0 && downloaded >= total
+                ? DesktopRunningTaskContribution.Status.FINALIZING
+                : DesktopRunningTaskContribution.Status.RUNNING;
+        DesktopUiText supportingText = !started
+                ? text("desktop.control-center.task.preparing", "Preparing download")
+                : total > 0
+                ? text("desktop.control-center.task.progress", "{0} of {1} images downloaded",
+                Integer.toString(downloaded), Integer.toString(total))
+                : text("desktop.control-center.task.downloading", "Downloading");
+        String title = boundedDashboardText(status.getTitle());
+        DesktopUiText titleToken = title.isBlank()
+                ? text("desktop.control-center.task.artwork", "Artwork {0}",
+                String.valueOf(status.getArtworkId()))
+                : DesktopUiText.raw(title);
+        return new DesktopRunningTaskContribution(
+                "illust:" + UUID.nameUUIDFromBytes(statusKey.getBytes(StandardCharsets.UTF_8)),
+                0,
+                titleToken,
+                supportingText,
+                taskStatus,
+                total > 0 ? (double) downloaded / total : null,
+                DesktopControlCenterAvailability.AVAILABLE,
+                observedAt);
+    }
+
+    private static DesktopUiText text(String key, String fallback, String... arguments) {
+        return new DesktopUiText(DASHBOARD_NAMESPACE, key, fallback, List.of(arguments));
+    }
+
+    private static String boundedDashboardText(String value) {
+        if (value == null) {
+            return "";
+        }
+        int codePoints = value.codePointCount(0, value.length());
+        int end = value.offsetByCodePoints(0, Math.min(codePoints, MAX_DASHBOARD_TEXT_CODE_POINTS));
+        return value.substring(0, end);
+    }
+
+    /**
      * 取消该 artworkId 的所有下载（admin / solo 路径）。
      * multi 模式下若两个用户并发下载同一作品，此调用会同时取消双方任务；普通用户取消请走带 ownerUuid 的重载。
      */
@@ -868,6 +1047,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private void recordDownloadStatistics(int imageCount) {
         try {
             artworkDownloadStatistics.recordCompleted(imageCount);
+        } catch (Exception e) {
+            log.warn(logMessage("download.log.statistics.failed", e.getMessage()), e);
+        }
+    }
+
+    private void recordDownloadFailureStatistics() {
+        try {
+            artworkDownloadStatistics.recordFailed();
         } catch (Exception e) {
             log.warn(logMessage("download.log.statistics.failed", e.getMessage()), e);
         }

@@ -282,6 +282,13 @@
             onCleanup(callback) {
                 registerScopedCleanup(active, disposers, callback,
                     'queue type activation is stale', '[queueTypes] 过期作品类型清理失败：');
+            },
+            loadSubmodule(moduleUrl, sharedContext) {
+                if (!active()) return Promise.reject(staleQueueTypeError());
+                if (!isPlainObject(sharedContext)) {
+                    return Promise.reject(new Error('queue type submodule context must be a plain object'));
+                }
+                return loadTypeSubmodule(load, activation, moduleScope, moduleUrl, sharedContext);
             }
         });
     }
@@ -308,6 +315,118 @@
         }
         load.initializer = initializer;
         return true;
+    }
+
+    function registerSubmodule(initializer) {
+        const script = document.currentScript;
+        const token = script && script.dataset ? text(script.dataset.queueTypeSubmoduleToken) : '';
+        const load = token ? pendingLoads.get(token) : null;
+        if (!load || load.kind !== 'queue-type-submodule' || load.script !== script
+            || load.initializer || typeof initializer !== 'function'
+            || !load.moduleScope.valid || !isContextActive(load.activation)) {
+            return false;
+        }
+        load.initializer = initializer;
+        return true;
+    }
+
+    function resolveSubmoduleUrl(load, moduleUrl) {
+        const value = text(moduleUrl).trim();
+        if (!/^\.\/[A-Za-z0-9._-]+\.js$/.test(value)) {
+            throw new Error('queue type submodule must be a same-directory relative JavaScript file');
+        }
+        const origin = global.location && global.location.origin ? global.location.origin : '';
+        const entry = new URL(load.descriptor.moduleUrl, origin + '/');
+        const resolved = new URL(value, entry);
+        const directory = entry.pathname.substring(0, entry.pathname.lastIndexOf('/') + 1);
+        if (resolved.origin !== entry.origin || resolved.pathname.substring(0, directory.length) !== directory
+            || resolved.pathname.substring(directory.length).includes('/')
+            || resolved.search || resolved.hash || resolved.username || resolved.password) {
+            throw new Error('queue type submodule must stay beside its entry module');
+        }
+        return resolved.pathname;
+    }
+
+    function loadTypeSubmodule(parentLoad, activation, moduleScope, moduleUrl, sharedContext) {
+        let resolvedUrl;
+        try {
+            resolvedUrl = resolveSubmoduleUrl(parentLoad, moduleUrl);
+        } catch (error) {
+            return Promise.reject(error);
+        }
+        return new Promise((resolve, reject) => {
+            const token = 'queue-type-submodule-' + (++loadSequence) + '-' + activation.sequence;
+            const load = {
+                kind: 'queue-type-submodule',
+                token,
+                activation,
+                moduleScope,
+                initializer: null,
+                script: null
+            };
+            const script = document.createElement('script');
+            load.script = script;
+            script.async = true;
+            script.dataset.queueTypeSubmoduleToken = token;
+            script.src = resolvedUrl + '?__queue_type_submodule=' + encodeURIComponent(token);
+            pendingLoads.set(token, load);
+
+            let settled = false;
+            let loadTimer = null;
+            const abort = () => finish(staleQueueTypeError());
+            const finish = (error, value) => {
+                if (settled) {
+                    cleanupInitializerResult(value, resolvedUrl);
+                    return;
+                }
+                settled = true;
+                if (loadTimer != null) clearTimeout(loadTimer);
+                loadTimer = null;
+                moduleScope.controller.signal.removeEventListener('abort', abort);
+                pendingLoads.delete(token);
+                script.onload = null;
+                script.onerror = null;
+                try { script.remove(); } catch (e) { /* detached test DOM */ }
+                if (error) {
+                    cleanupInitializerResult(value, resolvedUrl);
+                    reject(error);
+                }
+                else resolve(value);
+            };
+            loadTimer = setTimeout(() => {
+                finish(new Error('queue type submodule load timed out: ' + resolvedUrl));
+            }, SCRIPT_LOAD_TIMEOUT_MS);
+            script.onerror = () => finish(new Error('queue type submodule load failed: ' + resolvedUrl));
+            script.onload = () => {
+                if (loadTimer != null) clearTimeout(loadTimer);
+                loadTimer = null;
+                if (!moduleScope.valid || !isContextActive(activation)) {
+                    finish(staleQueueTypeError());
+                    return;
+                }
+                if (typeof load.initializer !== 'function') {
+                    finish(new Error('queue type submodule did not register: ' + resolvedUrl));
+                    return;
+                }
+                let initialized;
+                try {
+                    initialized = load.initializer(sharedContext);
+                } catch (error) {
+                    finish(error);
+                    return;
+                }
+                Promise.resolve(initialized).then(value => {
+                    if (!moduleScope.valid || !isContextActive(activation)) {
+                        finish(staleQueueTypeError(), value);
+                        return;
+                    }
+                    finish(null, value);
+                }, finish);
+            };
+            if (moduleScope.controller.signal.aborted) abort();
+            else moduleScope.controller.signal.addEventListener('abort', abort, {once: true});
+            if (!settled) (document.head || document.documentElement).appendChild(script);
+        });
     }
 
     function createScopedModule(activation, publicationDisposers, cleanupLabel) {
@@ -820,7 +939,7 @@
             }
 
             Object.assign(ctx, {
-                isActivationLive, staleQueueTypeError, registerModule, registerUiModule,
+                isActivationLive, staleQueueTypeError, registerModule, registerUiModule, registerSubmodule,
                 refresh, prefetchExtensions, dispose
             });
         }

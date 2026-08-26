@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -63,16 +64,42 @@ public class ArtworksBackFill {
     }
 
     public static int countCandidates(Options options) throws Exception {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
+            return countCandidates(options, database);
+        }
+    }
+
+    public static int countCandidates(Options options, DataSource dataSource) throws Exception {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.dbPath())) {
+            return countCandidates(options, database);
+        }
+    }
+
+    private static int countCandidates(Options options, ArtworksBackFillDatabase database) throws Exception {
         ArtworksBackFillUnreachableStore store = ArtworksBackFillUnreachableStore.load(
                 RuntimeFiles.resolveBackfillUnreachablePath(),
                 new ObjectMapper()
         );
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
-            return database.countCandidates(options.limit(), store);
-        }
+        return database.countCandidates(options.limit(), store);
     }
 
     public static Summary run(Options options) throws Exception {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
+            return run(options, database, true);
+        }
+    }
+
+    public static Summary run(Options options, DataSource dataSource) throws Exception {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.dbPath())) {
+            return run(options, database, false);
+        }
+    }
+
+    private static Summary run(
+            Options options,
+            ArtworksBackFillDatabase database,
+            boolean requiresStoppedBackend
+    ) throws Exception {
         log.info(message(
                 "artworks-backfill.log.started",
                 options.dbPath(),
@@ -83,7 +110,9 @@ public class ArtworksBackFill {
                 options.limit() > 0 ? options.limit() : message("artworks-backfill.option.limit.all"),
                 options.dryRun()
         ));
-        log.info(message("artworks-backfill.log.stop-backend-hint"));
+        if (requiresStoppedBackend) {
+            log.info(message("artworks-backfill.log.stop-backend-hint"));
+        }
 
         ObjectMapper mapper = new ObjectMapper();
         Path unreachablePath = RuntimeFiles.resolveBackfillUnreachablePath();
@@ -93,8 +122,7 @@ public class ArtworksBackFill {
         );
         log.info(message("artworks-backfill.unreachable.loaded", unreachablePath, unreachable.size()));
 
-        try (ArtworksBackFillPixivClient pixivClient = ArtworksBackFillPixivClient.open(options, mapper);
-             ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
+        try (ArtworksBackFillPixivClient pixivClient = ArtworksBackFillPixivClient.open(options, mapper)) {
 
             ArtworksBackFillDatabase.FilteredCandidates filtered = database.findCandidates(
                     options.limit(),

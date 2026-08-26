@@ -517,6 +517,17 @@ public final class ExternalCapabilityInvocationRegistry {
         }
     }
 
+    /** 返回一个精确 owner publication 是否仍允许新的 capability 调用。 */
+    public boolean acceptsInvocations(ExternalCapabilityOwner owner) {
+        if (owner == null) {
+            return false;
+        }
+        synchronized (lock) {
+            OwnerState state = states.get(owner.publicationId());
+            return state != null && state.owner.equals(owner) && state.phase == Phase.PUBLISHED;
+        }
+    }
+
     /** Discard an unpublished batch and clear every raw target, even when preparation failed part way through. */
     public boolean discardUnpublished(ExternalCapabilityPreparation preparation) {
         if (preparation == null) {

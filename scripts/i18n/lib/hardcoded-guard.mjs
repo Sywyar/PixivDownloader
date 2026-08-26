@@ -55,7 +55,7 @@ const EXPLICIT_ALLOWED_FILES = {
         '插件市场策展数据文件：zh/en 是市场 manifest 的外部数据键，不是应用语言清单。',
     'scripts/generate-market-manifest.ps1':
         '市场 manifest 的外部格式以 zh 为基准语言拼 _<locale> 后缀，属于外部数据格式，不是应用语言配置。',
-    'scripts/package-local.ps1':
+    'scripts/package-local-installer-catalog.ps1':
         'Inno Setup 安装器的语言集（en / zh-CN）受安装器自带语言文件限制，与应用 UI 语言目录相互独立。',
     'scripts/userscript-snippets/pixiv-userscript-i18n.js':
         'userscript 是运行在 pixiv.net 的独立运行时，不依赖应用后端与 catalog，语言集由 sync-shared-snippets.ps1 原样嵌入生成的 .user.js。',

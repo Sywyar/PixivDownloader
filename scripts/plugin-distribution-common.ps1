@@ -52,7 +52,24 @@ function Get-OfficialDefaultInstalledPlugins {
     $plugins = @(Get-OfficialRequiredPlugins)
     $plugins += @(
         [pscustomobject]@{
-            Id = "gui-theme"; Module = "pixivdownload-plugin-gui-theme"; Format = "jar"; PrivateLibs = $true;
+            Id = "gui-compose"; Module = "pixivdownload-plugin-gui-compose"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
+            RequiredLibPatterns = @(
+                "^ui-desktop-[0-9].*\.jar$",
+                "^material-icons-extended-desktop-[0-9].*\.jar$",
+                "^jna-[0-9].*\.jar$",
+                "^jna-platform-[0-9].*\.jar$",
+                "^skiko-awt-[0-9].*\.jar$",
+                "^skiko-awt-runtime-windows-x64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-windows-arm64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-linux-x64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-linux-arm64-[0-9].*\.jar$",
+                "^skiko-awt-runtime-macos-arm64-[0-9].*\.jar$",
+                "^kotlin-stdlib-[0-9].*\.jar$"
+            )
+        },
+        [pscustomobject]@{
+            Id = "gui-swing"; Module = "pixivdownload-plugin-gui-swing"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/guitheme/";
             RequiredLibPatterns = @(
                 "^flatlaf-[0-9].*\.jar$",

@@ -532,7 +532,7 @@ class PluginCatalogServiceTest {
     void customRepositoryMayExplicitlyTrustOfficialKeyId() {
         server = CatalogTestSupport.startServer();
         CatalogTestSupport.SigningFixture signing =
-                CatalogTestSupport.signingFixture(PluginTrustStores.builtInOfficialRoot().keyId());
+                CatalogTestSupport.signingFixture(PluginTrustStores.builtInOfficialPluginRoot().keyId());
         String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
         serveSignedManifest("/custom.json", "custom", json, signing);
         PluginCatalogProperties props = new PluginCatalogProperties();

@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,6 +15,7 @@ import java.sql.Statement;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("作品回填数据库")
@@ -89,6 +92,37 @@ class ArtworksBackFillDatabaseTest {
                     "SELECT t.name FROM tags t JOIN artwork_tags at ON at.tag_id = t.tag_id"
                             + " WHERE at.artwork_id = 2"));
             assertEquals(1, queryInt(statement, "SELECT \"R18\" FROM artworks WHERE artwork_id = 4"));
+        }
+    }
+
+    @Test
+    @DisplayName("复用池化数据源并拒绝与活动数据库不一致的路径")
+    void usesPooledDataSourceAndRejectsDifferentDatabasePath(@TempDir Path tempDir) throws Exception {
+        Path databasePath = tempDir.resolve("pooled.db");
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl("jdbc:sqlite:" + databasePath);
+        config.setMaximumPoolSize(1);
+
+        try (HikariDataSource dataSource = new HikariDataSource(config)) {
+            try (Connection connection = dataSource.getConnection();
+                 Statement statement = connection.createStatement()) {
+                statement.executeUpdate("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY)");
+            }
+
+            try (ArtworksBackFillDatabase ignored = ArtworksBackFillDatabase.open(
+                    dataSource,
+                    databasePath.toString()
+            )) {
+                // close 只归还借用连接，不关闭宿主池。
+            }
+            try (Connection ignored = dataSource.getConnection()) {
+                assertTrue(ignored.isValid(1));
+            }
+
+            assertThrows(
+                    java.sql.SQLException.class,
+                    () -> ArtworksBackFillDatabase.open(dataSource, tempDir.resolve("other.db").toString())
+            );
         }
     }
 

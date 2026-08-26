@@ -26,7 +26,7 @@ class GuiConfigContributionTest {
                 null,
                 20,
                 false,
-                true,
+                null,
                 null,
                 null,
                 null,
@@ -45,6 +45,7 @@ class GuiConfigContributionTest {
         assertThat(field.enabledWhen()).isEmpty();
         assertThat(field.visibleWhen()).isEmpty();
         assertThat(field.contributesGroupVisibility()).isTrue();
+        assertThat(field.effect()).isEqualTo(GuiConfigEffect.BACKEND_RESTART);
     }
 
     @Test
@@ -60,7 +61,7 @@ class GuiConfigContributionTest {
                 "auto",
                 30,
                 true,
-                false,
+                GuiConfigEffect.PROCESS_RESTART,
                 List.of("auto", "manual"),
                 List.of(GuiConfigCondition.isTrue("demo.enabled")),
                 List.of(GuiConfigCondition.notBlank("demo.token")),
@@ -73,7 +74,7 @@ class GuiConfigContributionTest {
         assertThat(field.defaultValue()).isEqualTo("auto");
         assertThat(field.order()).isEqualTo(30);
         assertThat(field.sensitive()).isTrue();
-        assertThat(field.requiresRestart()).isFalse();
+        assertThat(field.effect()).isEqualTo(GuiConfigEffect.PROCESS_RESTART);
         assertThat(field.enumValues()).containsExactly("auto", "manual");
         assertThat(field.enumValueLabelKeys()).isEmpty();
         assertThat(field.enabledWhen()).containsExactly(
@@ -97,7 +98,7 @@ class GuiConfigContributionTest {
                 "",
                 40,
                 false,
-                false);
+                GuiConfigEffect.HOT_RELOAD);
 
         assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD);
         assertThat(field.sensitive()).isTrue();

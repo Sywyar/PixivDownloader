@@ -48,7 +48,7 @@
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
   },
-  "gui-theme": {
+  "gui-swing": {
     "description": { "zh": "为桌面 GUI 提供跟随系统、浅色、深色与 Moonlight 主题，并在完整重启后应用启动期主题。", "en": "Adds system, light, dark, and Moonlight themes to the desktop GUI, applied during startup after a full restart." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -59,6 +59,18 @@
     "recommended": true,
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
+  },
+  "gui-compose": {
+    "description": { "zh": "提供可按 app.gui-provider=gui-compose 显式选择的 Compose Multiplatform 桌面渲染器，覆盖稳定声明式 UI 节点契约。", "en": "Provides an explicitly selectable Compose Multiplatform desktop renderer for the stable declarative UI node contract via app.gui-provider=gui-compose." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "ui",
+    "tags": ["gui", "compose", "multiplatform", "declarative-ui"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "recommended": false,
+    "officialRequired": false,
+    "changeNotes": ["新增 Compose Multiplatform 桌面 UI 提供者"]
   },
   "stats": {
     "description": { "zh": "按作者 / 标签 / 时间维度汇总下载量的统计仪表盘（管理员专属）。", "en": "Admin-only dashboard aggregating downloads by author / tag / time." },

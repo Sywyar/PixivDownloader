@@ -1,12 +1,13 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
+
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -18,10 +19,10 @@ import java.util.Set;
 
 /**
  * 结构化读写 {@code config.yaml} 里的<b>自定义插件仓库列表</b>（{@code plugin-catalog.repositories}）。这是
- * {@link ConfigFileEditor} 的列表型补充：后者只能逐行替换<b>标量</b>键，无法处理嵌套序列。
+ * {@link DesktopUiHost.ConfigFile} 的列表型补充：后者只能逐行替换<b>标量</b>键，无法处理嵌套序列。
  *
  * <h2>为什么不全文 SnakeYAML 回写</h2>
- * 全文 SnakeYAML 往返会丢失 {@code config.yaml} 里精心维护的分组注释 / 空行（{@code ConfigFileEditor} 的存在意义）。
+ * 全文 SnakeYAML 往返会丢失 {@code config.yaml} 里精心维护的分组注释 / 空行（标量配置端口的存在意义）。
  * 因此本类<b>读用 SnakeYAML 解析</b>（只读、无格式负担），<b>写用「外科手术式整块替换」</b>：只把
  * {@code plugin-catalog.repositories:} 这一<b>块</b>（键行 + 其后的嵌套序列行）替换为 SnakeYAML <b>序列化</b>出来的
  * 新内容，文件其余每一行（注释 / 其它键 / 未知顶层配置）<b>逐字保留</b>。绝不字符串拼接模拟 YAML、绝不全文回写。
@@ -55,10 +56,10 @@ public final class PluginRepositoryConfigEditor {
     private static final Set<String> TRUSTED_KEY_KNOWN_KEYS = Set.of(
             "key-id", "algorithm", "public-key", "state", "publisher", "trust-label");
 
-    private final Path configPath;
+    private final DesktopUiHost.ConfigFile configFile;
 
-    public PluginRepositoryConfigEditor(Path configPath) {
-        this.configPath = configPath;
+    public PluginRepositoryConfigEditor(DesktopUiHost.ConfigFile configFile) {
+        this.configFile = configFile;
     }
 
     // ── 读 ──────────────────────────────────────────────────────────────────────
@@ -69,10 +70,11 @@ public final class PluginRepositoryConfigEditor {
      */
     @SuppressWarnings("unchecked")
     public List<RepositoryConfigEntry> read() throws IOException {
-        if (!Files.exists(configPath)) {
+        DesktopUiHost.ConfigSnapshot snapshot = configFile.snapshot();
+        if (!snapshot.existed()) {
             return List.of();
         }
-        String content = Files.readString(configPath, StandardCharsets.UTF_8);
+        String content = String.join(System.lineSeparator(), snapshot.lines());
         Object loaded;
         try {
             loaded = new Yaml().load(content);
@@ -149,8 +151,9 @@ public final class PluginRepositoryConfigEditor {
      * 键已存在 → 整块替换；不存在 → 插入到最后一个 {@code plugin-catalog.*} 行之后（否则追加到文件末尾）。
      */
     public synchronized void write(List<RepositoryConfigEntry> entries) throws IOException {
-        List<String> lines = Files.exists(configPath)
-                ? new ArrayList<>(Files.readAllLines(configPath, StandardCharsets.UTF_8))
+        DesktopUiHost.ConfigSnapshot snapshot = configFile.snapshot();
+        List<String> lines = snapshot.existed()
+                ? new ArrayList<>(snapshot.lines())
                 : new ArrayList<>();
         List<String> block = new ArrayList<>(Arrays.asList(renderBlock(entries)));
 
@@ -173,7 +176,7 @@ public final class PluginRepositoryConfigEditor {
             rebuilt.addAll(lines.subList(blockEnd, lines.size()));
             lines = rebuilt;
         }
-        Files.write(configPath, lines, StandardCharsets.UTF_8);
+        configFile.restore(new DesktopUiHost.ConfigSnapshot(true, lines));
     }
 
     /** 用 SnakeYAML 序列化仓库块；空列表写为单行键（继承「安全的空列表」语义）。 */

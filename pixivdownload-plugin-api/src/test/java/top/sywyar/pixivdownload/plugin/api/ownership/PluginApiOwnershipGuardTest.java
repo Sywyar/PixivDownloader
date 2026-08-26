@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
@@ -141,18 +142,26 @@ class PluginApiOwnershipGuardTest {
     private static final Map<String, Set<String>> APPROVED_TYPES_BY_OWNER = Map.ofEntries(
             Map.entry("插件入口与生命周期", types(API_PREFIX + "plugin",
                     "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
-            Map.entry("GUI 纯数据 contribution", types(API_PREFIX + "gui",
+            Map.entry("GUI contribution 与桌面宿主契约", union(
+                    types(API_PREFIX + "gui",
+                    "DesktopAutomationSnapshot", "DesktopAutomationSource", "DesktopAutomationTaskContribution",
+                    "DesktopControlCenterAvailability", "DesktopDashboardCardContribution", "DesktopDashboardSnapshot",
+                    "DesktopDashboardSource", "DesktopRunningTaskContribution",
+                    "DesktopUiContext", "DesktopUiHost", "DesktopUiIcon", "DesktopUiPluginSnapshot",
+                    "DesktopUiProvider", "DesktopUiSession", "DesktopUiText", "DesktopUiTone", "DesktopUiToolHost",
+                    "GuiActionInvocationHeaders",
                     "GuiConfigActionContribution", "GuiConfigActionPayloadField", "GuiConfigActionPayloadType",
                     "GuiConfigActionResultArgument", "GuiConfigActionResultCondition",
                     "GuiConfigActionResultOperator", "GuiConfigActionResultRule", "GuiConfigActionResultSource",
                     "GuiConfigActionResultSummary", "GuiConfigCondition", "GuiConfigConditionOperator",
-                    "GuiConfigContribution", "GuiConfigFieldContribution", "GuiConfigFieldLayoutContribution",
+                    "GuiConfigContribution", "GuiConfigEffect", "GuiConfigFieldContribution", "GuiConfigFieldLayoutContribution",
                     "GuiConfigFieldType", "GuiConfigGroupContribution", "GuiConfigGroups",
                     "GuiConfigPresetContribution", "GuiConfigPresetMatchMode", "GuiConfigSectionContribution",
                     "GuiConfigSectionLayout", "GuiConfigSectionNoticeContribution",
                     "GuiConfigSectionNoticeStyle", "GuiOnboardingStepContribution", "GuiThemeAppearance",
                     "GuiThemeApplier", "GuiThemeChangeListener", "GuiThemeContribution",
-                    "GuiThemeListenerFactory", "GuiThemeListenerSession")),
+                    "GuiThemeListenerFactory", "GuiThemeListenerSession", "RepositoryConfigEntry",
+                    "TrustedKeyConfigEntry"))),
             Map.entry("Web 与请求身份协议", types(API_PREFIX + "web",
                     "AccessPolicy", "ApiErrorResponse", "Audience", "DrilldownContribution", "DrilldownPlacements",
                     "HttpMethod", "I18nContribution",
@@ -237,7 +246,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI 纯数据 contribution", 30),
+            Map.entry("GUI contribution 与桌面宿主契约", 51),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -255,6 +264,48 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            API_PREFIX + "gui.DesktopAutomationTaskContribution$LastResult",
+            API_PREFIX + "gui.DesktopAutomationTaskContribution$Status",
+            API_PREFIX + "gui.DesktopRunningTaskContribution$Status",
+            API_PREFIX + "gui.DesktopUiHost$BackendSnapshot",
+            API_PREFIX + "gui.DesktopUiHost$BackendState",
+            API_PREFIX + "gui.DesktopUiHost$ConfigFile",
+            API_PREFIX + "gui.DesktopUiHost$ConfigSnapshot",
+            API_PREFIX + "gui.DesktopUiHost$CredentialSnapshot",
+            API_PREFIX + "gui.DesktopUiHost$GuiBodyFormat",
+            API_PREFIX + "gui.DesktopUiHost$GuiRequest",
+            API_PREFIX + "gui.DesktopUiHost$GuiResponse",
+            API_PREFIX + "gui.DesktopUiHost$GuiValue",
+            API_PREFIX + "gui.DesktopUiHost$IoOperation",
+            API_PREFIX + "gui.DesktopUiHost$OnboardingSnapshot",
+            API_PREFIX + "gui.DesktopUiHost$RepositoryProxyPolicy",
+            API_PREFIX + "gui.DesktopUiHost$UiLocale",
+            API_PREFIX + "gui.DesktopUiHost$UiLocaleResolution",
+            API_PREFIX + "gui.DesktopUiPluginSnapshot$Fingerprint",
+            API_PREFIX + "gui.DesktopUiSession$MessageLevel",
+            API_PREFIX + "gui.DesktopUiToolHost$BackfillOptions",
+            API_PREFIX + "gui.DesktopUiToolHost$BackfillSummary",
+            API_PREFIX + "gui.DesktopUiToolHost$DatabaseColumn",
+            API_PREFIX + "gui.DesktopUiToolHost$FfmpegInstallStage",
+            API_PREFIX + "gui.DesktopUiToolHost$FfmpegInstallation",
+            API_PREFIX + "gui.DesktopUiToolHost$FfmpegProgressListener",
+            API_PREFIX + "gui.DesktopUiToolHost$FfmpegProxy",
+            API_PREFIX + "gui.DesktopUiToolHost$FfmpegSource",
+            API_PREFIX + "gui.DesktopUiToolHost$FolderArtwork",
+            API_PREFIX + "gui.DesktopUiToolHost$FolderCheckResult",
+            API_PREFIX + "gui.DesktopUiToolHost$ImageClassifierArtwork",
+            API_PREFIX + "gui.DesktopUiToolHost$ImageClassifierDeleteFailureHandler",
+            API_PREFIX + "gui.DesktopUiToolHost$ImageClassifierServer",
+            API_PREFIX + "gui.DesktopUiToolHost$ImageClassifierSettings",
+            API_PREFIX + "gui.DesktopUiToolHost$ImageClassifierTarget",
+            API_PREFIX + "gui.DesktopUiToolHost$MaintenanceSnapshot",
+            API_PREFIX + "gui.DesktopUiToolHost$MigrationOptions",
+            API_PREFIX + "gui.DesktopUiToolHost$MigrationSummary",
+            API_PREFIX + "gui.DesktopUiToolHost$ToolHistoryEntry",
+            API_PREFIX + "gui.DesktopUiToolHost$ToolId",
+            API_PREFIX + "gui.DesktopUiToolHost$ToolLogSession",
+            API_PREFIX + "gui.DesktopUiToolHost$ToolOutcome",
+            API_PREFIX + "download.queue.QueueTaskTracker$Snapshot",
             API_PREFIX + "download.queue.QueueTaskTracker$Task",
             API_PREFIX + "web.ApiErrorResponse$Basic",
             API_PREFIX + "schedule.credential.ScheduledCredentialContext$Purpose",
@@ -457,6 +508,25 @@ class PluginApiOwnershipGuardTest {
         assertThat(WebUiSlotCatalog.class.getDeclaredMethods())
                 .singleElement()
                 .satisfies(method -> assertThat(method.getName()).isEqualTo("uiSlots"));
+    }
+
+    @Test
+    @DisplayName("桌面业务上下文不暴露插件实例类加载器或宿主实现")
+    void desktopUiContextHasStableBusinessSurface() {
+        List<String> surfaceTypes = new ArrayList<>();
+        Arrays.stream(DesktopUiContext.class.getDeclaredFields())
+                .map(field -> field.getGenericType().getTypeName()).forEach(surfaceTypes::add);
+        Arrays.stream(DesktopUiContext.class.getDeclaredConstructors())
+                .flatMap(constructor -> Arrays.stream(constructor.getGenericParameterTypes()))
+                .map(type -> type.getTypeName()).forEach(surfaceTypes::add);
+        Arrays.stream(DesktopUiContext.class.getDeclaredMethods()).forEach(method -> {
+            surfaceTypes.add(method.getGenericReturnType().getTypeName());
+            Arrays.stream(method.getGenericParameterTypes())
+                    .map(type -> type.getTypeName()).forEach(surfaceTypes::add);
+        });
+
+        assertThat(surfaceTypes).allSatisfy(type -> assertThat(type)
+                .doesNotContain("PixivFeaturePlugin", "PluginSource", "ClassLoader", "org.pf4j"));
     }
 
     @Test

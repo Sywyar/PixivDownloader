@@ -8,21 +8,22 @@ import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
-import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
-import top.sywyar.pixivdownload.gui.config.GuiConfigContributionAggregator;
-import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
-import top.sywyar.pixivdownload.gui.entry.GuiWebEntryContributionAggregator;
-import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
-import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingContributionAggregator;
-import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot;
-import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.i18n.LocaleCatalog;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
@@ -36,16 +37,18 @@ import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import org.yaml.snakeyaml.Yaml;
 
-import javax.swing.*;
-import java.awt.*;
+import java.awt.GraphicsEnvironment;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.BindException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -55,6 +58,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -103,11 +108,13 @@ public class GuiLauncher {
     private static final int LOG_HISTORY_COUNT = 5;
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
+    private static final AtomicReference<DesktopUiSession> ACTIVE_UI = new AtomicReference<>();
+    private static final AtomicBoolean EXIT_REQUESTED = new AtomicBoolean();
     /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
     private static final long BACKEND_CONTEXT_CLOSE_TIMEOUT_MS = 15_000L;
 
     /**
-     * artworks / novels 表中由后端在启动时通过 {@code ALTER TABLE ... ADD COLUMN} 自动补齐的列
+     * 由后端在启动时通过 {@code ALTER TABLE ... ADD COLUMN} 自动补齐的列
      * （带安全默认值、无需联网抓取即可迁移，见 {@code DatabaseInitializer} 的安全补列阶段）。
      * <p>这些列在旧库里缺失只是后端首启前的暂时状态，会被自动迁移补齐，不应阻断
      * {@link #supportsStartupAutoBackfill} 的整段元数据自动回填判定。与
@@ -120,7 +127,10 @@ public class GuiLauncher {
             new ArtworksBackFill.DatabaseColumn("novels", "deleted"),
             new ArtworksBackFill.DatabaseColumn("artworks", "upload_time"),
             new ArtworksBackFill.DatabaseColumn("artworks", "is_original"),
-            new ArtworksBackFill.DatabaseColumn("novels", "upload_time")
+            new ArtworksBackFill.DatabaseColumn("novels", "upload_time"),
+            new ArtworksBackFill.DatabaseColumn("statistics", "daily_date"),
+            new ArtworksBackFill.DatabaseColumn("statistics", "daily_completed"),
+            new ArtworksBackFill.DatabaseColumn("statistics", "daily_failed")
     );
 
     /**
@@ -138,7 +148,7 @@ public class GuiLauncher {
 
         // ── 0a. 全局 locale 检测（必须先于 logback 初始化）────────────────────────
         //    检测器内部不允许使用 SLF4J / @Slf4j 类；通过 Locale.setDefault 写回，
-        //    使后续 HtmlLogLayout / GuiMessages / getForLog 拿到统一信号。
+        //    使后续 HtmlLogLayout / 桌面 UI 文案解析 / getForLog 拿到统一信号。
         SystemLocaleDetector.detectAndApply();
 
         // ── 0b. 在 logback 初始化前完成日志目录/属性准备 ─────────────────────────
@@ -192,10 +202,10 @@ public class GuiLauncher {
             boolean activated = SingleInstanceManager.signalExistingInstance();
             log.info(logMessage("gui.launcher.log.single-instance.existing-detected", activated));
             if (!activated && !GraphicsEnvironment.isHeadless()) {
-                JOptionPane.showMessageDialog(null,
+                DesktopUiDialogs.showMessageDialog(null,
                         message("gui.launcher.dialog.already-running.message"),
                         message("gui.launcher.dialog.already-running.title"),
-                        JOptionPane.INFORMATION_MESSAGE);
+                        DesktopUiDialogs.INFORMATION_MESSAGE);
             }
             return;
         }
@@ -228,7 +238,6 @@ public class GuiLauncher {
         // ── 2. 启动前读取配置（Spring 尚未就绪，直接读文件）────────────────────────
         int serverPort = DEFAULT_PORT;
         String rootFolder = DEFAULT_ROOT;
-        String themePreference = GuiThemeManager.DEFAULT_THEME_ID;
         Path configPath = RuntimeFiles.resolveConfigYamlPath();
 
         if (configPath.toFile().exists()) {
@@ -242,7 +251,6 @@ public class GuiLauncher {
                 if (rootStr != null && !rootStr.isBlank()) {
                     rootFolder = rootStr.trim();
                 }
-                themePreference = GuiThemeManager.readPersistedThemeId(configPath);
             } catch (Exception e) {
                 log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
             }
@@ -260,19 +268,16 @@ public class GuiLauncher {
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
         // 首窗前 startup-only 消费者先取出需要的固定快照；GUI 动态贡献在面板 / 菜单重建时从运行期 manager 重新发现，
         // 以便按当前 GUI locale 重新解析插件 i18n，同时不长期持有启动 discovery。
-        final List<GuiThemeManager.ThemePluginSource> startupThemePlugins = buildStartupThemePlugins(
-                pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
-        final Supplier<GuiConfigContributionSnapshot> guiConfigContributions =
-                () -> buildGuiConfigContributionSnapshot(pluginSession);
-        final Supplier<GuiWebEntrySnapshot> guiWebEntries = () -> buildGuiWebEntrySnapshot(pluginSession);
-        final GuiOnboardingSnapshot guiOnboarding = buildGuiOnboardingSnapshot(pluginSession);
+        final PluginRegistry startupPluginRegistry = pluginRegistry(pluginSession, pluginSession.startupDiscovery());
+        final List<DesktopUiPluginSource> startupPluginSources = buildDesktopUiPluginSources(startupPluginRegistry);
+        final List<DesktopUiPluginSnapshot> startupDesktopSnapshots =
+                buildDesktopUiPluginSnapshots(startupPluginSources);
+        final WebI18nBundleRegistry startupDesktopBundles = new WebI18nBundleRegistry(startupPluginRegistry);
         final ManagedDatabaseSchema.DatabaseSchema startupManagedSchema =
                 buildStartupManagedSchema(pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
-        pluginSession.releaseStartupSnapshot();
 
         final int port = serverPort;
         final String root = rootFolder;
-        final String theme = themePreference;
         String[] backendArgs = filterArgs(args);
 
         // 后端启动经显式、可清理的回调接收同一 PROCESS 会话——每次 startAsync（含 restart 的 start 阶段）都把同一会话
@@ -282,29 +287,63 @@ public class GuiLauncher {
                 backendArgs, GuiLauncher::showBackendStartupFailure,
                 backendArgsForSession -> PixivDownloadApplication.start(backendArgsForSession, pluginSession));
         registerProcessShutdown(pluginSession, backendRegistration);
-
-        // ── 3. 初始化 Swing 主题，展示主窗口 ───────────────────────────────────
-        SwingUtilities.invokeLater(() -> {
-            try {
-                GuiThemeManager.applyBeforeFirstWindow(configPath, theme, startupThemePlugins);
-                MainFrame frame = new MainFrame(port, root, configPath,
-                        guiConfigContributions, guiWebEntries, guiOnboarding);
-                singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
-                boolean trayInstalled = SystemTrayManager.install(frame, root);
-                if (!startupLaunch || !trayInstalled) {
-                    frame.showWindow();
-                }
-                maybeScheduleStartupBackfillFlow(frame, configPath, root, startupManagedSchema);
-            } catch (Throwable t) {
-                // 没有这层兜底，异常只会打到不可见的 stderr，EDT 随即收摊、
-                // JVM 静默退出，日志永远停在启动那两行。务必先落盘再退出。
-                handleFatalGuiBootstrapFailure(t);
+        // ── 3. 选择并启动外置桌面 UI ─────────────────────────────────────────
+        try {
+            List<DesktopUiProvider> desktopProviders = startupPluginSources.stream()
+                    .map(DesktopUiPluginSource::plugin)
+                    .filter(DesktopUiProvider.class::isInstance)
+                    .map(DesktopUiProvider.class::cast)
+                    .toList();
+            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
+            if (desktopProviders.isEmpty()) {
+                pluginSession.releaseStartupSnapshot();
+                openPluginMarketWithoutDesktopProvider(configPath, port, desktopUiHost);
+                return;
             }
-        });
+            DesktopUiSelector.Selection selection = DesktopUiSelector.select(
+                    readConfigScalar(configPath, "app.gui-provider"),
+                    desktopProviders);
+            desktopUiHost.resetIncompleteOnboardingState(root);
+            Supplier<List<DesktopUiPluginSource>> currentDesktopSources = memoizedDesktopUiSources(
+                    () -> pluginSession.manager().discoverFeaturePlugins(),
+                    discovery -> buildDesktopUiPluginSources(pluginRegistry(pluginSession, discovery)),
+                    pluginSession.startupDiscovery(), startupPluginSources);
+            Supplier<List<DesktopUiPluginSnapshot>> currentDesktopSnapshots =
+                    () -> buildDesktopUiPluginSnapshots(currentDesktopSources.get());
+            Supplier<WebI18nBundleRegistry> currentDesktopBundles = memoizedDesktopUiBundles(
+                    () -> pluginSession.manager().discoverFeaturePlugins(),
+                    discovery -> new WebI18nBundleRegistry(pluginRegistry(pluginSession, discovery)),
+                    pluginSession.startupDiscovery(), startupDesktopBundles);
+            DesktopUiProvider selectedProvider = selection.provider();
+            DesktopUiContext context = new DesktopUiContext(
+                    startupLaunch,
+                    port,
+                    root,
+                    configPath,
+                    selectedProvider.id(),
+                    desktopUiHost,
+                    startupDesktopSnapshots,
+                    currentDesktopSnapshots,
+                    token -> resolveDesktopText(token, currentDesktopBundles),
+                    () -> readThemePreference(desktopUiHost)
+            );
+            DesktopUiSession ui = selectedProvider.launch(context);
+            ACTIVE_UI.set(ui);
+            singleInstanceManager.setActivationHandler(ui::activate);
+            if (selection.diagnostic() != null) {
+                log.warn(selection.diagnostic());
+                ui.showMessage(DesktopUiSession.MessageLevel.WARNING,
+                        MessageBundles.get("gui.dialog.warning.title"), selection.diagnostic());
+            }
+            pluginSession.releaseStartupSnapshot();
+            maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema);
+        } catch (Throwable failure) {
+            handleFatalGuiBootstrapFailure(failure);
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // 全局异常兜底（防止进程无痕消失）
+    // 全局异常兜底
     // ────────────────────────────────────────────────────────────────────────
 
     /**
@@ -333,11 +372,12 @@ public class GuiLauncher {
     private static void handleFatalGuiBootstrapFailure(Throwable t) {
         logStartupFailure(t);
         try {
-            GuiErrorDialog.show(
+            DesktopUiDialogs.show(
                     null,
                     message("gui.launcher.dialog.startup-error.title"),
                     message("gui.launcher.dialog.startup-error.with-log.message",
-                            safeMessage(t), Path.of(LOG_LATEST).toAbsolutePath()));
+                            safeMessage(t), Path.of(LOG_LATEST).toAbsolutePath()),
+                    t);
         } catch (Throwable dialogFailure) {
             log.error(logMessage("gui.launcher.log.startup.failed.generic",
                     safeMessage(dialogFailure)), dialogFailure);
@@ -345,6 +385,43 @@ public class GuiLauncher {
         // System.exit（而非 halt）：让单实例 shutdown hook 释放锁，
         // 否则下次启动会误判为「已在运行」。
         System.exit(1);
+    }
+
+    private static void openPluginMarketWithoutDesktopProvider(
+            Path configPath, int port, AppDesktopUiHost desktopUiHost) {
+        boolean confirmed = DesktopUiDialogs.showBootstrapConfirmDialog(
+                message("gui.launcher.dialog.no-provider.title"),
+                message("gui.launcher.dialog.no-provider.message"),
+                message("gui.launcher.dialog.no-provider.confirm"));
+        if (!confirmed) return;
+
+        URI marketUri = pluginMarketUri(configPath, port);
+        BackendLifecycleManager.startAsync(() -> {
+            try {
+                desktopUiHost.openExternalUri(marketUri);
+            } catch (Exception failure) {
+                log.error(logMessage("gui.status.log.open-browser-failed",
+                        marketUri, safeMessage(failure)), failure);
+            }
+        });
+    }
+
+    static URI pluginMarketUri(Path configPath, int port) {
+        String scheme = Boolean.parseBoolean(readConfigScalar(configPath, "server.ssl.enabled"))
+                ? "https" : "http";
+        String domain = defaultIfBlank(readConfigScalar(configPath, "ssl.domain"), "localhost").trim();
+        if (domain.contains("://") || domain.contains("/") || domain.contains("\\")
+                || domain.contains("@") || domain.contains(" ")) {
+            domain = "localhost";
+        }
+        try {
+            URI uri = new URI(scheme, null, domain, port, "/plugin-market.html", null, null);
+            return uri.getHost() == null
+                    ? new URI(scheme, null, "localhost", port, "/plugin-market.html", null, null)
+                    : uri;
+        } catch (URISyntaxException | IllegalArgumentException failure) {
+            return URI.create("http://localhost:" + DEFAULT_PORT + "/plugin-market.html");
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -425,7 +502,7 @@ public class GuiLauncher {
         }
     }
 
-    private static void maybeScheduleStartupBackfillFlow(MainFrame frame, Path configPath, String rootFolder,
+    private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, Path configPath, String rootFolder,
                                                          ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
         ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder);
         Path databasePath = Path.of(options.dbPath());
@@ -442,7 +519,7 @@ public class GuiLauncher {
         worker.start();
     }
 
-    private static void runStartupSchemaBackfill(MainFrame frame, Path databasePath,
+    private static void runStartupSchemaBackfill(DesktopUiSession frame, Path databasePath,
                                                  ArtworksBackFill.Options options,
                                                  ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
         if (!hasInspectableDatabase(databasePath)) {
@@ -456,11 +533,11 @@ public class GuiLauncher {
             comparison = DatabaseSchemaInspector.compare(databasePath, expectedSchema);
         } catch (Throwable error) {
             log.warn(logMessage("gui.launcher.log.startup.schema-check.compare-failed"), error);
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+            DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
                     frame,
                     message("gui.launcher.dialog.schema-check-failed.message", safeMessage(error)),
                     message("gui.launcher.dialog.schema-check-failed.title"),
-                    JOptionPane.WARNING_MESSAGE));
+                    DesktopUiDialogs.WARNING_MESSAGE));
             BackendLifecycleManager.startAsync();
             return;
         }
@@ -474,20 +551,20 @@ public class GuiLauncher {
         log.info(logMessage("gui.launcher.log.startup.schema-check.mismatch", comparison.summary(8)));
         if (!supportsStartupAutoBackfill(comparison)) {
             log.info(logMessage("gui.launcher.log.startup.schema-check.auto-backfill.unsupported", comparison.summary(8)));
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+            DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
                     frame,
                     message("gui.launcher.dialog.schema-mismatch.no-auto-backfill.message", comparison.summary(6)),
                     message("gui.launcher.dialog.schema-mismatch.title"),
-                    JOptionPane.INFORMATION_MESSAGE));
+                    DesktopUiDialogs.INFORMATION_MESSAGE));
             BackendLifecycleManager.startAsync();
             return;
         }
 
-        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+        DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
                 frame,
                 message("gui.launcher.dialog.schema-mismatch.message", comparison.summary(6)),
                 message("gui.launcher.dialog.schema-mismatch.title"),
-                JOptionPane.INFORMATION_MESSAGE));
+                DesktopUiDialogs.INFORMATION_MESSAGE));
 
         int pendingCount;
         try {
@@ -495,11 +572,11 @@ public class GuiLauncher {
             log.info(logMessage("gui.launcher.log.startup.backfill.pending", pendingCount));
         } catch (Throwable error) {
             log.warn(logMessage("gui.launcher.log.startup.backfill.check-failed"), error);
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+            DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
                     frame,
                     message("gui.launcher.dialog.backfill-check-failed.message", safeMessage(error)),
                     message("gui.launcher.dialog.backfill-check-failed.title"),
-                    JOptionPane.WARNING_MESSAGE));
+                    DesktopUiDialogs.WARNING_MESSAGE));
             BackendLifecycleManager.startAsync();
             return;
         }
@@ -510,11 +587,11 @@ public class GuiLauncher {
         }
 
         final int confirmedPending = pendingCount;
-        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+        DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
                 frame,
                 message("gui.launcher.dialog.backfill-pending.message", confirmedPending),
                 message("gui.launcher.dialog.auto-backfill.title"),
-                JOptionPane.INFORMATION_MESSAGE));
+                DesktopUiDialogs.INFORMATION_MESSAGE));
 
         ToolHtmlLogSession logSession = null;
         ArtworksBackFill.Summary summary = null;
@@ -585,15 +662,16 @@ public class GuiLauncher {
         return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE;
     }
 
-    private static void showStartupBackfillResult(Component owner,
+    private static void showStartupBackfillResult(DesktopUiSession owner,
                                                   ArtworksBackFill.Summary summary,
                                                   Throwable failure,
                                                   int checkedCount) {
         if (failure != null) {
-            GuiErrorDialog.show(
+            DesktopUiDialogs.show(
                     owner,
                     message("gui.launcher.dialog.auto-backfill.title"),
-                    message("gui.launcher.dialog.auto-backfill.failed.message", safeMessage(failure)));
+                    message("gui.launcher.dialog.auto-backfill.failed.message", safeMessage(failure)),
+                    failure);
             return;
         }
 
@@ -604,12 +682,12 @@ public class GuiLauncher {
         String resultText = summary.rateLimited()
                 ? message("gui.launcher.dialog.auto-backfill.rate-limited")
                 : message("gui.launcher.dialog.auto-backfill.completed");
-        JOptionPane.showMessageDialog(
+        DesktopUiDialogs.showMessageDialog(
                 owner,
                 message("gui.launcher.dialog.auto-backfill.summary.message",
                         resultText, checkedCount, summary.processed(), summary.totalCandidates()),
                 message("gui.launcher.dialog.auto-backfill.title"),
-                summary.rateLimited() ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE
+                summary.rateLimited() ? DesktopUiDialogs.WARNING_MESSAGE : DesktopUiDialogs.INFORMATION_MESSAGE
         );
     }
 
@@ -659,11 +737,12 @@ public class GuiLauncher {
         String diag = diagnoseStartupError(error);
         String userMessage = diag != null ? diag : message("gui.launcher.dialog.startup-error.message", safeMessage(error));
         logStartupFailure(error);
-        SwingUtilities.invokeLater(() -> GuiErrorDialog.show(
+        DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.show(
                 null,
                 message("gui.launcher.dialog.startup-error.title"),
                 message("gui.launcher.dialog.startup-error.with-log.message",
-                        userMessage, Path.of(LOG_LATEST).toAbsolutePath())));
+                        userMessage, Path.of(LOG_LATEST).toAbsolutePath()),
+                error));
     }
 
     private static void logStartupFailure(Throwable t) {
@@ -775,10 +854,11 @@ public class GuiLauncher {
         if (GraphicsEnvironment.isHeadless()) {
             return;
         }
-        GuiErrorDialog.show(null,
+        DesktopUiDialogs.show(null,
                 message("gui.launcher.dialog.startup-error.title"),
                 message("gui.launcher.dialog.single-instance-init-failed.message",
-                        safeMessage(e), Path.of(LOG_LATEST).toAbsolutePath()));
+                        safeMessage(e), Path.of(LOG_LATEST).toAbsolutePath()),
+                e);
     }
 
     private static void registerSingleInstanceShutdown(SingleInstanceManager singleInstanceManager) {
@@ -816,36 +896,6 @@ public class GuiLauncher {
         }
     }
 
-    private static GuiConfigContributionSnapshot buildGuiConfigContributionSnapshot(PluginBootstrapSession pluginSession) {
-        try {
-            return GuiConfigContributionAggregator.from(pluginRegistry(pluginSession,
-                    pluginSession.manager().discoverFeaturePlugins()));
-        } catch (RuntimeException e) {
-            log.warn(logMessage("gui.launcher.log.gui-config-contribution.failed", safeMessage(e)), e);
-            return GuiConfigContributionSnapshot.empty();
-        }
-    }
-
-    private static GuiWebEntrySnapshot buildGuiWebEntrySnapshot(PluginBootstrapSession pluginSession) {
-        try {
-            return GuiWebEntryContributionAggregator.from(pluginRegistry(pluginSession,
-                    pluginSession.manager().discoverFeaturePlugins()));
-        } catch (RuntimeException e) {
-            log.warn(logMessage("gui.launcher.log.gui-web-entry-contribution.failed", safeMessage(e)), e);
-            return GuiWebEntrySnapshot.empty();
-        }
-    }
-
-    private static GuiOnboardingSnapshot buildGuiOnboardingSnapshot(PluginBootstrapSession pluginSession) {
-        try {
-            return GuiOnboardingContributionAggregator.from(pluginRegistry(pluginSession,
-                    pluginSession.startupDiscovery()));
-        } catch (RuntimeException e) {
-            log.warn(logMessage("gui.launcher.log.gui-onboarding-contribution.failed", safeMessage(e)), e);
-            return GuiOnboardingSnapshot.empty();
-        }
-    }
-
     private static PluginRegistry pluginRegistry(PluginBootstrapSession pluginSession,
                                                  PluginDiscoveryResult discovery) {
         return new PluginRegistry(BuiltInPlugins.createAll(),
@@ -853,25 +903,128 @@ public class GuiLauncher {
                 discovery);
     }
 
+    static List<DesktopUiPluginSource> buildDesktopUiPluginSources(PluginRegistry registry) {
+        return registry.registeredPlugins().stream()
+                .map(registered -> new DesktopUiPluginSource(
+                        registered.id(), registered.source() == PluginSource.BUILT_IN,
+                        registered.plugin(), registered.classLoader(),
+                        registered.packageId(), registered.generation()))
+                .toList();
+    }
+
+    static List<DesktopUiPluginSnapshot> buildDesktopUiPluginSnapshots(
+            List<DesktopUiPluginSource> sources
+    ) {
+        if (sources == null || sources.isEmpty()) return List.of();
+        return sources.stream().map(source -> {
+            var plugin = source.plugin();
+            return new DesktopUiPluginSnapshot(
+                    source.id(),
+                    source.builtIn(),
+                    source.packageId(),
+                    source.generation(),
+                    plugin instanceof DesktopUiProvider,
+                    safeScalar(plugin::displayNamespace),
+                    safeScalar(plugin::displayName),
+                    safeList(plugin::guiThemes),
+                    safeList(plugin::guiConfigContributions),
+                    safeList(plugin::guiOnboardingSteps),
+                    safeList(plugin::routes),
+                    safeList(plugin::navigation)
+            );
+        }).toList();
+    }
+
+    private static String safeScalar(Supplier<String> supplier) {
+        try {
+            return supplier.get();
+        } catch (RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static <T> List<T> safeList(Supplier<List<T>> supplier) {
+        try {
+            List<T> values = supplier.get();
+            return values == null ? List.of() : List.copyOf(values);
+        } catch (RuntimeException failure) {
+            return List.of();
+        }
+    }
+
+    static Supplier<List<DesktopUiPluginSource>> memoizedDesktopUiSources(
+            Supplier<PluginDiscoveryResult> discoveries,
+            Function<PluginDiscoveryResult, List<DesktopUiPluginSource>> sourceFactory,
+            PluginDiscoveryResult initialDiscovery,
+            List<DesktopUiPluginSource> initialSources) {
+        return new Supplier<>() {
+            private PluginDiscoveryResult discovery = initialDiscovery;
+            private List<DesktopUiPluginSource> sources = List.copyOf(initialSources);
+
+            @Override
+            public synchronized List<DesktopUiPluginSource> get() {
+                PluginDiscoveryResult current = discoveries.get();
+                if (!current.equals(discovery)) {
+                    discovery = current;
+                    sources = List.copyOf(sourceFactory.apply(current));
+                }
+                return sources;
+            }
+        };
+    }
+
+    static Supplier<WebI18nBundleRegistry> memoizedDesktopUiBundles(
+            Supplier<PluginDiscoveryResult> discoveries,
+            Function<PluginDiscoveryResult, WebI18nBundleRegistry> bundleFactory,
+            PluginDiscoveryResult initialDiscovery,
+            WebI18nBundleRegistry initialBundles) {
+        return new Supplier<>() {
+            private PluginDiscoveryResult discovery = initialDiscovery;
+            private WebI18nBundleRegistry bundles = initialBundles;
+
+            @Override
+            public synchronized WebI18nBundleRegistry get() {
+                PluginDiscoveryResult current = discoveries.get();
+                if (!current.equals(discovery)) {
+                    discovery = current;
+                    bundles = bundleFactory.apply(current);
+                }
+                return bundles;
+            }
+        };
+    }
+
+    static String resolveDesktopText(DesktopUiText token,
+                                     Supplier<WebI18nBundleRegistry> bundles) {
+        java.util.Locale locale = java.util.Locale.getDefault();
+        Object[] arguments = token.arguments().toArray();
+        if (token.key().isBlank()) {
+            if (arguments.length == 0) return token.fallback();
+            return new MessageFormat(token.fallback(), LocaleCatalog.defaultCatalog().resolve(locale).toLocale())
+                    .format(arguments);
+        }
+        if (token.namespace() == null) {
+            return MessageBundles.getOrDefault(locale, token.key(), token.fallback(), arguments);
+        }
+        String pattern = bundles.get().resolve(token.namespace(), locale, token.key())
+                .orElseGet(() -> token.fallback().isBlank() ? token.key() : token.fallback());
+        if (arguments.length == 0) return pattern;
+        return new MessageFormat(pattern, LocaleCatalog.defaultCatalog().resolve(locale).toLocale())
+                .format(arguments);
+    }
+
+    private static String readThemePreference(DesktopUiHost host) {
+        try {
+            String value = host.applicationConfig().read("app.theme");
+            return value == null || value.isBlank() ? "system" : value;
+        } catch (IOException failure) {
+            return "system";
+        }
+    }
     static ManagedDatabaseSchema.DatabaseSchema buildStartupManagedSchema(PluginEnabledSnapshot enabledSnapshot,
                                                                           PluginDiscoveryResult discovery) {
         return new DatabaseSchemaRegistry(new PluginRegistry(BuiltInPlugins.createAll(),
                 togglesFromSnapshot(enabledSnapshot), discovery)).mergedSchema();
-    }
-
-    static List<GuiThemeManager.ThemePluginSource> buildStartupThemePlugins(
-            PluginEnabledSnapshot enabledSnapshot, PluginDiscoveryResult discovery) {
-        if (discovery == null) {
-            return List.of();
-        }
-        PluginEnabledSnapshot effectiveEnabled = enabledSnapshot != null
-                ? enabledSnapshot
-                : PluginEnabledSnapshot.empty();
-        return discovery.discovered().stream()
-                .filter(discovered -> effectiveEnabled.isEnabled(discovered.featurePluginId()))
-                .map(discovered -> new GuiThemeManager.ThemePluginSource(
-                        discovered.featurePluginId(), discovered.plugin()))
-                .toList();
     }
 
     private static PluginToggleProperties togglesFromSnapshot(PluginEnabledSnapshot snapshot) {
@@ -1043,6 +1196,7 @@ public class GuiLauncher {
                 BACKEND_CONTEXT_CLOSE_TIMEOUT_MS,
                 session);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            // 受控退出已在 System.exit 前关闭桌面 UI；shutdown hook 内不得再调用依赖 AWT 事件泵的工具包清理。
             try {
                 coordinator.shutdown();
             } catch (RuntimeException e) {
@@ -1053,8 +1207,42 @@ public class GuiLauncher {
         }, "process-shutdown"));
     }
 
+    static void requestApplicationExit() {
+        requestApplicationExit(GuiLauncher::closeActiveDesktopUiResources, () -> System.exit(0));
+    }
+
+    static void requestApplicationExit(Runnable desktopUiCloseAction, Runnable exitAction) {
+        if (!EXIT_REQUESTED.compareAndSet(false, true)) return;
+        Thread exitThread = new Thread(() -> {
+            try {
+                desktopUiCloseAction.run();
+            } catch (RuntimeException failure) {
+                if (log != null) {
+                    log.debug(logMessage("gui.launcher.log.desktop-ui.close-failed", failure.getMessage()), failure);
+                }
+            } finally {
+                exitAction.run();
+            }
+        }, "desktop-ui-exit");
+        exitThread.setDaemon(false);
+        exitThread.start();
+    }
+
+    private static void closeActiveDesktopUiResources() {
+        RuntimeException failure = null;
+        DesktopUiSession ui = ACTIVE_UI.getAndSet(null);
+        if (ui != null) {
+            try {
+                ui.close();
+            } catch (RuntimeException closeFailure) {
+                failure = closeFailure;
+            }
+        }
+        if (failure != null) throw failure;
+    }
+
     private static String message(String code, Object... args) {
-        return GuiMessages.get(code, args);
+        return MessageBundles.get(code, args);
     }
 
     private static String logMessage(String code, Object... args) {
@@ -1064,6 +1252,30 @@ public class GuiLauncher {
     /**
      * 从参数列表中过滤掉 GUI 专用参数，避免传入 Spring。
      */
+    private static String readConfigScalar(Path path, String key) {
+        if (path == null || key == null || !Files.isRegularFile(path)) return "";
+        try {
+            for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+                int colon = line.indexOf(':');
+                if (colon < 0 || !line.substring(0, colon).trim().equals(key)) continue;
+                String value = line.substring(colon + 1).trim();
+                int comment = value.indexOf('#');
+                if (comment >= 0) value = value.substring(0, comment).trim();
+                if (value.length() >= 2 && ((value.startsWith("\"") && value.endsWith("\""))
+                        || (value.startsWith("'") && value.endsWith("'")))) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                return value.trim();
+            }
+        } catch (IOException failure) {
+            log.warn("Failed to read desktop UI provider preference from {}: {}", path, failure.toString());
+        }
+        return "";
+    }
+    static DesktopUiSession activeUi() {
+        return ACTIVE_UI.get();
+    }
+
     private static String[] filterArgs(String[] args) {
         return Arrays.stream(args)
                 .filter(arg -> !arg.equals("--no-gui"))

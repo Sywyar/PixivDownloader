@@ -28,7 +28,7 @@ public final class QueueStatusRetention {
         CleanupOnce cleanupOnce = new CleanupOnce(cleanup);
         QueueTaskTracker.Task task;
         try {
-            task = tracker.prepareQueued(ownerKey);
+            task = tracker.prepareDeferredCleanup(ownerKey);
         } catch (QueueNotAcceptingException ignored) {
             cleanupOnce.run();
             return;

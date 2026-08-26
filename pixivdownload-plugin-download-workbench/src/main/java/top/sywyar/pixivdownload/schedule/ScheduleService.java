@@ -13,6 +13,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSnapshot;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSource;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationTaskContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -46,6 +51,7 @@ import top.sywyar.pixivdownload.schedule.definition.ScheduleTaskDefinitionValida
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,8 +69,11 @@ import java.util.regex.Pattern;
 @Slf4j
 @PluginManagedBean
 @RequiredArgsConstructor
-public class ScheduleService {
+public class ScheduleService implements DesktopAutomationSource {
 
+    private static final String AUTOMATION_NAMESPACE = "batch";
+    private static final long AUTOMATION_WINDOW_SECONDS = 24L * 60L * 60L;
+    private static final int MAX_AUTOMATION_TEXT_CODE_POINTS = 512;
     private static final int MAX_PLUGIN_STATUS_ENTRIES = 16;
     private static final int MAX_PLUGIN_STATUS_KEY_BYTES = 64;
     private static final int MAX_PLUGIN_STATUS_VALUE_BYTES = 256;
@@ -101,6 +110,139 @@ public class ScheduleService {
         return store.findAll().stream()
                 .map(t -> taskView(t, runState.get(t.id()), activations))
                 .toList();
+    }
+
+    /**
+     * 返回当前调度宿主可证明的任务摘要。投影只含机器状态、受控触发摘要、最近结果与未来 24 小时内
+     * 已持久化的下一次运行时刻，不读取或返回凭据、代理、definition 正文或写动作。
+     *
+     * @return 当前自动化只读快照
+     */
+    @Override
+    public DesktopAutomationSnapshot snapshot() {
+        return snapshot(Instant.now());
+    }
+
+    DesktopAutomationSnapshot snapshot(Instant observedAt) {
+        Objects.requireNonNull(observedAt, "observedAt");
+        Instant horizon = observedAt.plusSeconds(AUTOMATION_WINDOW_SECONDS);
+        List<DesktopAutomationTaskContribution> tasks = new ArrayList<>();
+        for (ScheduledTask task : store.findAll()) {
+            if (task == null || task.id() == null) {
+                continue;
+            }
+            tasks.add(automationTask(task, observedAt, horizon));
+        }
+        return new DesktopAutomationSnapshot(
+                tasks,
+                config.isEnabled()
+                        ? DesktopControlCenterAvailability.AVAILABLE
+                        : DesktopControlCenterAvailability.UNAVAILABLE,
+                observedAt);
+    }
+
+    private DesktopAutomationTaskContribution automationTask(
+            ScheduledTask task,
+            Instant observedAt,
+            Instant horizon) {
+        String liveState = runState.get(task.id());
+        DesktopAutomationTaskContribution.Status status = automationStatus(task, liveState);
+        List<Instant> nextRuns = nextRuns(task, observedAt, horizon, status);
+        String taskName = boundedAutomationText(task.name());
+        DesktopUiText title = taskName.isBlank()
+                ? text("desktop.control-center.automation.task", "Scheduled task {0}",
+                Long.toString(task.id()))
+                : DesktopUiText.raw(taskName);
+        return new DesktopAutomationTaskContribution(
+                "schedule:" + task.id(),
+                task.id() > Integer.MAX_VALUE ? Integer.MAX_VALUE : task.id().intValue(),
+                title,
+                triggerSummary(task),
+                status,
+                lastResult(task),
+                nextRuns,
+                observedAt);
+    }
+
+    private List<Instant> nextRuns(
+            ScheduledTask task,
+            Instant observedAt,
+            Instant horizon,
+            DesktopAutomationTaskContribution.Status status) {
+        if (!config.isEnabled()
+                || status == DesktopAutomationTaskContribution.Status.DISABLED
+                || status == DesktopAutomationTaskContribution.Status.SUSPENDED
+                || task.nextRunTime() == null) {
+            return List.of();
+        }
+        Instant next = Instant.ofEpochMilli(task.nextRunTime());
+        return next.isAfter(observedAt) && !next.isAfter(horizon) ? List.of(next) : List.of();
+    }
+
+    private static DesktopAutomationTaskContribution.Status automationStatus(
+            ScheduledTask task,
+            String liveState) {
+        if (!task.enabled()) {
+            return DesktopAutomationTaskContribution.Status.DISABLED;
+        }
+        if (task.suspendReason() != null) {
+            return DesktopAutomationTaskContribution.Status.SUSPENDED;
+        }
+        String state = liveState != null
+                ? liveState
+                : task.runState() == null ? null : task.runState().name();
+        if (ScheduleRunState.QUEUED.equals(state)) {
+            return DesktopAutomationTaskContribution.Status.QUEUED;
+        }
+        if (ScheduleRunState.RUNNING.equals(state)) {
+            return DesktopAutomationTaskContribution.Status.RUNNING;
+        }
+        if (ScheduleRunState.CANCEL_REQUESTED.equals(state)) {
+            return DesktopAutomationTaskContribution.Status.CANCEL_REQUESTED;
+        }
+        return state == null
+                ? DesktopAutomationTaskContribution.Status.IDLE
+                : DesktopAutomationTaskContribution.Status.UNKNOWN;
+    }
+
+    private static DesktopAutomationTaskContribution.LastResult lastResult(ScheduledTask task) {
+        if (task.lastOutcome() == null) {
+            return DesktopAutomationTaskContribution.LastResult.UNKNOWN;
+        }
+        return switch (task.lastOutcome()) {
+            case NEVER -> DesktopAutomationTaskContribution.LastResult.NEVER;
+            case OK -> DesktopAutomationTaskContribution.LastResult.OK;
+            case ERROR -> DesktopAutomationTaskContribution.LastResult.ERROR;
+            case CANCELLED -> DesktopAutomationTaskContribution.LastResult.CANCELLED;
+            case INTERRUPTED -> DesktopAutomationTaskContribution.LastResult.INTERRUPTED;
+        };
+    }
+
+    private static DesktopUiText triggerSummary(ScheduledTask task) {
+        if (ScheduledTask.TRIGGER_INTERVAL.equals(task.triggerKind())
+                && task.intervalMinutes() != null && task.intervalMinutes() > 0) {
+            return text("desktop.control-center.automation.interval", "Every {0} minutes",
+                    Integer.toString(task.intervalMinutes()));
+        }
+        if (ScheduledTask.TRIGGER_CRON.equals(task.triggerKind())
+                && task.cronExpr() != null && !task.cronExpr().isBlank()) {
+            return text("desktop.control-center.automation.cron", "Cron: {0}",
+                    boundedAutomationText(task.cronExpr()));
+        }
+        return text("desktop.control-center.automation.unknown-trigger", "Unknown trigger");
+    }
+
+    private static DesktopUiText text(String key, String fallback, String... arguments) {
+        return new DesktopUiText(AUTOMATION_NAMESPACE, key, fallback, List.of(arguments));
+    }
+
+    private static String boundedAutomationText(String value) {
+        if (value == null) {
+            return "";
+        }
+        int codePoints = value.codePointCount(0, value.length());
+        int end = value.offsetByCodePoints(0, Math.min(codePoints, MAX_AUTOMATION_TEXT_CODE_POINTS));
+        return value.substring(0, end);
     }
 
     public ScheduleTaskView get(long id) {

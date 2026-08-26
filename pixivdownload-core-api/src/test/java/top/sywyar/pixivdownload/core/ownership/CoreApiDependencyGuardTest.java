@@ -108,12 +108,14 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.ai..",
                         "top.sywyar.pixivdownload.config..",
                         "top.sywyar.pixivdownload.core.archive..",
+                        "top.sywyar.pixivdownload.core.asset..",
                         "top.sywyar.pixivdownload.core.artwork..",
                         "top.sywyar.pixivdownload.core.collection..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.download..",
                         "top.sywyar.pixivdownload.core.ffmpeg..",
                         "top.sywyar.pixivdownload.core.hash..",
+                        "top.sywyar.pixivdownload.core.metadata.sidecar..",
                         "top.sywyar.pixivdownload.core.pixiv..",
                         "top.sywyar.pixivdownload.core.quota..",
                         "top.sywyar.pixivdownload.core.schedule..",
@@ -127,6 +129,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.tts.narration.engine..",
                         "top.sywyar.pixivdownload.core.time..",
                         "top.sywyar.pixivdownload.web..",
+                        "javax.imageio..",
                         "java..")
                 .because("core-api 是 Spring-free 纯 JDK 的核心 owned 稳定语义端口、纯值模型与中性纯算法模块："
                         + "只能依赖 JDK 与本模块纯契约包，不得依赖 Spring / SLF4J / JDBC / MyBatis、"

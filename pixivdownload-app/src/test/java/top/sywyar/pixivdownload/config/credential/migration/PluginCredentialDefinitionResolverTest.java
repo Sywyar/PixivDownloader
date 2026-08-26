@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -163,7 +164,7 @@ class PluginCredentialDefinitionResolverTest {
                                                     GuiConfigFieldType type,
                                                     boolean sensitive) {
         return new GuiConfigFieldContribution(
-                key, "fixture", key, "", type, "", 10, sensitive, true);
+                key, "fixture", key, "", type, "", 10, sensitive, GuiConfigEffect.BACKEND_RESTART);
     }
 
     private static final class MutablePlugin implements PixivFeaturePlugin {

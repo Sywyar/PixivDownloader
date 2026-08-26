@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegis
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistryTestAccess;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 import java.util.List;
 import java.util.Locale;

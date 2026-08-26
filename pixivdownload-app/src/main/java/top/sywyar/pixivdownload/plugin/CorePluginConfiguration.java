@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixColumns;
 import top.sywyar.pixivdownload.core.schedule.db.migration.LegacyScheduledTaskMigrationCoordinator;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.push.PushFormatConverter;
 
 @Configuration

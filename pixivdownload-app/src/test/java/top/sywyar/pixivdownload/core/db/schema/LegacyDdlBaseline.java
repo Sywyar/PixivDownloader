@@ -51,7 +51,10 @@ final class LegacyDdlBaseline {
                     + "id INTEGER PRIMARY KEY CHECK (id = 1),"
                     + "total_artworks INTEGER DEFAULT 0,"
                     + "total_images INTEGER DEFAULT 0,"
-                    + "total_moved INTEGER DEFAULT 0)",
+                    + "total_moved INTEGER DEFAULT 0,"
+                    + "daily_date TEXT,"
+                    + "daily_completed INTEGER DEFAULT 0,"
+                    + "daily_failed INTEGER DEFAULT 0)",
             "CREATE TABLE IF NOT EXISTS tags ("
                     + "tag_id INTEGER PRIMARY KEY AUTOINCREMENT,"
                     + "name TEXT NOT NULL UNIQUE,"
