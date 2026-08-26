@@ -283,7 +283,7 @@ final class DesktopCoreConfigCatalog {
             fields.add(core(
                     timeKey,
                     GuiConfigGroups.MAINTENANCE,
-                    GuiConfigFieldType.STRING,
+                    GuiConfigFieldType.TIME,
                     host.defaultMaintenanceTime(),
                     GuiConfigEffect.HOT_RELOAD,
                     null,

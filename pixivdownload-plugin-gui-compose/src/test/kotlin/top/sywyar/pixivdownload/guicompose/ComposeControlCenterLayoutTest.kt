@@ -276,6 +276,134 @@ class ComposeControlCenterLayoutTest {
     }
 
     @Test
+    @DisplayName("设置项帮助仅在悬浮标题时显示")
+    fun showsSettingHelpOnTitleHover() = runComposeUiTest {
+        var compactOnly by mutableStateOf(false)
+        val form = DesktopUiNode.Form(
+            "settings",
+            DesktopUiNode.FormStyle.RESPONSIVE,
+            null,
+            listOf(
+                DesktopUiNode.FormRow(
+                    "setting.row",
+                    DesktopUiNode.TextToken.raw("Setting"),
+                    DesktopUiNode.TextToken.raw("Setting hint"),
+                    text("setting.value", "Value"),
+                    null,
+                ),
+            ),
+        )
+        val compact = DesktopUiNode.Toggle(
+            "compact.toggle",
+            "compact.toggle",
+            DesktopUiNode.TextToken.raw("Compact setting"),
+            DesktopUiNode.TextToken.raw("Compact hint"),
+            DesktopUiNode.ToggleStyle.CHECKBOX,
+            false,
+            true,
+        )
+        setContent {
+            MaterialTheme {
+                Box(Modifier.width(620.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(
+                        if (compactOnly) compact else form,
+                        { it.fallback() },
+                        {},
+                    )
+                }
+            }
+        }
+
+        onNodeWithText("Setting hint").assertDoesNotExist()
+        onNodeWithText("Compact hint").assertDoesNotExist()
+
+        onNodeWithText("Setting").performMouseInput { moveTo(center) }
+        waitForIdle()
+        onNodeWithText("Setting hint").assertExists()
+
+        runOnIdle { compactOnly = true }
+        waitForIdle()
+        onNodeWithText("Setting hint").assertDoesNotExist()
+        onNodeWithText("Compact hint").assertDoesNotExist()
+
+        onNodeWithText("Compact setting").performMouseInput { moveTo(center) }
+        waitForIdle()
+        onNodeWithText("Compact hint").assertExists()
+    }
+
+    @Test
+    @DisplayName("窄设置页只把需要横向空间的控件拆成两行")
+    fun keepsCompactSettingsInlineInNarrowForms() = runComposeUiTest {
+        val form = DesktopUiNode.Form(
+            "settings",
+            DesktopUiNode.FormStyle.RESPONSIVE,
+            null,
+            listOf(
+                DesktopUiNode.FormRow(
+                    "toggle.row", DesktopUiNode.TextToken.raw("Toggle title"), null,
+                    DesktopUiNode.Toggle(
+                        "toggle", "toggle", DesktopUiNode.TextToken.raw("Toggle"), null,
+                        DesktopUiNode.ToggleStyle.CHECKBOX, false, true,
+                    ), null,
+                ),
+                DesktopUiNode.FormRow(
+                    "choice.row", DesktopUiNode.TextToken.raw("Choice title"), null,
+                    DesktopUiNode.Choice(
+                        "choice", "choice", DesktopUiNode.TextToken.raw("Choice"), null,
+                        DesktopUiNode.ChoiceStyle.COMBO_BOX, DesktopUiNode.SelectionMode.SINGLE,
+                        listOf(DesktopUiNode.Option("auto", DesktopUiNode.TextToken.raw("Auto"), true)),
+                        listOf("auto"), true,
+                    ), null,
+                ),
+                DesktopUiNode.FormRow(
+                    "number.row", DesktopUiNode.TextToken.raw("Number title"), null,
+                    DesktopUiNode.TextInput(
+                        "number", "number", DesktopUiNode.TextToken.raw("Number"), null,
+                        DesktopUiNode.InputKind.NUMBER, "8080", 8, 1, true,
+                    ), null,
+                ),
+                DesktopUiNode.FormRow(
+                    "spinner.row", DesktopUiNode.TextToken.raw("Spinner title"), null,
+                    DesktopUiNode.NumberInput(
+                        "spinner", "spinner", DesktopUiNode.TextToken.raw("Spinner"), null,
+                        DesktopUiNode.NumberStyle.SPINNER, 4, 0, 10, 1, true,
+                    ), null,
+                ),
+                DesktopUiNode.FormRow(
+                    "time.row", DesktopUiNode.TextToken.raw("Time title"), null,
+                    DesktopUiNode.TextInput(
+                        "time", "time", DesktopUiNode.TextToken.raw("Time"), null,
+                        DesktopUiNode.InputKind.TIME, "10:00", 5, 1, true,
+                    ), null,
+                ),
+                DesktopUiNode.FormRow(
+                    "text.row", DesktopUiNode.TextToken.raw("Text title"), null,
+                    DesktopUiNode.TextInput(
+                        "text", "text", DesktopUiNode.TextToken.raw("Text"), null,
+                        DesktopUiNode.InputKind.TEXT, "Downloads", 32, 1, true,
+                    ), null,
+                ),
+            ),
+        )
+        setContent {
+            MaterialTheme {
+                Box(Modifier.width(620.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(form, { it.fallback() }, {})
+                }
+            }
+        }
+
+        assertEquals(centerY("Toggle title"), toggleCenterY(), 1f)
+        assertEquals(centerY("Choice title"), centerY("Auto"), 1f)
+        assertEquals(centerY("Number title"), centerY("8080"), 1f)
+        assertEquals(centerY("Spinner title"), centerY("4"), 1f)
+        assertEquals(centerY("Time title"), centerY("10:00"), 1f)
+        val textTitle = onNodeWithText("Text title").fetchSemanticsNode().boundsInRoot
+        val textField = onNodeWithText("Downloads").fetchSemanticsNode().boundsInRoot
+        assertTrue(textField.top > textTitle.bottom)
+    }
+
+    @Test
     @DisplayName("环形进度按等宽尺寸渲染")
     fun rendersCircularProgress() = runComposeUiTest {
         val progress = DesktopUiNode.Progress(
@@ -387,6 +515,13 @@ class ComposeControlCenterLayoutTest {
 
     private fun androidx.compose.ui.test.ComposeUiTest.topUnmerged(label: String): Float =
         onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
+
+    private fun androidx.compose.ui.test.ComposeUiTest.centerY(label: String): Float =
+        onNodeWithText(label).fetchSemanticsNode().boundsInRoot.center.y
+
+    private fun androidx.compose.ui.test.ComposeUiTest.toggleCenterY(): Float = onNode(
+        SemanticsMatcher.keyIsDefined(SemanticsProperties.ToggleableState),
+    ).fetchSemanticsNode().boundsInRoot.center.y
 
     private fun androidx.compose.ui.test.ComposeUiTest.page(description: String) = onNode(
         SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description),

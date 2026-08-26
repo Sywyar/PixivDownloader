@@ -1086,7 +1086,7 @@ public final class GuiConfigContributionAggregator {
             case PORT -> FieldType.PORT;
             case BOOL -> FieldType.BOOL;
             case INT -> FieldType.INT;
-            case STRING, PASSWORD -> FieldType.STRING;
+            case STRING, TIME, PASSWORD -> FieldType.STRING;
             case ENUM -> FieldType.ENUM;
         };
     }

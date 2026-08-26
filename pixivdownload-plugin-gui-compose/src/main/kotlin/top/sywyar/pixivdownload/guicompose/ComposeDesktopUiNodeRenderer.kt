@@ -74,6 +74,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -85,6 +86,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Slider
@@ -92,7 +94,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -154,7 +160,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Compose 插件私有页面节点的 Compose Multiplatform renderer。 */
-@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 object ComposeDesktopUiNodeRenderer {
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
     private val scheduleTimeFormatter = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
@@ -589,7 +595,7 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val suffix = node.labelSuffix()?.let { resolve(it, text) }.orEmpty()
         BoxWithConstraints(modifier) {
-            val stacked = when (node.formStyle()) {
+            val narrow = when (node.formStyle()) {
                 DesktopUiNode.FormStyle.RESPONSIVE,
                 DesktopUiNode.FormStyle.COMPACT -> maxWidth < 760.dp
                 DesktopUiNode.FormStyle.KEY_VALUE -> false
@@ -606,13 +612,17 @@ object ComposeDesktopUiNodeRenderer {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 node.rows().forEach { row ->
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        val help = row.help()?.let { resolve(it, text) }.orEmpty()
+                        val stacked = narrow && !usesCompactFormRow(row.content())
                         if (stacked) {
-                            Text(
-                                resolve(row.label(), text) + suffix,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = labelWeight,
-                                color = labelColor,
-                            )
+                            HintedTitle(help) {
+                                Text(
+                                    resolve(row.label(), text) + suffix,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = labelWeight,
+                                    color = labelColor,
+                                )
+                            }
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -629,26 +639,20 @@ object ComposeDesktopUiNodeRenderer {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text(
-                                    resolve(row.label(), text) + suffix,
-                                    Modifier.width(labelWidth),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = labelWeight,
-                                    color = labelColor,
-                                )
+                                Box(Modifier.width(labelWidth)) {
+                                    HintedTitle(help) {
+                                        Text(
+                                            resolve(row.label(), text) + suffix,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = labelWeight,
+                                            color = labelColor,
+                                        )
+                                    }
+                                }
                                 Box(Modifier.weight(1f)) {
                                     FormContent(row.content(), text, emit, Modifier.fillMaxWidth())
                                 }
                                 row.trailing()?.let { Node(it, text, emit) }
-                            }
-                        }
-                        val help = row.help()?.let { resolve(it, text) }.orEmpty()
-                        if (help.isNotBlank()) {
-                            if (stacked) Text(help, style = MaterialTheme.typography.bodySmall)
-                            else Row(Modifier.fillMaxWidth()) {
-                                Spacer(Modifier.width(labelWidth))
-                                Text(help, Modifier.padding(start = 8.dp).weight(1f),
-                                    style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -673,6 +677,15 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Dock -> Dock(node, text, emit, modifier, true)
             else -> Node(node, text, emit, modifier)
         }
+    }
+
+    private fun usesCompactFormRow(node: DesktopUiNode): Boolean = when (node) {
+        is DesktopUiNode.Toggle -> true
+        is DesktopUiNode.Choice -> node.choiceStyle() == DesktopUiNode.ChoiceStyle.COMBO_BOX
+        is DesktopUiNode.NumberInput -> node.numberStyle() == DesktopUiNode.NumberStyle.SPINNER
+        is DesktopUiNode.TextInput -> node.inputKind() == DesktopUiNode.InputKind.NUMBER ||
+            node.inputKind() == DesktopUiNode.InputKind.TIME
+        else -> false
     }
 
     @Composable
@@ -1175,7 +1188,9 @@ object ComposeDesktopUiNodeRenderer {
             } else {
                 Checkbox(checked, update, enabled = node.enabled())
             }
-            if (includeLabel) Text(resolve(node.label(), text), style = MaterialTheme.typography.bodyMedium)
+            if (includeLabel) HintedTitle(help(node.help(), text)) {
+                Text(resolve(node.label(), text), style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 
@@ -1625,6 +1640,20 @@ object ComposeDesktopUiNodeRenderer {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    @Composable
+    private fun HintedTitle(help: String, content: @Composable () -> Unit) {
+        if (help.isBlank()) {
+            content()
+            return
+        }
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+            tooltip = { PlainTooltip { Text(help) } },
+            state = rememberTooltipState(isPersistent = true),
+            content = content,
+        )
     }
 
     private fun resolve(token: DesktopUiNode.TextToken, resolver: (DesktopUiNode.TextToken) -> String): String =

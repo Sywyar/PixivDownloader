@@ -259,6 +259,17 @@ final class DesktopConfigurationFieldView {
                     1,
                     enabled
             );
+            case TIME -> new DesktopUiNode.TextInput(
+                    nodeId,
+                    binding,
+                    label,
+                    help,
+                    InputKind.TIME,
+                    value,
+                    5,
+                    1,
+                    enabled
+            );
             case ENUM -> {
                 List<DesktopUiNode.Option> options = new ArrayList<>();
                 for (int index = 0; index < spec.enumValues().size(); index++) {
