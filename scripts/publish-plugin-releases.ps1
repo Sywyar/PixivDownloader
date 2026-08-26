@@ -2,8 +2,8 @@
 .SYNOPSIS
     Per-plugin, version-gated build + publish / repair: for each official required or optional plugin, create the
     GitHub Release when missing, supplement missing checksum/signature companions from immutable artifact bytes, or
-    force rebuild and replace release assets. With -NightlyBuildVersion, publish an immutable prerelease for each
-    official plugin using that plugin's own source version plus the current Nightly build suffix.
+    force rebuild and replace release assets. With -NightlyBuildVersion, rebuild every official plugin and refresh
+    its rolling `<plugin-id>-nightly` prerelease using the source version plus the current Nightly build suffix.
 
 .DESCRIPTION
     Version is the immutability key. For each plugin:
@@ -20,6 +20,10 @@
     artifact does not rebuild it; missing checksum / signature files are regenerated from the published bytes.
     The market manifest is generated separately (generate-market-manifest.ps1) from the published releases.
     ASCII source; runs under Windows PowerShell / pwsh. Needs gh + GH_TOKEN and Maven (mvnw / mvn).
+
+    With -NightlyBuildVersion, every official plugin is rebuilt from current source, its staged plugin.properties is
+    rewritten to the derived Nightly version, and the fixed `<plugin-id>-nightly` Release has all old assets replaced.
+    The matching tag is advanced by the publishing action only after the signed Nightly manifest is committed.
 
     With -Force/-f, every official plugin is rebuilt for the source plugin.version. Existing expected release
     assets (artifact + .sha256 + .sig) are deleted before the freshly built files are uploaded, so a manual
@@ -66,7 +70,7 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and
     throw "NightlyBuildVersion must match major.minor.patch-nightly.yyyymmdd.run.attempt."
 }
 if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and $Force) {
-    throw "Force is not supported for immutable Nightly plugin releases."
+    throw "Force is not supported for rolling Nightly plugin releases."
 }
 $nightlySuffix = if ([string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
     $null
@@ -294,11 +298,9 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
     foreach ($plugin in $plugins) {
         $sourceVersion = Read-SourceVersion $plugin.Module
         $version = Get-NightlyPluginVersion $sourceVersion $nightlySuffix
-        $tag = "$($plugin.Id)-v$version"
+        $tag = "$($plugin.Id)-nightly"
+        $title = "Nightly Build $($plugin.Id)-v$version"
         $release = Get-ReleaseAssetState $tag
-        if ($release.Exists) {
-            throw "Nightly release $tag already exists. Rerun the workflow so GITHUB_RUN_ATTEMPT produces a new version."
-        }
         $assetName = Get-OfficialPluginArtifactName $plugin $version
         $stagedArtifact = Build-StagedNightlyPluginArtifact -Plugin $plugin -SourceVersion $sourceVersion `
             -Version $version -AssetName $assetName
@@ -306,14 +308,24 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
             -Plugin $plugin -Version $version
 
         $uploadPaths = @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
-        gh release create $tag $uploadPaths --repo $Repo `
-            --title "Nightly Build $version ($($plugin.Id))" `
-            --notes "Plugin $($plugin.Id) Nightly $version." --prerelease
-        if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
+        if ($release.Exists) {
+            $assetNames = @($release.AssetNames)
+            if ($assetNames.Count -gt 0) {
+                Remove-ExistingReleaseAssets -Tag $tag -AssetNames $assetNames -ExistingAssetNames $assetNames
+            }
+            gh release edit $tag --repo $Repo --title $title `
+                --notes "Plugin $($plugin.Id) Nightly $version." --prerelease
+            if ($LASTEXITCODE -ne 0) { throw "gh release edit failed for $tag." }
+            Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths
+        } else {
+            gh release create $tag $uploadPaths --repo $Repo --title $title `
+                --notes "Plugin $($plugin.Id) Nightly $version." --prerelease
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
+        }
         $published += $tag
     }
 
-    Write-Host "Published Nightly plugin releases: $($published -join ', ')"
+    Write-Host "Refreshed Nightly plugin releases: $($published -join ', ')"
     return
 }
 

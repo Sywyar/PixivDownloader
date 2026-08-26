@@ -166,6 +166,25 @@ runs:
         if ($manifestCommit -notmatch '^[0-9a-f]{40}$') {
           throw "Invalid plugin manifest commit: $manifestCommit"
         }
+        if ($manifestName -eq "nightly-manifest.json") {
+          $nightlyTagRefspecs = @()
+          $manifest = Get-Content -Raw -LiteralPath $manifestName | ConvertFrom-Json
+          foreach ($entry in @($manifest.entries)) {
+            $pluginId = [string]$entry.pluginId
+            if ($pluginId -notmatch '^[a-z0-9]+(?:-[a-z0-9]+)*$') {
+              throw "Invalid Nightly plugin id: $pluginId"
+            }
+            $nightlyTag = "$pluginId-nightly"
+            git tag -f $nightlyTag HEAD
+            if ($LASTEXITCODE -ne 0) { throw "Failed to prepare Nightly tag $nightlyTag." }
+            $nightlyTagRefspecs += "+refs/tags/${nightlyTag}:refs/tags/${nightlyTag}"
+          }
+          if ($nightlyTagRefspecs.Count -eq 0) {
+            throw "Nightly manifest contains no plugin entries."
+          }
+          & git push --atomic origin @nightlyTagRefspecs
+          if ($LASTEXITCODE -ne 0) { throw "Failed to advance Nightly plugin tags." }
+        }
         [System.IO.File]::AppendAllText(
           $env:GITHUB_OUTPUT,
           "manifest_commit=$manifestCommit`n",
