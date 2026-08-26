@@ -17,7 +17,8 @@ test('Pixiv 来源模块只经固定凭证贡献面注册并在插件内部读�
     const context = vm.createContext({
         BASE: '',
         AbortController,
-        bt: (_key, fallback) => fallback,
+        bt: (_key, fallback, vars) => Object.entries(vars || {}).reduce(
+            (text, [key, value]) => text.replace(`{${key}}`, String(value)), fallback),
         getCookieInputHeaderString: () => 'PHPSESSID=42_secret',
         fetch(url, init) {
             requests.push({url, init});
@@ -92,6 +93,17 @@ test('Pixiv 来源模块只经固定凭证贡献面注册并在插件内部读�
         }
     }, {}, credentialLease);
     assert.equal(presentation.lightTone, 'red');
+    const overusePresentation = contribution.credentialTaskPresentation({
+        credentialPolicy: {
+            ownerPluginId: 'pixivdownload.plugin.download-workbench',
+            policyId: 'pixiv-cookie',
+            publicationId: 11,
+            statusCode: 'OVERUSE_PAUSED'
+        },
+        suspendDetailJson: JSON.stringify({excerpt: 'Pixiv asked this account to slow down'})
+    }, {}, credentialLease);
+    assert.match(overusePresentation.lightText, /Pixiv asked this account to slow down/);
+    assert.match(overusePresentation.statusLabel, /Pixiv asked this account to slow down/);
     assert.equal(contribution.credentialTaskPresentation({
         sourceOwnerPluginId: 'pixivdownload.plugin.download-workbench',
         lastStatus: 'AUTH_EXPIRED'
