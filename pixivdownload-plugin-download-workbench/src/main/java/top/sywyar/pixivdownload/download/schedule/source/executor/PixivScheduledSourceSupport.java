@@ -300,8 +300,7 @@ public final class PixivScheduledSourceSupport {
             boolean accountScoped,
             boolean watermark,
             Set<String> workTypes) {
-        boolean credentialRequired = accountScoped || definition.snapshot().cookieDependent();
-        ScheduledCredentialRequirement credentialRequirement = credentialRequired
+        ScheduledCredentialRequirement credentialRequirement = accountScoped
                 ? ScheduledCredentialRequirement.REQUIRED
                 : ScheduledCredentialRequirement.OPTIONAL;
         Long interval = definition.snapshot().download().intervalMs();
@@ -310,7 +309,7 @@ public final class PixivScheduledSourceSupport {
                 workTypes,
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
                 credentialRequirement,
-                !credentialRequired,
+                !accountScoped && !definition.snapshot().cookieDependent(),
                 List.of(new ScheduledGuardBinding(
                         PixivScheduledSourceDescriptors.OVERUSE_GUARD_ID,
                         Set.of(
