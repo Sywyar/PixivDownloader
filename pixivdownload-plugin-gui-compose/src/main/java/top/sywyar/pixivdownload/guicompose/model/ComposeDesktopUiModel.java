@@ -564,7 +564,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                 dismissAction,
                 state.dismissible(),
                 state.width(),
-                state.height()
+                state.height(),
+                false
         );
     }
 

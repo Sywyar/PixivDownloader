@@ -178,7 +178,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
      */
     public record Dialog(String id, DesktopUiNode.TextToken title, DialogStyle style,
                          DesktopUiNode content, String dismissActionId, boolean dismissible,
-                         int preferredWidth, int preferredHeight) {
+                         int preferredWidth, int preferredHeight, boolean parentSized) {
         /**
          * 校验一个模态对话框描述。
          *
@@ -190,6 +190,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
          * @param dismissible 是否允许通过窗口装饰关闭
          * @param preferredWidth 首选逻辑宽度，零表示使用工具包默认值
          * @param preferredHeight 首选逻辑高度，零表示使用工具包默认值
+         * @param parentSized 是否始终与父窗口保持同等大小
          */
         public Dialog {
             if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {

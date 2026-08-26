@@ -73,8 +73,9 @@ final class DesktopToolsView {
                 ),
                 dismissAction,
                 !model.owner.busy(),
-                value == DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER ? 1180 : 860,
-                value == DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER ? 760 : 640
+                0,
+                0,
+                true
         );
     }
 
@@ -421,13 +422,10 @@ final class DesktopToolsView {
                 16,
                 16,
                 List.of(
-                        new DesktopUiNode.AdaptiveGrid(
+                        column(
                                 "tools.quick.grid",
-                                260,
-                                2,
-                                12,
-                                12,
-                                List.of(cards.get(2), cards.get(3))
+                                cards.get(2),
+                                cards.get(3)
                         ),
                         cards.get(0)
                 )
@@ -439,13 +437,10 @@ final class DesktopToolsView {
                 16,
                 16,
                 List.of(
-                        new DesktopUiNode.AdaptiveGrid(
+                        column(
                                 "tools.maintenance.grid",
-                                320,
-                                2,
-                                12,
-                                12,
-                                List.of(cards.get(4), cards.get(5))
+                                cards.get(4),
+                                cards.get(5)
                         ),
                         cards.get(1)
                 )

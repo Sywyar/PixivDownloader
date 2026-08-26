@@ -28,11 +28,13 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -40,6 +42,24 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 @DisplayName("Compose 控制中心通用布局")
 class ComposeControlCenterLayoutTest {
+    @Test
+    @DisplayName("工具弹窗沿用父窗口尺寸，普通弹窗使用声明尺寸")
+    fun sizesDocumentDialogs() {
+        val parentSize = DpSize(1120.dp, 760.dp)
+        val content = text("content", "Content")
+        val toolDialog = DesktopUiDocument.Dialog(
+            "tool", DesktopUiNode.TextToken.raw("Tool"), DesktopUiDocument.DialogStyle.INFO,
+            content, "tool.close", true, 0, 0, true,
+        )
+        val compactDialog = DesktopUiDocument.Dialog(
+            "compact", DesktopUiNode.TextToken.raw("Compact"), DesktopUiDocument.DialogStyle.INFO,
+            content, "compact.close", true, 440, 0, false,
+        )
+
+        assertEquals(parentSize, dialogWindowSize(toolDialog, parentSize))
+        assertEquals(DpSize(440.dp, 300.dp), dialogWindowSize(compactDialog, parentSize))
+    }
+
     @Test
     @DisplayName("浅色与深色主题使用 Material 3 Baseline 配色")
     fun usesMaterialBaselineColorSchemes() {

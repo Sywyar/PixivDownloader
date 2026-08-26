@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -73,9 +72,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogState
+import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
@@ -252,7 +253,9 @@ internal object ComposeDesktopUi {
                                     )
                                 }
                                 Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.Transparent) {
-                                    ComposeDesktopRoot(context, model, observed, messages)
+                                    ComposeDesktopRoot(
+                                        context, model, observed, messages, mainWindowState.size,
+                                    )
                                     message.value?.let { current ->
                                         AlertDialog(
                                             onDismissRequest = { message.value = null },
@@ -531,6 +534,7 @@ private fun ComposeDesktopRoot(
     model: ComposeDesktopUiModel,
     snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,
+    parentWindowSize: DpSize,
 ) {
     val document = snapshot.document()
     val documentRevision = snapshot.revision()
@@ -638,7 +642,7 @@ private fun ComposeDesktopRoot(
         }
     }
     document.dialogs().forEach { dialog ->
-        DocumentDialog(dialog, snapshot, messages, model)
+        DocumentDialog(dialog, snapshot, messages, model, parentWindowSize)
     }
 }
 
@@ -824,31 +828,41 @@ private fun DocumentDialog(
     snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,
     model: ComposeDesktopUiModel,
+    parentWindowSize: DpSize,
 ) {
-    Dialog(onDismissRequest = {
-        if (dialog.dismissible()) model.dispatch(
-            snapshot, DesktopUiNode.Event(
-                DesktopUiNode.EventType.ACTIVATE,
-                dialog.id(),
-                DesktopUiNode.Value.empty(),
+    val targetSize = dialogWindowSize(dialog, parentWindowSize)
+    val state = remember(dialog.id()) { DialogState(size = targetSize) }
+    LaunchedEffect(targetSize) { state.size = targetSize }
+    DialogWindow(
+        state = state,
+        onCloseRequest = {
+            if (dialog.dismissible()) model.dispatch(
+                snapshot, DesktopUiNode.Event(
+                    DesktopUiNode.EventType.ACTIVATE,
+                    dialog.id(),
+                    DesktopUiNode.Value.empty(),
+                )
             )
-        )
-    }) {
-        val width = if (dialog.preferredWidth() > 0) Modifier.width(dialog.preferredWidth().dp)
-        else Modifier.widthIn(min = 320.dp, max = 720.dp)
-        val size = if (dialog.preferredHeight() > 0) width.height(dialog.preferredHeight().dp) else width
-        Surface(size, shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
+        },
+    ) {
+        Surface(Modifier.fillMaxSize(), shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(messages.resolve(dialog.title()), style = MaterialTheme.typography.titleLarge)
                 ComposeDesktopUiNodeRenderer.Render(
                     dialog.content(), messages::resolve,
-                    { event -> model.dispatch(snapshot, event) }, Modifier.fillMaxWidth(),
+                    { event -> model.dispatch(snapshot, event) }, Modifier.fillMaxWidth().weight(1f),
                     snapshot.revision(),
                 )
             }
         }
     }
 }
+
+internal fun dialogWindowSize(dialog: DesktopUiDocument.Dialog, parentWindowSize: DpSize): DpSize =
+    if (dialog.parentSized()) parentWindowSize else DpSize(
+        (dialog.preferredWidth().takeIf { it > 0 } ?: 400).dp,
+        (dialog.preferredHeight().takeIf { it > 0 } ?: 300).dp,
+    )
 
 private val LightColors = lightColorScheme()
 
