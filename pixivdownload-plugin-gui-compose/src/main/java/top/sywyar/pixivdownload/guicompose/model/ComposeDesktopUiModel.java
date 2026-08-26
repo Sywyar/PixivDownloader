@@ -409,7 +409,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         pages.add(onboarding.complete() ? controlCenterView.homePage(nextActions) : page(
                 "home",
                 DesktopUiIcon.HOME,
-                this.onboarding.controlCenterPage(onboarding, nextActions)
+                this.onboarding.controlCenterPage(nextActions)
         ));
         pages.add(page(
                 "automation",

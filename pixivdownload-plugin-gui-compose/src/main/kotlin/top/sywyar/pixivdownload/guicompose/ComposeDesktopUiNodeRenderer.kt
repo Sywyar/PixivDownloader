@@ -807,6 +807,7 @@ object ComposeDesktopUiNodeRenderer {
             DesktopUiNode.TextStyle.TITLE -> MaterialTheme.typography.headlineSmall
             DesktopUiNode.TextStyle.HEADING -> MaterialTheme.typography.titleLarge
             DesktopUiNode.TextStyle.EMPHASIS -> MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+            DesktopUiNode.TextStyle.ERROR -> MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
             DesktopUiNode.TextStyle.CAPTION -> MaterialTheme.typography.bodySmall
             DesktopUiNode.TextStyle.CODE -> MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
             else -> MaterialTheme.typography.bodyMedium

@@ -324,6 +324,7 @@ final class DesktopStatusController {
                 while (!Thread.currentThread().isInterrupted()) {
                     java.util.concurrent.TimeUnit.SECONDS.sleep(3L);
                     refreshSnapshot();
+                    owner.refreshOnboarding();
                     owner.loadPluginStatus();
                     if (owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING && System.currentTimeMillis() - lastConnectivityCheckAt >= 60_000L) {
                         checkConnectivity();

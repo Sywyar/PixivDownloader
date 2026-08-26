@@ -290,6 +290,31 @@ class ComposeControlCenterLayoutTest {
     }
 
     @Test
+    @DisplayName("错误提示使用更醒目的大号文本")
+    fun emphasizesErrorText() = runComposeUiTest {
+        val content = DesktopUiNode.Container(
+            "notices", DesktopUiNode.ContainerLayout.COLUMN, 1, 8, DesktopUiNode.Alignment.START,
+            listOf(
+                text("body", "Regular notice"),
+                DesktopUiNode.Text(
+                    "error", DesktopUiNode.TextToken.raw("Important error"),
+                    DesktopUiNode.TextStyle.ERROR, true, false,
+                ),
+            ),
+        )
+        setContent {
+            MaterialTheme {
+                ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {})
+            }
+        }
+
+        assertTrue(
+            onNodeWithText("Important error").fetchSemanticsNode().boundsInRoot.height >
+                onNodeWithText("Regular notice").fetchSemanticsNode().boundsInRoot.height,
+        )
+    }
+
+    @Test
     @DisplayName("数值微调字段支持直接键入完整数值")
     fun typesCompleteSpinnerValue() = runComposeUiTest {
         val events = mutableListOf<DesktopUiNode.Event>()
