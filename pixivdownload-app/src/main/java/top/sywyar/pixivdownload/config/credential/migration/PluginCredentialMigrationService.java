@@ -205,12 +205,12 @@ public class PluginCredentialMigrationService {
     private static String safeMessage(Throwable failure) {
         String detail = failure == null ? null : failure.getMessage();
         return detail == null || detail.isBlank()
-                ? MessageBundles.get("gui.log.no-detail")
+                ? MessageBundles.getForLog("gui.log.no-detail")
                 : detail;
     }
 
     private static String message(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return MessageBundles.getForLog(code, args);
     }
 
     interface LegacyCredentialSources {

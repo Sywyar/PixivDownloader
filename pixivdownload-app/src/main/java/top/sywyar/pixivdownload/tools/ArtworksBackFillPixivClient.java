@@ -167,7 +167,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
     }
 
     private static String message(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return MessageBundles.getForLog(code, args);
     }
 
     enum ResultType {

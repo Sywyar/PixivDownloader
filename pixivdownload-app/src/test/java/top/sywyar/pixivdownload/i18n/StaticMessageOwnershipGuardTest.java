@@ -39,4 +39,22 @@ class StaticMessageOwnershipGuardTest {
         }
         assertThat(calls).isPositive();
     }
+
+    @Test
+    @DisplayName("静态日志文案固定使用英文 fallback")
+    void staticLogMessagesAlwaysUseEnglish() {
+        Locale previous = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
+            assertThat(MessageBundles.getForLog("gui.launcher.log.starting", "[]"))
+                    .isEqualTo(MessageBundles.get(Locale.US, "gui.launcher.log.starting", "[]"))
+                    .isNotEqualTo(MessageBundles.get(
+                            Locale.SIMPLIFIED_CHINESE,
+                            "gui.launcher.log.starting",
+                            "[]"
+                    ));
+        } finally {
+            Locale.setDefault(previous);
+        }
+    }
 }

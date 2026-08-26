@@ -25,6 +25,11 @@ public final class MessageBundles {
         return getOrDefault(locale, code, code, args);
     }
 
+    /** 使用 catalog 固定的英文 fallback locale 解析静态日志文案。 */
+    public static String getForLog(String code, Object... args) {
+        return get(LocaleCatalog.defaultCatalog().fallbackLocale().toLocale(), code, args);
+    }
+
     public static String getOrDefault(Locale locale, String code, String defaultMessage, Object... args) {
         LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
         LocaleDescriptor target = catalog.resolve(locale);

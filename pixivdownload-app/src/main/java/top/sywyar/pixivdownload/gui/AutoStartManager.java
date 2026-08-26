@@ -76,15 +76,15 @@ public final class AutoStartManager {
                 Path executable = currentApplicationExecutable()
                         .orElseThrow(() -> new IOException("Current process is not " + AppInfo.EXECUTABLE_NAME));
                 createShortcut(shortcut.get(), executable);
-                log.info(MessageBundles.get("gui.autostart.log.enabled", shortcut.get()));
+                log.info(MessageBundles.getForLog("gui.autostart.log.enabled", shortcut.get()));
             } else {
                 boolean removed = Files.deleteIfExists(shortcut.get());
-                log.info(MessageBundles.get(removed
+                log.info(MessageBundles.getForLog(removed
                         ? "gui.autostart.log.disabled.removed"
                         : "gui.autostart.log.disabled.absent", shortcut.get()));
             }
         } catch (IOException | InterruptedException | RuntimeException e) {
-            log.error(MessageBundles.get("gui.autostart.log.set-failed",
+            log.error(MessageBundles.getForLog("gui.autostart.log.set-failed",
                     enabled, shortcut.get(), e.getMessage()), e);
             throw e;
         }

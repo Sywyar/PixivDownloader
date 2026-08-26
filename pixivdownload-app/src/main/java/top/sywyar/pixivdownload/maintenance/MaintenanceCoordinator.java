@@ -103,7 +103,7 @@ public class MaintenanceCoordinator {
 
     synchronized boolean runScheduledIfDue(LocalDateTime now) {
         if (!properties.isEnabled()) {
-            log.debug(MessageBundles.get("maintenance.log.scheduled.disabled"));
+            log.debug(MessageBundles.getForLog("maintenance.log.scheduled.disabled"));
             return false;
         }
         if (now == null) {
@@ -149,7 +149,7 @@ public class MaintenanceCoordinator {
 
     private synchronized void runMaintenance(String trigger) {
         if (!paused.compareAndSet(false, true)) {
-            log.warn(MessageBundles.get("maintenance.log.already-running", trigger));
+            log.warn(MessageBundles.getForLog("maintenance.log.already-running", trigger));
             return;
         }
         long started = System.currentTimeMillis();
@@ -157,7 +157,7 @@ public class MaintenanceCoordinator {
         lastTriggeredBy = trigger;
         List<MaintenanceTask> tasks = taskRegistry.tasks();
         MaintenanceStatusHolder.begin(trigger, tasks.size());
-        log.info(MessageBundles.get("maintenance.log.window.opened", trigger, tasks.size()));
+        log.info(MessageBundles.getForLog("maintenance.log.window.opened", trigger, tasks.size()));
         try {
             MaintenanceContext ctx = new MaintenanceContext(
                     trigger, started, MaintenanceStatusHolder::updateProgress);
@@ -171,15 +171,15 @@ public class MaintenanceCoordinator {
                     name = task.name();
                     MaintenanceStatusHolder.enterTask(trigger, index, tasks.size(), name, taskStart);
                     statusEntered = true;
-                    log.info(MessageBundles.get("maintenance.log.task.start", name));
+                    log.info(MessageBundles.getForLog("maintenance.log.task.start", name));
                     task.execute(ctx);
-                    log.info(MessageBundles.get("maintenance.log.task.ok", name,
+                    log.info(MessageBundles.getForLog("maintenance.log.task.ok", name,
                             System.currentTimeMillis() - taskStart));
                 } catch (Throwable t) {
                     if (!statusEntered) {
                         MaintenanceStatusHolder.enterTask(trigger, index, tasks.size(), name, taskStart);
                     }
-                    log.error(MessageBundles.get("maintenance.log.task.failed",
+                    log.error(MessageBundles.getForLog("maintenance.log.task.failed",
                             name, System.currentTimeMillis() - taskStart, t.getMessage()), t);
                     notifyTaskFailure(name, trigger, t);
                 }
@@ -189,7 +189,7 @@ public class MaintenanceCoordinator {
             lastFinishedAt = finished;
             paused.set(false);
             MaintenanceStatusHolder.clear();
-            log.info(MessageBundles.get("maintenance.log.window.closed", finished - started));
+            log.info(MessageBundles.getForLog("maintenance.log.window.closed", finished - started));
         }
     }
 
@@ -228,7 +228,7 @@ public class MaintenanceCoordinator {
             return;
         }
         lastInvalidScheduleWarning = key;
-        log.warn(MessageBundles.get("maintenance.log.invalid-schedule",
+        log.warn(MessageBundles.getForLog("maintenance.log.invalid-schedule",
                 day, day.name().toLowerCase(Locale.ROOT), value));
     }
 }

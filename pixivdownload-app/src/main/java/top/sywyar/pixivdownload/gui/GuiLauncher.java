@@ -1246,7 +1246,7 @@ public class GuiLauncher {
     }
 
     private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+        return MessageBundles.getForLog(code, args);
     }
 
     /**
