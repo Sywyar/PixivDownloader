@@ -15,7 +15,9 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -101,6 +103,40 @@ class ComposeControlCenterLayoutTest {
         waitForIdle()
         assertTrue(top("Two") > top("One"))
         assertTrue(top("Three") > top("Two"))
+    }
+
+    @Test
+    @DisplayName("自适应网格在内容缩短后重新测量当前行高")
+    fun shrinksGridRowsWhenContentShrinks() = runComposeUiTest {
+        var expanded by mutableStateOf(true)
+        setContent {
+            MaterialTheme {
+                val value = if (expanded) "Tall\nline 2\nline 3\nline 4\nline 5" else "Short"
+                val card = DesktopUiNode.Surface(
+                    "dynamic", DesktopUiNode.SurfaceStyle.PLAIN, DesktopUiNode.Insets.all(8),
+                    true, "dynamic.open", text("dynamic.text", value),
+                )
+                Box(Modifier.width(620.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(
+                        DesktopUiNode.AdaptiveGrid(
+                            "grid", 180, 2, 12, 12,
+                            listOf(card, text("peer", "Peer")),
+                        ),
+                        { it.fallback() },
+                        {},
+                    )
+                }
+            }
+        }
+
+        val expandedHeight = onNode(hasClickAction().and(hasText("Tall", substring = true)))
+            .fetchSemanticsNode().boundsInRoot.height
+        runOnIdle { expanded = false }
+        waitForIdle()
+
+        val compactHeight = onNode(hasClickAction().and(hasText("Short")))
+            .fetchSemanticsNode().boundsInRoot.height
+        assertTrue(compactHeight < expandedHeight)
     }
 
     @Test

@@ -467,7 +467,7 @@ object ComposeDesktopUiNodeRenderer {
                 verticalArrangement = Arrangement.spacedBy(gap),
             ) {
                 node.children().chunked(node.columns()).forEach { row ->
-                    EqualHeightRow(node.columns(), gap, Modifier.fillMaxWidth()) { index, childModifier ->
+                    EqualHeightRow(node.columns(), gap, Modifier.fillMaxWidth(), row) { index, childModifier ->
                         if (index < row.size) child(row[index], childModifier)
                         else Spacer(childModifier)
                     }
@@ -493,7 +493,7 @@ object ComposeDesktopUiNodeRenderer {
             )
             Column(verticalArrangement = Arrangement.spacedBy(node.verticalGap().dp)) {
                 node.children().chunked(columns).forEach { row ->
-                    EqualHeightRow(columns, node.horizontalGap().dp, Modifier.fillMaxWidth()) {
+                    EqualHeightRow(columns, node.horizontalGap().dp, Modifier.fillMaxWidth(), row) {
                             index, childModifier ->
                         if (index < row.size) Node(row[index], text, emit, childModifier)
                         else Spacer(childModifier)
@@ -508,11 +508,12 @@ object ComposeDesktopUiNodeRenderer {
         count: Int,
         gap: Dp,
         modifier: Modifier,
+        measurementKey: Any,
         content: @Composable (Int, Modifier) -> Unit,
     ) {
         BoxWithConstraints(modifier) {
             val density = LocalDensity.current
-            var minimumHeight by remember(count, maxWidth, density.density, density.fontScale) {
+            var minimumHeight by remember(count, maxWidth, density.density, density.fontScale, measurementKey) {
                 mutableStateOf(0)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
@@ -569,7 +570,7 @@ object ComposeDesktopUiNodeRenderer {
                 },
         ) { page ->
             val children = node.children().drop(page * node.itemsPerPage()).take(node.itemsPerPage())
-            EqualHeightRow(node.itemsPerPage(), node.gap().dp, Modifier.fillMaxWidth()) {
+            EqualHeightRow(node.itemsPerPage(), node.gap().dp, Modifier.fillMaxWidth(), children) {
                     index, childModifier ->
                 if (index < children.size) Node(children[index], text, emit, childModifier)
                 else Spacer(childModifier)
