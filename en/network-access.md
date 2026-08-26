@@ -51,7 +51,7 @@ The backend applies a 4 MiB response budget to ordinary Pixiv JSON and a 1 MiB b
 
 ## `ai` plugin
 
-The AI plugin uses the OpenAI-compatible protocol and sends requests to `/chat/completions` under the selected base URL. A request normally contains the text being translated or processed, a task-specific prompt, the model name, and the API key. Installing the plugin does not initiate this request. It is triggered only after valid settings are saved and a connection test, translation, or another AI feature is run.
+The AI plugin uses the OpenAI-compatible protocol. Connection tests, translations, and other AI features send the processed text, a task-specific prompt, the model name, and the API key to `/chat/completions` under the selected base URL. Clicking **Get available models** in the desktop settings uses the current unsaved base URL, API key, and proxy selection to request `/models` under that same base URL. This request sends no processed text or prompt; returned model IDs and owners are shown only as a bounded plain-text summary in the local UI. Installing the plugin or merely opening its settings does not initiate either request.
 
 | Preset | Default base URL |
 | --- | --- |
@@ -75,7 +75,7 @@ The AI plugin uses the OpenAI-compatible protocol and sends requests to `/chat/c
 | Ollama | `http://localhost:11434/v1` |
 | LM Studio | `http://localhost:1234/v1` |
 
-An administrator may replace the AI base URL with any compatible service, so the full destination range depends on the saved settings. A custom target receives the processed text, request parameters, and API key and may point to the local machine or intranet; use only a trusted local, self-hosted, or third-party service. Credential-bearing AI requests do not store cookies or follow HTTP redirects, preventing credentials from being forwarded to a redirect target. Proxy use is selected by the AI settings. Remove the API key, clear/disable the settings, or disable `ai` to stop these requests.
+An administrator may replace the AI base URL with any compatible service, so the full destination range depends on the current settings. A custom target receives the relevant request parameters and API key and may point to the local machine or intranet; chat requests also include the processed text. Use only a trusted local, self-hosted, or third-party service. Credential-bearing AI requests, including model-list requests, do not store cookies or follow HTTP redirects, preventing credentials from being forwarded to a redirect target. Direct or proxied transport is selected by the current AI settings. Remove the API key, clear/disable the settings, or disable `ai` to stop these requests.
 
 ## `tts` plugin
 
