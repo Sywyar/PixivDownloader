@@ -506,8 +506,9 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         BoxWithConstraints(modifier) {
             val density = LocalDensity.current
-            val revision = LocalDocumentRevision.current
-            var minimumHeight by remember(count, maxWidth, revision) { mutableStateOf(0) }
+            var minimumHeight by remember(count, maxWidth, density.density, density.fontScale) {
+                mutableStateOf(0)
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                 repeat(count) { index ->
                     Box(
